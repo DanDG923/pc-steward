@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 17 — Deterministic matching and confidence engine pending
-**Last green commit:** `ea292b1`
+**Current task:** 18 — WinGet update intelligence, source cache, and freshness pending
+**Last green commit:** `a617939`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -107,12 +107,12 @@ PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warnin
 
 PASS WITH APPROVED TEMPORARY EXCEPTION — P1RRR-01–04 are closed by retained final-app cancellation/resource, active-termination recovery, measured concurrency/second-scan rejection and 150% text-scaling evidence. Build passed with zero warnings; all 39 tests passed. The five-minute idle CPU check remains temporarily excepted and is not compliance evidence.
 
-## Task 16 result
+## Task 17 result
 
-PASS — a pure bounded numeric-dotted version engine reports newer, equal, older, incomparable or connector-deferred outcomes with UI-safe explanation codes. It blocks stable-to-prerelease candidates by default, prevents downgrades, and never uses lexical ordering.
+PASS — pure deterministic product-to-package matching uses only exact identity, trusted provider-supplied or user/imported mapping evidence, with alias-and-publisher matches kept review-only. Architecture, scope, channel, version, trust, ambiguity and unsupported manual mappings fail closed; curated fixtures produced one true actionable match and zero false-positive actionable mappings.
 ## Next task
 
-Run Task 17 in a fresh GPT-5.6 Terra / High chat.
+Run Task 18 in a fresh GPT-5.6 Terra / High chat.
 
 ## Rules for updating this file
 
