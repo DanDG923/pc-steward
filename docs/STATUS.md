@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 1 — Local inventory vertical slice
 **Current task:** 10 — WinGet installed-inventory provider (complete)
-**Last green commit:** Pending Task 10 commit
+**Last green commit:** `a800918` — Task 10 read-only WinGet inventory provider
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -70,6 +70,22 @@ PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 arch
 ## Task 06 result
 
 PASS — .NET 10 solution scaffold created with accepted capability boundaries, unpackaged WinUI startup shell, separate scheduled and elevated hosts, unit/integration/architecture/security-fixture projects, and a benchmark entry point. Restore, Release build and all four test projects passed with zero build warnings; display name has one source occurrence in `AppIdentity`. No product feature is claimed complete.
+
+## Task 07 result
+
+PASS — core lifecycle records, application persistence ports and SQLite migration/snapshot semantics added. Migration, interruption and stable-decision preservation fixtures passed; no inventory provider or UI behavior added.
+
+## Task 08 result
+
+PASS — read-only HKLM 64-bit, HKLM 32-bit and HKCU uninstall-registry adapter added behind a testable abstraction. Bounded fields, malformed-record and access-denied fixtures passed; no MSI, WMI or elevation used.
+
+## Task 09 result
+
+PASS — current-user MSIX/AppX catalog boundary added with package identity retention, conservative framework/resource/system classification and malformed-package fixtures. Host capability integration remains unverified.
+
+## Task 10 result
+
+PASS WITH READ-ONLY INTEGRATION LIMITATION — fixed `winget.exe` plus `list --disable-interactivity` adapter, bounded parser and timeout/exit fixtures added. No source refresh, upgrade or installed-inventory probe was run; external metadata-disclosure approval remains required.
 
 ## Next task
 
