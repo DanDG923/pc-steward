@@ -60,49 +60,40 @@ public sealed class DownloadedArtifactCache : IDisposable
         await cleanupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            DownloadedArtifact[] all = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).OrderBy(artifact => artifact.CreatedAt).ThenBy(artifact => artifact.Id).ToArray();
+            DownloadedArtifact[] all = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).ToArray();
             FileSystemObject[] initialObjects = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
             Dictionary<string, long> initialSizes = initialObjects.ToDictionary(item => item.RelativePath, item => item.SizeBytes, StringComparer.OrdinalIgnoreCase);
             long retainedBytes = initialObjects.Sum(item => item.SizeBytes);
             List<DownloadCleanupResidual> residuals = [];
             int deleted = 0;
             long recovered = 0;
-            foreach (DownloadedArtifact artifact in all.Where(artifact => !artifact.IsActive))
-            {
-                bool expired = artifact.Outcome == DownloadedArtifactOutcome.VerifiedSuccess ? artifact.CreatedAt < now.AddDays(-7) : artifact.CreatedAt < now.AddDays(-1);
-                bool quotaExceeded = retainedBytes > SoftQuotaBytes;
-                if (!clearAllInactive && !expired && !quotaExceeded) continue;
-                PathSafety.DeleteResult result = PathSafety.DeleteExactFile(CacheRoot, artifact.RelativePath);
-                if (result.Deleted || result.AlreadyAbsent)
-                {
-                    await store.DeleteDownloadedArtifactAsync(artifact.Id, cancellationToken).ConfigureAwait(false);
-                    deleted++;
-                    long size = initialSizes.GetValueOrDefault(PathSafety.NormalizeRelativePath(artifact.RelativePath));
-                    recovered += result.Deleted ? size : 0;
-                    retainedBytes -= size;
-                }
-                else residuals.Add(new DownloadCleanupResidual(artifact.RelativePath, result.Reason));
-            }
-
-            DownloadedArtifact[] remaining = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).ToArray();
-            Dictionary<string, DownloadedArtifact> ledger = remaining.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
-            HashSet<string> active = remaining.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, DownloadedArtifact> ledger = all.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> active = all.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             HashSet<string> attempted = [];
-            foreach (FileSystemObject item in PathSafety.EnumerateOwnedObjects(CacheRoot).OrderBy(item => item.IsDirectory).ThenBy(item => item.LastWriteTimeUtc).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
+            foreach (FileSystemObject item in initialObjects.OrderBy(item => item.IsDirectory).ThenBy(item => ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? registered) ? registered.CreatedAt.UtcDateTime : item.LastWriteTimeUtc).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
             {
-                if (active.Contains(item.RelativePath) || ledger.ContainsKey(item.RelativePath)) continue;
+                if (active.Contains(item.RelativePath)) continue;
+                ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? artifact);
+                bool expired = artifact is not null && (artifact.Outcome == DownloadedArtifactOutcome.VerifiedSuccess ? artifact.CreatedAt < now.AddDays(-7) : artifact.CreatedAt < now.AddDays(-1));
                 bool quotaExceeded = retainedBytes > SoftQuotaBytes;
-                if (!clearAllInactive && !quotaExceeded)
+                if (!clearAllInactive && !expired && !quotaExceeded)
                 {
                     continue;
                 }
 
                 attempted.Add(item.RelativePath);
                 PathSafety.DeleteResult result = PathSafety.DeleteExactObject(CacheRoot, item.RelativePath, item.IsDirectory);
-                if (result.Deleted || result.AlreadyAbsent) { deleted++; recovered += result.Deleted ? item.SizeBytes : 0; retainedBytes -= item.SizeBytes; }
+                if (result.Deleted || result.AlreadyAbsent)
+                {
+                    if (artifact is not null) await store.DeleteDownloadedArtifactAsync(artifact.Id, cancellationToken).ConfigureAwait(false);
+                    deleted++; recovered += result.Deleted ? item.SizeBytes : 0; retainedBytes -= item.SizeBytes;
+                }
                 else residuals.Add(new DownloadCleanupResidual(item.RelativePath, result.Reason));
             }
 
+            DownloadedArtifact[] remaining = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).ToArray();
+            ledger = remaining.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
+            active = remaining.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             FileSystemObject[] filesystemRemaining = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
             foreach (FileSystemObject item in filesystemRemaining.Where(item => !active.Contains(item.RelativePath) && (clearAllInactive || ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
                 residuals.Add(new DownloadCleanupResidual(item.RelativePath, ledger.ContainsKey(item.RelativePath) ? "UndeletedOwnedObject" : "UnknownOwnedObject"));
@@ -122,6 +113,7 @@ internal static class PathSafety
     {
         RejectNonLocalOrStreamPath(root, "root");
         string canonical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        RejectReparseAncestors(canonical);
         Directory.CreateDirectory(canonical);
         RejectReparseComponents(canonical, canonical);
         return canonical;
@@ -216,6 +208,18 @@ internal static class PathSafety
         }
     }
 
+    private static void RejectReparseAncestors(string candidate)
+    {
+        string volume = Path.GetPathRoot(candidate) ?? throw new SecurityException("A cache root volume is required.");
+        string current = Path.TrimEndingDirectorySeparator(volume);
+        foreach (string component in Path.GetRelativePath(volume, candidate).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, component);
+            if (!Exists(current)) continue;
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) throw new SecurityException("A reparse-point cache-root ancestor is denied.");
+        }
+    }
+
     private static bool Exists(string path) { try { _ = File.GetAttributes(path); return true; } catch (FileNotFoundException) { return false; } catch (DirectoryNotFoundException) { return false; } }
     private static string Classify(IOException exception) { int code = exception.HResult & 0xFFFF; return code is 32 or 33 or 67 ? "LockedOrInUse" : "IoError:" + code; }
 }
@@ -239,12 +243,31 @@ internal static class NativeDelete
         // A root handle is opened without following a reparse point and every descendant is opened
         // relative to that already-bound parent handle.  An attacker can replace names in the tree,
         // but cannot redirect this operation through an ancestor replacement after it is opened.
-        using SafeFileHandle rootHandle = CreateFileW(root, ReadAttributes, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, OpenReparsePoint | 0x02000000, IntPtr.Zero);
-        if (rootHandle.IsInvalid) throw Error("Opening the fixed cache root failed.");
+        using SafeFileHandle rootHandle = OpenVerifiedRoot(root);
         BeforeDescendantOpenForTesting?.Invoke();
         using SafeFileHandle handle = OpenRelative(rootHandle, relativePath, directory);
         FileDisposition disposition = new() { DeleteFile = true };
         if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf<FileDisposition>())) throw Error("Handle-bound deletion failed.");
+    }
+
+    private static SafeFileHandle OpenVerifiedRoot(string root)
+    {
+        string volume = Path.GetPathRoot(root) ?? throw new SecurityException("A cache root volume is required.");
+        SafeFileHandle current = CreateFileW(volume, ReadAttributes, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, OpenReparsePoint | 0x02000000, IntPtr.Zero);
+        if (current.IsInvalid) throw Error("Opening the cache volume failed.");
+        try
+        {
+            foreach (string component in Path.GetRelativePath(volume, root).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+            {
+                SafeFileHandle next = OpenRelativeObject(current, component, ReadAttributes, true);
+                current.Dispose();
+                current = next;
+            }
+            SafeFileHandle result = current;
+            current = null!;
+            return result;
+        }
+        finally { current?.Dispose(); }
     }
 
     private static SafeFileHandle OpenRelative(SafeFileHandle root, string relativePath, bool directory)

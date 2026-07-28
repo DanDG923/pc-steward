@@ -103,14 +103,18 @@ public sealed class InventoryWorkflowUpdateSourceTests
         await using TestDatabase database = await TestDatabase.CreateAsync();
         Guid providerProductId = Guid.NewGuid();
         CanonicalProduct providerProduct = new(providerProductId, "ignored", "Contoso Widget");
-        InstallationInstance installed = new(Guid.NewGuid(), providerProductId, "winget", "Contoso.Widget", "1.1.0", "Unknown", "Unknown", "Contoso", SourceId: "winget");
+        InstallationInstance installed = new(Guid.NewGuid(), providerProductId, "winget", "Contoso.Widget", "1.1.0", "Machine", "x64", "Contoso", SourceId: "winget");
         string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.1.0", "Unknown", "Unknown", null, "Application", "fixture", "winget"));
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(stableKey, UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
         using InventoryWorkflow matching = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed], [], []))], targetedInstalledInventory: new TargetedInventory(true));
         using InventoryWorkflow changed = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { ProviderIdentity = "Contoso.Other" }], [], []))], targetedInstalledInventory: new TargetedInventory(true));
+        using InventoryWorkflow wrongScope = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { Scope = "User" }], [], []))], targetedInstalledInventory: new TargetedInventory(true));
+        using InventoryWorkflow wrongArchitecture = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { Architecture = "x86" }], [], []))], targetedInstalledInventory: new TargetedInventory(true));
 
         Assert.IsTrue((await matching.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
         Assert.IsFalse((await changed.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await wrongScope.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await wrongArchitecture.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
     }
 
     [TestMethod]

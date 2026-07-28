@@ -144,7 +144,9 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.ProviderIdentity, job.Selection.PackageId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.SourceId, SourceId(job.Selection.Source), StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal)).ToArray();
+            string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
+            string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
         // Scope and architecture are proven by the targeted provider query before this scan.  Do not
         // correlate a registry/MSIX row by display name: another product can share that text.
         bool expectedVersionDetected = exactWinget.Length == 1 && selectedProducts.Length == 1;

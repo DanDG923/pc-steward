@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 25 — fresh Phase 3 security review complete; gate failed
+**Current task:** 90 — follow-up remediation evidence complete; fresh review pending
 **Last green commit:** `17b46c4c2745ec41a49841d33aac3388d57fc655` — Release build 0 warnings/errors; full suite 158 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -39,7 +39,7 @@
 
 Fresh Sol/Extra High review at `17b46c4` passes Release build (0 warnings/errors), security 16, architecture 4, focused integration 55, full suite 158 and host-safe hostile script 42 assertions/1 elevated-only skip. The recorded approved elevated production-cache fixture contributes 14 link/mount assertions.
 
-The gate is **FAIL**. `P3R-03` is a Blocker: a controlled production-harness fixture placed a junction above the configured cache root, and cleanup followed it and deleted the outside sentinel. `P3R-02` is reopened High because structured export and the full scan omit the approved scope/architecture from post-update authority, permitting false `Success` from another installation target. `P3R-09` remains Medium because registered files are always processed before crash orphans instead of through one oldest-first quota order. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
+The gate remains **FAIL pending fresh independent review**. The current remediation rejects configured-root reparse ancestors and opens them handle-relatively, binds final re-inventory to scope/architecture, and unifies registered/orphan quota ordering. Focused evidence passed 31; Release build passed with 0 warnings/errors; full suite passed 160. See [the follow-up evidence](review/TASK_90_P3R4_EVIDENCE.md) and [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
@@ -47,7 +47,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Run Task 90 to remediate `P3R-03`, `P3R-02` and `P3R-09`, then repeat Task 25 under GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
+Repeat Task 25 under GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 

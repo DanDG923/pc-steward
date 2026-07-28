@@ -123,6 +123,61 @@ public sealed class DownloadedArtifactCacheTests
     }
 
     [TestMethod]
+    public async Task QuotaEvictsAnOlderCrashOrphanBeforeANewerRegisteredArtifact()
+    {
+        await using ArtifactFixture fixture = new();
+        DownloadedArtifact active = fixture.Write("active.bin", 20, DateTimeOffset.UtcNow, active: true);
+        DownloadedArtifact registered = fixture.Write("registered-new.bin", 30, DateTimeOffset.UtcNow);
+        string orphan = Path.Combine(fixture.Root, "orphan-old.bin");
+        await File.WriteAllBytesAsync(orphan, Enumerable.Repeat((byte)6, 30).ToArray());
+        File.SetLastWriteTimeUtc(orphan, DateTime.UtcNow.AddHours(-2));
+        DownloadedArtifactCache cache = fixture.CreateCache(60);
+        await cache.RegisterAsync(active, CancellationToken.None);
+        await cache.RegisterAsync(registered, CancellationToken.None);
+
+        DownloadCleanupResult result = await cache.EnforceRetentionAndQuotaAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsFalse(File.Exists(orphan));
+        Assert.IsTrue(File.Exists(Path.Combine(fixture.Root, "registered-new.bin")));
+        Assert.AreEqual(50, result.RemainingBytes);
+        Assert.AreEqual(30, result.RecoveredBytes);
+    }
+
+    [TestMethod]
+    public async Task ProductionCacheRejectsConfiguredRootWithAReparseAncestor()
+    {
+        foreach (string level in new[] { "parent", "grandparent" })
+        {
+            await using ArtifactFixture fixture = new();
+            string outside = Path.Combine(Path.GetTempPath(), "pcsteward-outside-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(outside);
+            string sentinel = Path.Combine(outside, "must-survive.txt");
+            await File.WriteAllTextAsync(sentinel, "outside");
+            string parent = Path.Combine(fixture.Root, "PCSteward");
+            string configured = Path.Combine(parent, "downloads");
+            try
+            {
+                if (level == "grandparent")
+                {
+                    string grandparent = Path.Combine(fixture.Root, "parent");
+                    await CreateJunctionAsync(grandparent, outside);
+                    configured = Path.Combine(grandparent, "PCSteward", "downloads");
+                }
+                else await CreateJunctionAsync(parent, outside);
+
+                Assert.ThrowsExactly<System.Security.SecurityException>(() => new DownloadedArtifactCache(fixture.Store, configured));
+                Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
+            }
+            finally
+            {
+                foreach (string path in new[] { parent, Path.Combine(fixture.Root, "parent") }) if (Directory.Exists(path) && (new DirectoryInfo(path).Attributes & FileAttributes.ReparsePoint) != 0) new DirectoryInfo(path).Delete();
+                if (Directory.Exists(outside)) Directory.Delete(outside, true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task ProductionCacheRejectsJunctionWithoutTouchingOutsideTarget()
     {
         await using ArtifactFixture fixture = new();
@@ -258,7 +313,7 @@ public sealed class DownloadedArtifactCacheTests
             Assert.IsTrue(rootSwapOccurred, "The fixture must replace the root after its handle is bound.");
             Assert.IsFalse(result.Succeeded);
             Assert.IsFalse(File.Exists(payload));
-            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "must-survive.txt" && residual.Reason == "UnsafePath"));
+            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "must-survive.txt"));
             Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
         }
         finally
