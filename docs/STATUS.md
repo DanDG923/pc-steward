@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 90 — Phase 2 remediation complete; fresh Task 20 review pending
-**Last green commit:** `1fd152c` — `fix: remediate phase review findings`
+**Current task:** 90 — remediate repeated Phase 2 findings `P2R-07`–`P2R-10`
+**Last green commit:** `ce0cfae` — `docs: make accessibility criteria best effort`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -37,19 +37,22 @@
 
 ## Active blockers
 
-The six `P2R-01`–`P2R-06` code/test findings are remediated locally and documented in `docs/review/TASK_90_P2R_EVIDENCE.md`; a fresh Sol review must independently assess the diff.
+The repeated Task 20 review found four findings in `docs/review/PHASE_2_REVIEW.md`:
 
-Approved live two-source evidence now supports the 90-second online-performance target on this machine (20/20 zero-exit checks; 1.857-second p95), without retaining package listings. Process-scoped connection metadata and a 150% high-contrast desktop capture are recorded in `docs/review/TASK_90_P2R_EVIDENCE.md`. All `AC-UX-01–09` criteria are Optional — best effort under ADR-021; they should be implemented where practical but missing evidence is not a gate failure. The supported-Windows, native tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open.
+- `P2R-07` High — automatic package identity is not source-qualified; a same-ID package from the wrong trusted source becomes actionable.
+- `P2R-08` High — multi-instance version/scope/architecture/channel evidence is reduced to one preferred instance and can remain actionable.
+- `P2R-09` Medium — approval for `WinGet package sources` is not persisted across restart.
+- `P2R-10` Medium — source disagreement is not represented and Task 18 traceability claims a missing regression.
 
-ADR-002, ADR-003, ADR-011 and ADR-013 remain Provisional with their recorded evidence gates. The Phase 1 five-minute idle-CPU exception remains temporary and is not compliance evidence.
+`AC-DAT-04` and real ADR-003 parser/capability behavior remain unproven. The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
 
 ## Task 20 result
 
-Remediation verification: the Release build has zero warnings/errors and the full suite has 89 passing tests. Focused tests cover the composed source path, source-specific stale labels, bounded stdout/stderr, canonical fixture controls, decision expiry/timeline and source-cache retention. The Phase 2 gate remains FAIL until Task 20 repeats it.
+`FAIL`. Release build: zero warnings/errors. Focused Phase 2 tests: 66 passed. Full suite: 89 passed. Fixture benchmark: 30 local runs at 1.78 ms median / 1.97 ms p95 and 20 two-source fixture refreshes at 15.41 ms median / 15.96 ms p95. Read-only reproductions confirmed the two actionable High findings.
 
 ## Next task
 
-Repeat Task 20 in a fresh GPT-5.6 Sol / High chat. Do not merge Phase 2 or begin Phase 3.
+Run Task 90 for `P2R-07`–`P2R-10`, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 

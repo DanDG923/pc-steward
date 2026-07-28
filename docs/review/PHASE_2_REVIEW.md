@@ -1,8 +1,8 @@
-# Phase 2 review — initial gate
+# Phase 2 review — repeated gate after Task 90
 
 **Phase:** Phase 2 — Update intelligence
 **Base commit:** `ea292b1033db5481656a7d49b64cf19772bfedcd`
-**Head commit:** `92eaf13cd0e12e6207ee218f8bd71785f62378cf`
+**Head commit:** `ce0cfaef28d5617a99e46307f9dbba0fbd8b588a`
 **Reviewer model/effort:** GPT-5.6 Sol / High
 **Date:** 2026-07-28
 
@@ -10,65 +10,49 @@
 
 `FAIL`
 
-The deterministic engines and focused tests are green, but Phase 2 is not a production update-intelligence vertical slice. Four High findings remain, including stale source state that can be presented as live and mandatory acceptance criteria with no end-to-end or canonical-fixture proof. The gate cannot pass with a High finding or an unproven mandatory acceptance criterion.
+Task 90 closes the six initial implementation findings in part, and all existing tests are green, but the repeated review found two new High safety defects. A WinGet-installed package ID is not bound to its installed source, so a same-ID package from the other trusted source becomes a High-confidence actionable mapping. The workflow also projects a multi-instance product through one arbitrarily preferred instance, allowing a candidate compatible with only that instance to remain actionable. Either result fails the zero-false-positive gate.
 
 ## Evidence reviewed
 
-- Requirements and acceptance criteria: `docs/requirements/PHASE_2.md`, the Task 16–20 prompts, and the cited authoritative product requirements.
-- ADRs: Provisional ADR-003 and Accepted ADR-014, ADR-015 and ADR-016.
-- Complete diff: `ea292b1033db5481656a7d49b64cf19772bfedcd...92eaf13cd0e12e6207ee218f8bd71785f62378cf` (25 files, 1,291 insertions and 31 deletions).
-- Focused deterministic suites: 32 Domain tests passed; 27 Application integration tests passed.
+- Requirements and acceptance criteria: `docs/requirements/PHASE_2.md`, the Task 16–20 prompts, the trusted-source policy and matching acceptance criteria in `docs/product/PC_STEWARD_PRODUCT_SPEC.md`.
+- ADRs: Provisional ADR-003 and Accepted ADR-006, ADR-014, ADR-015, ADR-016, ADR-017 and ADR-021.
+- Complete diff: `ea292b1033db5481656a7d49b64cf19772bfedcd...ce0cfaef28d5617a99e46307f9dbba0fbd8b588a` (40 files, 1,916 insertions and 165 deletions).
+- Task 90 evidence: `docs/review/TASK_90_P2R_EVIDENCE.md`, including the approved 20-run live timing aggregate, process-scoped connection metadata and desktop observation.
+- Focused Phase 2 suites: 66 passed — 33 Domain and 33 Application integration.
 - Release build: zero warnings and zero errors.
-- Full suite: 82 passed — Domain 36, Application integration 42, Architecture 3 and Security fixture 1.
-- Fixture benchmark: 20 two-source runs, 15.32 ms median and 16.16 ms p95. This used in-memory fixture connectors only.
-- Manual/isolated-environment evidence: none added; no real WinGet or Store source was contacted.
+- Full suite: 89 passed — Domain 37, Application integration 48, Architecture 3 and Security fixture 1.
+- Fixture benchmark: 30 local runs at 1.78 ms median / 1.97 ms p95; 20 two-source fixture refreshes at 15.41 ms median / 15.96 ms p95.
+- Read-only built-assembly reproductions: wrong-source same-ID mapping returned `High`, `IsActionable=true`, no review reason; x64+x86 product projected as x64 and an x64 candidate returned `IsActionable=true`, no review reason.
+- No new live source or machine-state-changing exercise was performed in this review.
 
 ## Findings
 
 | ID | Severity | Requirement | File/line | Finding | Required remediation | Verification |
 |---|---|---|---|---|---|---|
-| `P2R-01` | High | `FR-SRC-03–04`, `FR-UI-01/04–06`, `AC-MAT-07`, `AC-UX-01/05–06` | `src/PCSteward.Desktop/App.xaml.cs:17`; `src/PCSteward.Application/InventoryWorkflow.cs:47`; `src/PCSteward.Desktop/MainWindow.cs:69` | The production composition root creates only inventory providers. It never creates `WingetUpdateSourceConnector`, `UpdateSourceRefreshService`, product match profiles, or `UpdateIntelligence`; the workflow exposes no source-check or manual-mapping use case; and the desktop explicitly says live/cached checks are unavailable. Consequently a user cannot check sources, see real counts/details/failures, or create/delete a manual mapping. | Compose only the fixed approved sources behind explicit online-check consent, project inventory into bounded match profiles, load/cache intelligence, and expose create/review/delete mapping use cases without adding execution authority. | End-to-end application tests must start from persisted inventory, exercise live/cached/failure paths, and prove a keyboard user can identify an update and create/delete an exact trusted mapping. |
-| `P2R-02` | High | `NFR-REL-04`, `AC-MAT-06`, `AC-UX-06` | `src/PCSteward.Application/InventoryExperienceViewModel.cs:79` | Freshness is derived from the first source alphabetically and copied into every product detail. With one live source and another cached/unavailable source, the UI can label cached results as live and omit the stale timestamp/source-unavailable warning. | Preserve freshness per source and derive each product detail from its mapping source; show a conservative aggregate plus every failing/stale source warning. | Add mixed-source tests for live+cached, live+unavailable, cached+unavailable and mappings from each source. |
-| `P2R-03` | High | `FR-SRC-05`, `NFR-PERF-02` | `src/PCSteward.Provider.WinGet/WingetInstalledInventoryProvider.cs:111` | The WinGet process adapter reads stdout and stderr to completion before the connector checks the one-million-character limit. Source output is therefore unbounded in memory at the trust boundary, so the claimed output-size control does not resist resource exhaustion. | Bound both streams while reading, terminate the process tree on overflow, and return a typed output-too-large result without retaining the excess. | Add process-boundary tests for oversized stdout and stderr, timeout/cancellation, and successful bounded output. |
-| `P2R-04` | High | `AC-MAT-03` | `tests/PCSteward.Domain.UnitTests/ProductPackageMatchingTests.cs:22`; `spikes/performance-fixtures/FIXTURE_CATALOG.md:1` | The zero-false-positive test constructs six bespoke candidates and does not load the checked-in 320-record catalog or its five `mappingCases`. The canonical mandatory acceptance fixture is therefore not exercised, and the zero-false-positive phase claim is unproven. | Add a test adapter for `fixtures/provider-records.json`, exercise all five declared mapping controls and relevant `EDGE-001`–`EDGE-020` records, and fail if any negative control becomes actionable. | Retain a machine-readable result recording total controls, true actionable controls and false-positive actionable mappings; the latter must be zero. |
-| `P2R-05` | Medium | `FR-POL-01–05`, `FR-HIS-02/04`, `FR-UI-02/07` | `src/PCSteward.Desktop/MainWindow.cs:63`; `src/PCSteward.Desktop/MainWindow.cs:110`; `src/PCSteward.Persistence.Sqlite/SqliteDatabase.cs:231` | Decision UX supports only current-version pin and indefinite ignore with no reason. It lacks source-package pin, ignore-until, mapping list/reversal, timeline display, cache-retention control and update-status filter choices; the stored timeline contains decisions only, not scans or mappings. | Complete the scoped decision controls and accessible timeline/settings views, exclude expired ignores from “active,” and implement the specified source-cache retention policy. | Add view-model, persistence and UI/accessibility tests for every decision type, expiry, reversal, scan/mapping timeline entries, retention and status filtering. |
-| `P2R-06` | Medium | Phase 2 traceability | `docs/requirements/TRACEABILITY.md:26` | Traceability says output is bounded, stale results remain visibly stale, and disagreement/compatibility/offline fixtures passed. `P2R-02/03` contradict the first two claims, and no source-disagreement test is present. | Correct the evidence statement after remediation and link the exact tests/results rather than summarising unproved behavior. | Review the updated matrix against the new regression tests and repeat this gate. |
+| `P2R-07` | High | `FR-ID-02–04`, `AC-MAT-03`, trusted-source policy §10.4 | `src/PCSteward.Desktop/AdditionalLocalInventoryProviders.cs:45`; `src/PCSteward.Application/InventoryWorkflow.cs:130–132`; `src/PCSteward.Domain/ProductPackageMatching.cs:188–191` | The installed WinGet source is stored in `InstallationInstance.Channel`, but `CreateProfiles` carries only the package ID into `ProviderPackageId` and the matching engine treats that ID as globally unique. A product recorded from `msstore` and a candidate from `winget` with the same ID therefore produce a High-confidence actionable automatic mapping. Source and native package ID are a compound provider target; omitting the source permits the wrong package/source pair. | Preserve installed source separately from channel, carry it into the match profile, and require the exact installed source plus package ID for automatic provider-ID confidence. Conflicting or missing source evidence must be review-only. | Add domain and composed-workflow regressions where the same package ID exists in `winget` and `msstore`; only the source-qualified identity may map and the opposite source must never be actionable. |
+| `P2R-08` | High | `AC-MAT-04`, product risk “Multiple installations of same app” | `src/PCSteward.Application/InventoryWorkflow.cs:123–133` | `CreateProfiles` reduces every canonical product to one `preferred` installation and copies only that instance's version, scope, architecture and channel. Other instances are ignored. The reproduction supplied x64 and x86 instances for one exact WinGet identity; the profile became x64 and an x64 candidate remained actionable with no ambiguity reason. This can target the wrong install instance and makes the result depend on instance ordering. | Assess every retained installation instance or fail closed when their version/scope/architecture/channel evidence differs. A product-level candidate must not be actionable until the provider-specific target instance is unambiguous. | Add composed tests for x86+x64, user+machine, stable+preview and differing installed versions in both input orders; all ambiguous cases must be non-actionable and explain the conflict. |
+| `P2R-09` | Medium | `FR-SRC-03`, Task 90 persisted-disclosure claim | `src/PCSteward.Persistence.Sqlite/SqliteDatabase.cs:117–126`; `src/PCSteward.Persistence.Sqlite/SqliteDatabase.cs:252` | `IsWinget` recognizes only `WinGet installed inventory`. Approval for `WinGet package sources` is therefore never written. On the next launch `InventoryWorkflow.LoadAsync` sees approval as false and disables the source connector, so the documented persisted approval does not survive restart. This fails closed but leaves the production source-check journey incomplete. | Apply the disclosure setting policy to both named WinGet connectors without broad string matching, and retain the user's approved state until they revoke it. | Save, close, reopen and load both connector states; assert enabled/approved persistence and assert a false approval can never restore an enabled connector. |
+| `P2R-10` | Medium | Trusted-source policy §10.4, `FR-UI-04–05`, Phase 2 traceability | `src/PCSteward.Domain/UpdateIntelligence.cs:14–36`; `src/PCSteward.Domain/ProductPackageMatching.cs:112–120`; `docs/requirements/TRACEABILITY.md:26` | Source disagreement is still collapsed into one selected mapping or an undifferentiated `Unmanaged` result; the model cannot display both source results and timestamps as required. No source-disagreement test exists, although the Task 18 traceability row says disagreement fixtures passed. | Preserve competing source candidates in the assessment/presentation model, show their source-specific timestamps, block automatic selection when source/channel/architecture/publisher differs, and correct traceability to cite exact executed tests. | Add live+live and live+cached disagreement tests for different versions and conflicting metadata; verify both results remain visible, neither is silently selected, and traceability names the regressions. |
 
 ## Missing evidence
 
-- `AC-DAT-04`: no approved network inspection proves that only enabled WinGet/Store connectors are contacted.
-- `AC-NFR-02`: the 20-run result is an in-memory fixture latency measurement, not an end-to-end online source check; it does not establish the 90-second p95 requirement for the composed application.
-- `AC-UX-02/04`: no keyboard, 150% text-scaling or high-contrast exercise covers the new Phase 2 controls; most required controls do not yet exist.
-- Provisional ADR-003 still lacks an approved real-source parser/capability exercise, including Microsoft Store behavior.
-
-## Task 90 remediation record
-
-**Fixing commit:** `1fd152c` — `fix: remediate phase review findings`
-
-**Verification owner/model:** Task 90, GPT-5.6 Terra / High
-**Status:** code/test remediation completed; this historical review remains `FAIL` until a fresh Task 20 reviewer assesses the complete diff and the mandatory-evidence boundary.
-
-| Finding | Remediation and regression verification |
-|---|---|
-| `P2R-01` | `App.xaml.cs` now composes fixed `winget` and `msstore` connectors into `InventoryWorkflow`; `MainWindow.cs` exposes the disclosure-gated source check and constrained create/delete mapping path. `InventoryWorkflowUpdateSourceTests.ComposedWorkflowUsesApprovedSourceOnlyWhenCheckedAndSupportsExactManualMappings` begins with persisted inventory and verifies local-only, live source metadata, and an exact mapping. |
-| `P2R-02` | `InventoryExperienceViewModel` labels every candidate from its own source and preserves each source state in the aggregate. `MixedSourceFreshnessIsShownPerCandidateInsteadOfAsTheAlphabeticallyFirstSource` proves a cached Winget candidate is never presented as live merely because Microsoft Store is live. |
-| `P2R-03` | `WindowsWingetProcess` bounds stdout and stderr while draining, marks overflow, and terminates the child process tree. `OversizedProcessOutputFailsClosedWithoutRetainingMoreThanTheBound` exercises over-one-million-character stdout and stderr at the process boundary; connector classification remains fail-closed. |
-| `P2R-04` | `FixtureCatalogMatchingTests` loads `provider-records.json`, asserts all 320 records and five mapping controls, evaluates all `EDGE-001`–`EDGE-020`, and asserts zero false-positive actionable negative controls. |
-| `P2R-05` | The desktop provides source-package pin, reason, ignore-until, decision/mapping reversal, source check status, update-status filters, per-product timeline and cache-retention disclosure. Expired ignores are removed from active decisions, source snapshots are pruned after 30 days, and persistence/application regressions cover the behavior. |
-| `P2R-06` | Traceability now links this remediation evidence and explicitly excludes unexecuted network, real-source performance, and Phase 2 accessibility claims. |
+- `AC-DAT-04` remains unproven. The recorded observation ran both sources, saw no socket for the short WinGet check and one unclassified TLS destination for Store, and contains no disabled-source control. It cannot confirm that only enabled connector destinations are contacted.
+- ADR-003 remains Provisional. The approved live runs discarded provider output, so real WinGet/Store parser, locale, capability and source-column behavior is still unexercised.
+- The canonical fixture test is green, but it does not contain the wrong-source collision or multi-instance ambiguity reproduced by this review.
 
 ## Positive controls confirmed
 
-- Numeric, prerelease, downgrade, malformed and connector-deferred version outcomes are deterministic and have no lexical fallback.
-- Current focused matching tests keep low-confidence, ambiguous, architecture/channel-conflicting and incomparable candidates non-actionable.
-- The source connector constructor accepts only `winget` and `msstore`, uses `winget.exe` with structured arguments, and exposes no raw-command or arbitrary-web connector.
-- Cache fallback and connector-isolation tests distinguish live, cached, local-only and unavailable domain states.
-- The desktop exposes no executable Update action, and stable decisions/source cache remain outside disposable scan data.
+- Numeric, prerelease, downgrade, malformed and connector-deferred versions have deterministic non-lexical outcomes.
+- Current tests keep low-confidence, explicit architecture/channel conflicts and incomparable versions non-actionable.
+- The checked-in 320-record catalog, its five mapping controls and all 20 named edges are loaded by the curated test; its declared negative controls produce zero actionable mappings.
+- Source refresh remains bounded and independent; cached results retain timestamps and stale/unavailable labels.
+- Standard output and error are bounded while read, and overflow terminates the process tree.
+- The desktop exposes no update-execution action; manual mappings target an exact package present in a live/cached fixed-source snapshot and remain reversible.
 
 ## Residual risks accepted by product owner
 
-ADR-021 classifies `AC-UX-01–09` as Optional — best effort. Existing accessibility implementation/evidence remains positive quality evidence but is not a Phase 2 gate condition. This does not waive independent fresh-review assessment of `AC-DAT-04` process-scoped connection evidence.
+ADR-021 makes `AC-UX-01–09` Optional — best effort, so the incomplete keyboard exercise is not a Phase 2 gate failure. The accepted live-source timing supports the 90-second target on this machine and date but does not remove the fixed-baseline limitation recorded by ADR-006.
 
 ## Recommended next action
 
-Review the Task 90 remediation/evidence in a fresh GPT-5.6 Sol / High Task 20 chat. Do not merge Phase 2 or begin Phase 3 unless that review passes.
+Run Task 90 to remediate `P2R-07`–`P2R-10` and the missing mandatory evidence, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
