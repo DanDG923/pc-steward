@@ -61,7 +61,9 @@ public sealed class DownloadedArtifactCache : IDisposable
         try
         {
             DownloadedArtifact[] all = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).OrderBy(artifact => artifact.CreatedAt).ThenBy(artifact => artifact.Id).ToArray();
-            long retainedBytes = all.Sum(artifact => artifact.SizeBytes);
+            FileSystemObject[] initialObjects = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
+            Dictionary<string, long> initialSizes = initialObjects.ToDictionary(item => item.RelativePath, item => item.SizeBytes, StringComparer.OrdinalIgnoreCase);
+            long retainedBytes = initialObjects.Sum(item => item.SizeBytes);
             List<DownloadCleanupResidual> residuals = [];
             int deleted = 0;
             long recovered = 0;
@@ -75,8 +77,9 @@ public sealed class DownloadedArtifactCache : IDisposable
                 {
                     await store.DeleteDownloadedArtifactAsync(artifact.Id, cancellationToken).ConfigureAwait(false);
                     deleted++;
-                    recovered += result.Deleted ? artifact.SizeBytes : 0;
-                    retainedBytes -= artifact.SizeBytes;
+                    long size = initialSizes.GetValueOrDefault(PathSafety.NormalizeRelativePath(artifact.RelativePath));
+                    recovered += result.Deleted ? size : 0;
+                    retainedBytes -= size;
                 }
                 else residuals.Add(new DownloadCleanupResidual(artifact.RelativePath, result.Reason));
             }
@@ -85,10 +88,11 @@ public sealed class DownloadedArtifactCache : IDisposable
             Dictionary<string, DownloadedArtifact> ledger = remaining.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
             HashSet<string> active = remaining.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             HashSet<string> attempted = [];
-            foreach (FileSystemObject item in PathSafety.EnumerateOwnedObjects(CacheRoot).OrderByDescending(item => item.RelativePath.Count(character => character == Path.DirectorySeparatorChar || character == Path.AltDirectorySeparatorChar)))
+            foreach (FileSystemObject item in PathSafety.EnumerateOwnedObjects(CacheRoot).OrderBy(item => item.IsDirectory).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
             {
                 if (active.Contains(item.RelativePath) || ledger.ContainsKey(item.RelativePath)) continue;
-                if (!clearAllInactive)
+                bool quotaExceeded = retainedBytes > SoftQuotaBytes;
+                if (!clearAllInactive && !quotaExceeded)
                 {
                     residuals.Add(new DownloadCleanupResidual(item.RelativePath, "UnknownOwnedObject"));
                     continue;
@@ -96,7 +100,7 @@ public sealed class DownloadedArtifactCache : IDisposable
 
                 attempted.Add(item.RelativePath);
                 PathSafety.DeleteResult result = PathSafety.DeleteExactObject(CacheRoot, item.RelativePath, item.IsDirectory);
-                if (result.Deleted || result.AlreadyAbsent) { deleted++; recovered += result.Deleted ? item.SizeBytes : 0; }
+                if (result.Deleted || result.AlreadyAbsent) { deleted++; recovered += result.Deleted ? item.SizeBytes : 0; retainedBytes -= item.SizeBytes; }
                 else residuals.Add(new DownloadCleanupResidual(item.RelativePath, result.Reason));
             }
 
@@ -221,7 +225,7 @@ internal sealed record FileSystemObject(string RelativePath, long SizeBytes, boo
 
 internal static class NativeDelete
 {
-    private const uint DeleteAccess = 0x00010000, ReadAttributes = 0x00000080, ShareRead = 1, ShareWrite = 2, OpenExisting = 3, OpenReparsePoint = 0x00200000;
+    private const uint DeleteAccess = 0x00010000, ReadAttributes = 0x00000080, ShareRead = 1, ShareWrite = 2, OpenExisting = 3, NtOpen = 1, OpenReparsePoint = 0x00200000;
     private const int FileDispositionInfo = 4;
     [StructLayout(LayoutKind.Sequential)] private struct FileDisposition { [MarshalAs(UnmanagedType.Bool)] public bool DeleteFile; }
     [StructLayout(LayoutKind.Sequential)] private struct ByHandleFileInformation { public uint Attributes; public uint CreationTimeLow; public uint CreationTimeHigh; public uint LastAccessTimeLow; public uint LastAccessTimeHigh; public uint LastWriteTimeLow; public uint LastWriteTimeHigh; public uint VolumeSerialNumber; public uint FileSizeHigh; public uint FileSizeLow; public uint NumberOfLinks; public uint FileIndexHigh; public uint FileIndexLow; }
@@ -269,7 +273,7 @@ internal static class NativeDelete
             try
             {
                 Marshal.StructureToPtr(unicode, attributes.ObjectName, false);
-                int status = NtCreateFile(out SafeFileHandle handle, access | 0x00100000u, ref attributes, out _, IntPtr.Zero, 0, ShareRead | ShareWrite, OpenExisting, (directory ? 0x1u : 0u) | 0x00200000u | 0x20u, IntPtr.Zero, 0);
+                int status = NtCreateFile(out SafeFileHandle handle, access | 0x00100000u, ref attributes, out _, IntPtr.Zero, 0, ShareRead | ShareWrite, NtOpen, (directory ? 0x1u : 0u) | 0x00200000u | 0x20u, IntPtr.Zero, 0);
                 if (status != 0 || handle.IsInvalid) { handle?.Dispose(); throw new IOException("Opening a cache descendant relative to its parent failed. NTSTATUS=" + status.ToString("X8", CultureInfo.InvariantCulture), status); }
                 if (!GetFileInformationByHandle(handle, out ByHandleFileInformation info) ||
                     (info.Attributes & (uint)FileAttributes.ReparsePoint) != 0 ||

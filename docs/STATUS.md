@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 25 — independent Phase 3 security review complete
-**Last green commit:** `4b77e321d98f0030012847fab42c3afe33b9f270` — Release build 0 warnings/errors; full suite 146 passed
+**Current task:** 90 — repeated remediation and evidence collection complete; fresh Task 25 review required
+**Last green commit:** pending Task 90 remediation commit — Release build 0 warnings/errors; full suite 154 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -37,9 +37,9 @@
 
 ## Task 25 result
 
-Fresh independent review at `4b77e32` is **FAIL**. `P3R-01`, `P3R-04` and `P3R-06` are closed, but `P3R-02` remains High because production post-update compatibility evidence is display-name correlated and untested end to end. `P3R-03` remains a Blocker because approved hostile fixtures exercise the older spike, not the remediated production deletion primitive; its `NtCreateFile` disposition is also open-if rather than open-only. `P3R-05` lacks current-provider confirmation regressions, and orphan bytes bypass retention/quota enforcement under new `P3R-07`.
+Repeated Task 90 addresses `P3R-02`, `P3R-03`, `P3R-05` and `P3R-07`. Exact scope/architecture inventory evidence is query-bound rather than display-name-correlated; `ReInventoryAsync` and review-to-confirmation use current provider composition; native cleanup opens descendants with NT `FILE_OPEN`; production cache fixtures cover reparse root/final/repeated ancestor junctions; and quota includes safe crash orphans. [Evidence](review/TASK_90_P3RR_EVIDENCE.md) records focused 23, cache-hostile 9, hostile-root 42/1 skip, Release 0/0 and full-suite 154 results.
 
-Security 16, Architecture 4, focused Phase 3 integration 39, and the full Release suite of 146 tests passed. The Release build had 0 warnings/errors; the safe hostile script passed 42 assertions with one documented VM/manual skip. Mandatory `AC-UPD-06/08` production-path and `AC-DAT-16` production-hostile evidence remain Missing. Existing product-owner exceptions remain explicit and do not waive these gaps.
+The gate remains FAIL until a fresh independent Task 25 reviewer assesses these changes. VM/manual exception scope is unchanged; no merge or Task 26 work is permitted.
 
 ## Residual risks and accepted deferrals
 
@@ -47,7 +47,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Run Task 90 to remediate the open review findings, update evidence, then repeat Task 25 under fresh GPT-5.6 Sol / Extra High review. Do not merge Phase 3 or begin Task 26.
+Repeat Task 25 under fresh GPT-5.6 Sol / Extra High review. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 

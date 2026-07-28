@@ -85,6 +85,104 @@ public sealed class DownloadedArtifactCacheTests
         Assert.AreEqual(9, summary.TotalBytes);
     }
 
+    [TestMethod]
+    public async Task QuotaAccountsForAndEvictsAnInactiveCrashOrphan()
+    {
+        await using ArtifactFixture fixture = new();
+        DownloadedArtifact active = fixture.Write("active.bin", 20, DateTimeOffset.UtcNow, active: true);
+        await fixture.CreateCache(40).RegisterAsync(active, CancellationToken.None);
+        await File.WriteAllBytesAsync(Path.Combine(fixture.Root, "crash-orphan.bin"), Enumerable.Repeat((byte)4, 30).ToArray());
+
+        DownloadCleanupResult result = await fixture.CreateCache(40).EnforceRetentionAndQuotaAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsTrue(File.Exists(Path.Combine(fixture.Root, "active.bin")));
+        Assert.IsFalse(File.Exists(Path.Combine(fixture.Root, "crash-orphan.bin")));
+        Assert.AreEqual(20, result.RemainingBytes);
+    }
+
+    [TestMethod]
+    public async Task ProductionCacheRejectsJunctionWithoutTouchingOutsideTarget()
+    {
+        await using ArtifactFixture fixture = new();
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-outside-" + Guid.NewGuid().ToString("N"));
+        string junction = Path.Combine(fixture.Root, "junction");
+        Directory.CreateDirectory(outside);
+        string sentinel = Path.Combine(outside, "must-survive.txt");
+        await File.WriteAllTextAsync(sentinel, "outside");
+        try
+        {
+            await CreateJunctionAsync(junction, outside);
+
+            DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "junction" && residual.Reason == "UnsafePath"));
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
+        }
+        finally
+        {
+            if (Directory.Exists(junction)) new DirectoryInfo(junction).Delete();
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ProductionCacheRejectsRepeatedAncestorJunctionsWithoutTouchingOutsideTarget()
+    {
+        await using ArtifactFixture fixture = new();
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-outside-" + Guid.NewGuid().ToString("N"));
+        string ancestor = Path.Combine(fixture.Root, "ancestor");
+        Directory.CreateDirectory(outside);
+        string sentinel = Path.Combine(outside, "must-survive.txt");
+        await File.WriteAllTextAsync(sentinel, "outside");
+        try
+        {
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                await CreateJunctionAsync(ancestor, outside);
+                DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+                Assert.IsFalse(result.Succeeded);
+                Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "ancestor" && residual.Reason == "UnsafePath"));
+                Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
+                new DirectoryInfo(ancestor).Delete();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(ancestor)) new DirectoryInfo(ancestor).Delete();
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ProductionCacheRejectsAJunctionAsTheConfiguredRoot()
+    {
+        string container = Path.Combine(Path.GetTempPath(), "pcsteward-root-" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(container, "outside");
+        string rootLink = Path.Combine(container, "root-link");
+        Directory.CreateDirectory(outside);
+        try
+        {
+            await CreateJunctionAsync(rootLink, outside);
+            Assert.ThrowsExactly<System.Security.SecurityException>(() => new DownloadedArtifactCache(new MemoryArtifactStore(), rootLink));
+        }
+        finally
+        {
+            if (Directory.Exists(rootLink)) new DirectoryInfo(rootLink).Delete();
+            if (Directory.Exists(container)) Directory.Delete(container, true);
+        }
+    }
+
+    private static async Task CreateJunctionAsync(string path, string target)
+    {
+        using System.Diagnostics.Process process = new();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /c mklink /J \"{path}\" \"{target}\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
+        process.Start();
+        await process.WaitForExitAsync();
+        Assert.AreEqual(0, process.ExitCode, await process.StandardError.ReadToEndAsync());
+    }
+
     private sealed class ArtifactFixture : IAsyncDisposable
     {
         public ArtifactFixture() { Root = Path.Combine(Path.GetTempPath(), "pcsteward-cache-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(Root); Store = new MemoryArtifactStore(); }

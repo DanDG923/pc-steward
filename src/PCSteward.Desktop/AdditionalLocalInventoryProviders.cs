@@ -54,5 +54,6 @@ internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalI
 internal sealed class WingetTargetedInstalledInventory : ITargetedInstalledInventory
 {
     private readonly WingetInstalledInventoryProvider provider = new();
+    public Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken) => provider.ResolveExactCompatibilityAsync(source, packageId, installedVersion, cancellationToken);
     public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => provider.HasExactExpectedVersionAsync(job, cancellationToken);
 }

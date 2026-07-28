@@ -3,7 +3,12 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record InventoryDashboard(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, DateTimeOffset? LastCompletedAt, ScanDataSummary ScanData, IReadOnlyDictionary<string, ConnectorState> Connectors);
-public interface ITargetedInstalledInventory { Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken); }
+public sealed record TargetedInstalledCompatibility(UpdateScope Scope, UpdateArchitecture Architecture);
+public interface ITargetedInstalledInventory
+{
+    Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken);
+    Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+}
 
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
@@ -112,7 +117,14 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
-        if (!TryCreateSelection(profile, item.Mapping, out UpdateJobSelection? selection, out string message)) return new(null, message);
+        if (!TryCreateSelection(profile, item.Mapping, out UpdateJobSelection? selection, out string message))
+        {
+            if (targetedInstalledInventory is null || profile.InstalledVersion is null || !TrySource(item.Mapping.SourceId, out UpdateSource updateSource)) return new(null, message);
+            IReadOnlyCollection<TargetedInstalledCompatibility> compatible = await targetedInstalledInventory.ResolveExactCompatibilityAsync(updateSource, item.Mapping.PackageId, profile.InstalledVersion, cancellationToken).ConfigureAwait(false);
+            if (compatible.Count != 1) return new(null, "Exact installed scope and architecture evidence is unavailable or ambiguous. No update can be started.");
+            profile = profile with { Scope = compatible.Single().Scope.ToString(), Architecture = compatible.Single().Architecture.ToString() };
+            if (!TryCreateSelection(profile, item.Mapping, out selection, out message)) return new(null, message);
+        }
         return new(selection, "Fresh exact source evidence is ready for your review.");
     }
 
@@ -133,14 +145,9 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             string.Equals(instance.ProviderIdentity, job.Selection.PackageId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.SourceId, SourceId(job.Selection.Source), StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal)).ToArray();
-        // The WinGet display table is not compatibility authority.  Exact ID/source/version evidence
-        // is reconciled with concrete local registry/MSIX scope and architecture observations.
-        bool expectedVersionDetected = exactWinget.Length == 1 && selectedProducts.Length == 1 && instances.Any(instance =>
-            IsConcreteLocalEvidence(instance) &&
-            string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
-            string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase) &&
-            products.Any(product => product.Id == instance.ProductId && string.Equals(product.DisplayName, selectedProducts[0].DisplayName, StringComparison.OrdinalIgnoreCase)));
+        // Scope and architecture are proven by the targeted provider query before this scan.  Do not
+        // correlate a registry/MSIX row by display name: another product can share that text.
+        bool expectedVersionDetected = exactWinget.Length == 1 && selectedProducts.Length == 1;
         return new(expectedVersionDetected, false);
     }
 
@@ -198,21 +205,18 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             InstallationInstance? preferred = productInstances.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
             InstallationInstance[] wingetInstances = productInstances.Where(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)).ToArray();
             InstallationInstance? winget = wingetInstances.OrderBy(instance => instance.SourceId, StringComparer.Ordinal).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
-            InstallationInstance? executionEvidence = ConcreteExecutionEvidence(product.DisplayName, productInstances, instances, productsById, winget) ?? preferred;
+            InstallationInstance? executionEvidence = ConcreteExecutionEvidence(productInstances, winget) ?? preferred;
             InstallationInstance? msix = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase));
             bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any();
             return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
         }).ToArray();
     }
 
-    private static InstallationInstance? ConcreteExecutionEvidence(string displayName, IReadOnlyCollection<InstallationInstance> productInstances, IReadOnlyCollection<InstallationInstance> allInstances, Dictionary<Guid, CanonicalProduct> productsById, InstallationInstance? winget)
+    private static InstallationInstance? ConcreteExecutionEvidence(IReadOnlyCollection<InstallationInstance> productInstances, InstallationInstance? winget)
     {
         if (winget?.Version is null) return null;
-        InstallationInstance[] candidates = productInstances.Concat(allInstances.Where(instance =>
-                IsConcreteLocalEvidence(instance) &&
-                productsById.TryGetValue(instance.ProductId, out CanonicalProduct? product) &&
-                string.Equals(product.DisplayName, displayName, StringComparison.OrdinalIgnoreCase)))
-            .Where(instance =>
+        InstallationInstance[] candidates = productInstances.Where(instance =>
+            IsConcreteLocalEvidence(instance) &&
             string.Equals(instance.Version, winget.Version, StringComparison.OrdinalIgnoreCase) &&
             TryScope(instance.Scope, out _) &&
             TryArchitecture(instance.Architecture, out _)).ToArray();

@@ -9,6 +9,8 @@
 
 The Task 90 benchmark command reported the deterministic 30-run/300-record workload at 1.84 ms median and 2.36 ms p95, but returned exit code 1 without a failure diagnostic. It is retained as a non-gating measurement anomaly; it is not claimed as Phase 3 cache or UI performance acceptance evidence.
 
+**Repeated Task 90 update (2026-07-28):** [Repeated remediation evidence](TASK_90_P3RR_EVIDENCE.md) records the production `ReInventoryAsync`/confirmation path, exact scope-and-architecture query binding, NT open-only cache descendants, reparse-root/final/repeated-ancestor junction fixtures, and crash-orphan quota enforcement. The focused fixture passed 23 tests, the cache-hostile subset passed 9, the safe hostile script passed 42 assertions with one documented VM/manual skip, and the full suite passed 154 tests. The recorded VM/manual exception scope is unchanged.
+
 ## Automated evidence
 
 All commands below were run locally against disposable fixtures; none invoked UAC, WinGet, a real installer, or a provider cache.

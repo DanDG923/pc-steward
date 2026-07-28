@@ -53,6 +53,22 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.IsTrue(await new WingetInstalledInventoryProvider(matching).HasExactExpectedVersionAsync(job, CancellationToken.None));
         Assert.IsFalse(await new WingetInstalledInventoryProvider(mismatch).HasExactExpectedVersionAsync(job, CancellationToken.None));
         CollectionAssert.Contains(matching.Arguments.ToArray(), "--exact"); CollectionAssert.Contains(matching.Arguments.ToArray(), "--source");
+        CollectionAssert.Contains(matching.Arguments.ToArray(), "--scope"); CollectionAssert.Contains(matching.Arguments.ToArray(), "user");
+        CollectionAssert.Contains(matching.Arguments.ToArray(), "--architecture"); CollectionAssert.Contains(matching.Arguments.ToArray(), "x64");
+    }
+    [TestMethod]
+    public async Task ExactCompatibilityResolutionAcceptsOnlyOneScopeArchitecturePair()
+    {
+        WingetProcessResult noMatch = new(1, string.Empty, string.Empty, false);
+        WingetProcessResult match = new(0, "Name  Id  Version  Source\n--------------------------------\nContoso  Contoso.Widget  1.0  winget", string.Empty, false);
+        SequencedProcess process = new([noMatch, noMatch, noMatch, noMatch, match, noMatch, noMatch, noMatch]);
+
+        IReadOnlyCollection<TargetedInstalledCompatibility> resolved = await new WingetInstalledInventoryProvider(process).ResolveExactCompatibilityAsync(UpdateSource.WinGet, "Contoso.Widget", "1.0", CancellationToken.None);
+
+        Assert.HasCount(1, resolved);
+        Assert.AreEqual(UpdateScope.Machine, resolved.Single().Scope);
+        Assert.AreEqual(UpdateArchitecture.X64, resolved.Single().Architecture);
+        Assert.AreEqual(8, process.Calls.Count);
     }
     [TestMethod]
     public void ProcessBoundaryHasNoExecutablePathParameterAndOversizedOutputFailsClosed()

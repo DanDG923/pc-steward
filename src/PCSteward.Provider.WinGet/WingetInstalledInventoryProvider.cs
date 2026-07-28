@@ -17,7 +17,7 @@ public sealed record WingetInventoryResult(IReadOnlyCollection<WingetInstalledRe
 public sealed record WingetAvailableUpdateRecord(string Name, string Id, string InstalledVersion, string AvailableVersion, string Source);
 public sealed record WingetAvailableUpdateResult(string? ProviderVersion, IReadOnlyCollection<WingetAvailableUpdateRecord> Records, IReadOnlyCollection<string> Warnings);
 
-public sealed class WingetInstalledInventoryProvider
+public sealed partial class WingetInstalledInventoryProvider
 {
     private const int MaximumOutputLength = 1_000_000;
     private readonly IWingetProcess process;
@@ -25,7 +25,9 @@ public sealed class WingetInstalledInventoryProvider
     internal WingetInstalledInventoryProvider(IWingetProcess process) => this.process = process;
     public static IReadOnlyList<string> BuildInstalledListArguments() => ["list", "--disable-interactivity"];
     public static IReadOnlyList<string> BuildExactInstalledArguments(UpdateJobSelection selection) =>
-    ["list", "--id", selection.PackageId, "--source", selection.Source == UpdateSource.WinGet ? "winget" : "msstore", "--exact", "--disable-interactivity"];
+        BuildExactInstalledArguments(selection.Source, selection.PackageId, selection.Scope, selection.Architecture);
+    public static IReadOnlyList<string> BuildExactInstalledArguments(UpdateSource source, string packageId, UpdateScope scope, UpdateArchitecture architecture) =>
+    ["list", "--id", packageId, "--source", source == UpdateSource.WinGet ? "winget" : "msstore", "--exact", "--scope", Scope(scope), "--architecture", Architecture(architecture), "--disable-interactivity"];
     public async Task<WingetInventoryResult> ReadInstalledAsync(CancellationToken cancellationToken)
     {
         WingetProcessResult result = await process.RunAsync(BuildInstalledListArguments(), TimeSpan.FromSeconds(30), cancellationToken);
@@ -46,6 +48,24 @@ public sealed class WingetInstalledInventoryProvider
             string.Equals(parsed.Records.Single().Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
             (string.IsNullOrWhiteSpace(parsed.Records.Single().Source) || string.Equals(parsed.Records.Single().Source, job.Selection.Source == UpdateSource.WinGet ? "winget" : "msstore", StringComparison.OrdinalIgnoreCase));
     }
+    public async Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(packageId) || string.IsNullOrWhiteSpace(installedVersion) || !PackageId().IsMatch(packageId)) return [];
+        List<TargetedInstalledCompatibility> matches = [];
+        foreach (UpdateScope scope in Enum.GetValues<UpdateScope>())
+        foreach (UpdateArchitecture architecture in Enum.GetValues<UpdateArchitecture>())
+        {
+            WingetProcessResult result = await process.RunAsync(BuildExactInstalledArguments(source, packageId, scope, architecture), TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            if (result is { TimedOut: true } || result.OutputLimitExceeded || result.ExitCode != 0 || result.StandardOutput.Length > MaximumOutputLength) continue;
+            WingetInventoryResult parsed = ParseTable(result.StandardOutput);
+            if (parsed.Warnings.Count == 0 && parsed.Records.Count == 1 &&
+                string.Equals(parsed.Records.Single().Id, packageId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(parsed.Records.Single().Version, installedVersion, StringComparison.Ordinal) &&
+                (string.IsNullOrWhiteSpace(parsed.Records.Single().Source) || string.Equals(parsed.Records.Single().Source, source == UpdateSource.WinGet ? "winget" : "msstore", StringComparison.OrdinalIgnoreCase)))
+                matches.Add(new TargetedInstalledCompatibility(scope, architecture));
+        }
+        return matches;
+    }
     public static WingetInventoryResult ParseTable(string output)
     {
         List<WingetInstalledRecord> records = []; List<string> warnings = [];
@@ -59,6 +79,10 @@ public sealed class WingetInstalledInventoryProvider
         }
         return new WingetInventoryResult(records, warnings);
     }
+    private static string Scope(UpdateScope scope) => scope switch { UpdateScope.User => "user", UpdateScope.Machine => "machine", _ => throw new ArgumentOutOfRangeException(nameof(scope)) };
+    private static string Architecture(UpdateArchitecture architecture) => architecture switch { UpdateArchitecture.X64 => "x64", UpdateArchitecture.X86 => "x86", UpdateArchitecture.Arm64 => "arm64", UpdateArchitecture.Neutral => "neutral", _ => throw new ArgumentOutOfRangeException(nameof(architecture)) };
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$")]
+    private static partial Regex PackageId();
 }
 
 /// <summary>Read-only, fixed-argument WinGet source connector. Parsed rows remain update intelligence only.</summary>

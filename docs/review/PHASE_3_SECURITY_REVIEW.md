@@ -37,6 +37,8 @@ Do not merge Phase 3 or begin Task 26. Run Task 90 and repeat Task 25 under a fr
 
 ## Remediation disposition
 
+**Task 90 repeat remediation:** commit pending. The follow-up adds fixed exact scope/architecture provider queries, production workflow evidence, NT `FILE_OPEN`, production reparse-root/final/repeated-ancestor junction tests, and orphan quota enforcement. Its verification is in `TASK_90_P3RR_EVIDENCE.md`; a fresh Task 25 review must independently decide closure.
+
 | Finding | Disposition |
 |---|---|
 | `P3R-01` | Closed for this gate: elevated provider resolution is machine-rooted, non-reparse and signature/signer checked; the fresh read-only host inspection found no caller-write rule. Same-signer rollback/version pinning remains a residual hardening risk. |
