@@ -67,8 +67,8 @@ The deterministic engines and focused tests are green, but Phase 2 is not a prod
 
 ## Residual risks accepted by product owner
 
-None for Phase 2. The earlier Phase 1 idle-CPU temporary exception remains separately recorded and does not waive these findings.
+`AC-UX-02`: per explicit product-owner direction on 2026-07-28, the incomplete Phase 2 keyboard-navigation/activation exercise is a **temporary approved exception** for the Phase 2 gate. It is not evidence of compliance and must be repeated on an interactive Windows desktop before a release claim relies on it. This exception does not waive independent fresh-review assessment of `AC-DAT-04` process-scoped connection evidence.
 
 ## Recommended next action
 
-Run Task 90 in a fresh GPT-5.6 Terra / High chat to remediate `P2R-01`–`P2R-06`, then repeat Task 20 in a fresh GPT-5.6 Sol / High review chat. Do not merge Phase 2 or begin Phase 3.
+Review the Task 90 remediation/evidence in a fresh GPT-5.6 Sol / High Task 20 chat. Do not merge Phase 2 or begin Phase 3 unless that review passes, with the `AC-UX-02` exception explicitly carried forward.

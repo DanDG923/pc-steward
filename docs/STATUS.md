@@ -38,7 +38,7 @@
 
 The six `P2R-01`–`P2R-06` code/test findings are remediated locally and documented in `docs/review/TASK_90_P2R_EVIDENCE.md`; a fresh Sol review must independently assess the diff.
 
-Approved live two-source evidence now supports the 90-second online-performance target on this machine (20/20 zero-exit checks; 1.857-second p95), without retaining package listings. Process-scoped connection metadata and a 150% high-contrast desktop capture are recorded in `docs/review/TASK_90_P2R_EVIDENCE.md`; full keyboard navigation/activation remains pending in `docs/failures/90-phase2-accessibility-evidence.md`. The supported-Windows, native tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open.
+Approved live two-source evidence now supports the 90-second online-performance target on this machine (20/20 zero-exit checks; 1.857-second p95), without retaining package listings. Process-scoped connection metadata and a 150% high-contrast desktop capture are recorded in `docs/review/TASK_90_P2R_EVIDENCE.md`. The product owner has granted a temporary Phase 2 gate exception for `AC-UX-02` keyboard navigation/activation; it is not compliance evidence and remains follow-up work in `docs/failures/90-phase2-accessibility-evidence.md`. The supported-Windows, native tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open.
 
 ADR-002, ADR-003, ADR-011 and ADR-013 remain Provisional with their recorded evidence gates. The Phase 1 five-minute idle-CPU exception remains temporary and is not compliance evidence.
 
