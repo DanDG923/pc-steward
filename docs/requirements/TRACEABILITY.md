@@ -2,6 +2,8 @@
 
 This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at least one numbered Codex task. Review tasks verify the whole phase even when not repeated below.
 
+Every independent phase/design/release gate is preceded by a Terra/High evidence-readiness task (`14A`, `19A`, `24A`, `26A`, or `30A`). Its committed readiness report maps mandatory criteria to reproducible sanitized evidence, a recorded product-owner exception, or a blocking next action; a missing/stale report is itself unproven gate evidence.
+
 ## Phase 0 evidence links
 
 | Task | Requirement IDs informed | Evidence |

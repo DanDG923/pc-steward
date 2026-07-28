@@ -37,7 +37,7 @@ The project defaults to **GPT-5.6 Terra / Medium**. Change only for the numbered
 - **Sol / High:** architecture, threat modelling, privilege boundaries, destructive operations, and phase reviews.
 - **Sol / Extra High:** Phase 3 security gate and final release audit only.
 
-The core sequence contains **22 Terra tasks, 1 Luna task, and 9 Sol tasks; only 2 use Extra High**. This deliberately spends the premium model on design and independent assurance rather than routine implementation.
+The core sequence contains **27 Terra tasks, 1 Luna task, and 9 Sol tasks; only 2 use Extra High**. Evidence-readiness tasks deliberately use Terra/High before every independent gate so reviewers receive a complete, reproducible evidence package.
 
 Do not use Fast, Max, Ultra, subagents, or parallel worktrees by default. They increase usage or coordination overhead without helping this dependency-heavy build.
 
@@ -74,7 +74,7 @@ git switch -c phase/1-inventory
 
 ### Phase 1
 
-Run Tasks **07–15** on `phase/1-inventory`.
+Run Tasks **07–14**, then **14A**, then Task **15** on `phase/1-inventory`.
 
 Task 15 is a review gate. If it fails, run Task 90 in a fresh Terra/High chat, then repeat Task 15 in a fresh Sol/High chat. When it passes:
 
@@ -86,7 +86,7 @@ git switch -c phase/2-intelligence
 
 ### Phase 2
 
-Run Tasks **16–20** on `phase/2-intelligence`.
+Run Tasks **16–19**, then **19A**, then Task **20** on `phase/2-intelligence`.
 
 Task 20 is a review gate. Use Task 90 and repeat Task 20 until it passes.
 
@@ -102,7 +102,7 @@ git switch -c phase/3-execution
 
 ### Phase 3
 
-Run Tasks **21–25** on `phase/3-execution`.
+Run Tasks **21–24**, then **24A**, then Task **25** on `phase/3-execution`.
 
 Task 25 is the security gate. Any arbitrary-execution, privilege-boundary, deletion-escape, false-success, or missing mandatory evidence finding blocks progression. Use Task 90 and repeat Task 25 until it passes.
 
@@ -116,7 +116,7 @@ git switch -c phase/4-beta
 
 ### Phase 4
 
-Run Tasks **26–31** on `phase/4-beta`.
+Run Task **26**, then **26A** and Task **27**; run Tasks **28–30**, then **30A** and Task **31** on `phase/4-beta`.
 
 Task 31 must say **READY** before the branch is merged. If it says NOT READY, use Task 90 for review findings or Task 91 for a documented technical blocker, then repeat Task 31.
 
@@ -131,6 +131,10 @@ git tag -a v0.1.0-private-beta -m "PC Steward v0.1.0 private beta"
 Create the tag only after personally reading the final audit and confirming all residual risks you accept. Publishing or pushing remains a separate explicit action.
 
 ## 5. Review-gate rule
+
+Before every phase or design/release gate, complete its named `*A` evidence-readiness task. That task gathers a sanitized criterion-to-evidence table, runs the safe required commands, records missing evidence or explicit product-owner exceptions, and blocks the gate until every mandatory row is Proven or explicitly accepted. It prepares evidence only; the separate Sol gate remains the independent decision-maker.
+
+This control applies to the next gate or repeat after this plan change; it does not retroactively reopen a previously passed, committed gate.
 
 A phase passes only when:
 

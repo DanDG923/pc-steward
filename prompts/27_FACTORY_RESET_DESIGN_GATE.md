@@ -7,7 +7,7 @@
 | Speed | **Standard** |
 | Mode | **Plan / read-only first** |
 | Branch | `phase/4-beta` |
-| Run after | Task 26 complete |
+| Run after | Task 26A complete |
 | Expected commit | `docs: finalize factory-reset design` |
 
 **Primary requirement references:** See the task and current phase brief.
@@ -19,6 +19,7 @@ Task 27 — finalize the factory-reset and advanced data-control design before i
 
 Read:
 - `AGENTS.md`
+- `docs/review/FACTORY_RESET_DESIGN_EVIDENCE_READINESS.md`;
 - Phase 4 brief;
 - OD-13 ADR and security spike;
 - current persistence, schedule, logging, artifact, and settings implementations;
@@ -38,7 +39,7 @@ Produce/update:
 
 Update the OD-13 ADR to Accepted with current evidence and create `docs/architecture/FACTORY_RESET_DESIGN.md`. The design must not require admin rights, delete binaries, delete provider-owned caches, or accept arbitrary paths.
 
-Update status. Do not implement until the document has no unresolved security decision.
+Update status. Do not implement until the document has no unresolved security decision. A missing or stale readiness package is an unresolved design input.
 ```
 
 ## Completion rule

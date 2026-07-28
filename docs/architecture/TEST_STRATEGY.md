@@ -55,10 +55,11 @@ Use a fixed Windows 11 x64 baseline of at least 4 vCPU, 8 GB RAM and SSD-equival
 | Gate | Mandatory evidence |
 |---|---|
 | Task 05 | Spike reports support every accepted ADR and unresolved risk is explicit |
-| Task 15 | Inventory coverage, no `Win32_Product`, local-only/no elevation, persistence/clear-scan and local performance |
-| Task 20 | Version/matching matrix, zero false-positive actionability, cache freshness and source isolation |
-| Task 25 | Runner/helper/deletion negative suites, verification semantics and approved isolated-environment evidence |
-| Task 31 | All acceptance criteria, performance raw data, packaging lifecycle, SBOM/scans and residual-risk acceptance |
+| Task 14A → Task 15 | Inventory coverage, no `Win32_Product`, local-only/no elevation, persistence/clear-scan and local performance, first assembled in `PHASE_1_EVIDENCE_READINESS.md` |
+| Task 19A → Task 20 | Version/matching matrix, zero false-positive actionability, cache freshness and source isolation, first assembled in `PHASE_2_EVIDENCE_READINESS.md` |
+| Task 24A → Task 25 | Runner/helper/deletion negative suites, verification semantics and approved isolated-environment evidence, first assembled in `PHASE_3_EVIDENCE_READINESS.md` |
+| Task 26A → Task 27 | Reset manifest inputs, owned-root/state inventory, active-work locks and hostile-path evidence, first assembled in `FACTORY_RESET_DESIGN_EVIDENCE_READINESS.md` |
+| Task 30A → Task 31 | All acceptance criteria, performance raw data, packaging lifecycle, SBOM/scans and residual-risk acceptance, first assembled in `FINAL_RELEASE_EVIDENCE_READINESS.md` |
 
 ## Tooling guardrails
 

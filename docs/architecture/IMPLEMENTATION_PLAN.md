@@ -14,19 +14,19 @@ Current environment blockers affect native build/package proof but not scaffoldi
 
 ## Phase 1 — inventory vertical slice
 
-Tasks 07–14 implement SQLite/stable decisions, registry/AppX/WinGet inventory, conservative identity/deduplication, orchestration/performance, UI, export and transactional Clear scan data. Task 15 independently gates coverage, privacy, no elevation/`Win32_Product`, cancellation, last-known-good and performance.
+Tasks 07–14 implement SQLite/stable decisions, registry/AppX/WinGet inventory, conservative identity/deduplication, orchestration/performance, UI, export and transactional Clear scan data. Task 14A assembles criterion-level evidence before Task 15 independently gates coverage, privacy, no elevation/`Win32_Product`, cancellation, last-known-good and performance.
 
 ## Phase 2 — update intelligence
 
-Tasks 16–19 implement version semantics, deterministic matching, WinGet source cache/freshness and user decisions/UX. Task 20 gates zero executable false positives. Optional Task 18B is permitted only after the first successful gate and requires the gate to repeat.
+Tasks 16–19 implement version semantics, deterministic matching, WinGet source cache/freshness and user decisions/UX. Task 19A assembles criterion-level evidence before Task 20 gates zero executable false positives. Optional Task 18B is permitted only after the first successful gate and requires the evidence task and Task 20 to repeat.
 
 ## Phase 3 — safe execution
 
-Task 21 creates immutable jobs and the constrained non-elevated runner. Task 22 adds the independently bounded helper/IPC. Task 23 adds sequential batches and post-update truth. Task 24 adds owned-artifact lifecycle and safe cleanup. Task 25 is an independent Extra High security gate; any execution, privilege, deletion or false-success defect blocks progression.
+Task 21 creates immutable jobs and the constrained non-elevated runner. Task 22 adds the independently bounded helper/IPC. Task 23 adds sequential batches and post-update truth. Task 24 adds owned-artifact lifecycle and safe cleanup. Task 24A assembles criterion-level security evidence before Task 25, an independent Extra High security gate; any execution, privilege, deletion or false-success defect blocks progression.
 
 ## Phase 4 — beta
 
-Task 26 adds scan-only scheduling/notifications. Task 27 locks reset design from actual handles/state. Task 28 implements data controls/reset. Task 29 measures and hardens accessibility/reliability/performance. Task 30 produces packaging/SBOM/release evidence. Task 31 independently determines READY/NOT READY.
+Task 26 adds scan-only scheduling/notifications. Task 26A assembles evidence before Task 27 locks reset design from actual handles/state. Task 28 implements data controls/reset. Task 29 measures and hardens accessibility/reliability/performance. Task 30 produces packaging/SBOM/release evidence. Task 30A assembles final criterion-level evidence before Task 31 independently determines READY/NOT READY.
 
 ## Decision-to-evidence map
 

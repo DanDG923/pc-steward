@@ -10,7 +10,8 @@ Execute only immutable, user-approved WinGet operations through constrained runn
 2. **Task 22:** Short-lived elevated helper and secure IPC
 3. **Task 23:** Sequential batches, post-update verification, history, and diagnostics
 4. **Task 24:** Downloaded-artifact cache and safe cleanup
-5. **Task 25:** Phase 3 security review gate
+5. **Task 24A:** Prepare Phase 3 security-review evidence
+6. **Task 25:** Phase 3 security review gate
 
 ## Exit condition
 
