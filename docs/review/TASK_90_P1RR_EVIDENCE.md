@@ -17,6 +17,13 @@
 - A restart loaded the persisted result and presented `Cached Windows-local inventory plus approved WinGet installed inventory`, demonstrating successful promotion and restart recovery.
 - Initial post-scan UI projection was CPU-bound. The workflow had already committed the scan; `LoadInventory` was changed from per-product whole-instance scans to a single grouped lookup. After rebuild/restart the cached inventory loaded immediately.
 
+## Follow-up idle measurement (2026-07-28)
+
+- Build: `f14f87f879e6b33d14ea7313bc63f4efe1772018`; process id 36508.
+- Interval: 2026-07-28T12:50:27.2481478Z–2026-07-28T12:55:55.5411173Z (5m 28s).
+- CPU: 89.453125 to 89.984375 seconds (0.53125 CPU-seconds over the interval); working set: 209,887,232 to 202,076,160 bytes (-7,811,072 bytes); threads: 57 to 57; process responsiveness: true at both captures.
+- The desktop-control layer timed out during the next interactive scan input and then returned an inconsistent window screenshot. No further UI input was issued, and no result from that input is claimed.
+
 ## Remaining mandatory-evidence limit
 
 One final-app approved scan and restart were recorded. Thirty retained final-app raw samples, five-minute idle/process-tree telemetry, full keyboard cancel timing, scaling exercise and intentional termination staging were not completed in this task. They remain requirements for the fresh Task 15 gate and are not claimed as passed here.
