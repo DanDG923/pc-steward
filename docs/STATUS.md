@@ -109,7 +109,7 @@ FRESH REPEAT FAIL — six findings: four High and two Medium. Persisted state ca
 
 ## Task 90 result
 
-P1RR-01–06 remediation is implemented: WinGet consent fails closed, timeout recovery contains late faults and blocks replacements, typed diagnostics and presentation boundaries are guarded, and filters persist. A physical Windows 11 baseline, approved WinGet scan and restart were recorded in `docs/review/TASK_90_P1RR_EVIDENCE.md`. Thirty final-app samples, idle/process-tree telemetry, cancellation/scaling and termination staging remain unproven.
+P1RR-01–06 remediation is implemented: WinGet consent fails closed, timeout recovery contains late faults and blocks replacements, typed diagnostics and presentation boundaries are guarded, and filters persist. A physical Windows 11 baseline, approved WinGet scan, restart and thirty final-app samples were recorded in `docs/review/TASK_90_P1RR_EVIDENCE.md`. The five-minute CPU result is a user-approved temporary exception for this gate and must be revisited in a later build; it is not accepted as performance compliance. Cancellation/scaling and active-scan termination staging remain unproven.
 ## Next task
 
 Finish Task 90 verification/commit with GPT-5.6 Terra / High, then repeat Task 15 in fresh GPT-5.6 Sol / High.
