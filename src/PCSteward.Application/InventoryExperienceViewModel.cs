@@ -58,6 +58,7 @@ public sealed class InventoryExperienceViewModel
 
     public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; }
     public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? "Local-only scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
+    public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = "No scan data — ready for a local-only scan"; }
 
     private void ApplyFilters()
     {

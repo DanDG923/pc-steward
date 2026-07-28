@@ -35,6 +35,33 @@ public sealed class SqliteDatabaseTests
         Assert.AreEqual(decision.Value, decisions.Single().Value);
     }
 
+    [TestMethod]
+    public async Task ClearScanDataIsTransactionalIdempotentAndPreservesDecisionsHistoryMappingsAndArtifacts()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct product = new(Guid.NewGuid(), "winget:contoso.widget", "Contoso Widget");
+        await database.Store.PromoteAsync([product], [new InstallationInstance(Guid.NewGuid(), product.Id, "registry", "contoso-widget", "1.0", "User", "x64")], CancellationToken.None);
+        await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), product.StableKey, "Pin", "1.0", DateTimeOffset.UtcNow), CancellationToken.None);
+        await database.Store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), product.StableKey, "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
+        await database.Store.SaveUpdateJobAsync(new UpdateJobRecord(Guid.NewGuid(), "winget", "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
+        await database.Store.SaveDownloadedArtifactAsync(new DownloadedArtifact(Guid.NewGuid(), "update", "payload.bin", 512, DateTimeOffset.UtcNow), CancellationToken.None);
+
+        ClearScanDataResult first = await database.Store.ClearScanDataAsync(CancellationToken.None);
+        ClearScanDataResult second = await database.Store.ClearScanDataAsync(CancellationToken.None);
+        ScanDataSummary summary = await database.Store.GetScanDataSummaryAsync(CancellationToken.None);
+        (int jobs, int artifacts, int decisions, int mappings) = await database.Store.GetPreservedDataCountsAsync(CancellationToken.None);
+
+        Assert.IsTrue(first.Succeeded);
+        Assert.IsTrue(second.Succeeded);
+        Assert.AreEqual(0, (await database.Store.GetLastKnownGoodProductsAsync(CancellationToken.None)).Count);
+        Assert.AreEqual(0, summary.ItemCount);
+        Assert.IsNotNull(summary.LastClearedAt);
+        Assert.AreEqual((1, 1, 1, 1), (jobs, artifacts, decisions, mappings));
+
+        await database.Store.PromoteAsync([product], [], CancellationToken.None);
+        Assert.HasCount(1, await database.Store.GetForProductAsync(product.StableKey, CancellationToken.None));
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;

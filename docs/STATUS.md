@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 13 — App shell, onboarding, and inventory experience (complete)
+**Current task:** 14 — Exports and Clear scan data (complete)
 **Last green commit:** `43c822b`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -99,9 +99,13 @@ PASS WITH PERFORMANCE LIMITATION — exclusive cancellable local scan orchestrat
 
 PASS WITH MANUAL-EXERCISE LIMITATION — local-only onboarding, connector trust/toggles, registry-backed scan shell, progress/cancel state, searchable inventory and provenance details added. Build and 20 tests passed. The launched desktop UI exposed all expected controls to accessibility inspection; the automation harness did not activate the scan button, so interactive completion requires a clean local manual retest.
 
+## Task 14 result
+
+PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warning; optional JSON update history is schema-stable and empty until Phase 3. The Data & reset page has a confirmed, non-elevated Clear scan data action, scan lockout, current metadata and distinct future controls. SQLite clearing is transactional and idempotent, preserves decisions/mappings/history/artifacts, and returns the dashboard to no-scan. Build and 24 tests passed.
+
 ## Next task
 
-Run `prompts/14_EXPORTS_AND_CLEAR_SCAN_DATA.md`. Required model/reasoning: GPT-5.6 Terra / High.
+Run `prompts/15_PHASE_1_REVIEW_GATE.md`. Required model/reasoning: GPT-5.6 Sol / High.
 
 ## Rules for updating this file
 

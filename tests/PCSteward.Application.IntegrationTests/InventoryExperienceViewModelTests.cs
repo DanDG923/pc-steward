@@ -39,4 +39,16 @@ public sealed class InventoryExperienceViewModelTests
         StringAssert.Contains(viewModel.ScanPhase, "Local-only");
         StringAssert.Contains(viewModel.FreshnessLabel, "Local-only");
     }
+
+    [TestMethod]
+    public void ClearScanDataReturnsDashboardToNoScanState()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        viewModel.LoadInventory([new CanonicalProduct(Guid.NewGuid(), "alpha", "Alpha Tool")], []);
+        viewModel.CompleteScan(new ScanResult(Guid.NewGuid(), true, false, new Dictionary<string, TimeSpan>(), []), DateTimeOffset.UtcNow);
+        viewModel.ClearScanData();
+        Assert.HasCount(0, viewModel.VisibleRows);
+        StringAssert.Contains(viewModel.FreshnessLabel, "No scan yet");
+        StringAssert.Contains(viewModel.ScanPhase, "No scan data");
+    }
 }
