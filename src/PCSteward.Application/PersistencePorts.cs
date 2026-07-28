@@ -25,6 +25,17 @@ public interface IStableDecisionStore
     Task<IReadOnlyCollection<StableDecision>> GetForProductAsync(string stableProductKey, CancellationToken cancellationToken);
 }
 
+/// <summary>Stable user choices are independent from disposable scan data and are never execution authority.</summary>
+public interface IUserDecisionStore : IStableDecisionStore
+{
+    Task<IReadOnlyCollection<StableDecision>> GetAllAsync(CancellationToken cancellationToken);
+    Task DeleteAsync(Guid decisionId, CancellationToken cancellationToken);
+    Task SaveManualMappingAsync(ManualMapping mapping, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken);
+    Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken);
+}
+
 public interface ISourceSnapshotStore
 {
     Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken);

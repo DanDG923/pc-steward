@@ -34,13 +34,6 @@
 | App-owned artifact roots | Accepted | ADR-019 |
 | Scheduling without resident process | Accepted | ADR-020 |
 
-## Planned spike order
-
-1. Task 02 — packaging and WinGet evidence for OD-02/03.
-2. Task 03 — privilege boundary and safe-deletion evidence for OD-13.
-3. Task 04 — performance baseline/fixture evidence for OD-06 and inputs to OD-05/11.
-4. Task 05 — review evidence and lock, defer or reject every proposed ADR.
-
 ## Active blockers
 
 Task 00 recorded a Windows-version discrepancy that must be reconciled on a supported Windows 11 x64 test environment. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; symbolic-link, volume-mount and concurrent ancestor-swap evidence remains required on an isolated disposable test environment. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
@@ -110,9 +103,13 @@ PASS — pure deterministic product-to-package matching uses only exact identity
 ## Task 18 result
 
 PASS WITH FIXTURE-ONLY PERFORMANCE EVIDENCE — fixed WinGet/Store-only source connectors, bounded parser, source cache, explicit refresh/freshness states and deterministic non-executable update statuses are implemented. Healthy, stale, malformed, timeout, disagreement, compatibility and offline fixtures passed; no real source was contacted. The 20-run fixture online-check benchmark measured 15.40 ms median / 16.13 ms p95, but does not establish real-source performance or network-inspection evidence.
+
+## Task 19 result
+
+PASS — durable pins, ignores (including expiry), optional reasons, exact connector-supplied manual-mapping validation, reversal and decision reapplication were added outside disposable scan data. The UI model/details expose update counts, attention, freshness, metadata and disabled-action explanations; desktop supports pin/ignore and a unified reversible decision list without any update execution action. Build and focused 36 domain / 42 application tests passed.
 ## Next task
 
-Run Task 19 in a fresh GPT-5.6 Terra / High chat.
+Run Task 20 in a fresh GPT-5.6 Sol / High chat.
 
 ## Rules for updating this file
 

@@ -23,7 +23,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         ILocalInventoryProvider? evidenceDelay = EvidenceDelayInventoryProvider.FromEnvironment();
         if (evidenceDelay is not null) providers.Add(evidenceDelay);
         providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
-        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink());
+        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database);
         MainWindow window = new(workflow, viewModel);
         window.Activate();
     }

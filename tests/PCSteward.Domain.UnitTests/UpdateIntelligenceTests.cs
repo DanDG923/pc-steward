@@ -29,6 +29,14 @@ public sealed class UpdateIntelligenceTests
         Assert.HasCount(1, result.AttentionNeeded);
     }
 
+    [TestMethod]
+    public void ExpiredIgnoreIsReappliedAsNormalSafeMatchingRatherThanRemainingHidden()
+    {
+        ProductMatchProfile product = Product("expired", "Contoso.Expired", "1.0.0");
+        UpdateIntelligenceSummary result = UpdateIntelligence.Assess([product], [Source([Package("Contoso.Expired", "1.1.0")])], policies: new Dictionary<string, ProductUpdatePolicy> { [product.StableProductKey] = new(false, true, null, DateTimeOffset.UtcNow.AddMinutes(-1)) });
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, result.Items.Single().Status);
+    }
+
     private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel);
     private static SourcePackageRecord Package(string id, string version, string architecture = "x64") => new("winget", id, id, "Contoso", "1.0.0", version, "Machine", architecture, "Stable");
     private static SourceSnapshot Source(IReadOnlyCollection<SourcePackageRecord> packages) => new("winget", "v1.0", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []);

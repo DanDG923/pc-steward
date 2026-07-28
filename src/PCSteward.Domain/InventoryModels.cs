@@ -17,7 +17,8 @@ public sealed record InstallationInstance(
 public sealed record RawProviderRecord(Guid Id, Guid ScanRunId, string Provider, string RecordKey, string Payload);
 public sealed record ScanRun(Guid Id, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string Status, Guid CorrelationId);
 public sealed record ScanProviderTiming(Guid Id, Guid ScanRunId, string Provider, TimeSpan Duration, string? Warning);
-public sealed record StableDecision(Guid Id, string StableProductKey, string Kind, string Value, DateTimeOffset CreatedAt);
-public sealed record ManualMapping(Guid Id, string StableProductKey, string SourceId, string PackageId, DateTimeOffset CreatedAt);
+public sealed record StableDecision(Guid Id, string StableProductKey, string Kind, string Value, DateTimeOffset CreatedAt, string? Reason = null, DateTimeOffset? ExpiresAt = null);
+public sealed record ManualMapping(Guid Id, string StableProductKey, string SourceId, string PackageId, DateTimeOffset CreatedAt, string? Reason = null);
+public sealed record ProductTimelineEntry(DateTimeOffset OccurredAt, string Kind, string Summary, string? Reason = null);
 public sealed record UpdateJobRecord(Guid Id, string Provider, string SourceId, string PackageId, DateTimeOffset CreatedAt);
 public sealed record DownloadedArtifact(Guid Id, string Category, string RelativePath, long SizeBytes, DateTimeOffset CreatedAt);

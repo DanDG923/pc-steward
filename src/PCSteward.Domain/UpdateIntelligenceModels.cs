@@ -40,7 +40,10 @@ public enum UpdateIntelligenceStatus
     FailedUnavailable
 }
 
-public sealed record ProductUpdatePolicy(bool IsPinned = false, bool IsIgnored = false);
+public sealed record ProductUpdatePolicy(bool IsPinned = false, bool IsIgnored = false, string? PinDescription = null, DateTimeOffset? IgnoreUntil = null)
+{
+    public bool IsIgnoreActive(DateTimeOffset now) => IsIgnored && (IgnoreUntil is null || IgnoreUntil > now);
+}
 
 public sealed record UpdateIntelligenceItem(
     string StableProductKey,

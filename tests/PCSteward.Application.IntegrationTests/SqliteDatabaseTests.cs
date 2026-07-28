@@ -36,6 +36,18 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task DecisionReasonsExpiryMappingsAndReversalPersistOutsideScanData()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); DateTimeOffset expiry = DateTimeOffset.UtcNow.AddDays(1);
+        StableDecision decision = new(Guid.NewGuid(), "winget:contoso.widget", "Ignore", "until", DateTimeOffset.UtcNow, "Busy", expiry);
+        await database.Store.SaveAsync(decision, CancellationToken.None); await database.Store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), decision.StableProductKey, "winget", "Contoso.Widget", DateTimeOffset.UtcNow, "exact package"), CancellationToken.None);
+        StableDecision restored = (await database.Store.GetAllAsync(CancellationToken.None)).Single(); ManualMapping mapping = (await database.Store.GetManualMappingsAsync(CancellationToken.None)).Single();
+        Assert.AreEqual("Busy", restored.Reason); Assert.AreEqual(expiry, restored.ExpiresAt); Assert.AreEqual("exact package", mapping.Reason); Assert.HasCount(1, await database.Store.GetTimelineAsync(decision.StableProductKey, CancellationToken.None));
+        await database.Store.DeleteAsync(decision.Id, CancellationToken.None); await database.Store.DeleteManualMappingAsync(mapping.Id, CancellationToken.None);
+        Assert.HasCount(0, await database.Store.GetAllAsync(CancellationToken.None)); Assert.HasCount(0, await database.Store.GetManualMappingsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ClearScanDataIsTransactionalIdempotentAndPreservesDecisionsHistoryMappingsAndArtifacts()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

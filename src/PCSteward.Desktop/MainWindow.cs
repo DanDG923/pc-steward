@@ -17,6 +17,7 @@ public sealed class MainWindow : Window
     private readonly InventoryExperienceViewModel viewModel;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
+    private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
     private bool isClearing;
 
     public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel)
@@ -29,6 +30,7 @@ public sealed class MainWindow : Window
         InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
         foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
         viewModel.LoadInventory(dashboard.Products, dashboard.Instances, dashboard.LastCompletedAt); scanData = dashboard.ScanData;
+        activeDecisions = workflow.GetActiveDecisionsAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
     private void Render()
@@ -65,6 +67,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(search); panel.Children.Add(status); panel.Children.Add(publisher); panel.Children.Add(source); panel.Children.Add(scope); panel.Children.Add(sort);
         list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem); panel.Children.Add(list); RenderInventory(list);
         panel.Children.Add(new TextBlock { Text = viewModel.IsWinGetEnabled ? "WinGet installed-inventory collection is enabled after explicit approval. No update execution is available in this phase." : "Inventory records are local-only. Live/cached source checks are not available in this phase.", TextWrapping = TextWrapping.Wrap });
+        AddDecisionsSection(panel);
         AddDataAndResetSection(panel); Content = new ScrollViewer { Content = panel };
     }
 
@@ -104,6 +107,16 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = "Future controls", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] }); panel.Children.Add(new TextBlock { Text = "Clear downloaded files and Factory reset are not available yet. Factory reset will have its own two-step confirmation and will remove settings and stored decisions; routine cleanup above will not.", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(new Button { Content = "Clear downloaded files (available in a later phase)", IsEnabled = false }); panel.Children.Add(new Button { Content = "Factory reset PC Steward (available in a later phase)", IsEnabled = false });
     }
 
+    private void AddDecisionsSection(StackPanel panel)
+    {
+        panel.Children.Add(new TextBlock { Text = "Update decisions", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = activeDecisions.Count == 0 ? "No active pins or ignores. Decisions are optional, reversible, and do not enable updates." : "Active decisions are listed below. Remove a decision to reapply normal review rules on the next source check.", TextWrapping = TextWrapping.Wrap });
+        foreach (PCSteward.Domain.StableDecision decision in activeDecisions)
+        {
+            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"{decision.Kind}: {decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" — {decision.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, $"Remove {decision.Kind} decision"); remove.Click += async (_, _) => { await workflow.ReverseDecisionAsync(decision.Id, CancellationToken.None); LoadSavedInventory(); Render(); }; row.Children.Add(remove); panel.Children.Add(row);
+        }
+    }
+
     private async Task SaveExportAsync(bool json) { InventoryExport export = await workflow.CreateExportAsync(json, CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); }
 
     private async Task ConfirmAndClearScanDataAsync()
@@ -114,7 +127,8 @@ public sealed class MainWindow : Window
 
     private async Task ShowDetailsAsync(InventoryRow row)
     {
-        string instances = string.Join("\n", row.Instances.Select(instance => $"{instance.Provider}: {instance.ProviderIdentity}; {instance.Version ?? "unknown version"}; {instance.Scope}; {instance.Architecture}; publisher {instance.Publisher ?? "unknown"}; {instance.Classification}"));
-        IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> raw = await workflow.GetRawDiagnosticsAsync(row.ProductId, CancellationToken.None); ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = $"Installed instances and provider provenance:\n{instances}\n\nBounded raw diagnostic records: {raw.Count}. Update candidate data is not available in Phase 1.", CloseButtonText = "Close" }; await dialog.ShowAsync();
+        string instances = string.Join("\n", row.Instances.Select(instance => $"{instance.Provider}: {instance.ProviderIdentity}; {instance.Version ?? "unknown version"}; {instance.Scope}; {instance.Architecture}; channel {instance.Channel ?? "unknown"}; publisher {instance.Publisher ?? "unknown"}; {instance.Classification}"));
+        IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> raw = await workflow.GetRawDiagnosticsAsync(row.ProductId, CancellationToken.None); PCSteward.Application.UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey); string intelligence = detail is null ? "No source candidate has been loaded. A source check is required before mapping or update review." : $"Installed {detail.InstalledVersion}; candidate {detail.CandidateVersion ?? "none"}; source {detail.SourceId ?? "none"}; stable package ID {detail.PackageId ?? "none"}; confidence {detail.Confidence}; architecture {detail.Architecture}; channel {detail.Channel ?? "unknown"}.\n{detail.Explanation}\nFreshness: {detail.Freshness}\n{detail.ActionState}";
+        ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = $"Installed instances and provider provenance:\n{instances}\n\nUpdate intelligence:\n{intelligence}\n\nBounded raw diagnostic records: {raw.Count}.", PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore indefinitely", CloseButtonText = "Close" }; ContentDialogResult result = await dialog.ShowAsync(); if (result == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, null, CancellationToken.None); else if (result == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, null, null, CancellationToken.None); if (result != ContentDialogResult.None) { LoadSavedInventory(); Render(); }
     }
 }

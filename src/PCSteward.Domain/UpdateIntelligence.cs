@@ -18,8 +18,8 @@ public static class UpdateIntelligence
         foreach (ProductMatchProfile product in products.OrderBy(product => product.StableProductKey, StringComparer.Ordinal))
         {
             ProductUpdatePolicy policy = policies?.GetValueOrDefault(product.StableProductKey) ?? new();
-            if (policy.IsIgnored) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Ignored, null, "The product is ignored by a recorded user decision.")); continue; }
-            if (policy.IsPinned) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Pinned, null, "The product is pinned by a recorded user decision.")); continue; }
+            if (policy.IsIgnoreActive(DateTimeOffset.UtcNow)) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Ignored, null, policy.IgnoreUntil is null ? "The product is ignored indefinitely by a recorded user decision." : $"The product is ignored until {policy.IgnoreUntil.Value:O} by a recorded user decision.")); continue; }
+            if (policy.IsPinned) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Pinned, null, policy.PinDescription ?? "The product is pinned by a recorded user decision.")); continue; }
             PackageMatchCandidate[] candidates = snapshots.Where(source => source.State is SourceSnapshotState.Live or SourceSnapshotState.Cached).SelectMany(source => source.Packages).Select(package => new PackageMatchCandidate(package.SourceId, package.PackageId, package.DisplayName, null, null, package.Publisher, package.AvailableVersion, package.Scope, package.Architecture, package.Channel, true, package.ProviderSuppliedStableProductKey, package.RequiresConnectorSpecificVersionSemantics)).ToArray();
             if (candidates.Length == 0 && snapshots.Any(source => source.State == SourceSnapshotState.Unavailable))
             {

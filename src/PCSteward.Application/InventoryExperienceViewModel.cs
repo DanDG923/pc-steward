@@ -4,7 +4,8 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record ConnectorOption(string Name, string TrustCategory, bool IsEssential, bool IsEnabled);
-public sealed record InventoryRow(Guid ProductId, string Name, string Publisher, string Provider, string Scope, string Version, string Status, string Classification, IReadOnlyCollection<InstallationInstance> Instances);
+public sealed record InventoryRow(Guid ProductId, string Name, string Publisher, string Provider, string Scope, string Version, string Status, string Classification, IReadOnlyCollection<InstallationInstance> Instances, string StableProductKey = "");
+public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons);
 
 /// <summary>Presentation-only state for the local inventory journey. It contains no provider commands or trust decisions.</summary>
 public sealed class InventoryExperienceViewModel
@@ -34,6 +35,7 @@ public sealed class InventoryExperienceViewModel
     public DateTimeOffset? LastScanAt { get; private set; }
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
     public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
+    public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
     public string UpdateFreshnessLabel { get; private set; } = "Local-only — no enabled update source has been checked.";
     public bool IsWinGetEnabled => Connectors.Any(connector => connector.Name == "WinGet installed inventory" && connector.IsEnabled);
     public string ScanModeLabel => IsWinGetEnabled ? "Windows-local inventory plus approved WinGet installed inventory" : "Local-only Windows inventory";
@@ -61,7 +63,7 @@ public sealed class InventoryExperienceViewModel
         {
             InstallationInstance[] productInstances = instancesByProduct.GetValueOrDefault(product.Id, []);
             InstallationInstance? first = productInstances.FirstOrDefault();
-            allRows.Add(new InventoryRow(product.Id, product.DisplayName, first?.Publisher ?? "Unknown", first?.Provider ?? "Unknown", first?.Scope ?? "Unknown", first?.Version ?? "Unknown", "Installed", first?.Classification ?? "Unknown", productInstances));
+            allRows.Add(new InventoryRow(product.Id, product.DisplayName, first?.Publisher ?? "Unknown", first?.Provider ?? "Unknown", first?.Scope ?? "Unknown", first?.Version ?? "Unknown", "Installed", first?.Classification ?? "Unknown", productInstances, product.StableKey));
         }
         LastScanAt = lastScanAt; ScanPhase = lastScanAt is null ? $"Ready for a {ScanModeLabel}" : $"Cached {ScanModeLabel}"; ApplyFilters();
     }
@@ -72,11 +74,15 @@ public sealed class InventoryExperienceViewModel
     public void LoadUpdateIntelligence(UpdateIntelligenceSummary summary)
     {
         ArgumentNullException.ThrowIfNull(summary); UpdateStatusCounts = summary.Counts; AttentionNeeded = summary.AttentionNeeded;
+        Dictionary<string, UpdateIntelligenceItem> items = summary.Items.ToDictionary(item => item.StableProductKey, StringComparer.Ordinal);
+        for (int index = 0; index < allRows.Count; index++) if (items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item)) allRows[index] = allRows[index] with { Status = item.Status.ToString() };
         SourceSnapshot? source = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).FirstOrDefault();
         UpdateFreshnessLabel = source is null or { State: SourceSnapshotState.LocalOnly } ? "Local-only — no enabled update source has been checked."
             : source.State == SourceSnapshotState.Live ? $"Live source result — last successful refresh {source.LastSuccessAt:O}."
             : source.State == SourceSnapshotState.Cached ? $"Cached source result from {source.LastSuccessAt:O} — source data may be stale."
             : $"Source unavailable — last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : source.LastSuccessAt.Value.ToString("O"))}.";
+        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item => new UpdateDetail(item.StableProductKey, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Version ?? "Unknown", item.Mapping?.CandidateVersion, item.SourceId, item.Mapping?.PackageId, item.Mapping?.Confidence.ToString() ?? "None", item.Explanation, UpdateFreshnessLabel, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown", allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel, "Updates are not available in this phase; review the evidence and decision options.", item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? []), StringComparer.Ordinal);
+        ApplyFilters();
     }
 
     private void ApplyFilters()

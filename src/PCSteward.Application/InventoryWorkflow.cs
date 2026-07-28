@@ -13,10 +13,11 @@ public sealed class InventoryWorkflow : IDisposable
     private readonly IConnectorSettingsStore connectorSettings;
     private readonly InventoryScanOrchestrator orchestrator;
     private readonly InventoryExportService exports;
+    private readonly UserDecisionService? decisions;
 
-    public InventoryWorkflow(IInventorySnapshotStore snapshots, IScanDataStore scanData, IConnectorSettingsStore connectorSettings, IReadOnlyCollection<ILocalInventoryProvider> providers, IScanEventSink? events = null)
+    public InventoryWorkflow(IInventorySnapshotStore snapshots, IScanDataStore scanData, IConnectorSettingsStore connectorSettings, IReadOnlyCollection<ILocalInventoryProvider> providers, IScanEventSink? events = null, IUserDecisionStore? decisions = null)
     {
-        this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings; orchestrator = new InventoryScanOrchestrator(snapshots, providers, events); exports = new InventoryExportService(snapshots);
+        this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings; orchestrator = new InventoryScanOrchestrator(snapshots, providers, events); exports = new InventoryExportService(snapshots); this.decisions = decisions is null ? null : new UserDecisionService(decisions);
     }
 
     public async Task<InventoryDashboard> LoadAsync(IReadOnlyCollection<ConnectorOption> connectors, CancellationToken cancellationToken)
@@ -52,5 +53,11 @@ public sealed class InventoryWorkflow : IDisposable
         HashSet<(string Provider, string Identity)> keys = instances.Where(instance => instance.ProductId == productId).Select(instance => (instance.Provider, instance.ProviderIdentity)).ToHashSet();
         return (await snapshots.GetRawProviderRecordsAsync(cancellationToken)).Where(record => keys.Contains((record.Provider, record.RecordKey))).ToArray();
     }
+    public Task PinCurrentVersionAsync(string stableProductKey, string currentVersion, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinCurrentVersionAsync(stableProductKey, currentVersion, reason, cancellationToken);
+    public Task IgnoreAsync(string stableProductKey, DateTimeOffset? until, string? reason, CancellationToken cancellationToken) => RequiredDecisions().IgnoreAsync(stableProductKey, until, reason, cancellationToken);
+    public Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetActiveDecisionsAsync(cancellationToken);
+    public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => RequiredDecisions().ReverseDecisionAsync(decisionId, cancellationToken);
+    public Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken) => RequiredDecisions().GetTimelineAsync(stableProductKey, cancellationToken);
+    private UserDecisionService RequiredDecisions() => decisions ?? throw new InvalidOperationException("Stable user decisions are not configured for this workflow.");
     public void Dispose() => orchestrator.Dispose();
 }
