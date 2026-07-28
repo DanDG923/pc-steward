@@ -53,7 +53,7 @@ Keyboard text entry into the named Search control succeeded; the helper still di
 
 ## Evidence deliberately not claimed
 
-- `AC-DAT-04`: process-scoped connection metadata has been recorded; a fresh reviewer must determine whether this is sufficient versus a packet-level inspection.
+- `AC-DAT-04` gate passage: the event-based enabled/disabled evidence below now has the requested process attribution and loss status, but a fresh reviewer must make the independent gate determination.
 - `AC-UX-02`: keyboard text entry is verified but keyboard navigation/activation across all Phase 2 controls remains unproven.
 - ADR-003: real WinGet/Microsoft Store parser/capability behavior remains unproven.
 
@@ -61,7 +61,7 @@ Keyboard text entry into the named Search control succeeded; the helper still di
 
 ADR-021 classifies all `AC-UX-01–09` criteria as Optional — best effort. The existing accessibility implementation/evidence remains positive quality evidence, but incomplete keyboard navigation or accessibility evidence is not a Phase 2 gate failure.
 
-`AC-DAT-04` remains subject to independent fresh-review assessment of the approved process-scoped connection evidence. ADR-003 real-source parser/capability evidence remains unproven.
+`AC-DAT-04` remains subject to independent fresh-review assessment of the approved event-based production-composition evidence below. ADR-003 real-row parser evidence remains unproven.
 
 ## Repeated-review remediation — approved evidence complete
 
@@ -87,6 +87,14 @@ The product owner approved two read-only `WingetUpdateSourceConnector` calls, on
 
 This exercises the real fixed-argument connector, its process boundary, and its parser/capability path for ADR-003. It records no package identifiers, names, versions, listing text, or payload.
 
+### Follow-up approved WinGet row probe — 2026-07-28
+
+After explicit approval to disclose installed-package metadata to the fixed WinGet source, one further read-only `winget.exe upgrade --source winget --disable-interactivity` query completed with exit code **0** in **1,542.32 ms**. It produced **zero** parser-table rows. The reducer retained only that row count and no package identifier, name, version, listing text, or payload. This reconfirms that this host cannot supply the required real-row evidence; it does not satisfy ADR-003's real-row requirement.
+
+A second, still read-only probe added WinGet's `--include-unknown` flag to surface entries that the default listing may omit. It also completed with exit code **0** in **1,100.61 ms** and yielded **zero** parser-table rows. It retained only the fixed source, fixed arguments, timing, exit code, and row count. The two different WinGet-only probes are therefore insufficient; see `docs/failures/90-phase2-real-row-evidence.md` for the blocked handoff.
+
+After separate explicit approval for the Microsoft Store destination, `winget.exe upgrade --source msstore --disable-interactivity` completed with exit code **0** in **1,064.09 ms** and also yielded **zero** parser-table rows. It retained only the fixed source, fixed arguments, timing, exit code, and row count. No default-source row exists on this controlled host; a sanitized capture from another controlled host remains necessary.
+
 ### Approved process-scoped connection observation — 2026-07-28
 
 The product owner also approved one direct fixed source check per source for `AC-DAT-04`. Each process used exactly `winget.exe upgrade --source <winget|msstore> --disable-interactivity`; stdout and stderr were asynchronously drained to the null stream. The observer retained only source, process ID, UTC interval, exit code, elapsed time, and established remote IP/port.
@@ -111,3 +119,31 @@ The product owner approved a temporary metadata-only trace. In the Release deskt
 `netsh trace` ran with `capture=no`, so packet capture was disabled. The broad InternetClient session was too noisy to provide trustworthy process attribution. A narrow TCP endpoint/process-ID plus kernel-process provider session failed with Windows error 5 because this session lacks a Windows-administrator token. A separate 15-second process-start monitor, restricted to PC Steward/WinGet process name, parent/child ID, and timestamp, did not start successfully. Temporary ETW and CSV files were deleted after aggregate analysis; no raw events, payloads, package listings, or identifiers were retained.
 
 This attempt confirms the production UI control transitions but does not close `AC-DAT-04`. Re-run the metadata-only trace under a controlled Windows-administrator token or equivalent approved endpoint instrumentation that can emit process-attributed connection records and dropped-event status.
+
+### Approved elevated event-based production-composition trace — 2026-07-28
+
+The product owner approved a temporary event-based production network trace retaining metadata only. A UAC-elevated `logman` controller ran for **79 seconds**, from **17:27:05.431Z** to **17:28:24.875Z**, with a 64 MB circular cap. It enabled:
+
+- `Microsoft-Windows-Kernel-Process` process events (`0x10`);
+- `Microsoft-Windows-TCPIP` endpoint, process-ID hint, connect, close, remote-endpoint, address, summary and dropped-event metadata (`0x0000291400008601`).
+
+Packet capture was not enabled. TCP packet, send-path, receive-path and payload keywords were not enabled. The retained reduction contains no package identifiers, package listings, command output, packet contents or payload data.
+
+| Production segment | UI evidence | Event evidence |
+|---|---|---|
+| Disabled / Local-only | Both WinGet disclosures were unchecked; **Check approved update sources** was disabled; local-only scan completed at **17:27:18.181Z**. | PC Steward PID **44124** emitted no remote-endpoint event, and no WinGet process started before explicit approval. |
+| Explicitly enabled | The product owner manually enabled **WinGet package sources** and ran the production source check. | Starting at **17:27:52.253Z**, four WinGet children were attributed to PC Steward PID 44124. |
+| Restored Local-only | The product owner unchecked **WinGet package sources** after completion. Both WinGet disclosures were unchecked, the source-check button was disabled, and the UI again stated that inventory was Local-only. | The UI retained the completed source result: Winget live at **17:27:55.184Z** and Store unavailable. No connector remained enabled. |
+
+All four child start events reported medium integrity (`S-1-16-8192`) and `ProcessTokenIsElevated=0`.
+
+| WinGet PID | Parent PID | UTC lifetime | Exit | Successful remote endpoint event |
+|---:|---:|---|---:|---|
+| 47260 | 44124 | 17:27:52.253–17:27:52.392 | 0 | None; short capability process. |
+| 37364 | 44124 | 17:27:52.302–17:27:52.417 | 0 | None; short capability process. |
+| 40940 | 44124 | 17:27:52.415–17:27:53.644 | 0 | `[2a02:26f0:fd00:1190::4106]:443` (`Status=0x0`). |
+| 25128 | 44124 | 17:27:52.438–17:27:55.172 | 0 | `[2603:1061:14:d6::1]:443` (`Status=0x0`). |
+
+The endpoint reducer observed three successful connect-completion events across those two unique TLS destinations and three subsequent close/cleanup events. It deliberately does not assign a source name to a PID because the selected process provider did not retain command lines; source-level outcome comes from the production UI.
+
+`tracerpt` processed **96 buffers** and **45,977 events** with **0 events lost**. The temporary ETL was 6,291,456 bytes. Raw ETL/XML, summary, marker, provider-list and controller files were deleted after this sanitized reduction was recorded. This supplies the event-based, process-attributed disabled-versus-enabled comparison requested by the fresh review; `AC-DAT-04` gate passage remains for that reviewer to decide.

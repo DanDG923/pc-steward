@@ -1,4 +1,4 @@
-# Task 90 — process-attributed network evidence blocked
+# Task 90 — process-attributed network evidence previously blocked
 
 ## Goal
 
@@ -26,6 +26,6 @@ Capture `AC-DAT-04` metadata only: process/parent PID, timestamp, destination ho
 
 The command sandbox can run `netsh trace` InternetClient sessions but does not provide a Windows-administrator token for the targeted process/TCP ETW providers. The background event-monitor launch is also unavailable under the current desktop/session boundary.
 
-## Required next action
+## Resolution
 
-Run the same metadata-only trace under a controlled Windows-administrator token or approved endpoint instrumentation. Do not capture packets, payloads, package listings, or package identifiers.
+On 2026-07-28, an explicitly elevated, bounded `logman` session successfully enabled only the Kernel-Process process keyword and TCP/IP endpoint/process/connect/close/address/summary/drop metadata keywords. The Release production UI completed the disabled local-only scan and the explicitly approved source check in one 79-second trace. Four non-elevated WinGet children were attributed to the PC Steward desktop parent; two source-check children emitted successful port-443 endpoint events; all four exited 0; tracer summary reported 45,977 events and zero lost events. The disclosure was revoked and Local-only restored before the trace stopped. Raw ETL/XML and temporary controller artifacts were deleted after reduction. See `docs/review/TASK_90_P2R_EVIDENCE.md`.

@@ -2,15 +2,15 @@
 
 **Phase:** Phase 2 — Update intelligence
 **Base commit:** `ea292b1033db5481656a7d49b64cf19772bfedcd`
-**Head commit:** `ce0cfaef28d5617a99e46307f9dbba0fbd8b588a`
+**Head commit:** `561143944178ca36581a52b3b437c1869f324a9b`
 **Reviewer model/effort:** GPT-5.6 Sol / High
 **Date:** 2026-07-28
 
 ## Gate result
 
-`FAIL`
+`PASS` — with the product-owner-approved ADR-003 real-row evidence exception recorded in the final retest below.
 
-Task 90 closes the six initial implementation findings in part, and all existing tests are green, but the repeated review found two new High safety defects. A WinGet-installed package ID is not bound to its installed source, so a same-ID package from the other trusted source becomes a High-confidence actionable mapping. The workflow also projects a multi-instance product through one arbitrarily preferred instance, allowing a candidate compatible with only that instance to remain actionable. Either result fails the zero-false-positive gate.
+The final retest closes `P2R-07`–`P2R-10`, accepts the elevated event-based production trace for `AC-DAT-04`, and finds no remaining actionable false positive, Blocker/High finding, or unproven mandatory Phase 2 acceptance criterion. The historical failures and remediations remain below for auditability.
 
 ## Evidence reviewed
 
@@ -67,3 +67,22 @@ Run Task 90 to remediate `P2R-07`–`P2R-10` and the missing mandatory evidence,
 `P2R-07`–`P2R-09` passed. `P2R-10` failed because a mapping marked with `SourceDisagreement` could be non-actionable yet still receive the `Current` status when its selected version compared Equal, excluding it from `AttentionNeeded`. The subsequent local remediation is not part of this review and requires a fresh review.
 
 The approved live calls verified fixed arguments, version/capability detection, and the no-upgrade path for both sources, but both produced zero candidates. `AC-DAT-04` still lacks an event-based, process-attributed disabled/local-only versus explicitly enabled production trace with no dropped events. ADR-003 still lacks a documented sanitized real update row that exercises production field and source-column validation. Focused review tests: **6 passed**; Release build: **0 warnings, 0 errors**; full suite: **94 passed**. Do not merge Phase 2 or begin Phase 3.
+
+## Final Task 20 retest — 2026-07-28
+
+**Base commit:** `ea292b1033db5481656a7d49b64cf19772bfedcd`
+**Head commit:** `561143944178ca36581a52b3b437c1869f324a9b`
+**Reviewer model/effort:** GPT-5.6 Sol / High
+**Gate result:** `PASS`
+
+No new actionable finding was identified. `P2R-07`–`P2R-10` are closed: exact installed-source identity is retained, conflicting installation targets fail closed, both source disclosures persist and fail closed on revocation, and source disagreement is always review-required even when the selected version compares Equal. The UI exposes no update-execution action.
+
+The approved elevated ETW evidence in `docs/review/TASK_90_P2R_EVIDENCE.md` is sufficient for `AC-DAT-04`: the disabled/local-only production segment started no WinGet process and emitted no PC Steward remote-endpoint event; the explicitly approved production source check produced process-attributed WinGet TLS endpoint events; the disclosures were revoked afterward; and the trace reported zero lost events.
+
+Focused review tests: **8 passed** — five Domain and three Application integration. Release build: **0 warnings, 0 errors**. Full Release suite: **95 passed** — Domain 41, Application integration 50, Architecture 3 and Security fixture 1. Fixture benchmark: 30 local runs at **2.13 ms median / 2.74 ms p95** and 20 two-source fixture refreshes at **15.39 ms median / 15.76 ms p95**. No live source was contacted by this retest.
+
+### Approved ADR-003 exception
+
+The product owner accepts deferral of ADR-003's sanitized real update-row and source-column evidence until Phase 3 because three approved read-only probes on this controlled host returned zero update rows and no update is currently available to exercise. ADR-003 remains **Provisional**; this exception does not claim real-row parsing is proven, does not make WinGet table output execution authority, and does not relax the fixed executable/source/argument, bounded-output, validation, or fail-closed controls. Capture the provenance-recorded sanitized row when an update is available during Phase 3 and reassess ADR-003 there.
+
+Phase 2 may proceed to branch integration. Begin Task 21 only after the Phase 2 branch is merged.
