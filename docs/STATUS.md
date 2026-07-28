@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 10 — WinGet installed-inventory provider (complete)
-**Last green commit:** `a800918` — Task 10 read-only WinGet inventory provider
+**Current task:** 11 — Normalization, install identity, and conservative deduplication (complete)
+**Last green commit:** Pending Task 11 commit
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -87,9 +87,13 @@ PASS — current-user MSIX/AppX catalog boundary added with package identity ret
 
 PASS WITH READ-ONLY INTEGRATION LIMITATION — fixed `winget.exe` plus `list --disable-interactivity` adapter, bounded parser and timeout/exit fixtures added. No source refresh, upgrade or installed-inventory probe was run; external metadata-disclosure approval remains required.
 
+## Task 11 result
+
+PASS — deterministic provider-identity fingerprints and conservative deduplication added. Raw provenance remains intact; scope, architecture, version, channel and near-name differences stay separately inspectable.
+
 ## Next task
 
-Run `prompts/11_NORMALIZATION_INSTALL_IDENTITY_AND_CONSERVATIVE_DEDUPLICATION.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
+Run `prompts/12_SCAN_ORCHESTRATION_CANCELLATION_TIMINGS_AND_PERFORMANCE_HARNESS.md`. Required model/reasoning: GPT-5.6 Terra / High.
 
 ## Rules for updating this file
 
