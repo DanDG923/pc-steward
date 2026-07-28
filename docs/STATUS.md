@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 90 — Phase 1 review remediation (complete; Task 15 repeat required)
-**Last green commit:** `29ad036`
+**Current task:** 15 — Phase 1 review gate repeat (FAIL)
+**Last green commit:** `4f0e0fc`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** Not run
+**Phase gate:** FAIL
 
 ## Decisions
 
@@ -105,14 +105,14 @@ PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warnin
 
 ## Task 15 result
 
-FAIL — seven findings: five High and two Medium. The composed desktop path omits MSIX/WinGet, normalization, raw records, scan runs/timings, provider timeouts, truthful connector/freshness behavior and final-application performance evidence. Run Task 90, then repeat Task 15.
+REPEAT FAIL — seven findings: five High and two Medium. Duplicate provider rows fail before deduplication; cancellation can orphan WinGet/provider work; clear data retains cached freshness; required UX/trust behavior and final-app performance/manual evidence remain incomplete. Run Task 90, then repeat Task 15.
 
 ## Task 90 result
 
 PASS WITH EVIDENCE LIMITATIONS — MSIX and opt-in fixed-argument WinGet composition, normalization, transactional raw/run/timing persistence, provider timeout isolation, cached freshness, connector selection and complete disposable-table size accounting added. The product workload ran 30 deterministic 300-record scans at 1.02 ms median/1.33 ms p95; it is not clean-VM, UI, idle or full-process-tree acceptance evidence. Repeat Task 15.
 ## Next task
 
-Run `prompts/15_PHASE_1_REVIEW_GATE.md`. Required model/reasoning: GPT-5.6 Sol / High.
+Run `prompts/90_REMEDIATE_A_PHASE_REVIEW.md`. Required model/reasoning: GPT-5.6 Terra / High.
 
 ## Rules for updating this file
 
