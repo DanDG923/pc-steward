@@ -1,12 +1,12 @@
 # PC Steward build status
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
-**Current task:** 03 — Privilege boundary and safe deletion spike (complete)
-**Last green commit:** `30d340c` — Task 03 privilege and deletion-boundary evidence
+**Current task:** 04 — Performance baseline and fixture matrix (complete)
+**Last green commit:** `908fd3b` — Task 04 performance baseline and fixture matrix
 **Current branch:** `phase/0-foundation`
 **Build command:** To be established by Task 06
 **Test command:** To be established by Task 06
-**Performance command:** To be established by Tasks 04 and 12
+**Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
 **Phase gate:** Not run
 
 ## Decisions
@@ -36,7 +36,7 @@
 
 ## Active blockers
 
-Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target, plus warnings for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; clean-VM symbolic-link, volume-mount and concurrent ancestor-swap evidence remains mandatory.
+Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target; Task 04's independent capture reports Windows 11 Home, so the discrepancy must be reconciled on a clean baseline VM. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; clean-VM symbolic-link, volume-mount and concurrent ancestor-swap evidence remains mandatory. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
 
 All OD-01–OD-13 decisions remain unresolved until their cited evidence and product-owner decisions are reviewed. No ADR is Accepted.
 
@@ -52,9 +52,13 @@ PASS WITH EVIDENCE LIMITATIONS — isolated capability/parser and shell-free com
 
 PASS WITH VM FOLLOW-UP — 42 disposable-root assertions passed for fixed-root/path validation, junction rejection, locked residuals, retry, idempotence, final-component swap mitigation and the authenticated no-op helper protocol. ADR-002, ADR-011 and ADR-013 remain Proposed; symbolic-link, volume-mount and ancestor-race VM evidence remains outstanding.
 
+## Task 04 result
+
+PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, redacted capture, 30 local and 20 simulated healthy-online raw samples, direct-worker CPU/working-set/cancellation/concurrency harness and OD-06 evidence update created. The spike’s 584.68 ms local p95, 1,764.93 ms simulated-online p95, 503.54 ms cancellation acknowledgement and observed concurrency of 3 are not final application compliance; clean-VM, fixed-power-plan, SSD-equivalent and real-source evidence remain outstanding.
+
 ## Next task
 
-Run `prompts/04_SPIKE_PERFORMANCE_BASELINE_AND_FIXTURE_MATRIX.md`. Required model/reasoning: GPT-5.6 Terra / High. Branch: `phase/0-foundation`.
+Run `prompts/05_LOCK_ADRS_AND_ARCHITECTURE.md`. Required model/reasoning: GPT-5.6 Sol / High. Branch: `phase/0-foundation`.
 
 ## Rules for updating this file
 
