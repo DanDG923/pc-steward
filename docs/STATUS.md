@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Update intelligence
 **Current task:** 19 — Manual decisions and update-intelligence UX pending
-**Last green commit:** `f11f11e`
+**Last green commit:** `b445283`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
