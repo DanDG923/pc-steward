@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 23 — awaiting GPT-5.6 Terra / High
-**Last green commit:** `9b51c19` — `feat: add short-lived elevated helper`
+**Current task:** 24 — awaiting GPT-5.6 Terra / High
+**Last green commit:** `5103218` — `feat: add batches, verification, history, and diagnostics`
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** IN PROGRESS — Task 22 passed
+**Phase gate:** IN PROGRESS — Task 23 passed
 
 ## Decisions
 
@@ -43,13 +43,13 @@ ADR-003 remains Provisional under the product-owner exception: capture a sanitiz
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
 
-## Task 22 result
+## Task 23 result
 
-Task 22 result: `PASS`. Analyzer verification passed. Focused suites: Security fixture 16 and Architecture 4 passed. Release build: zero warnings/errors; full suite: 120 passed. Negative fixtures cover replay, substitution, stale evidence, tampered-job integrity, malformed/overlong/duplicate IPC, path/bootstrap injection, privilege confusion, distinct denial/cancellation/timeout/crash outcomes, fixed machine arguments, sanitized result binding and local ACL/PID checks.
+Task 23 result: `PASS`. A typed sequential coordinator appends durable per-item queued/running/outcome history, preserves completed results on cancellation or recovery, and does not expose force-close authority. Provider exit zero reaches Success only after targeted re-inventory; absent proof is Restart required, Inconclusive or Verification failed. SQLite records product timelines, recovery and bounded retention; copyable JSON diagnostics redact credentials, paths and control characters. Focused suite: 22 passed. Release build: zero warnings/errors; full suite: 130 passed. No real application update or UAC prompt was run.
 
 ## Next task
 
-Run Task 23 — sequential batches, post-update verification, history and diagnostics — in a fresh GPT-5.6 Terra / High task. Stop before starting it under Sol.
+Run Task 24 — downloaded-artifact cache and safe cleanup — in a fresh GPT-5.6 Terra / High task. Stop before starting it under Sol.
 
 ## Rules for updating this file
 
