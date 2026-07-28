@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 09 — MSIX/AppX inventory provider (complete)
-**Last green commit:** Pending Task 09 commit
+**Current task:** 10 — WinGet installed-inventory provider (complete)
+**Last green commit:** Pending Task 10 commit
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -73,7 +73,7 @@ PASS — .NET 10 solution scaffold created with accepted capability boundaries, 
 
 ## Next task
 
-Run `prompts/10_WINGET_INSTALLED_INVENTORY_PROVIDER.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
+Run `prompts/11_NORMALIZATION_INSTALL_IDENTITY_AND_CONSERVATIVE_DEDUPLICATION.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
 
 ## Rules for updating this file
 
