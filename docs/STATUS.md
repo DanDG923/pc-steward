@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 11 — Normalization, install identity, and conservative deduplication (complete)
-**Last green commit:** Pending Task 11 commit
+**Current task:** 12 — Scan orchestration, cancellation, timings, and performance harness (complete)
+**Last green commit:** Pending Task 12 commit
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -91,9 +91,13 @@ PASS WITH READ-ONLY INTEGRATION LIMITATION — fixed `winget.exe` plus `list --d
 
 PASS — deterministic provider-identity fingerprints and conservative deduplication added. Raw provenance remains intact; scope, architecture, version, channel and near-name differences stay separately inspectable.
 
+## Task 12 result
+
+PASS WITH PERFORMANCE LIMITATION — exclusive cancellable local scan orchestration, provider isolation, timings and last-known-good publication semantics added. Build and 16 tests passed; the benchmark entry point ran but remains a scaffold, so UI/CPU/memory acceptance metrics are not yet measurable.
+
 ## Next task
 
-Run `prompts/12_SCAN_ORCHESTRATION_CANCELLATION_TIMINGS_AND_PERFORMANCE_HARNESS.md`. Required model/reasoning: GPT-5.6 Terra / High.
+Run `prompts/13_APP_SHELL_ONBOARDING_AND_INVENTORY_EXPERIENCE.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
 
 ## Rules for updating this file
 

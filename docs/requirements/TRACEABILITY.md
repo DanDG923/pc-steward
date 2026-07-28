@@ -16,6 +16,7 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 | 09 — MSIX/AppX inventory provider | `FR-INV-04`, `FR-INV-06`, `FR-INV-08`, `AC-INV-01/04/06/07` | Current-user package catalog boundary with retained identities, conservative framework/resource/system classification, warnings and fixtures. |
 | 10 — WinGet installed inventory | `FR-INV-05–06/08`, `AC-INV-01/04/05/06/07` | Read-only fixed-executable list adapter with bounded output, timeout/exit classification and safe parser fixtures; no source refresh or update command. |
 | 11 — normalization and conservative deduplication | `FR-INV-07/09`, `FR-ID-01`, `AC-INV-02`, `NFR-MNT-02` | Deterministic provider-identity fingerprints and fixture matrix preserve raw provenance while rejecting scope, architecture, version, channel and near-name over-grouping. |
+| 12 — scan orchestration and measurement | `FR-RSC-01–03/05`, `FR-HIS-01`, `NFR-REL-02`, `NFR-MNT-01/04`, `NFR-OBS-01–02`, `AC-NFR-03–04/09` | Exclusive cancellable local orchestration, provider timing/warning isolation, and last-known-good publish tests; final UI/process performance evidence remains unmeasured. |
 
 | ID | Requirement / criterion | MVP marker | Task(s) |
 |---|---|---|---|

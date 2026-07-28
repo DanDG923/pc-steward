@@ -1,0 +1,34 @@
+using PCSteward.Application;
+using PCSteward.Domain;
+
+namespace PCSteward.Application.IntegrationTests;
+
+[TestClass]
+public sealed class InventoryScanOrchestratorTests
+{
+    [TestMethod]
+    public async Task PublishesSuccessfulProvidersWhenOneProviderFails()
+    {
+        FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [new FakeProvider("good", false), new FakeProvider("bad", true)]);
+        ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None);
+        Assert.IsTrue(result.Succeeded); Assert.AreEqual(1, store.Products.Count); CollectionAssert.Contains(result.Warnings.ToArray(), "bad:failed");
+    }
+    [TestMethod]
+    public async Task CancellationDoesNotReplaceLastKnownGoodInventory()
+    {
+        FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [new FakeProvider("slow", false)]); using CancellationTokenSource cancellation = new(); cancellation.Cancel();
+        ScanResult result = await orchestrator.ScanAsync(null, cancellation.Token);
+        Assert.IsTrue(result.Cancelled); Assert.AreEqual(0, store.Products.Count);
+    }
+    private sealed class FakeStore : IInventorySnapshotStore
+    {
+        public List<CanonicalProduct> Products { get; } = [];
+        public Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken) { Products.Clear(); Products.AddRange(products); return Task.CompletedTask; }
+        public Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<CanonicalProduct>>(Products);
+    }
+    private sealed class FakeProvider(string name, bool fail) : ILocalInventoryProvider
+    {
+        public string Name => name;
+        public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); if (fail) throw new InvalidOperationException(); CanonicalProduct product = new(Guid.NewGuid(), name, name); return Task.FromResult(new ProviderScanResult([product], [], [])); }
+    }
+}
