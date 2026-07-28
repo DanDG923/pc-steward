@@ -1,6 +1,6 @@
 # Phase 3 approved host-test exception
 
-**Approved by:** Product owner in the Codex task, 2026-07-28  
+**Approved by:** Product owner in the Codex task, 2026-07-28
 **Status:** Active only while collecting Task 24A evidence  
 **Expiry:** Task 25 review handoff; this exception is not a production-signing, update, or deployment approval.
 
@@ -22,7 +22,14 @@ The product owner approved replacing the disposable-VM environment with this PC 
 
 ## Residual risk
 
-Host evidence is not equivalent to a clean Windows 11 VM. It cannot establish clean-image behavior, and it does not replace the still-missing real-update verification or desktop cleanup UI evidence. The Task 25 reviewer must retain those gaps unless separately approved and evidenced.
+Host evidence is not equivalent to a clean Windows 11 VM. It cannot establish clean-image behavior, and it does not replace the still-missing real-update verification. The Task 25 reviewer must retain that gap unless separately approved and evidenced.
+
+## Personal-use manual-UI evidence exception
+
+**Approved by:** Product owner in the Codex task, 2026-07-28
+**Scope:** The planned product is for the product owner's personal use only. The separate manual desktop exercise for `AC-DAT-10`, `FR-DAT-11`, and `TM-15` is not a Task 24A gate. Existing fixture, scope, and safety evidence remains required; this exception removes only the redundant screenshots/interaction-log requirement.
+
+For existing and future planning, broad audience/demo usability evidence is non-gating unless the product owner specifically requests it. This does not relax safety, privacy, destructive-operation containment, accurate status reporting, or any functional requirement needed for the owner's own use. Re-evaluate this exception if the product is shared, distributed, or used by additional people.
 
 ## Execution record — 2026-07-28
 
@@ -32,4 +39,4 @@ Host evidence is not equivalent to a clean Windows 11 VM. It cannot establish cl
 - The elevated scratch-root test passed 10 assertions: file and directory symbolic links, a deterministic post-validation swap, and a mounted 32 MB scratch VHD all failed closed while their sentinels survived.
 - Teardown passed: zero `pc-steward-uac-evidence-*`/`pc-steward-host-evidence-*` temporary roots, zero `PCStewardEvidence` volumes, zero disposable helper processes/pipes, and no certificate entry in either `CurrentUser\\My` or `CurrentUser\\Root`.
 
-This record proves only the approved pre-provider host substitute. It does not prove per-user no-prompt behavior, provider-disconnect cancellation, a real/fixture update's verification result, clean-image behavior, unconstrained concurrent ancestor races, or the desktop cleanup UI paths.
+This record proves only the approved pre-provider host substitute. It does not prove per-user no-prompt behavior, provider-disconnect cancellation, a real/fixture update's verification result, clean-image behavior, or unconstrained concurrent ancestor races.

@@ -3,7 +3,7 @@
 **Prepared:** 2026-07-28  
 **Branch:** `phase/3-execution`  
 **Implementation baseline:** `818f68e` (`feat: manage and safely clear downloaded artifacts`)  
-**Readiness decision:** **NOT READY FOR TASK 25.** Automated and approved host-substitute evidence are green, but real-update verification and cleanup UI evidence are not approved or present. The host substitute also intentionally does not prove a provider-disconnect path or clean-image behavior. This report prepares evidence only and does not grade Phase 3.
+**Readiness decision:** **NOT READY FOR TASK 25.** Automated and approved host-substitute evidence are green, but real-update verification is not approved or present. The host substitute also intentionally does not prove a provider-disconnect path or clean-image behavior. This report prepares evidence only and does not grade Phase 3.
 
 ## Automated evidence
 
@@ -31,7 +31,7 @@ The narrowly scoped [host-test exception](PHASE_3_HOST_TEST_EXCEPTION.md) is rec
 | `TM-04`, ADR-018 | One-shot helper disconnect/cancellation and immediate teardown under real elevated process conditions | Host exception recorded immediate pre-provider teardown: helper exit `24`, then zero helper processes/pipes. | Partial under approved exception | Provider-disconnect cancellation remains unproven because no provider may run under this exception. |
 | `AC-UPD-06`, `AC-UPD-08`, `TM-12` | Approved isolated update fixture demonstrating targeted re-inventory detects the expected version; exit zero without expected version remains Inconclusive/Restart required, never Success | Not run; automated fakes prove logic only. | Missing | Obtain approval for a harmless disposable-VM fixture update (not a real user application), capture before/after inventory and result records, including a mismatch case. |
 | `AC-DAT-16`, `TM-05–06`, ADR-019 | Disposable Windows 11 VM symbolic-link (file and directory), volume-mount, and concurrent ancestor-swap cases under isolated owned/outside roots | Host exception evidence recorded: 10 assertions exercised file/directory symbolic links, a 32 MB scratch VHD mount, and deterministic post-validation swap; all sentinels survived and teardown found no temporary root or volume. | Proven within approved scope | Clean-image and full unconstrained concurrent-ancestor behavior remain residual risk. |
-| `AC-DAT-10`, `FR-DAT-11`, `TM-15` (manual integration) | Confirm the Settings and completion views disclose provider-cache exclusion while cleanup is scoped to the literal app-owned root | No desktop manual exercise recorded. Unit fixtures cover the underlying scope. | Missing | In the approved disposable VM, exercise the two UI paths with fixture artifacts; capture sanitized screenshots or an interaction log showing confirmation, recoverable size, provider-cache exclusion, and no elevation. |
+| `AC-DAT-10`, `FR-DAT-11`, `TM-15` (manual integration) | Confirm the Settings and completion views disclose provider-cache exclusion while cleanup is scoped to the literal app-owned root | Underlying fixture/scope evidence is recorded. The product owner waived the separate screenshots/interaction-log exercise because this product is planned for personal use only. | Product-owner exception — no longer a gate | Re-evaluate if the product is shared, distributed, or used by additional people. |
 
 ## Review handoff
 
