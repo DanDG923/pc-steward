@@ -59,9 +59,9 @@ Run Task 90 to remediate `P2R-07`–`P2R-10` and the missing mandatory evidence,
 
 ## Fresh Task 20 review — 2026-07-28
 
-**Base commit:** `7fe0e45`  
-**Head commit:** `2ebd713`  
-**Reviewer model/effort:** GPT-5.6 Sol / High  
+**Base commit:** `7fe0e45`
+**Head commit:** `2ebd713`
+**Reviewer model/effort:** GPT-5.6 Sol / High
 **Gate result:** `FAIL`
 
 `P2R-07`–`P2R-09` passed. `P2R-10` failed because a mapping marked with `SourceDisagreement` could be non-actionable yet still receive the `Current` status when its selected version compared Equal, excluding it from `AttentionNeeded`. The subsequent local remediation is not part of this review and requires a fresh review.
