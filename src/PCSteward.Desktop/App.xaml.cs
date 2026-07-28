@@ -3,6 +3,7 @@ using PCSteward.Application;
 using PCSteward.Diagnostics;
 using PCSteward.Persistence.Sqlite;
 using PCSteward.Provider.WinGet;
+using PCSteward.Storage;
 
 namespace PCSteward.Desktop;
 
@@ -29,7 +30,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             new WingetUpdateSourceConnector("msstore")
         ];
         InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database, database, updateSources);
-        MainWindow window = new(workflow, viewModel);
+        DownloadedArtifactCache downloads = new(database);
+        MainWindow window = new(workflow, viewModel, downloads);
         window.Activate();
     }
 }

@@ -160,6 +160,19 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task DownloadedArtifactLedgerPersistsOwnershipStateHashAndLastCleanedTime()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); Guid jobId = Guid.NewGuid();
+        DownloadedArtifact artifact = new(Guid.NewGuid(), "update", "payload.bin", 512, DateTimeOffset.UtcNow, "aabbcc", jobId, DownloadedArtifactOutcome.VerifiedSuccess, true);
+        await database.Store.SaveDownloadedArtifactAsync(artifact, CancellationToken.None); await database.Store.SetDownloadedArtifactsLastCleanedAtAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        DownloadedArtifact restored = (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).Single();
+
+        Assert.AreEqual(artifact, restored); Assert.IsNotNull(await database.Store.GetDownloadedArtifactsLastCleanedAtAsync(CancellationToken.None));
+        await database.Store.DeleteDownloadedArtifactAsync(artifact.Id, CancellationToken.None); Assert.HasCount(0, await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ApprovedJobRoundTripsButTamperedDatabaseEvidenceFailsClosed()
     {
         string path = Path.Combine(Path.GetTempPath(), $"pcsteward-job-{Guid.NewGuid():N}.db");

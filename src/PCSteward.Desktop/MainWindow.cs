@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using System.Globalization;
 using PCSteward.Application;
+using PCSteward.Storage;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -14,15 +15,17 @@ public sealed class MainWindow : Window
 {
     private readonly InventoryWorkflow workflow;
     private readonly InventoryExperienceViewModel viewModel;
+    private readonly DownloadedArtifactCache downloads;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
     private IReadOnlyCollection<PCSteward.Domain.ManualMapping> manualMappings = [];
     private bool isClearing;
+    private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads)
     {
-        this.workflow = workflow; this.viewModel = viewModel; Title = AppIdentity.DisplayName; LoadSavedInventory(); Render();
+        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; Title = AppIdentity.DisplayName; LoadSavedInventory(); Render();
     }
 
     private void LoadSavedInventory()
@@ -31,6 +34,7 @@ public sealed class MainWindow : Window
         foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
         viewModel.LoadInventory(dashboard.Products, dashboard.Instances, dashboard.LastCompletedAt);
         viewModel.LoadUpdateIntelligence(workflow.LoadUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, CancellationToken.None).GetAwaiter().GetResult()); scanData = dashboard.ScanData;
+        downloadCache = downloads.GetSummaryAsync(CancellationToken.None).GetAwaiter().GetResult();
         activeDecisions = workflow.GetActiveDecisionsAsync(CancellationToken.None).GetAwaiter().GetResult();
         manualMappings = workflow.GetManualMappingsAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
@@ -115,9 +119,16 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated payload {scanData.SizeBytes:N0} characters. Last cleared: {(scanData.LastClearedAt is null ? "never" : scanData.LastClearedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", TextWrapping = TextWrapping.Wrap });
         StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; Button exportCsv = new() { Content = "Export inventory CSV" }; exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv); Button exportJson = new() { Content = "Export inventory JSON" }; exportJson.Click += async (_, _) => await SaveExportAsync(true); exportActions.Children.Add(exportJson); panel.Children.Add(exportActions);
-        bool available = !viewModel.IsScanning && !isClearing; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
-        panel.Children.Add(new TextBlock { Text = available ? "Routine cleanup is available without administrator elevation." : "Cleanup is unavailable while a scan or cleanup is active. Cancel or wait for it to finish.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Future controls", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] }); panel.Children.Add(new TextBlock { Text = "Clear downloaded files and Factory reset are not available yet. Factory reset will have its own two-step confirmation and will remove settings and stored decisions; routine cleanup above will not.", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(new Button { Content = "Clear downloaded files (available in a later phase)", IsEnabled = false }); panel.Children.Add(new Button { Content = "Factory reset PC Steward (available in a later phase)", IsEnabled = false });
+        bool available = !viewModel.IsScanning && !isClearing && !downloads.IsCleaning; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
+        panel.Children.Add(new TextBlock { Text = $"Downloaded update files: {downloadCache.ArtifactCount} tracked item(s), {downloadCache.TotalBytes:N0} bytes total, {downloadCache.RecoverableBytes:N0} bytes recoverable. Last cleaned: {(downloadCache.LastCleanedAt is null ? "never" : downloadCache.LastCleanedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear downloaded files removes only inactive files under PC Steward's app-owned download cache; it preserves active update files, installed applications, scan data, source metadata, update history and all Windows, WinGet, Microsoft Store and other provider caches.", TextWrapping = TextWrapping.Wrap });
+        Button clearDownloads = new() { Content = "Clear downloaded files", IsEnabled = available && downloadCache.RecoverableBytes > 0 }; AutomationProperties.SetName(clearDownloads, "Clear downloaded files"); clearDownloads.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Clear downloaded files?"); panel.Children.Add(clearDownloads);
+        if (downloadCache.RecoverableBytes > 0)
+        {
+            panel.Children.Add(new TextBlock { Text = $"Update completion cleanup: {downloadCache.RecoverableBytes:N0} bytes of app-owned downloaded files remain. You can recover this space without affecting the installed update.", TextWrapping = TextWrapping.Wrap });
+            Button completionDelete = new() { Content = "Delete downloaded files", IsEnabled = available }; AutomationProperties.SetName(completionDelete, "Delete downloaded files after update completion"); completionDelete.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Delete downloaded files after update completion?"); panel.Children.Add(completionDelete);
+        }
+        panel.Children.Add(new TextBlock { Text = available ? "Routine cleanup is available without administrator elevation." : "Cleanup is unavailable while a scan, update, or cleanup is active. Cancel or wait for it to finish.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "Future controls", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] }); panel.Children.Add(new TextBlock { Text = "Factory reset will have its own two-step confirmation and will remove settings and stored decisions; routine cleanup above will not.", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(new Button { Content = "Factory reset PC Steward (available in a later phase)", IsEnabled = false });
     }
 
     private void AddDecisionsSection(StackPanel panel)
@@ -140,6 +151,13 @@ public sealed class MainWindow : Window
     {
         ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = "Clear scan data?", Content = "This removes current inventory, raw provider records, update candidates and scan-run records. It keeps settings, enabled connectors, schedules, update history, downloaded files, mappings, pins and ignores.", PrimaryButtonText = "Clear scan data", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         isClearing = true; Render(); ClearScanDataResult result = await workflow.ClearScanDataAsync(CancellationToken.None); isClearing = false; if (result.Succeeded) { viewModel.ClearScanData(); LoadSavedInventory(); } ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Scan data cleared" : "Scan data was not cleared", Content = result.Message, CloseButtonText = "Close" }; Render(); await outcome.ShowAsync();
+    }
+
+    private async Task ConfirmAndClearDownloadedFilesAsync(string title)
+    {
+        ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = title, Content = "This removes inactive PC Steward-owned update payloads and temporary extraction files only. It does not delete active update files, installed applications, scan data, source metadata, update history, or Windows, WinGet, Microsoft Store, or other provider caches.", PrimaryButtonText = "Delete downloaded files", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        isClearing = true; Render(); DownloadCleanupResult result = await downloads.ClearInactiveAsync(CancellationToken.None); isClearing = false; LoadSavedInventory(); ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Downloaded files cleared" : "Downloaded files were only partly cleared", Content = result.Message + (result.Residuals.Count == 0 ? string.Empty : " Remaining items: " + string.Join(", ", result.Residuals.Select(residual => $"{residual.RelativePath} ({residual.Reason})"))), CloseButtonText = "Close" }; Render(); await outcome.ShowAsync();
     }
 
     private async Task ShowDetailsAsync(InventoryRow row)

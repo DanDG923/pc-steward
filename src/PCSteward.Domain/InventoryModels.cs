@@ -21,4 +21,14 @@ public sealed record ScanProviderTiming(Guid Id, Guid ScanRunId, string Provider
 public sealed record StableDecision(Guid Id, string StableProductKey, string Kind, string Value, DateTimeOffset CreatedAt, string? Reason = null, DateTimeOffset? ExpiresAt = null);
 public sealed record ManualMapping(Guid Id, string StableProductKey, string SourceId, string PackageId, DateTimeOffset CreatedAt, string? Reason = null);
 public sealed record ProductTimelineEntry(DateTimeOffset OccurredAt, string Kind, string Summary, string? Reason = null);
-public sealed record DownloadedArtifact(Guid Id, string Category, string RelativePath, long SizeBytes, DateTimeOffset CreatedAt);
+public enum DownloadedArtifactOutcome { Incomplete, Failed, VerifiedSuccess }
+public sealed record DownloadedArtifact(
+    Guid Id,
+    string Category,
+    string RelativePath,
+    long SizeBytes,
+    DateTimeOffset CreatedAt,
+    string? Sha256 = null,
+    Guid? JobId = null,
+    DownloadedArtifactOutcome Outcome = DownloadedArtifactOutcome.Incomplete,
+    bool IsActive = false);

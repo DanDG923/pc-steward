@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 24 — awaiting GPT-5.6 Terra / High
+**Current task:** 24A — awaiting GPT-5.6 Terra / High
 **Last green commit:** `5103218` — `feat: add batches, verification, history, and diagnostics`
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -43,13 +43,13 @@ ADR-003 remains Provisional under the product-owner exception: capture a sanitiz
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
 
-## Task 23 result
+## Task 24 result
 
-Task 23 result: `PASS`. A typed sequential coordinator appends durable per-item queued/running/outcome history, preserves completed results on cancellation or recovery, and does not expose force-close authority. Provider exit zero reaches Success only after targeted re-inventory; absent proof is Restart required, Inconclusive or Verification failed. SQLite records product timelines, recovery and bounded retention; copyable JSON diagnostics redact credentials, paths and control characters. Focused suite: 22 passed. Release build: zero warnings/errors; full suite: 130 passed. No real application update or UAC prompt was run.
+Task 24 result: `PASS`. A literal per-user download root, SQLite ownership ledger and non-following handle-bound delete now keep cleanup inside PC Steward-owned files. Settings and completion cleanup require confirmation, disclose provider-cache exclusion, preserve active artifacts, report locked/reparse residuals accurately, and enforce the 2 GB soft quota plus seven-day verified/24-hour failed retention. Focused suite: 18 passed. Release build: zero warnings/errors; full suite: 135 passed. No real update, provider-cache deletion, or UAC prompt was run.
 
 ## Next task
 
-Run Task 24 — downloaded-artifact cache and safe cleanup — in a fresh GPT-5.6 Terra / High task. Stop before starting it under Sol.
+Run Task 24A — prepare Phase 3 security-review evidence — in a fresh GPT-5.6 Terra / High task. Stop before starting it under Sol.
 
 ## Rules for updating this file
 

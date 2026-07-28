@@ -53,6 +53,10 @@ Reset and cleanup operate from a compile-time/configuration-owned manifest of ca
 
 Symbolic-link creation required administrator privilege on this host, and a true volume mount was not attempted. Public path-based handle acquisition also leaves an unproven ancestor-component race. The report therefore defines mandatory isolated-environment symbolic-link, volume-mount and concurrent ancestor-swap cases for Tasks 24/25. No production deletion or elevation claim is made.
 
+## Task 24 evidence
+
+The download cache now resolves only `%LocalAppData%\PCSteward\downloads` (or an isolated test root) from code. SQLite path values are treated as relative evidence, not deletion authority. Cleanup validates containment and every existing component before a second validation followed by a `FILE_FLAG_OPEN_REPARSE_POINT` handle-bound deletion. It rejects relative, rooted, UNC, device, alternate-data-stream, prefix-confusion and reparse paths; active leases are excluded. The focused suite proves quota order, active-artifact protection, seven-day/24-hour retention, idempotence, locked partial cleanup, and outside-sentinel preservation. Symbolic-link, volume-mount and concurrent ancestor-swap evidence remains restricted to the approved disposable-VM phase gate.
+
 ## Task 22 evidence
 
 The production boundary now creates a random local-only, single-instance named pipe with an explicit protected ACL granting only the current user and SYSTEM. The desktop launches the fixed helper path through `runas` only after a fresh immutable machine-scope job reaches execution. Bootstrap arguments are limited to protocol version, desktop PID, pipe locator and a 256-bit nonce. Both endpoints bind the pipe-reported peer PID to the launched/requesting process and verify the same user SID, session, fixed executable path, trusted Authenticode signature and same signer.

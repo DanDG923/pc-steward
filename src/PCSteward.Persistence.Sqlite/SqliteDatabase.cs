@@ -5,7 +5,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -54,6 +54,11 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         {
             await ExecuteAsync(connection, "CREATE TABLE update_job_history (event_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, correlation_id TEXT NOT NULL, stable_product_key TEXT NOT NULL, provider TEXT NOT NULL, package_id TEXT NOT NULL, installed_version TEXT NOT NULL, target_version TEXT NOT NULL, occurred_at TEXT NOT NULL, status TEXT NOT NULL, exit_code INTEGER, diagnostic TEXT NOT NULL); CREATE INDEX ix_update_job_history_product_time ON update_job_history(stable_product_key, occurred_at DESC); CREATE TABLE update_job_execution_state (job_id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, stable_product_key TEXT NOT NULL, provider TEXT NOT NULL, package_id TEXT NOT NULL, installed_version TEXT NOT NULL, target_version TEXT NOT NULL, occurred_at TEXT NOT NULL, status TEXT NOT NULL, exit_code INTEGER, diagnostic TEXT NOT NULL);", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (7);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 8, cancellationToken))
+        {
+            await ExecuteAsync(connection, "ALTER TABLE downloaded_artifacts ADD COLUMN sha256 TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN job_id TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'Incomplete'; ALTER TABLE downloaded_artifacts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0; CREATE INDEX ix_downloaded_artifacts_created ON downloaded_artifacts(created_at);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (8);", cancellationToken, transaction);
         }
         await transaction.CommitAsync(cancellationToken);
     }
@@ -322,7 +327,29 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     public async Task SaveDownloadedArtifactAsync(DownloadedArtifact artifact, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        await ExecuteAsync(connection, "INSERT INTO downloaded_artifacts VALUES ($id,$category,$path,$size,$created);", cancellationToken, null, ("$id", artifact.Id), ("$category", Text(artifact.Category)), ("$path", Text(artifact.RelativePath)), ("$size", artifact.SizeBytes), ("$created", artifact.CreatedAt));
+        await ExecuteAsync(connection, "INSERT INTO downloaded_artifacts(id,category,relative_path,size_bytes,created_at,sha256,job_id,outcome,is_active) VALUES ($id,$category,$path,$size,$created,$hash,$job,$outcome,$active) ON CONFLICT(id) DO UPDATE SET category=excluded.category,relative_path=excluded.relative_path,size_bytes=excluded.size_bytes,created_at=excluded.created_at,sha256=excluded.sha256,job_id=excluded.job_id,outcome=excluded.outcome,is_active=excluded.is_active;", cancellationToken, null, ("$id", artifact.Id), ("$category", Text(artifact.Category)), ("$path", Text(artifact.RelativePath)), ("$size", artifact.SizeBytes), ("$created", artifact.CreatedAt), ("$hash", Text(artifact.Sha256)), ("$job", artifact.JobId?.ToString()), ("$outcome", artifact.Outcome), ("$active", artifact.IsActive ? 1 : 0));
+    }
+
+    public async Task<IReadOnlyCollection<DownloadedArtifact>> GetDownloadedArtifactsAsync(CancellationToken cancellationToken)
+    {
+        List<DownloadedArtifact> result = []; await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id,category,relative_path,size_bytes,created_at,sha256,job_id,outcome,is_active FROM downloaded_artifacts ORDER BY created_at;"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(new DownloadedArtifact(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : Guid.Parse(reader.GetString(6)), Enum.Parse<DownloadedArtifactOutcome>(reader.GetString(7), false), reader.GetInt64(8) != 0));
+        return result;
+    }
+
+    public async Task DeleteDownloadedArtifactAsync(Guid artifactId, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "DELETE FROM downloaded_artifacts WHERE id=$id;", cancellationToken, null, ("$id", artifactId));
+    }
+
+    public async Task<DateTimeOffset?> GetDownloadedArtifactsLastCleanedAtAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key='downloads_last_cleaned';"; object? value = await command.ExecuteScalarAsync(cancellationToken); return value is string text && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset result) ? result : null;
+    }
+
+    public async Task SetDownloadedArtifactsLastCleanedAtAsync(DateTimeOffset cleanedAt, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ('downloads_last_cleaned',$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value;", cancellationToken, null, ("$value", cleanedAt));
     }
 
     public async Task SaveManualMappingAsync(ManualMapping mapping, CancellationToken cancellationToken)
