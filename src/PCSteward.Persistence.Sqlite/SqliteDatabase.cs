@@ -49,6 +49,16 @@ public sealed class SqliteDatabase : IInventorySnapshotStore, IStableDecisionSto
         return result;
     }
 
+    public async Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken cancellationToken)
+    {
+        List<InstallationInstance> result = [];
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id, product_id, provider, provider_identity, version, scope, architecture FROM installation_instances ORDER BY provider, provider_identity;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(new InstallationInstance(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6)));
+        return result;
+    }
+
     public async Task SaveAsync(StableDecision decision, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);

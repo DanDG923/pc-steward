@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 12 — Scan orchestration, cancellation, timings, and performance harness (complete)
-**Last green commit:** Pending Task 12 commit
+**Current task:** 13 — App shell, onboarding, and inventory experience (complete)
+**Last green commit:** `43c822b`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -95,9 +95,13 @@ PASS — deterministic provider-identity fingerprints and conservative deduplica
 
 PASS WITH PERFORMANCE LIMITATION — exclusive cancellable local scan orchestration, provider isolation, timings and last-known-good publication semantics added. Build and 16 tests passed; the benchmark entry point ran but remains a scaffold, so UI/CPU/memory acceptance metrics are not yet measurable.
 
+## Task 13 result
+
+PASS WITH MANUAL-EXERCISE LIMITATION — local-only onboarding, connector trust/toggles, registry-backed scan shell, progress/cancel state, searchable inventory and provenance details added. Build and 20 tests passed. The launched desktop UI exposed all expected controls to accessibility inspection; the automation harness did not activate the scan button, so interactive completion requires a clean local manual retest.
+
 ## Next task
 
-Run `prompts/13_APP_SHELL_ONBOARDING_AND_INVENTORY_EXPERIENCE.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
+Run `prompts/14_EXPORTS_AND_CLEAR_SCAN_DATA.md`. Required model/reasoning: GPT-5.6 Terra / High.
 
 ## Rules for updating this file
 

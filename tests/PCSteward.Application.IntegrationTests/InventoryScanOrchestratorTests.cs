@@ -23,8 +23,10 @@ public sealed class InventoryScanOrchestratorTests
     private sealed class FakeStore : IInventorySnapshotStore
     {
         public List<CanonicalProduct> Products { get; } = [];
+        public List<InstallationInstance> Instances { get; } = [];
         public Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken) { Products.Clear(); Products.AddRange(products); return Task.CompletedTask; }
         public Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<CanonicalProduct>>(Products);
+        public Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<InstallationInstance>>(Instances);
     }
     private sealed class FakeProvider(string name, bool fail) : ILocalInventoryProvider
     {
