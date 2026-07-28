@@ -1,0 +1,35 @@
+using PCSteward.Domain;
+
+namespace PCSteward.Domain.UnitTests;
+
+[TestClass]
+public sealed class UpdateIntelligenceTests
+{
+    [TestMethod]
+    public void ClassifiesCurrentVerifiedReviewAndUnmanagedWithoutCreatingExecutionAuthority()
+    {
+        ProductMatchProfile current = Product("current", "Contoso.Current", "1.2.0"); ProductMatchProfile verified = Product("verified", "Contoso.Verified", "1.0.0"); ProductMatchProfile review = Product("review", "Contoso.Review", "1.0.0", "x64", "Stable"); ProductMatchProfile unmanaged = Product("unmanaged", null, "1.0.0");
+        SourceSnapshot source = Source([Package("Contoso.Current", "1.2.0"), Package("Contoso.Verified", "1.1.0"), Package("Contoso.Review", "1.1.0", "x86")]);
+        UpdateIntelligenceSummary result = UpdateIntelligence.Assess([current, verified, review, unmanaged], [source]);
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, result.Items.Single(item => item.StableProductKey == current.StableProductKey).Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, result.Items.Single(item => item.StableProductKey == verified.StableProductKey).Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, result.Items.Single(item => item.StableProductKey == review.StableProductKey).Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.Unmanaged, result.Items.Single(item => item.StableProductKey == unmanaged.StableProductKey).Status);
+        Assert.AreEqual(1, result.Counts[UpdateIntelligenceStatus.VerifiedUpdate]);
+    }
+
+    [TestMethod]
+    public void PinnedAndIgnoredOverrideCandidateStatusAndUnavailableWithoutCacheIsAttentionNeeded()
+    {
+        ProductMatchProfile pinned = Product("pinned", "Contoso.Pinned", "1.0.0"); ProductMatchProfile ignored = Product("ignored", "Contoso.Ignored", "1.0.0"); ProductMatchProfile unavailable = Product("unavailable", null, "1.0.0");
+        UpdateIntelligenceSummary result = UpdateIntelligence.Assess([pinned, ignored, unavailable], [new("winget", null, null, SourceSnapshotState.Unavailable, [], ["source:timeout"])], policies: new Dictionary<string, ProductUpdatePolicy> { [pinned.StableProductKey] = new(true), [ignored.StableProductKey] = new(false, true) });
+        Assert.AreEqual(UpdateIntelligenceStatus.Pinned, result.Items.Single(item => item.StableProductKey == pinned.StableProductKey).Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.Ignored, result.Items.Single(item => item.StableProductKey == ignored.StableProductKey).Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.FailedUnavailable, result.Items.Single(item => item.StableProductKey == unavailable.StableProductKey).Status);
+        Assert.HasCount(1, result.AttentionNeeded);
+    }
+
+    private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel);
+    private static SourcePackageRecord Package(string id, string version, string architecture = "x64") => new("winget", id, id, "Contoso", "1.0.0", version, "Machine", architecture, "Stable");
+    private static SourceSnapshot Source(IReadOnlyCollection<SourcePackageRecord> packages) => new("winget", "v1.0", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []);
+}

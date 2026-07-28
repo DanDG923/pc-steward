@@ -25,6 +25,12 @@ public interface IStableDecisionStore
     Task<IReadOnlyCollection<StableDecision>> GetForProductAsync(string stableProductKey, CancellationToken cancellationToken);
 }
 
+public interface ISourceSnapshotStore
+{
+    Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken);
+    Task<SourceSnapshot?> GetSourceSnapshotAsync(string sourceId, CancellationToken cancellationToken);
+}
+
 public sealed record ScanDataSummary(long SizeBytes, DateTimeOffset? LastClearedAt, int ItemCount);
 public sealed record ClearScanDataResult(bool Succeeded, int DeletedItems, int RemainingItems, string Message);
 

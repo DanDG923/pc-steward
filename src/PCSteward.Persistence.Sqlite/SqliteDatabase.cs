@@ -5,7 +5,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore, IConnectorSettingsStore
+public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore, IConnectorSettingsStore, ISourceSnapshotStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -29,6 +29,11 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore, IConn
         {
             await ExecuteAsync(connection, "ALTER TABLE installation_instances ADD COLUMN publisher TEXT; ALTER TABLE installation_instances ADD COLUMN install_date TEXT; ALTER TABLE installation_instances ADD COLUMN install_path TEXT; ALTER TABLE installation_instances ADD COLUMN channel TEXT; ALTER TABLE installation_instances ADD COLUMN classification TEXT NOT NULL DEFAULT 'Unknown';", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (2);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 3, cancellationToken))
+        {
+            await ExecuteAsync(connection, "CREATE TABLE source_snapshots (source_id TEXT PRIMARY KEY, provider_version TEXT, last_success_at TEXT NOT NULL); CREATE TABLE source_package_cache (source_id TEXT NOT NULL, package_id TEXT NOT NULL, display_name TEXT NOT NULL, publisher TEXT, installed_version TEXT, available_version TEXT, scope TEXT NOT NULL, architecture TEXT NOT NULL, channel TEXT, connector_semantics INTEGER NOT NULL, stable_product_key TEXT, PRIMARY KEY(source_id, package_id), FOREIGN KEY(source_id) REFERENCES source_snapshots(source_id) ON DELETE CASCADE);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (3);", cancellationToken, transaction);
         }
         await transaction.CommitAsync(cancellationToken);
     }
@@ -116,6 +121,30 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore, IConn
         if (IsWinget(connectorName)) await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
     }
 
+    public async Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.State != SourceSnapshotState.Live || snapshot.LastSuccessAt is null) throw new ArgumentException("Only a successful live source snapshot may replace the cache.", nameof(snapshot));
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "INSERT INTO source_snapshots(source_id,provider_version,last_success_at) VALUES ($source,$version,$success) ON CONFLICT(source_id) DO UPDATE SET provider_version = excluded.provider_version, last_success_at = excluded.last_success_at;", cancellationToken, transaction, ("$source", SourceId(snapshot.SourceId)), ("$version", Text(snapshot.ProviderVersion)), ("$success", snapshot.LastSuccessAt.Value));
+        await ExecuteAsync(connection, "DELETE FROM source_package_cache WHERE source_id = $source;", cancellationToken, transaction, ("$source", SourceId(snapshot.SourceId)));
+        foreach (SourcePackageRecord package in snapshot.Packages)
+        {
+            if (!string.Equals(snapshot.SourceId, package.SourceId, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Cached package source does not match its snapshot.", nameof(snapshot));
+            await ExecuteAsync(connection, "INSERT INTO source_package_cache(source_id,package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key) VALUES ($source,$package,$name,$publisher,$installed,$available,$scope,$architecture,$channel,$semantics,$stable);", cancellationToken, transaction, ("$source", SourceId(package.SourceId)), ("$package", Text(package.PackageId)), ("$name", Text(package.DisplayName)), ("$publisher", Text(package.Publisher)), ("$installed", Text(package.InstalledVersion)), ("$available", Text(package.AvailableVersion)), ("$scope", Text(package.Scope)), ("$architecture", Text(package.Architecture)), ("$channel", Text(package.Channel)), ("$semantics", package.RequiresConnectorSpecificVersionSemantics), ("$stable", Text(package.ProviderSuppliedStableProductKey)));
+        }
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<SourceSnapshot?> GetSourceSnapshotAsync(string sourceId, CancellationToken cancellationToken)
+    {
+        string source = SourceId(sourceId); await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand snapshot = connection.CreateCommand(); snapshot.CommandText = "SELECT provider_version,last_success_at FROM source_snapshots WHERE source_id = $source;"; snapshot.Parameters.AddWithValue("$source", source); await using SqliteDataReader header = await snapshot.ExecuteReaderAsync(cancellationToken); if (!await header.ReadAsync(cancellationToken)) return null;
+        string? providerVersion = header.IsDBNull(0) ? null : header.GetString(0); DateTimeOffset lastSuccess = DateTimeOffset.Parse(header.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        await header.CloseAsync(); List<SourcePackageRecord> packages = []; await using SqliteCommand rows = connection.CreateCommand(); rows.CommandText = "SELECT package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key FROM source_package_cache WHERE source_id = $source ORDER BY package_id;"; rows.Parameters.AddWithValue("$source", source); await using SqliteDataReader reader = await rows.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) packages.Add(new(source, reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.GetInt64(8) != 0, reader.IsDBNull(9) ? null : reader.GetString(9)));
+        return new(source, providerVersion, lastSuccess, SourceSnapshotState.Cached, packages, []);
+    }
+
     public async Task SaveAsync(StableDecision decision, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
@@ -180,6 +209,7 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore, IConn
     }
 
     private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim()[..Math.Min(value.Trim().Length, MaxTextLength)];
+    private static string SourceId(string value) => value.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(value), "Only supported connector sources may be cached.") };
     private static string ConnectorKey(string connectorName) => "connector." + Text(connectorName).ToLowerInvariant();
     private static string ConnectorApprovalKey(string connectorName) => ConnectorKey(connectorName) + ".source-disclosure-approved";
     private static bool IsWinget(string connectorName) => string.Equals(connectorName, "WinGet installed inventory", StringComparison.Ordinal);

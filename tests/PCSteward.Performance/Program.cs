@@ -16,6 +16,14 @@ internal static class Program
             samples.Add(timer.Elapsed.TotalMilliseconds);
         }
         samples.Sort(); Console.WriteLine($"Phase 1 deterministic product workload: runs=30 records=300 medianMs={samples[14]:F2} p95Ms={samples[28]:F2}. This is not final-app UI, idle, or process-tree acceptance evidence; a VM is optional.");
+        List<double> online = [];
+        for (int run = 0; run < 20; run++)
+        {
+            Stopwatch timer = Stopwatch.StartNew(); UpdateSourceRefreshService service = new(new SourceCache()); IReadOnlyCollection<SourceSnapshot> snapshots = await service.RefreshAsync([new FixtureSource("winget"), new FixtureSource("msstore")], true, CancellationToken.None);
+            if (snapshots.Count != 2 || snapshots.Any(snapshot => snapshot.State != SourceSnapshotState.Live)) return 1;
+            online.Add(timer.Elapsed.TotalMilliseconds);
+        }
+        online.Sort(); Console.WriteLine($"Task 18 fixture online-check workload: runs=20 sources=2 medianMs={online[9]:F2} p95Ms={online[18]:F2}. Fixture connectors only; no live WinGet or Store source was contacted.");
         return 0;
     }
     private sealed class FixtureProvider(int count) : ILocalInventoryProvider
@@ -35,5 +43,16 @@ internal static class Program
         public Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<CanonicalProduct>>(Products);
         public Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<InstallationInstance>>([]);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+    private sealed class SourceCache : ISourceSnapshotStore
+    {
+        private readonly Dictionary<string, SourceSnapshot> entries = [];
+        public Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken) { entries[snapshot.SourceId] = snapshot; return Task.CompletedTask; }
+        public Task<SourceSnapshot?> GetSourceSnapshotAsync(string sourceId, CancellationToken cancellationToken) => Task.FromResult(entries.GetValueOrDefault(sourceId));
+    }
+    private sealed class FixtureSource(string sourceId) : IUpdateSourceConnector
+    {
+        public string SourceId { get; } = sourceId; public TimeSpan Timeout => TimeSpan.FromSeconds(1);
+        public async Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken) { await Task.Delay(5, cancellationToken); return new(SourceId, "fixture-1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new(SourceId, "Fixture." + SourceId, "Fixture " + SourceId, null, "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []); }
     }
 }

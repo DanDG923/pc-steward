@@ -106,6 +106,17 @@ public sealed class SqliteDatabaseTests
         Assert.AreEqual(instance.Publisher, restored.Publisher); Assert.AreEqual(instance.InstallDate, restored.InstallDate); Assert.AreEqual(instance.InstallPath, restored.InstallPath); Assert.AreEqual(instance.Channel, restored.Channel); Assert.AreEqual(instance.Classification, restored.Classification);
     }
 
+    [TestMethod]
+    public async Task SourceCacheReplacesOnlySuccessfulLiveSnapshotsAndRestoresTheirTimestamp()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); DateTimeOffset timestamp = DateTimeOffset.UnixEpoch;
+        SourceSnapshot snapshot = new("winget", "v1.9", timestamp, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
+        await database.Store.SaveSourceSnapshotAsync(snapshot, CancellationToken.None);
+        SourceSnapshot restored = (await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None))!;
+        Assert.AreEqual(SourceSnapshotState.Cached, restored.State); Assert.AreEqual(timestamp, restored.LastSuccessAt); Assert.AreEqual("Contoso.Widget", restored.Packages.Single().PackageId);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => database.Store.SaveSourceSnapshotAsync(snapshot with { State = SourceSnapshotState.Cached }, CancellationToken.None));
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;

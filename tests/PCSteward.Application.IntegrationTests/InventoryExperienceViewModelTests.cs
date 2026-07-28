@@ -73,4 +73,11 @@ public sealed class InventoryExperienceViewModelTests
         InventoryExperienceViewModel viewModel = new(); viewModel.SetConnectorEnabled("WinGet installed inventory", true);
         StringAssert.Contains(viewModel.ScanModeLabel, "approved WinGet"); Assert.IsFalse(viewModel.ScanPhase.Contains("local-only", StringComparison.OrdinalIgnoreCase)); Assert.IsFalse(viewModel.FreshnessLabel.Contains("local-only", StringComparison.OrdinalIgnoreCase));
     }
+    [TestMethod]
+    public void UpdateIntelligenceShowsCountsAttentionAndCachedFreshnessSeparatelyFromInventory()
+    {
+        InventoryExperienceViewModel viewModel = new(); UpdateIntelligenceSummary summary = new([new UpdateIntelligenceItem("one", UpdateIntelligenceStatus.ReviewRequired, null, "Review")], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.ReviewRequired] = 1 }, [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"])]);
+        viewModel.LoadUpdateIntelligence(summary);
+        Assert.AreEqual(1, viewModel.UpdateStatusCounts[UpdateIntelligenceStatus.ReviewRequired]); Assert.HasCount(1, viewModel.AttentionNeeded); StringAssert.Contains(viewModel.UpdateFreshnessLabel, "Cached"); StringAssert.Contains(viewModel.UpdateFreshnessLabel, "stale");
+    }
 }

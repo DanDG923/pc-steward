@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 18 — WinGet update intelligence, source cache, and freshness pending
+**Current task:** 19 — Manual decisions and update-intelligence UX pending
 **Last green commit:** `f11f11e`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -46,10 +46,6 @@
 Task 00 recorded a Windows-version discrepancy that must be reconciled on a supported Windows 11 x64 test environment. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; symbolic-link, volume-mount and concurrent ancestor-swap evidence remains required on an isolated disposable test environment. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
 
 ADR-002, ADR-003, ADR-011 and ADR-013 are Provisional with explicit implementation and isolated-environment reconsideration gates. No ADR remains Proposed, and Task 06 has no unresolved security, persistence, execution, deletion, scheduling or scaffold-boundary decision.
-
-## Task 01 result
-
-PASS — architecture, trust boundaries, threat model, test strategy, phased implementation plan and 13 proposed ADRs created. Structural coverage and `git diff --check` passed. Deliverable commit: `9823855`.
 
 ## Task 02 result
 
@@ -110,9 +106,13 @@ PASS WITH APPROVED TEMPORARY EXCEPTION — P1RRR-01–04 are closed by retained 
 ## Task 17 result
 
 PASS — pure deterministic product-to-package matching uses only exact identity, trusted provider-supplied or user/imported mapping evidence, with alias-and-publisher matches kept review-only. Architecture, scope, channel, version, trust, ambiguity and unsupported manual mappings fail closed; curated fixtures produced one true actionable match and zero false-positive actionable mappings.
+
+## Task 18 result
+
+PASS WITH FIXTURE-ONLY PERFORMANCE EVIDENCE — fixed WinGet/Store-only source connectors, bounded parser, source cache, explicit refresh/freshness states and deterministic non-executable update statuses are implemented. Healthy, stale, malformed, timeout, disagreement, compatibility and offline fixtures passed; no real source was contacted. The 20-run fixture online-check benchmark measured 15.40 ms median / 16.13 ms p95, but does not establish real-source performance or network-inspection evidence.
 ## Next task
 
-Run Task 18 in a fresh GPT-5.6 Terra / High chat.
+Run Task 19 in a fresh GPT-5.6 Terra / High chat.
 
 ## Rules for updating this file
 

@@ -32,6 +32,9 @@ public sealed class InventoryExperienceViewModel
     public TimeSpan Elapsed { get; private set; }
     public bool IsScanning { get; private set; }
     public DateTimeOffset? LastScanAt { get; private set; }
+    public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
+    public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
+    public string UpdateFreshnessLabel { get; private set; } = "Local-only — no enabled update source has been checked.";
     public bool IsWinGetEnabled => Connectors.Any(connector => connector.Name == "WinGet installed inventory" && connector.IsEnabled);
     public string ScanModeLabel => IsWinGetEnabled ? "Windows-local inventory plus approved WinGet installed inventory" : "Local-only Windows inventory";
     public string FreshnessLabel => LastScanAt is null ? $"No scan yet — {ScanModeLabel}" : $"{ScanModeLabel} completed {LastScanAt:O}";
@@ -66,6 +69,15 @@ public sealed class InventoryExperienceViewModel
     public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; }
     public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? $"{ScanModeLabel} scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
     public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = $"No scan data — ready for {ScanModeLabel}"; }
+    public void LoadUpdateIntelligence(UpdateIntelligenceSummary summary)
+    {
+        ArgumentNullException.ThrowIfNull(summary); UpdateStatusCounts = summary.Counts; AttentionNeeded = summary.AttentionNeeded;
+        SourceSnapshot? source = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).FirstOrDefault();
+        UpdateFreshnessLabel = source is null or { State: SourceSnapshotState.LocalOnly } ? "Local-only — no enabled update source has been checked."
+            : source.State == SourceSnapshotState.Live ? $"Live source result — last successful refresh {source.LastSuccessAt:O}."
+            : source.State == SourceSnapshotState.Cached ? $"Cached source result from {source.LastSuccessAt:O} — source data may be stale."
+            : $"Source unavailable — last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : source.LastSuccessAt.Value.ToString("O"))}.";
+    }
 
     private void ApplyFilters()
     {
