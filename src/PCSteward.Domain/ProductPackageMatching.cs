@@ -32,7 +32,11 @@ public enum MappingReviewReason
     ConnectorSpecificVersionSemantics,
     CandidateIsCurrent,
     CandidateIsOlder,
-    AmbiguousCandidate
+    AmbiguousCandidate,
+    SourceConflict,
+    MissingSourceEvidence,
+    MultipleInstallationInstanceAmbiguity,
+    SourceDisagreement
 }
 
 public sealed record ProductMatchProfile(
@@ -47,7 +51,9 @@ public sealed record ProductMatchProfile(
     string Architecture,
     string? Channel,
     IReadOnlyCollection<string>? ProductAliases = null,
-    IReadOnlyCollection<string>? PublisherAliases = null);
+    IReadOnlyCollection<string>? PublisherAliases = null,
+    string? InstalledSourceId = null,
+    bool HasConflictingTargetInstances = false);
 
 public sealed record PackageMatchCandidate(
     string SourceId,
@@ -156,6 +162,7 @@ public static class ProductPackageMatching
             reasons.Add(MappingReviewReason.UntrustedConnector);
         }
 
+        if (product.HasConflictingTargetInstances) reasons.Add(MappingReviewReason.MultipleInstallationInstanceAmbiguity);
         AddCompatibilityReasons(product, candidate, reasons);
         VersionComparisonResult comparison = VersionComparison.Compare(new(product.InstalledVersion, candidate.CandidateVersion, candidate.RequiresConnectorSpecificVersionSemantics));
         AddVersionReason(comparison, reasons);
@@ -187,6 +194,18 @@ public static class ProductPackageMatching
 
         if (Equal(product.ProviderPackageId, candidate.PackageId))
         {
+            if (!Known(product.InstalledSourceId))
+            {
+                reasons.Add(MappingReviewReason.MissingSourceEvidence);
+                return (MappingConfidence.Low, MappingOrigin.Automatic, "The installed package ID has no source provenance, so automatic matching is blocked.", reasons);
+            }
+
+            if (!Equal(product.InstalledSourceId, candidate.SourceId))
+            {
+                reasons.Add(MappingReviewReason.SourceConflict);
+                return (MappingConfidence.Low, MappingOrigin.Automatic, "The package ID matches, but the candidate comes from a different trusted source.", reasons);
+            }
+
             return (MappingConfidence.High, MappingOrigin.Automatic, "The package ID exactly matches the installed provider package ID.", reasons);
         }
 

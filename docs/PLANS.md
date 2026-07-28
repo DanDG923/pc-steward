@@ -1,26 +1,26 @@
-# Task 90 — remediate Phase 2 review
+# Task 90 — remediate repeated Phase 2 review
 
 ## Goal
 
-Resolve `P2R-01`–`P2R-06` without adding update execution, a raw connector, an arbitrary website, or an unapproved live source probe. Preserve the current Local-only default and only contact WinGet/Store after an explicit, persisted source-disclosure approval and an explicit user check.
+Resolve `P2R-07`–`P2R-10` without adding update execution, a raw connector, an arbitrary website, or an unapproved live source probe. Preserve the Local-only default and fail closed where package provenance, installation-instance evidence, or source agreement is incomplete.
 
 ## Requirement IDs
 
-`FR-SRC-03–05`, `FR-POL-01–05`, `FR-HIS-02/04`, `FR-UI-01–07`, `NFR-REL-04`, `NFR-PERF-02`, `AC-MAT-03/06/07`, `AC-UX-01–06`, `AC-NFR-02/05`, `AC-DAT-04`.
+`FR-SRC-03–05`, `FR-ID-01–07`, `FR-POL-01–05`, `FR-HIS-02/04`, `FR-UI-01–07`, `NFR-REL-04`, `NFR-PERF-02`, `AC-MAT-01–03/06/07`, `AC-UX-01–06`, `AC-NFR-02/05`, `AC-DAT-04`.
 
 ## Ordered remediation
 
-1. High — compose the fixed WinGet/Store source connectors through the application workflow, retain the Local-only default, and add explicit source-check and exact manual-mapping use cases (`P2R-01`).
-2. High — make freshness source-specific in the domain-to-presentation projection and display stale/unavailable sources without presenting cached mappings as live (`P2R-02`).
-3. High — bound stdout and stderr while the fixed WinGet process runs, terminate on overflow, and test overflow, timeout and cancellation (`P2R-03`).
-4. Mandatory — load the checked-in fixture catalog, run its five declared mapping controls and relevant edge cases, and prove zero false-positive actionable mappings (`P2R-04`).
-5. Medium — complete scoped decision controls, product timeline and source-cache retention, including accessibility labels and expiry handling (`P2R-05`).
-6. Evidence — add integration/performance/desktop-safe tests, update traceability precisely, and record remaining unapproved real-network evidence as unproven (`P2R-06`).
+1. High — retain normalized WinGet source provenance, persist it through SQLite, and require an exact trusted source as well as package identity for automatic mappings (`P2R-07`).
+2. High — preserve all WinGet target instances and fail closed when version, scope, architecture, channel, or source evidence identifies more than one target (`P2R-08`).
+3. Medium — persist approval and fail-closed revocation for both fixed WinGet connector disclosures (`P2R-09`).
+4. Medium — preserve per-source candidate observations in the review UI and block automatic/provider-supplied mappings where trusted sources disagree (`P2R-10`).
+5. Mandatory evidence — after explicit product-owner approval, exercise fixed read-only WinGet and Store checks with output discarded, record only safe aggregates and process-scoped connection metadata, and verify real connector parser/capability behavior.
+6. Verify the focused regressions, Release build, full suite, fixture benchmark, traceability, and a fresh GPT-5.6 Sol / High Task 20 review. Do not merge Phase 2 or start Phase 3.
 
-## Evidence limits
+## Evidence limit
 
-No real WinGet or Microsoft Store query will be run without explicit approval because it can disclose installed-software metadata. Local fixture connectors, process-boundary tests and the desktop's Local-only path can be exercised safely. `AC-DAT-04` remains pending an approved network inspection; the end-to-end healthy-source performance result can only be claimed for deterministic test connectors until an approved source exercise occurs.
+No real WinGet or Microsoft Store query will be run until the product owner explicitly approves the installed-software metadata disclosure. Local fixture connectors, persistence tests, and presentation tests are safe to run without that approval.
 
 ## Completion record
 
-Pending. A fresh GPT-5.6 Sol / High Task 20 review is required after this remediation commit.
+Local remediation and deterministic verification are complete; approved live-source evidence and the fresh Task 20 review remain pending.

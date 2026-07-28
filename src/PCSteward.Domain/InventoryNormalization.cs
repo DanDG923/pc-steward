@@ -3,7 +3,7 @@ using System.Text;
 
 namespace PCSteward.Domain;
 
-public sealed record RawInstallEvidence(string Provider, string ProviderIdentity, string DisplayName, string? Publisher, string? Version, string Scope, string Architecture, string? Channel, string Classification, string RawRecordId);
+public sealed record RawInstallEvidence(string Provider, string ProviderIdentity, string DisplayName, string? Publisher, string? Version, string Scope, string Architecture, string? Channel, string Classification, string RawRecordId, string? SourceId = null);
 public sealed record NormalizedInstall(string ProductFingerprint, string InstanceFingerprint, RawInstallEvidence Evidence, string Explanation);
 public sealed record DeduplicationResult(IReadOnlyCollection<NormalizedInstall> Instances, IReadOnlyDictionary<string, IReadOnlyCollection<string>> RawRecordProvenance);
 
@@ -27,7 +27,11 @@ public static class InventoryNormalization
         }
         return new DeduplicationResult(instances, provenance);
     }
-    public static string ProductFingerprint(RawInstallEvidence evidence) => Hash(evidence.Provider, evidence.ProviderIdentity);
-    public static string InstanceFingerprint(RawInstallEvidence evidence) => Hash(evidence.Provider, evidence.ProviderIdentity, evidence.Scope, evidence.Architecture, evidence.Channel ?? "", evidence.Version ?? "");
+    public static string ProductFingerprint(RawInstallEvidence evidence) => string.IsNullOrWhiteSpace(evidence.SourceId)
+        ? Hash(evidence.Provider, evidence.ProviderIdentity)
+        : Hash(evidence.Provider, evidence.ProviderIdentity, evidence.SourceId);
+    public static string InstanceFingerprint(RawInstallEvidence evidence) => string.IsNullOrWhiteSpace(evidence.SourceId)
+        ? Hash(evidence.Provider, evidence.ProviderIdentity, evidence.Scope, evidence.Architecture, evidence.Channel ?? "", evidence.Version ?? "")
+        : Hash(evidence.Provider, evidence.ProviderIdentity, evidence.SourceId, evidence.Scope, evidence.Architecture, evidence.Channel ?? "", evidence.Version ?? "");
     private static string Hash(params string[] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\u001F", values.Select(value => value.Trim().ToUpperInvariant())))))[..24];
 }

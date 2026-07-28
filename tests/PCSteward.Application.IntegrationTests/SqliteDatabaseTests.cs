@@ -109,13 +109,31 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task BothWinGetConnectorDisclosuresPersistAndFailClosedWhenRevoked()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        foreach (string connector in new[] { "WinGet installed inventory", "WinGet package sources" })
+        {
+            await database.Store.SaveConnectorStateAsync(connector, new PCSteward.Application.ConnectorState(true, true), CancellationToken.None);
+            PCSteward.Application.ConnectorState approved = await database.Store.GetConnectorStateAsync(connector, false, CancellationToken.None);
+            Assert.IsTrue(approved.Enabled, connector);
+            Assert.IsTrue(approved.SourceDisclosureApproved, connector);
+
+            await database.Store.SaveConnectorStateAsync(connector, new PCSteward.Application.ConnectorState(true, false), CancellationToken.None);
+            PCSteward.Application.ConnectorState revoked = await database.Store.GetConnectorStateAsync(connector, false, CancellationToken.None);
+            Assert.IsFalse(revoked.Enabled, connector);
+            Assert.IsFalse(revoked.SourceDisclosureApproved, connector);
+        }
+    }
+
+    [TestMethod]
     public async Task TypedInstallationMetadataSurvivesPersistence()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync(); Guid productId = Guid.NewGuid();
-        InstallationInstance instance = new(Guid.NewGuid(), productId, "registry", "contoso", "1", "Machine", "x64", "Contoso", "20260728", "C:\\Program Files\\Contoso", "Stable", "Application");
+        InstallationInstance instance = new(Guid.NewGuid(), productId, "registry", "contoso", "1", "Machine", "x64", "Contoso", "20260728", "C:\\Program Files\\Contoso", "Stable", "Application", "winget");
         await database.Store.PromoteAsync([new CanonicalProduct(productId, "contoso", "Contoso")], [instance], CancellationToken.None);
         InstallationInstance restored = (await database.Store.GetLastKnownGoodInstancesAsync(CancellationToken.None)).Single();
-        Assert.AreEqual(instance.Publisher, restored.Publisher); Assert.AreEqual(instance.InstallDate, restored.InstallDate); Assert.AreEqual(instance.InstallPath, restored.InstallPath); Assert.AreEqual(instance.Channel, restored.Channel); Assert.AreEqual(instance.Classification, restored.Classification);
+        Assert.AreEqual(instance.Publisher, restored.Publisher); Assert.AreEqual(instance.InstallDate, restored.InstallDate); Assert.AreEqual(instance.InstallPath, restored.InstallPath); Assert.AreEqual(instance.Channel, restored.Channel); Assert.AreEqual(instance.Classification, restored.Classification); Assert.AreEqual(instance.SourceId, restored.SourceId);
     }
 
     [TestMethod]

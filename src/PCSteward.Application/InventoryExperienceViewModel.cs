@@ -5,7 +5,7 @@ namespace PCSteward.Application;
 
 public sealed record ConnectorOption(string Name, string TrustCategory, bool IsEssential, bool IsEnabled, bool RequiresSourceDisclosure = false);
 public sealed record InventoryRow(Guid ProductId, string Name, string Publisher, string Provider, string Scope, string Version, string Status, string Classification, IReadOnlyCollection<InstallationInstance> Instances, string StableProductKey = "");
-public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons);
+public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons, IReadOnlyCollection<string> SourceCandidates);
 
 /// <summary>Presentation-only state for the local inventory journey. It contains no provider commands or trust decisions.</summary>
 public sealed class InventoryExperienceViewModel
@@ -85,7 +85,7 @@ public sealed class InventoryExperienceViewModel
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
         SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(DescribeSource).ToArray();
         UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Local-only — no enabled update source has been checked." : string.Join(" ", SourceFreshnessLabels);
-        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item => new UpdateDetail(item.StableProductKey, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Version ?? "Unknown", item.Mapping?.CandidateVersion, item.SourceId, item.Mapping?.PackageId, item.Mapping?.Confidence.ToString() ?? "None", item.Explanation, item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown", allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel, "Updates are not available in this phase; review the evidence and decision options.", item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? []), StringComparer.Ordinal);
+        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item => new UpdateDetail(item.StableProductKey, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Version ?? "Unknown", item.Mapping?.CandidateVersion, item.SourceId, item.Mapping?.PackageId, item.Mapping?.Confidence.ToString() ?? "None", item.Explanation, item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown", allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel, "Updates are not available in this phase; review the evidence and decision options.", item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? [], (item.SourceCandidates ?? []).Select(DescribeCandidate).ToArray()), StringComparer.Ordinal);
         IsCheckingUpdates = false;
         ApplyFilters();
     }
@@ -97,6 +97,8 @@ public sealed class InventoryExperienceViewModel
         SourceSnapshotState.Unavailable => $"{source.SourceId}: unavailable; last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : source.LastSuccessAt.Value.ToString("O"))}. {string.Join(" ", source.Warnings)}",
         _ => $"{source.SourceId}: local-only; no source check has been run."
     };
+
+    private static string DescribeCandidate(SourceCandidateObservation candidate) => $"{candidate.SourceId}: {candidate.PackageId} {candidate.CandidateVersion ?? "unknown version"}; {candidate.State.ToString().ToLowerInvariant()} result from {(candidate.LastSuccessAt is null ? "an unknown time" : candidate.LastSuccessAt.Value.ToString("O"))}; confidence {candidate.Confidence}.";
 
     private void ApplyFilters()
     {

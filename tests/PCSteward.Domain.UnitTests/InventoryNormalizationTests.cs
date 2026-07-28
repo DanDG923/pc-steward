@@ -28,5 +28,16 @@ public sealed class InventoryNormalizationTests
         DeduplicationResult result = InventoryNormalization.NormalizeAndDeduplicate([Evidence("raw-1", "Machine", "x64", "1.0", "Stable", "Visual C++ Runtime", "Contoso.Runtime"), Evidence("raw-2", "Machine", "x64", "1.0", "Stable", "Visual C++ Runtime", "Fabrikam.Runtime")]);
         Assert.AreEqual(2, result.Instances.Count);
     }
+    [TestMethod]
+    public void SameProviderPackageIdFromDifferentTrustedSourcesStaysSeparate()
+    {
+        RawInstallEvidence winget = Evidence("raw-1", "Machine", "x64", "1.0", "Stable", "Contoso App", "Contoso.App") with { Provider = "winget", SourceId = "winget" };
+        RawInstallEvidence store = winget with { RawRecordId = "raw-2", SourceId = "msstore" };
+
+        DeduplicationResult result = InventoryNormalization.NormalizeAndDeduplicate([winget, store]);
+
+        Assert.HasCount(2, result.Instances);
+        Assert.AreNotEqual(result.Instances.ElementAt(0).ProductFingerprint, result.Instances.ElementAt(1).ProductFingerprint);
+    }
     private static RawInstallEvidence Evidence(string rawId, string scope, string architecture, string version, string channel, string name, string identity = "Contoso.App") => new("registry", identity, name, "Contoso", version, scope, architecture, channel, "Unknown", rawId);
 }

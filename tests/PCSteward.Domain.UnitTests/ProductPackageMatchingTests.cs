@@ -120,6 +120,17 @@ public sealed class ProductPackageMatchingTests
         CollectionAssert.Contains(result.ReviewReasons.ToArray(), MappingReviewReason.AmbiguousCandidate);
     }
 
-    private static ProductMatchProfile Product(string? providerPackageId = "Contoso.Widget", IReadOnlyCollection<string>? aliases = null) => new("product:contoso-widget", "Contoso Widget", providerPackageId, null, null, "Contoso Ltd", "1.0.0", "Machine", "x64", "Stable", aliases, ["Contoso Ltd"]);
-    private static PackageMatchCandidate Candidate(string packageId = "Contoso.Widget", string displayName = "Contoso Widget", string? publisher = "Contoso Ltd", string version = "1.2.0", string scope = "Machine", string architecture = "x64", string channel = "Stable", bool trusted = true, IReadOnlyCollection<string>? aliases = null) => new("winget", packageId, displayName, null, null, publisher, version, scope, architecture, channel, trusted, ProductAliases: aliases, PublisherAliases: publisher is null ? null : [publisher]);
+    [TestMethod]
+    public void SamePackageIdFromAnotherTrustedSourceIsReviewOnly()
+    {
+        ProductPackageMatchResult result = ProductPackageMatching.Resolve(Product(sourceId: "msstore"), [Candidate(sourceId: "winget")]);
+
+        Assert.IsNotNull(result.Mapping);
+        Assert.AreEqual(MappingConfidence.Low, result.Mapping.Confidence);
+        CollectionAssert.Contains(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.SourceConflict);
+        Assert.IsFalse(result.Mapping.IsActionable);
+    }
+
+    private static ProductMatchProfile Product(string? providerPackageId = "Contoso.Widget", IReadOnlyCollection<string>? aliases = null, string? sourceId = "winget") => new("product:contoso-widget", "Contoso Widget", providerPackageId, null, null, "Contoso Ltd", "1.0.0", "Machine", "x64", "Stable", aliases, ["Contoso Ltd"], sourceId);
+    private static PackageMatchCandidate Candidate(string packageId = "Contoso.Widget", string displayName = "Contoso Widget", string? publisher = "Contoso Ltd", string version = "1.2.0", string scope = "Machine", string architecture = "x64", string channel = "Stable", bool trusted = true, IReadOnlyCollection<string>? aliases = null, string sourceId = "winget") => new(sourceId, packageId, displayName, null, null, publisher, version, scope, architecture, channel, trusted, ProductAliases: aliases, PublisherAliases: publisher is null ? null : [publisher]);
 }

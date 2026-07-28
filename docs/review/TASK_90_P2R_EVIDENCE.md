@@ -62,3 +62,18 @@ Keyboard text entry into the named Search control succeeded; the helper still di
 ADR-021 classifies all `AC-UX-01–09` criteria as Optional — best effort. The existing accessibility implementation/evidence remains positive quality evidence, but incomplete keyboard navigation or accessibility evidence is not a Phase 2 gate failure.
 
 `AC-DAT-04` remains subject to independent fresh-review assessment of the approved process-scoped connection evidence. ADR-003 real-source parser/capability evidence remains unproven.
+
+## Repeated-review remediation — pending approved evidence
+
+**Scope:** `P2R-07`–`P2R-10` from the repeated Task 20 review.
+
+| Finding | Deterministic evidence | Result |
+|---|---|---|
+| `P2R-07` | `ProductPackageMatchingTests.SamePackageIdFromAnotherTrustedSourceIsReviewOnly`; `InventoryNormalizationTests.SameProviderPackageIdFromDifferentTrustedSourcesStaysSeparate` | A same-ID candidate from a different trusted source is Low-confidence and non-actionable; source provenance stays in normalized instance identity. |
+| `P2R-08` | `InventoryWorkflowUpdateSourceTests.SamePackageIdFromAnotherSourceAndMultipleInstallTargetsRemainReviewOnly` | Multiple WinGet target records with different version/scope/architecture/channel/source evidence produce `MultipleInstallationInstanceAmbiguity` and cannot become actionable. |
+| `P2R-09` | `SqliteDatabaseTests.BothWinGetConnectorDisclosuresPersistAndFailClosedWhenRevoked` | Both `WinGet installed inventory` and `WinGet package sources` disclosures survive restart and fail closed when revoked. |
+| `P2R-10` | `UpdateIntelligenceTests.DifferentTrustedSourceVersionsStayVisibleAndBlockAutomaticSelection`; `InventoryExperienceViewModelTests.UpdateDetailsExposeSafetyEvidenceAndNeverOfferAnExecutableAction` | Per-source candidate observations remain visible; trusted-source differences make automatic/provider-supplied mappings review-only with `SourceDisagreement`. |
+
+Local verification completed: Release build reported **0 warnings, 0 errors**; full Release suite reported **94 passed** (40 Domain, 50 Application integration, 3 Architecture, 1 Security fixture); fixture benchmark reported **1.88 ms median / 2.89 ms p95** over 30 local runs and **15.33 ms median / 16.07 ms p95** over 20 two-source fixture refreshes. No live WinGet or Microsoft Store query was made for this repeated remediation.
+
+The only remaining evidence is a product-owner-approved, read-only fixed-source probe. It must discard package output and retain only safe aggregates, parser/capability classification, and process-scoped connection metadata sufficient for a fresh reviewer to assess `AC-DAT-04` and ADR-003.

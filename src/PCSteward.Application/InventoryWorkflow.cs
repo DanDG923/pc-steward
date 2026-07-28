@@ -127,9 +127,11 @@ public sealed class InventoryWorkflow : IDisposable
         {
             InstallationInstance[] productInstances = byProduct.GetValueOrDefault(product.Id, []);
             InstallationInstance? preferred = productInstances.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
-            InstallationInstance? winget = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase));
+            InstallationInstance[] wingetInstances = productInstances.Where(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)).ToArray();
+            InstallationInstance? winget = wingetInstances.OrderBy(instance => instance.SourceId, StringComparer.Ordinal).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
             InstallationInstance? msix = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase));
-            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, preferred?.Version, preferred?.Scope ?? "Unknown", preferred?.Architecture ?? "Unknown", preferred?.Channel);
+            bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any();
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, preferred?.Version, preferred?.Scope ?? "Unknown", preferred?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
         }).ToArray();
     }
 

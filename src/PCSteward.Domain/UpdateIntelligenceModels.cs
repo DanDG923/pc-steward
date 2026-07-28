@@ -51,7 +51,21 @@ public sealed record UpdateIntelligenceItem(
     PackageMapping? Mapping,
     string Explanation,
     string? SourceId = null,
-    DateTimeOffset? LastSuccessAt = null);
+    DateTimeOffset? LastSuccessAt = null,
+    IReadOnlyCollection<SourceCandidateObservation>? SourceCandidates = null);
+
+public sealed record SourceCandidateObservation(
+    string SourceId,
+    string PackageId,
+    string? CandidateVersion,
+    string? Publisher,
+    string Scope,
+    string Architecture,
+    string? Channel,
+    SourceSnapshotState State,
+    DateTimeOffset? LastSuccessAt,
+    MappingConfidence Confidence,
+    IReadOnlyCollection<MappingReviewReason> ReviewReasons);
 
 public sealed record UpdateIntelligenceSummary(
     IReadOnlyCollection<UpdateIntelligenceItem> Items,

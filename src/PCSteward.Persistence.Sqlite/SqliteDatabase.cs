@@ -40,6 +40,11 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
             await ExecuteAsync(connection, "ALTER TABLE stable_decisions ADD COLUMN reason TEXT; ALTER TABLE stable_decisions ADD COLUMN expires_at TEXT; ALTER TABLE manual_mappings ADD COLUMN reason TEXT;", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (4);", cancellationToken, transaction);
         }
+        if (await MigrationRequiredAsync(connection, transaction, 5, cancellationToken))
+        {
+            await ExecuteAsync(connection, "ALTER TABLE installation_instances ADD COLUMN source_id TEXT;", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (5);", cancellationToken, transaction);
+        }
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -85,9 +90,9 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     {
         List<InstallationInstance> result = [];
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id, product_id, provider, provider_identity, version, scope, architecture, publisher, install_date, install_path, channel, classification FROM installation_instances ORDER BY provider, provider_identity;";
+        await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id, product_id, provider, provider_identity, version, scope, architecture, publisher, install_date, install_path, channel, classification, source_id FROM installation_instances ORDER BY provider, provider_identity;";
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) result.Add(new InstallationInstance(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10), reader.GetString(11)));
+        while (await reader.ReadAsync(cancellationToken)) result.Add(new InstallationInstance(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10), reader.GetString(11), reader.IsDBNull(12) ? null : reader.GetString(12)));
         return result;
     }
 
@@ -117,13 +122,13 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     public async Task<ConnectorState> GetConnectorStateAsync(string connectorName, bool defaultEnabled, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); bool enabled = await GetMetadataBoolAsync(connection, ConnectorKey(connectorName), defaultEnabled, cancellationToken); bool approved = await GetMetadataBoolAsync(connection, ConnectorApprovalKey(connectorName), false, cancellationToken);
-        return new ConnectorState(enabled && (!IsWinget(connectorName) || approved), approved);
+        return new ConnectorState(enabled && (!RequiresSourceDisclosure(connectorName) || approved), approved);
     }
 
     public async Task SaveConnectorStateAsync(string connectorName, ConnectorState state, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorKey(connectorName)), ("$value", state.Enabled));
-        if (IsWinget(connectorName)) await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
+        if (RequiresSourceDisclosure(connectorName)) await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
     }
 
     public async Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken)
@@ -249,10 +254,10 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     private static string SourceId(string value) => value.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(value), "Only supported connector sources may be cached.") };
     private static string ConnectorKey(string connectorName) => "connector." + Text(connectorName).ToLowerInvariant();
     private static string ConnectorApprovalKey(string connectorName) => ConnectorKey(connectorName) + ".source-disclosure-approved";
-    private static bool IsWinget(string connectorName) => string.Equals(connectorName, "WinGet installed inventory", StringComparison.Ordinal);
+    private static bool RequiresSourceDisclosure(string connectorName) => connectorName is "WinGet installed inventory" or "WinGet package sources";
     private static async Task<bool> GetMetadataBoolAsync(SqliteConnection connection, string key, bool defaultValue, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key = $key;"; command.Parameters.AddWithValue("$key", key); object? value = await command.ExecuteScalarAsync(token); return value is string text && bool.TryParse(text, out bool parsed) ? parsed : defaultValue; }
     private static async Task<bool> MigrationRequiredAsync(SqliteConnection connection, SqliteTransaction transaction, int version, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = "SELECT COUNT(*) FROM schema_migrations WHERE version = $version;"; command.Parameters.AddWithValue("$version", version); return Convert.ToInt32(await command.ExecuteScalarAsync(token), CultureInfo.InvariantCulture) == 0; }
-    private static async Task InsertInstanceAsync(SqliteConnection connection, InstallationInstance instance, SqliteTransaction transaction, CancellationToken token) => await ExecuteAsync(connection, "INSERT INTO installation_instances(id,product_id,provider,provider_identity,version,scope,architecture,publisher,install_date,install_path,channel,classification) VALUES ($id,$product,$provider,$identity,$version,$scope,$architecture,$publisher,$installDate,$installPath,$channel,$classification);", token, transaction, ("$id", instance.Id), ("$product", instance.ProductId), ("$provider", Text(instance.Provider)), ("$identity", Text(instance.ProviderIdentity)), ("$version", Text(instance.Version)), ("$scope", Text(instance.Scope)), ("$architecture", Text(instance.Architecture)), ("$publisher", Text(instance.Publisher)), ("$installDate", Text(instance.InstallDate)), ("$installPath", Text(instance.InstallPath)), ("$channel", Text(instance.Channel)), ("$classification", Text(instance.Classification)));
+    private static async Task InsertInstanceAsync(SqliteConnection connection, InstallationInstance instance, SqliteTransaction transaction, CancellationToken token) => await ExecuteAsync(connection, "INSERT INTO installation_instances(id,product_id,provider,provider_identity,version,scope,architecture,publisher,install_date,install_path,channel,classification,source_id) VALUES ($id,$product,$provider,$identity,$version,$scope,$architecture,$publisher,$installDate,$installPath,$channel,$classification,$source);", token, transaction, ("$id", instance.Id), ("$product", instance.ProductId), ("$provider", Text(instance.Provider)), ("$identity", Text(instance.ProviderIdentity)), ("$version", Text(instance.Version)), ("$scope", Text(instance.Scope)), ("$architecture", Text(instance.Architecture)), ("$publisher", Text(instance.Publisher)), ("$installDate", Text(instance.InstallDate)), ("$installPath", Text(instance.InstallPath)), ("$channel", Text(instance.Channel)), ("$classification", Text(instance.Classification)), ("$source", Text(instance.SourceId)));
     private static async Task InsertRunAsync(SqliteConnection connection, ScanRun run, IReadOnlyCollection<ScanProviderTiming> timings, SqliteTransaction transaction, CancellationToken token)
     {
         await ExecuteAsync(connection, "INSERT INTO scan_runs VALUES ($id,$started,$completed,$status,$correlation);", token, transaction, ("$id", run.Id), ("$started", run.StartedAt), ("$completed", run.CompletedAt), ("$status", Text(run.Status)), ("$correlation", run.CorrelationId));

@@ -39,7 +39,7 @@ public sealed class FixtureCatalogMatchingTests
         string productChannel = record.ExpectedMapping == "channel-conflict" ? "Stable" : record.Channel ?? "Stable";
         string candidateChannel = record.ExpectedMapping == "channel-conflict" ? "Preview" : productChannel;
         string? publisher = record.ExpectedMapping is "false-match-reject" or "low-confidence" ? null : "Contoso";
-        ProductMatchProfile product = new("fixture:" + record.FixtureId, record.DisplayName ?? "Unknown", exact ? packageId : null, null, null, publisher, installedVersion, record.Scope ?? "Machine", productArchitecture, productChannel, [record.DisplayName ?? string.Empty], publisher is null ? null : [publisher]);
+        ProductMatchProfile product = new("fixture:" + record.FixtureId, record.DisplayName ?? "Unknown", exact ? packageId : null, null, null, publisher, installedVersion, record.Scope ?? "Machine", productArchitecture, productChannel, [record.DisplayName ?? string.Empty], publisher is null ? null : [publisher], exact ? "winget" : null);
         PackageMatchCandidate candidate = new("winget", packageId, record.DisplayName ?? "Unknown", null, null, record.ExpectedMapping == "false-match-reject" ? "Fabrikam" : publisher, candidateVersion, record.Scope ?? "Machine", candidateArchitecture, candidateChannel, true, ProductAliases: [record.DisplayName ?? string.Empty], PublisherAliases: publisher is null ? ["Fabrikam"] : [publisher]);
         return ProductPackageMatching.Resolve(product, [candidate]).Mapping;
     }

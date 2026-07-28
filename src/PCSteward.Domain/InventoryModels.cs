@@ -13,7 +13,8 @@ public sealed record InstallationInstance(
     string? InstallDate = null,
     string? InstallPath = null,
     string? Channel = null,
-    string Classification = "Unknown");
+    string Classification = "Unknown",
+    string? SourceId = null);
 public sealed record RawProviderRecord(Guid Id, Guid ScanRunId, string Provider, string RecordKey, string Payload);
 public sealed record ScanRun(Guid Id, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string Status, Guid CorrelationId);
 public sealed record ScanProviderTiming(Guid Id, Guid ScanRunId, string Provider, TimeSpan Duration, string? Warning);

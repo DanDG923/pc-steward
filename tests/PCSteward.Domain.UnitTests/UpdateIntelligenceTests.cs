@@ -37,7 +37,26 @@ public sealed class UpdateIntelligenceTests
         Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, result.Items.Single().Status);
     }
 
-    private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel);
+    [TestMethod]
+    public void DifferentTrustedSourceVersionsStayVisibleAndBlockAutomaticSelection()
+    {
+        ProductMatchProfile product = Product("disagreement", "Contoso.Disagreement", "1.0.0");
+        SourceSnapshot winget = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Disagreement", "disagreement", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
+        SourceSnapshot store = new("msstore", "v2", DateTimeOffset.UnixEpoch.AddMinutes(1), SourceSnapshotState.Cached, [new SourcePackageRecord("msstore", "Contoso.Disagreement.Store", "disagreement", "Contoso", "1.0.0", "1.2.0", "Machine", "x64", "Stable")], ["source:stale"]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [winget, store]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
+        CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.SourceDisagreement);
+        SourceCandidateObservation[] observations = item.SourceCandidates!.ToArray();
+        Assert.HasCount(2, observations);
+        Assert.IsTrue(observations.Any(candidate => candidate.SourceId == "winget" && candidate.CandidateVersion == "1.1.0"));
+        Assert.IsTrue(observations.Any(candidate => candidate.SourceId == "msstore" && candidate.CandidateVersion == "1.2.0"));
+    }
+
+    private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel, InstalledSourceId: packageId is null ? null : "winget");
     private static SourcePackageRecord Package(string id, string version, string architecture = "x64") => new("winget", id, id, "Contoso", "1.0.0", version, "Machine", architecture, "Stable");
     private static SourceSnapshot Source(IReadOnlyCollection<SourcePackageRecord> packages) => new("winget", "v1.0", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []);
 }

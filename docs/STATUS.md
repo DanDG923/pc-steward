@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 90 — remediate repeated Phase 2 findings `P2R-07`–`P2R-10`
+**Current task:** 90 — capture approved mandatory source evidence, then repeat Task 20
 **Last green commit:** `ce0cfae` — `docs: make accessibility criteria best effort`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -37,22 +37,17 @@
 
 ## Active blockers
 
-The repeated Task 20 review found four findings in `docs/review/PHASE_2_REVIEW.md`:
+`P2R-07`–`P2R-10` are remediated locally with source-qualified identity, preserved multi-instance ambiguity, persisted approval for both fixed connector disclosures, and visible, non-actionable source disagreement. The final mandatory `AC-DAT-04` and ADR-003 real parser/capability evidence requires explicit product-owner approval before a read-only source query that can disclose installed-package metadata.
 
-- `P2R-07` High — automatic package identity is not source-qualified; a same-ID package from the wrong trusted source becomes actionable.
-- `P2R-08` High — multi-instance version/scope/architecture/channel evidence is reduced to one preferred instance and can remain actionable.
-- `P2R-09` Medium — approval for `WinGet package sources` is not persisted across restart.
-- `P2R-10` Medium — source disagreement is not represented and Task 18 traceability claims a missing regression.
-
-`AC-DAT-04` and real ADR-003 parser/capability behavior remain unproven. The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
+The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
 
 ## Task 20 result
 
-`FAIL`. Release build: zero warnings/errors. Focused Phase 2 tests: 66 passed. Full suite: 89 passed. Fixture benchmark: 30 local runs at 1.78 ms median / 1.97 ms p95 and 20 two-source fixture refreshes at 15.41 ms median / 15.96 ms p95. Read-only reproductions confirmed the two actionable High findings.
+Previous review: `FAIL`. Local remediation verification: Release build zero warnings/errors; full suite 94 passed; fixture benchmark 30 local runs at 1.88 ms median / 2.89 ms p95 and 20 two-source fixture refreshes at 15.33 ms median / 16.07 ms p95. A fresh GPT-5.6 Sol / High review is pending the approved mandatory evidence.
 
 ## Next task
 
-Run Task 90 for `P2R-07`–`P2R-10`, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
+Obtain explicit approval for the bounded read-only fixed-source evidence, complete it, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 
