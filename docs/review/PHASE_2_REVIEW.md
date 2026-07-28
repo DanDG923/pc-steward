@@ -56,3 +56,14 @@ ADR-021 makes `AC-UX-01–09` Optional — best effort, so the incomplete keyboa
 ## Recommended next action
 
 Run Task 90 to remediate `P2R-07`–`P2R-10` and the missing mandatory evidence, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
+
+## Fresh Task 20 review — 2026-07-28
+
+**Base commit:** `7fe0e45`  
+**Head commit:** `2ebd713`  
+**Reviewer model/effort:** GPT-5.6 Sol / High  
+**Gate result:** `FAIL`
+
+`P2R-07`–`P2R-09` passed. `P2R-10` failed because a mapping marked with `SourceDisagreement` could be non-actionable yet still receive the `Current` status when its selected version compared Equal, excluding it from `AttentionNeeded`. The subsequent local remediation is not part of this review and requires a fresh review.
+
+The approved live calls verified fixed arguments, version/capability detection, and the no-upgrade path for both sources, but both produced zero candidates. `AC-DAT-04` still lacks an event-based, process-attributed disabled/local-only versus explicitly enabled production trace with no dropped events. ADR-003 still lacks a documented sanitized real update row that exercises production field and source-column validation. Focused review tests: **6 passed**; Release build: **0 warnings, 0 errors**; full suite: **94 passed**. Do not merge Phase 2 or begin Phase 3.

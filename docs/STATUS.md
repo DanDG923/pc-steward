@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 20 — fresh GPT-5.6 Sol / High Phase 2 review
+**Current task:** 90 — final Phase 2 evidence remediation
 **Last green commit:** `ce0cfae` — `docs: make accessibility criteria best effort`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -37,17 +37,19 @@
 
 ## Active blockers
 
-`P2R-07`–`P2R-10` are remediated with source-qualified identity, preserved multi-instance ambiguity, persisted approval for both fixed connector disclosures, and visible, non-actionable source disagreement. Approved read-only fixed-source evidence recorded successful real parser/capability behavior and process-scoped connection metadata for `AC-DAT-04`; the fresh reviewer must assess sufficiency.
+The fresh GPT-5.6 Sol / High Task 20 review passed `P2R-07`–`P2R-09`, but found that an Equal automatic mapping with `SourceDisagreement` could still be labelled Current rather than review-required. The fail-closed status correction and regression now pass locally, awaiting a fresh review.
+
+`AC-DAT-04` requires an event-based, process-attributed trace of disabled/local-only and explicitly enabled production composition; interval socket polling of direct child commands is insufficient. ADR-003 also requires one documented sanitized real update row from a controlled Windows 11 host (or provenance-recorded sanitized captured fixture); this machine reported zero available rows.
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
 
 ## Task 20 result
 
-Previous review: `FAIL`. Task 90 verification: Release build zero warnings/errors; full suite 94 passed; fixture benchmark 30 local runs at 1.88 ms median / 2.89 ms p95 and 20 two-source fixture refreshes at 15.33 ms median / 16.07 ms p95. Approved real fixed-source checks returned live parser results for both sources with zero warnings and successful exits; connection metadata is in `docs/review/TASK_90_P2R_EVIDENCE.md`.
+Fresh Task 20 result: `FAIL`. Review focused tests: 6 passed; Release build zero warnings/errors; full suite 94 passed. The subsequent P2R-10 correction verified with Release build zero warnings/errors, full suite 95 passed, and fixture benchmark 30 local runs at 1.83 ms median / 1.99 ms p95 and 20 two-source fixture refreshes at 15.57 ms median / 16.09 ms p95.
 
 ## Next task
 
-Repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
+Obtain the event-based enabled/disabled trace and a documented sanitized real parser row, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 

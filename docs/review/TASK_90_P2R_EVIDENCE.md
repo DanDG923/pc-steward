@@ -97,3 +97,9 @@ The product owner also approved one direct fixed source check per source for `AC
 | `msstore` | 37476 | 16:41:17.848–16:41:19.037 | 0 | 1,188.81 ms | `[2a02:26f0:1c80:d9b::4106]:443` |
 
 This is process-scoped connection metadata, not packet capture. Together with the fixed allowlist, explicit connector approval tests, and the local-only/disabled-connector tests, it is evidence for `AC-DAT-04`; a fresh reviewer must determine whether it is sufficient for the gate.
+
+### Fresh-review result and final deterministic correction — 2026-07-28
+
+Fresh GPT-5.6 Sol / High review passed `P2R-07`–`P2R-09` but found that a source-disagreement mapping whose selected candidate was Equal could still be labelled Current and omit the product from `AttentionNeeded`. `UpdateIntelligenceTests.SourceDisagreementNeverClassifiesAnOtherwiseCurrentMappingAsCurrent` now verifies that such a mapping is `ReviewRequired`, remains non-actionable, and appears in attention. Release build reported **0 warnings, 0 errors**; the full suite reported **95 passed**.
+
+The same fresh review judged the direct-command connection observation insufficient for `AC-DAT-04`: it lacks an event-based, process-attributed comparison between a disabled/local-only production path and an explicitly enabled production path. It also judged the zero-row probes insufficient for the real source-row portion of ADR-003. A final evidence run needs a bounded ETW/WFP/Procmon-style metadata trace with no dropped events and one provenance-documented sanitized real update row from a controlled Windows 11 host (or an equivalent sanitized captured fixture). Do not treat the zero-row result as proof of real row/source-column parsing.

@@ -56,6 +56,23 @@ public sealed class UpdateIntelligenceTests
         Assert.IsTrue(observations.Any(candidate => candidate.SourceId == "msstore" && candidate.CandidateVersion == "1.2.0"));
     }
 
+    [TestMethod]
+    public void SourceDisagreementNeverClassifiesAnOtherwiseCurrentMappingAsCurrent()
+    {
+        ProductMatchProfile product = Product("current-disagreement", "Contoso.CurrentDisagreement", "1.0.0");
+        SourceSnapshot winget = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.CurrentDisagreement", "current-disagreement", "Contoso", "1.0.0", "1.0.0", "Machine", "x64", "Stable")], []);
+        SourceSnapshot store = new("msstore", "v2", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("msstore", "Contoso.CurrentDisagreement.Store", "current-disagreement", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
+
+        UpdateIntelligenceSummary result = UpdateIntelligence.Assess([product], [winget, store]);
+        UpdateIntelligenceItem item = result.Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.IsTrue(result.AttentionNeeded.Contains(item));
+        Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
+        CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.SourceDisagreement);
+    }
+
     private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel, InstalledSourceId: packageId is null ? null : "winget");
     private static SourcePackageRecord Package(string id, string version, string architecture = "x64") => new("winget", id, id, "Contoso", "1.0.0", version, "Machine", architecture, "Stable");
     private static SourceSnapshot Source(IReadOnlyCollection<SourcePackageRecord> packages) => new("winget", "v1.0", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []);

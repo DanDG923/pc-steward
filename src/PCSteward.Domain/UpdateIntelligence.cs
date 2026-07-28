@@ -53,7 +53,8 @@ public static class UpdateIntelligence
                 mapping = mapping with { IsActionable = false, ReviewReasons = reasons, EvidenceExplanation = mapping.EvidenceExplanation + " Review required: source candidates disagree." };
             }
             SourceSnapshot? source = sourceById.GetValueOrDefault(mapping.SourceId);
-            UpdateIntelligenceStatus status = mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
+            UpdateIntelligenceStatus status = mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement) ? UpdateIntelligenceStatus.ReviewRequired
+                : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
                 : mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal ? UpdateIntelligenceStatus.Current
                 : UpdateIntelligenceStatus.ReviewRequired;
             items.Add(new(product.StableProductKey, status, mapping, mapping.EvidenceExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
