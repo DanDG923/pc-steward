@@ -1,6 +1,6 @@
 # ADR-008 — Licence and source availability
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner
 **Related requirements:** release definition of done and dependency licence review
@@ -22,7 +22,7 @@ Improves transparency/contribution potential but needs legal and disclosure read
 
 ## Decision
 
-Propose Option A until the product owner explicitly selects a licence. Status remains Proposed.
+Accept Option A through private beta. The repository and builds make no public-source or open-source claim. Dependency selection must be compatible with private distribution, and any public repository or licence requires an explicit product-owner decision plus updated notices before publication.
 
 ## Consequences
 

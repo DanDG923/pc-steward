@@ -1,6 +1,6 @@
 # ADR-005 — Runtime and redistributable grouping
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-INV-07`, `FR-INV-09`, `AC-INV-02`
@@ -22,7 +22,7 @@ Cleaner UI but higher merge/error risk.
 
 ## Decision
 
-Propose Option A. Classification may label runtimes without merging distinct instances. Status remains Proposed.
+Accept Option A. Preserve provider records and distinct install instances. Classification and reversible presentation grouping may label runtimes, but only stable provider identity may deduplicate the same instance; name, publisher or family heuristics cannot merge scope, architecture, channel or side-by-side instances.
 
 ## Consequences
 

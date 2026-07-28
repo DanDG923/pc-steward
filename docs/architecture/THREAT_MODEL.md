@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** Proposed; Tasks 02–03 evidence recorded, validate through Tasks 04–05 and review again at Tasks 15, 20, 25 and 31
+**Status:** Accepted Phase 0 baseline; Tasks 02–04 evidence recorded; review again at Tasks 15, 20, 25 and 31
 **Protected assets:** correct package-to-product identity, user approval, standard/elevated execution boundary, app-owned and non-owned files, inventory/history privacy, last-known-good state, source provenance and release evidence.
 
 ## Security objectives
@@ -41,7 +41,7 @@ Consider a compromised source response, malicious/corrupt local records, a stand
 
 ## Privilege-boundary protocol constraints
 
-The helper accepts only a versioned message containing operation verb, provider enum, source ID, package ID, target version, immutable job ID and freshness/nonce binding. It must reject unknown/duplicate fields, overlong identifiers, free-form flags, paths, URLs, environment, working directory and output destinations. Denial, cancellation, timeout and helper crash are distinct results. No service installation or persistent elevated process is allowed.
+The desktop creates a random per-request named pipe restricted to the current user and SYSTEM, then launches the fixed signed helper path through `runas`. Bootstrap data contains only protocol version, desktop PID, pipe locator and nonce. Each side validates the other's PID, fixed signed executable identity and user/session. The helper accepts one versioned immutable-job message containing operation verb, provider enum, source ID, package ID, target version, job ID and freshness/nonce binding. It rejects unknown/duplicate fields, overlong identifiers, replay, free-form flags, paths, URLs, environment, working directory and output destinations. Denial, cancellation, timeout and helper crash are distinct results. No service installation or persistent elevated process is allowed.
 
 ## Deletion security constraints
 
@@ -55,10 +55,10 @@ Symbolic-link creation required administrator privilege on this host, and a true
 
 ## Residual risks requiring evidence
 
-- WinGet behavior and parseable output stability: Task 02.
-- Windows packaging/elevation/storage interactions: Task 02.
+- The provisional constrained WinGet CLI route requires approved clean-VM inventory/source and parser/process evidence: Tasks 10, 18, 21 and 25.
+- The provisional unpackaged installer requires Windows 11 install/upgrade/uninstall/signing evidence: Task 30.
 - Full-walk Windows deletion/TOCTOU primitive, symbolic-link and volume-mount behavior without over-privilege: Tasks 24/25, following Task 03's partial evidence.
-- Performance limits under representative malformed and 300-record fixtures: Task 04.
+- Final-application performance on the accepted clean-VM baseline: Tasks 12 and 29.
 - Clean-VM, UAC, signing and package lifecycle evidence remains unavailable on the current audited host.
 
 ## Review rule

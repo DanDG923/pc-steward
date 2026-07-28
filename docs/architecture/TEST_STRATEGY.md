@@ -1,6 +1,6 @@
 # Test strategy
 
-**Status:** Proposed
+**Status:** Accepted Phase 0 baseline
 
 ## Principles
 

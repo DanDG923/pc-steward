@@ -1,6 +1,6 @@
 # Component architecture
 
-**Status:** Proposed for Phase 0 validation
+**Status:** Accepted for scaffolding by ADR-014–020
 **Requirements:** G-01–G-10, FR-INV-01–09, FR-ID-01–07, FR-SRC-01–05/10, FR-UPD-01–11, FR-DAT-01–15, FR-RSC-01–05, NFR-MNT-01–05
 
 ## Architectural rules
@@ -32,7 +32,7 @@
 | Diagnostics | Correlation IDs, structured redacted events, retention and user-requested bundles | Capture secrets, full environment dumps or unbounded output |
 | Performance harness | Repeatable fixtures and process-tree timing/CPU/memory/cancellation measurements | Change production safety thresholds to meet a budget |
 
-## Proposed solution boundaries
+## Accepted solution boundaries
 
 - `PCSteward.Domain`: entities, value objects, pure rules and state machines.
 - `PCSteward.Application`: use-case handlers and ports.
@@ -44,10 +44,11 @@
 - `PCSteward.Storage`: artifact ownership, retention and safe cleanup.
 - `PCSteward.Scheduling.Windows`: Task Scheduler and notification adapters.
 - `PCSteward.Diagnostics`: logging/redaction and diagnostic export.
+- `PCSteward.ScheduledHost`: scan-only standard-user entry point with no Execution or ElevatedHelper reference.
 - `PCSteward.Desktop`: WinUI composition root and presentation.
 - Separate unit, integration, security-fixture and performance projects. Spike projects remain outside production references.
 
-Names may change at scaffolding, but boundaries and dependency direction require an ADR to weaken.
+These names and dependency direction are locked by ADR-014. Any weakening requires a superseding ADR.
 
 ## Core contracts
 
@@ -61,16 +62,17 @@ Names may change at scaffolding, but boundaries and dependency direction require
 
 ## Runtime composition
 
-The standard-user desktop process owns UI and orchestration. Child provider processes are bounded by timeout, cancellation and captured-output limits. The elevated helper is a separate process launched only after confirmation and UAC; it exits after one request. Scheduled scans invoke a scan-only entry point in the current-user context and exit. No service or tray coordinator exists.
+The standard-user desktop process owns UI and orchestration. Child provider processes are bounded by timeout, cancellation and captured-output limits. The elevated helper is a separately signed process launched from its fixed installed path only after confirmation and UAC; it connects to one identity-checked per-request named pipe, handles one immutable request and exits. Scheduled scans invoke `PCSteward.ScheduledHost` in the current-user context; that project cannot reference update execution and exits. No service or tray coordinator exists.
 
 ## State and consistency
 
-- SQLite uses versioned migrations and transactions.
+- `PCSteward.Persistence.Sqlite` alone owns SQL, connections and schema. It uses ordered transactional migrations, foreign keys, tested WAL/durability policy, a per-user migration lease and pre-migration recovery.
 - A scan writes a staging snapshot and atomically promotes it; cancellation/crash preserves the last known good snapshot.
 - Stable decision keys live independently from scan rows so Clear scan data can preserve mappings/policies.
 - Update jobs and events are append-oriented; provider exit is not Success until verification.
 - Source snapshots include retrieval/success timestamps and stale state.
-- Artifact records use root-relative paths only as evidence; deletion independently resolves a fixed owned root and rejects reparse traversal.
+- Artifact records use root-relative paths only as evidence; deletion independently resolves a compiled category below `%LocalAppData%\PCSteward` and rejects reparse traversal.
+- Logs are typed allowlisted events sanitized before bounded JSON-lines persistence; free-form provider objects and command lines are forbidden.
 
 ## Concurrency and lifecycle
 
@@ -79,6 +81,7 @@ The standard-user desktop process owns UI and orchestration. Child provider proc
 - Connector concurrency defaults to three; providers have independent timeouts.
 - Batch updates are sequential; cancellation prevents the next job.
 - Destructive controls require no active scan/update and an exclusive data-operation lease.
+- Factory reset writes a fixed marker, closes state, and performs the compiled reset manifest before opening state on the next launch; residuals prevent a false first-run state.
 - Closing the UI cancels or hands off only explicitly approved active work; otherwise every PC Steward process exits.
 
 ## Architecture fitness checks

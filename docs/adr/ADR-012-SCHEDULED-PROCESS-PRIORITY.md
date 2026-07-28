@@ -1,6 +1,6 @@
 # ADR-012 — Scheduled process priority
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-RSC-04`, `NFR-PERF-07`, `AC-NFR-11`
@@ -22,7 +22,7 @@ Portable but less explicit and easier to regress.
 
 ## Decision
 
-Propose Option A where supported, with documented fallback to bounded Normal priority. Status remains Proposed.
+Accept Option A. The dedicated scheduled host requests BelowNormal process priority and uses typed Task Scheduler conditions where supported. If Windows rejects the priority choice, it may run at Normal priority only with the same concurrency/timeouts and a recorded warning; no resident coordinator is introduced.
 
 ## Consequences
 

@@ -1,6 +1,6 @@
 # ADR-003 — WinGet integration route
 
-**Status:** Proposed
+**Status:** Provisional
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03`
@@ -22,7 +22,9 @@ Potentially stronger typing; deployment/support surface may be more complex or i
 
 ## Decision
 
-Keep a provider interface and choose the most stable supported route proven by Task 02. CLI is acceptable only with a fixed executable, structured argument list, bounded output and capability-gated parsers. Status remains Proposed.
+Provisionally select Option A behind the provider interface. The adapter uses the fixed `winget.exe` identity, structured argument arrays, capability detection, bounded output, timeout/cancellation and fail-closed parsers. Table output may inform inventory display only; it never authorizes execution. An actionable job must carry an exact source and package ID already validated by deterministic rules.
+
+Option B is rejected for the current path because Task 02 found no supported programmatic route available to prove. The abstraction remains so a later supported API can replace the adapter without changing domain behavior.
 
 ## Consequences
 
@@ -30,7 +32,7 @@ Adapters can change without changing domain behavior; both routes require explic
 
 ### Follow-up controls and tests
 
-Golden parsers/capability fixtures, timeout/cancellation and arbitrary-argument rejection.
+Golden parser/capability fixtures, locale/malformed-output rejection, source-failure isolation, timeout/process-tree cancellation, output bounds and arbitrary executable/argument rejection are mandatory in Tasks 10, 18, 21 and 25.
 
 ## Evidence the upcoming spike must collect
 
@@ -41,8 +43,8 @@ Golden parsers/capability fixtures, timeout/cancellation and arbitrary-argument 
 
 ## Task 02 evidence
 
-`spikes/winget-packaging/SPIKE_REPORT.md` records WinGet `v1.29.280` and confirms local help support for exact ID, source, version, architecture, scope and non-interactive arguments. The observed `list` and `upgrade` help does not advertise structured output, so table parsing is never execution authority. A supported programmatic route was not evidenced on this host. The spike provisionally recommends Option A behind capability gates, fixed `winget.exe`, argument arrays, bounded capture, timeout/cancellation and non-actionable parser failures. Installed/upgrade/Store probes require separate explicit authorization because they may disclose installed-software metadata to external sources. Status remains Proposed.
+`spikes/winget-packaging/SPIKE_REPORT.md` records WinGet `v1.29.280` and confirms local help support for exact ID, source, version, architecture, scope and non-interactive arguments. The observed `list` and `upgrade` help does not advertise structured output, so table parsing is never execution authority. A supported programmatic route was not evidenced on this host. Installed/upgrade/Store probes require separate explicit authorization because they may disclose installed-software metadata to external sources. Their absence and the lack of structured output evidence make this ADR Provisional.
 
 ## Reconsider when
 
-A supported API clearly supersedes the selected route or WinGet output compatibility breaks.
+A supported API proves equivalent inventory, source, cancellation and execution behavior; required CLI capabilities disappear; parser compatibility breaks; or clean-VM evidence shows the route cannot meet source isolation and exact-ID execution requirements.

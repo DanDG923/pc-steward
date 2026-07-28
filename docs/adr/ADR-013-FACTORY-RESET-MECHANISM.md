@@ -1,6 +1,6 @@
 # ADR-013 — Factory-reset mechanism
 
-**Status:** Proposed
+**Status:** Provisional
 **Date:** 2026-07-28
 **Decision owners:** Product owner and security reviewer
 **Related requirements:** `FR-DAT-12–15`, `AC-DAT-12–16`, section 15.5
@@ -26,11 +26,13 @@ Can run after UI exit but adds protocol/process attack surface.
 
 ## Decision
 
-Prefer A, then B if handle evidence requires it; permit C only when Tasks 03/27 prove A/B cannot meet verification. The operation accepts a fixed reset verb/manifest, never paths. Status remains Proposed.
+Provisionally select Option B: a next-launch cleanup marker under the fixed PC Steward state root. After two confirmations and an exclusive data-operation lease, the UI writes the fixed marker and exits without reopening application state. The next launch checks the marker before opening SQLite or logs, removes the current-user scheduled task and each compiled reset-manifest category, then deletes the marker only after verification. Any residual keeps the reset state visible and prevents old state from loading.
+
+Option A is rejected for the current path because actual application handles do not yet exist and an in-process reset could retain its own database/log handles. Option C is rejected because the spike proved only a protocol shape and a helper adds an unnecessary process boundary while next-launch cleanup remains implementable. The reset operation accepts no paths.
 
 ## Consequences
 
-The safest mechanism may require a close and verified next launch; partial reset remains visible.
+Reset requires closing the UI and a verified next launch; partial reset remains visible and onboarding is not shown until verification succeeds.
 
 ### Follow-up controls and tests
 
@@ -44,8 +46,8 @@ Double confirmation, active-work lock, deterministic manifest, canonical/reparse
 
 ## Task 03 evidence
 
-`spikes/security-boundaries/SPIKE_REPORT.md` records 42 passing assertions for a ten-category fixed reset manifest, canonical containment, hostile path rejection, junction detection, locked-file partial results, bounded retry, idempotence and a final-component reparse swap. It also prototypes a strict authenticated no-op helper request. Symbolic-link and volume-mount fixtures plus an ancestor-component race remain clean-VM/manual evidence, so Option A then B remains the preference, C remains exceptional, and this ADR stays Proposed.
+`spikes/security-boundaries/SPIKE_REPORT.md` records 42 passing assertions for a ten-category fixed reset manifest, canonical containment, hostile path rejection, junction detection, locked-file partial results, bounded retry, idempotence and a final-component reparse swap. It also prototypes a strict authenticated no-op helper request. Symbolic-link and volume-mount fixtures plus an ancestor-component race remain clean-VM/manual evidence; those limitations make the next-launch choice Provisional.
 
 ## Reconsider when
 
-Actual handle lifetime or packaging prevents complete standard-user cleanup with the preferred mechanism.
+Task 27 proves in-process cleanup is equally verifiable and materially simpler; clean-VM reparse/ancestor-race evidence fails; actual handle lifetime or packaging prevents complete standard-user next-launch cleanup; or schedule removal cannot be completed and verified in the current-user context.

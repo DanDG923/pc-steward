@@ -1,6 +1,6 @@
 # Data flow and trust boundaries
 
-**Status:** Proposed for Phase 0 validation
+**Status:** Accepted for scaffolding by ADR-014–020
 
 ## Trust zones
 
@@ -32,8 +32,8 @@ Validation points: field lengths and enums at adapter ingress; stable identity f
 2. Explicit confirmation creates an immutable job in Z1; Z2 stores evidence but cannot alter the approved fields.
 3. Runner revalidates the current mapping, version, source/provider allowlist and job state.
 4. Non-elevated jobs execute through a fixed provider adapter using executable plus argument array.
-5. If elevation is required, the standard process sends a nonce-bound request containing only job ID, operation verb, provider/source/package IDs and expected version to Z5.
-6. Z5 validates executable identity, caller user/session, IPC ACL, protocol version, nonce/replay, job signature/binding and all allowlists; then reconstructs the provider operation.
+5. If elevation is required, the desktop creates a current-user/SYSTEM-restricted random named pipe and launches the fixed signed helper through `runas`; bootstrap parameters contain no provider operation.
+6. Z5 connects once, and both endpoints validate fixed signed process identity, PID, user/session, protocol and nonce. It accepts only the immutable job fields, rejects replay/unknown data and reconstructs the provider operation.
 7. Bounded output and exit data return to Z1. Z5 exits.
 8. Z1 runs targeted inventory verification. Only expected version evidence or reliable restart-pending produces a successful terminal interpretation.
 
@@ -46,15 +46,15 @@ No URL, executable path, working directory, environment block, output path or fr
 3. Cleanup accepts a fixed category/operation. It resolves the configured root independently of SQLite.
 4. Each target is canonicalized, checked for containment and inspected for reparse/mount behavior immediately before non-following deletion.
 5. Active-job artifacts are excluded. Locked/residual items are reported individually.
-6. Clear scan data uses a database transaction; Clear downloaded files uses only the artifact root; Factory reset uses a fixed manifest and next-launch verification.
+6. Clear scan data uses a database transaction; Clear downloaded files uses only the app-owned download root; Factory reset writes a fixed marker and runs the compiled manifest before state opens on the next launch. A residual preserves reset-pending state.
 
 ## Scheduling and notification flow
 
-The UI writes a typed current-user task definition through the scheduler adapter. Task Scheduler invokes a scan-only entry point with fixed arguments. The scheduled process obtains the same scan lease, cannot resolve an update verb, runs at the accepted lower-priority policy, optionally emits an attention/failure notification, and exits after completion/cancellation/final timeout.
+The UI writes a typed current-user task definition through the scheduler adapter. Task Scheduler invokes the fixed `PCSteward.ScheduledHost` path without an update verb. That project has no Execution/ElevatedHelper reference, obtains the same scan lease, runs at the accepted lower-priority policy, optionally emits an attention/failure notification, and exits after completion/cancellation/final timeout.
 
 ## Export and diagnostics flow
 
-Read models are projected from Z2, paths/device identity are redacted by default, output size is bounded, and the user chooses the destination. Logs use an event allowlist and sanitizer before persistence. Diagnostic bundles are user-initiated and contain no credentials, tokens, licence keys, full environment dump or document content.
+Read models are projected from Z2, paths/device identity are redacted by default, output size is bounded, and the user chooses the destination. Components emit typed allowlisted events to the central sanitizer before bounded JSON-lines persistence. Diagnostic bundles are user-initiated and contain no credentials, tokens, licence keys, full environment dump or document content.
 
 ## Boundary invariants
 

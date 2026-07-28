@@ -1,6 +1,6 @@
 # ADR-004 — GitHub Releases MVP scope
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-SRC-06`, trusted-source Tier C
@@ -22,7 +22,7 @@ User-confirmed repository mapping, version intelligence only, followed by a repe
 
 ## Decision
 
-Propose Option A for the core path. Option B may be approved only after the first successful Task 20 review. Status remains Proposed.
+Accept Option A. GitHub Releases is excluded from the core MVP. Option B remains an optional, read-only extension only after a successful Task 20 gate, explicit product-owner approval and a repeated Task 20 gate.
 
 ## Consequences
 

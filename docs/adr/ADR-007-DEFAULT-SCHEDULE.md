@@ -1,6 +1,6 @@
 # ADR-007 — Default schedule
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-SCH-01–05`, `FR-RSC-04`, `AC-NFR-11`
@@ -22,7 +22,7 @@ Good awareness while preserving explicit opt-in.
 
 ## Decision
 
-Propose Option B. No task is created until explicit consent; scheduled work is scan-only. Status remains Proposed.
+Accept Option B. Offer a weekly schedule during onboarding, but create no task until explicit consent. Scheduled work is scan-only, uses the dedicated scheduled host and never enables update execution.
 
 ## Consequences
 

@@ -1,6 +1,6 @@
 # ADR-011 — Download-cache quota and retention
 
-**Status:** Proposed
+**Status:** Provisional
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-DAT-08–11`, `NFR-PERF-10`, `AC-NFR-10`
@@ -22,7 +22,9 @@ May better fit real packages but requires representative evidence.
 
 ## Decision
 
-Use Option A provisionally; Task 24 must keep values configurable and Task 29 validates them. Status remains Proposed.
+Provisionally select Option A: a configurable 2 GB soft quota, seven-day retention after verified success and 24-hour retention for failed/incomplete artifacts. Oldest inactive app-owned artifacts are eligible first; active artifacts are exempt and provider-owned caches are out of scope.
+
+Option B is rejected for the current baseline because Task 04 intentionally used synthetic records and collected no representative installer-size distribution.
 
 ## Consequences
 
@@ -40,8 +42,8 @@ Oldest inactive eviction, visible size, active lease, locked residuals and provi
 
 ## Task 03 evidence
 
-`spikes/security-boundaries/SPIKE_REPORT.md` proves generic fixed-root deletion can return accurate locked-file residuals, retry safely and remain idempotent. It does not test quota, retention order, active leases, provider ownership or representative artifact sizes; those remain required and this ADR stays Proposed.
+`spikes/security-boundaries/SPIKE_REPORT.md` proves generic fixed-root deletion can return accurate locked-file residuals, retry safely and remain idempotent. It does not test quota, retention order, active leases, provider ownership or representative artifact sizes; those limitations make this ADR Provisional.
 
 ## Reconsider when
 
-Representative installer sizes cause frequent churn, blocked retries or excessive retention.
+Task 24 cannot prove active-artifact protection/provider-cache exclusion, or representative installer sizes in Tasks 24/29 cause frequent churn, blocked retries or excessive retention.

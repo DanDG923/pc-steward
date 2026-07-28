@@ -1,16 +1,16 @@
 # Implementation plan
 
-**Status:** Proposed execution order; `COPY_PASTE_PROMPTS.md` remains authoritative
+**Status:** Accepted execution order; `COPY_PASTE_PROMPTS.md` remains authoritative
 
 ## Phase 0 — evidence and lock
 
 1. **Task 02:** packaging/WinGet spike. Resolve evidence for OD-02/03; collect read-only WinGet capability, parsing, Store, timeout/cancellation and shell-free command-construction evidence.
 2. **Task 03:** privilege/deletion spike. Resolve helper-protocol and OD-13 feasibility; prove disposable-root containment, reparse rejection, TOCTOU limits and accurate partial cleanup.
 3. **Task 04:** performance/fixture spike. Establish OD-06 baseline, 300-record matrix, benchmark protocol and raw evidence; collect installer-size assumptions needed later by OD-11.
-4. **Task 05:** review all spike evidence and accept/reject/defer all ADRs. No unresolved security/packaging decision may leak into scaffolding.
+4. **Task 05:** complete. ADR-001–020 lock the scaffold boundaries; ADR-002/003/011/013 are Provisional with explicit implementation and clean-VM gates.
 5. **Task 06:** scaffold separated projects, dependency rules, CI/static-analysis guardrails, test infrastructure and reproducible build.
 
-Current environment blockers affect native build/package proof but not documentation. Missing Windows 11/tooling/VM evidence must be resolved before a task claims those acceptance conditions.
+Current environment blockers affect native build/package proof but not scaffolding. The host-version discrepancy and missing tooling/VM evidence must be resolved before a task claims those acceptance conditions.
 
 ## Phase 1 — inventory vertical slice
 
@@ -32,19 +32,19 @@ Task 26 adds scan-only scheduling/notifications. Task 27 locks reset design from
 
 | Decision | Evidence owner |
 |---|---|
-| OD-01 name/identity | Task 30 release/package identity review |
-| OD-02 packaging | Task 02; confirm Task 30 |
-| OD-03 WinGet route | Task 02; exercise Tasks 10/18/21 |
+| OD-01 name/identity | Accepted ADR-001; confirm Task 30 |
+| OD-02 packaging | Provisional ADR-002; confirm Task 30 |
+| OD-03 WinGet route | Provisional ADR-003; exercise Tasks 10/18/21/25 |
 | OD-04 GitHub scope | First Task 20 gate/product-owner choice |
-| OD-05 grouping | Tasks 04/11/15 |
-| OD-06 baseline | Task 04; confirm Task 29 |
-| OD-07 schedule | Task 26 usability/Task Scheduler evidence |
-| OD-08 licence/public source | Product-owner decision before external beta |
-| OD-09 self-update | Task 30 signing/distribution evidence |
-| OD-10 path export | Tasks 14/30 privacy review |
-| OD-11 cache defaults | Tasks 04/24/29 installer-size and quota evidence |
-| OD-12 scheduled priority | Task 26 process evidence |
-| OD-13 reset mechanism | Tasks 03/27, then Task 28 verification |
+| OD-05 grouping | Accepted ADR-005; verify Tasks 11/15 |
+| OD-06 baseline | Accepted ADR-006; confirm Task 29 |
+| OD-07 schedule | Accepted ADR-007/020; verify Task 26 |
+| OD-08 licence/public source | Accepted private-beta default ADR-008; product-owner decision before publication |
+| OD-09 self-update | Accepted manual path ADR-009; verify Task 30 |
+| OD-10 path export | Accepted ADR-010/016; verify Tasks 14/30 |
+| OD-11 cache defaults | Provisional ADR-011; verify Tasks 24/29 |
+| OD-12 scheduled priority | Accepted ADR-012/020; verify Task 26 |
+| OD-13 reset mechanism | Provisional next-launch ADR-013; verify Tasks 27/28 |
 
 ## Cross-cutting definition of done
 

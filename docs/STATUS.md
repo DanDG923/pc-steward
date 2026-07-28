@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
-**Current task:** 04 — Performance baseline and fixture matrix (complete)
+**Current task:** 05 — Lock ADRs and architecture (complete)
 **Last green commit:** `908fd3b` — Task 04 performance baseline and fixture matrix
 **Current branch:** `phase/0-foundation`
 **Build command:** To be established by Task 06
@@ -13,19 +13,26 @@
 
 | Decision | Status | ADR |
 |---|---|---|
-| Product name/identity | Proposed | ADR-001 / OD-01 |
-| Packaging model | Proposed | ADR-002 / OD-02 |
-| WinGet integration route | Proposed | ADR-003 / OD-03 |
-| GitHub Releases MVP scope | Proposed | ADR-004 / OD-04 |
-| Runtime grouping | Proposed | ADR-005 / OD-05 |
-| Performance baseline | Proposed | ADR-006 / OD-06 |
-| Default schedule | Proposed | ADR-007 / OD-07 |
-| Licence/source availability | Proposed | ADR-008 / OD-08 |
-| Application self-update | Proposed | ADR-009 / OD-09 |
-| Diagnostic path redaction | Proposed | ADR-010 / OD-10 |
-| Download-cache quota/retention | Proposed | ADR-011 / OD-11 |
-| Scheduled process priority | Proposed | ADR-012 / OD-12 |
-| Factory-reset mechanism | Proposed | ADR-013 / OD-13 |
+| Product name/identity | Accepted | ADR-001 / OD-01 |
+| Packaging model | Provisional | ADR-002 / OD-02 |
+| WinGet integration route | Provisional | ADR-003 / OD-03 |
+| GitHub Releases MVP scope | Accepted | ADR-004 / OD-04 |
+| Runtime grouping | Accepted | ADR-005 / OD-05 |
+| Performance baseline | Accepted | ADR-006 / OD-06 |
+| Default schedule | Accepted | ADR-007 / OD-07 |
+| Licence/source availability | Accepted | ADR-008 / OD-08 |
+| Application self-update | Accepted | ADR-009 / OD-09 |
+| Diagnostic path redaction | Accepted | ADR-010 / OD-10 |
+| Download-cache quota/retention | Provisional | ADR-011 / OD-11 |
+| Scheduled process priority | Accepted | ADR-012 / OD-12 |
+| Factory-reset mechanism | Provisional | ADR-013 / OD-13 |
+| Solution/component boundaries | Accepted | ADR-014 |
+| SQLite ownership/migrations | Accepted | ADR-015 |
+| Structured logging/redaction | Accepted | ADR-016 |
+| Immutable update jobs | Accepted | ADR-017 |
+| Helper IPC/elevation | Accepted | ADR-018 |
+| App-owned artifact roots | Accepted | ADR-019 |
+| Scheduling without resident process | Accepted | ADR-020 |
 
 ## Planned spike order
 
@@ -38,7 +45,7 @@
 
 Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target; Task 04's independent capture reports Windows 11 Home, so the discrepancy must be reconciled on a clean baseline VM. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; clean-VM symbolic-link, volume-mount and concurrent ancestor-swap evidence remains mandatory. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
 
-All OD-01–OD-13 decisions remain unresolved until their cited evidence and product-owner decisions are reviewed. No ADR is Accepted.
+ADR-002, ADR-003, ADR-011 and ADR-013 are Provisional with explicit clean-VM/implementation reconsideration gates. No ADR remains Proposed, and Task 06 has no unresolved security, persistence, execution, deletion, scheduling or scaffold-boundary decision.
 
 ## Task 01 result
 
@@ -56,9 +63,13 @@ PASS WITH VM FOLLOW-UP — 42 disposable-root assertions passed for fixed-root/p
 
 PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, redacted capture, 30 local and 20 simulated healthy-online raw samples, direct-worker CPU/working-set/cancellation/concurrency harness and OD-06 evidence update created. The spike’s 584.68 ms local p95, 1,764.93 ms simulated-online p95, 503.54 ms cancellation acknowledgement and observed concurrency of 3 are not final application compliance; clean-VM, fixed-power-plan, SSD-equivalent and real-source evidence remain outstanding.
 
+## Task 05 result
+
+PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 architecture documents now lock component, persistence, diagnostics, immutable-job, helper IPC, artifact-root and scan-only scheduling boundaries. ADR-002/003/011/013 retain explicit evidence gates. All three spike suites passed: 11 WinGet assertions, 42 security assertions with one VM/manual skip category, and 14 fixture assertions.
+
 ## Next task
 
-Run `prompts/05_LOCK_ADRS_AND_ARCHITECTURE.md`. Required model/reasoning: GPT-5.6 Sol / High. Branch: `phase/0-foundation`.
+Stop and change settings before running `prompts/06_SCAFFOLD_SOLUTION_AND_ENGINEERING_GUARDRAILS.md`. Required model/reasoning: GPT-5.6 Terra / Medium. Branch: `phase/0-foundation`.
 
 ## Rules for updating this file
 

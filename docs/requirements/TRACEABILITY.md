@@ -6,8 +6,10 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 
 | Task | Requirement IDs informed | Evidence |
 |---|---|---|
-| 02 — packaging and WinGet spike | `FR-DAT-12`, `AC-DAT-18`, `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03` | `spikes/winget-packaging/SPIKE_REPORT.md`; proposed ADR-002 and ADR-003 remain unaccepted. |
-| 03 — privilege and safe-deletion spike | `FR-UPD-04`, `FR-DAT-08`, `FR-DAT-11–15`, `AC-DAT-11–16`, `AC-UPD-03` | `spikes/security-boundaries/SPIKE_REPORT.md`; 42 disposable-root assertions passed, with symbolic-link, volume-mount and ancestor-race VM evidence outstanding; proposed ADR-002, ADR-011 and ADR-013 remain unaccepted. |
+| 02 — packaging and WinGet spike | `FR-DAT-12`, `AC-DAT-18`, `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03` | `spikes/winget-packaging/SPIKE_REPORT.md`; informs Provisional ADR-002 and ADR-003. |
+| 03 — privilege and safe-deletion spike | `FR-UPD-04`, `FR-DAT-08`, `FR-DAT-11–15`, `AC-DAT-11–16`, `AC-UPD-03` | `spikes/security-boundaries/SPIKE_REPORT.md`; 42 disposable-root assertions passed, with symbolic-link, volume-mount and ancestor-race VM evidence outstanding; informs ADR-018/019 and Provisional ADR-011/013. |
+| 04 — performance baseline and fixture matrix | `NFR-PERF-01–02`, `NFR-PERF-06`, `NFR-PERF-08–09`, `AC-NFR-01–03`, `AC-NFR-07`, `AC-NFR-09` | `spikes/performance-fixtures/BASELINE.md`; 320 fixtures, 30 local and 20 simulated-online samples; supports Accepted ADR-006 measurement protocol, not final compliance. |
+| 05 — architecture decision lock | `OD-01–13`, `NFR-MNT-01–05`, `NFR-OBS-01–05`, `FR-UPD-01–04`, `FR-DAT-06–15`, `FR-SCH-01–05` | `docs/review/TASK_05_ARCHITECTURE_DECISION_REVIEW.md`; ADR-001–020 leave no Proposed decisions and define four Provisional evidence gates. |
 
 | ID | Requirement / criterion | MVP marker | Task(s) |
 |---|---|---|---|

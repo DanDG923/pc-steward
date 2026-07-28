@@ -1,6 +1,6 @@
 # ADR-010 — Diagnostic path redaction
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-DAT-03`, `FR-HIS-05–06`, `AC-DAT-17`
@@ -22,7 +22,7 @@ Local UI may retain detail; exported bundle minimizes disclosure.
 
 ## Decision
 
-Propose Option B, with a preview and warning before explicit inclusion. Status remains Proposed.
+Accept Option B. Diagnostic exports redact paths and device identity by default. Explicit path inclusion requires a preview and warning for that export only; it does not change the logging policy.
 
 ## Consequences
 

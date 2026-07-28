@@ -1,6 +1,6 @@
 # ADR-001 — Product name and visual identity
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `OD-01`, stable application identity in section 14.3
@@ -28,7 +28,7 @@ Use `PCSteward` for namespaces/package/data identifiers and isolate user-facing 
 
 ## Decision
 
-Propose Option B, displaying “PC Steward” until product-owner approval. Status remains Proposed.
+Accept Option B. Use `PCSteward` for namespaces, package identity, executable identity and app-owned roots. Keep the display name and visual assets centralized and replaceable; display “PC Steward” until product-owner approval. A display-brand change must not migrate or rename execution authority, package identity or data roots.
 
 ## Consequences
 
@@ -44,7 +44,7 @@ Technical identifiers may differ from the eventual display name.
 
 Task 06 must centralize display metadata; package upgrade tests must prove identifier stability.
 
-## Evidence the upcoming work must collect
+## Required follow-up evidence
 
 - Task 06: count hard-coded display-name occurrences and prove centralization.
 - Task 30: package/upgrade identity and accessible visual-asset evidence.

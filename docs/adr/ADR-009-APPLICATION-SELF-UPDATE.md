@@ -1,6 +1,6 @@
 # ADR-009 — Application self-update
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** section 14.3, compromised-product-update threat
@@ -22,7 +22,7 @@ Convenient but needs channel, signing, rollback and privileged replacement contr
 
 ## Decision
 
-Propose Option A for the first private beta. Status remains Proposed.
+Accept Option A for the MVP and first private beta. PC Steward has no built-in self-update execution path; releases use a documented manual upgrade with signed artifacts once signing and distribution exist.
 
 ## Consequences
 
