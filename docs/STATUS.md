@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 16 — Version comparison engine pending
+**Current task:** 17 — Deterministic matching and confidence engine pending
 **Last green commit:** `ea292b1`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -107,12 +107,12 @@ PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warnin
 
 PASS WITH APPROVED TEMPORARY EXCEPTION — P1RRR-01–04 are closed by retained final-app cancellation/resource, active-termination recovery, measured concurrency/second-scan rejection and 150% text-scaling evidence. Build passed with zero warnings; all 39 tests passed. The five-minute idle CPU check remains temporarily excepted and is not compliance evidence.
 
-## Task 90 result
+## Task 16 result
 
-P1RR-01–06 remediation remains closed. P1RRR-01–04 are now evidenced: keyboard cancellation returned to ready in 236 ms, active-scan process-tree CPU averaged 2.3173% with 194.7 MB peak working set, termination during collection preserved a previous snapshot, concurrency measured one/rejected a second scan, and 150% text scaling was exercised then restored. The five-minute CPU result remains temporarily excepted.
+PASS — a pure bounded numeric-dotted version engine reports newer, equal, older, incomparable or connector-deferred outcomes with UI-safe explanation codes. It blocks stable-to-prerelease candidates by default, prevents downgrades, and never uses lexical ordering.
 ## Next task
 
-Run Task 16 in a fresh GPT-5.6 Terra / Medium chat.
+Run Task 17 in a fresh GPT-5.6 Terra / High chat.
 
 ## Rules for updating this file
 
