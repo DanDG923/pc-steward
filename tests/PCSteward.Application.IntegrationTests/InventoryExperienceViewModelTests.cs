@@ -82,13 +82,13 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
-    public void UpdateDetailsExposeSafetyEvidenceAndNeverOfferAnExecutableAction()
+    public void UpdateDetailsExposeSafetyEvidenceAndOnlyOfferReviewedExecution()
     {
         InventoryExperienceViewModel viewModel = new(); Guid id = Guid.NewGuid(); viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "registry", "widget", "1.0", "Machine", "x64", "Contoso", Channel: "Stable")]);
         PackageMapping mapping = new("winget", "Contoso.Widget", "1.1", MappingConfidence.High, MappingOrigin.Automatic, "Exact identity.", true, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
         SourceCandidateObservation observation = new("winget", "Contoso.Widget", "1.1", "Contoso", "Machine", "x64", "Stable", SourceSnapshotState.Live, DateTimeOffset.UnixEpoch, MappingConfidence.High, []);
         viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.VerifiedUpdate, mapping, "Exact identity.", "winget", DateTimeOffset.UnixEpoch, [observation])], Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0), [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [], [])]));
-        UpdateDetail detail = viewModel.UpdateDetails["product:widget"]; StringAssert.Contains(detail.ActionState, "not available"); Assert.AreEqual("Contoso.Widget", detail.PackageId); Assert.AreEqual("High", detail.Confidence); Assert.HasCount(1, detail.SourceCandidates); StringAssert.Contains(detail.SourceCandidates.Single(), "Contoso.Widget");
+        UpdateDetail detail = viewModel.UpdateDetails["product:widget"]; StringAssert.Contains(detail.ActionState, "reviewed"); Assert.AreEqual("Contoso.Widget", detail.PackageId); Assert.AreEqual("High", detail.Confidence); Assert.HasCount(1, detail.SourceCandidates); StringAssert.Contains(detail.SourceCandidates.Single(), "Contoso.Widget");
     }
 
     [TestMethod]

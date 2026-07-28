@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using PCSteward.Application;
 using PCSteward.Diagnostics;
+using PCSteward.Execution;
 using PCSteward.Persistence.Sqlite;
 using PCSteward.Provider.WinGet;
 using PCSteward.Storage;
@@ -31,7 +32,10 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         ];
         InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database, database, updateSources);
         DownloadedArtifactCache downloads = new(database);
-        MainWindow window = new(workflow, viewModel, downloads);
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()), new ElevatedUpdateRunner());
+        SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, new NoRunningApplicationDetector());
+        ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator);
+        MainWindow window = new(workflow, viewModel, downloads, updates);
         window.Activate();
     }
 }

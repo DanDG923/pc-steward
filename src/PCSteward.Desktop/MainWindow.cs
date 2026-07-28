@@ -16,16 +16,18 @@ public sealed class MainWindow : Window
     private readonly InventoryWorkflow workflow;
     private readonly InventoryExperienceViewModel viewModel;
     private readonly DownloadedArtifactCache downloads;
+    private readonly ReviewedUpdateExecutionWorkflow updates;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
     private IReadOnlyCollection<PCSteward.Domain.ManualMapping> manualMappings = [];
     private bool isClearing;
+    private bool isExecuting;
     private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates)
     {
-        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; Title = AppIdentity.DisplayName; LoadSavedInventory(); Render();
+        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; Title = AppIdentity.DisplayName; LoadSavedInventory(); Render();
     }
 
     private void LoadSavedInventory()
@@ -54,9 +56,9 @@ public sealed class MainWindow : Window
             panel.Children.Add(checkBox);
         }
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        Button scan = new() { Content = viewModel.IsWinGetEnabled ? "Start approved WinGet inventory scan" : "Start local-only scan", IsEnabled = !viewModel.IsScanning };
+        Button scan = new() { Content = viewModel.IsWinGetEnabled ? "Start approved WinGet inventory scan" : "Start local-only scan", IsEnabled = !viewModel.IsScanning && !isExecuting };
         AutomationProperties.SetName(scan, scan.Content.ToString()); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
-        Button checkUpdates = new() { Content = "Check approved update sources", IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates };
+        Button checkUpdates = new() { Content = "Check approved update sources", IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates && !isExecuting };
         AutomationProperties.SetName(checkUpdates, "Check approved update sources"); checkUpdates.Click += async (_, _) => await CheckUpdateSourcesAsync(); actions.Children.Add(checkUpdates);
         if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Loaded += (_, _) => DispatcherQueue.TryEnqueue(() => cancel.Focus(FocusState.Programmatic)); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
         panel.Children.Add(actions);
@@ -74,7 +76,7 @@ public sealed class MainWindow : Window
         search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); sort.SelectionChanged += (_, _) => ApplyFilters();
         panel.Children.Add(search); panel.Children.Add(status); panel.Children.Add(publisher); panel.Children.Add(source); panel.Children.Add(scope); panel.Children.Add(sort);
         list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem); panel.Children.Add(list); RenderInventory(list);
-        panel.Children.Add(new TextBlock { Text = viewModel.IsUpdateSourceEnabled ? "Approved source checks show live, cached or unavailable evidence. No update execution is available in this phase." : "Inventory is local-only until you explicitly enable approved update sources.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = isExecuting ? "An approved update is running. Scans and cleanup are unavailable until its controlled verification completes." : viewModel.IsUpdateSourceEnabled ? "Verified updates can be opened from product details for a separate review and confirmation. Cached or unavailable source evidence cannot be executed." : "Inventory is local-only until you explicitly enable approved update sources.", TextWrapping = TextWrapping.Wrap });
         AddDecisionsSection(panel);
         AddDataAndResetSection(panel); Content = new ScrollViewer { Content = panel };
     }
@@ -119,7 +121,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated payload {scanData.SizeBytes:N0} characters. Last cleared: {(scanData.LastClearedAt is null ? "never" : scanData.LastClearedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", TextWrapping = TextWrapping.Wrap });
         StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; Button exportCsv = new() { Content = "Export inventory CSV" }; exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv); Button exportJson = new() { Content = "Export inventory JSON" }; exportJson.Click += async (_, _) => await SaveExportAsync(true); exportActions.Children.Add(exportJson); panel.Children.Add(exportActions);
-        bool available = !viewModel.IsScanning && !isClearing && !downloads.IsCleaning; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
+        bool available = !viewModel.IsScanning && !isExecuting && !isClearing && !downloads.IsCleaning; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
         panel.Children.Add(new TextBlock { Text = $"Downloaded update files: {downloadCache.ArtifactCount} tracked item(s), {downloadCache.TotalBytes:N0} bytes total, {downloadCache.RecoverableBytes:N0} bytes recoverable. Last cleaned: {(downloadCache.LastCleanedAt is null ? "never" : downloadCache.LastCleanedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear downloaded files removes only inactive files under PC Steward's app-owned download cache; it preserves active update files, installed applications, scan data, source metadata, update history and all Windows, WinGet, Microsoft Store and other provider caches.", TextWrapping = TextWrapping.Wrap });
         Button clearDownloads = new() { Content = "Clear downloaded files", IsEnabled = available && downloadCache.RecoverableBytes > 0 }; AutomationProperties.SetName(clearDownloads, "Clear downloaded files"); clearDownloads.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Clear downloaded files?"); panel.Children.Add(clearDownloads);
         if (downloadCache.RecoverableBytes > 0)
@@ -174,7 +176,52 @@ public sealed class MainWindow : Window
         {
             Button pinSource = new() { Content = "Pin this source package" }; AutomationProperties.SetName(pinSource, "Pin this source package"); pinSource.Click += async (_, _) => { await workflow.PinSourcePackageAsync(row.StableProductKey, detail.SourceId, detail.PackageId, reason.Text, CancellationToken.None); mappingOutcome.Text = "The source package is pinned. Remove the decision to resume normal review."; }; content.Children.Add(pinSource);
         }
+        if (row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString() && viewModel.IsUpdateSourceEnabled && !isExecuting)
+        {
+            Button review = new() { Content = "Review and update" };
+            AutomationProperties.SetName(review, "Review and update this verified package");
+            content.Children.Add(review);
+            ContentDialog? reviewDialog = null;
+            review.Click += async (_, _) => { reviewDialog?.Hide(); await ReviewAndExecuteAsync(row); };
+            content.Children.Add(mappingOutcome);
+            reviewDialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = row.Name, Content = content, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" };
+            ContentDialogResult reviewResult = await reviewDialog.ShowAsync(); if (reviewResult == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (reviewResult == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
+            return;
+        }
         content.Children.Add(mappingOutcome);
         ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = content, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" }; ContentDialogResult result = await dialog.ShowAsync(); if (result == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (result == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
     }
+
+    private async Task ReviewAndExecuteAsync(InventoryRow row)
+    {
+        UpdateReviewPreparation preparation = await updates.BeginReviewAsync(row.StableProductKey, CancellationToken.None);
+        if (preparation.Review is null)
+        {
+            await ShowUpdateOutcomeAsync("Update not available", preparation.Message);
+            return;
+        }
+
+        PCSteward.Domain.UpdateJobSelection selection = preparation.Review.Selection;
+        string elevation = selection.Scope == PCSteward.Domain.UpdateScope.Machine ? "Windows will request UAC only after you confirm this review." : "This is a user-scope update and does not request UAC.";
+        ContentDialog confirmation = new()
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Review approved update",
+            Content = $"Package: {selection.PackageId}\nInstalled version: {selection.InstalledVersion}\nTarget version: {selection.CandidateVersion}\nSource: {selection.Source}\nScope: {selection.Scope}\nArchitecture: {selection.Architecture}\n\nClose the application first if it is running. PC Steward will not close applications. {elevation}\n\nProvider completion is not marked successful until the controlled post-update inventory verifies the target version.",
+            PrimaryButtonText = "Install approved update",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+
+        isExecuting = true;
+        Render();
+        ReviewedUpdateExecutionResult result;
+        try { result = await updates.ConfirmAndRunAsync(preparation.Review, CancellationToken.None); }
+        catch (Exception) { result = new(false, "PC Steward could not start the reviewed update. No success was recorded.", null); }
+        finally { isExecuting = false; LoadSavedInventory(); Render(); }
+        await ShowUpdateOutcomeAsync(result.Started ? "Update completed" : "Update not started", result.Message);
+    }
+
+    private Task<ContentDialogResult> ShowUpdateOutcomeAsync(string title, string message) => new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = message, CloseButtonText = "Close" }.ShowAsync().AsTask();
 }

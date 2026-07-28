@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
 **Current task:** 24A — approved host-test evidence recorded; blocked on real-update evidence
-**Last green commit:** `818f68e` — `feat: manage and safely clear downloaded artifacts`
+**Last green commit:** current `HEAD` — `feat: enable reviewed desktop updates`
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -45,7 +45,7 @@ The supported-Windows, native-tooling, isolated reparse-point and fixed-performa
 
 ## Task 24A result
 
-Task 24A result: automated evidence is green (42 hostile-root assertions with one VM skip; 16 security, 4 architecture, 14 focused integration and 135 full-suite tests; Release build zero warnings/errors). Approved host evidence adds signed no-op UAC acceptance/denial, pre-provider helper teardown, and 10 isolated link/race/VHD assertions with complete teardown. `docs/review/PHASE_3_HOST_TEST_EXCEPTION.md` records exact scope/results and the personal-use manual-UI exception. Real-update verification remains unapproved and Task 25 must not start.
+Task 24A result: automated evidence is green (42 hostile-root assertions with one VM skip; 16 security, 4 architecture, 69 integration and 138 full-suite tests; Release build zero warnings/errors). Approved host evidence adds signed no-op UAC acceptance/denial, pre-provider helper teardown, and 10 isolated link/race/VHD assertions with complete teardown. `docs/review/PHASE_3_HOST_TEST_EXCEPTION.md` records exact scope/results and the personal-use manual-UI exception. The 2026-07-28 Firefox exercise exposed a missing desktop execution action; the desktop now supports fresh verified review, immutable confirmation/revalidation and controlled post-update verification, but no second real update was run. Real-update verification remains unapproved and Task 25 must not start.
 
 ## Next task
 

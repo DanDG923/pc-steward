@@ -54,6 +54,29 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.IsFalse(multiTargetItem.Mapping.IsActionable);
     }
 
+    [TestMethod]
+    public async Task ApprovedUpdateSelectionRequiresPersistedConsentFreshEvidenceAndExactInstalledFields()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct product = new(Guid.NewGuid(), "winget:contoso.widget", "Contoso Widget");
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "winget", "Contoso.Widget", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable", SourceId: "winget");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))]);
+
+        UpdateSelectionPreparation withoutConsent = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
+        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
+
+        Assert.IsNull(withoutConsent.Selection);
+        Assert.IsNotNull(prepared.Selection);
+        Assert.AreEqual("Contoso.Widget", prepared.Selection.PackageId);
+        Assert.AreEqual("1.0.0", prepared.Selection.InstalledVersion);
+        Assert.AreEqual("1.1.0", prepared.Selection.CandidateVersion);
+        Assert.AreEqual(UpdateScope.Machine, prepared.Selection.Scope);
+        Assert.AreEqual(UpdateArchitecture.X64, prepared.Selection.Architecture);
+    }
+
     private sealed class FakeConnector(SourceSnapshot result) : IUpdateSourceConnector
     {
         public string SourceId => result.SourceId;
