@@ -35,3 +35,16 @@ public sealed class WingetInstalledInventoryProvider
         return new WingetInventoryResult(records, warnings);
     }
 }
+
+public sealed class WindowsWingetProcess : IWingetProcess
+{
+    public async Task<WingetProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ProcessStartInfo start = new() { FileName = executable, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        foreach (string argument in arguments) start.ArgumentList.Add(argument);
+        using Process process = new() { StartInfo = start };
+        process.Start(); Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken); Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
+        try { await process.WaitForExitAsync(cancellationToken).WaitAsync(timeout, cancellationToken); return new WingetProcessResult(process.ExitCode, await output, await error, false); }
+        catch (TimeoutException) { if (!process.HasExited) process.Kill(entireProcessTree: true); await process.WaitForExitAsync(CancellationToken.None); return new WingetProcessResult(-1, await output, await error, true); }
+    }
+}

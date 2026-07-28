@@ -39,6 +39,23 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
         await transaction.CommitAsync(cancellationToken);
     }
 
+    public async Task PersistScanAsync(ScanRun run, IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, IReadOnlyCollection<RawProviderRecord> rawRecords, IReadOnlyCollection<ScanProviderTiming> timings, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "DELETE FROM raw_provider_records; DELETE FROM scan_provider_timings; DELETE FROM installation_instances; DELETE FROM canonical_products;", cancellationToken, transaction);
+        foreach (CanonicalProduct product in products) await ExecuteAsync(connection, "INSERT INTO canonical_products VALUES ($id,$key,$name);", cancellationToken, transaction, ("$id", product.Id), ("$key", Text(product.StableKey)), ("$name", Text(product.DisplayName)));
+        foreach (InstallationInstance instance in instances) await ExecuteAsync(connection, "INSERT INTO installation_instances VALUES ($id,$product,$provider,$identity,$version,$scope,$architecture);", cancellationToken, transaction, ("$id", instance.Id), ("$product", instance.ProductId), ("$provider", Text(instance.Provider)), ("$identity", Text(instance.ProviderIdentity)), ("$version", Text(instance.Version)), ("$scope", Text(instance.Scope)), ("$architecture", Text(instance.Architecture)));
+        await InsertRunAsync(connection, run, timings, transaction, cancellationToken);
+        foreach (RawProviderRecord raw in rawRecords) await ExecuteAsync(connection, "INSERT INTO raw_provider_records VALUES ($id,$scan,$provider,$key,$payload);", cancellationToken, transaction, ("$id", raw.Id), ("$scan", raw.ScanRunId), ("$provider", Text(raw.Provider)), ("$key", Text(raw.RecordKey)), ("$payload", Text(raw.Payload)));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ('scan_last_completed', $value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$value", run.CompletedAt));
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task RecordScanAsync(ScanRun run, IReadOnlyCollection<ScanProviderTiming> timings, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction(); await InsertRunAsync(connection, run, timings, transaction, cancellationToken); await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken cancellationToken)
     {
         List<CanonicalProduct> result = [];
@@ -59,6 +76,12 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
         return result;
     }
 
+    public async Task<DateTimeOffset?> GetLastCompletedScanAtAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key = 'scan_last_completed';"; object? value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is string text && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
+    }
+
     public async Task SaveAsync(StableDecision decision, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
@@ -74,7 +97,7 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM update_candidates), COALESCE((SELECT SUM(LENGTH(display_name) + LENGTH(stable_key)) FROM canonical_products), 0) + COALESCE((SELECT SUM(LENGTH(provider) + LENGTH(provider_identity) + COALESCE(LENGTH(version), 0) + LENGTH(scope) + LENGTH(architecture)) FROM installation_instances), 0) + COALESCE((SELECT SUM(LENGTH(provider) + LENGTH(record_key) + LENGTH(payload)) FROM raw_provider_records), 0), (SELECT value FROM app_metadata WHERE key = 'scan_data_last_cleared');";
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM update_candidates), COALESCE((SELECT SUM(LENGTH(display_name) + LENGTH(stable_key)) FROM canonical_products), 0) + COALESCE((SELECT SUM(LENGTH(provider) + LENGTH(provider_identity) + COALESCE(LENGTH(version), 0) + LENGTH(scope) + LENGTH(architecture)) FROM installation_instances), 0) + COALESCE((SELECT SUM(LENGTH(provider) + LENGTH(record_key) + LENGTH(payload)) FROM raw_provider_records), 0) + COALESCE((SELECT SUM(LENGTH(id) + LENGTH(started_at) + COALESCE(LENGTH(completed_at), 0) + LENGTH(status) + LENGTH(correlation_id)) FROM scan_runs), 0) + COALESCE((SELECT SUM(LENGTH(id) + LENGTH(scan_run_id) + LENGTH(provider) + LENGTH(duration_ms) + COALESCE(LENGTH(warning), 0)) FROM scan_provider_timings), 0) + COALESCE((SELECT SUM(LENGTH(id) + LENGTH(product_id) + LENGTH(provider) + LENGTH(package_id) + COALESCE(LENGTH(version), 0)) FROM update_candidates), 0), (SELECT value FROM app_metadata WHERE key = 'scan_data_last_cleared');";
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); await reader.ReadAsync(cancellationToken);
         string? lastCleared = reader.IsDBNull(2) ? null : reader.GetString(2);
         return new ScanDataSummary(reader.GetInt64(1), DateTimeOffset.TryParse(lastCleared, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null, reader.GetInt32(0));
@@ -122,6 +145,11 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
     }
 
     private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim()[..Math.Min(value.Trim().Length, MaxTextLength)];
+    private static async Task InsertRunAsync(SqliteConnection connection, ScanRun run, IReadOnlyCollection<ScanProviderTiming> timings, SqliteTransaction transaction, CancellationToken token)
+    {
+        await ExecuteAsync(connection, "INSERT INTO scan_runs VALUES ($id,$started,$completed,$status,$correlation);", token, transaction, ("$id", run.Id), ("$started", run.StartedAt), ("$completed", run.CompletedAt), ("$status", Text(run.Status)), ("$correlation", run.CorrelationId));
+        foreach (ScanProviderTiming timing in timings) await ExecuteAsync(connection, "INSERT INTO scan_provider_timings VALUES ($id,$scan,$provider,$duration,$warning);", token, transaction, ("$id", timing.Id), ("$scan", timing.ScanRunId), ("$provider", Text(timing.Provider)), ("$duration", (long)timing.Duration.TotalMilliseconds), ("$warning", Text(timing.Warning)));
+    }
     private static async Task ExecuteAsync(SqliteConnection connection, string sql, CancellationToken token, SqliteTransaction? transaction = null, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value is DateTimeOffset timestamp ? timestamp.ToString("O", CultureInfo.InvariantCulture) : value?.ToString() is string text ? text : DBNull.Value); await command.ExecuteNonQueryAsync(token); }
     private static async Task<int> ExecuteCountAsync(SqliteConnection connection, string sql, SqliteTransaction transaction, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; return await command.ExecuteNonQueryAsync(token); }
 }

@@ -28,14 +28,14 @@ public sealed class MainWindow : Window
         Directory.CreateDirectory(stateDirectory);
         database = new SqliteDatabase(Path.Combine(stateDirectory, "pcsteward.db"));
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
-        orchestrator = new InventoryScanOrchestrator(database, [new RegistryLocalInventoryProvider()]);
+        orchestrator = new InventoryScanOrchestrator(database, [new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
         exports = new InventoryExportService(database);
         LoadSavedInventory(); Render();
     }
 
     private void LoadSavedInventory()
     {
-        viewModel.LoadInventory(database.GetLastKnownGoodProductsAsync(CancellationToken.None).GetAwaiter().GetResult(), database.GetLastKnownGoodInstancesAsync(CancellationToken.None).GetAwaiter().GetResult());
+        viewModel.LoadInventory(database.GetLastKnownGoodProductsAsync(CancellationToken.None).GetAwaiter().GetResult(), database.GetLastKnownGoodInstancesAsync(CancellationToken.None).GetAwaiter().GetResult(), database.GetLastCompletedScanAtAsync(CancellationToken.None).GetAwaiter().GetResult());
         scanData = database.GetScanDataSummaryAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 

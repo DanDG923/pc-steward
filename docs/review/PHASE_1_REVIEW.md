@@ -55,4 +55,6 @@ None recorded. A failed gate does not request residual-risk acceptance.
 
 ## Recommended next action
 
-Run Task 90 with GPT-5.6 Terra / High, ordered P1-01 through P1-05, then mandatory evidence, then P1-06 and P1-07. Repeat Task 15 in a fresh GPT-5.6 Sol / High review after remediation is committed.
+Task 90 remediation at commit `PENDING` wired the MSIX and opt-in WinGet paths, normalized snapshots before transactional persistence, stored raw scan evidence/runs/timings, added provider timeouts, made connector selection and restored cached freshness truthful, included all disposable table payloads in the displayed scan-data estimate, and replaced the benchmark scaffold with a 30-run 300-record workload. Targeted persistence/timeout/freshness tests and the full suite passed; the workload measured 1.02 ms median and 1.33 ms p95 on this host, explicitly not an acceptance claim.
+
+The remaining review evidence is not converted to a pass: a clean Windows 11 baseline VM, five-minute idle/full process-tree/UI measurement, manual cancel/accessibility/scaling exercise, real enabled-WinGet behavior, source/architecture composition fixture, and the ADR-014 presentation-boundary refactor must be assessed in a fresh Task 15 review.

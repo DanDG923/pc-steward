@@ -62,6 +62,19 @@ public sealed class SqliteDatabaseTests
         Assert.HasCount(1, await database.Store.GetForProductAsync(product.StableKey, CancellationToken.None));
     }
 
+    [TestMethod]
+    public async Task PersistScanStoresSnapshotRawEvidenceRunAndTimingInOneClearableCategory()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        Guid productId = Guid.NewGuid(); Guid scanId = Guid.NewGuid();
+        await database.Store.PersistScanAsync(new ScanRun(scanId, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "Completed", Guid.NewGuid()), [new CanonicalProduct(productId, "contoso", "Contoso")], [new InstallationInstance(Guid.NewGuid(), productId, "registry", "contoso", "1", "Machine", "x64")], [new RawProviderRecord(Guid.NewGuid(), scanId, "registry", "contoso", "bounded")], [new ScanProviderTiming(Guid.NewGuid(), scanId, "registry", TimeSpan.FromMilliseconds(12), null)], CancellationToken.None);
+
+        ScanDataSummary summary = await database.Store.GetScanDataSummaryAsync(CancellationToken.None);
+        Assert.AreEqual(5, summary.ItemCount);
+        Assert.IsTrue(summary.SizeBytes > 0);
+        Assert.AreEqual(0, (await database.Store.ClearScanDataAsync(CancellationToken.None)).RemainingItems);
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;

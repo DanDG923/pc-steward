@@ -51,4 +51,10 @@ public sealed class InventoryExperienceViewModelTests
         StringAssert.Contains(viewModel.FreshnessLabel, "No scan yet");
         StringAssert.Contains(viewModel.ScanPhase, "No scan data");
     }
+    [TestMethod]
+    public void RestoredInventoryIsLabelledAsCachedLocalOnly()
+    {
+        InventoryExperienceViewModel viewModel = new(); viewModel.LoadInventory([new CanonicalProduct(Guid.NewGuid(), "alpha", "Alpha")], [], DateTimeOffset.UnixEpoch);
+        StringAssert.Contains(viewModel.ScanPhase, "Cached"); StringAssert.Contains(viewModel.FreshnessLabel, "Local-only");
+    }
 }

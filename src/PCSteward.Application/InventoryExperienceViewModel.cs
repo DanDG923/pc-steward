@@ -44,7 +44,7 @@ public sealed class InventoryExperienceViewModel
         SearchText = search?.Trim() ?? string.Empty; StatusFilter = status ?? "All statuses"; SourceFilter = source ?? "All sources"; ScopeFilter = scope ?? "All scopes"; SortField = sortField ?? "Name"; ApplyFilters();
     }
 
-    public void LoadInventory(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances)
+    public void LoadInventory(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, DateTimeOffset? lastScanAt = null)
     {
         allRows.Clear();
         foreach (CanonicalProduct product in products)
@@ -53,7 +53,7 @@ public sealed class InventoryExperienceViewModel
             InstallationInstance? first = productInstances.FirstOrDefault();
             allRows.Add(new InventoryRow(product.Id, product.DisplayName, first?.Provider ?? "Unknown", first?.Scope ?? "Unknown", first?.Version ?? "Unknown", "Installed", productInstances));
         }
-        ApplyFilters();
+        LastScanAt = lastScanAt; ScanPhase = lastScanAt is null ? "Ready for a local-only scan" : "Cached local-only inventory"; ApplyFilters();
     }
 
     public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; }

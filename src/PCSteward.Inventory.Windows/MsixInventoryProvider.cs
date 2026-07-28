@@ -33,6 +33,6 @@ public sealed class MsixInventoryProvider
         catch (UnauthorizedAccessException) { warnings.Add("msix:catalog-access-denied"); }
         return new MsixInventoryResult(records, warnings);
     }
-    private static string Text(string value) => value.Trim()[..Math.Min(value.Trim().Length, 1024)];
+    private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim()[..Math.Min(value.Trim().Length, 1024)];
     private static string? SafePath(string? path) => string.IsNullOrWhiteSpace(path) || path.Length > 1024 ? null : path;
 }
