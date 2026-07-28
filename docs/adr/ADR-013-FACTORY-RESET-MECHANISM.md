@@ -42,6 +42,10 @@ Double confirmation, active-work lock, deterministic manifest, canonical/reparse
 - Task 27 actual SQLite/log/settings/scheduler handle behavior and ordering.
 - Task 28 hostile integration and next-launch verification.
 
+## Task 03 evidence
+
+`spikes/security-boundaries/SPIKE_REPORT.md` records 42 passing assertions for a ten-category fixed reset manifest, canonical containment, hostile path rejection, junction detection, locked-file partial results, bounded retry, idempotence and a final-component reparse swap. It also prototypes a strict authenticated no-op helper request. Symbolic-link and volume-mount fixtures plus an ancestor-component race remain clean-VM/manual evidence, so Option A then B remains the preference, C remains exceptional, and this ADR stays Proposed.
+
 ## Reconsider when
 
 Actual handle lifetime or packaging prevents complete standard-user cleanup with the preferred mechanism.

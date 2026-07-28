@@ -7,6 +7,7 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 | Task | Requirement IDs informed | Evidence |
 |---|---|---|
 | 02 — packaging and WinGet spike | `FR-DAT-12`, `AC-DAT-18`, `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03` | `spikes/winget-packaging/SPIKE_REPORT.md`; proposed ADR-002 and ADR-003 remain unaccepted. |
+| 03 — privilege and safe-deletion spike | `FR-UPD-04`, `FR-DAT-08`, `FR-DAT-11–15`, `AC-DAT-11–16`, `AC-UPD-03` | `spikes/security-boundaries/SPIKE_REPORT.md`; 42 disposable-root assertions passed, with symbolic-link, volume-mount and ancestor-race VM evidence outstanding; proposed ADR-002, ADR-011 and ADR-013 remain unaccepted. |
 
 | ID | Requirement / criterion | MVP marker | Task(s) |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** Proposed; validate through Tasks 02–05 and review again at Tasks 15, 20, 25 and 31
+**Status:** Proposed; Tasks 02–03 evidence recorded, validate through Tasks 04–05 and review again at Tasks 15, 20, 25 and 31
 **Protected assets:** correct package-to-product identity, user approval, standard/elevated execution boundary, app-owned and non-owned files, inventory/history privacy, last-known-good state, source provenance and release evidence.
 
 ## Security objectives
@@ -47,11 +47,17 @@ The helper accepts only a versioned message containing operation verb, provider 
 
 Reset and cleanup operate from a compile-time/configuration-owned manifest of categories and fixed per-user roots. Paths are resolved without following reparse points; root equality/prefix confusion, alternate streams where relevant, UNC/device paths, relative paths and cross-volume/mount traversal are rejected. Partial deletion is not Success. Tests run only under disposable roots until explicitly approved VM evidence.
 
+## Task 03 evidence
+
+`spikes/security-boundaries/SPIKE_REPORT.md` records 42 passing assertions under a uniquely named disposable root. Fixed-category containment, path-confusion rejection, junction rejection, locked residuals, bounded retry, idempotence, and a final-component junction swap failed closed. A strict authenticated no-op helper message rejected mutation, replay, unreviewed package IDs, unknown/duplicate fields and expiry while preserving distinct cancellation and denial states.
+
+Symbolic-link creation required administrator privilege on this host, and a true volume mount was not attempted. Public path-based handle acquisition also leaves an unproven ancestor-component race. The report therefore defines mandatory clean-VM symbolic-link, volume-mount and concurrent ancestor-swap cases for Tasks 24/25. No production deletion or elevation claim is made.
+
 ## Residual risks requiring evidence
 
 - WinGet behavior and parseable output stability: Task 02.
 - Windows packaging/elevation/storage interactions: Task 02.
-- Strongest practical Windows deletion and TOCTOU primitives without over-privilege: Task 03.
+- Full-walk Windows deletion/TOCTOU primitive, symbolic-link and volume-mount behavior without over-privilege: Tasks 24/25, following Task 03's partial evidence.
 - Performance limits under representative malformed and 300-record fixtures: Task 04.
 - Clean-VM, UAC, signing and package lifecycle evidence remains unavailable on the current audited host.
 

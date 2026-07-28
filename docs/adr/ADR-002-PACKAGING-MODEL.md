@@ -56,6 +56,10 @@ Packaging-specific code remains outside domain; Task 30 reruns lifecycle evidenc
 
 `spikes/winget-packaging/SPIKE_REPORT.md` records that WinGet is available to the current user, but this Windows 10 host lacks the target OS evidence and native packaging/signing tooling. Neither MSIX nor unpackaged PC Steward lifecycle behavior was executed. The spike provisionally favours Option B because a separate signed helper and an explicit retain/remove-data uninstall choice fit its boundary more directly; this is a recommendation only, not a status change. A clean Windows 11 VM must prove both lifecycle matrices before Task 05 can lock this ADR.
 
+## Task 03 evidence
+
+`spikes/security-boundaries/SPIKE_REPORT.md` demonstrates a strict authenticated, nonce/job-bound, two-minute no-op helper message with fixed operation/provider/source and a reviewed package allowlist. Unknown fields, request mutation, replay, expiry and cancellation were exercised without starting a process or requesting UAC. This supports the proposed separate short-lived helper boundary but does not prove packaging, signing, IPC ACLs or UAC lifecycle, so the packaging preference and ADR status do not change.
+
 ## Reconsider when
 
 Windows packaging capabilities or deployment requirements materially change.

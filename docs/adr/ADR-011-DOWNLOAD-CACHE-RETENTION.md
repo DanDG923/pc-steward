@@ -38,6 +38,10 @@ Oldest inactive eviction, visible size, active lease, locked residuals and provi
 - Task 24 real provider ownership/retention behavior and quota tests.
 - Task 29 beta-candidate storage measurements.
 
+## Task 03 evidence
+
+`spikes/security-boundaries/SPIKE_REPORT.md` proves generic fixed-root deletion can return accurate locked-file residuals, retry safely and remain idempotent. It does not test quota, retention order, active leases, provider ownership or representative artifact sizes; those remain required and this ADR stays Proposed.
+
 ## Reconsider when
 
 Representative installer sizes cause frequent churn, blocked retries or excessive retention.
