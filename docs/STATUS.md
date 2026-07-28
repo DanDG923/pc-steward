@@ -1,31 +1,79 @@
 # PC Steward build status
 
-**Current phase:** Not started  
-**Current task:** 00 — Environment and repository audit  
-**Last green commit:** Initial documentation commit  
-**Current branch:** `phase/0-foundation`  
-**Build command:** To be established by Task 06  
-**Test command:** To be established by Task 06  
-**Performance command:** To be established by Tasks 04 and 12  
-**Phase gate:** Not run  
+**Current phase:** Phase 0 — Evidence, architecture, and scaffolding
+**Current task:** 06 — Scaffold solution and engineering guardrails (complete)
+**Last green commit:** `23f1de9` — Task 06 verified solution scaffold
+**Current branch:** `phase/0-foundation`
+**Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
+**Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
+**Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
+**Phase gate:** Not run
 
 ## Decisions
 
 | Decision | Status | ADR |
 |---|---|---|
-| Packaging model | Open | OD-02 |
-| WinGet integration route | Open | OD-03 |
-| Performance baseline | Open | OD-06 |
-| Cache quota/retention | Provisional | OD-11 |
-| Factory-reset mechanism | Open | OD-13 |
+| Product name/identity | Accepted | ADR-001 / OD-01 |
+| Packaging model | Provisional | ADR-002 / OD-02 |
+| WinGet integration route | Provisional | ADR-003 / OD-03 |
+| GitHub Releases MVP scope | Accepted | ADR-004 / OD-04 |
+| Runtime grouping | Accepted | ADR-005 / OD-05 |
+| Performance baseline | Accepted | ADR-006 / OD-06 |
+| Default schedule | Accepted | ADR-007 / OD-07 |
+| Licence/source availability | Accepted | ADR-008 / OD-08 |
+| Application self-update | Accepted | ADR-009 / OD-09 |
+| Diagnostic path redaction | Accepted | ADR-010 / OD-10 |
+| Download-cache quota/retention | Provisional | ADR-011 / OD-11 |
+| Scheduled process priority | Accepted | ADR-012 / OD-12 |
+| Factory-reset mechanism | Provisional | ADR-013 / OD-13 |
+| Solution/component boundaries | Accepted | ADR-014 |
+| SQLite ownership/migrations | Accepted | ADR-015 |
+| Structured logging/redaction | Accepted | ADR-016 |
+| Immutable update jobs | Accepted | ADR-017 |
+| Helper IPC/elevation | Accepted | ADR-018 |
+| App-owned artifact roots | Accepted | ADR-019 |
+| Scheduling without resident process | Accepted | ADR-020 |
+
+## Planned spike order
+
+1. Task 02 — packaging and WinGet evidence for OD-02/03.
+2. Task 03 — privilege boundary and safe-deletion evidence for OD-13.
+3. Task 04 — performance baseline/fixture evidence for OD-06 and inputs to OD-05/11.
+4. Task 05 — review evidence and lock, defer or reject every proposed ADR.
 
 ## Active blockers
 
-None recorded.
+Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target; Task 04's independent capture reports Windows 11 Home, so the discrepancy must be reconciled on a clean baseline VM. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; clean-VM symbolic-link, volume-mount and concurrent ancestor-swap evidence remains mandatory. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
+
+ADR-002, ADR-003, ADR-011 and ADR-013 are Provisional with explicit clean-VM/implementation reconsideration gates. No ADR remains Proposed, and Task 06 has no unresolved security, persistence, execution, deletion, scheduling or scaffold-boundary decision.
+
+## Task 01 result
+
+PASS — architecture, trust boundaries, threat model, test strategy, phased implementation plan and 13 proposed ADRs created. Structural coverage and `git diff --check` passed. Deliverable commit: `9823855`.
+
+## Task 02 result
+
+PASS WITH EVIDENCE LIMITATIONS — isolated capability/parser and shell-free command-planning spike created. WinGet `v1.29.280` supports the required argument controls, but observed help exposes no structured list/upgrade output. ADR-002 and ADR-003 remain Proposed; clean Windows 11 VM lifecycle evidence and approved source queries remain outstanding.
+
+## Task 03 result
+
+PASS WITH VM FOLLOW-UP — 42 disposable-root assertions passed for fixed-root/path validation, junction rejection, locked residuals, retry, idempotence, final-component swap mitigation and the authenticated no-op helper protocol. ADR-002, ADR-011 and ADR-013 remain Proposed; symbolic-link, volume-mount and ancestor-race VM evidence remains outstanding.
+
+## Task 04 result
+
+PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, redacted capture, 30 local and 20 simulated healthy-online raw samples, direct-worker CPU/working-set/cancellation/concurrency harness and OD-06 evidence update created. The spike’s 584.68 ms local p95, 1,764.93 ms simulated-online p95, 503.54 ms cancellation acknowledgement and observed concurrency of 3 are not final application compliance; clean-VM, fixed-power-plan, SSD-equivalent and real-source evidence remain outstanding.
+
+## Task 05 result
+
+PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 architecture documents now lock component, persistence, diagnostics, immutable-job, helper IPC, artifact-root and scan-only scheduling boundaries. ADR-002/003/011/013 retain explicit evidence gates. All three spike suites passed: 11 WinGet assertions, 42 security assertions with one VM/manual skip category, and 14 fixture assertions.
+
+## Task 06 result
+
+PASS — .NET 10 solution scaffold created with accepted capability boundaries, unpackaged WinUI startup shell, separate scheduled and elevated hosts, unit/integration/architecture/security-fixture projects, and a benchmark entry point. Restore, Release build and all four test projects passed with zero build warnings; display name has one source occurrence in `AppIdentity`. No product feature is claimed complete.
 
 ## Next task
 
-Run `prompts/00_ENVIRONMENT_AND_REPO_AUDIT.md`.
+Do not start Task 07 until the Phase 0 gate passes and this work is merged to `phase/1-inventory`. Task 07 requires GPT-5.6 Terra / Medium.
 
 ## Rules for updating this file
 

@@ -1,0 +1,1871 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-07-28T09:51:06.1542775Z",
+  "harnessVersion": "Task-04-spike-1",
+  "fixtureRecordCount": 320,
+  "parameters": {
+    "onlineRuns": 20,
+    "localRuns": 30,
+    "maxConnectorConcurrency": 3
+  },
+  "local": {
+    "samples": [
+      {
+        "connector": "local",
+        "elapsedMs": 479.0882,
+        "cpuMs": 515.625,
+        "cpuPercentOfOneCore": 107.626,
+        "cpuPercentOfLogicalProcessors": 6.727,
+        "peakWorkingSetBytes": 103030784,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-01.json",
+        "run": 1
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 558.9433,
+        "cpuMs": 437.5,
+        "cpuPercentOfOneCore": 78.273,
+        "cpuPercentOfLogicalProcessors": 4.892,
+        "peakWorkingSetBytes": 101388288,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-02.json",
+        "run": 2
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 566.1851,
+        "cpuMs": 437.5,
+        "cpuPercentOfOneCore": 77.272,
+        "cpuPercentOfLogicalProcessors": 4.829,
+        "peakWorkingSetBytes": 101502976,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-03.json",
+        "run": 3
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 558.4428,
+        "cpuMs": 359.375,
+        "cpuPercentOfOneCore": 64.353,
+        "cpuPercentOfLogicalProcessors": 4.022,
+        "peakWorkingSetBytes": 101273600,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-04.json",
+        "run": 4
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 617.5393,
+        "cpuMs": 531.25,
+        "cpuPercentOfOneCore": 86.027,
+        "cpuPercentOfLogicalProcessors": 5.377,
+        "peakWorkingSetBytes": 101376000,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-05.json",
+        "run": 5
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 529.5049,
+        "cpuMs": 375.0,
+        "cpuPercentOfOneCore": 70.821,
+        "cpuPercentOfLogicalProcessors": 4.426,
+        "peakWorkingSetBytes": 101629952,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-06.json",
+        "run": 6
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 567.1418,
+        "cpuMs": 468.75,
+        "cpuPercentOfOneCore": 82.651,
+        "cpuPercentOfLogicalProcessors": 5.166,
+        "peakWorkingSetBytes": 101474304,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-07.json",
+        "run": 7
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 532.883,
+        "cpuMs": 406.25,
+        "cpuPercentOfOneCore": 76.236,
+        "cpuPercentOfLogicalProcessors": 4.765,
+        "peakWorkingSetBytes": 101457920,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-08.json",
+        "run": 8
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 562.2364,
+        "cpuMs": 421.875,
+        "cpuPercentOfOneCore": 75.035,
+        "cpuPercentOfLogicalProcessors": 4.69,
+        "peakWorkingSetBytes": 101404672,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-09.json",
+        "run": 9
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 571.2929,
+        "cpuMs": 390.625,
+        "cpuPercentOfOneCore": 68.376,
+        "cpuPercentOfLogicalProcessors": 4.273,
+        "peakWorkingSetBytes": 101363712,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-10.json",
+        "run": 10
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 541.9419,
+        "cpuMs": 484.375,
+        "cpuPercentOfOneCore": 89.378,
+        "cpuPercentOfLogicalProcessors": 5.586,
+        "peakWorkingSetBytes": 101347328,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-11.json",
+        "run": 11
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 561.5084,
+        "cpuMs": 453.125,
+        "cpuPercentOfOneCore": 80.698,
+        "cpuPercentOfLogicalProcessors": 5.044,
+        "peakWorkingSetBytes": 101388288,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-12.json",
+        "run": 12
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 547.2091,
+        "cpuMs": 421.875,
+        "cpuPercentOfOneCore": 77.096,
+        "cpuPercentOfLogicalProcessors": 4.818,
+        "peakWorkingSetBytes": 101715968,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-13.json",
+        "run": 13
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 552.7267,
+        "cpuMs": 515.625,
+        "cpuPercentOfOneCore": 93.288,
+        "cpuPercentOfLogicalProcessors": 5.83,
+        "peakWorkingSetBytes": 101425152,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-14.json",
+        "run": 14
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 533.7081,
+        "cpuMs": 468.75,
+        "cpuPercentOfOneCore": 87.829,
+        "cpuPercentOfLogicalProcessors": 5.489,
+        "peakWorkingSetBytes": 101412864,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-15.json",
+        "run": 15
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 578.7892,
+        "cpuMs": 531.25,
+        "cpuPercentOfOneCore": 91.786,
+        "cpuPercentOfLogicalProcessors": 5.737,
+        "peakWorkingSetBytes": 101404672,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-16.json",
+        "run": 16
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 566.7545,
+        "cpuMs": 500.0,
+        "cpuPercentOfOneCore": 88.222,
+        "cpuPercentOfLogicalProcessors": 5.514,
+        "peakWorkingSetBytes": 101326848,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-17.json",
+        "run": 17
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 571.2516,
+        "cpuMs": 468.75,
+        "cpuPercentOfOneCore": 82.057,
+        "cpuPercentOfLogicalProcessors": 5.129,
+        "peakWorkingSetBytes": 101376000,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-18.json",
+        "run": 18
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 569.2963,
+        "cpuMs": 406.25,
+        "cpuPercentOfOneCore": 71.36,
+        "cpuPercentOfLogicalProcessors": 4.46,
+        "peakWorkingSetBytes": 101224448,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-19.json",
+        "run": 19
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 584.6824,
+        "cpuMs": 468.75,
+        "cpuPercentOfOneCore": 80.172,
+        "cpuPercentOfLogicalProcessors": 5.011,
+        "peakWorkingSetBytes": 101453824,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-20.json",
+        "run": 20
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 556.4307,
+        "cpuMs": 437.5,
+        "cpuPercentOfOneCore": 78.626,
+        "cpuPercentOfLogicalProcessors": 4.914,
+        "peakWorkingSetBytes": 101535744,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-21.json",
+        "run": 21
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 572.7773,
+        "cpuMs": 500.0,
+        "cpuPercentOfOneCore": 87.294,
+        "cpuPercentOfLogicalProcessors": 5.456,
+        "peakWorkingSetBytes": 101502976,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-22.json",
+        "run": 22
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 532.0154,
+        "cpuMs": 390.625,
+        "cpuPercentOfOneCore": 73.424,
+        "cpuPercentOfLogicalProcessors": 4.589,
+        "peakWorkingSetBytes": 101634048,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-23.json",
+        "run": 23
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 542.967,
+        "cpuMs": 484.375,
+        "cpuPercentOfOneCore": 89.209,
+        "cpuPercentOfLogicalProcessors": 5.576,
+        "peakWorkingSetBytes": 101380096,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-24.json",
+        "run": 24
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 546.0394,
+        "cpuMs": 406.25,
+        "cpuPercentOfOneCore": 74.399,
+        "cpuPercentOfLogicalProcessors": 4.65,
+        "peakWorkingSetBytes": 101326848,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-25.json",
+        "run": 25
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 531.8895,
+        "cpuMs": 406.25,
+        "cpuPercentOfOneCore": 76.379,
+        "cpuPercentOfLogicalProcessors": 4.774,
+        "peakWorkingSetBytes": 101527552,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-26.json",
+        "run": 26
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 530.3302,
+        "cpuMs": 406.25,
+        "cpuPercentOfOneCore": 76.603,
+        "cpuPercentOfLogicalProcessors": 4.788,
+        "peakWorkingSetBytes": 101359616,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-27.json",
+        "run": 27
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 543.8334,
+        "cpuMs": 437.5,
+        "cpuPercentOfOneCore": 80.447,
+        "cpuPercentOfLogicalProcessors": 5.028,
+        "peakWorkingSetBytes": 101535744,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-28.json",
+        "run": 28
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 548.7931,
+        "cpuMs": 421.875,
+        "cpuPercentOfOneCore": 76.873,
+        "cpuPercentOfLogicalProcessors": 4.805,
+        "peakWorkingSetBytes": 101543936,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-29.json",
+        "run": 29
+      },
+      {
+        "connector": "local",
+        "elapsedMs": 555.9927,
+        "cpuMs": 484.375,
+        "cpuPercentOfOneCore": 87.119,
+        "cpuPercentOfLogicalProcessors": 5.445,
+        "peakWorkingSetBytes": 101380096,
+        "exitCode": 0,
+        "status": "completed",
+        "recordsProcessed": 320,
+        "rawOutput": "20260728T095015Z-local-30.json",
+        "run": 30
+      }
+    ],
+    "summary": {
+      "sampleCount": 30,
+      "elapsedMs": {
+        "median": 555.9927,
+        "p95": 584.6824
+      },
+      "cpuMs": {
+        "median": 437.5,
+        "p95": 531.25
+      },
+      "peakWorkingSetBytes": {
+        "median": 101404672.0,
+        "p95": 101715968.0
+      }
+    }
+  },
+  "online": {
+    "observedMaxConcurrency": 3,
+    "samples": [
+      {
+        "run": 1,
+        "elapsedMs": 1675.9805,
+        "cpuMs": 2312.5,
+        "cpuPercentOfOneCore": 137.979,
+        "cpuPercentOfLogicalProcessors": 8.624,
+        "peakWorkingSetBytes": 303886336,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 773.4713,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 62.624,
+            "cpuPercentOfLogicalProcessors": 3.914,
+            "peakWorkingSetBytes": 102273024,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-01-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 763.8349,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 59.322,
+            "cpuPercentOfLogicalProcessors": 3.708,
+            "peakWorkingSetBytes": 100560896,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-01-catalog-c.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 813.5995,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 55.694,
+            "cpuPercentOfLogicalProcessors": 3.481,
+            "peakWorkingSetBytes": 102342656,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-01-catalog-b.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 773.5733,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 62.615,
+            "cpuPercentOfLogicalProcessors": 3.913,
+            "peakWorkingSetBytes": 101879808,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-01-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 814.8611,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 53.69,
+            "cpuPercentOfLogicalProcessors": 3.356,
+            "peakWorkingSetBytes": 101924864,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-01-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 2,
+        "elapsedMs": 1480.6303,
+        "cpuMs": 2500.0,
+        "cpuPercentOfOneCore": 168.847,
+        "cpuPercentOfLogicalProcessors": 10.553,
+        "peakWorkingSetBytes": 303194112,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 753.3457,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 62.222,
+            "cpuPercentOfLogicalProcessors": 3.889,
+            "peakWorkingSetBytes": 100823040,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-02-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 812.0255,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 67.347,
+            "cpuPercentOfLogicalProcessors": 4.209,
+            "peakWorkingSetBytes": 101675008,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-02-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 866.7218,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 57.689,
+            "cpuPercentOfLogicalProcessors": 3.606,
+            "peakWorkingSetBytes": 101875712,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-02-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 559.573,
+            "cpuMs": 421.875,
+            "cpuPercentOfOneCore": 75.392,
+            "cpuPercentOfLogicalProcessors": 4.712,
+            "peakWorkingSetBytes": 101052416,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-02-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 638.1642,
+            "cpuMs": 562.5,
+            "cpuPercentOfOneCore": 88.143,
+            "cpuPercentOfLogicalProcessors": 5.509,
+            "peakWorkingSetBytes": 102006784,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-02-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 3,
+        "elapsedMs": 1720.949,
+        "cpuMs": 2406.25,
+        "cpuPercentOfOneCore": 139.821,
+        "cpuPercentOfLogicalProcessors": 8.739,
+        "peakWorkingSetBytes": 302882816,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 780.429,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 64.067,
+            "cpuPercentOfLogicalProcessors": 4.004,
+            "peakWorkingSetBytes": 100823040,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-03-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 782.5337,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 59.902,
+            "cpuPercentOfLogicalProcessors": 3.744,
+            "peakWorkingSetBytes": 100990976,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-03-catalog-c.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 843.5747,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 55.567,
+            "cpuPercentOfLogicalProcessors": 3.473,
+            "peakWorkingSetBytes": 102125568,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-03-catalog-a.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 790.7782,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 63.229,
+            "cpuPercentOfLogicalProcessors": 3.952,
+            "peakWorkingSetBytes": 102109184,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-03-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 846.5571,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 55.371,
+            "cpuPercentOfLogicalProcessors": 3.461,
+            "peakWorkingSetBytes": 101949440,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-03-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 4,
+        "elapsedMs": 1428.8825,
+        "cpuMs": 2421.875,
+        "cpuPercentOfOneCore": 169.494,
+        "cpuPercentOfLogicalProcessors": 10.593,
+        "peakWorkingSetBytes": 304066560,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 702.1421,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 66.76,
+            "cpuPercentOfLogicalProcessors": 4.172,
+            "peakWorkingSetBytes": 101142528,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-04-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 747.1464,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 60.647,
+            "cpuPercentOfLogicalProcessors": 3.79,
+            "peakWorkingSetBytes": 102027264,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-04-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 794.0026,
+            "cpuMs": 640.625,
+            "cpuPercentOfOneCore": 80.683,
+            "cpuPercentOfLogicalProcessors": 5.043,
+            "peakWorkingSetBytes": 102187008,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-04-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 590.9565,
+            "cpuMs": 359.375,
+            "cpuPercentOfOneCore": 60.812,
+            "cpuPercentOfLogicalProcessors": 3.801,
+            "peakWorkingSetBytes": 100814848,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-04-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 655.0397,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 76.331,
+            "cpuPercentOfLogicalProcessors": 4.771,
+            "peakWorkingSetBytes": 101957632,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-04-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 5,
+        "elapsedMs": 1618.1262,
+        "cpuMs": 2140.625,
+        "cpuPercentOfOneCore": 132.29,
+        "cpuPercentOfLogicalProcessors": 8.268,
+        "peakWorkingSetBytes": 303833088,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 744.9981,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 60.822,
+            "cpuPercentOfLogicalProcessors": 3.801,
+            "peakWorkingSetBytes": 102064128,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-05-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 733.6801,
+            "cpuMs": 421.875,
+            "cpuPercentOfOneCore": 57.501,
+            "cpuPercentOfLogicalProcessors": 3.594,
+            "peakWorkingSetBytes": 100954112,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-05-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 806.8172,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 58.099,
+            "cpuPercentOfLogicalProcessors": 3.631,
+            "peakWorkingSetBytes": 102739968,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-05-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 760.0745,
+            "cpuMs": 343.75,
+            "cpuPercentOfOneCore": 45.226,
+            "cpuPercentOfLogicalProcessors": 2.827,
+            "peakWorkingSetBytes": 101138432,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-05-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 797.9861,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 56.784,
+            "cpuPercentOfLogicalProcessors": 3.549,
+            "peakWorkingSetBytes": 102113280,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-05-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 6,
+        "elapsedMs": 1473.8287,
+        "cpuMs": 2531.25,
+        "cpuPercentOfOneCore": 171.747,
+        "cpuPercentOfLogicalProcessors": 10.734,
+        "peakWorkingSetBytes": 303751168,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 737.2346,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 59.343,
+            "cpuPercentOfLogicalProcessors": 3.709,
+            "peakWorkingSetBytes": 100909056,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-06-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 771.118,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 70.92,
+            "cpuPercentOfLogicalProcessors": 4.432,
+            "peakWorkingSetBytes": 101957632,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-06-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 807.38,
+            "cpuMs": 515.625,
+            "cpuPercentOfOneCore": 63.864,
+            "cpuPercentOfLogicalProcessors": 3.991,
+            "peakWorkingSetBytes": 102170624,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-06-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 640.6828,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 75.603,
+            "cpuPercentOfLogicalProcessors": 4.725,
+            "peakWorkingSetBytes": 101175296,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-06-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 642.2464,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 85.15,
+            "cpuPercentOfLogicalProcessors": 5.322,
+            "peakWorkingSetBytes": 101998592,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-06-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 7,
+        "elapsedMs": 1771.6205,
+        "cpuMs": 2593.75,
+        "cpuPercentOfOneCore": 146.406,
+        "cpuPercentOfLogicalProcessors": 9.15,
+        "peakWorkingSetBytes": 304582656,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 820.9149,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 66.618,
+            "cpuPercentOfLogicalProcessors": 4.164,
+            "peakWorkingSetBytes": 102785024,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-07-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 826.1331,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 64.306,
+            "cpuPercentOfLogicalProcessors": 4.019,
+            "peakWorkingSetBytes": 100864000,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-07-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 878.464,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 62.254,
+            "cpuPercentOfLogicalProcessors": 3.891,
+            "peakWorkingSetBytes": 102195200,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-07-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 719.57,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 67.315,
+            "cpuPercentOfLogicalProcessors": 4.207,
+            "peakWorkingSetBytes": 101900288,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-07-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 869.237,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 55.724,
+            "cpuPercentOfLogicalProcessors": 3.483,
+            "peakWorkingSetBytes": 102105088,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-07-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 8,
+        "elapsedMs": 1527.4404,
+        "cpuMs": 2718.75,
+        "cpuPercentOfOneCore": 177.994,
+        "cpuPercentOfLogicalProcessors": 11.125,
+        "peakWorkingSetBytes": 303452160,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 725.4822,
+            "cpuMs": 562.5,
+            "cpuPercentOfOneCore": 77.535,
+            "cpuPercentOfLogicalProcessors": 4.846,
+            "peakWorkingSetBytes": 101011456,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-08-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 761.929,
+            "cpuMs": 625.0,
+            "cpuPercentOfOneCore": 82.029,
+            "cpuPercentOfLogicalProcessors": 5.127,
+            "peakWorkingSetBytes": 101859328,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-08-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 808.3328,
+            "cpuMs": 593.75,
+            "cpuPercentOfOneCore": 73.454,
+            "cpuPercentOfLogicalProcessors": 4.591,
+            "peakWorkingSetBytes": 102752256,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-08-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 608.2218,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 82.207,
+            "cpuPercentOfLogicalProcessors": 5.138,
+            "peakWorkingSetBytes": 101912576,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-08-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 704.7151,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 62.082,
+            "cpuPercentOfLogicalProcessors": 3.88,
+            "peakWorkingSetBytes": 101847040,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-08-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 9,
+        "elapsedMs": 1733.6488,
+        "cpuMs": 2343.75,
+        "cpuPercentOfOneCore": 135.192,
+        "cpuPercentOfLogicalProcessors": 8.449,
+        "peakWorkingSetBytes": 304427008,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 801.2343,
+            "cpuMs": 421.875,
+            "cpuPercentOfOneCore": 52.653,
+            "cpuPercentOfLogicalProcessors": 3.291,
+            "peakWorkingSetBytes": 101953536,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-09-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 786.9395,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 55.595,
+            "cpuPercentOfLogicalProcessors": 3.475,
+            "peakWorkingSetBytes": 101900288,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-09-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 844.2341,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 57.374,
+            "cpuPercentOfLogicalProcessors": 3.586,
+            "peakWorkingSetBytes": 101789696,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-09-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 826.445,
+            "cpuMs": 515.625,
+            "cpuPercentOfOneCore": 62.391,
+            "cpuPercentOfLogicalProcessors": 3.899,
+            "peakWorkingSetBytes": 101965824,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-09-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 872.7193,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 55.502,
+            "cpuPercentOfLogicalProcessors": 3.469,
+            "peakWorkingSetBytes": 102371328,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-09-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 10,
+        "elapsedMs": 1586.9425,
+        "cpuMs": 2593.75,
+        "cpuPercentOfOneCore": 163.443,
+        "cpuPercentOfLogicalProcessors": 10.215,
+        "peakWorkingSetBytes": 302338048,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 790.4331,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 61.28,
+            "cpuPercentOfLogicalProcessors": 3.83,
+            "peakWorkingSetBytes": 100712448,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-10-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 849.2232,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 58.877,
+            "cpuPercentOfLogicalProcessors": 3.68,
+            "peakWorkingSetBytes": 101957632,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-10-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 881.1186,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 56.746,
+            "cpuPercentOfLogicalProcessors": 3.547,
+            "peakWorkingSetBytes": 101957632,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-10-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 674.456,
+            "cpuMs": 578.125,
+            "cpuPercentOfOneCore": 85.717,
+            "cpuPercentOfLogicalProcessors": 5.357,
+            "peakWorkingSetBytes": 102772736,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-10-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 663.2221,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 80.101,
+            "cpuPercentOfLogicalProcessors": 5.006,
+            "peakWorkingSetBytes": 102854656,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-10-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 11,
+        "elapsedMs": 1618.289,
+        "cpuMs": 2421.875,
+        "cpuPercentOfOneCore": 149.657,
+        "cpuPercentOfLogicalProcessors": 9.354,
+        "peakWorkingSetBytes": 303099904,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 757.2523,
+            "cpuMs": 515.625,
+            "cpuPercentOfOneCore": 68.092,
+            "cpuPercentOfLogicalProcessors": 4.256,
+            "peakWorkingSetBytes": 101818368,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-11-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 786.1068,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 57.642,
+            "cpuPercentOfLogicalProcessors": 3.603,
+            "peakWorkingSetBytes": 100544512,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-11-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 812.4126,
+            "cpuMs": 562.5,
+            "cpuPercentOfOneCore": 69.238,
+            "cpuPercentOfLogicalProcessors": 4.327,
+            "peakWorkingSetBytes": 101924864,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-11-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 736.2289,
+            "cpuMs": 406.25,
+            "cpuPercentOfOneCore": 55.18,
+            "cpuPercentOfLogicalProcessors": 3.449,
+            "peakWorkingSetBytes": 101027840,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-11-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 799.1838,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 60.609,
+            "cpuPercentOfLogicalProcessors": 3.788,
+            "peakWorkingSetBytes": 101638144,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-11-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 12,
+        "elapsedMs": 1750.6858,
+        "cpuMs": 2484.375,
+        "cpuPercentOfOneCore": 141.909,
+        "cpuPercentOfLogicalProcessors": 8.869,
+        "peakWorkingSetBytes": 304320512,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 857.1612,
+            "cpuMs": 562.5,
+            "cpuPercentOfOneCore": 65.624,
+            "cpuPercentOfLogicalProcessors": 4.101,
+            "peakWorkingSetBytes": 101974016,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-12-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 844.7905,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 57.337,
+            "cpuPercentOfLogicalProcessors": 3.584,
+            "peakWorkingSetBytes": 101031936,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-12-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 835.0951,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 52.389,
+            "cpuPercentOfLogicalProcessors": 3.274,
+            "peakWorkingSetBytes": 101314560,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-12-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 783.0328,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 59.863,
+            "cpuPercentOfLogicalProcessors": 3.741,
+            "peakWorkingSetBytes": 100995072,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-12-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 823.0385,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 64.547,
+            "cpuPercentOfLogicalProcessors": 4.034,
+            "peakWorkingSetBytes": 101765120,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-12-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 13,
+        "elapsedMs": 1471.8478,
+        "cpuMs": 2546.875,
+        "cpuPercentOfOneCore": 173.039,
+        "cpuPercentOfLogicalProcessors": 10.815,
+        "peakWorkingSetBytes": 299716608,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 734.9986,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 59.524,
+            "cpuPercentOfLogicalProcessors": 3.72,
+            "peakWorkingSetBytes": 101056512,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-13-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 788.6335,
+            "cpuMs": 578.125,
+            "cpuPercentOfOneCore": 73.307,
+            "cpuPercentOfLogicalProcessors": 4.582,
+            "peakWorkingSetBytes": 101855232,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-13-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 906.3655,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 58.613,
+            "cpuPercentOfLogicalProcessors": 3.663,
+            "peakWorkingSetBytes": 101982208,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-13-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 576.7377,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 86.695,
+            "cpuPercentOfLogicalProcessors": 5.418,
+            "peakWorkingSetBytes": 101830656,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-13-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 609.1204,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 82.086,
+            "cpuPercentOfLogicalProcessors": 5.13,
+            "peakWorkingSetBytes": 102010880,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-13-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 14,
+        "elapsedMs": 1516.3378,
+        "cpuMs": 2500.0,
+        "cpuPercentOfOneCore": 164.871,
+        "cpuPercentOfLogicalProcessors": 10.304,
+        "peakWorkingSetBytes": 303046656,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 730.2922,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 59.908,
+            "cpuPercentOfLogicalProcessors": 3.744,
+            "peakWorkingSetBytes": 100671488,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-14-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 769.4398,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 62.952,
+            "cpuPercentOfLogicalProcessors": 3.934,
+            "peakWorkingSetBytes": 101613568,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-14-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 799.4923,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 62.54,
+            "cpuPercentOfLogicalProcessors": 3.909,
+            "peakWorkingSetBytes": 101924864,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-14-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 546.8596,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 100.003,
+            "cpuPercentOfLogicalProcessors": 6.25,
+            "peakWorkingSetBytes": 101904384,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-14-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 684.7012,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 77.589,
+            "cpuPercentOfLogicalProcessors": 4.849,
+            "peakWorkingSetBytes": 102064128,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-14-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 15,
+        "elapsedMs": 1719.4716,
+        "cpuMs": 2359.375,
+        "cpuPercentOfOneCore": 137.215,
+        "cpuPercentOfLogicalProcessors": 8.576,
+        "peakWorkingSetBytes": 303132672,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 791.3232,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 63.185,
+            "cpuPercentOfLogicalProcessors": 3.949,
+            "peakWorkingSetBytes": 101605376,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-15-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 796.2639,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 58.869,
+            "cpuPercentOfLogicalProcessors": 3.679,
+            "peakWorkingSetBytes": 101003264,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-15-catalog-c.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 835.6063,
+            "cpuMs": 515.625,
+            "cpuPercentOfOneCore": 61.707,
+            "cpuPercentOfLogicalProcessors": 3.857,
+            "peakWorkingSetBytes": 101900288,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-15-catalog-b.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 713.211,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 61.342,
+            "cpuPercentOfLogicalProcessors": 3.834,
+            "peakWorkingSetBytes": 102334464,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-15-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 841.4637,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 51.993,
+            "cpuPercentOfLogicalProcessors": 3.25,
+            "peakWorkingSetBytes": 102006784,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-15-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 16,
+        "elapsedMs": 1443.6387,
+        "cpuMs": 2453.125,
+        "cpuPercentOfOneCore": 169.927,
+        "cpuPercentOfLogicalProcessors": 10.62,
+        "peakWorkingSetBytes": 303341568,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 703.748,
+            "cpuMs": 406.25,
+            "cpuPercentOfOneCore": 57.727,
+            "cpuPercentOfLogicalProcessors": 3.608,
+            "peakWorkingSetBytes": 100802560,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-16-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 747.0078,
+            "cpuMs": 562.5,
+            "cpuPercentOfOneCore": 75.3,
+            "cpuPercentOfLogicalProcessors": 4.706,
+            "peakWorkingSetBytes": 101900288,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-16-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 793.8373,
+            "cpuMs": 515.625,
+            "cpuPercentOfOneCore": 64.953,
+            "cpuPercentOfLogicalProcessors": 4.06,
+            "peakWorkingSetBytes": 101965824,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-16-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 606.1864,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 77.328,
+            "cpuPercentOfLogicalProcessors": 4.833,
+            "peakWorkingSetBytes": 100868096,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-16-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 670.4219,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 74.58,
+            "cpuPercentOfLogicalProcessors": 4.661,
+            "peakWorkingSetBytes": 101834752,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-16-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 17,
+        "elapsedMs": 1675.9999,
+        "cpuMs": 2375.0,
+        "cpuPercentOfOneCore": 141.706,
+        "cpuPercentOfLogicalProcessors": 8.857,
+        "peakWorkingSetBytes": 303714304,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 755.3404,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 57.921,
+            "cpuPercentOfLogicalProcessors": 3.62,
+            "peakWorkingSetBytes": 101974016,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-17-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 743.1823,
+            "cpuMs": 500.0,
+            "cpuPercentOfOneCore": 67.278,
+            "cpuPercentOfLogicalProcessors": 4.205,
+            "peakWorkingSetBytes": 101076992,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-17-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 803.7434,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 66.097,
+            "cpuPercentOfLogicalProcessors": 4.131,
+            "peakWorkingSetBytes": 101883904,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-17-catalog-c.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 806.3415,
+            "cpuMs": 421.875,
+            "cpuPercentOfOneCore": 52.32,
+            "cpuPercentOfLogicalProcessors": 3.27,
+            "peakWorkingSetBytes": 100904960,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-17-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 863.0737,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 56.122,
+            "cpuPercentOfLogicalProcessors": 3.508,
+            "peakWorkingSetBytes": 102944768,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-17-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 18,
+        "elapsedMs": 1718.4366,
+        "cpuMs": 2484.375,
+        "cpuPercentOfOneCore": 144.572,
+        "cpuPercentOfLogicalProcessors": 9.036,
+        "peakWorkingSetBytes": 303489024,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 772.0717,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 60.713,
+            "cpuPercentOfLogicalProcessors": 3.795,
+            "peakWorkingSetBytes": 101855232,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-18-catalog-a.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 808.8959,
+            "cpuMs": 515.625,
+            "cpuPercentOfOneCore": 63.744,
+            "cpuPercentOfLogicalProcessors": 3.984,
+            "peakWorkingSetBytes": 102060032,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-18-catalog-b.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 800.0085,
+            "cpuMs": 453.125,
+            "cpuPercentOfOneCore": 56.64,
+            "cpuPercentOfLogicalProcessors": 3.54,
+            "peakWorkingSetBytes": 100950016,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-18-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 791.8252,
+            "cpuMs": 578.125,
+            "cpuPercentOfOneCore": 73.012,
+            "cpuPercentOfLogicalProcessors": 4.563,
+            "peakWorkingSetBytes": 101814272,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-18-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 824.8174,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 56.831,
+            "cpuPercentOfLogicalProcessors": 3.552,
+            "peakWorkingSetBytes": 101998592,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-18-catalog-e.json"
+          }
+        ]
+      },
+      {
+        "run": 19,
+        "elapsedMs": 1720.6139,
+        "cpuMs": 2593.75,
+        "cpuPercentOfOneCore": 150.746,
+        "cpuPercentOfLogicalProcessors": 9.422,
+        "peakWorkingSetBytes": 303460352,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 810.5756,
+            "cpuMs": 578.125,
+            "cpuPercentOfOneCore": 71.323,
+            "cpuPercentOfLogicalProcessors": 4.458,
+            "peakWorkingSetBytes": 100847616,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-19-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 793.6381,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 66.939,
+            "cpuPercentOfLogicalProcessors": 4.184,
+            "peakWorkingSetBytes": 100745216,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-19-catalog-c.json"
+          },
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 847.4748,
+            "cpuMs": 562.5,
+            "cpuPercentOfOneCore": 66.374,
+            "cpuPercentOfLogicalProcessors": 4.148,
+            "peakWorkingSetBytes": 102825984,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-19-catalog-b.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 815.8633,
+            "cpuMs": 437.5,
+            "cpuPercentOfOneCore": 53.624,
+            "cpuPercentOfLogicalProcessors": 3.352,
+            "peakWorkingSetBytes": 100601856,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-19-catalog-e.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 841.8497,
+            "cpuMs": 484.375,
+            "cpuPercentOfOneCore": 57.537,
+            "cpuPercentOfLogicalProcessors": 3.596,
+            "peakWorkingSetBytes": 101875712,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-19-catalog-d.json"
+          }
+        ]
+      },
+      {
+        "run": 20,
+        "elapsedMs": 1764.9332,
+        "cpuMs": 2546.875,
+        "cpuPercentOfOneCore": 144.304,
+        "cpuPercentOfLogicalProcessors": 9.019,
+        "peakWorkingSetBytes": 303771648,
+        "status": "completed",
+        "connectorSamples": [
+          {
+            "connector": "catalog-b",
+            "elapsedMs": 815.2458,
+            "cpuMs": 421.875,
+            "cpuPercentOfOneCore": 51.748,
+            "cpuPercentOfLogicalProcessors": 3.234,
+            "peakWorkingSetBytes": 101060608,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-20-catalog-b.json"
+          },
+          {
+            "connector": "catalog-a",
+            "elapsedMs": 865.8524,
+            "cpuMs": 531.25,
+            "cpuPercentOfOneCore": 61.356,
+            "cpuPercentOfLogicalProcessors": 3.835,
+            "peakWorkingSetBytes": 102350848,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-20-catalog-a.json"
+          },
+          {
+            "connector": "catalog-c",
+            "elapsedMs": 887.1934,
+            "cpuMs": 468.75,
+            "cpuPercentOfOneCore": 52.835,
+            "cpuPercentOfLogicalProcessors": 3.302,
+            "peakWorkingSetBytes": 101928960,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-20-catalog-c.json"
+          },
+          {
+            "connector": "catalog-d",
+            "elapsedMs": 823.3911,
+            "cpuMs": 546.875,
+            "cpuPercentOfOneCore": 66.417,
+            "cpuPercentOfLogicalProcessors": 4.151,
+            "peakWorkingSetBytes": 102014976,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-20-catalog-d.json"
+          },
+          {
+            "connector": "catalog-e",
+            "elapsedMs": 829.3419,
+            "cpuMs": 578.125,
+            "cpuPercentOfOneCore": 69.709,
+            "cpuPercentOfLogicalProcessors": 4.357,
+            "peakWorkingSetBytes": 102391808,
+            "exitCode": 0,
+            "status": "completed",
+            "recordsProcessed": 320,
+            "rawOutput": "20260728T095015Z-online-20-catalog-e.json"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "sampleCount": 20,
+      "elapsedMs": {
+        "median": 1618.289,
+        "p95": 1764.9332
+      },
+      "cpuMs": {
+        "median": 2484.375,
+        "p95": 2593.75
+      },
+      "peakWorkingSetBytes": {
+        "median": 303460352.0,
+        "p95": 304427008.0
+      }
+    }
+  },
+  "cancellation": {
+    "workerStatus": "cancelled",
+    "rawOutput": "20260728T095015Z-cancellation.json",
+    "exitCode": 0,
+    "acknowledgementMs": 503.5405
+  },
+  "limitations": [
+    "This measures the disposable PowerShell spike, not the future UI or application.",
+    "Online checks are deterministic local connector simulations; no network or package source is contacted.",
+    "Direct worker processes are the measured process tree; no unrelated process is included."
+  ]
+}

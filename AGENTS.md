@@ -37,6 +37,13 @@
 - Commit only when required tests pass. Never push, merge, tag, publish, sign, install system software, or update real applications without explicit user approval.
 - Do not change Git identity or global configuration.
 
+## Canonical local commands
+
+- Restore: `pwsh -NoProfile -File .\scripts\Restore.ps1`
+- Build: `pwsh -NoProfile -File .\scripts\Build.ps1`
+- Test: `pwsh -NoProfile -File .\scripts\Test.ps1`
+- Benchmark harness: `pwsh -NoProfile -File .\scripts\Benchmark.ps1`
+
 ## Resource and usage discipline
 
 - Keep output concise. Do not reproduce large source files or long command logs in chat.

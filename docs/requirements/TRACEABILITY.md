@@ -2,6 +2,16 @@
 
 This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at least one numbered Codex task. Review tasks verify the whole phase even when not repeated below.
 
+## Phase 0 evidence links
+
+| Task | Requirement IDs informed | Evidence |
+|---|---|---|
+| 02 — packaging and WinGet spike | `FR-DAT-12`, `AC-DAT-18`, `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03` | `spikes/winget-packaging/SPIKE_REPORT.md`; informs Provisional ADR-002 and ADR-003. |
+| 03 — privilege and safe-deletion spike | `FR-UPD-04`, `FR-DAT-08`, `FR-DAT-11–15`, `AC-DAT-11–16`, `AC-UPD-03` | `spikes/security-boundaries/SPIKE_REPORT.md`; 42 disposable-root assertions passed, with symbolic-link, volume-mount and ancestor-race VM evidence outstanding; informs ADR-018/019 and Provisional ADR-011/013. |
+| 04 — performance baseline and fixture matrix | `NFR-PERF-01–02`, `NFR-PERF-06`, `NFR-PERF-08–09`, `AC-NFR-01–03`, `AC-NFR-07`, `AC-NFR-09` | `spikes/performance-fixtures/BASELINE.md`; 320 fixtures, 30 local and 20 simulated-online samples; supports Accepted ADR-006 measurement protocol, not final compliance. |
+| 05 — architecture decision lock | `OD-01–13`, `NFR-MNT-01–05`, `NFR-OBS-01–05`, `FR-UPD-01–04`, `FR-DAT-06–15`, `FR-SCH-01–05` | `docs/review/TASK_05_ARCHITECTURE_DECISION_REVIEW.md`; ADR-001–020 leave no Proposed decisions and define four Provisional evidence gates. |
+| 06 — solution and guardrail scaffold | `NFR-MNT-01–05`, `NFR-OBS-01–05`, `NFR-PERF-01–10`, `FR-UPD-02–04`, `FR-DAT-06–15`, `FR-SCH-02–04` | `PCSteward.slnx`, central build settings, architecture-test project, Windows-only CI and command scripts establish scaffold evidence only; no feature requirement is marked complete. |
+
 | ID | Requirement / criterion | MVP marker | Task(s) |
 |---|---|---|---|
 | `FR-ONB-01` | Explain local inventory collection, network source access, permissions and data storage before the first scan. | Yes | 13 |
@@ -89,15 +99,15 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 | `FR-RSC-03` | Apply bounded connector concurrency, per-provider timeouts and cancellation tokens so one source cannot consume unbounded resources or block the whole scan. | Yes | 12 |
 | `FR-RSC-04` | Run scheduled scans through Task Scheduler without an always-running process, at lower priority where supported, and exit after completion, cancellation or timeout. | Yes | 26 |
 | `FR-RSC-05` | Record scan duration and provider timings locally for performance diagnosis without collecting unrelated application-usage telemetry. | Yes | 12 |
-| `NFR-PERF-01` | Local inventory must complete within 15 seconds at the 95th percentile on the agreed baseline PC with 300 provider records. | Mandatory | 12, 29 |
-| `NFR-PERF-02` | A full online check must complete within 90 seconds at the 95th percentile when sources are healthy; source timeouts must not block the whole application indefinitely. | Mandatory | 18, 29 |
+| `NFR-PERF-01` | Local inventory must complete within 15 seconds at the 95th percentile on the agreed baseline PC with 300 provider records. | Mandatory | 04, 12, 29 |
+| `NFR-PERF-02` | A full online check must complete within 90 seconds at the 95th percentile when sources are healthy; source timeouts must not block the whole application indefinitely. | Mandatory | 04, 18, 29 |
 | `NFR-PERF-03` | The UI must remain responsive during scans and updates. | Mandatory | 12, 29 |
 | `NFR-PERF-04` | The application should cold-start to an interactive shell within five seconds on the baseline PC. | Mandatory | 29 |
 | `NFR-PERF-05` | With the UI open and no active job for five minutes, average PC Steward CPU usage must remain at or below 1% of total system CPU, working set should remain at or below 300 MB, and the app must not perform recurring disk or network activity. | Mandatory | 12, 29 |
-| `NFR-PERF-06` | During a local scan on the baseline PC, the combined PC Steward process tree must average no more than 20% total CPU and remain below 500 MB peak working set. App-owned work must not sustain more than 50% total CPU for over five seconds. | Mandatory | 12, 29 |
+| `NFR-PERF-06` | During a local scan on the baseline PC, the combined PC Steward process tree must average no more than 20% total CPU and remain below 500 MB peak working set. App-owned work must not sustain more than 50% total CPU for over five seconds. | Mandatory | 04, 12, 29 |
 | `NFR-PERF-07` | Closing the UI must leave no resident PC Steward process when no approved update or scheduled scan is active. A scheduled scan process must exit within 30 seconds after completion, cancellation or final timeout handling. | Mandatory | 26, 29 |
-| `NFR-PERF-08` | A scan cancellation request must be acknowledged in the UI within two seconds and return the application to an operable state within five seconds, including termination of cancellable child-provider work. | Mandatory | 12, 29 |
-| `NFR-PERF-09` | Only one full scan may run at a time. Online connector concurrency defaults to a maximum of three and must be configurable internally without a code rewrite. | Mandatory | 12, 29 |
+| `NFR-PERF-08` | A scan cancellation request must be acknowledged in the UI within two seconds and return the application to an operable state within five seconds, including termination of cancellable child-provider work. | Mandatory | 04, 12, 29 |
+| `NFR-PERF-09` | Only one full scan may run at a time. Online connector concurrency defaults to a maximum of three and must be configurable internally without a code rewrite. | Mandatory | 04, 12, 29 |
 | `NFR-PERF-10` | PC Steward-owned downloaded update files must be bounded by a configurable soft quota with a 2 GB default, excluding a file actively required by an update. | Mandatory | 24, 29 |
 | `NFR-REL-01` | A failed connector must not discard successful results from other connectors. | Mandatory | 18, 29 |
 | `NFR-REL-02` | Database writes must be transactional so interrupted scans do not corrupt the last known good inventory. | Mandatory | 12, 29 |
@@ -166,14 +176,14 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 | `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Mandatory | 14, 24, 28, 29 |
 | `AC-UX-08` | Factory reset requires a second explicit confirmation and cannot be triggered by a single accidental click or keyboard activation. | Mandatory | 28, 29 |
 | `AC-UX-09` | During a scan, the user can see elapsed time, current phase and an enabled **Cancel scan** action. | Mandatory | 13, 29 |
-| `AC-NFR-01` | Local inventory meets NFR-PERF-01 on the agreed baseline test system over at least 30 repeated runs after warm-up. | Mandatory | 12, 29 |
-| `AC-NFR-02` | Full online scan meets NFR-PERF-02 when test sources are healthy over at least 20 repeated runs. | Mandatory | 18, 29 |
-| `AC-NFR-03` | Cancelling a scan or connector request returns the UI to an operable state without data corruption and meets NFR-PERF-08. | Mandatory | 12, 29 |
+| `AC-NFR-01` | Local inventory meets NFR-PERF-01 on the agreed baseline test system over at least 30 repeated runs after warm-up. | Mandatory | 04, 12, 29 |
+| `AC-NFR-02` | Full online scan meets NFR-PERF-02 when test sources are healthy over at least 20 repeated runs. | Mandatory | 04, 18, 29 |
+| `AC-NFR-03` | Cancelling a scan or connector request returns the UI to an operable state without data corruption and meets NFR-PERF-08. | Mandatory | 04, 12, 29 |
 | `AC-NFR-04` | Terminating the application during a scan leaves the previous successful inventory readable on next launch. | Mandatory | 12, 29 |
 | `AC-NFR-05` | A connector timeout does not block results from other connectors. | Mandatory | 18, 29 |
 | `AC-NFR-06` | Five-minute idle measurement meets the CPU, memory, disk and network limits in NFR-PERF-05. | Mandatory | 12, 29 |
-| `AC-NFR-07` | Local-scan process-tree measurement meets the CPU and memory limits in NFR-PERF-06. | Mandatory | 12, 29 |
+| `AC-NFR-07` | Local-scan process-tree measurement meets the CPU and memory limits in NFR-PERF-06. | Mandatory | 04, 12, 29 |
 | `AC-NFR-08` | Closing PC Steward with no active work leaves no PC Steward process after 30 seconds. | Mandatory | 26, 29 |
-| `AC-NFR-09` | Attempts to start a second scan are rejected or routed to the existing scan, and measured connector concurrency never exceeds the configured bound. | Mandatory | 12, 29 |
+| `AC-NFR-09` | Attempts to start a second scan are rejected or routed to the existing scan, and measured connector concurrency never exceeds the configured bound. | Mandatory | 04, 12, 29 |
 | `AC-NFR-10` | Filling the app-owned download cache beyond its soft quota evicts only inactive oldest files and never blocks or deletes the artifact required by an active update. | Mandatory | 24, 29 |
 | `AC-NFR-11` | A scheduled scan runs without launching a persistent tray app and exits within the NFR-PERF-07 limit. | Mandatory | 26, 29 |
