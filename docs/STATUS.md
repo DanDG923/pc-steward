@@ -39,7 +39,7 @@
 
 The fresh GPT-5.6 Sol / High Task 20 review passed `P2R-07`–`P2R-09`, but found that an Equal automatic mapping with `SourceDisagreement` could still be labelled Current rather than review-required. The fail-closed status correction and regression now pass locally, awaiting a fresh review.
 
-`AC-DAT-04` requires an event-based, process-attributed trace of disabled/local-only and explicitly enabled production composition; interval socket polling of direct child commands is insufficient. ADR-003 also requires one documented sanitized real update row from a controlled Windows 11 host (or provenance-recorded sanitized captured fixture); this machine reported zero available rows.
+`AC-DAT-04` requires an event-based, process-attributed trace of disabled/local-only and explicitly enabled production composition; interval socket polling of direct child commands is insufficient. The approved production UI exercise completed both paths and restored Local-only, but the narrow ETW provider requires a Windows-administrator token and the constrained process monitor could not start here. ADR-003 also requires one documented sanitized real update row from a controlled Windows 11 host (or provenance-recorded sanitized captured fixture); this machine reported zero available rows.
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
 
@@ -49,7 +49,7 @@ Fresh Task 20 result: `FAIL`. Review focused tests: 6 passed; Release build zero
 
 ## Next task
 
-Obtain the event-based enabled/disabled trace and a documented sanitized real parser row, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
+Run the event-based enabled/disabled trace under a controlled Windows-administrator token, obtain a documented sanitized real parser row, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 

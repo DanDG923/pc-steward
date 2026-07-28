@@ -23,4 +23,4 @@ No real WinGet or Microsoft Store query will be run until the product owner expl
 
 ## Completion record
 
-The fresh GPT-5.6 Sol / High Task 20 review found one final `P2R-10` status-classification defect; it is corrected and locally verified, pending another fresh review. The evidence record remains insufficient for the gate: obtain an event-based, process-attributed enabled/disabled trace and one documented, sanitized real update row from a controlled Windows 11 host (or a provenance-recorded sanitized captured fixture).
+The fresh GPT-5.6 Sol / High Task 20 review found one final `P2R-10` status-classification defect; it is corrected and locally verified, pending another fresh review. The approved production UI trace attempt exercised local-only and enabled paths but could not obtain process-attributed events: the narrow ETW provider requires a Windows-administrator token and the temporary constrained monitor could not start in this environment. Obtain the trace under a controlled administrative token and one documented, sanitized real update row from a controlled Windows 11 host (or a provenance-recorded sanitized captured fixture).
