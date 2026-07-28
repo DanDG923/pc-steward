@@ -27,6 +27,19 @@ public sealed class UserDecisionServiceTests
         Assert.IsFalse((await service.GetPoliciesAsync(CancellationToken.None))["product:widget"].IsIgnored);
     }
 
+    [TestMethod]
+    public async Task ExpiredIgnoresAreNotActiveAndManualMappingsAppearInTheTimeline()
+    {
+        MemoryDecisionStore store = new(); UserDecisionService service = new(store);
+        await store.SaveAsync(new StableDecision(Guid.NewGuid(), "product:widget", "Ignore", "expired", DateTimeOffset.UtcNow.AddHours(-1), "expired", DateTimeOffset.UtcNow.AddMinutes(-1)), CancellationToken.None);
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Widget", "Contoso", "1.0", "1.1", "Machine", "x64", "Stable");
+        await service.CreateManualMappingAsync("product:widget", package, [new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], [])], "reviewed", CancellationToken.None);
+
+        Assert.HasCount(0, await service.GetActiveDecisionsAsync(CancellationToken.None));
+        IReadOnlyCollection<ProductTimelineEntry> timeline = await service.GetTimelineAsync("product:widget", CancellationToken.None);
+        Assert.IsTrue(timeline.Any(entry => entry.Kind == "ManualMapping" && entry.Summary.Contains("Contoso.Widget", StringComparison.Ordinal)));
+    }
+
     private sealed class MemoryDecisionStore : IUserDecisionStore
     {
         private readonly List<StableDecision> decisions = []; private readonly List<ManualMapping> mappings = [];

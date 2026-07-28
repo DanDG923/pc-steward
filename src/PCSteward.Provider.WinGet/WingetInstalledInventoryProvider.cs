@@ -1,11 +1,12 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.RegularExpressions;
 using PCSteward.Application;
 using PCSteward.Domain;
 
 namespace PCSteward.Provider.WinGet;
 
-public sealed record WingetProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut);
+public sealed record WingetProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut, bool OutputLimitExceeded = false);
 public interface IWingetProcess { Task<WingetProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken); }
 public sealed record WingetInstalledRecord(string Name, string Id, string Version, string? Source);
 public sealed record WingetInventoryResult(IReadOnlyCollection<WingetInstalledRecord> Records, IReadOnlyCollection<string> Warnings);
@@ -21,9 +22,9 @@ public sealed class WingetInstalledInventoryProvider
     public async Task<WingetInventoryResult> ReadInstalledAsync(CancellationToken cancellationToken)
     {
         WingetProcessResult result = await process.RunAsync("winget.exe", BuildInstalledListArguments(), TimeSpan.FromSeconds(30), cancellationToken);
+        if (result.OutputLimitExceeded || result.StandardOutput.Length > MaximumOutputLength) return new WingetInventoryResult([], ["winget:output-too-large"]);
         if (result.TimedOut) return new WingetInventoryResult([], ["winget:timeout"]);
         if (result.ExitCode != 0) return new WingetInventoryResult([], [$"winget:exit-{result.ExitCode}"]);
-        if (result.StandardOutput.Length > MaximumOutputLength) return new WingetInventoryResult([], ["winget:output-too-large"]);
         return ParseTable(result.StandardOutput);
     }
     public static WingetInventoryResult ParseTable(string output)
@@ -68,9 +69,9 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     public static WingetAvailableUpdateResult Classify(WingetProcessResult result, string? providerVersion, string sourceId)
     {
         string expectedSource = CanonicalSource(sourceId);
+        if (result.OutputLimitExceeded || result.StandardOutput.Length > MaximumOutputLength) return new(providerVersion, [], ["winget:output-too-large"]);
         if (result.TimedOut) return new(providerVersion, [], ["winget:timeout"]);
         if (result.ExitCode != 0) return new(providerVersion, [], [$"winget:exit-{result.ExitCode}"]);
-        if (result.StandardOutput.Length > MaximumOutputLength) return new(providerVersion, [], ["winget:output-too-large"]);
         return ParseAvailableTable(result.StandardOutput, providerVersion, expectedSource);
     }
     public static WingetAvailableUpdateResult ParseAvailableTable(string output, string? providerVersion, string expectedSource)
@@ -103,23 +104,55 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
 
 public sealed class WindowsWingetProcess : IWingetProcess
 {
+    private const int MaximumCapturedOutputLength = 1_000_000;
+
     public async Task<WingetProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ProcessStartInfo start = new() { FileName = executable, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using Process process = new() { StartInfo = start };
-        process.Start(); Task<string> output = process.StandardOutput.ReadToEndAsync(CancellationToken.None); Task<string> error = process.StandardError.ReadToEndAsync(CancellationToken.None); Task exit = process.WaitForExitAsync(CancellationToken.None);
+        process.Start();
+        TaskCompletionSource overflow = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<BoundedRead> output = ReadBoundedAsync(process.StandardOutput, overflow);
+        Task<BoundedRead> error = ReadBoundedAsync(process.StandardError, overflow);
+        Task exit = process.WaitForExitAsync(CancellationToken.None);
         Task cancellation = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); Task delay = Task.Delay(timeout, CancellationToken.None);
-        Task completed = await Task.WhenAny(exit, delay, cancellation);
+        Task completed = await Task.WhenAny(exit, delay, cancellation, overflow.Task);
         if (completed == cancellation)
         {
-            Terminate(process); await exit; cancellationToken.ThrowIfCancellationRequested();
+            Terminate(process); await exit; await Task.WhenAll(output, error); cancellationToken.ThrowIfCancellationRequested();
+        }
+        if (completed == overflow.Task)
+        {
+            Terminate(process); await exit; BoundedRead stdout = await output; BoundedRead stderr = await error;
+            return new WingetProcessResult(-1, stdout.Text, stderr.Text, false, true);
         }
         if (completed == delay)
         {
-            Terminate(process); await exit; return new WingetProcessResult(-1, await output, await error, true);
+            Terminate(process); await exit; BoundedRead stdout = await output; BoundedRead stderr = await error;
+            return new WingetProcessResult(-1, stdout.Text, stderr.Text, true, stdout.ExceededLimit || stderr.ExceededLimit);
         }
-        return new WingetProcessResult(process.ExitCode, await output, await error, false);
+        BoundedRead completedOutput = await output; BoundedRead completedError = await error;
+        return new WingetProcessResult(process.ExitCode, completedOutput.Text, completedError.Text, false, completedOutput.ExceededLimit || completedError.ExceededLimit);
     }
+
+    private static async Task<BoundedRead> ReadBoundedAsync(StreamReader reader, TaskCompletionSource overflow)
+    {
+        StringBuilder captured = new(Math.Min(MaximumCapturedOutputLength, 4096)); char[] buffer = new char[4096]; bool exceededLimit = false;
+        int read;
+        while ((read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) != 0)
+        {
+            int available = MaximumCapturedOutputLength - captured.Length;
+            if (available > 0) captured.Append(buffer, 0, Math.Min(available, read));
+            if (read > available)
+            {
+                exceededLimit = true;
+                overflow.TrySetResult();
+            }
+        }
+        return new BoundedRead(captured.ToString(), exceededLimit);
+    }
+
+    private sealed record BoundedRead(string Text, bool ExceededLimit);
     private static void Terminate(Process process) { if (!process.HasExited) process.Kill(entireProcessTree: true); }
 }

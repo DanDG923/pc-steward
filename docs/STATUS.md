@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 20 — Phase 2 review gate failed; remediation pending
-**Last green commit:** `92eaf13`
+**Current task:** 90 — Phase 2 remediation complete; fresh Task 20 review pending
+**Last green commit:** pending `fix: remediate phase review findings`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -36,19 +36,19 @@
 
 ## Active blockers
 
-Task 20 records four High and two Medium findings in `docs/review/PHASE_2_REVIEW.md`. Production does not compose the source-refresh/intelligence/manual-mapping path; mixed-source freshness can present stale data as live; process output is not bounded while being read; and the canonical zero-false-positive fixture is not exercised.
+The six `P2R-01`–`P2R-06` code/test findings are remediated locally and documented in `docs/review/TASK_90_P2R_EVIDENCE.md`; a fresh Sol review must independently assess the diff.
 
-Mandatory network, end-to-end online-performance and Phase 2 accessibility evidence is missing. Explicit approval remains required before any real WinGet/Store source probe. The supported-Windows, native tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open.
+Mandatory network inspection, end-to-end online-performance, and Phase 2 keyboard/150% text-scaling/high-contrast evidence remains pending. Explicit approval remains required before any real WinGet/Store source probe. The supported-Windows, native tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open.
 
 ADR-002, ADR-003, ADR-011 and ADR-013 remain Provisional with their recorded evidence gates. The Phase 1 five-minute idle-CPU exception remains temporary and is not compliance evidence.
 
 ## Task 20 result
 
-FAIL — Release build passed with zero warnings/errors; all 82 tests passed; focused Phase 2 suites passed 32 Domain and 27 Application tests; the 20-run two-source fixture benchmark measured 15.32 ms median / 16.16 ms p95. Green tests do not close `P2R-01`–`P2R-06` or the missing mandatory evidence.
+Remediation verification: the Release build has zero warnings/errors and the full suite has 89 passing tests. Focused tests cover the composed source path, source-specific stale labels, bounded stdout/stderr, canonical fixture controls, decision expiry/timeline and source-cache retention. The Phase 2 gate remains FAIL until Task 20 repeats it.
 
 ## Next task
 
-Run Task 90 in a fresh GPT-5.6 Terra / High chat. After remediation, repeat Task 20 in a fresh GPT-5.6 Sol / High chat. Do not merge Phase 2 or begin Phase 3.
+Repeat Task 20 in a fresh GPT-5.6 Sol / High chat. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 

@@ -150,6 +150,12 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         return new(source, providerVersion, lastSuccess, SourceSnapshotState.Cached, packages, []);
     }
 
+    public async Task PruneSourceSnapshotsAsync(DateTimeOffset olderThan, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await ExecuteAsync(connection, "DELETE FROM source_snapshots WHERE last_success_at < $cutoff;", cancellationToken, null, ("$cutoff", olderThan));
+    }
+
     public async Task SaveAsync(StableDecision decision, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);

@@ -41,6 +41,22 @@ The deterministic engines and focused tests are green, but Phase 2 is not a prod
 - `AC-UX-02/04`: no keyboard, 150% text-scaling or high-contrast exercise covers the new Phase 2 controls; most required controls do not yet exist.
 - Provisional ADR-003 still lacks an approved real-source parser/capability exercise, including Microsoft Store behavior.
 
+## Task 90 remediation record
+
+**Fixing commit:** pending final commit amendment
+
+**Verification owner/model:** Task 90, GPT-5.6 Terra / High
+**Status:** code/test remediation completed; this historical review remains `FAIL` until a fresh Task 20 reviewer assesses the complete diff and the mandatory-evidence boundary.
+
+| Finding | Remediation and regression verification |
+|---|---|
+| `P2R-01` | `App.xaml.cs` now composes fixed `winget` and `msstore` connectors into `InventoryWorkflow`; `MainWindow.cs` exposes the disclosure-gated source check and constrained create/delete mapping path. `InventoryWorkflowUpdateSourceTests.ComposedWorkflowUsesApprovedSourceOnlyWhenCheckedAndSupportsExactManualMappings` begins with persisted inventory and verifies local-only, live source metadata, and an exact mapping. |
+| `P2R-02` | `InventoryExperienceViewModel` labels every candidate from its own source and preserves each source state in the aggregate. `MixedSourceFreshnessIsShownPerCandidateInsteadOfAsTheAlphabeticallyFirstSource` proves a cached Winget candidate is never presented as live merely because Microsoft Store is live. |
+| `P2R-03` | `WindowsWingetProcess` bounds stdout and stderr while draining, marks overflow, and terminates the child process tree. `OversizedProcessOutputFailsClosedWithoutRetainingMoreThanTheBound` exercises over-one-million-character stdout and stderr at the process boundary; connector classification remains fail-closed. |
+| `P2R-04` | `FixtureCatalogMatchingTests` loads `provider-records.json`, asserts all 320 records and five mapping controls, evaluates all `EDGE-001`–`EDGE-020`, and asserts zero false-positive actionable negative controls. |
+| `P2R-05` | The desktop provides source-package pin, reason, ignore-until, decision/mapping reversal, source check status, update-status filters, per-product timeline and cache-retention disclosure. Expired ignores are removed from active decisions, source snapshots are pruned after 30 days, and persistence/application regressions cover the behavior. |
+| `P2R-06` | Traceability now links this remediation evidence and explicitly excludes unexecuted network, real-source performance, and Phase 2 accessibility claims. |
+
 ## Positive controls confirmed
 
 - Numeric, prerelease, downgrade, malformed and connector-deferred version outcomes are deterministic and have no lexical fallback.

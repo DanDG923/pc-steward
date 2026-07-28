@@ -78,7 +78,7 @@ public sealed class InventoryExperienceViewModelTests
     {
         InventoryExperienceViewModel viewModel = new(); UpdateIntelligenceSummary summary = new([new UpdateIntelligenceItem("one", UpdateIntelligenceStatus.ReviewRequired, null, "Review")], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.ReviewRequired] = 1 }, [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"])]);
         viewModel.LoadUpdateIntelligence(summary);
-        Assert.AreEqual(1, viewModel.UpdateStatusCounts[UpdateIntelligenceStatus.ReviewRequired]); Assert.HasCount(1, viewModel.AttentionNeeded); StringAssert.Contains(viewModel.UpdateFreshnessLabel, "Cached"); StringAssert.Contains(viewModel.UpdateFreshnessLabel, "stale");
+        Assert.AreEqual(1, viewModel.UpdateStatusCounts[UpdateIntelligenceStatus.ReviewRequired]); Assert.HasCount(1, viewModel.AttentionNeeded); StringAssert.Contains(viewModel.UpdateFreshnessLabel, "cached", StringComparison.OrdinalIgnoreCase); StringAssert.Contains(viewModel.UpdateFreshnessLabel, "stale");
     }
 
     [TestMethod]
@@ -88,5 +88,22 @@ public sealed class InventoryExperienceViewModelTests
         PackageMapping mapping = new("winget", "Contoso.Widget", "1.1", MappingConfidence.High, MappingOrigin.Automatic, "Exact identity.", true, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
         viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.VerifiedUpdate, mapping, "Exact identity.", "winget", DateTimeOffset.UnixEpoch)], Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0), [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [], [])]));
         UpdateDetail detail = viewModel.UpdateDetails["product:widget"]; StringAssert.Contains(detail.ActionState, "not available"); Assert.AreEqual("Contoso.Widget", detail.PackageId); Assert.AreEqual("High", detail.Confidence);
+    }
+
+    [TestMethod]
+    public void MixedSourceFreshnessIsShownPerCandidateInsteadOfAsTheAlphabeticallyFirstSource()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        Guid id = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "winget", "Contoso.Widget", "1.0", "Machine", "x64", "Contoso")]);
+        PackageMapping mapping = new("winget", "Contoso.Widget", "1.1", MappingConfidence.High, MappingOrigin.Automatic, "Exact identity.", true, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+        SourceSnapshot winget = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"]);
+        SourceSnapshot store = new("msstore", "v2", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [], []);
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.VerifiedUpdate, mapping, "Exact identity.", "winget", DateTimeOffset.UnixEpoch)], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.VerifiedUpdate] = 1 }, [store, winget]));
+
+        StringAssert.Contains(viewModel.UpdateDetails["product:widget"].Freshness, "winget: cached");
+        Assert.IsFalse(viewModel.UpdateDetails["product:widget"].Freshness.Contains("live", StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(viewModel.SourceFreshnessLabels.Any(label => label.StartsWith("msstore: live", StringComparison.Ordinal)));
+        Assert.IsTrue(viewModel.SourceFreshnessLabels.Any(label => label.StartsWith("winget: cached", StringComparison.Ordinal) && label.Contains("stale", StringComparison.Ordinal)));
     }
 }

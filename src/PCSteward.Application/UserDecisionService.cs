@@ -33,9 +33,21 @@ public sealed class UserDecisionService
 
     public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => store.DeleteAsync(decisionId, cancellationToken);
     public Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken) => store.DeleteManualMappingAsync(mappingId, cancellationToken);
-    public Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken) => store.GetAllAsync(cancellationToken);
+    public async Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        return (await store.GetAllAsync(cancellationToken)).Where(decision => decision.Kind != "Ignore" || decision.ExpiresAt is null || decision.ExpiresAt > now).ToArray();
+    }
     public Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken) => store.GetManualMappingsAsync(cancellationToken);
-    public Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken) => store.GetTimelineAsync(stableProductKey, cancellationToken);
+    public async Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken)
+    {
+        IReadOnlyCollection<ProductTimelineEntry> decisions = await store.GetTimelineAsync(stableProductKey, cancellationToken);
+        IReadOnlyCollection<ProductTimelineEntry> mappings = (await store.GetManualMappingsAsync(cancellationToken))
+            .Where(mapping => string.Equals(mapping.StableProductKey, stableProductKey, StringComparison.Ordinal))
+            .Select(mapping => new ProductTimelineEntry(mapping.CreatedAt, "ManualMapping", $"Manual mapping: {mapping.SourceId}:{mapping.PackageId}", mapping.Reason))
+            .ToArray();
+        return decisions.Concat(mappings).OrderByDescending(entry => entry.OccurredAt).ToArray();
+    }
 
     public async Task<IReadOnlyDictionary<string, ProductUpdatePolicy>> GetPoliciesAsync(CancellationToken cancellationToken)
     {

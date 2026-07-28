@@ -30,12 +30,27 @@ public sealed class UpdateSourceRefreshServiceTests
         Assert.IsTrue(result.All(snapshot => snapshot.State == SourceSnapshotState.Unavailable)); Assert.IsTrue(FakeConnector.MaximumActive <= 2);
     }
 
-    private static SourceSnapshot Source(string id, SourceSnapshotState state) => new(id, "v1", DateTimeOffset.UnixEpoch, state, [new SourcePackageRecord(id, "Contoso.Widget", "Contoso Widget", null, "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
+    [TestMethod]
+    public async Task RetentionPrunesExpiredSourceCacheBeforeAnOfflineRefresh()
+    {
+        MemoryCache cache = new();
+        await cache.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow.AddDays(-31), SourceSnapshotState.Live, [], []), CancellationToken.None);
+        UpdateSourceRefreshService service = new(cache, cacheRetention: TimeSpan.FromDays(30));
+
+        SourceSnapshot result = (await service.RefreshAsync([new FakeConnector("winget", Source("winget", SourceSnapshotState.Live))], false, CancellationToken.None)).Single();
+
+        Assert.AreEqual(SourceSnapshotState.LocalOnly, result.State);
+        Assert.AreEqual(1, cache.PruneCalls);
+    }
+
+    private static SourceSnapshot Source(string id, SourceSnapshotState state) => new(id, "v1", DateTimeOffset.UtcNow, state, [new SourcePackageRecord(id, "Contoso.Widget", "Contoso Widget", null, "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
     private sealed class MemoryCache : ISourceSnapshotStore
     {
         private readonly Dictionary<string, SourceSnapshot> snapshots = [];
         public Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken) { snapshots[snapshot.SourceId] = snapshot; return Task.CompletedTask; }
         public Task<SourceSnapshot?> GetSourceSnapshotAsync(string sourceId, CancellationToken cancellationToken) => Task.FromResult(snapshots.GetValueOrDefault(sourceId));
+        public int PruneCalls { get; private set; }
+        public Task PruneSourceSnapshotsAsync(DateTimeOffset olderThan, CancellationToken cancellationToken) { PruneCalls++; foreach (string id in snapshots.Where(pair => pair.Value.LastSuccessAt < olderThan).Select(pair => pair.Key).ToArray()) snapshots.Remove(id); return Task.CompletedTask; }
     }
     private sealed class FakeConnector(string sourceId, SourceSnapshot? result, TimeSpan? delay = null, bool fail = false) : IUpdateSourceConnector
     {

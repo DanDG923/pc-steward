@@ -4,21 +4,39 @@ namespace PCSteward.Application;
 
 public sealed record InventoryDashboard(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, DateTimeOffset? LastCompletedAt, ScanDataSummary ScanData, IReadOnlyDictionary<string, ConnectorState> Connectors);
 
-/// <summary>Application use case for the inventory desktop. It owns no adapter implementation or UI type.</summary>
+/// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable
 {
-    private const string WingetConnector = "WinGet installed inventory";
+    private const string WingetInventoryConnector = "WinGet installed inventory";
+    private const string WingetSourceConnector = "WinGet package sources";
     private readonly IInventorySnapshotStore snapshots;
     private readonly IScanDataStore scanData;
     private readonly IConnectorSettingsStore connectorSettings;
     private readonly InventoryScanOrchestrator orchestrator;
     private readonly InventoryExportService exports;
     private readonly UserDecisionService? decisions;
+    private readonly UpdateSourceRefreshService? updateSources;
+    private readonly IReadOnlyCollection<IUpdateSourceConnector> updateSourceConnectors;
 
-    public InventoryWorkflow(IInventorySnapshotStore snapshots, IScanDataStore scanData, IConnectorSettingsStore connectorSettings, IReadOnlyCollection<ILocalInventoryProvider> providers, IScanEventSink? events = null, IUserDecisionStore? decisions = null)
+    public InventoryWorkflow(
+        IInventorySnapshotStore snapshots,
+        IScanDataStore scanData,
+        IConnectorSettingsStore connectorSettings,
+        IReadOnlyCollection<ILocalInventoryProvider> providers,
+        IScanEventSink? events = null,
+        IUserDecisionStore? decisions = null,
+        ISourceSnapshotStore? sourceCache = null,
+        IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null)
     {
-        this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings; orchestrator = new InventoryScanOrchestrator(snapshots, providers, events); exports = new InventoryExportService(snapshots); this.decisions = decisions is null ? null : new UserDecisionService(decisions);
+        if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
+        this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
+        orchestrator = new InventoryScanOrchestrator(snapshots, providers, events); exports = new InventoryExportService(snapshots);
+        this.decisions = decisions is null ? null : new UserDecisionService(decisions);
+        updateSources = sourceCache is null ? null : new UpdateSourceRefreshService(sourceCache);
+        this.updateSourceConnectors = updateSourceConnectors ?? [];
     }
+
+    public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
 
     public async Task<InventoryDashboard> LoadAsync(IReadOnlyCollection<ConnectorOption> connectors, CancellationToken cancellationToken)
     {
@@ -27,7 +45,7 @@ public sealed class InventoryWorkflow : IDisposable
         {
             ConnectorState state = await connectorSettings.GetConnectorStateAsync(connector.Name, connector.IsEnabled, cancellationToken).ConfigureAwait(false);
             if (connector.IsEssential) state = state with { Enabled = true };
-            if (connector.Name == WingetConnector && !state.SourceDisclosureApproved) state = state with { Enabled = false };
+            if (connector.RequiresSourceDisclosure && !state.SourceDisclosureApproved) state = state with { Enabled = false };
             states.Add(connector.Name, state);
         }
         return new InventoryDashboard(
@@ -40,24 +58,83 @@ public sealed class InventoryWorkflow : IDisposable
 
     public async Task SaveConnectorStateAsync(string connectorName, bool enabled, bool sourceDisclosureApproved, CancellationToken cancellationToken)
     {
-        if (connectorName == WingetConnector && enabled && !sourceDisclosureApproved) throw new InvalidOperationException("WinGet requires explicit source-disclosure approval.");
+        if (RequiresSourceDisclosure(connectorName) && enabled && !sourceDisclosureApproved) throw new InvalidOperationException("This connector requires explicit source-disclosure approval.");
         await connectorSettings.SaveConnectorStateAsync(connectorName, new ConnectorState(enabled, sourceDisclosureApproved), cancellationToken);
     }
 
     public Task<ScanResult> ScanAsync(IProgress<ScanProgress>? progress, CancellationToken cancellationToken) => orchestrator.ScanAsync(progress, cancellationToken);
     public Task<ClearScanDataResult> ClearScanDataAsync(CancellationToken cancellationToken) => scanData.ClearScanDataAsync(cancellationToken);
     public Task<InventoryExport> CreateExportAsync(bool json, CancellationToken cancellationToken) => json ? exports.CreateJsonAsync(true, cancellationToken) : exports.CreateCsvAsync(cancellationToken);
+
     public async Task<IReadOnlyCollection<RawProviderRecord>> GetRawDiagnosticsAsync(Guid productId, CancellationToken cancellationToken)
     {
-        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         HashSet<(string Provider, string Identity)> keys = instances.Where(instance => instance.ProductId == productId).Select(instance => (instance.Provider, instance.ProviderIdentity)).ToHashSet();
-        return (await snapshots.GetRawProviderRecordsAsync(cancellationToken)).Where(record => keys.Contains((record.Provider, record.RecordKey))).ToArray();
+        return (await snapshots.GetRawProviderRecordsAsync(cancellationToken).ConfigureAwait(false)).Where(record => keys.Contains((record.Provider, record.RecordKey))).ToArray();
     }
+
+    public Task<UpdateIntelligenceSummary> LoadUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, false, cancellationToken);
+    public Task<UpdateIntelligenceSummary> RefreshUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, true, cancellationToken);
+
     public Task PinCurrentVersionAsync(string stableProductKey, string currentVersion, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinCurrentVersionAsync(stableProductKey, currentVersion, reason, cancellationToken);
+    public Task PinSourcePackageAsync(string stableProductKey, string sourceId, string packageId, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinSourcePackageAsync(stableProductKey, sourceId, packageId, reason, cancellationToken);
     public Task IgnoreAsync(string stableProductKey, DateTimeOffset? until, string? reason, CancellationToken cancellationToken) => RequiredDecisions().IgnoreAsync(stableProductKey, until, reason, cancellationToken);
     public Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetActiveDecisionsAsync(cancellationToken);
+    public Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetManualMappingsAsync(cancellationToken);
     public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => RequiredDecisions().ReverseDecisionAsync(decisionId, cancellationToken);
-    public Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken) => RequiredDecisions().GetTimelineAsync(stableProductKey, cancellationToken);
+    public Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken) => RequiredDecisions().DeleteManualMappingAsync(mappingId, cancellationToken);
+    public async Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken)
+    {
+        List<ProductTimelineEntry> entries = [.. await RequiredDecisions().GetTimelineAsync(stableProductKey, cancellationToken).ConfigureAwait(false)];
+        bool exists = (await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false)).Any(product => string.Equals(product.StableKey, stableProductKey, StringComparison.Ordinal));
+        DateTimeOffset? lastScan = exists ? await scanData.GetLastCompletedScanAtAsync(cancellationToken).ConfigureAwait(false) : null;
+        if (lastScan is not null) entries.Add(new ProductTimelineEntry(lastScan.Value, "InventoryScan", "Present in the most recent successful inventory scan."));
+        return entries.OrderByDescending(entry => entry.OccurredAt).ToArray();
+    }
+
+    public async Task<ManualMappingValidation> CreateManualMappingAsync(string stableProductKey, string sourceId, string packageId, bool sourcesEnabled, string? reason, CancellationToken cancellationToken)
+    {
+        if (!sourcesEnabled) return new(false, MappingReviewReason.UnsupportedManualMapping, "Enable an approved source and run a source check before mapping a package.");
+        SourceSnapshot[] snapshots = await ReadSourceSnapshotsAsync(true, false, cancellationToken).ConfigureAwait(false);
+        SourcePackageRecord? package = snapshots
+            .SelectMany(snapshot => snapshot.Packages)
+            .FirstOrDefault(candidate => string.Equals(candidate.SourceId, sourceId, StringComparison.OrdinalIgnoreCase) && string.Equals(candidate.PackageId, packageId, StringComparison.OrdinalIgnoreCase));
+        return package is null
+            ? new(false, MappingReviewReason.UnsupportedManualMapping, "The package is not present in the current approved source cache.")
+            : await RequiredDecisions().CreateManualMappingAsync(stableProductKey, package, snapshots, reason, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<UpdateIntelligenceSummary> AssessUpdateIntelligenceAsync(bool sourcesEnabled, bool online, CancellationToken cancellationToken)
+    {
+        SourceSnapshot[] sourceSnapshots = await ReadSourceSnapshotsAsync(sourcesEnabled, online, cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<DeclaredPackageMapping> mappings = decisions is null ? [] : (await decisions.GetManualMappingsAsync(cancellationToken).ConfigureAwait(false)).Select(mapping => new DeclaredPackageMapping(mapping.StableProductKey, mapping.SourceId, mapping.PackageId, MappingOrigin.UserConfirmed)).ToArray();
+        IReadOnlyDictionary<string, ProductUpdatePolicy> policies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
+        return UpdateIntelligence.Assess(CreateProfiles(products, instances), sourceSnapshots, mappings, policies);
+    }
+
+    private async Task<SourceSnapshot[]> ReadSourceSnapshotsAsync(bool sourcesEnabled, bool online, CancellationToken cancellationToken)
+    {
+        if (!sourcesEnabled || updateSources is null || updateSourceConnectors.Count == 0) return [];
+        return (await updateSources.RefreshAsync(updateSourceConnectors, online, cancellationToken).ConfigureAwait(false)).ToArray();
+    }
+
+    private static ProductMatchProfile[] CreateProfiles(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances)
+    {
+        Dictionary<Guid, InstallationInstance[]> byProduct = instances.GroupBy(instance => instance.ProductId).ToDictionary(group => group.Key, group => group.ToArray());
+        return products.Select(product =>
+        {
+            InstallationInstance[] productInstances = byProduct.GetValueOrDefault(product.Id, []);
+            InstallationInstance? preferred = productInstances.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
+            InstallationInstance? winget = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase));
+            InstallationInstance? msix = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase));
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, preferred?.Version, preferred?.Scope ?? "Unknown", preferred?.Architecture ?? "Unknown", preferred?.Channel);
+        }).ToArray();
+    }
+
+    private static int ProviderPriority(InstallationInstance instance) => instance.Provider.ToLowerInvariant() switch { "winget" => 0, "msix" => 1, "registry" => 2, _ => 3 };
+    private static bool RequiresSourceDisclosure(string connectorName) => connectorName is WingetInventoryConnector or WingetSourceConnector;
     private UserDecisionService RequiredDecisions() => decisions ?? throw new InvalidOperationException("Stable user decisions are not configured for this workflow.");
     public void Dispose() => orchestrator.Dispose();
 }

@@ -40,6 +40,7 @@ public interface ISourceSnapshotStore
 {
     Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken);
     Task<SourceSnapshot?> GetSourceSnapshotAsync(string sourceId, CancellationToken cancellationToken);
+    Task PruneSourceSnapshotsAsync(DateTimeOffset olderThan, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed record ScanDataSummary(long SizeBytes, DateTimeOffset? LastClearedAt, int ItemCount);

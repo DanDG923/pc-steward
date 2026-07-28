@@ -129,6 +129,17 @@ public sealed class SqliteDatabaseTests
         await Assert.ThrowsExactlyAsync<ArgumentException>(() => database.Store.SaveSourceSnapshotAsync(snapshot with { State = SourceSnapshotState.Cached }, CancellationToken.None));
     }
 
+    [TestMethod]
+    public async Task SourceCacheRetentionPrunesOldSnapshotsAndTheirPackageRows()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow.AddDays(-31), SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Widget", null, "1.0", "1.1", "Machine", "x64", "Stable")], []), CancellationToken.None);
+
+        await database.Store.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow.AddDays(-30), CancellationToken.None);
+
+        Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;

@@ -14,17 +14,22 @@ public sealed class UpdateSourceRefreshService
 {
     private readonly ISourceSnapshotStore cache;
     private readonly int maximumConcurrency;
-    public UpdateSourceRefreshService(ISourceSnapshotStore cache, int maximumConcurrency = 2)
+    public UpdateSourceRefreshService(ISourceSnapshotStore cache, int maximumConcurrency = 2, TimeSpan? cacheRetention = null)
     {
         this.cache = cache;
         if (maximumConcurrency is < 1 or > 4) throw new ArgumentOutOfRangeException(nameof(maximumConcurrency));
         this.maximumConcurrency = maximumConcurrency;
+        CacheRetention = cacheRetention ?? TimeSpan.FromDays(30);
+        if (CacheRetention is { TotalDays: < 1 or > 90 }) throw new ArgumentOutOfRangeException(nameof(cacheRetention));
     }
+
+    public TimeSpan CacheRetention { get; }
 
     public async Task<IReadOnlyCollection<SourceSnapshot>> RefreshAsync(IEnumerable<IUpdateSourceConnector> enabledConnectors, bool online, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(enabledConnectors);
         IUpdateSourceConnector[] connectors = enabledConnectors.OrderBy(connector => connector.SourceId, StringComparer.Ordinal).ToArray();
+        await cache.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow - CacheRetention, cancellationToken).ConfigureAwait(false);
         if (!online)
         {
             List<SourceSnapshot> cached = [];
