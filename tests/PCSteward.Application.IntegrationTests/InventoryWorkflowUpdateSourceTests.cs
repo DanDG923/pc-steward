@@ -69,10 +69,30 @@ public sealed class InventoryWorkflowUpdateSourceTests
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
 
         Assert.IsNull(withoutConsent.Selection);
-        Assert.IsNotNull(prepared.Selection);
+        Assert.IsNotNull(prepared.Selection, prepared.Message);
         Assert.AreEqual("Contoso.Widget", prepared.Selection.PackageId);
         Assert.AreEqual("1.0.0", prepared.Selection.InstalledVersion);
         Assert.AreEqual("1.1.0", prepared.Selection.CandidateVersion);
+        Assert.AreEqual(UpdateScope.Machine, prepared.Selection.Scope);
+        Assert.AreEqual(UpdateArchitecture.X64, prepared.Selection.Architecture);
+    }
+
+    [TestMethod]
+    public async Task ApprovedUpdateSelectionUsesConcreteCorroboratingScopeWhenWingetInventoryIsUnknown()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct wingetProduct = new(Guid.NewGuid(), "winget:mozilla.firefox", "Mozilla Firefox (x64 en-US)");
+        CanonicalProduct registryProduct = new(Guid.NewGuid(), "registry:mozilla.firefox", "Mozilla Firefox (x64 en-US)");
+        InstallationInstance winget = new(Guid.NewGuid(), wingetProduct.Id, "winget", "Mozilla.Firefox", "152.0.6", "Unknown", "Unknown", "Mozilla", SourceId: "winget");
+        InstallationInstance registry = new(Guid.NewGuid(), registryProduct.Id, "registry", "Mozilla Firefox", "152.0.6", "Machine", "x64", "Mozilla");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [wingetProduct, registryProduct], [winget, registry], [], [], CancellationToken.None);
+        SourcePackageRecord package = new("winget", "Mozilla.Firefox", "Mozilla Firefox", null, "152.0.6", "153.0.1", "Unknown", "Unknown", null);
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))]);
+        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+
+        UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(wingetProduct.StableKey, CancellationToken.None);
+
+        Assert.IsNotNull(prepared.Selection, prepared.Message);
         Assert.AreEqual(UpdateScope.Machine, prepared.Selection.Scope);
         Assert.AreEqual(UpdateArchitecture.X64, prepared.Selection.Architecture);
     }

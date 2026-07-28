@@ -171,6 +171,7 @@ public sealed class MainWindow : Window
         TextBlock mappingOutcome = new() { TextWrapping = TextWrapping.Wrap };
         ComboBox mappingSource = FilterBox(detail?.SourceId ?? "winget", "winget", "msstore"); TextBox mappingPackage = new() { Header = "Exact approved source package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
         StackPanel content = new() { Spacing = 8 }; content.Children.Add(new TextBlock { Text = $"Installed instances and provider provenance:\n{instances}\n\nUpdate intelligence:\n{intelligence}\n\nTimeline:\n{string.Join("\n", timeline.Select(entry => $"{entry.OccurredAt:O} — {entry.Summary}"))}\n\nBounded raw diagnostic records: {raw.Count}.", TextWrapping = TextWrapping.Wrap }); content.Children.Add(reason); content.Children.Add(ignoreUntilEnabled); content.Children.Add(ignoreUntil); content.Children.Add(mappingSource); content.Children.Add(mappingPackage);
+        ScrollViewer dialogContent = new() { Content = content, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         Button map = new() { Content = "Map an exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, mappingSource.SelectedItem?.ToString() ?? "winget", string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text, viewModel.IsUpdateSourceEnabled, reason.Text, CancellationToken.None); mappingOutcome.Text = validation.Explanation; }; content.Children.Add(map);
         if (detail is { SourceId: not null, PackageId: not null })
         {
@@ -182,14 +183,15 @@ public sealed class MainWindow : Window
             AutomationProperties.SetName(review, "Review and update this verified package");
             content.Children.Add(review);
             ContentDialog? reviewDialog = null;
-            review.Click += async (_, _) => { reviewDialog?.Hide(); await ReviewAndExecuteAsync(row); };
+            bool reviewStarted = false;
+            review.Click += async (_, _) => { reviewStarted = true; reviewDialog?.Hide(); await ReviewAndExecuteAsync(row); };
             content.Children.Add(mappingOutcome);
-            reviewDialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = row.Name, Content = content, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" };
-            ContentDialogResult reviewResult = await reviewDialog.ShowAsync(); if (reviewResult == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (reviewResult == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
+            reviewDialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = row.Name, Content = dialogContent, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" };
+            ContentDialogResult reviewResult = await reviewDialog.ShowAsync(); if (reviewStarted) return; if (reviewResult == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (reviewResult == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
             return;
         }
         content.Children.Add(mappingOutcome);
-        ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = content, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" }; ContentDialogResult result = await dialog.ShowAsync(); if (result == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (result == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
+        ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = dialogContent, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" }; ContentDialogResult result = await dialog.ShowAsync(); if (result == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (result == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
     }
 
     private async Task ReviewAndExecuteAsync(InventoryRow row)

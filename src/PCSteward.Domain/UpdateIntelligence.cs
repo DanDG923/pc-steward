@@ -25,9 +25,13 @@ public static class UpdateIntelligence
                 .SelectMany(source => source.Packages.Select(package => (source, new PackageMatchCandidate(package.SourceId, package.PackageId, package.DisplayName, null, null, package.Publisher, package.AvailableVersion, package.Scope, package.Architecture, package.Channel, true, package.ProviderSuppliedStableProductKey, package.RequiresConnectorSpecificVersionSemantics))))
                 .ToArray();
             PackageMatchCandidate[] candidates = candidateEntries.Select(entry => entry.Candidate).ToArray();
-            if (candidates.Length == 0 && snapshots.Any(source => source.State == SourceSnapshotState.Unavailable))
+            SourceSnapshot? unavailable = snapshots.FirstOrDefault(source =>
+                source.State == SourceSnapshotState.Unavailable &&
+                string.Equals(source.SourceId, product.InstalledSourceId, StringComparison.OrdinalIgnoreCase));
+            bool noSourceIdentityAndAllSourcesUnavailable = product.InstalledSourceId is null && snapshots.Length > 0 && snapshots.All(source => source.State == SourceSnapshotState.Unavailable);
+            if (candidates.Length == 0 && (unavailable is not null || noSourceIdentityAndAllSourcesUnavailable))
             {
-                SourceSnapshot unavailable = snapshots.First(source => source.State == SourceSnapshotState.Unavailable);
+                unavailable ??= snapshots.First(source => source.State == SourceSnapshotState.Unavailable);
                 items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.FailedUnavailable, null, "No source result is available. " + string.Join(" ", unavailable.Warnings), unavailable.SourceId, unavailable.LastSuccessAt));
                 continue;
             }

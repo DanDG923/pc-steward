@@ -86,9 +86,12 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             if (output.Contains("No applicable upgrade found", StringComparison.OrdinalIgnoreCase)) return new(providerVersion, [], providerVersion is null ? ["winget:provider-version-unavailable"] : []);
             return new(providerVersion, [], ["winget:unrecognized-output"]);
         }
+        int[] columnStarts = Regex.Matches(lines[0], @"\S+").Select(match => match.Index).ToArray();
+        if (columnStarts.Length < 4) return new(providerVersion, [], ["winget:unrecognized-output"]);
         foreach (string line in lines.Skip(2))
         {
-            string[] columns = Regex.Split(line.Trim(), @"\s{2,}").Where(value => value.Length > 0).ToArray();
+            string[] columns = columnStarts.Select((start, index) => line.Length <= start ? string.Empty : line[start..(index + 1 < columnStarts.Length ? Math.Min(line.Length, columnStarts[index + 1]) : line.Length)].Trim()).ToArray();
+            if (!LooksLikeUpdateRow(columns)) columns = Regex.Split(line.Trim(), @"\s{2,}").Where(value => value.Length > 0).ToArray();
             if (columns.Length < 4) { warnings.Add("winget:malformed-update-row"); continue; }
             string name = columns[0]; string id = columns[1]; string installed = columns[2]; string available = columns[3]; string source = columns.Length > 4 ? columns[^1] : expectedSource;
             if (!Valid(name) || !PackageId().IsMatch(id) || !Version(installed) || !Version(available) || !string.Equals(source, expectedSource, StringComparison.OrdinalIgnoreCase)) { warnings.Add("winget:invalid-update-row"); continue; }
@@ -98,6 +101,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         return new(providerVersion, records, warnings.Distinct(StringComparer.Ordinal).ToArray());
     }
     private static string? ReadVersion(WingetProcessResult result) => result is { TimedOut: false, ExitCode: 0 } && Version(result.StandardOutput.Trim()) ? result.StandardOutput.Trim() : null;
+    private static bool LooksLikeUpdateRow(string[] columns) => columns.Length >= 4 && PackageId().IsMatch(columns[1]) && Version(columns[2]) && Version(columns[3]);
     private static bool Valid(string value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= MaximumFieldLength && value.All(character => !char.IsControl(character));
     private static bool Version(string value) => Valid(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };

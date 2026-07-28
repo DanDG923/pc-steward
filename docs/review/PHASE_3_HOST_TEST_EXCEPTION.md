@@ -39,4 +39,15 @@ For existing and future planning, broad audience/demo usability evidence is non-
 - The elevated scratch-root test passed 10 assertions: file and directory symbolic links, a deterministic post-validation swap, and a mounted 32 MB scratch VHD all failed closed while their sentinels survived.
 - Teardown passed: zero `pc-steward-uac-evidence-*`/`pc-steward-host-evidence-*` temporary roots, zero `PCStewardEvidence` volumes, zero disposable helper processes/pipes, and no certificate entry in either `CurrentUser\\My` or `CurrentUser\\Root`.
 
-This record proves only the approved pre-provider host substitute. It does not prove per-user no-prompt behavior, provider-disconnect cancellation, a real/fixture update's verification result, clean-image behavior, or unconstrained concurrent ancestor races.
+This record proves only the approved pre-provider host substitute. It does not prove per-user no-prompt behavior, provider-disconnect cancellation, clean-image behavior, or unconstrained concurrent ancestor races.
+
+## Supplement — separately approved real Firefox update
+
+**Approved by:** Product owner in the Codex task, 2026-07-28
+**Scope:** One machine-scope Firefox fixture only: install `Mozilla.Firefox` `152.0.6`, update it through PC Steward after explicit review/UAC, verify the resulting version, then uninstall it. A new current-user self-signed certificate could sign only the desktop and helper release outputs for this evidence run and had to be removed from `CurrentUser\\My` and `CurrentUser\\Root` afterward.
+
+- Before the update, exact WinGet inventory showed `Mozilla Firefox (x64 en-US)`, package ID `Mozilla.Firefox`, installed `152.0.6`, with `153.0.1` available.
+- The approved review/confirmation reached the Windows UAC prompt. The final attempt completed the provider work; direct exact WinGet re-inventory returned installed `153.0.1` with no Available column.
+- The desktop then closed before presenting its own post-update result. A missing helper runtime DLL and an outer review-dialog lifecycle race were remediated in the pending change set; fixture/build/full-suite regression evidence is recorded in the readiness report. No second live replay was performed after the fixture became current.
+- The certificate with thumbprint `E518B26A2D8C82EA03E9E2068C58C7274D76F7C5` was removed and verified absent from both current-user stores (`My=0`, `Root=0`).
+- `winget uninstall --id Mozilla.Firefox --exact --source winget --accept-source-agreements --disable-interactivity` completed successfully. A final exact query returned `No installed package found matching input criteria.`

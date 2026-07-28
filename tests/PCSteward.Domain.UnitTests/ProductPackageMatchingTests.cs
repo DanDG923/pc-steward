@@ -19,6 +19,17 @@ public sealed class ProductPackageMatchingTests
     }
 
     [TestMethod]
+    public void UnknownCandidateScopeAndArchitectureDoNotConflictWithConcreteInstalledEvidence()
+    {
+        ProductPackageMatchResult result = ProductPackageMatching.Resolve(Product(), [Candidate(architecture: "Unknown") with { Scope = "Unknown" }]);
+
+        Assert.IsNotNull(result.Mapping);
+        Assert.IsTrue(result.Mapping.IsActionable);
+        CollectionAssert.DoesNotContain(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.ArchitectureConflict);
+        CollectionAssert.DoesNotContain(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.ScopeConflict);
+    }
+
+    [TestMethod]
     public void CuratedControlsHaveZeroFalsePositiveActionableMappings()
     {
         PackageMatchCandidate[] fixtures =

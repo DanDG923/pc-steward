@@ -17,4 +17,10 @@
     <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <ProjectReference Include="../PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <Target Name="CopyElevatedHelperRuntime" AfterTargets="Build">
+    <ItemGroup>
+      <ElevatedHelperRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ElevatedHelper\bin\$(Configuration)\$(TargetFramework)\PCSteward.ElevatedHelper.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ElevatedHelperRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

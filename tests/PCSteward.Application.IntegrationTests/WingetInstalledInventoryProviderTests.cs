@@ -38,7 +38,7 @@ public sealed class WingetInstalledInventoryProviderTests
     [TestMethod]
     public void SourceQualifiedQueryAcceptsRowsWhenWingetOmitsTheSourceColumn()
     {
-        WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable("Name  Id  Version  Available\n----------------------------------------------\nMozilla Firefox (x64 en-US)  Mozilla.Firefox  152.0.6  153.0.1\n1 upgrades available.", "v1", "winget");
+        WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable("Name                        Id              Version Available\n-------------------------------------------------------------\nMozilla Firefox (x64 en-US) Mozilla.Firefox 152.0.6 153.0.1\n1 upgrades available.", "v1", "winget");
 
         Assert.HasCount(1, result.Records); Assert.AreEqual("Mozilla.Firefox", result.Records.Single().Id); Assert.AreEqual("winget", result.Records.Single().Source);
     }

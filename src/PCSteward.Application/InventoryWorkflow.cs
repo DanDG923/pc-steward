@@ -167,17 +167,37 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private static ProductMatchProfile[] CreateProfiles(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances)
     {
         Dictionary<Guid, InstallationInstance[]> byProduct = instances.GroupBy(instance => instance.ProductId).ToDictionary(group => group.Key, group => group.ToArray());
+        Dictionary<Guid, CanonicalProduct> productsById = products.ToDictionary(product => product.Id);
         return products.Select(product =>
         {
             InstallationInstance[] productInstances = byProduct.GetValueOrDefault(product.Id, []);
             InstallationInstance? preferred = productInstances.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
             InstallationInstance[] wingetInstances = productInstances.Where(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)).ToArray();
             InstallationInstance? winget = wingetInstances.OrderBy(instance => instance.SourceId, StringComparer.Ordinal).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
+            InstallationInstance? executionEvidence = ConcreteExecutionEvidence(product.DisplayName, productInstances, instances, productsById, winget) ?? preferred;
             InstallationInstance? msix = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase));
             bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any();
-            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, preferred?.Version, preferred?.Scope ?? "Unknown", preferred?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
         }).ToArray();
     }
+
+    private static InstallationInstance? ConcreteExecutionEvidence(string displayName, IReadOnlyCollection<InstallationInstance> productInstances, IReadOnlyCollection<InstallationInstance> allInstances, Dictionary<Guid, CanonicalProduct> productsById, InstallationInstance? winget)
+    {
+        if (winget?.Version is null) return null;
+        InstallationInstance[] candidates = productInstances.Concat(allInstances.Where(instance =>
+                IsConcreteLocalEvidence(instance) &&
+                productsById.TryGetValue(instance.ProductId, out CanonicalProduct? product) &&
+                string.Equals(product.DisplayName, displayName, StringComparison.OrdinalIgnoreCase)))
+            .Where(instance =>
+            string.Equals(instance.Version, winget.Version, StringComparison.OrdinalIgnoreCase) &&
+            TryScope(instance.Scope, out _) &&
+            TryArchitecture(instance.Architecture, out _)).ToArray();
+        return candidates.Select(instance => (instance.Scope, instance.Architecture)).Distinct().Skip(1).Any()
+            ? null
+            : candidates.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
+    }
+
+    private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
 
     private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, out UpdateJobSelection? selection, out string message)
     {

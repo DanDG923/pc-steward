@@ -295,7 +295,7 @@ public static class ProductPackageMatching
     private static string[] Aliases(string? primary, IReadOnlyCollection<string>? aliases) => new[] { primary }.Concat(aliases ?? []).Select(NormalizeAlias).Where(value => value.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
     private static bool AliasesOverlap(IReadOnlyCollection<string> left, IReadOnlyCollection<string> right) => left.Any(value => right.Contains(value, StringComparer.Ordinal));
     private static bool Conflicts(string? left, string? right) => Known(left) && Known(right) && !Equal(left, right);
-    private static bool Known(string? value) => Canonical(value) is not "" and not "unknown";
+    private static bool Known(string? value) => Canonical(value) is not "" and not "UNKNOWN";
     private static bool Equal(string? left, string? right) => Canonical(left).Length > 0 && string.Equals(Canonical(left), Canonical(right), StringComparison.Ordinal);
     private static string Canonical(string? value) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > 256 ? string.Empty : value.Trim().ToUpperInvariant();
     private static string NormalizeAlias(string? value) => string.IsNullOrWhiteSpace(value) || value.Trim().Length > 256 ? string.Empty : new string(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
