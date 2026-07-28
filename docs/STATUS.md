@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Not started  
-**Current task:** 00 — Environment and repository audit  
+**Current task:** 00 — Environment and repository audit (complete)
 **Last green commit:** Initial documentation commit  
 **Current branch:** `phase/0-foundation`  
 **Build command:** To be established by Task 06  
@@ -21,11 +21,11 @@
 
 ## Active blockers
 
-None recorded.
+Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target, plus warnings for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. No production code was changed.
 
 ## Next task
 
-Run `prompts/00_ENVIRONMENT_AND_REPO_AUDIT.md`.
+Run `prompts/01_ARCHITECTURE_THREAT_MODEL_AND_EXECUTION_PLAN.md` after reviewing the environment evidence. Required model/reasoning: GPT-5.6 Sol / High.
 
 ## Rules for updating this file
 
