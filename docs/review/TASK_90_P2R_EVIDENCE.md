@@ -57,8 +57,8 @@ Keyboard text entry into the named Search control succeeded; the helper still di
 - `AC-UX-02`: keyboard text entry is verified but keyboard navigation/activation across all Phase 2 controls remains unproven.
 - ADR-003: real WinGet/Microsoft Store parser/capability behavior remains unproven.
 
-## Product-owner exception — 2026-07-28
+## Product-owner accessibility priority decision — 2026-07-28
 
-Per explicit product-owner direction, `AC-UX-02` is a **temporary approved exception for the Phase 2 gate**. It permits a fresh Task 20 reviewer to assess Phase 2 without treating the incomplete keyboard-navigation/activation exercise as compliance evidence. The criterion remains mandatory follow-up work and must be repeated on an interactive Windows desktop before a release claim relies on it.
+ADR-021 classifies all `AC-UX-01–09` criteria as Optional — best effort. The existing accessibility implementation/evidence remains positive quality evidence, but incomplete keyboard navigation or accessibility evidence is not a Phase 2 gate failure.
 
 `AC-DAT-04` remains subject to independent fresh-review assessment of the approved process-scoped connection evidence. ADR-003 real-source parser/capability evidence remains unproven.

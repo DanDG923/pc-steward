@@ -62,7 +62,7 @@ Update and cleanup acceptance criteria pass in isolated clean Windows test envir
 | `AC-UPD-08` | If the installer reports success but the expected version is not detected, the result is Inconclusive or Restart required, not Success. | Mandatory | 23 |
 | `AC-UPD-09` | Batch execution runs sequentially and reports each item's independent result. | Mandatory | 23 |
 | `AC-UPD-10` | Cancelling a batch prevents the next unstarted item from running and preserves completed results. | Mandatory | 23 |
-| `AC-UX-05` | Every failure view contains a plain-language summary and a safe next action. | Mandatory | 19, 23, 26, 29 |
+| `AC-UX-05` | Every failure view contains a plain-language summary and a safe next action. | Optional — best effort | 19, 23, 26, 29 |
 | `FR-DAT-08` | Provide a dedicated **Clear downloaded files** button in Settings that deletes only PC Steward-owned update payloads and temporary extraction files not in active use. | Yes | 24 |
 | `FR-DAT-09` | Show **Delete downloaded files** on the update-completion view whenever PC Steward-owned files remain, together with the space recoverable. | Yes | 24 |
 | `FR-DAT-10` | Display the current size, last-cleaned time and deletion scope for scan data and downloaded update files. | Yes | 14, 24 |
@@ -80,4 +80,4 @@ Update and cleanup acceptance criteria pass in isolated clean Windows test envir
 | `AC-DAT-16` | Cleanup tests prove that a junction, symbolic link or crafted metadata value cannot cause deletion outside the allowlisted PC Steward data roots. | Mandatory | 24, 28 |
 | `AC-DAT-17` | Default logs contain no credentials, licence keys, browser data or document contents. | Mandatory | 14, 24 |
 | `AC-NFR-10` | Filling the app-owned download cache beyond its soft quota evicts only inactive oldest files and never blocks or deletes the artifact required by an active update. | Mandatory | 24, 29 |
-| `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Mandatory | 14, 24, 28, 29 |
+| `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Optional — best effort | 14, 24, 28, 29 |

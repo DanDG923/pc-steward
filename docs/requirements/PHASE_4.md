@@ -37,9 +37,9 @@ The release definition of done is evidenced; no Blocker/High review findings rem
 | `NFR-PERF-07` | Closing the UI must leave no resident PC Steward process when no approved update or scheduled scan is active. A scheduled scan process must exit within 30 seconds after completion, cancellation or final timeout handling. | Mandatory | 26, 29 |
 | `AC-NFR-08` | Closing PC Steward with no active work leaves no PC Steward process after 30 seconds. | Mandatory | 26, 29 |
 | `AC-NFR-11` | A scheduled scan runs without launching a persistent tray app and exits within the NFR-PERF-07 limit. | Mandatory | 26, 29 |
-| `AC-UX-02` | All primary navigation, scan, review, update, clear-data and factory-reset actions are keyboard accessible. | Mandatory | 13, 14, 19, 26, 28, 29 |
-| `AC-UX-04` | Windows text scaling and high-contrast mode do not hide primary controls or status text. | Mandatory | 13, 19, 26, 28, 29 |
-| `AC-UX-05` | Every failure view contains a plain-language summary and a safe next action. | Mandatory | 19, 23, 26, 29 |
+| `AC-UX-02` | All primary navigation, scan, review, update, clear-data and factory-reset actions are keyboard accessible. | Optional — best effort | 13, 14, 19, 26, 28, 29 |
+| `AC-UX-04` | Windows text scaling and high-contrast mode do not hide primary controls or status text. | Optional — best effort | 13, 19, 26, 28, 29 |
+| `AC-UX-05` | Every failure view contains a plain-language summary and a safe next action. | Optional — best effort | 19, 23, 26, 29 |
 | `FR-DAT-04` | Provide advanced controls to clear source metadata, logs, update history or manual mappings/policies independently. | Yes | 28 |
 | `FR-DAT-12` | Provide a dedicated **Factory reset PC Steward** button that removes all local application data, settings, decisions, caches, logs, consent records and the current-user scheduled task, then returns the next launch to first-run onboarding. The installed app binaries remain. | Yes | 28 |
 | `FR-DAT-13` | Require an explicit confirmation for each destructive action and a second confirmation for factory reset. | Yes | 14, 24, 28 |
@@ -51,8 +51,8 @@ The release definition of done is evidenced; no Blocker/High review findings rem
 | `AC-DAT-15` | Clear and reset actions are unavailable during an active update or scan until the user cancels or completes it. | Mandatory | 14, 24, 28 |
 | `AC-DAT-16` | Cleanup tests prove that a junction, symbolic link or crafted metadata value cannot cause deletion outside the allowlisted PC Steward data roots. | Mandatory | 24, 28 |
 | `AC-DAT-18` | Uninstall removes binaries and scheduled tasks and offers a clear choice to retain or remove per-user data. | Mandatory | 28, 30 |
-| `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Mandatory | 14, 24, 28, 29 |
-| `AC-UX-08` | Factory reset requires a second explicit confirmation and cannot be triggered by a single accidental click or keyboard activation. | Mandatory | 28, 29 |
+| `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Optional — best effort | 14, 24, 28, 29 |
+| `AC-UX-08` | Factory reset requires a second explicit confirmation and cannot be triggered by a single accidental click or keyboard activation. | Optional — best effort | 28, 29 |
 | `NFR-PERF-01` | Local inventory must complete within 15 seconds at the 95th percentile on the agreed baseline PC with 300 provider records. | Mandatory | 12, 29 |
 | `NFR-PERF-02` | A full online check must complete within 90 seconds at the 95th percentile when sources are healthy; source timeouts must not block the whole application indefinitely. | Mandatory | 18, 29 |
 | `NFR-PERF-03` | The UI must remain responsive during scans and updates. | Mandatory | 12, 29 |
@@ -86,7 +86,7 @@ The release definition of done is evidenced; no Blocker/High review findings rem
 | `AC-NFR-07` | Local-scan process-tree measurement meets the CPU and memory limits in NFR-PERF-06. | Mandatory | 12, 29 |
 | `AC-NFR-09` | Attempts to start a second scan are rejected or routed to the existing scan, and measured connector concurrency never exceeds the configured bound. | Mandatory | 12, 29 |
 | `AC-NFR-10` | Filling the app-owned download cache beyond its soft quota evicts only inactive oldest files and never blocks or deletes the artifact required by an active update. | Mandatory | 24, 29 |
-| `AC-UX-01` | A first-time user can complete the first scan and identify available updates without using a command line. | Mandatory | 13, 19, 29 |
-| `AC-UX-03` | Status is expressed through text/icons as well as colour. | Mandatory | 13, 19, 29 |
-| `AC-UX-06` | The UI always distinguishes live, cached and local-only scan results. | Mandatory | 13, 18, 19, 29 |
-| `AC-UX-09` | During a scan, the user can see elapsed time, current phase and an enabled **Cancel scan** action. | Mandatory | 13, 29 |
+| `AC-UX-01` | A first-time user can complete the first scan and identify available updates without using a command line. | Optional — best effort | 13, 19, 29 |
+| `AC-UX-03` | Status is expressed through text/icons as well as colour. | Optional — best effort | 13, 19, 29 |
+| `AC-UX-06` | The UI always distinguishes live, cached and local-only scan results. | Optional — best effort | 13, 18, 19, 29 |
+| `AC-UX-09` | During a scan, the user can see elapsed time, current phase and an enabled **Cancel scan** action. | Optional — best effort | 13, 29 |

@@ -65,7 +65,7 @@ The curated fixture set produces zero false-positive actionable mappings; all lo
 | `AC-DAT-04` | Network inspection confirms that the MVP contacts only enabled connectors and the optional PC Steward update endpoint. | Mandatory | 18 |
 | `AC-NFR-02` | Full online scan meets NFR-PERF-02 when test sources are healthy over at least 20 repeated runs. | Mandatory | 18, 29 |
 | `AC-NFR-05` | A connector timeout does not block results from other connectors. | Mandatory | 18, 29 |
-| `AC-UX-06` | The UI always distinguishes live, cached and local-only scan results. | Mandatory | 13, 18, 19, 29 |
+| `AC-UX-06` | The UI always distinguishes live, cached and local-only scan results. | Optional — best effort | 13, 18, 19, 29 |
 | `FR-POL-01` | Pin a product to its current version, a major/minor branch or a source channel where supported. | Partial MVP: current version/source package | 19 |
 | `FR-POL-02` | Ignore an application indefinitely or until a selected date. | Yes | 19 |
 | `FR-POL-03` | Record an optional reason for pinning, ignoring or manually mapping. | Yes | 19 |
@@ -76,8 +76,8 @@ The curated fixture set produces zero false-positive actionable mappings; all lo
 | `FR-UI-07` | Provide a detailed diagnostics view without exposing unnecessary implementation noise by default. | Yes | 13, 19 |
 | `FR-HIS-02` | Show a timeline for each product. | Yes | 19, 23 |
 | `FR-HIS-04` | Apply configurable retention limits to verbose logs and source caches. | Yes | 19, 23 |
-| `AC-UX-01` | A first-time user can complete the first scan and identify available updates without using a command line. | Mandatory | 13, 19, 29 |
-| `AC-UX-02` | All primary navigation, scan, review, update, clear-data and factory-reset actions are keyboard accessible. | Mandatory | 13, 14, 19, 26, 28, 29 |
-| `AC-UX-03` | Status is expressed through text/icons as well as colour. | Mandatory | 13, 19, 29 |
-| `AC-UX-04` | Windows text scaling and high-contrast mode do not hide primary controls or status text. | Mandatory | 13, 19, 26, 28, 29 |
-| `AC-UX-05` | Every failure view contains a plain-language summary and a safe next action. | Mandatory | 19, 23, 26, 29 |
+| `AC-UX-01` | A first-time user can complete the first scan and identify available updates without using a command line. | Optional — best effort | 13, 19, 29 |
+| `AC-UX-02` | All primary navigation, scan, review, update, clear-data and factory-reset actions are keyboard accessible. | Optional — best effort | 13, 14, 19, 26, 28, 29 |
+| `AC-UX-03` | Status is expressed through text/icons as well as colour. | Optional — best effort | 13, 19, 29 |
+| `AC-UX-04` | Windows text scaling and high-contrast mode do not hide primary controls or status text. | Optional — best effort | 13, 19, 26, 28, 29 |
+| `AC-UX-05` | Every failure view contains a plain-language summary and a safe next action. | Optional — best effort | 19, 23, 26, 29 |

@@ -7,6 +7,7 @@
 3. Open the full product specification only for a cited requirement, ambiguity, or conflict. Do not reread it wholesale on every task.
 4. Preserve requirement IDs in tests, review reports, status updates, and commit bodies.
 5. Do not silently expand the MVP. Anything marked Later, Optional, Desirable, or Never requires explicit task scope.
+6. Under ADR-021, `AC-UX-01–09` accessibility criteria are Optional — best effort: attempt proportionate implementation/evidence, but do not fail a gate solely because they are unproven.
 
 ## Product safety boundaries
 

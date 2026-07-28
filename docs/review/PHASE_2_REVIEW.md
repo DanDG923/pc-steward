@@ -67,8 +67,8 @@ The deterministic engines and focused tests are green, but Phase 2 is not a prod
 
 ## Residual risks accepted by product owner
 
-`AC-UX-02`: per explicit product-owner direction on 2026-07-28, the incomplete Phase 2 keyboard-navigation/activation exercise is a **temporary approved exception** for the Phase 2 gate. It is not evidence of compliance and must be repeated on an interactive Windows desktop before a release claim relies on it. This exception does not waive independent fresh-review assessment of `AC-DAT-04` process-scoped connection evidence.
+ADR-021 classifies `AC-UX-01–09` as Optional — best effort. Existing accessibility implementation/evidence remains positive quality evidence but is not a Phase 2 gate condition. This does not waive independent fresh-review assessment of `AC-DAT-04` process-scoped connection evidence.
 
 ## Recommended next action
 
-Review the Task 90 remediation/evidence in a fresh GPT-5.6 Sol / High Task 20 chat. Do not merge Phase 2 or begin Phase 3 unless that review passes, with the `AC-UX-02` exception explicitly carried forward.
+Review the Task 90 remediation/evidence in a fresh GPT-5.6 Sol / High Task 20 chat. Do not merge Phase 2 or begin Phase 3 unless that review passes.
