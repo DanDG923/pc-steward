@@ -45,6 +45,6 @@ Current-user MSIX is enabled by default because it is a local Windows catalog. W
 
 ## Completion record
 
-- Commit: Pending
-- Tests: Pending
+- Commit: `29ad036` (amend pending status commit reference)
+- Tests: Release build; full suite (27 tests); focused integration suite (20 tests); 30-run 300-record product workload.
 - Remaining risks: Clean-VM baseline, manual UI, high contrast/text scaling and real WinGet-source behavior require later approved evidence.
