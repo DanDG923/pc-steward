@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 07 — Core domain model and SQLite persistence (complete)
-**Last green commit:** Pending Task 07 commit
+**Current task:** 08 — Registry inventory providers (complete)
+**Last green commit:** Pending Task 08 commit
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -73,7 +73,7 @@ PASS — .NET 10 solution scaffold created with accepted capability boundaries, 
 
 ## Next task
 
-Run `prompts/08_REGISTRY_INVENTORY_PROVIDERS.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
+Run `prompts/09_MSIX_APPX_INVENTORY_PROVIDER.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
 
 ## Rules for updating this file
 
