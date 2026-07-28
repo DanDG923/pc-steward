@@ -1,7 +1,7 @@
 # Task 90 — Phase 2 remediation evidence
 
 **Model/effort:** GPT-5.6 Terra / High  
-**Fixing commit:** pending final commit amendment  
+**Fixing commit:** `1fd152c` — `fix: remediate phase review findings`
 **Scope:** `P2R-01`–`P2R-06` from `PHASE_2_REVIEW.md`
 
 ## Local evidence executed

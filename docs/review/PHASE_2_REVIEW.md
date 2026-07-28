@@ -43,7 +43,7 @@ The deterministic engines and focused tests are green, but Phase 2 is not a prod
 
 ## Task 90 remediation record
 
-**Fixing commit:** pending final commit amendment
+**Fixing commit:** `1fd152c` — `fix: remediate phase review findings`
 
 **Verification owner/model:** Task 90, GPT-5.6 Terra / High
 **Status:** code/test remediation completed; this historical review remains `FAIL` until a fresh Task 20 reviewer assesses the complete diff and the mandatory-evidence boundary.

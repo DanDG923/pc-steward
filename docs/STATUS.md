@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Update intelligence
 **Current task:** 90 — Phase 2 remediation complete; fresh Task 20 review pending
-**Last green commit:** pending `fix: remediate phase review findings`
+**Last green commit:** `1fd152c` — `fix: remediate phase review findings`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
