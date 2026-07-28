@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 24A — awaiting GPT-5.6 Terra / High
-**Last green commit:** `5103218` — `feat: add batches, verification, history, and diagnostics`
+**Current task:** 24A — evidence package committed; blocked on approved disposable-VM evidence
+**Last green commit:** `818f68e` — `feat: manage and safely clear downloaded artifacts`
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** IN PROGRESS — Task 23 passed
+**Phase gate:** IN PROGRESS — Task 24A not ready for Task 25
 
 ## Decisions
 
@@ -43,13 +43,13 @@ ADR-003 remains Provisional under the product-owner exception: capture a sanitiz
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
 
-## Task 24 result
+## Task 24A result
 
-Task 24 result: `PASS`. A literal per-user download root, SQLite ownership ledger and non-following handle-bound delete now keep cleanup inside PC Steward-owned files. Settings and completion cleanup require confirmation, disclose provider-cache exclusion, preserve active artifacts, report locked/reparse residuals accurately, and enforce the 2 GB soft quota plus seven-day verified/24-hour failed retention. Focused suite: 18 passed. Release build: zero warnings/errors; full suite: 135 passed. No real update, provider-cache deletion, or UAC prompt was run.
+Task 24A result: automated evidence is green (42 hostile-root assertions with one VM skip; 16 security, 4 architecture, 14 focused integration and 135 full-suite tests; Release build zero warnings/errors). `docs/review/PHASE_3_EVIDENCE_READINESS.md` records mandatory missing signed UAC/helper, isolated update-verification, symbolic-link/volume-mount/ancestor-swap, and cleanup-UI VM evidence. No product-owner exception is recorded, so Task 25 must not start.
 
 ## Next task
 
-Run Task 24A — prepare Phase 3 security-review evidence — in a fresh GPT-5.6 Terra / High task. Stop before starting it under Sol.
+Obtain product-owner approval and collect the missing disposable-VM evidence for Task 24A. Do not start Task 25 (Sol / Extra High) until every mandatory row in `docs/review/PHASE_3_EVIDENCE_READINESS.md` is Proven or explicitly product-owner-approved.
 
 ## Rules for updating this file
 

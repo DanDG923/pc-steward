@@ -1,0 +1,39 @@
+# Phase 3 security-review evidence readiness
+
+**Prepared:** 2026-07-28  
+**Branch:** `phase/3-execution`  
+**Implementation baseline:** `818f68e` (`feat: manage and safely clear downloaded artifacts`)  
+**Readiness decision:** **NOT READY FOR TASK 25.** Automated evidence is green, but the mandatory signed, disposable-Windows-11 VM evidence is neither present nor covered by a recorded product-owner exception. This report prepares evidence only and does not grade Phase 3.
+
+## Automated evidence
+
+All commands below were run locally against disposable fixtures; none invoked UAC, WinGet, a real installer, or a provider cache.
+
+| Criteria | Command | Result | Artifact / commit | Status | Exact next action |
+|---|---|---|---|---|---|
+| `FR-UPD-01–03`, `FR-UPD-07`, `AC-UPD-01–02/07/11`, `TM-03/07/13` | `dotnet test tests\\PCSteward.Security.FixtureTests\\PCSteward.Security.FixtureTests.csproj --configuration Release --no-restore` | 16 passed; confirmed typed job, digest/tamper rejection, fixed executable/arguments, stale/machine rejection, bounded redacted output and non-success provider failures | `tests/PCSteward.Security.FixtureTests/UpdateRunnerSecurityTests.cs`; `818f68e` | Proven | None. |
+| `FR-UPD-04`, `AC-UPD-03–05`, `TM-04` (structural boundary) | Same security-fixture command | 16 passed; per-user jobs never call elevated transport, machine jobs use fixed arguments, denial/cancellation/timeout/failure remain distinct, and IPC rejects mutation, unknown/duplicate fields, replay, expiry and bootstrap authority | `tests/PCSteward.Security.FixtureTests/ElevatedHelperSecurityTests.cs`; `818f68e` | Proven | VM acceptance/denial and cross-integrity behavior remain separately missing below. |
+| `NFR-MNT-03`, execution/privilege architectural separation | `dotnet test tests\\PCSteward.ArchitectureTests\\PCSteward.ArchitectureTests.csproj --configuration Release --no-restore` | 4 passed | `tests/PCSteward.ArchitectureTests`; `818f68e` | Proven | None. |
+| `FR-UPD-05–06/08–11`, `FR-HIS-01–06`, `NFR-REL-03`, `NFR-OBS-01–05`, `AC-UPD-06/08–10`, `AC-UX-05` (fixture semantics) | `dotnet test tests\\PCSteward.Application.IntegrationTests\\PCSteward.Application.IntegrationTests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~SequentialUpdateBatchTests|FullyQualifiedName~UpdateJobWorkflowTests|FullyQualifiedName~ScanDiagnosticsTests"` | 10 passed; sequential execution, pre-next-job cancellation, no force-close authority, verification-only success, distinct negative outcomes, retained history and sanitized diagnostics | `tests/PCSteward.Application.IntegrationTests/SequentialUpdateBatchTests.cs`; `ScanDiagnosticsTests.cs`; `5103218` | Proven | Real-update verification remains separately missing below. |
+| `FR-DAT-08–11/13–15`, `NFR-PERF-10`, `AC-DAT-08–11/14–15/17`, `AC-NFR-10`, `TM-05/07/11/15` | `dotnet test tests\\PCSteward.Application.IntegrationTests\\PCSteward.Application.IntegrationTests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~DownloadedArtifactCacheTests"` | 4 passed; quota removes oldest inactive artifact only, active lease survives, retention is seven-day verified/24-hour failed, crafted ledger traversal preserves outside sentinel, locked residual is Partial and clear is idempotent | `tests/PCSteward.Application.IntegrationTests/DownloadedArtifactCacheTests.cs`; `818f68e` | Proven | None for fixture evidence. |
+| `TM-05–06`, `AC-DAT-16` (safe host subset) | `pwsh -NoProfile -File spikes\\security-boundaries\\tests\\SecurityBoundarySpike.Tests.ps1` | 42 assertions passed; relative/UNC/device/ADS/prefix rejection, junction and final-component swap rejection, locked residual accuracy and idempotence; 1 VM/manual skip | `spikes/security-boundaries/SPIKE_REPORT.md`; `818f68e` | Proven | Complete the missing VM cases below before Task 25. |
+| Static analysis and Release compilation | `pwsh -NoProfile -File .\\scripts\\Build.ps1` | Succeeded, 0 warnings, 0 errors | Release outputs at `src/**/bin/Release`; `818f68e` | Proven | None. |
+| Phase-wide regression | `pwsh -NoProfile -File .\\scripts\\Test.ps1` | 135 passed: Security 16, Architecture 4, Domain 49, Application integration 66 | `PCSteward.slnx`; `818f68e` | Proven | None. |
+
+## Mandatory VM/manual evidence
+
+No product-owner-approved exception for any row below is recorded in this repository. Each **Missing** row blocks Task 25 under its prompt and the phase review rule.
+
+| Criteria | Required evidence | Result / artifact | Status | Exact next action |
+|---|---|---|---|---|
+| `AC-UPD-03–05`, `TM-04`, ADR-018 | Signed fixed desktop/helper on a clean Windows 11 x64 VM: prove a per-user execution has no UAC prompt; machine execution prompts only on execution; record UAC denial as cancelled/denied; prove mutual PID/user/session/signature/signer checks across integrity levels | Not run. Current binaries are unsigned and deliberately fail closed. | Missing | Obtain product-owner approval for a harmless UAC integration test, sign the disposable artifacts, execute acceptance and denial with a fixture/no-op provider, retain sanitized results, and verify helper exit/teardown. |
+| `TM-04`, ADR-018 | One-shot helper disconnect/cancellation and immediate teardown under real elevated process conditions | Not run. | Missing | In the same approved VM, disconnect/cancel the desktop during the helper request; prove provider cancellation, a distinct result, and no surviving elevated helper or reusable pipe. |
+| `AC-UPD-06`, `AC-UPD-08`, `TM-12` | Approved isolated update fixture demonstrating targeted re-inventory detects the expected version; exit zero without expected version remains Inconclusive/Restart required, never Success | Not run; automated fakes prove logic only. | Missing | Obtain approval for a harmless disposable-VM fixture update (not a real user application), capture before/after inventory and result records, including a mismatch case. |
+| `AC-DAT-16`, `TM-05–06`, ADR-019 | Disposable Windows 11 VM symbolic-link (file and directory), volume-mount, and concurrent ancestor-swap cases under isolated owned/outside roots | Not run. The safe-host spike passed junction/final-component cases but skipped symbolic links; no volume mount or full ancestor-race proof exists. | Missing | Follow `spikes/security-boundaries/SPIKE_REPORT.md` “Exact disposable-VM follow-up”: use only a fresh temporary container and scratch VHD, require unchanged outside sentinels and Partial/denial results, detach/revert afterward. |
+| `AC-DAT-10`, `FR-DAT-11`, `TM-15` (manual integration) | Confirm the Settings and completion views disclose provider-cache exclusion while cleanup is scoped to the literal app-owned root | No desktop manual exercise recorded. Unit fixtures cover the underlying scope. | Missing | In the approved disposable VM, exercise the two UI paths with fixture artifacts; capture sanitized screenshots or an interaction log showing confirmation, recoverable size, provider-cache exclusion, and no elevation. |
+
+## Review handoff
+
+The Sol/Extra High Task 25 reviewer must treat this report as evidence preparation, not a pass. Do **not** start Task 25 until every Missing row is Proven or a product-owner-approved exception is recorded in-repository with its scope and expiry.
+
+Relevant controls: [ADR-017](../adr/ADR-017-IMMUTABLE-UPDATE-JOBS.md), [ADR-018](../adr/ADR-018-HELPER-IPC-AND-ELEVATION.md), [ADR-019](../adr/ADR-019-APP-OWNED-ARTIFACT-ROOTS.md), [threat model](../architecture/THREAT_MODEL.md), and [security spike report](../../spikes/security-boundaries/SPIKE_REPORT.md).
