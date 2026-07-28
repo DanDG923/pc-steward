@@ -13,7 +13,7 @@ public sealed class WingetInstalledInventoryProviderTests
     {
         FakeProcess process = new(new WingetProcessResult(0, "Name  Id  Version  Source\n--------------------------------\nContoso App  Contoso.App  1.2.3  winget", string.Empty, false));
         WingetInventoryResult result = await new WingetInstalledInventoryProvider(process).ReadInstalledAsync(CancellationToken.None);
-        Assert.AreEqual("winget.exe", process.Executable); CollectionAssert.AreEqual(ExpectedArguments, process.Arguments.ToArray()); Assert.AreEqual("Contoso.App", result.Records.Single().Id);
+        CollectionAssert.AreEqual(ExpectedArguments, process.Arguments.ToArray()); Assert.AreEqual("Contoso.App", result.Records.Single().Id);
     }
     [TestMethod]
     public async Task ClassifiesTimeoutAndNonzeroExitWithoutParsing()
@@ -26,7 +26,7 @@ public sealed class WingetInstalledInventoryProviderTests
     {
         SequencedProcess process = new(new WingetProcessResult[] { new(0, "v1.9.0", "", false), new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nContoso Widget  Contoso.Widget  1.0.0  1.1.0  winget", "", false) });
         PCSteward.Domain.SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
-        CollectionAssert.AreEqual(ExpectedVersionArguments, process.Calls[0].Arguments.ToArray()); CollectionAssert.AreEqual(ExpectedUpdateArguments, process.Calls[1].Arguments.ToArray());
+        CollectionAssert.AreEqual(ExpectedVersionArguments, process.Calls[0].ToArray()); CollectionAssert.AreEqual(ExpectedUpdateArguments, process.Calls[1].ToArray());
         Assert.AreEqual("v1.9.0", snapshot.ProviderVersion); Assert.AreEqual(PCSteward.Domain.SourceSnapshotState.Live, snapshot.State); Assert.AreEqual("Contoso.Widget", snapshot.Packages.Single().PackageId);
     }
     [TestMethod]
@@ -36,24 +36,22 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.HasCount(0, result.Records); CollectionAssert.Contains(result.Warnings.ToArray(), "winget:invalid-update-row"); Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new WingetUpdateSourceConnector(new FakeProcess(new WingetProcessResult(0, "", "", false)), "arbitrary"));
     }
     [TestMethod]
-    public async Task OversizedProcessOutputFailsClosedWithoutRetainingMoreThanTheBound()
+    public void ProcessBoundaryHasNoExecutablePathParameterAndOversizedOutputFailsClosed()
     {
-        WindowsWingetProcess process = new();
-        WingetProcessResult stdout = await process.RunAsync("pwsh.exe", ["-NoProfile", "-Command", "[Console]::Out.Write(('x' * 1000001 -join ''))"], TimeSpan.FromSeconds(15), CancellationToken.None);
-        WingetProcessResult stderr = await process.RunAsync("pwsh.exe", ["-NoProfile", "-Command", "[Console]::Error.Write(('x' * 1000001 -join ''))"], TimeSpan.FromSeconds(15), CancellationToken.None);
+        Type[] parameterTypes = typeof(WindowsWingetProcess).GetMethod(nameof(WindowsWingetProcess.RunAsync))!.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
+        Assert.IsFalse(parameterTypes.Contains(typeof(string)));
 
-        Assert.IsTrue(stdout.OutputLimitExceeded); Assert.IsTrue(stderr.OutputLimitExceeded);
-        Assert.IsTrue(stdout.StandardOutput.Length <= 1_000_000); Assert.IsTrue(stderr.StandardError.Length <= 1_000_000);
-        CollectionAssert.Contains(WingetUpdateSourceConnector.Classify(stdout, "v1", "winget").Warnings.ToArray(), "winget:output-too-large");
+        WingetProcessResult oversized = new(-1, new string('x', 1_000_000), string.Empty, false, true);
+        CollectionAssert.Contains(WingetUpdateSourceConnector.Classify(oversized, "v1", "winget").Warnings.ToArray(), "winget:output-too-large");
     }
     private sealed class FakeProcess(WingetProcessResult result) : IWingetProcess
     {
-        public string Executable { get; private set; } = string.Empty; public IReadOnlyList<string> Arguments { get; private set; } = [];
-        public Task<WingetProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Executable = executable; Arguments = arguments; return Task.FromResult(result); }
+        public IReadOnlyList<string> Arguments { get; private set; } = [];
+        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Arguments = arguments; return Task.FromResult(result); }
     }
     private sealed class SequencedProcess(IEnumerable<WingetProcessResult> results) : IWingetProcess
     {
-        private readonly Queue<WingetProcessResult> results = new(results); public List<(string Executable, IReadOnlyList<string> Arguments)> Calls { get; } = [];
-        public Task<WingetProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Calls.Add((executable, arguments)); return Task.FromResult(results.Dequeue()); }
+        private readonly Queue<WingetProcessResult> results = new(results); public List<IReadOnlyList<string>> Calls { get; } = [];
+        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Calls.Add(arguments); return Task.FromResult(results.Dequeue()); }
     }
 }

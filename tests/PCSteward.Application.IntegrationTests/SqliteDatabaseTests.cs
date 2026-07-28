@@ -55,7 +55,8 @@ public sealed class SqliteDatabaseTests
         await database.Store.PromoteAsync([product], [new InstallationInstance(Guid.NewGuid(), product.Id, "registry", "contoso-widget", "1.0", "User", "x64")], CancellationToken.None);
         await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), product.StableKey, "Pin", "1.0", DateTimeOffset.UtcNow), CancellationToken.None);
         await database.Store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), product.StableKey, "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
-        await database.Store.SaveUpdateJobAsync(new UpdateJobRecord(Guid.NewGuid(), "winget", "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
+        UpdateJobSelection updateSelection = new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
+        await new UpdateJobApprovalService(database.Store).ConfirmAsync(new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), updateSelection), DateTimeOffset.UtcNow, CancellationToken.None);
         await database.Store.SaveDownloadedArtifactAsync(new DownloadedArtifact(Guid.NewGuid(), "update", "payload.bin", 512, DateTimeOffset.UtcNow), CancellationToken.None);
 
         ClearScanDataResult first = await database.Store.ClearScanDataAsync(CancellationToken.None);
@@ -156,6 +157,40 @@ public sealed class SqliteDatabaseTests
         await database.Store.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow.AddDays(-30), CancellationToken.None);
 
         Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ApprovedJobRoundTripsButTamperedDatabaseEvidenceFailsClosed()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pcsteward-job-{Guid.NewGuid():N}.db");
+        try
+        {
+            SqliteDatabase store = new(path);
+            await store.MigrateAsync(CancellationToken.None);
+            UpdateJobSelection selection = new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
+            UpdateJobReview review = new(Guid.NewGuid(), Guid.NewGuid(), selection);
+            ImmutableUpdateJob job = await new UpdateJobApprovalService(store).ConfirmAsync(review, DateTimeOffset.UtcNow, CancellationToken.None);
+
+            ImmutableUpdateJob restored = (await store.GetApprovedJobAsync(job.Id, CancellationToken.None))!;
+            Assert.AreEqual(job.Digest, restored.Digest);
+            Assert.AreEqual(job.Selection.CandidateVersion, restored.Selection.CandidateVersion);
+            await Assert.ThrowsExactlyAsync<SqliteException>(() => store.SaveApprovedJobAsync(job, CancellationToken.None));
+
+            await using (SqliteConnection connection = new($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "UPDATE approved_update_jobs SET candidate_version = '9.9.9' WHERE id = $id;";
+                command.Parameters.AddWithValue("$id", job.Id.ToString("D"));
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => store.GetApprovedJobAsync(job.Id, CancellationToken.None));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private sealed class TestDatabase : IAsyncDisposable

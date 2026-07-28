@@ -25,8 +25,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         if (evidenceDelay is not null) providers.Add(evidenceDelay);
         providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
         IReadOnlyCollection<IUpdateSourceConnector> updateSources = [
-            new WingetUpdateSourceConnector(new WindowsWingetProcess(), "winget"),
-            new WingetUpdateSourceConnector(new WindowsWingetProcess(), "msstore")
+            new WingetUpdateSourceConnector("winget"),
+            new WingetUpdateSourceConnector("msstore")
         ];
         InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database, database, updateSources);
         MainWindow window = new(workflow, viewModel);

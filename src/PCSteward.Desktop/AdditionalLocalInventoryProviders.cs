@@ -33,7 +33,7 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
 
 internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalInventoryProvider
 {
-    private readonly WingetInstalledInventoryProvider provider = new(new WindowsWingetProcess());
+    private readonly WingetInstalledInventoryProvider provider = new();
     public string Name => "WinGet installed inventory";
     public TimeSpan Timeout => TimeSpan.FromSeconds(35);
     public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
