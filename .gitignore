@@ -1,0 +1,43 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# IDE/user state
+.vs/
+*.user
+*.suo
+.vscode/
+
+# Local app/test data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.local/
+tmp/
+temp/
+
+# Signing material and secrets
+*.pfx
+*.p12
+*.snk
+*.cer
+*.key
+*.pem
+.env
+.env.*
+
+# Generated packages
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.nupkg
+
+# OS
+Thumbs.db
+Desktop.ini

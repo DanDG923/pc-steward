@@ -1,0 +1,17 @@
+# Project-scoped defaults. Codex loads this only after the repository is trusted.
+model = "gpt-5.6-terra"
+model_reasoning_effort = "medium"
+plan_mode_reasoning_effort = "high"
+model_verbosity = "low"
+review_model = "gpt-5.6-sol"
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+
+# Keep Standard speed. Do not set service_tier = "fast".
+# Configure the preferred native Windows sandbox once in user-level config:
+# [windows]
+# sandbox = "elevated"

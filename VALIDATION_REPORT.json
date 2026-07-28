@@ -1,0 +1,16 @@
+{
+  "generated_utc": "2026-07-27T22:50:48.989013+00:00",
+  "core_prompt_count": 32,
+  "conditional_prompt_count": 3,
+  "mandatory_or_mvp_requirement_count": 173,
+  "unassigned_requirements": [],
+  "model_mix": {
+    "GPT-5.6 Luna / Low": 1,
+    "GPT-5.6 Sol / High": 7,
+    "GPT-5.6 Terra / High": 14,
+    "GPT-5.6 Terra / Medium": 8,
+    "GPT-5.6 Sol / Extra High": 2
+  },
+  "broken_links": [],
+  "config_parsed": true
+}
