@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 24A — approved host and real-update evidence recorded; ready for Task 25 review
-**Last green commit:** working tree — Task 24A Firefox evidence/remediation pending commit
+**Current task:** 25 — security review FAILED; Task 90 remediation required
+**Last green commit:** `949fc3b` — pre-review head; Release build and 142-test suite green
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** READY FOR TASK 25 REVIEW — do not start it in this Terra/High task
+**Phase gate:** FAIL — do not merge Phase 3 or begin Task 26
 
 ## Decisions
 
@@ -43,13 +43,13 @@ ADR-003 remains Provisional under the product-owner exception: capture a sanitiz
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
 
-## Task 24A result
+## Task 25 result
 
-Task 24A result: automated evidence is green (42 hostile-root assertions with one VM skip; 16 security, 4 architecture, 71 integration and 142 full-suite tests; Release build zero warnings/errors). Approved host evidence adds signed no-op UAC acceptance/denial, pre-provider helper teardown, and 10 isolated link/race/VHD assertions with complete teardown. A separately approved Firefox 152.0.6 → 153.0.1 machine-scope update reached UAC only after review/confirmation and a direct exact WinGet re-inventory proved the expected installed version. The app then crashed before presenting its verified outcome; packaging and dialog-lifecycle defects were diagnosed and remediated, with fixture/regression evidence green, but no second live replay was performed because the fixture was removed. The temporary certificate and Firefox fixture were removed.
+Task 25 failed with two Blocker, two High and two Medium findings in `docs/review/PHASE_3_SECURITY_REVIEW.md`. The elevated helper can start a current-user-writable WinGet alias; the production post-update verifier cannot reach Success because WinGet rows always carry Unknown scope/architecture; the documented ancestor-component deletion race remains unresolved; and cleanup can claim Success while orphaned owned files remain. Installed evidence is not refreshed at confirmation, and interrupted started jobs can be relabelled queued/cancelled. Focused security/architecture/update/cleanup suites, 42 hostile-root assertions (one skip), the zero-warning Release build and all 142 tests passed but do not cover these composed failures.
 
 ## Next task
 
-Stop here. Task 25 requires Sol / Extra High and must be started only under those settings. Its reviewer should assess the documented residual risks, including the un-replayed post-update presentation fix.
+Stop here. Task 90 requires GPT-5.6 Terra / High. Remediate the Task 25 findings, update evidence/traceability, then repeat Task 25 under GPT-5.6 Sol / Extra High.
 
 ## Rules for updating this file
 
