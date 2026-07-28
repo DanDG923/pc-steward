@@ -57,7 +57,7 @@ None recorded.
 
 Task 90 follow-up is recorded below. Repeat Task 15 in a fresh GPT-5.6 Sol / High review.
 
-## Task 90 follow-up — `58ca1eb`, pending fresh review
+## Task 90 follow-up — `dde92df`, pending fresh review
 
 - P1R-01: duplicate provider products are grouped deterministically before normalization; the 22-test integration suite includes orchestration coverage.
 - P1R-02: the WinGet process terminates and awaits its full child tree on both cancellation and timeout; cooperative provider timeout coverage proves cancellation is signalled and observed.

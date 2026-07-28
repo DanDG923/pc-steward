@@ -25,6 +25,6 @@ There is no approval for real WinGet source disclosure or manual desktop exercis
 
 ## Completion record
 
-- Commit: `58ca1eb` — `fix: remediate phase review findings`
+- Commit: `dde92df` — `fix: remediate phase review findings`
 - Tests: Release build (0 warnings/errors); full suite 29 passed; deterministic workload 30 runs (median 1.09 ms, p95 1.61 ms); performance fixture integrity 14 assertions passed.
 - Remaining risks: supported performance baseline, full process tree/idle/UI metrics, manual accessibility, approved enabled-WinGet behavior, typed scan provenance/events, and the desktop adapter boundary.

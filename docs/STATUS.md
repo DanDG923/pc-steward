@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 1 — Local inventory vertical slice
 **Current task:** 15 — Phase 1 review gate repeat (pending fresh Sol / High review)
-**Last green commit:** `58ca1eb`
+**Last green commit:** `dde92df`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
