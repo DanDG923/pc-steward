@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 15 — Phase 1 review gate repeat (pending fresh Sol / High review)
+**Current task:** 15 — Phase 1 review gate repeat (FAIL)
 **Last green commit:** `dde92df`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** NOT RUN
+**Phase gate:** FAIL
 
 ## Decisions
 
@@ -105,14 +105,14 @@ PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warnin
 
 ## Task 15 result
 
-REPEAT FAIL — seven findings: five High and two Medium. Duplicate provider rows fail before deduplication; cancellation can orphan WinGet/provider work; clear data retains cached freshness; required UX/trust behavior and final-app performance/manual evidence remain incomplete. Run Task 90, then repeat Task 15.
+FRESH REPEAT FAIL — six findings: four High and two Medium. Persisted state can silently re-enable WinGet under local-only labels; generic provider timeouts can outlive or fault through recovery; required filters and final-app/manual evidence remain incomplete; typed diagnostics and the presentation boundary remain unresolved. Run Task 90, then repeat Task 15.
 
 ## Task 90 result
 
 Task 90 committed code-side P1R-01–03 remediation and partial P1R-05/06/07 remediation with deterministic evidence. Remaining required evidence is final-application performance, process-tree/idle/UI measurements, manual accessibility, approved enabled-WinGet behavior, typed provenance/events, and the desktop adapter boundary. A VM is optional, not required.
 ## Next task
 
-Run `prompts/15_PHASE_REVIEW.md` in a fresh GPT-5.6 Sol / High review.
+Run `prompts/90_REMEDIATE_A_PHASE_REVIEW.md` with GPT-5.6 Terra / High, then repeat Task 15 in fresh GPT-5.6 Sol / High.
 
 ## Rules for updating this file
 
