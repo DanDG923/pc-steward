@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
 **Current task:** 06 — Scaffold solution and engineering guardrails (complete)
-**Last green commit:** Pending Task 06 commit
+**Last green commit:** `23f1de9` — Task 06 verified solution scaffold
 **Current branch:** `phase/0-foundation`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
