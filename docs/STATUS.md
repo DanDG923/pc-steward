@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 15 — Phase 1 review gate (fresh repeat)
+**Current task:** 90 — Phase 1 remediation and evidence (P1RRR complete)
 **Last green commit:** `2b4b0cf`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** FAIL — four mandatory evidence findings remain
+**Phase gate:** FAIL — fresh Task 15 review required
 
 ## Decisions
 
@@ -109,10 +109,10 @@ FRESH REPEAT FAIL — four High evidence findings remain: measured keyboard canc
 
 ## Task 90 result
 
-P1RR-01–06 remediation is implemented and five findings are closed. A physical Windows 11 baseline, approved WinGet scan, restart, high-contrast exercise and thirty final-app samples are recorded in `docs/review/TASK_90_P1RR_EVIDENCE.md`. The five-minute CPU result is temporarily excepted and must be revisited. Task 15 identified four remaining mandatory evidence sets.
+P1RR-01–06 remediation remains closed. P1RRR-01–04 are now evidenced: keyboard cancellation returned to ready in 236 ms, active-scan process-tree CPU averaged 2.3173% with 194.7 MB peak working set, termination during collection preserved a previous snapshot, concurrency measured one/rejected a second scan, and 150% text scaling was exercised then restored. The five-minute CPU result remains temporarily excepted.
 ## Next task
 
-Run Task 90 with GPT-5.6 Terra / High for P1RRR-01 through P1RRR-04, then repeat Task 15 in fresh GPT-5.6 Sol / High.
+Repeat Task 15 in fresh GPT-5.6 Sol / High.
 
 ## Rules for updating this file
 

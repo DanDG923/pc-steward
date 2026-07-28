@@ -49,7 +49,7 @@ public sealed class MainWindow : Window
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button scan = new() { Content = viewModel.IsWinGetEnabled ? "Start approved WinGet inventory scan" : "Start local-only scan", IsEnabled = !viewModel.IsScanning };
         AutomationProperties.SetName(scan, scan.Content.ToString()); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
-        if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
+        if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Loaded += (_, _) => DispatcherQueue.TryEnqueue(() => cancel.Focus(FocusState.Programmatic)); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
         panel.Children.Add(actions);
         panel.Children.Add(new TextBlock { Text = $"Status: {viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss} · {viewModel.FreshnessLabel}", TextWrapping = TextWrapping.Wrap });
 

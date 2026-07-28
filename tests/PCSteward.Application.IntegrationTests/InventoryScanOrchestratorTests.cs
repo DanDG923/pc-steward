@@ -59,6 +59,16 @@ public sealed class InventoryScanOrchestratorTests
         ScanResult replacement = await orchestrator.ScanAsync(null, CancellationToken.None);
         Assert.IsTrue(replacement.Succeeded);
     }
+    [TestMethod]
+    public async Task ConcurrentScanIsRejectedAndMeasuredProviderConcurrencyIsOne()
+    {
+        ConcurrencyProbeProvider provider = new(); FakeStore store = new(); using InventoryScanOrchestrator orchestrator = new(store, [provider]);
+        Task<ScanResult> first = orchestrator.ScanAsync(null, CancellationToken.None);
+        await provider.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => orchestrator.ScanAsync(null, CancellationToken.None));
+        provider.Release();
+        Assert.IsTrue((await first).Succeeded); Assert.AreEqual(1, provider.MaximumActive);
+    }
     private sealed class FakeStore : IInventorySnapshotStore
     {
         public List<CanonicalProduct> Products { get; } = [];
@@ -105,5 +115,18 @@ public sealed class InventoryScanOrchestratorTests
         public string Name => "unresponsive"; public TimeSpan Timeout => TimeSpan.FromMilliseconds(10);
         private int calls;
         public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { if (Interlocked.Increment(ref calls) == 1) await Task.Delay(100, CancellationToken.None); return new ProviderScanResult([], [], [], []); }
+    }
+    private sealed class ConcurrencyProbeProvider : ILocalInventoryProvider
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int active;
+        public string Name => "probe"; public TimeSpan Timeout => TimeSpan.FromSeconds(2); public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously); public int MaximumActive { get; private set; }
+        public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
+        {
+            int current = Interlocked.Increment(ref active); MaximumActive = Math.Max(MaximumActive, current); Started.TrySetResult();
+            try { await release.Task.WaitAsync(cancellationToken); return new ProviderScanResult([], [], [], []); }
+            finally { Interlocked.Decrement(ref active); }
+        }
+        public void Release() => release.TrySetResult();
     }
 }

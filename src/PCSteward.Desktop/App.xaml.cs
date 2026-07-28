@@ -19,7 +19,11 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         Directory.CreateDirectory(stateDirectory);
         SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"));
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
-        InventoryWorkflow workflow = new(database, database, database, [new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)], new BoundedScanEventSink());
+        List<ILocalInventoryProvider> providers = [];
+        ILocalInventoryProvider? evidenceDelay = EvidenceDelayInventoryProvider.FromEnvironment();
+        if (evidenceDelay is not null) providers.Add(evidenceDelay);
+        providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
+        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink());
         MainWindow window = new(workflow, viewModel);
         window.Activate();
     }
