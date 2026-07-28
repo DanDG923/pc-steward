@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 90 — repeated remediation and evidence collection complete; fresh Task 25 review required
-**Last green commit:** `814519c134618cfbfb562d1233af4f784dc9390a` — Release build 0 warnings/errors; full suite 154 passed
+**Current task:** 25 — repeated Phase 3 security review complete; gate failed
+**Last green commit:** `117b25b27f204bf5d646d9d5cd9df89dd0c5bcab` — Release build 0 warnings/errors; full suite 154 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -37,9 +37,9 @@
 
 ## Task 25 result
 
-Repeated Task 90 addresses `P3R-02`, `P3R-03`, `P3R-05` and `P3R-07`. Exact scope/architecture inventory evidence is query-bound rather than display-name-correlated; `ReInventoryAsync` and review-to-confirmation use current provider composition; native cleanup opens descendants with NT `FILE_OPEN`; production cache fixtures cover reparse root/final/repeated ancestor junctions; and quota includes safe crash orphans. [Evidence](review/TASK_90_P3RR_EVIDENCE.md) records focused 23, cache-hostile 9, hostile-root 42/1 skip, Release 0/0 and full-suite 154 results.
+The repeat review closes the earlier scope/architecture collision, current-inventory confirmation, interrupted recovery, NT open-disposition, and orphan-inclusion defects. Release build remains 0 warnings/errors; security 16, architecture 4, focused integration 51, hostile script 42/1 skip, and the full suite 154 all pass.
 
-The gate remains FAIL until a fresh independent Task 25 reviewer assesses these changes. VM/manual exception scope is unchanged; no merge or Task 26 work is permitted.
+The gate is still FAIL. `P3R-03` remains a Blocker because mandatory symbolic-link, volume-mount, and concurrent ancestor/root swap evidence has not run against the production cleanup primitive. `P3R-08` is High because display-oriented WinGet table parsing can supply the expected ID/version record that authorizes `Success`. `P3R-09` is Medium because multiple crash orphans are evicted by path rather than oldest-first. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
@@ -47,7 +47,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Repeat Task 25 under fresh GPT-5.6 Sol / Extra High review. Do not merge Phase 3 or begin Task 26.
+Run Task 90 under GPT-5.6 Terra / High. Stop before starting it with the current settings. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 
