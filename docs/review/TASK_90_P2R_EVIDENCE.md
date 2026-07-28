@@ -30,18 +30,31 @@ The product owner explicitly approved sending installed-package identifiers to t
 - Twenty complete sequential two-source checks: **20/20** had zero exit codes; **1,762.50 ms median**, **1,856.73 ms p95**, **1,921.53 ms maximum**.
 - This supports `NFR-PERF-02` / `AC-NFR-02` for this machine and time. It does not generalize to other networks or source health conditions.
 
-The evidence run retained no package listing, package identifier, remote endpoint, or packet payload. Therefore it does **not** satisfy `AC-DAT-04`'s separate packet/network-inspection requirement; that remains pending an approved capture that may retain the necessary connection metadata.
+The initial timing-only evidence run retained no package listing, package identifier, remote endpoint, or packet payload. A separately approved, constrained connection-metadata observation follows.
+
+## Approved process-scoped connection inspection — 2026-07-28
+
+The product owner then approved retaining only destination IP/port, process ID, timestamps, and exit code for the two same read-only source checks. Standard output/error was asynchronously drained and discarded; no package listing or payload was retained.
+
+| Fixed source | Process | Time (UTC) | Exit | Observed destination |
+|---|---:|---|---:|---|
+| `winget` | 7844 | 15:53:38–15:53:39 | 0 | No established socket was observed during the 1.18-second process lifetime. |
+| `msstore` | 40328 | 15:53:39–15:53:40 | 0 | `[2a02:26f0:fd00:1189::4106]:443`, first observed 15:53:40.513. |
+
+This is process-scoped observation of the fixed source-check commands, not packet capture. It found no connection from the Winget check and one TLS connection from the Store check, with no unapproved connector command or arbitrary endpoint path in the application composition. It is evidence for `AC-DAT-04`, subject to the fresh Task 20 reviewer's assessment of whether process-scoped connection metadata is sufficient.
 
 ## Desktop accessibility observation — 2026-07-28
 
 In a local-only desktop session, the accessibility tree exposed named source-disclosure checkboxes, the disabled-until-approved source-check button, status text, update-intelligence counts, source-cache-retention text, named search/status/publisher/source/scope/sort controls, product list, decision area, and clear-data controls. This supports discoverability and text-based status presentation.
 
-Keyboard injection and high-contrast/text-scale changes could not be verified in this environment; see `docs/failures/90-phase2-accessibility-evidence.md`. Do not treat `AC-UX-02` or `AC-UX-04` as passed.
+The product owner approved temporary display changes. Under an applied 150% text-scale override and enabled Windows high contrast, the desktop capture showed all Phase 2 header, source consent/check controls, status/count text, retention text, search/status/publisher/source/scope/sort filters, and inventory list visible without clipped text. The original high-contrast flags and absence of a text-scale override were restored afterward.
+
+Keyboard text entry into the named Search control succeeded; the helper still did not reliably move focus with Tab or activate a list item. See `docs/failures/90-phase2-accessibility-evidence.md`. Do not treat the full `AC-UX-02` keyboard criterion as passed.
 
 ## Evidence deliberately not claimed
 
-- `AC-DAT-04`: the approved live source probe did not retain packet/connection metadata, so network inspection remains unproven.
-- `AC-UX-02/04`: Phase 2 controls have not yet had executable keyboard, 150% text-scaling, or high-contrast evidence.
+- `AC-DAT-04`: process-scoped connection metadata has been recorded; a fresh reviewer must determine whether this is sufficient versus a packet-level inspection.
+- `AC-UX-02`: keyboard text entry is verified but keyboard navigation/activation across all Phase 2 controls remains unproven.
 - ADR-003: real WinGet/Microsoft Store parser/capability behavior remains unproven.
 
 These boundaries remain blockers for a passing Phase 2 gate unless separately evidenced with appropriate authorization.

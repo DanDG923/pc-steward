@@ -8,14 +8,14 @@ Exercise the new Phase 2 controls with keyboard navigation, 150% text scaling, a
 
 ## What was observed
 
-The desktop accessibility tree was available in a local-only app session. It exposed the new source-disclosure checkboxes, disabled source-check button, update-intelligence status/counts, source-cache-retention text, named filters, product list, decision area, and clear-data controls.
+The desktop accessibility tree was available in a local-only app session. It exposed the new source-disclosure checkboxes, disabled source-check button, update-intelligence status/counts, source-cache-retention text, named filters, product list, decision area, and clear-data controls. Under the product-owner-approved temporary 150% text-scale override and high-contrast setting, a desktop capture showed Phase 2 controls/status text visibly present without clipping. The original settings were restored exactly afterward.
 
 ## Attempts and result
 
-1. The desktop helper sent Tab/Shift+Tab and list-item activation requests after foregrounding the app. The helper continued to report the same focused element and no resulting interaction or dialog; keyboard interaction could not be verified.
-2. The helper could not expose a Windows Settings window after launching the system settings app. The reversible high-contrast shortcut did not produce an observable theme change, dialog, or state change in the target window.
+1. The desktop helper sent Tab/Shift+Tab and list-item activation requests after foregrounding the app. The helper continued to report the same focused element and no resulting interaction or dialog. Keyboard text entry into the focused Search control succeeded, but full keyboard navigation/activation could not be verified.
+2. The helper could not expose a Windows Settings window after launching the system settings app. With explicit product-owner approval, the temporary 150% text-scale and high-contrast settings were instead applied and later restored through the Windows accessibility APIs.
 
-No system display or contrast setting was changed, and no source connector was enabled from the desktop UI.
+No source connector was enabled from the desktop UI. The temporary display settings were restored to high contrast off, flags 126, and no `TextScaleFactor` override.
 
 ## Smallest suspected cause
 
