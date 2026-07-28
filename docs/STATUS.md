@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
 **Current task:** 05 — Lock ADRs and architecture (complete)
-**Last green commit:** `908fd3b` — Task 04 performance baseline and fixture matrix
+**Last green commit:** `3f123ce` — Task 05 evidence-backed architecture decision lock
 **Current branch:** `phase/0-foundation`
 **Build command:** To be established by Task 06
 **Test command:** To be established by Task 06
