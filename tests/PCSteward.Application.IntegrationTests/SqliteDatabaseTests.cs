@@ -193,6 +193,27 @@ public sealed class SqliteDatabaseTests
         }
     }
 
+    [TestMethod]
+    public async Task UpdateHistoryIsAppendOnlyRecoverableRetainedAndIncludedInTheProductTimeline()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(DateTimeOffset.UtcNow);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        UpdateHistoryEntry running = new(Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider, job.Selection.PackageId, job.Selection.InstalledVersion, job.Selection.CandidateVersion, now, UpdateHistoryStatus.Running, null, "running");
+        await database.Store.RecordAsync(running, CancellationToken.None);
+        await database.Store.RecoverInterruptedAsync(CancellationToken.None);
+        await database.Store.RecordAsync(running with { EventId = Guid.NewGuid(), OccurredAt = now.AddMinutes(1), Status = UpdateHistoryStatus.Success, ExitCode = 0, Diagnostic = "verified" }, CancellationToken.None);
+
+        IReadOnlyCollection<UpdateHistoryEntry> history = await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None);
+        IReadOnlyCollection<ProductTimelineEntry> timeline = await database.Store.GetTimelineAsync(job.Selection.StableProductKey, CancellationToken.None);
+        await database.Store.PruneAsync(new UpdateHistoryRetention(2, now.AddDays(1)), CancellationToken.None);
+
+        Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.Queued && entry.Diagnostic == "recovered-after-interrupted-batch"));
+        Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.Success && entry.ExitCode == 0));
+        Assert.IsTrue(timeline.Any(entry => entry.Summary.Contains("Update Success", StringComparison.Ordinal)));
+        Assert.IsTrue((await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None)).Count <= 2);
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;
