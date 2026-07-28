@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
 **Current task:** 23 — awaiting GPT-5.6 Terra / High
-**Last green commit:** `fd0cb3e` — `feat: add immutable update jobs and constrained runner`
+**Last green commit:** `9b51c19` — `feat: add short-lived elevated helper`
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
