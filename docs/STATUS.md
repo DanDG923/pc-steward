@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 25 — repeated Phase 3 security review complete; gate failed
+**Current task:** 90 — Phase 3 remediation evidence complete; fresh review pending
 **Last green commit:** `117b25b27f204bf5d646d9d5cd9df89dd0c5bcab` — Release build 0 warnings/errors; full suite 154 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -37,9 +37,9 @@
 
 ## Task 25 result
 
-The repeat review closes the earlier scope/architecture collision, current-inventory confirmation, interrupted recovery, NT open-disposition, and orphan-inclusion defects. Release build remains 0 warnings/errors; security 16, architecture 4, focused integration 51, hostile script 42/1 skip, and the full suite 154 all pass.
+The repeat review closes the earlier scope/architecture collision, current-inventory confirmation, interrupted recovery, NT open-disposition, and orphan-inclusion defects. The current remediation working tree passes Release build (0 warnings/errors), focused evidence (22), security 16, architecture 4, integration 87, full suite 158, legacy hostile script 42 assertions/1 non-elevated skip, and the approved elevated local-PC production-cache fixture (14 assertions).
 
-The gate is still FAIL. `P3R-03` remains a Blocker because mandatory symbolic-link, volume-mount, and concurrent ancestor/root swap evidence has not run against the production cleanup primitive. `P3R-08` is High because display-oriented WinGet table parsing can supply the expected ID/version record that authorizes `Success`. `P3R-09` is Medium because multiple crash orphans are evicted by path rather than oldest-first. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
+The gate remains FAIL pending fresh independent review, not an uncollected evidence prerequisite. `P3R-08` now uses bounded structured export data rather than display output, `P3R-09` evicts crash orphans oldest-first, and `P3R-03` now has production-cache evidence for file/directory/root links, scratch-VHD mount, deterministic ancestor swap, and deterministic root swap. See [the remediation evidence](review/TASK_90_P3RRR_EVIDENCE.md), [resolved evidence record](failures/90-phase3-production-hostile-evidence.md), and [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
@@ -47,7 +47,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Run Task 90 under GPT-5.6 Terra / High. Stop before starting it with the current settings. Do not merge Phase 3 or begin Task 26.
+Repeat Task 25 under GPT-5.6 Sol / Extra High against this evidence set. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 

@@ -1,8 +1,7 @@
-# Task 90 — repeated Phase 3 remediation plan
+# Task 90 — repeated Phase 3 remediation plan (2026-07-29)
 
-1. **Blocker — P3R-03:** Correct the native descendant open disposition to NT `FILE_OPEN`; exercise the production cache at reparse root, final and repeated ancestor junctions without touching outside sentinels.
-2. **High — P3R-02:** Remove display-name correlation from post-update authority; use only fixed exact package/source/version/scope/architecture WinGet queries and execute the production `ReInventoryAsync` path.
-3. **Mandatory evidence:** Rerun production update, confirmation, cache, hostile-root, Release-build and full-suite checks; preserve the existing VM/manual exception scope rather than relabelling it as local proof.
-4. **Medium — P3R-05:** Cover a changed current inventory from review to confirmation and prove no immutable job or provider operation begins.
-5. **Medium — P3R-07:** Include unknown owned filesystem bytes in quota enforcement and safely evict inactive crash orphans while preserving active payloads.
-6. Update the remediation evidence, review handoff, readiness matrix, traceability and status; do not merge or begin Task 26.
+1. **P3R-08 — remediated in the working tree:** use bounded, app-owned `winget export --include-versions` JSON as the sole post-update success authority; a display-table forgery must fail closed.
+2. **P3R-09 — remediated in the working tree:** include crash orphans in quota accounting and evict inactive candidates by oldest write time before path ordering.
+3. **P3R-03 — partial evidence only:** deterministic production cleanup proves a post-root-handle ancestor replacement cannot delete an outside sentinel. Existing junction root/final/repeated-ancestor fixtures still pass.
+4. **P3R-03 — local-PC evidence complete:** the approved elevated fixture creates only a new temporary-root link/VHD set, runs every link/mount case through the production cache primitive, and removes all fixtures in `finally`. Deterministic production ancestor and root swaps also pass.
+5. Record focused, Release-build, complete-suite, legacy hostile-root, and elevated local-PC evidence; then hand off to a fresh Task 25 Sol/Extra High review. Do not merge Phase 3 or start Task 26.

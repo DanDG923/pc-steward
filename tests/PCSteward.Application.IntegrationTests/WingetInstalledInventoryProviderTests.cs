@@ -47,14 +47,22 @@ public sealed class WingetInstalledInventoryProviderTests
     public async Task ExactPostUpdateQueryRequiresOneExpectedPackageAndVersion()
     {
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new PCSteward.Domain.UpdateJobSelection("winget:contoso", PCSteward.Domain.UpdateProvider.WinGet, PCSteward.Domain.UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", PCSteward.Domain.UpdateScope.User, PCSteward.Domain.UpdateArchitecture.X64, PCSteward.Domain.UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
-        FakeProcess matching = new(new WingetProcessResult(0, "Name  Id  Version  Source\n--------------------------------\nContoso  Contoso.Widget  1.1  winget", string.Empty, false));
-        FakeProcess mismatch = new(new WingetProcessResult(0, "Name  Id  Version  Source\n--------------------------------\nContoso  Contoso.Other  1.1  winget", string.Empty, false));
+        ExportingProcess matching = new("{\"Sources\":[{\"SourceDetails\":{\"Name\":\"winget\"},\"Packages\":[{\"PackageIdentifier\":\"Contoso.Widget\",\"Version\":\"1.1\"}]}]}");
+        ExportingProcess mismatch = new("{\"Sources\":[{\"SourceDetails\":{\"Name\":\"winget\"},\"Packages\":[{\"PackageIdentifier\":\"Contoso.Other\",\"Version\":\"1.1\"}]}]}");
 
         Assert.IsTrue(await new WingetInstalledInventoryProvider(matching).HasExactExpectedVersionAsync(job, CancellationToken.None));
         Assert.IsFalse(await new WingetInstalledInventoryProvider(mismatch).HasExactExpectedVersionAsync(job, CancellationToken.None));
-        CollectionAssert.Contains(matching.Arguments.ToArray(), "--exact"); CollectionAssert.Contains(matching.Arguments.ToArray(), "--source");
-        CollectionAssert.Contains(matching.Arguments.ToArray(), "--scope"); CollectionAssert.Contains(matching.Arguments.ToArray(), "user");
-        CollectionAssert.Contains(matching.Arguments.ToArray(), "--architecture"); CollectionAssert.Contains(matching.Arguments.ToArray(), "x64");
+        CollectionAssert.Contains(matching.Arguments.ToArray(), "export"); CollectionAssert.Contains(matching.Arguments.ToArray(), "--include-versions");
+    }
+    [TestMethod]
+    public async Task ExactPostUpdateQueryCannotAuthorizeSuccessFromDisplayTableText()
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new PCSteward.Domain.UpdateJobSelection("winget:contoso", PCSteward.Domain.UpdateProvider.WinGet, PCSteward.Domain.UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", PCSteward.Domain.UpdateScope.User, PCSteward.Domain.UpdateArchitecture.X64, PCSteward.Domain.UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+        FakeProcess forgedTable = new(new WingetProcessResult(0, "Name              Id              Version\nContoso Widget    Contoso.Widget  1.1", string.Empty, false));
+
+        Assert.IsFalse(await new WingetInstalledInventoryProvider(forgedTable).HasExactExpectedVersionAsync(job, CancellationToken.None));
+        CollectionAssert.Contains(forgedTable.Arguments.ToArray(), "export");
+        Assert.IsFalse(forgedTable.Arguments.Contains("list"));
     }
     [TestMethod]
     public async Task ExactCompatibilityResolutionAcceptsOnlyOneScopeArchitecturePair()
@@ -99,5 +107,16 @@ public sealed class WingetInstalledInventoryProviderTests
     {
         private readonly Queue<WingetProcessResult> results = new(results); public List<IReadOnlyList<string>> Calls { get; } = [];
         public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Calls.Add(arguments); return Task.FromResult(results.Dequeue()); }
+    }
+    private sealed class ExportingProcess(string json) : IWingetProcess
+    {
+        public IReadOnlyList<string> Arguments { get; private set; } = [];
+        public async Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            Arguments = arguments;
+            int output = Array.IndexOf(arguments.ToArray(), "--output");
+            await File.WriteAllTextAsync(arguments[output + 1], json, cancellationToken);
+            return new WingetProcessResult(0, string.Empty, string.Empty, false);
+        }
     }
 }

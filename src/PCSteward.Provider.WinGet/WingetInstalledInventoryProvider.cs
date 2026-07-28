@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using PCSteward.Application;
 using PCSteward.Domain;
@@ -28,6 +29,8 @@ public sealed partial class WingetInstalledInventoryProvider
         BuildExactInstalledArguments(selection.Source, selection.PackageId, selection.Scope, selection.Architecture);
     public static IReadOnlyList<string> BuildExactInstalledArguments(UpdateSource source, string packageId, UpdateScope scope, UpdateArchitecture architecture) =>
     ["list", "--id", packageId, "--source", source == UpdateSource.WinGet ? "winget" : "msstore", "--exact", "--scope", Scope(scope), "--architecture", Architecture(architecture), "--disable-interactivity"];
+    internal static IReadOnlyList<string> BuildInstalledExportArguments(UpdateSource source, string outputPath) =>
+    ["export", "--output", outputPath, "--include-versions", "--source", source == UpdateSource.WinGet ? "winget" : "msstore", "--disable-interactivity"];
     public async Task<WingetInventoryResult> ReadInstalledAsync(CancellationToken cancellationToken)
     {
         WingetProcessResult result = await process.RunAsync(BuildInstalledListArguments(), TimeSpan.FromSeconds(30), cancellationToken);
@@ -40,13 +43,19 @@ public sealed partial class WingetInstalledInventoryProvider
     {
         ArgumentNullException.ThrowIfNull(job);
         if (job.Selection.Provider != UpdateProvider.WinGet) return false;
-        WingetProcessResult result = await process.RunAsync(BuildExactInstalledArguments(job.Selection), TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
-        if (result is { TimedOut: true } || result.OutputLimitExceeded || result.ExitCode != 0 || result.StandardOutput.Length > MaximumOutputLength) return false;
-        WingetInventoryResult parsed = ParseTable(result.StandardOutput);
-        return parsed.Warnings.Count == 0 && parsed.Records.Count == 1 &&
-            string.Equals(parsed.Records.Single().Id, job.Selection.PackageId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(parsed.Records.Single().Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
-            (string.IsNullOrWhiteSpace(parsed.Records.Single().Source) || string.Equals(parsed.Records.Single().Source, job.Selection.Source == UpdateSource.WinGet ? "winget" : "msstore", StringComparison.OrdinalIgnoreCase));
+        string output = Path.Combine(Path.GetTempPath(), "pcsteward-winget-export-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            WingetProcessResult result = await process.RunAsync(BuildInstalledExportArguments(job.Selection.Source, output), TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            if (result is { TimedOut: true } || result.OutputLimitExceeded || result.ExitCode != 0 || !File.Exists(output)) return false;
+            FileInfo exported = new(output);
+            if (exported.Length is <= 0 or > MaximumOutputLength) return false;
+            using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(output, cancellationToken).ConfigureAwait(false));
+            return ContainsExactExportedPackage(document.RootElement, job.Selection);
+        }
+        catch (IOException) { return false; }
+        catch (JsonException) { return false; }
+        finally { try { File.Delete(output); } catch (IOException) { } }
     }
     public async Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken)
     {
@@ -78,6 +87,22 @@ public sealed partial class WingetInstalledInventoryProvider
             records.Add(new WingetInstalledRecord(columns[0], columns[1], columns[2], columns.Length > 3 ? columns[^1] : null));
         }
         return new WingetInventoryResult(records, warnings);
+    }
+    private static bool ContainsExactExportedPackage(JsonElement root, UpdateJobSelection selection)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("Sources", out JsonElement sources) || sources.ValueKind != JsonValueKind.Array) return false;
+        string expectedSource = selection.Source == UpdateSource.WinGet ? "winget" : "msstore";
+        List<(string Id, string Version)> matches = [];
+        foreach (JsonElement source in sources.EnumerateArray())
+        {
+            if (!source.TryGetProperty("SourceDetails", out JsonElement details) || !details.TryGetProperty("Name", out JsonElement name) || !string.Equals(name.GetString(), expectedSource, StringComparison.OrdinalIgnoreCase) || !source.TryGetProperty("Packages", out JsonElement packages) || packages.ValueKind != JsonValueKind.Array) continue;
+            foreach (JsonElement package in packages.EnumerateArray())
+            {
+                if (!package.TryGetProperty("PackageIdentifier", out JsonElement id) || !package.TryGetProperty("Version", out JsonElement version) || id.ValueKind != JsonValueKind.String || version.ValueKind != JsonValueKind.String) return false;
+                matches.Add((id.GetString()!, version.GetString()!));
+            }
+        }
+        return matches.Count(match => string.Equals(match.Id, selection.PackageId, StringComparison.OrdinalIgnoreCase) && string.Equals(match.Version, selection.CandidateVersion, StringComparison.Ordinal)) == 1;
     }
     private static string Scope(UpdateScope scope) => scope switch { UpdateScope.User => "user", UpdateScope.Machine => "machine", _ => throw new ArgumentOutOfRangeException(nameof(scope)) };
     private static string Architecture(UpdateArchitecture architecture) => architecture switch { UpdateArchitecture.X64 => "x64", UpdateArchitecture.X86 => "x86", UpdateArchitecture.Arm64 => "arm64", UpdateArchitecture.Neutral => "neutral", _ => throw new ArgumentOutOfRangeException(nameof(architecture)) };

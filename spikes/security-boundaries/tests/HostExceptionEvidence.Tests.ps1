@@ -22,17 +22,35 @@ function Invoke-DiskPart([string[]]$Commands) {
     }
 }
 
-$principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'This isolated scratch-VHD test must be run elevated; it does not touch existing disks or files.'
+function Assert-ProductionCacheRejects([string]$CacheRoot, [string]$RelativePath, [string]$Sentinel, [switch]$RootMustReject) {
+    $project = Join-Path $PSScriptRoot '..\production-cache-evidence\PCSteward.ProductionCacheEvidence.csproj'
+    $arguments = @('run', '--configuration', 'Release', '--project', $project, '--', $CacheRoot, $RelativePath, $Sentinel)
+    if ($RootMustReject) { $arguments += '--root-must-reject' }
+    & dotnet @arguments
+    if ($LASTEXITCODE -ne 0) { throw "Production cache fixture failed for $RelativePath." }
+    $script:Assertions++
 }
 
-Add-Type -Path (Join-Path $PSScriptRoot '..\SecurityBoundarySpike.cs')
+$principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $message = 'This isolated scratch-VHD test must be run elevated; it does not touch existing disks or files.'
+    if ($ResultPath) { [IO.File]::WriteAllText($ResultPath, $message) }
+    throw $message
+}
+
+try {
+    Add-Type -Path (Join-Path $PSScriptRoot '..\SecurityBoundarySpike.cs')
+}
+catch {
+    if ($ResultPath) { [IO.File]::WriteAllText($ResultPath, ($_ | Out-String)) }
+    throw
+}
 
 $script:Assertions = 0
 $container = Join-Path ([IO.Path]::GetTempPath()) ('pc-steward-host-evidence-' + [guid]::NewGuid().ToString('N'))
 $root = Join-Path $container 'owned'
 $outside = Join-Path $container 'outside'
+$rootLink = Join-Path $container 'owned-root-link'
 $vhd = Join-Path $container 'scratch.vhd'
 $mount = Join-Path $root 'downloads\mounted-vhd'
 $vhdAttached = $false
@@ -53,6 +71,11 @@ try {
     New-Item -ItemType SymbolicLink -Path $directoryLink -Target $outside | Out-Null
     $reparsePaths.Add($fileLink)
     $reparsePaths.Add($directoryLink)
+    Assert-ProductionCacheRejects $root 'settings\file-link' $outsideSentinel
+    Assert-ProductionCacheRejects $root 'settings\directory-link' $outsideSentinel
+    New-Item -ItemType SymbolicLink -Path $rootLink -Target $root | Out-Null
+    $reparsePaths.Add($rootLink)
+    Assert-ProductionCacheRejects $rootLink '.' $outsideSentinel -RootMustReject
     Assert-Throws {
         [PcSteward.SecurityBoundarySpike.SafeDeletion]::ValidateCandidate($root, $fileLink)
     } 'A file symbolic link must be rejected.'
@@ -103,8 +126,9 @@ try {
         $root, [PcSteward.SecurityBoundarySpike.ResetCategory]::Downloads)
     Assert-True ($mountReport.Outcome -eq [PcSteward.SecurityBoundarySpike.DeletionOutcome]::Partial) 'A volume mount point must fail closed with Partial.'
     Assert-True ([IO.File]::Exists($vhdSentinel)) 'The scratch VHD sentinel must survive rejection.'
+    Assert-ProductionCacheRejects $root 'downloads\mounted-vhd' $vhdSentinel
 
-    $result = "PASS: $Assertions assertions; file/directory links, deterministic race, and scratch VHD mount were rejected; sentinels survived."
+    $result = "PASS: $Assertions assertions; production cache and legacy spike rejected file/directory/root links and scratch VHD mount; sentinels survived."
     Write-Output $result
     if ($ResultPath) { [IO.File]::WriteAllText($ResultPath, $result) }
 }

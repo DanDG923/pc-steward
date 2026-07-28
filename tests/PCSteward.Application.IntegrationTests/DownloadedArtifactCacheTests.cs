@@ -102,6 +102,27 @@ public sealed class DownloadedArtifactCacheTests
     }
 
     [TestMethod]
+    public async Task QuotaEvictsTheOldestCrashOrphanBeforeANewerOne()
+    {
+        await using ArtifactFixture fixture = new();
+        DownloadedArtifact active = fixture.Write("active.bin", 20, DateTimeOffset.UtcNow, active: true);
+        await fixture.CreateCache(60).RegisterAsync(active, CancellationToken.None);
+        string old = Path.Combine(fixture.Root, "z-old-orphan.bin");
+        string newer = Path.Combine(fixture.Root, "a-new-orphan.bin");
+        await File.WriteAllBytesAsync(old, Enumerable.Repeat((byte)1, 30).ToArray());
+        await File.WriteAllBytesAsync(newer, Enumerable.Repeat((byte)2, 30).ToArray());
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddHours(-2));
+        File.SetLastWriteTimeUtc(newer, DateTime.UtcNow.AddHours(-1));
+
+        DownloadCleanupResult result = await fixture.CreateCache(60).EnforceRetentionAndQuotaAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsFalse(File.Exists(old));
+        Assert.IsTrue(File.Exists(newer));
+        Assert.AreEqual(50, result.RemainingBytes);
+    }
+
+    [TestMethod]
     public async Task ProductionCacheRejectsJunctionWithoutTouchingOutsideTarget()
     {
         await using ArtifactFixture fixture = new();
@@ -174,6 +195,81 @@ public sealed class DownloadedArtifactCacheTests
         }
     }
 
+    [TestMethod]
+    public async Task ProductionCacheRejectsAnAncestorSwapAfterTheRootHandleIsBound()
+    {
+        await using ArtifactFixture fixture = new();
+        string ancestor = Path.Combine(fixture.Root, "ancestor");
+        string payload = Path.Combine(ancestor, "payload.bin");
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-outside-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(ancestor); Directory.CreateDirectory(outside);
+        await File.WriteAllBytesAsync(payload, [1, 2, 3]);
+        string sentinel = Path.Combine(outside, "must-survive.txt");
+        await File.WriteAllTextAsync(sentinel, "outside");
+        DownloadedArtifact artifact = new(Guid.NewGuid(), "update", Path.Combine("ancestor", "payload.bin"), 3, DateTimeOffset.UtcNow);
+        await fixture.CreateCache().RegisterAsync(artifact, CancellationToken.None);
+        try
+        {
+            BeforeDescendantOpenForTesting = () =>
+            {
+                Directory.Delete(ancestor, true);
+                CreateJunctionAsync(ancestor, outside).GetAwaiter().GetResult();
+            };
+
+            DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == Path.Combine("ancestor", "payload.bin") && residual.Reason == "UnsafePath"));
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
+        }
+        finally
+        {
+            BeforeDescendantOpenForTesting = null;
+            if (Directory.Exists(ancestor)) new DirectoryInfo(ancestor).Delete();
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ProductionCachePreventsARootSwapAfterTheRootHandleIsBound()
+    {
+        await using ArtifactFixture fixture = new();
+        string payload = Path.Combine(fixture.Root, "payload.bin");
+        string relocatedRoot = fixture.Root + "-relocated";
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-outside-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outside);
+        string sentinel = Path.Combine(outside, "must-survive.txt");
+        await File.WriteAllTextAsync(payload, "owned");
+        await File.WriteAllTextAsync(sentinel, "outside");
+        DownloadedArtifact artifact = new(Guid.NewGuid(), "update", "payload.bin", 5, DateTimeOffset.UtcNow);
+        await fixture.CreateCache().RegisterAsync(artifact, CancellationToken.None);
+        bool rootSwapOccurred = false;
+        try
+        {
+            BeforeDescendantOpenForTesting = () =>
+            {
+                Directory.Move(fixture.Root, relocatedRoot);
+                CreateJunctionAsync(fixture.Root, outside).GetAwaiter().GetResult();
+                rootSwapOccurred = true;
+            };
+
+            DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+
+            Assert.IsTrue(rootSwapOccurred, "The fixture must replace the root after its handle is bound.");
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsFalse(File.Exists(payload));
+            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "must-survive.txt" && residual.Reason == "UnsafePath"));
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
+        }
+        finally
+        {
+            BeforeDescendantOpenForTesting = null;
+            if (Directory.Exists(fixture.Root)) new DirectoryInfo(fixture.Root).Delete();
+            if (Directory.Exists(relocatedRoot)) Directory.Delete(relocatedRoot, true);
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
+    }
+
     private static async Task CreateJunctionAsync(string path, string target)
     {
         using System.Diagnostics.Process process = new();
@@ -181,6 +277,12 @@ public sealed class DownloadedArtifactCacheTests
         process.Start();
         await process.WaitForExitAsync();
         Assert.AreEqual(0, process.ExitCode, await process.StandardError.ReadToEndAsync());
+    }
+
+    private static Action? BeforeDescendantOpenForTesting
+    {
+        get => (Action?)typeof(DownloadedArtifactCache).Assembly.GetType("PCSteward.Storage.NativeDelete")!.GetProperty("BeforeDescendantOpenForTesting", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null);
+        set => typeof(DownloadedArtifactCache).Assembly.GetType("PCSteward.Storage.NativeDelete")!.GetProperty("BeforeDescendantOpenForTesting", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.SetValue(null, value);
     }
 
     private sealed class ArtifactFixture : IAsyncDisposable

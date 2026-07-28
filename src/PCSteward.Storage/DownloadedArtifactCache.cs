@@ -88,13 +88,12 @@ public sealed class DownloadedArtifactCache : IDisposable
             Dictionary<string, DownloadedArtifact> ledger = remaining.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
             HashSet<string> active = remaining.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             HashSet<string> attempted = [];
-            foreach (FileSystemObject item in PathSafety.EnumerateOwnedObjects(CacheRoot).OrderBy(item => item.IsDirectory).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
+            foreach (FileSystemObject item in PathSafety.EnumerateOwnedObjects(CacheRoot).OrderBy(item => item.IsDirectory).ThenBy(item => item.LastWriteTimeUtc).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
             {
                 if (active.Contains(item.RelativePath) || ledger.ContainsKey(item.RelativePath)) continue;
                 bool quotaExceeded = retainedBytes > SoftQuotaBytes;
                 if (!clearAllInactive && !quotaExceeded)
                 {
-                    residuals.Add(new DownloadCleanupResidual(item.RelativePath, "UnknownOwnedObject"));
                     continue;
                 }
 
@@ -105,7 +104,7 @@ public sealed class DownloadedArtifactCache : IDisposable
             }
 
             FileSystemObject[] filesystemRemaining = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
-            foreach (FileSystemObject item in filesystemRemaining.Where(item => !active.Contains(item.RelativePath) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
+            foreach (FileSystemObject item in filesystemRemaining.Where(item => !active.Contains(item.RelativePath) && (clearAllInactive || ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
                 residuals.Add(new DownloadCleanupResidual(item.RelativePath, ledger.ContainsKey(item.RelativePath) ? "UndeletedOwnedObject" : "UnknownOwnedObject"));
             bool succeeded = residuals.Count == 0;
             if (succeeded) await store.SetDownloadedArtifactsLastCleanedAtAsync(now, cancellationToken).ConfigureAwait(false);
@@ -152,7 +151,7 @@ internal static class PathSafety
             try { children = Directory.EnumerateFileSystemEntries(parent).ToArray(); }
             catch (UnauthorizedAccessException) { children = []; inaccessible = true; }
             catch (IOException) { children = []; inaccessible = true; }
-            if (inaccessible) { yield return new FileSystemObject(parentRelative, 0, false, true); continue; }
+            if (inaccessible) { yield return new FileSystemObject(parentRelative, 0, false, true, DateTime.MinValue); continue; }
             foreach (string child in children)
             {
                 string relative = parentRelative.Length == 0 ? Path.GetFileName(child) : Path.Combine(parentRelative, Path.GetFileName(child));
@@ -160,20 +159,20 @@ internal static class PathSafety
                 bool unreadable = false;
                 try { attributes = File.GetAttributes(child); }
                 catch (IOException) { attributes = FileAttributes.Normal; unreadable = true; }
-                if (unreadable) { yield return new FileSystemObject(relative, 0, false, true); continue; }
+                if (unreadable) { yield return new FileSystemObject(relative, 0, false, true, DateTime.MinValue); continue; }
                 bool directory = (attributes & FileAttributes.Directory) != 0;
                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {
-                    yield return new FileSystemObject(relative, 0, directory, true);
+                    yield return new FileSystemObject(relative, 0, directory, true, DateTime.MinValue);
                     continue;
                 }
-                if (directory) { pending.Push((child, relative)); yield return new FileSystemObject(relative, 0, true, false); }
+                if (directory) { pending.Push((child, relative)); yield return new FileSystemObject(relative, 0, true, false, Directory.GetLastWriteTimeUtc(child)); }
                 else
                 {
                     long size;
                     try { size = new FileInfo(child).Length; }
                     catch (IOException) { size = 0; }
-                    yield return new FileSystemObject(relative, size, false, false);
+                    yield return new FileSystemObject(relative, size, false, false, File.GetLastWriteTimeUtc(child));
                 }
             }
         }
@@ -221,10 +220,13 @@ internal static class PathSafety
     private static string Classify(IOException exception) { int code = exception.HResult & 0xFFFF; return code is 32 or 33 or 67 ? "LockedOrInUse" : "IoError:" + code; }
 }
 
-internal sealed record FileSystemObject(string RelativePath, long SizeBytes, bool IsDirectory, bool IsUnsafe);
+internal sealed record FileSystemObject(string RelativePath, long SizeBytes, bool IsDirectory, bool IsUnsafe, DateTime LastWriteTimeUtc);
 
 internal static class NativeDelete
 {
+    // Internal test seam: production never assigns this hook. It lets the hostile fixture replace
+    // an ancestor only after the fixed root handle has been bound.
+    internal static Action? BeforeDescendantOpenForTesting { get; set; }
     private const uint DeleteAccess = 0x00010000, ReadAttributes = 0x00000080, ShareRead = 1, ShareWrite = 2, OpenExisting = 3, NtOpen = 1, OpenReparsePoint = 0x00200000;
     private const int FileDispositionInfo = 4;
     [StructLayout(LayoutKind.Sequential)] private struct FileDisposition { [MarshalAs(UnmanagedType.Bool)] public bool DeleteFile; }
@@ -239,6 +241,7 @@ internal static class NativeDelete
         // but cannot redirect this operation through an ancestor replacement after it is opened.
         using SafeFileHandle rootHandle = CreateFileW(root, ReadAttributes, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, OpenReparsePoint | 0x02000000, IntPtr.Zero);
         if (rootHandle.IsInvalid) throw Error("Opening the fixed cache root failed.");
+        BeforeDescendantOpenForTesting?.Invoke();
         using SafeFileHandle handle = OpenRelative(rootHandle, relativePath, directory);
         FileDisposition disposition = new() { DeleteFile = true };
         if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf<FileDisposition>())) throw Error("Handle-bound deletion failed.");
