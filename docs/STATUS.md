@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
-**Current task:** 01 — Architecture, threat model, and execution plan (complete)
-**Last green commit:** `9823855` — Task 01 architecture and threat model
+**Current task:** 02 — Packaging and WinGet integration spike (complete)
+**Last green commit:** `41a22fb` — Task 02 packaging and WinGet evidence
 **Current branch:** `phase/0-foundation`
 **Build command:** To be established by Task 06
 **Test command:** To be established by Task 06
@@ -36,7 +36,7 @@
 
 ## Active blockers
 
-Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target, plus warnings for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims.
+Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target, plus warnings for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run.
 
 All OD-01–OD-13 decisions remain unresolved until their cited evidence and product-owner decisions are reviewed. No ADR is Accepted.
 
@@ -44,9 +44,13 @@ All OD-01–OD-13 decisions remain unresolved until their cited evidence and pro
 
 PASS — architecture, trust boundaries, threat model, test strategy, phased implementation plan and 13 proposed ADRs created. Structural coverage and `git diff --check` passed. Deliverable commit: `9823855`.
 
+## Task 02 result
+
+PASS WITH EVIDENCE LIMITATIONS — isolated capability/parser and shell-free command-planning spike created. WinGet `v1.29.280` supports the required argument controls, but observed help exposes no structured list/upgrade output. ADR-002 and ADR-003 remain Proposed; clean Windows 11 VM lifecycle evidence and approved source queries remain outstanding.
+
 ## Next task
 
-Run `prompts/02_SPIKE_PACKAGING_AND_WINGET_INTEGRATION.md`. Required model/reasoning: GPT-5.6 Terra / High. Branch: `phase/0-foundation`.
+Run `prompts/03_SPIKE_PRIVILEGE_BOUNDARY_AND_SAFE_DELETION.md`. Required model/reasoning: GPT-5.6 Sol / High. Branch: `phase/0-foundation`.
 
 ## Rules for updating this file
 
