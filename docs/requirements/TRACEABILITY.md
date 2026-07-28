@@ -2,6 +2,12 @@
 
 This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at least one numbered Codex task. Review tasks verify the whole phase even when not repeated below.
 
+## Phase 0 evidence links
+
+| Task | Requirement IDs informed | Evidence |
+|---|---|---|
+| 02 — packaging and WinGet spike | `FR-DAT-12`, `AC-DAT-18`, `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03` | `spikes/winget-packaging/SPIKE_REPORT.md`; proposed ADR-002 and ADR-003 remain unaccepted. |
+
 | ID | Requirement / criterion | MVP marker | Task(s) |
 |---|---|---|---|
 | `FR-ONB-01` | Explain local inventory collection, network source access, permissions and data storage before the first scan. | Yes | 13 |

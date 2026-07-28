@@ -52,6 +52,10 @@ Packaging-specific code remains outside domain; Task 30 reruns lifecycle evidenc
 - Factory reset without deleting binaries.
 - Tooling and clean Windows 11 VM prerequisites.
 
+## Task 02 evidence
+
+`spikes/winget-packaging/SPIKE_REPORT.md` records that WinGet is available to the current user, but this Windows 10 host lacks the target OS evidence and native packaging/signing tooling. Neither MSIX nor unpackaged PC Steward lifecycle behavior was executed. The spike provisionally favours Option B because a separate signed helper and an explicit retain/remove-data uninstall choice fit its boundary more directly; this is a recommendation only, not a status change. A clean Windows 11 VM must prove both lifecycle matrices before Task 05 can lock this ADR.
+
 ## Reconsider when
 
 Windows packaging capabilities or deployment requirements materially change.

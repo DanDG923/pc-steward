@@ -39,6 +39,10 @@ Golden parsers/capability fixtures, timeout/cancellation and arbitrary-argument 
 - Version/capability detection, exit codes, timeouts, cancellation and sanitization.
 - Non-executed update fixtures proving shell-free construction.
 
+## Task 02 evidence
+
+`spikes/winget-packaging/SPIKE_REPORT.md` records WinGet `v1.29.280` and confirms local help support for exact ID, source, version, architecture, scope and non-interactive arguments. The observed `list` and `upgrade` help does not advertise structured output, so table parsing is never execution authority. A supported programmatic route was not evidenced on this host. The spike provisionally recommends Option A behind capability gates, fixed `winget.exe`, argument arrays, bounded capture, timeout/cancellation and non-actionable parser failures. Installed/upgrade/Store probes require separate explicit authorization because they may disclose installed-software metadata to external sources. Status remains Proposed.
+
 ## Reconsider when
 
 A supported API clearly supersedes the selected route or WinGet output compatibility breaks.
