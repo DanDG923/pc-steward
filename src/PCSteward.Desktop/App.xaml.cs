@@ -2,7 +2,7 @@ using Microsoft.UI.Xaml;
 
 namespace PCSteward.Desktop;
 
-public partial class App : Application
+public partial class App : global::Microsoft.UI.Xaml.Application
 {
     public App()
     {

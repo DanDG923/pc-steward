@@ -5,5 +5,6 @@
     <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="MSTest.TestFramework" />
     <ProjectReference Include="../../src/PCSteward.Application/PCSteward.Application.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
   </ItemGroup>
 </Project>

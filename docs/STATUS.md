@@ -1,9 +1,9 @@
 # PC Steward build status
 
-**Current phase:** Phase 0 — Evidence, architecture, and scaffolding
-**Current task:** 06 — Scaffold solution and engineering guardrails (complete)
-**Last green commit:** `23f1de9` — Task 06 verified solution scaffold
-**Current branch:** `phase/0-foundation`
+**Current phase:** Phase 1 — Local inventory vertical slice
+**Current task:** 07 — Core domain model and SQLite persistence (complete)
+**Last green commit:** Pending Task 07 commit
+**Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
@@ -73,7 +73,7 @@ PASS — .NET 10 solution scaffold created with accepted capability boundaries, 
 
 ## Next task
 
-Do not start Task 07 until the Phase 0 gate passes and this work is merged to `phase/1-inventory`. Task 07 requires GPT-5.6 Terra / Medium.
+Run `prompts/08_REGISTRY_INVENTORY_PROVIDERS.md`. Required model/reasoning: GPT-5.6 Terra / Medium.
 
 ## Rules for updating this file
 

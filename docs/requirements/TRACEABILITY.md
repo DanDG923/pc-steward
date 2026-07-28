@@ -11,6 +11,7 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 | 04 — performance baseline and fixture matrix | `NFR-PERF-01–02`, `NFR-PERF-06`, `NFR-PERF-08–09`, `AC-NFR-01–03`, `AC-NFR-07`, `AC-NFR-09` | `spikes/performance-fixtures/BASELINE.md`; 320 fixtures, 30 local and 20 simulated-online samples; supports Accepted ADR-006 measurement protocol, not final compliance. |
 | 05 — architecture decision lock | `OD-01–13`, `NFR-MNT-01–05`, `NFR-OBS-01–05`, `FR-UPD-01–04`, `FR-DAT-06–15`, `FR-SCH-01–05` | `docs/review/TASK_05_ARCHITECTURE_DECISION_REVIEW.md`; ADR-001–020 leave no Proposed decisions and define four Provisional evidence gates. |
 | 06 — solution and guardrail scaffold | `NFR-MNT-01–05`, `NFR-OBS-01–05`, `NFR-PERF-01–10`, `FR-UPD-02–04`, `FR-DAT-06–15`, `FR-SCH-02–04` | `PCSteward.slnx`, central build settings, architecture-test project, Windows-only CI and command scripts establish scaffold evidence only; no feature requirement is marked complete. |
+| 07 — core domain and SQLite persistence | `NFR-REL-02`, `NFR-MNT-04`, `FR-ID-01`, `AC-DAT-01`, `AC-DAT-06–07` | Domain lifecycle records, SQLite migration, atomic inventory promotion and stable-decision preservation tests; inventory and UI requirements remain unimplemented. |
 
 | ID | Requirement / criterion | MVP marker | Task(s) |
 |---|---|---|---|
