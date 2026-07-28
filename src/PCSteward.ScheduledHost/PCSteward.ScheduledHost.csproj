@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
+    <ProjectReference Include="../PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
+    <ProjectReference Include="../PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
+    <ProjectReference Include="../PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
+    <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
+    <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
+  </ItemGroup>
+</Project>

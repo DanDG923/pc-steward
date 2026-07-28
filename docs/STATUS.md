@@ -1,11 +1,11 @@
 # PC Steward build status
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
-**Current task:** 05 — Lock ADRs and architecture (complete)
-**Last green commit:** `3f123ce` — Task 05 evidence-backed architecture decision lock
+**Current task:** 06 — Scaffold solution and engineering guardrails (complete)
+**Last green commit:** Pending Task 06 commit
 **Current branch:** `phase/0-foundation`
-**Build command:** To be established by Task 06
-**Test command:** To be established by Task 06
+**Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
+**Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
 **Phase gate:** Not run
 
@@ -67,9 +67,13 @@ PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, r
 
 PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 architecture documents now lock component, persistence, diagnostics, immutable-job, helper IPC, artifact-root and scan-only scheduling boundaries. ADR-002/003/011/013 retain explicit evidence gates. All three spike suites passed: 11 WinGet assertions, 42 security assertions with one VM/manual skip category, and 14 fixture assertions.
 
+## Task 06 result
+
+PASS — .NET 10 solution scaffold created with accepted capability boundaries, unpackaged WinUI startup shell, separate scheduled and elevated hosts, unit/integration/architecture/security-fixture projects, and a benchmark entry point. Restore, Release build and all four test projects passed with zero build warnings; display name has one source occurrence in `AppIdentity`. No product feature is claimed complete.
+
 ## Next task
 
-Stop and change settings before running `prompts/06_SCAFFOLD_SOLUTION_AND_ENGINEERING_GUARDRAILS.md`. Required model/reasoning: GPT-5.6 Terra / Medium. Branch: `phase/0-foundation`.
+Do not start Task 07 until the Phase 0 gate passes and this work is merged to `phase/1-inventory`. Task 07 requires GPT-5.6 Terra / Medium.
 
 ## Rules for updating this file
 
