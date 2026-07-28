@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
 **Current task:** 90 — repeated remediation and evidence collection complete; fresh Task 25 review required
-**Last green commit:** pending Task 90 remediation commit — Release build 0 warnings/errors; full suite 154 passed
+**Last green commit:** `814519c134618cfbfb562d1233af4f784dc9390a` — Release build 0 warnings/errors; full suite 154 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`

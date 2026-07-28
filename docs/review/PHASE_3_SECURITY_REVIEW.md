@@ -37,7 +37,7 @@ Do not merge Phase 3 or begin Task 26. Run Task 90 and repeat Task 25 under a fr
 
 ## Remediation disposition
 
-**Task 90 repeat remediation:** commit pending. The follow-up adds fixed exact scope/architecture provider queries, production workflow evidence, NT `FILE_OPEN`, production reparse-root/final/repeated-ancestor junction tests, and orphan quota enforcement. Its verification is in `TASK_90_P3RR_EVIDENCE.md`; a fresh Task 25 review must independently decide closure.
+**Task 90 repeat remediation:** `814519c134618cfbfb562d1233af4f784dc9390a`. The follow-up adds fixed exact scope/architecture provider queries, production workflow evidence, NT `FILE_OPEN`, production reparse-root/final/repeated-ancestor junction tests, and orphan quota enforcement. Its verification is in `TASK_90_P3RR_EVIDENCE.md`; a fresh Task 25 review must independently decide closure.
 
 | Finding | Disposition |
 |---|---|
