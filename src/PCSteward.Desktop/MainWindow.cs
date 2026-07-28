@@ -53,7 +53,9 @@ public sealed class MainWindow : Window
         panel.Children.Add(actions);
         panel.Children.Add(new TextBlock { Text = $"Status: {viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss} · {viewModel.FreshnessLabel}", TextWrapping = TextWrapping.Wrap });
 
-        ListView list = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true };
+        // A finite list viewport preserves ListView virtualization inside the outer page
+        // scroller; an unconstrained ListView measures every installed product repeatedly.
+        ListView list = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, MaxHeight = 520 };
         TextBox search = new() { PlaceholderText = "Search installed applications", Text = viewModel.SearchText }; AutomationProperties.SetName(search, "Search installed applications");
         ComboBox status = FilterBox(viewModel.StatusFilter, "All statuses", "Installed"); ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", ..viewModel.AvailablePublishers]); ComboBox source = FilterBox(viewModel.SourceFilter, "All sources", "registry", "msix", "winget"); ComboBox scope = FilterBox(viewModel.ScopeFilter, "All scopes", "Machine", "User", "Unknown"); ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
         AutomationProperties.SetName(status, "Filter by status"); AutomationProperties.SetName(publisher, "Filter by publisher"); AutomationProperties.SetName(source, "Filter by source"); AutomationProperties.SetName(scope, "Filter by scope"); AutomationProperties.SetName(sort, "Sort inventory");
