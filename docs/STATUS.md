@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 90 — Phase 1 remediation (evidence limited)
-**Last green commit:** `dde92df`
+**Current task:** 15 — Phase 1 review gate (fresh repeat)
+**Last green commit:** `2b4b0cf`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** FAIL — fresh Task 15 required
+**Phase gate:** FAIL — four mandatory evidence findings remain
 
 ## Decisions
 
@@ -105,14 +105,14 @@ PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warnin
 
 ## Task 15 result
 
-FRESH REPEAT FAIL — six findings: four High and two Medium. Persisted state can silently re-enable WinGet under local-only labels; generic provider timeouts can outlive or fault through recovery; required filters and final-app/manual evidence remain incomplete; typed diagnostics and the presentation boundary remain unresolved. Run Task 90, then repeat Task 15.
+FRESH REPEAT FAIL — four High evidence findings remain: measured keyboard cancellation and scan-time resource responsiveness, termination during an active scan, measured connector concurrency, and Windows text scaling. P1RR-01/02/04/05/06 are closed. The five-minute CPU check is a temporary product-owner exception, not compliance evidence.
 
 ## Task 90 result
 
-P1RR-01–06 remediation is implemented: WinGet consent fails closed, timeout recovery contains late faults and blocks replacements, typed diagnostics and presentation boundaries are guarded, and filters persist. A physical Windows 11 baseline, approved WinGet scan, restart and thirty final-app samples were recorded in `docs/review/TASK_90_P1RR_EVIDENCE.md`. The five-minute CPU result is a user-approved temporary exception for this gate and must be revisited in a later build; it is not accepted as performance compliance. Cancellation/scaling and active-scan termination staging remain unproven.
+P1RR-01–06 remediation is implemented and five findings are closed. A physical Windows 11 baseline, approved WinGet scan, restart, high-contrast exercise and thirty final-app samples are recorded in `docs/review/TASK_90_P1RR_EVIDENCE.md`. The five-minute CPU result is temporarily excepted and must be revisited. Task 15 identified four remaining mandatory evidence sets.
 ## Next task
 
-Finish Task 90 verification/commit with GPT-5.6 Terra / High, then repeat Task 15 in fresh GPT-5.6 Sol / High.
+Run Task 90 with GPT-5.6 Terra / High for P1RRR-01 through P1RRR-04, then repeat Task 15 in fresh GPT-5.6 Sol / High.
 
 ## Rules for updating this file
 

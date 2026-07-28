@@ -1,8 +1,8 @@
-# Phase 1 review — fresh repeat after Task 90
+# Phase 1 review — fresh repeat after P1RR remediation
 
 **Phase:** Phase 1 — Local inventory vertical slice
 **Base commit:** `5d7e2ca5154504f093a69b0e9ab59b1052776344`
-**Head commit:** `7d568eec61ff4bc32046b15fa48a481e500f807d`
+**Reviewed head commit:** `2b4b0cfe5f7907a76493b0d3e140324d5ac5e0d3`
 **Reviewer model/effort:** GPT-5.6 Sol / High
 **Date:** 2026-07-28
 
@@ -10,51 +10,41 @@
 
 `FAIL`
 
-Task 90 fixed duplicate-product normalization and scan-freshness clearing, and it improved cooperative cancellation and connector persistence. The phase still has four High and two Medium findings. Mandatory trust, cancellation, performance, accessibility and UX criteria are failed or unproven, so the gate cannot pass. A VM is not required: the accepted baseline may be a recorded physical or virtual Windows 11 x64 environment.
+P1RR-01, P1RR-02 and P1RR-04 through P1RR-06 are closed by implementation, automated coverage and recorded desktop evidence. P1RR-03 is materially narrowed: final-app local-scan timing, high contrast, approved WinGet behavior and restart loading are recorded, and the product owner has temporarily excepted the five-minute CPU check for this gate. Four other mandatory acceptance areas remain unproven, so the phase cannot pass.
 
 ## Evidence reviewed
 
-- Complete `main...phase/1-inventory` diff from merge-base `5d7e2ca` through `7d568ee`, Phase 1 requirements, accepted ADR-006/014/016, test strategy and Task 90 evidence.
+- Complete `main...phase/1-inventory` diff from merge-base `5d7e2ca` through `2b4b0cf`, Phase 1 requirements, ADR-006, test strategy, traceability and Task 90 P1RR evidence.
 - Release build: zero warnings and zero errors.
-- Full suite: 29 passed — Domain 4, Application integration 22, Architecture 2 and Security fixture 1.
-- Deterministic workload: 30 in-memory 300-record runs, 1.16 ms median and 1.36 ms p95. The harness excludes SQLite, Windows providers, desktop/UI, idle and process-tree measurements and retains no acceptance samples.
-- Performance fixture integrity: 14 assertions passed; Task 04 evidence remains methodology-only.
-- Static search found no production `Win32_Product`, WMI inventory, elevation request, HTTP client, update execution or shell-enabled WinGet process.
-- No approved enabled-WinGet exercise, final-application baseline run, five-minute idle/process-tree capture, crash/restart staging test, or successful keyboard/scaling/high-contrast exercise was supplied.
+- Full suite: 38 passed — Domain 4, Application integration 30, Architecture 3 and Security fixture 1.
+- Deterministic workload: 30 in-memory 300-record runs, 1.84 ms median and 2.32 ms p95. The harness correctly states that it is not final-app UI, idle or process-tree acceptance evidence.
+- Recorded physical baseline: Windows 11 Home x64 build 26200, 16 logical processors, 31.15 GiB RAM, NVMe storage and fixed recorded `3XS-Overclock` plan.
+- Thirty keyboard-started final-app local scans completed: 1,867 ms median, 1,893 ms p95 and 4,149 ms first observation.
+- Approved WinGet inventory completed in 21 seconds with accurate approved-mode labels; restart loaded the cached approved inventory.
+- High-contrast controls were visible. The intentional termination attempt missed the active scan, no keyboard-cancel timing was retained, and text scaling was not exercised.
+- Static search found no production `Win32_Product`, WMI inventory, elevation request, HTTP client or shell-enabled process. WinGet remains fixed to `list --disable-interactivity`.
 
 ## Findings
 
 | ID | Severity | Requirement | File/line | Finding | Required remediation | Verification |
 |---|---|---|---|---|---|---|
-| P1RR-01 | High | `AC-INV-05`, `FR-ONB-04`, `AC-UX-06` | `src/PCSteward.Desktop/MainWindow.cs:46`, `:60`, `:66`; `src/PCSteward.Desktop/AdditionalLocalInventoryProviders.cs:41` | WinGet is visually disabled, but startup loads any persisted `true` value and the provider executes when that value is true. A database created by the prior UI can therefore run WinGet while the disabled checkbox says approval is required and the button/status still claim a local-only scan. This bypasses the intended source-disclosure gate and makes the local-only label false. | Fail closed for WinGet unless an explicit approved consent state exists; ignore or migrate legacy `true` values, and derive scan mode/labels from the effective provider plan. | Pre-seed WinGet as enabled, restart, and prove no WinGet process/source request occurs and the stored state is disabled; separately verify an approved future flow never uses local-only labels. |
-| P1RR-02 | High | `FR-RSC-03`, `NFR-PERF-08`, `AC-NFR-03` | `src/PCSteward.Application/InventoryScanOrchestrator.cs:30`; `src/PCSteward.Desktop/AdditionalLocalInventoryProviders.cs:21`; `src/PCSteward.Desktop/RegistryLocalInventoryProvider.cs:15` | On timeout the orchestrator cancels and waits only one additional second, then publishes other results while an uncooperative provider may still run. A non-cancellation fault raised during that one-second wait also escapes the timeout handler and aborts the scan. The registry/MSIX adapters wrap synchronous Windows enumeration in `Task.Run`; cancellation cannot stop an enumeration already in progress. | Define a provider-quiescence boundary: every timed-out provider must be awaited to completion, hosted in a terminable worker, or prevented from outliving recovery. Contain faults raised after timeout. | An uncooperative-provider fixture proves no work remains after recovery; a post-timeout fault fixture proves successful providers still publish; Windows-provider cancellation evidence meets the UI recovery budget. |
-| P1RR-03 | High | `NFR-PERF-01/03/05–06/08–09`, `AC-NFR-01/03/04/06–07/09`, `AC-UX-02/04/09` | `tests/PCSteward.Performance/Program.cs:18` | The benchmark is still an in-memory fake-provider/no-op-store microbenchmark. Mandatory final-application performance, five-minute idle, process-tree resource, UI responsiveness, cancellation recovery, concurrency, crash/restart and manual accessibility criteria remain unproven. Its message also retains obsolete “clean-VM” wording, although a VM is now optional. | Run and retain the accepted protocol against the final application on a recorded qualifying Windows 11 baseline, physical or virtual, and complete the keyboard, scaling and high-contrast exercises. | Review every raw sample and manual result against its threshold; do not substitute the Task 04 fixture or microbenchmark. |
-| P1RR-04 | High | `FR-UI-02`, `AC-UX-01/06/09` | `src/PCSteward.Desktop/MainWindow.cs:75`, `:77`, `:80`; `src/PCSteward.Application/InventoryExperienceViewModel.cs:54` | Publisher and status filter controls are absent. Every row is hard-coded to `Installed`; entering search resets status/source/scope/sort, and every progress-triggered re-render recreates the combo boxes at their defaults. The required filtering/sorting experience is therefore incomplete and unstable. | Add publisher/status data and controls, preserve all selected filters across search and re-render, and expose stable accessible names/state. | View-model plus desktop fixtures exercise every filter and sort in combination and prove state survives search, progress and restart where required. |
-| P1RR-05 | Medium | `FR-INV-06/08–09`, `FR-UI-07`, `NFR-OBS-02` | `src/PCSteward.Domain/InventoryModels.cs:4`; `src/PCSteward.Application/InventoryScanOrchestrator.cs:46`; `src/PCSteward.Diagnostics/PCSteward.Diagnostics.csproj:1` | Publisher, install date/path, classification and channel are stored only in opaque raw strings, then normalization replaces typed publisher/channel/classification with null/unknown. No application port reads raw records for diagnostics, and the Diagnostics project contains no typed severity events. | Preserve bounded typed metadata through normalization/persistence, expose raw provenance through an application use case, and emit allowlisted structured scan events. | Provider-to-persistence/UI tests prove typed retention and bounded raw diagnostics; logging tests prove correlation/severity and redaction. |
-| P1RR-06 | Medium | `NFR-MNT-01/05`, ADR-014 | `src/PCSteward.Desktop/MainWindow.cs:16`, `:29`; `src/PCSteward.Desktop/PCSteward.Desktop.csproj:11`, `:13`; `tests/PCSteward.ArchitectureTests/ReferenceBoundaryTests.cs:10` | `MainWindow` constructs and calls SQLite and provider adapters directly, contrary to the accepted presentation boundary. Existing architecture tests cover only ScheduledHost and ElevatedHelper, so the violation is not guarded. | Move inventory/settings/data-reset composition behind application use cases and add a presentation reference/source-boundary regression. | Architecture tests fail if presentation code calls persistence/provider APIs; desktop tests use application ports or use cases only. |
+| P1RRR-01 | High | `NFR-PERF-03/06/08`, `AC-NFR-03/07`, `AC-UX-02/09` | `docs/review/TASK_90_P1RR_EVIDENCE.md:26–37`; `src/PCSteward.Desktop/MainWindow.cs:50–52` | Thirty scans prove completion timing, but no retained final-app run measures keyboard cancellation acknowledgement, return to an operable state, scan-time UI responsiveness, or process-tree CPU/peak working set. The recorded process-tree sample is an idle check, not `AC-NFR-07`. | Stage a sufficiently long final-app scan, invoke **Cancel scan** by keyboard, and retain timestamps, ready-state/data-integrity result, responsiveness and full process-tree resource samples. | Acknowledgement is at most two seconds, operable state is restored within five seconds, prior inventory remains valid, UI remains responsive and the scan-time process tree meets NFR-PERF-06. |
+| P1RRR-02 | High | `NFR-REL-02`, `AC-NFR-04` | `docs/review/TASK_90_P1RR_EVIDENCE.md:31` | The termination attempt occurred after the scan had already completed. Restart loading proves ordinary recovery only; it does not prove that terminating the application during collection or publication preserves the previous successful inventory. | Stage a long scan with an existing successful snapshot, terminate the final app while the scan is active, then relaunch. | The previous snapshot, freshness and detail records remain readable and no partial replacement is visible. |
+| P1RRR-03 | High | `NFR-PERF-09`, `AC-NFR-09` | `tests/PCSteward.Application.IntegrationTests/InventoryScanOrchestratorTests.cs:53–60`; `docs/review/TASK_90_P1RR_EVIDENCE.md:26–37` | Regression coverage proves that a replacement scan is rejected while an unresponsive provider holds the lease, but no retained acceptance measurement records maximum connector concurrency against the configured bound. The mandatory criterion is conjunctive. | Instrument and retain active-provider concurrency during the accepted final-app/harness scan, including a simultaneous second-scan attempt. | The second scan is rejected or routed to the first and maximum measured connector concurrency does not exceed the configured bound. |
+| P1RRR-04 | High | `AC-UX-04` | `docs/review/TASK_90_P1RR_EVIDENCE.md:13`, `:37` | High-contrast rendering was exercised, but Windows text scaling was not. The criterion requires both and primary controls/status text are dynamically reconstructed inside a constrained desktop layout. | Exercise the final desktop at the accepted enlarged Windows text scale and retain the result. | Primary navigation, scan/cancel, status, filters, inventory and data/reset controls remain visible, readable and keyboard reachable. |
 
-## Missing mandatory evidence
+## Closed prior findings
 
-- Thirty retained final-application local-scan samples on a recorded qualifying Windows 11 baseline, plus environment/build identity and warm-up details.
-- Five-minute idle CPU/memory/disk/network and full process-tree local-scan measurements.
-- UI responsiveness, cancellation acknowledgement/recovery and measured concurrency evidence.
-- Process termination during scan staging followed by successful last-known-good restart.
-- Successful keyboard-driven scan/cancel, text scaling and high-contrast exercises.
-- Approved enabled-WinGet behavior and proof that effective local-only mode makes no WinGet/source request.
+- `P1RR-01`: explicit WinGet approval is persisted separately; legacy enabled state fails closed and approved mode never claims local-only behavior.
+- `P1RR-02`: post-timeout faults are contained; an unresponsive provider prevents publication and holds the scan lease until quiescence.
+- `P1RR-04`: publisher/status/source/scope filters and sorting persist together with stable accessible names.
+- `P1RR-05`: typed inventory metadata, bounded raw diagnostics and structured allowlisted events cross the persistence/application boundary.
+- `P1RR-06`: desktop behavior is routed through `InventoryWorkflow`, with an architecture regression guarding the presentation boundary.
 
-## Positive controls confirmed
+## Residual risk accepted by product owner
 
-- Duplicate provider products now reach deterministic normalization; the orchestration regression passes.
-- WinGet process cancellation/timeout terminates and awaits the child tree; fixed executable, structured arguments and shell-disabled execution remain intact.
-- Clear scan data removes freshness in the same transaction and preserves connector settings, decisions, mappings, history and downloaded-artifact records.
-- Successful scan promotion remains transactional and cancellation preserves the previous snapshot.
-- Registry, MSIX and WinGet parser fixtures retain malformed-input isolation; no update execution exists.
-- Export timestamp/privacy behavior and the corrected estimated-payload label remain intact.
-
-## Residual risks accepted by product owner
-
-None recorded.
+`AC-NFR-06` / `NFR-PERF-05`: the five-minute idle run on `82f4a79` exceeded the CPU budget. Per product-owner direction, this check is temporarily excepted for the current Phase 1 gate and must be investigated and repeated in a later build. It is not recorded as compliance evidence.
 
 ## Required next action
 
-Run Task 90 with GPT-5.6 Terra / High for P1RR-01 through P1RR-06, collect the mandatory evidence on a recorded physical or virtual Windows baseline, commit the remediation, then repeat Task 15 in a fresh GPT-5.6 Sol / High review.
+Run Task 90 with GPT-5.6 Terra / High for P1RRR-01 through P1RRR-04 and retain the four mandatory evidence sets above. Then repeat Task 15 in a fresh GPT-5.6 Sol / High review.
