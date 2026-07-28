@@ -1,0 +1,60 @@
+# Threat model
+
+**Status:** Proposed; validate through Tasks 02–05 and review again at Tasks 15, 20, 25 and 31
+**Protected assets:** correct package-to-product identity, user approval, standard/elevated execution boundary, app-owned and non-owned files, inventory/history privacy, last-known-good state, source provenance and release evidence.
+
+## Security objectives
+
+- No wrong or low-confidence package becomes executable.
+- Remote metadata and local database content cannot become commands or deletion targets.
+- Elevated capability is authenticated, short-lived and operation-specific.
+- Cleanup cannot escape fixed PC Steward-owned roots.
+- Success is evidence-backed; cancellation, stale data and partial failure remain explicit.
+- Work and storage are bounded against malformed or adversarial input.
+
+## Adversaries and assumptions
+
+Consider a compromised source response, malicious/corrupt local records, a standard-user process attempting helper abuse, crafted filesystem reparse structures, malformed provider output and accidental user action. A local administrator or fully compromised OS is outside the confidentiality boundary, but the design must not make exploitation easier. WinGet/provider integrity is relied upon only through its supported constrained operation; display metadata is never trusted.
+
+## Threat register
+
+| ID | Threat / path | Primary controls | Required evidence |
+|---|---|---|---|
+| TM-01 | Malicious source metadata injects flags, paths, markup or oversized values | Typed schemas, length/enumeration limits, escaping, no command fields, connector isolation | Parser fuzz/negative fixtures; Task 02/18 |
+| TM-02 | Incorrect product match installs another product/channel/architecture | Stable IDs, deterministic evidence, compatibility gate, manual mapping audit, low/medium non-actionability, zero-false-positive fixture | Tasks 04, 11, 17, 20 |
+| TM-03 | Arbitrary command execution via UI, SQLite, logs or provider output | No shell, fixed executable, structured argument list, provider/verb/flag allowlist, runner revalidation | Tasks 02, 21, 25 |
+| TM-04 | UAC/IPC abuse, spoofed caller, replay or request mutation | Restrictive endpoint ACL, caller/session validation, protocol version, nonce, immutable job binding, single request, signed helper | Tasks 03, 22, 25 |
+| TM-05 | Reparse-point, junction, symlink, mount or prefix-confusion deletion escape | Fixed roots, canonical containment, component-aware checks, reparse rejection/non-following handles, hostile fixtures | Tasks 03, 24, 28, 25/31 |
+| TM-06 | TOCTOU path swap between validation and deletion/execution | Handle-relative/non-following operations where available, immediate revalidation, deny ambiguous states, VM test | Tasks 03, 24, 25 |
+| TM-07 | Database tampering changes package/job/path | Treat rows as untrusted, no commands, rederive allowlists/roots, immutable job integrity and state transition checks | Tasks 07, 21, 24 |
+| TM-08 | Logs/exports leak credentials, paths or personal data | Event allowlist, redaction, bounded output, path opt-in, no environment dump, diagnostic tests | Tasks 23, 30 |
+| TM-09 | Stale cache is presented as current or replays downgrade | Retrieved/success/expiry timestamps, visible stale state, refresh policy, downgrade rejection | Tasks 16, 18, 20 |
+| TM-10 | Cancellation/crash causes corrupt inventory, duplicate update or false terminal state | Staging/atomic promotion, durable job state machine, idempotency, process-tree cancellation, recovery tests | Tasks 07, 12, 21, 23, 29 |
+| TM-11 | Resource exhaustion from records, output, processes, concurrency, logs or cache | Size/count/output limits, timeouts, concurrency caps, one-scan lease, retention/quota, process-tree measurement | Tasks 04, 12, 24, 29 |
+| TM-12 | Provider exit 0 or restart ambiguity becomes false Success | Preserve exit, targeted rescan, expected-version comparison, separate Inconclusive/Restart required | Tasks 23, 25 |
+| TM-13 | Source/package substitution between review and execution | Immutable reviewed IDs/version/source, freshness policy, revalidation at execution, provider identity | Tasks 21, 23 |
+| TM-14 | Scheduled task becomes unattended installer or persistence | Scan-only entry point, fixed task definition, standard user, no update verb, overlap guard, exit test | Task 26 |
+| TM-15 | Cleanup deletes active artifacts or provider caches | Ownership ledger, active lease, fixed category, provider-cache exclusion, accurate residual report | Task 24 |
+| TM-16 | Factory reset partly completes but claims fresh state | Fixed reset manifest, double confirmation, active-work lockout, marker/transaction design, next-launch verification | Tasks 03, 27, 28 |
+| TM-17 | Malformed inventory/source data corrupts UI/database | Bounded DTOs, encoding handling, transactional writes, per-adapter warnings | Tasks 08–12, 18 |
+| TM-18 | Dependency/build compromise | Lock files, minimal dependencies, static/dependency/secret scans, SBOM, signed release | Tasks 06, 30, 31 |
+
+## Privilege-boundary protocol constraints
+
+The helper accepts only a versioned message containing operation verb, provider enum, source ID, package ID, target version, immutable job ID and freshness/nonce binding. It must reject unknown/duplicate fields, overlong identifiers, free-form flags, paths, URLs, environment, working directory and output destinations. Denial, cancellation, timeout and helper crash are distinct results. No service installation or persistent elevated process is allowed.
+
+## Deletion security constraints
+
+Reset and cleanup operate from a compile-time/configuration-owned manifest of categories and fixed per-user roots. Paths are resolved without following reparse points; root equality/prefix confusion, alternate streams where relevant, UNC/device paths, relative paths and cross-volume/mount traversal are rejected. Partial deletion is not Success. Tests run only under disposable roots until explicitly approved VM evidence.
+
+## Residual risks requiring evidence
+
+- WinGet behavior and parseable output stability: Task 02.
+- Windows packaging/elevation/storage interactions: Task 02.
+- Strongest practical Windows deletion and TOCTOU primitives without over-privilege: Task 03.
+- Performance limits under representative malformed and 300-record fixtures: Task 04.
+- Clean-VM, UAC, signing and package lifecycle evidence remains unavailable on the current audited host.
+
+## Review rule
+
+Any arbitrary-execution path, executable false positive, privilege-boundary weakness, deletion escape, false Success or missing mandatory hostile/VM evidence is a release blocker, regardless of functional test count.

@@ -1,31 +1,52 @@
 # PC Steward build status
 
-**Current phase:** Not started  
-**Current task:** 00 — Environment and repository audit (complete)
-**Last green commit:** Initial documentation commit  
-**Current branch:** `phase/0-foundation`  
-**Build command:** To be established by Task 06  
-**Test command:** To be established by Task 06  
-**Performance command:** To be established by Tasks 04 and 12  
-**Phase gate:** Not run  
+**Current phase:** Phase 0 — Evidence, architecture, and scaffolding
+**Current task:** 01 — Architecture, threat model, and execution plan (complete)
+**Last green commit:** `a5afc3c` — Task 00 environment audit
+**Current branch:** `phase/0-foundation`
+**Build command:** To be established by Task 06
+**Test command:** To be established by Task 06
+**Performance command:** To be established by Tasks 04 and 12
+**Phase gate:** Not run
 
 ## Decisions
 
 | Decision | Status | ADR |
 |---|---|---|
-| Packaging model | Open | OD-02 |
-| WinGet integration route | Open | OD-03 |
-| Performance baseline | Open | OD-06 |
-| Cache quota/retention | Provisional | OD-11 |
-| Factory-reset mechanism | Open | OD-13 |
+| Product name/identity | Proposed | ADR-001 / OD-01 |
+| Packaging model | Proposed | ADR-002 / OD-02 |
+| WinGet integration route | Proposed | ADR-003 / OD-03 |
+| GitHub Releases MVP scope | Proposed | ADR-004 / OD-04 |
+| Runtime grouping | Proposed | ADR-005 / OD-05 |
+| Performance baseline | Proposed | ADR-006 / OD-06 |
+| Default schedule | Proposed | ADR-007 / OD-07 |
+| Licence/source availability | Proposed | ADR-008 / OD-08 |
+| Application self-update | Proposed | ADR-009 / OD-09 |
+| Diagnostic path redaction | Proposed | ADR-010 / OD-10 |
+| Download-cache quota/retention | Proposed | ADR-011 / OD-11 |
+| Scheduled process priority | Proposed | ADR-012 / OD-12 |
+| Factory-reset mechanism | Proposed | ADR-013 / OD-13 |
+
+## Planned spike order
+
+1. Task 02 — packaging and WinGet evidence for OD-02/03.
+2. Task 03 — privilege boundary and safe-deletion evidence for OD-13.
+3. Task 04 — performance baseline/fixture evidence for OD-06 and inputs to OD-05/11.
+4. Task 05 — review evidence and lock, defer or reject every proposed ADR.
 
 ## Active blockers
 
-Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target, plus warnings for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. No production code was changed.
+Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target, plus warnings for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims.
+
+All OD-01–OD-13 decisions remain unresolved until their cited evidence and product-owner decisions are reviewed. No ADR is Accepted.
+
+## Task 01 result
+
+PASS — architecture, trust boundaries, threat model, test strategy, phased implementation plan and 13 proposed ADRs created. Structural coverage and `git diff --check` passed. Task commit is recorded in Git history.
 
 ## Next task
 
-Run `prompts/01_ARCHITECTURE_THREAT_MODEL_AND_EXECUTION_PLAN.md` after reviewing the environment evidence. Required model/reasoning: GPT-5.6 Sol / High.
+Run `prompts/02_SPIKE_PACKAGING_AND_WINGET_INTEGRATION.md`. Required model/reasoning: GPT-5.6 Terra / High. Branch: `phase/0-foundation`.
 
 ## Rules for updating this file
 
