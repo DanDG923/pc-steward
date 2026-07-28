@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Update intelligence
 **Current task:** 18 — WinGet update intelligence, source cache, and freshness pending
-**Last green commit:** `a617939`
+**Last green commit:** `f11f11e`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
