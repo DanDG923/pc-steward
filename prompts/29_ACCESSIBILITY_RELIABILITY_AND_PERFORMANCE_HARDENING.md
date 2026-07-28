@@ -15,7 +15,7 @@
 ## Copy/paste prompt
 
 ```text
-Task 29 — run the full accessibility, reliability, cancellation, and resource-budget hardening pass.
+Task 29 — run the best-effort accessibility, reliability, cancellation, and resource-budget hardening pass.
 
 Requirements are listed under Task 29 in `docs/requirements/TRACEABILITY.md`.
 
@@ -33,7 +33,7 @@ First measure; then change only evidenced bottlenecks or failures. Execute the d
 - cache quota/active-artifact protection;
 - crash/interruption last-known-good recovery.
 
-Perform keyboard, screen-reader naming, text scaling, high contrast, icon-plus-text, focus order, confirmation, and failure-message checks for every primary action.
+Attempt keyboard, screen-reader naming, text scaling, high contrast, icon-plus-text, focus order, confirmation, and failure-message checks for every primary action. Under ADR-021, `AC-UX-01–09` are Optional — best effort; record any unproven item honestly but do not treat it as a phase or release-gate failure.
 
 Store raw machine-readable results and a concise `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md`. Do not relax safety, matching precision, or destructive-operation controls to hit budgets. Fix failures, rerun affected protocols, and update status/traceability with measured—not assumed—results.
 ```

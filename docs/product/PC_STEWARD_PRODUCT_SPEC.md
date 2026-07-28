@@ -1186,7 +1186,7 @@ The **Data & reset** area must:
 
 ### 17.4 Accessibility
 
-The MVP must:
+The MVP should, on a best-effort basis:
 
 - support full keyboard navigation for primary journeys;
 - provide accessible names for controls and status indicators;
@@ -1333,6 +1333,8 @@ Acceptance testing must use:
 | AC-DAT-18 | Uninstall removes binaries and scheduled tasks and offers a clear choice to retain or remove per-user data. |
 
 ### 19.6 UX and accessibility acceptance
+
+**Product-owner priority decision (ADR-021):** `AC-UX-01–09` are Optional — best effort. They remain implementation goals, but missing evidence does not fail a phase or release gate.
 
 | ID | Acceptance criterion |
 |---|---|

@@ -31,7 +31,7 @@ Implement:
 
 Do not expose an executable Update action yet. Do not let UI state override matching safety.
 
-Add view-model, persistence, decision-reapplication, and accessibility tests. Run the full suite and the zero-false-positive fixture test. Update status and traceability.
+Add view-model, persistence, decision-reapplication, and proportionate best-effort accessibility tests. Under ADR-021, missing `AC-UX-*` evidence is not a gate failure. Run the full suite and the zero-false-positive fixture test. Update status and traceability.
 ```
 
 ## Completion rule

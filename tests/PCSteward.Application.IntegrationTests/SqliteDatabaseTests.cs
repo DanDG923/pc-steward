@@ -36,6 +36,18 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task DecisionReasonsExpiryMappingsAndReversalPersistOutsideScanData()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); DateTimeOffset expiry = DateTimeOffset.UtcNow.AddDays(1);
+        StableDecision decision = new(Guid.NewGuid(), "winget:contoso.widget", "Ignore", "until", DateTimeOffset.UtcNow, "Busy", expiry);
+        await database.Store.SaveAsync(decision, CancellationToken.None); await database.Store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), decision.StableProductKey, "winget", "Contoso.Widget", DateTimeOffset.UtcNow, "exact package"), CancellationToken.None);
+        StableDecision restored = (await database.Store.GetAllAsync(CancellationToken.None)).Single(); ManualMapping mapping = (await database.Store.GetManualMappingsAsync(CancellationToken.None)).Single();
+        Assert.AreEqual("Busy", restored.Reason); Assert.AreEqual(expiry, restored.ExpiresAt); Assert.AreEqual("exact package", mapping.Reason); Assert.HasCount(1, await database.Store.GetTimelineAsync(decision.StableProductKey, CancellationToken.None));
+        await database.Store.DeleteAsync(decision.Id, CancellationToken.None); await database.Store.DeleteManualMappingAsync(mapping.Id, CancellationToken.None);
+        Assert.HasCount(0, await database.Store.GetAllAsync(CancellationToken.None)); Assert.HasCount(0, await database.Store.GetManualMappingsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ClearScanDataIsTransactionalIdempotentAndPreservesDecisionsHistoryMappingsAndArtifacts()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
@@ -97,13 +109,53 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task BothWinGetConnectorDisclosuresPersistAndFailClosedWhenRevoked()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        foreach (string connector in new[] { "WinGet installed inventory", "WinGet package sources" })
+        {
+            await database.Store.SaveConnectorStateAsync(connector, new PCSteward.Application.ConnectorState(true, true), CancellationToken.None);
+            PCSteward.Application.ConnectorState approved = await database.Store.GetConnectorStateAsync(connector, false, CancellationToken.None);
+            Assert.IsTrue(approved.Enabled, connector);
+            Assert.IsTrue(approved.SourceDisclosureApproved, connector);
+
+            await database.Store.SaveConnectorStateAsync(connector, new PCSteward.Application.ConnectorState(true, false), CancellationToken.None);
+            PCSteward.Application.ConnectorState revoked = await database.Store.GetConnectorStateAsync(connector, false, CancellationToken.None);
+            Assert.IsFalse(revoked.Enabled, connector);
+            Assert.IsFalse(revoked.SourceDisclosureApproved, connector);
+        }
+    }
+
+    [TestMethod]
     public async Task TypedInstallationMetadataSurvivesPersistence()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync(); Guid productId = Guid.NewGuid();
-        InstallationInstance instance = new(Guid.NewGuid(), productId, "registry", "contoso", "1", "Machine", "x64", "Contoso", "20260728", "C:\\Program Files\\Contoso", "Stable", "Application");
+        InstallationInstance instance = new(Guid.NewGuid(), productId, "registry", "contoso", "1", "Machine", "x64", "Contoso", "20260728", "C:\\Program Files\\Contoso", "Stable", "Application", "winget");
         await database.Store.PromoteAsync([new CanonicalProduct(productId, "contoso", "Contoso")], [instance], CancellationToken.None);
         InstallationInstance restored = (await database.Store.GetLastKnownGoodInstancesAsync(CancellationToken.None)).Single();
-        Assert.AreEqual(instance.Publisher, restored.Publisher); Assert.AreEqual(instance.InstallDate, restored.InstallDate); Assert.AreEqual(instance.InstallPath, restored.InstallPath); Assert.AreEqual(instance.Channel, restored.Channel); Assert.AreEqual(instance.Classification, restored.Classification);
+        Assert.AreEqual(instance.Publisher, restored.Publisher); Assert.AreEqual(instance.InstallDate, restored.InstallDate); Assert.AreEqual(instance.InstallPath, restored.InstallPath); Assert.AreEqual(instance.Channel, restored.Channel); Assert.AreEqual(instance.Classification, restored.Classification); Assert.AreEqual(instance.SourceId, restored.SourceId);
+    }
+
+    [TestMethod]
+    public async Task SourceCacheReplacesOnlySuccessfulLiveSnapshotsAndRestoresTheirTimestamp()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); DateTimeOffset timestamp = DateTimeOffset.UnixEpoch;
+        SourceSnapshot snapshot = new("winget", "v1.9", timestamp, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
+        await database.Store.SaveSourceSnapshotAsync(snapshot, CancellationToken.None);
+        SourceSnapshot restored = (await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None))!;
+        Assert.AreEqual(SourceSnapshotState.Cached, restored.State); Assert.AreEqual(timestamp, restored.LastSuccessAt); Assert.AreEqual("Contoso.Widget", restored.Packages.Single().PackageId);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => database.Store.SaveSourceSnapshotAsync(snapshot with { State = SourceSnapshotState.Cached }, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task SourceCacheRetentionPrunesOldSnapshotsAndTheirPackageRows()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow.AddDays(-31), SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Widget", null, "1.0", "1.1", "Machine", "x64", "Stable")], []), CancellationToken.None);
+
+        await database.Store.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow.AddDays(-30), CancellationToken.None);
+
+        Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
     }
 
     private sealed class TestDatabase : IAsyncDisposable

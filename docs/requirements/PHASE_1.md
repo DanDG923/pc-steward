@@ -80,12 +80,12 @@ All Phase 1 acceptance criteria pass; the previous successful inventory survives
 | `FR-UI-03` | Show an application detail page with installed and candidate metadata side by side. | Yes | 13, 19 |
 | `FR-UI-05` | Show last scan time and whether the displayed result is live or cached. | Yes | 13, 18, 19 |
 | `FR-UI-07` | Provide a detailed diagnostics view without exposing unnecessary implementation noise by default. | Yes | 13, 19 |
-| `AC-UX-01` | A first-time user can complete the first scan and identify available updates without using a command line. | Mandatory | 13, 19, 29 |
-| `AC-UX-02` | All primary navigation, scan, review, update, clear-data and factory-reset actions are keyboard accessible. | Mandatory | 13, 14, 19, 26, 28, 29 |
-| `AC-UX-03` | Status is expressed through text/icons as well as colour. | Mandatory | 13, 19, 29 |
-| `AC-UX-04` | Windows text scaling and high-contrast mode do not hide primary controls or status text. | Mandatory | 13, 19, 26, 28, 29 |
-| `AC-UX-06` | The UI always distinguishes live, cached and local-only scan results. | Mandatory | 13, 18, 19, 29 |
-| `AC-UX-09` | During a scan, the user can see elapsed time, current phase and an enabled **Cancel scan** action. | Mandatory | 13, 29 |
+| `AC-UX-01` | A first-time user can complete the first scan and identify available updates without using a command line. | Optional — best effort | 13, 19, 29 |
+| `AC-UX-02` | All primary navigation, scan, review, update, clear-data and factory-reset actions are keyboard accessible. | Optional — best effort | 13, 14, 19, 26, 28, 29 |
+| `AC-UX-03` | Status is expressed through text/icons as well as colour. | Optional — best effort | 13, 19, 29 |
+| `AC-UX-04` | Windows text scaling and high-contrast mode do not hide primary controls or status text. | Optional — best effort | 13, 19, 26, 28, 29 |
+| `AC-UX-06` | The UI always distinguishes live, cached and local-only scan results. | Optional — best effort | 13, 18, 19, 29 |
+| `AC-UX-09` | During a scan, the user can see elapsed time, current phase and an enabled **Cancel scan** action. | Optional — best effort | 13, 29 |
 | `FR-DAT-01` | Export current inventory to CSV and JSON. | Yes | 14 |
 | `FR-DAT-02` | Optionally include update history in JSON export. | Yes | 14 |
 | `FR-DAT-03` | Warn that exports reveal installed software and potentially identifying machine metadata. | Yes | 14 |
@@ -104,4 +104,4 @@ All Phase 1 acceptance criteria pass; the previous successful inventory survives
 | `AC-DAT-14` | Clear and reset controls require no administrator elevation for the per-user MVP data model. | Mandatory | 14, 24, 28 |
 | `AC-DAT-15` | Clear and reset actions are unavailable during an active update or scan until the user cancels or completes it. | Mandatory | 14, 24, 28 |
 | `AC-DAT-17` | Default logs contain no credentials, licence keys, browser data or document contents. | Mandatory | 14, 24 |
-| `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Mandatory | 14, 24, 28, 29 |
+| `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Optional — best effort | 14, 24, 28, 29 |

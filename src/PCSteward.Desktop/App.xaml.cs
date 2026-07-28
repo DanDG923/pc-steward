@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using PCSteward.Application;
 using PCSteward.Diagnostics;
 using PCSteward.Persistence.Sqlite;
+using PCSteward.Provider.WinGet;
 
 namespace PCSteward.Desktop;
 
@@ -23,7 +24,11 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         ILocalInventoryProvider? evidenceDelay = EvidenceDelayInventoryProvider.FromEnvironment();
         if (evidenceDelay is not null) providers.Add(evidenceDelay);
         providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
-        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink());
+        IReadOnlyCollection<IUpdateSourceConnector> updateSources = [
+            new WingetUpdateSourceConnector(new WindowsWingetProcess(), "winget"),
+            new WingetUpdateSourceConnector(new WindowsWingetProcess(), "msstore")
+        ];
+        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database, database, updateSources);
         MainWindow window = new(workflow, viewModel);
         window.Activate();
     }

@@ -74,14 +74,14 @@ public sealed class InventoryScanOrchestrator : IDisposable
     private static (List<CanonicalProduct> Products, List<InstallationInstance> Instances) Normalize(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances)
     {
         Dictionary<Guid, CanonicalProduct> names = products.GroupBy(product => product.Id).ToDictionary(group => group.Key, group => group.OrderBy(product => product.DisplayName, StringComparer.Ordinal).ThenBy(product => product.StableKey, StringComparer.Ordinal).First());
-        DeduplicationResult normalized = InventoryNormalization.NormalizeAndDeduplicate(instances.Select(instance => new RawInstallEvidence(instance.Provider, instance.ProviderIdentity, names[instance.ProductId].DisplayName, instance.Publisher, instance.Version, instance.Scope, instance.Architecture, instance.Channel, instance.Classification, instance.Id.ToString("N"))));
+        DeduplicationResult normalized = InventoryNormalization.NormalizeAndDeduplicate(instances.Select(instance => new RawInstallEvidence(instance.Provider, instance.ProviderIdentity, names[instance.ProductId].DisplayName, instance.Publisher, instance.Version, instance.Scope, instance.Architecture, instance.Channel, instance.Classification, instance.Id.ToString("N"), instance.SourceId)));
         List<CanonicalProduct> normalizedProducts = []; List<InstallationInstance> normalizedInstances = [];
         foreach (NormalizedInstall install in normalized.Instances)
         {
             Guid productId = StableGuid("product|" + install.ProductFingerprint); Guid instanceId = StableGuid("instance|" + install.InstanceFingerprint);
             normalizedProducts.Add(new CanonicalProduct(productId, install.ProductFingerprint, install.Evidence.DisplayName));
-            InstallationInstance? original = instances.FirstOrDefault(candidate => candidate.Provider == install.Evidence.Provider && candidate.ProviderIdentity == install.Evidence.ProviderIdentity && candidate.Scope == install.Evidence.Scope && candidate.Architecture == install.Evidence.Architecture && candidate.Version == install.Evidence.Version && candidate.Channel == install.Evidence.Channel);
-            normalizedInstances.Add(new InstallationInstance(instanceId, productId, install.Evidence.Provider, install.Evidence.ProviderIdentity, install.Evidence.Version, install.Evidence.Scope, install.Evidence.Architecture, install.Evidence.Publisher, original?.InstallDate, original?.InstallPath, install.Evidence.Channel, install.Evidence.Classification));
+            InstallationInstance? original = instances.FirstOrDefault(candidate => candidate.Provider == install.Evidence.Provider && candidate.ProviderIdentity == install.Evidence.ProviderIdentity && candidate.Scope == install.Evidence.Scope && candidate.Architecture == install.Evidence.Architecture && candidate.Version == install.Evidence.Version && candidate.Channel == install.Evidence.Channel && candidate.SourceId == install.Evidence.SourceId);
+            normalizedInstances.Add(new InstallationInstance(instanceId, productId, install.Evidence.Provider, install.Evidence.ProviderIdentity, install.Evidence.Version, install.Evidence.Scope, install.Evidence.Architecture, install.Evidence.Publisher, original?.InstallDate, original?.InstallPath, install.Evidence.Channel, install.Evidence.Classification, original?.SourceId));
         }
         return (normalizedProducts.DistinctBy(product => product.Id).ToList(), normalizedInstances);
     }

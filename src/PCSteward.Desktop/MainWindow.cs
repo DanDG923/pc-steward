@@ -12,11 +12,12 @@ namespace PCSteward.Desktop;
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "WinUI owns the window lifetime and scan cancellation is disposed after every completed scan.")]
 public sealed class MainWindow : Window
 {
-    private const string WingetConnector = "WinGet installed inventory";
     private readonly InventoryWorkflow workflow;
     private readonly InventoryExperienceViewModel viewModel;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
+    private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
+    private IReadOnlyCollection<PCSteward.Domain.ManualMapping> manualMappings = [];
     private bool isClearing;
 
     public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel)
@@ -28,7 +29,10 @@ public sealed class MainWindow : Window
     {
         InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
         foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
-        viewModel.LoadInventory(dashboard.Products, dashboard.Instances, dashboard.LastCompletedAt); scanData = dashboard.ScanData;
+        viewModel.LoadInventory(dashboard.Products, dashboard.Instances, dashboard.LastCompletedAt);
+        viewModel.LoadUpdateIntelligence(workflow.LoadUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, CancellationToken.None).GetAwaiter().GetResult()); scanData = dashboard.ScanData;
+        activeDecisions = workflow.GetActiveDecisionsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        manualMappings = workflow.GetManualMappingsAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
     private void Render()
@@ -39,9 +43,8 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
         foreach (ConnectorOption connector in viewModel.Connectors)
         {
-            bool isWinget = connector.Name == WingetConnector;
-            CheckBox checkBox = new() { Content = isWinget ? "WinGet installed inventory (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})", IsChecked = connector.IsEnabled, IsEnabled = !connector.IsEssential };
-            AutomationProperties.SetName(checkBox, isWinget ? "Enable WinGet installed inventory after source-disclosure approval" : $"Enable {connector.Name}");
+            CheckBox checkBox = new() { Content = connector.RequiresSourceDisclosure ? $"{connector.Name} (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})", IsChecked = connector.IsEnabled, IsEnabled = !connector.IsEssential };
+            AutomationProperties.SetName(checkBox, connector.RequiresSourceDisclosure ? $"Enable {connector.Name} after source-disclosure approval" : $"Enable {connector.Name}");
             checkBox.Checked += async (_, _) => await ChangeConnectorAsync(connector.Name, true);
             checkBox.Unchecked += async (_, _) => await ChangeConnectorAsync(connector.Name, false);
             panel.Children.Add(checkBox);
@@ -49,21 +52,26 @@ public sealed class MainWindow : Window
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button scan = new() { Content = viewModel.IsWinGetEnabled ? "Start approved WinGet inventory scan" : "Start local-only scan", IsEnabled = !viewModel.IsScanning };
         AutomationProperties.SetName(scan, scan.Content.ToString()); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
+        Button checkUpdates = new() { Content = "Check approved update sources", IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates };
+        AutomationProperties.SetName(checkUpdates, "Check approved update sources"); checkUpdates.Click += async (_, _) => await CheckUpdateSourcesAsync(); actions.Children.Add(checkUpdates);
         if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Loaded += (_, _) => DispatcherQueue.TryEnqueue(() => cancel.Focus(FocusState.Programmatic)); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
         panel.Children.Add(actions);
         panel.Children.Add(new TextBlock { Text = $"Status: {viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss} · {viewModel.FreshnessLabel}", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = $"Update intelligence: {viewModel.UpdateFreshnessLabel} Verified {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate]}, review {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired]}, current {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Current]}, unmanaged {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged]}, pinned {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Pinned]}, ignored {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Ignored]}, unavailable {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable]}. Attention needed: {viewModel.AttentionNeeded.Count}.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = $"Source cache retention: {workflow.SourceCacheRetention.TotalDays:0} days. {(viewModel.IsUpdateSourceEnabled ? "Use Check approved update sources to refresh without installing anything." : "Enable approved update sources to check metadata.")}", TextWrapping = TextWrapping.Wrap });
 
         // A finite list viewport preserves ListView virtualization inside the outer page
         // scroller; an unconstrained ListView measures every installed product repeatedly.
         ListView list = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, MaxHeight = 520 };
         TextBox search = new() { PlaceholderText = "Search installed applications", Text = viewModel.SearchText }; AutomationProperties.SetName(search, "Search installed applications");
-        ComboBox status = FilterBox(viewModel.StatusFilter, "All statuses", "Installed"); ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", ..viewModel.AvailablePublishers]); ComboBox source = FilterBox(viewModel.SourceFilter, "All sources", "registry", "msix", "winget"); ComboBox scope = FilterBox(viewModel.ScopeFilter, "All scopes", "Machine", "User", "Unknown"); ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
+        ComboBox status = FilterBox(viewModel.StatusFilter, ["All statuses", "Installed", ..Enum.GetNames<PCSteward.Domain.UpdateIntelligenceStatus>()]); ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", ..viewModel.AvailablePublishers]); ComboBox source = FilterBox(viewModel.SourceFilter, "All sources", "registry", "msix", "winget"); ComboBox scope = FilterBox(viewModel.ScopeFilter, "All scopes", "Machine", "User", "Unknown"); ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
         AutomationProperties.SetName(status, "Filter by status"); AutomationProperties.SetName(publisher, "Filter by publisher"); AutomationProperties.SetName(source, "Filter by source"); AutomationProperties.SetName(scope, "Filter by scope"); AutomationProperties.SetName(sort, "Sort inventory");
         void ApplyFilters() { viewModel.SetFilters(search.Text, status.SelectedItem?.ToString(), publisher.SelectedItem?.ToString(), source.SelectedItem?.ToString(), scope.SelectedItem?.ToString(), sort.SelectedItem?.ToString()); RenderInventory(list); }
         search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); sort.SelectionChanged += (_, _) => ApplyFilters();
         panel.Children.Add(search); panel.Children.Add(status); panel.Children.Add(publisher); panel.Children.Add(source); panel.Children.Add(scope); panel.Children.Add(sort);
         list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem); panel.Children.Add(list); RenderInventory(list);
-        panel.Children.Add(new TextBlock { Text = viewModel.IsWinGetEnabled ? "WinGet installed-inventory collection is enabled after explicit approval. No update execution is available in this phase." : "Inventory records are local-only. Live/cached source checks are not available in this phase.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = viewModel.IsUpdateSourceEnabled ? "Approved source checks show live, cached or unavailable evidence. No update execution is available in this phase." : "Inventory is local-only until you explicitly enable approved update sources.", TextWrapping = TextWrapping.Wrap });
+        AddDecisionsSection(panel);
         AddDataAndResetSection(panel); Content = new ScrollViewer { Content = panel };
     }
 
@@ -74,9 +82,10 @@ public sealed class MainWindow : Window
     private async Task ChangeConnectorAsync(string connectorName, bool enabled)
     {
         bool approved = false;
-        if (connectorName == WingetConnector && enabled)
+        ConnectorOption connector = viewModel.Connectors.Single(option => option.Name == connectorName);
+        if (connector.RequiresSourceDisclosure && enabled)
         {
-            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = "Enable WinGet installed inventory?", Content = "WinGet may disclose installed-software identifiers to configured package sources. It remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only" };
+            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "WinGet may disclose installed-software identifiers to configured package sources. It remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only" };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
             if (!approved) enabled = false;
         }
@@ -92,6 +101,14 @@ public sealed class MainWindow : Window
         viewModel.CompleteScan(result, DateTimeOffset.UtcNow); LoadSavedInventory(); scanCancellation.Dispose(); scanCancellation = null; Render();
     }
 
+    private async Task CheckUpdateSourcesAsync()
+    {
+        viewModel.BeginUpdateCheck(); Render();
+        try { viewModel.LoadUpdateIntelligence(await workflow.RefreshUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, CancellationToken.None)); }
+        finally { viewModel.CompleteUpdateCheck(); }
+        activeDecisions = await workflow.GetActiveDecisionsAsync(CancellationToken.None); manualMappings = await workflow.GetManualMappingsAsync(CancellationToken.None); Render();
+    }
+
     private void AddDataAndResetSection(StackPanel panel)
     {
         panel.Children.Add(new TextBlock { Text = "Data & reset", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
@@ -101,6 +118,20 @@ public sealed class MainWindow : Window
         bool available = !viewModel.IsScanning && !isClearing; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
         panel.Children.Add(new TextBlock { Text = available ? "Routine cleanup is available without administrator elevation." : "Cleanup is unavailable while a scan or cleanup is active. Cancel or wait for it to finish.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Future controls", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] }); panel.Children.Add(new TextBlock { Text = "Clear downloaded files and Factory reset are not available yet. Factory reset will have its own two-step confirmation and will remove settings and stored decisions; routine cleanup above will not.", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(new Button { Content = "Clear downloaded files (available in a later phase)", IsEnabled = false }); panel.Children.Add(new Button { Content = "Factory reset PC Steward (available in a later phase)", IsEnabled = false });
+    }
+
+    private void AddDecisionsSection(StackPanel panel)
+    {
+        panel.Children.Add(new TextBlock { Text = "Update decisions", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or manual mappings. Decisions are optional, reversible, and do not enable updates." : "Active decisions and manual mappings are listed below. Remove one to reapply normal review rules on the next source check.", TextWrapping = TextWrapping.Wrap });
+        foreach (PCSteward.Domain.StableDecision decision in activeDecisions)
+        {
+            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"{decision.Kind}: {decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" — {decision.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, $"Remove {decision.Kind} decision"); remove.Click += async (_, _) => { await workflow.ReverseDecisionAsync(decision.Id, CancellationToken.None); LoadSavedInventory(); Render(); }; row.Children.Add(remove); panel.Children.Add(row);
+        }
+        foreach (PCSteward.Domain.ManualMapping mapping in manualMappings)
+        {
+            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"Manual mapping: {mapping.SourceId}:{mapping.PackageId}{(string.IsNullOrWhiteSpace(mapping.Reason) ? string.Empty : $" — {mapping.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove mapping" }; AutomationProperties.SetName(remove, $"Remove manual mapping {mapping.PackageId}"); remove.Click += async (_, _) => { await workflow.DeleteManualMappingAsync(mapping.Id, CancellationToken.None); LoadSavedInventory(); Render(); }; row.Children.Add(remove); panel.Children.Add(row);
+        }
     }
 
     private async Task SaveExportAsync(bool json) { InventoryExport export = await workflow.CreateExportAsync(json, CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); }
@@ -113,7 +144,19 @@ public sealed class MainWindow : Window
 
     private async Task ShowDetailsAsync(InventoryRow row)
     {
-        string instances = string.Join("\n", row.Instances.Select(instance => $"{instance.Provider}: {instance.ProviderIdentity}; {instance.Version ?? "unknown version"}; {instance.Scope}; {instance.Architecture}; publisher {instance.Publisher ?? "unknown"}; {instance.Classification}"));
-        IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> raw = await workflow.GetRawDiagnosticsAsync(row.ProductId, CancellationToken.None); ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = $"Installed instances and provider provenance:\n{instances}\n\nBounded raw diagnostic records: {raw.Count}. Update candidate data is not available in Phase 1.", CloseButtonText = "Close" }; await dialog.ShowAsync();
+        string instances = string.Join("\n", row.Instances.Select(instance => $"{instance.Provider}: {instance.ProviderIdentity}; {instance.Version ?? "unknown version"}; {instance.Scope}; {instance.Architecture}; channel {instance.Channel ?? "unknown"}; publisher {instance.Publisher ?? "unknown"}; {instance.Classification}"));
+        IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> raw = await workflow.GetRawDiagnosticsAsync(row.ProductId, CancellationToken.None); PCSteward.Application.UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey); IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> timeline = await workflow.GetTimelineAsync(row.StableProductKey, CancellationToken.None); string intelligence = detail is null ? "No source candidate has been loaded. A source check is required before mapping or update review." : $"Installed {detail.InstalledVersion}; candidate {detail.CandidateVersion ?? "none"}; source {detail.SourceId ?? "none"}; stable package ID {detail.PackageId ?? "none"}; confidence {detail.Confidence}; architecture {detail.Architecture}; channel {detail.Channel ?? "unknown"}.\n{detail.Explanation}\nFreshness: {detail.Freshness}\nSource candidates:\n{string.Join("\n", detail.SourceCandidates)}\n{detail.ActionState}";
+        TextBox reason = new() { Header = "Optional decision reason", PlaceholderText = "Why are you pinning, ignoring or mapping this product?", MaxLength = 512 };
+        CheckBox ignoreUntilEnabled = new() { Content = "Ignore until a selected date" }; DatePicker ignoreUntil = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) }; ignoreUntilEnabled.Checked += (_, _) => ignoreUntil.IsEnabled = true; ignoreUntilEnabled.Unchecked += (_, _) => ignoreUntil.IsEnabled = false;
+        TextBlock mappingOutcome = new() { TextWrapping = TextWrapping.Wrap };
+        ComboBox mappingSource = FilterBox(detail?.SourceId ?? "winget", "winget", "msstore"); TextBox mappingPackage = new() { Header = "Exact approved source package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
+        StackPanel content = new() { Spacing = 8 }; content.Children.Add(new TextBlock { Text = $"Installed instances and provider provenance:\n{instances}\n\nUpdate intelligence:\n{intelligence}\n\nTimeline:\n{string.Join("\n", timeline.Select(entry => $"{entry.OccurredAt:O} — {entry.Summary}"))}\n\nBounded raw diagnostic records: {raw.Count}.", TextWrapping = TextWrapping.Wrap }); content.Children.Add(reason); content.Children.Add(ignoreUntilEnabled); content.Children.Add(ignoreUntil); content.Children.Add(mappingSource); content.Children.Add(mappingPackage);
+        Button map = new() { Content = "Map an exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, mappingSource.SelectedItem?.ToString() ?? "winget", string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text, viewModel.IsUpdateSourceEnabled, reason.Text, CancellationToken.None); mappingOutcome.Text = validation.Explanation; }; content.Children.Add(map);
+        if (detail is { SourceId: not null, PackageId: not null })
+        {
+            Button pinSource = new() { Content = "Pin this source package" }; AutomationProperties.SetName(pinSource, "Pin this source package"); pinSource.Click += async (_, _) => { await workflow.PinSourcePackageAsync(row.StableProductKey, detail.SourceId, detail.PackageId, reason.Text, CancellationToken.None); mappingOutcome.Text = "The source package is pinned. Remove the decision to resume normal review."; }; content.Children.Add(pinSource);
+        }
+        content.Children.Add(mappingOutcome);
+        ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = row.Name, Content = content, PrimaryButtonText = "Pin current version", SecondaryButtonText = "Ignore product", CloseButtonText = "Close" }; ContentDialogResult result = await dialog.ShowAsync(); if (result == ContentDialogResult.Primary) await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); else if (result == ContentDialogResult.Secondary) await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render();
     }
 }

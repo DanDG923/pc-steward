@@ -1,29 +1,26 @@
-# Task 90 — remediate repeated Phase 1 review
+# Task 90 — remediate repeated Phase 2 review
 
 ## Goal
 
-Resolve the code-side P1R findings without enabling WinGet source access, elevation, update execution, or other later-phase scope. Preserve unexecuted final-application/manual acceptance evidence as unproven unless separately authorized.
+Resolve `P2R-07`–`P2R-10` without adding update execution, a raw connector, an arbitrary website, or an unapproved live source probe. Preserve the Local-only default and fail closed where package provenance, installation-instance evidence, or source agreement is incomplete.
 
 ## Requirement IDs
 
-`FR-INV-06–09`, `FR-RSC-03`, `FR-DAT-06/10`, `FR-ONB-04`, `FR-UI-02/05`, `NFR-PERF-01/03/05/06/08/09`, `NFR-MNT-01/05`, `NFR-OBS-02`, `AC-INV-01–02/04–05`, `AC-DAT-06`, `AC-NFR-01/03/04/06–07/09`, `AC-UX-01/02/04/06/09`.
+`FR-SRC-03–05`, `FR-ID-01–07`, `FR-POL-01–05`, `FR-HIS-02/04`, `FR-UI-01–07`, `NFR-REL-04`, `NFR-PERF-02`, `AC-MAT-01–03/06/07`, `AC-UX-01–06`, `AC-NFR-02/05`, `AC-DAT-04`.
 
-## Steps
+## Ordered remediation
 
-1. Completed — P1RR-01 fails closed for legacy WinGet state; approved mode is explicit.
-2. Completed — P1RR-02 contains late faults and blocks replacement scans until an unresponsive provider stops.
-3. Completed — P1RR-03 recorded physical Windows baseline, one approved final-app scan and restart evidence; remaining mandatory samples are explicitly unproven.
-4. Completed — P1RR-04 adds publisher/status controls and durable filter state.
-5. Completed — P1RR-05 preserves typed metadata and exposes bounded diagnostic events/records.
-6. Completed — P1RR-06 moves desktop composition behind the application workflow and guards it with an architecture test.
-7. Pending — full suite, benchmark/fixture integrity, scope review and commit.
+1. High — retain normalized WinGet source provenance, persist it through SQLite, and require an exact trusted source as well as package identity for automatic mappings (`P2R-07`).
+2. High — preserve all WinGet target instances and fail closed when version, scope, architecture, channel, or source evidence identifies more than one target (`P2R-08`).
+3. Medium — persist approval and fail-closed revocation for both fixed WinGet connector disclosures (`P2R-09`).
+4. Medium — preserve per-source candidate observations in the review UI and block automatic/provider-supplied mappings where trusted sources disagree (`P2R-10`).
+5. Mandatory evidence — after explicit product-owner approval, exercise fixed read-only WinGet and Store checks with output discarded, record only safe aggregates and process-scoped connection metadata, and verify real connector parser/capability behavior.
+6. Verify the focused regressions, Release build, full suite, fixture benchmark, traceability, and a fresh GPT-5.6 Sol / High Task 20 review. Do not merge Phase 2 or start Phase 3.
 
-## Evidence limits
+## Evidence limit
 
-There is no approval for real WinGet source disclosure or manual desktop exercises. Those acceptance criteria remain unexecuted and cannot be reported as passed. A supported isolated Windows environment is acceptable where safety testing requires one; a VM is optional.
+No real WinGet or Microsoft Store query will be run until the product owner explicitly approves the installed-software metadata disclosure. Local fixture connectors, persistence tests, and presentation tests are safe to run without that approval.
 
 ## Completion record
 
-- Commit: `dde92df` — `fix: remediate phase review findings`
-- Tests: Release build (0 warnings/errors); full suite 29 passed; deterministic workload 30 runs (median 1.09 ms, p95 1.61 ms); performance fixture integrity 14 assertions passed.
-- Remaining risks: supported performance baseline, full process tree/idle/UI metrics, manual accessibility, approved enabled-WinGet behavior, typed scan provenance/events, and the desktop adapter boundary.
+The final GPT-5.6 Sol / High Task 20 review passed after accepting the administrator-token, process-attributed production trace for `AC-DAT-04` and verifying the `P2R-10` fail-closed correction. Three approved read-only source queries on this controlled host (WinGet default, WinGet `--include-unknown`, and Microsoft Store default) each returned zero parser-table rows. By product-owner exception, capture one documented, sanitized real update row during Phase 3 when an update becomes available; see `docs/failures/90-phase2-real-row-evidence.md`.
