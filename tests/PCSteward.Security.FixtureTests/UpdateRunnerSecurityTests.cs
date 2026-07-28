@@ -82,6 +82,7 @@ public sealed class UpdateRunnerSecurityTests
         Assert.IsFalse(typeof(IWingetProcess).IsPublic);
         Assert.IsFalse(typeof(IWingetProcess).GetMethod(nameof(IWingetProcess.RunAsync))!.GetParameters().Any(parameter => parameter.ParameterType == typeof(string)));
         Assert.IsTrue(typeof(WingetUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
+        Assert.IsTrue(typeof(WingetMachineUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
     }
 
     [TestMethod]

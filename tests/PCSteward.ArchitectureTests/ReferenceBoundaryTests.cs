@@ -29,6 +29,19 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void ElevatedHelperIsAOneShotEntryPointWithoutServiceOrPersistenceCode()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ElevatedHelper", "Program.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "ElevatedHelperEntryPoint.RunAsync(args)");
+        foreach (string forbidden in new[] { "while (", "ServiceBase", "Sqlite", "Registry", "TaskScheduler", "File." })
+        {
+            Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
     public void MainWindowUsesTheApplicationWorkflowInsteadOfAdapters()
     {
         string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");

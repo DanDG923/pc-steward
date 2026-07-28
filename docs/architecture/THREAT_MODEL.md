@@ -53,13 +53,21 @@ Reset and cleanup operate from a compile-time/configuration-owned manifest of ca
 
 Symbolic-link creation required administrator privilege on this host, and a true volume mount was not attempted. Public path-based handle acquisition also leaves an unproven ancestor-component race. The report therefore defines mandatory isolated-environment symbolic-link, volume-mount and concurrent ancestor-swap cases for Tasks 24/25. No production deletion or elevation claim is made.
 
+## Task 22 evidence
+
+The production boundary now creates a random local-only, single-instance named pipe with an explicit protected ACL granting only the current user and SYSTEM. The desktop launches the fixed helper path through `runas` only after a fresh immutable machine-scope job reaches execution. Bootstrap arguments are limited to protocol version, desktop PID, pipe locator and a 256-bit nonce. Both endpoints bind the pipe-reported peer PID to the launched/requesting process and verify the same user SID, session, fixed executable path, trusted Authenticode signature and same signer.
+
+The helper accepts one length-bounded canonical request, validates nonce and two-minute issuance lifetime, restores the immutable job through its digest, rejects unknown/duplicate/malformed fields and reconstructs a fixed machine-scope WinGet argument array in provider code. It monitors desktop disconnect for process-tree cancellation, returns a bounded sanitized result and exits. UAC denial, cancellation, timeout, output overflow, provider failure, helper failure/crash and completed-provider execution are distinct; completed remains awaiting Task 23 verification rather than Success.
+
+Sixteen security fixtures and four architecture tests pass replay, substitution, stale evidence, malformed/overlong IPC, duplicate request, path injection, bootstrap authority injection, per-user privilege confusion, fixed machine arguments, result binding/sanitization and local ACL/PID behavior. Analyzer verification, the Release build and all 120 tests pass. No UAC prompt or real update was invoked. The current artifacts are unsigned and therefore deliberately fail peer-signature validation; signed UAC acceptance/denial, cross-integrity identity checks, disconnect cancellation and immediate teardown remain mandatory disposable-Windows-11-VM evidence for Tasks 25/30.
+
 ## Residual risks requiring evidence
 
 - The provisional constrained WinGet CLI route requires approved isolated-environment inventory/source and parser/process evidence: Tasks 10, 18, 21 and 25.
 - The provisional unpackaged installer requires Windows 11 install/upgrade/uninstall/signing evidence: Task 30.
 - Full-walk Windows deletion/TOCTOU primitive, symbolic-link and volume-mount behavior without over-privilege: Tasks 24/25, following Task 03's partial evidence.
 - Final-application performance on the accepted recorded baseline: Tasks 12 and 29.
-- Isolated-environment, UAC, signing and package lifecycle evidence remains unavailable on the current audited host.
+- Signed isolated-environment UAC acceptance/denial, cross-integrity identity, process-tree cancellation/teardown and package lifecycle evidence remains unavailable on the current audited host; the unsigned Task 22 path fails closed.
 
 ## Review rule
 

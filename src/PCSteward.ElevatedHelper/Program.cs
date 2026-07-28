@@ -1,6 +1,8 @@
+using PCSteward.Execution;
+
 namespace PCSteward.ElevatedHelper;
 
 internal static class Program
 {
-    private static int Main() => 0;
+    private static Task<int> Main(string[] args) => ElevatedHelperEntryPoint.RunAsync(args);
 }

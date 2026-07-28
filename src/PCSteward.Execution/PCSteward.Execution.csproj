@@ -4,4 +4,7 @@
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
     <ProjectReference Include="../PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
+  </ItemGroup>
 </Project>

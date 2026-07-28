@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 22 — awaiting GPT-5.6 Sol / High
+**Current task:** 23 — awaiting GPT-5.6 Terra / High
 **Last green commit:** `fd0cb3e` — `feat: add immutable update jobs and constrained runner`
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** IN PROGRESS — Task 21 passed
+**Phase gate:** IN PROGRESS — Task 22 passed
 
 ## Decisions
 
@@ -37,19 +37,19 @@
 
 ## Residual risks and accepted deferrals
 
-Task 21 structurally constrains execution to immutable, explicitly confirmed, integrity-checked WinGet jobs. Machine-scope jobs return elevation-required without execution; the Task 22 helper/UAC boundary is not implemented or proven yet. No real software update was run.
+Task 22 adds an on-demand, one-shot UAC helper with a current-user/SYSTEM local pipe, mutual PID/user/session/path/signature/signer checks, nonce/expiry binding and fixed machine-scope WinGet reconstruction. The current artifacts are unsigned and fail closed; signed UAC acceptance/denial, cross-integrity identity, disconnect cancellation and immediate teardown remain pending disposable-Windows-11-VM evidence for Tasks 25/30. No UAC prompt or real software update was run.
 
 ADR-003 remains Provisional under the product-owner exception: capture a sanitized real update row/source-column shape during Phase 3 when an update becomes available. The exception does not relax fixed executable/source/argument, bounded-output, validation or fail-closed controls.
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
 
-## Task 21 result
+## Task 22 result
 
-Task 21 result: `PASS`. Focused suites: Domain 49, Application integration 51 and Security fixture 6 passed. Release build: zero warnings/errors; full suite: 109 passed. Negative fixtures cover command/path/argument-shaped values, public execution surfaces, SQLite mutation, evidence substitution, non-zero exit, timeout, cancellation, output overflow and sanitization.
+Task 22 result: `PASS`. Analyzer verification passed. Focused suites: Security fixture 16 and Architecture 4 passed. Release build: zero warnings/errors; full suite: 120 passed. Negative fixtures cover replay, substitution, stale evidence, tampered-job integrity, malformed/overlong/duplicate IPC, path/bootstrap injection, privilege confusion, distinct denial/cancellation/timeout/crash outcomes, fixed machine arguments, sanitized result binding and local ACL/PID checks.
 
 ## Next task
 
-Run Task 22 — short-lived elevated helper and secure IPC — in a fresh GPT-5.6 Sol / High task. Stop before starting it under Terra.
+Run Task 23 — sequential batches, post-update verification, history and diagnostics — in a fresh GPT-5.6 Terra / High task. Stop before starting it under Sol.
 
 ## Rules for updating this file
 

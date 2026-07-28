@@ -9,11 +9,13 @@ namespace PCSteward.Execution;
 public enum UpdateExecutionStatus
 {
     Denied,
+    ElevationDenied,
     ElevationRequired,
     Cancelled,
     TimedOut,
     OutputLimitExceeded,
     ProductFailed,
+    HelperFailed,
     ProviderFailed,
     AwaitingVerification
 }
@@ -134,7 +136,7 @@ public sealed partial class NonElevatedUpdateRunner
         UpdateExecutionEventSeverity severity = status switch
         {
             UpdateExecutionStatus.AwaitingVerification => UpdateExecutionEventSeverity.Information,
-            UpdateExecutionStatus.ProductFailed or UpdateExecutionStatus.ProviderFailed or UpdateExecutionStatus.TimedOut or UpdateExecutionStatus.OutputLimitExceeded => UpdateExecutionEventSeverity.Error,
+            UpdateExecutionStatus.ProductFailed or UpdateExecutionStatus.HelperFailed or UpdateExecutionStatus.ProviderFailed or UpdateExecutionStatus.TimedOut or UpdateExecutionStatus.OutputLimitExceeded => UpdateExecutionEventSeverity.Error,
             _ => UpdateExecutionEventSeverity.Warning
         };
         Write(job, endedAt, severity, $"update.{status.ToString().ToLowerInvariant()}", sanitized);
