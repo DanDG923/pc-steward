@@ -36,6 +36,13 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.HasCount(0, result.Records); CollectionAssert.Contains(result.Warnings.ToArray(), "winget:invalid-update-row"); Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new WingetUpdateSourceConnector(new FakeProcess(new WingetProcessResult(0, "", "", false)), "arbitrary"));
     }
     [TestMethod]
+    public void SourceQualifiedQueryAcceptsRowsWhenWingetOmitsTheSourceColumn()
+    {
+        WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable("Name  Id  Version  Available\n----------------------------------------------\nMozilla Firefox (x64 en-US)  Mozilla.Firefox  152.0.6  153.0.1\n1 upgrades available.", "v1", "winget");
+
+        Assert.HasCount(1, result.Records); Assert.AreEqual("Mozilla.Firefox", result.Records.Single().Id); Assert.AreEqual("winget", result.Records.Single().Source);
+    }
+    [TestMethod]
     public void ProcessBoundaryHasNoExecutablePathParameterAndOversizedOutputFailsClosed()
     {
         Type[] parameterTypes = typeof(WindowsWingetProcess).GetMethod(nameof(WindowsWingetProcess.RunAsync))!.GetParameters().Select(parameter => parameter.ParameterType).ToArray();

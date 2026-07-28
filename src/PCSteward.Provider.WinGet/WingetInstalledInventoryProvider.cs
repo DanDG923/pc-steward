@@ -89,8 +89,8 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         foreach (string line in lines.Skip(2))
         {
             string[] columns = Regex.Split(line.Trim(), @"\s{2,}").Where(value => value.Length > 0).ToArray();
-            if (columns.Length < 5) { warnings.Add("winget:malformed-update-row"); continue; }
-            string name = columns[0]; string id = columns[1]; string installed = columns[2]; string available = columns[3]; string source = columns[^1];
+            if (columns.Length < 4) { warnings.Add("winget:malformed-update-row"); continue; }
+            string name = columns[0]; string id = columns[1]; string installed = columns[2]; string available = columns[3]; string source = columns.Length > 4 ? columns[^1] : expectedSource;
             if (!Valid(name) || !PackageId().IsMatch(id) || !Version(installed) || !Version(available) || !string.Equals(source, expectedSource, StringComparison.OrdinalIgnoreCase)) { warnings.Add("winget:invalid-update-row"); continue; }
             records.Add(new(name, id, installed, available, expectedSource));
         }
