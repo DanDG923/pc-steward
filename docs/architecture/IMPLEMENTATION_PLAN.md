@@ -7,10 +7,10 @@
 1. **Task 02:** packaging/WinGet spike. Resolve evidence for OD-02/03; collect read-only WinGet capability, parsing, Store, timeout/cancellation and shell-free command-construction evidence.
 2. **Task 03:** privilege/deletion spike. Resolve helper-protocol and OD-13 feasibility; prove disposable-root containment, reparse rejection, TOCTOU limits and accurate partial cleanup.
 3. **Task 04:** performance/fixture spike. Establish OD-06 baseline, 300-record matrix, benchmark protocol and raw evidence; collect installer-size assumptions needed later by OD-11.
-4. **Task 05:** complete. ADR-001–020 lock the scaffold boundaries; ADR-002/003/011/013 are Provisional with explicit implementation and clean-VM gates.
+4. **Task 05:** complete. ADR-001–020 lock the scaffold boundaries; ADR-002/003/011/013 are Provisional with explicit implementation and isolated-environment gates.
 5. **Task 06:** scaffold separated projects, dependency rules, CI/static-analysis guardrails, test infrastructure and reproducible build.
 
-Current environment blockers affect native build/package proof but not scaffolding. The host-version discrepancy and missing tooling/VM evidence must be resolved before a task claims those acceptance conditions.
+Current environment blockers affect native build/package proof but not scaffolding. The host-version discrepancy and missing tooling/environment evidence must be resolved before a task claims those acceptance conditions.
 
 ## Phase 1 — inventory vertical slice
 

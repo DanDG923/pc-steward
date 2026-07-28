@@ -21,7 +21,7 @@
 | Security negative | Command/path/flag rejection, IPC caller/nonce/replay, database tampering, source fuzzing, reparse/TOCTOU fixtures |
 | End-to-end fixture | Scan→match→review→typed job→simulated execution→verification; clear/reset/export flows |
 | Performance/reliability | 30 warmed local runs, 20 healthy online runs, CPU/memory, cancellation, crash, timeout and bounded concurrency |
-| Manual/VM | Packaging, install/upgrade/uninstall, harmless UAC, Store behavior, clean-VM reset and reparse capabilities |
+| Manual/isolated environment | Packaging, install/upgrade/uninstall, harmless UAC, Store behavior, clean reset and reparse capabilities |
 
 ## Fixture matrix
 
@@ -57,7 +57,7 @@ Use a fixed Windows 11 x64 baseline of at least 4 vCPU, 8 GB RAM and SSD-equival
 | Task 05 | Spike reports support every accepted ADR and unresolved risk is explicit |
 | Task 15 | Inventory coverage, no `Win32_Product`, local-only/no elevation, persistence/clear-scan and local performance |
 | Task 20 | Version/matching matrix, zero false-positive actionability, cache freshness and source isolation |
-| Task 25 | Runner/helper/deletion negative suites, verification semantics and approved VM evidence |
+| Task 25 | Runner/helper/deletion negative suites, verification semantics and approved isolated-environment evidence |
 | Task 31 | All acceptance criteria, performance raw data, packaging lifecycle, SBOM/scans and residual-risk acceptance |
 
 ## Tooling guardrails

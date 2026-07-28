@@ -46,8 +46,8 @@ Double confirmation, active-work lock, deterministic manifest, canonical/reparse
 
 ## Task 03 evidence
 
-`spikes/security-boundaries/SPIKE_REPORT.md` records 42 passing assertions for a ten-category fixed reset manifest, canonical containment, hostile path rejection, junction detection, locked-file partial results, bounded retry, idempotence and a final-component reparse swap. It also prototypes a strict authenticated no-op helper request. Symbolic-link and volume-mount fixtures plus an ancestor-component race remain clean-VM/manual evidence; those limitations make the next-launch choice Provisional.
+`spikes/security-boundaries/SPIKE_REPORT.md` records 42 passing assertions for a ten-category fixed reset manifest, canonical containment, hostile path rejection, junction detection, locked-file partial results, bounded retry, idempotence and a final-component reparse swap. It also prototypes a strict authenticated no-op helper request. Symbolic-link and volume-mount fixtures plus an ancestor-component race remain isolated-environment/manual evidence; those limitations make the next-launch choice Provisional.
 
 ## Reconsider when
 
-Task 27 proves in-process cleanup is equally verifiable and materially simpler; clean-VM reparse/ancestor-race evidence fails; actual handle lifetime or packaging prevents complete standard-user next-launch cleanup; or schedule removal cannot be completed and verified in the current-user context.
+Task 27 proves in-process cleanup is equally verifiable and materially simpler; isolated-environment reparse/ancestor-race evidence fails; actual handle lifetime or packaging prevents complete standard-user next-launch cleanup; or schedule removal cannot be completed and verified in the current-user context.

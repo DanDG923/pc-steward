@@ -1,9 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="MSTest.TestFramework" />
     <ProjectReference Include="../../src/PCSteward.Application/PCSteward.Application.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
   </ItemGroup>
 </Project>

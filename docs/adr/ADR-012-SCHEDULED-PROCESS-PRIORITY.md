@@ -36,7 +36,7 @@ Typed task definitions, process-tree priority capture, final timeout and no-resi
 
 - Task 26 Task Scheduler support across target editions and process priority evidence.
 - Task 29 completion-time/resource results under the selected policy.
-- Clean-VM create/update/delete/idempotence evidence.
+- Isolated-environment create/update/delete/idempotence evidence.
 
 ## Reconsider when
 

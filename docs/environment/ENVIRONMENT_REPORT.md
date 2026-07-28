@@ -17,7 +17,7 @@ Task 00 audit date: 2026-07-28. Checks were read-only except for launching a har
 | Developer Mode | WARNING | No readable `AllowDevelopmentWithoutDevLicense` value returned |
 | Signing/package tools | WARNING | `signtool.exe`, `makeappx.exe`, `msbuild.exe`, and `nuget.exe` were not found on PATH |
 | Minimal process | PASS | Non-elevated `powershell.exe -NoProfile -NonInteractive -Command 'exit 0'` returned exit code 0 |
-| Disposable VM/sandbox | WARNING | No VM or Windows Sandbox availability was established; no VM or sandbox was created |
+| Isolated environment | WARNING | No dedicated isolated environment or Windows Sandbox availability was established |
 
 ## Commands and concise outputs
 

@@ -14,7 +14,7 @@ Execute only immutable, user-approved WinGet operations through constrained runn
 
 ## Exit condition
 
-Update and cleanup acceptance criteria pass in clean test VMs; arbitrary commands and paths are structurally impossible; destructive cleanup cannot escape allowlisted roots.
+Update and cleanup acceptance criteria pass in isolated clean Windows test environments; arbitrary commands and paths are structurally impossible; destructive cleanup cannot escape allowlisted roots.
 
 ## Scope boundaries
 

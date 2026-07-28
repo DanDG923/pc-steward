@@ -35,7 +35,7 @@ Scheduling is resource-light, standard-user and structurally unable to install u
 
 ### Negative / trade-offs
 
-Task Scheduler behavior varies with edition, power and user-session conditions and needs clean-VM tests.
+Task Scheduler behavior varies with edition, power and user-session conditions and needs clean isolated-environment tests.
 
 ### Follow-up controls and tests
 
