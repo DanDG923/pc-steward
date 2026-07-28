@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 0 — Evidence, architecture, and scaffolding
 **Current task:** 01 — Architecture, threat model, and execution plan (complete)
-**Last green commit:** `a5afc3c` — Task 00 environment audit
+**Last green commit:** `9823855` — Task 01 architecture and threat model
 **Current branch:** `phase/0-foundation`
 **Build command:** To be established by Task 06
 **Test command:** To be established by Task 06
@@ -42,7 +42,7 @@ All OD-01–OD-13 decisions remain unresolved until their cited evidence and pro
 
 ## Task 01 result
 
-PASS — architecture, trust boundaries, threat model, test strategy, phased implementation plan and 13 proposed ADRs created. Structural coverage and `git diff --check` passed. Task commit is recorded in Git history.
+PASS — architecture, trust boundaries, threat model, test strategy, phased implementation plan and 13 proposed ADRs created. Structural coverage and `git diff --check` passed. Deliverable commit: `9823855`.
 
 ## Next task
 
