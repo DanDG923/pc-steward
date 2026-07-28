@@ -35,7 +35,7 @@ Display current version/channel and document authenticated release verification.
 ## Evidence the upcoming work must collect
 
 - Task 30 signing availability, package upgrade behavior and release-channel evidence.
-- Clean-VM manual upgrade preserving data.
+- Isolated-environment manual upgrade preserving data.
 - A new threat model/ADR before automatic self-update.
 
 ## Reconsider when

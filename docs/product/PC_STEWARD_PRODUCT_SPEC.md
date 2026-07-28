@@ -1262,9 +1262,9 @@ The performance budgets apply to PC Steward and child processes it launches. The
 
 Acceptance testing must use:
 
-- at least two clean Windows 11 x64 virtual machines on supported releases;
+- supported, clean Windows 11 x64 test environments on the releases in scope; these may be physical or virtual;
 - an agreed baseline performance environment with at least 4 vCPU, 8 GB RAM and SSD-equivalent storage, using the same power plan for repeatable tests;
-- the product owner's real PC for exploratory testing after VM safety tests;
+- the product owner's real PC for exploratory testing after isolated safety tests;
 - a curated fixture set containing machine-wide MSI/EXE apps, per-user apps, MSIX/Store apps, runtimes/components, duplicate user/machine instances, an app with no version, an unmatched app and at least ten WinGet-updatable applications;
 - both current and deliberately outdated test versions where licences permit; and
 - hostile cleanup fixtures containing locked files, nested directories and reparse-point/junction attempts inside the test cache root.
@@ -1373,7 +1373,7 @@ The MVP is ready for private beta only when:
 - critical update-execution and privilege code has automated tests and manual review;
 - dependency, static-analysis and secret-scanning checks pass;
 - an SBOM is generated for the release;
-- install, upgrade, uninstall and factory-reset paths have been tested on clean VMs;
+- install, upgrade, uninstall and factory-reset paths have been tested on supported clean Windows test environments;
 - scan performance and idle-resource acceptance criteria pass on the agreed baseline;
 - destructive cleanup path-safety, locked-file and partial-reset tests pass;
 - known limitations are documented in the application and release notes; and
@@ -1437,7 +1437,7 @@ These decisions are intentionally left for focused design or prototype work. The
 | OD-03 | WinGet CLI adapter versus supported programmatic API | Start behind an abstraction; choose the most stable supported route after spike |
 | OD-04 | Whether read-only GitHub Releases checks are mandatory for MVP | Include only if core WinGet inventory/update flow is stable |
 | OD-05 | How aggressively to group runtimes and redistributables | Preserve raw instances; begin with conservative grouping |
-| OD-06 | Baseline hardware for performance tests | Product owner's PC plus an agreed mid-range VM configuration |
+| OD-06 | Baseline hardware for performance tests | Product owner's PC plus an agreed, recorded Windows baseline (physical or virtual) |
 | OD-07 | Default schedule | Weekly, disabled until first-run consent |
 | OD-08 | Product licence and whether source code will be public | Undecided; private repository during initial build |
 | OD-09 | Application self-update mechanism | Manual signed release for first private build; automate only after signing/distribution decision |
@@ -1456,7 +1456,7 @@ These decisions are intentionally left for focused design or prototype work. The
 - Create architecture decision record template.
 - Define the repeatable performance baseline and create a scan benchmark harness.
 - Prototype read-only inventory providers.
-- Prototype WinGet capability detection, list parsing/API access and update invocation in a disposable VM.
+- Prototype WinGet capability detection, list parsing/API access and update invocation in an isolated disposable Windows environment.
 - Prototype standard-user UI plus on-demand elevation.
 - Prototype path-safe deletion within a disposable app-data root, including locked files and reparse-point attempts.
 - Decide packaging and provider integration approach.
@@ -1497,7 +1497,7 @@ These decisions are intentionally left for focused design or prototype work. The
 - App-owned downloaded-artifact tracking and bounded cache.
 - **Delete downloaded files** in Settings and on update completion.
 
-**Exit condition:** update execution and downloaded-file cleanup acceptance criteria pass in clean VMs.
+**Exit condition:** update execution and downloaded-file cleanup acceptance criteria pass in supported clean Windows test environments.
 
 ### Phase 4 — Scheduling, polish and private beta
 

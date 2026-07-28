@@ -23,9 +23,11 @@ public sealed class InventoryScanOrchestrator : IDisposable
             foreach (ILocalInventoryProvider provider in providers)
             {
                 cancellationToken.ThrowIfCancellationRequested(); progress?.Report(new ScanProgress(correlationId, "Collecting", elapsed.Elapsed, provider.Name)); Stopwatch timing = Stopwatch.StartNew();
-                try { ProviderScanResult result = await provider.ScanAsync(cancellationToken).WaitAsync(provider.Timeout, cancellationToken); products.AddRange(result.Products); instances.AddRange(result.Instances); rawRecords.AddRange(result.RawRecords); foreach (string warning in result.Warnings) warnings.Add($"{provider.Name}:{warning}"); }
+                using CancellationTokenSource providerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                Task<ProviderScanResult>? providerTask = null;
+                try { providerTask = provider.ScanAsync(providerCancellation.Token); ProviderScanResult result = await providerTask.WaitAsync(provider.Timeout, cancellationToken); products.AddRange(result.Products); instances.AddRange(result.Instances); rawRecords.AddRange(result.RawRecords); foreach (string warning in result.Warnings) warnings.Add($"{provider.Name}:{warning}"); }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                catch (TimeoutException) { warnings.Add($"{provider.Name}:timeout"); }
+                catch (TimeoutException) { providerCancellation.Cancel(); if (providerTask is not null) { try { await providerTask.WaitAsync(TimeSpan.FromSeconds(1), CancellationToken.None); } catch (OperationCanceledException) { } catch (TimeoutException) { warnings.Add($"{provider.Name}:timeout-unresponsive"); } } warnings.Add($"{provider.Name}:timeout"); }
                 catch (Exception) { warnings.Add($"{provider.Name}:failed"); }
                 finally { timings[provider.Name] = timing.Elapsed; }
             }
@@ -40,7 +42,7 @@ public sealed class InventoryScanOrchestrator : IDisposable
     }
     private static (List<CanonicalProduct> Products, List<InstallationInstance> Instances) Normalize(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances)
     {
-        Dictionary<Guid, CanonicalProduct> names = products.ToDictionary(product => product.Id);
+        Dictionary<Guid, CanonicalProduct> names = products.GroupBy(product => product.Id).ToDictionary(group => group.Key, group => group.OrderBy(product => product.DisplayName, StringComparer.Ordinal).ThenBy(product => product.StableKey, StringComparer.Ordinal).First());
         DeduplicationResult normalized = InventoryNormalization.NormalizeAndDeduplicate(instances.Select(instance => new RawInstallEvidence(instance.Provider, instance.ProviderIdentity, names[instance.ProductId].DisplayName, null, instance.Version, instance.Scope, instance.Architecture, null, "Unknown", instance.Id.ToString("N"))));
         List<CanonicalProduct> normalizedProducts = []; List<InstallationInstance> normalizedInstances = [];
         foreach (NormalizedInstall install in normalized.Instances)

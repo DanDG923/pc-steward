@@ -82,6 +82,17 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
         return value is string text && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
     }
 
+    public async Task<bool> GetConnectorEnabledAsync(string connectorName, bool defaultValue, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key = $key;"; command.Parameters.AddWithValue("$key", ConnectorKey(connectorName)); object? value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is string text && bool.TryParse(text, out bool parsed) ? parsed : defaultValue;
+    }
+
+    public async Task SaveConnectorEnabledAsync(string connectorName, bool enabled, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorKey(connectorName)), ("$value", enabled));
+    }
+
     public async Task SaveAsync(StableDecision decision, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
@@ -111,6 +122,7 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
             await using SqliteTransaction transaction = connection.BeginTransaction();
             int deleted = 0;
             foreach (string table in new[] { "raw_provider_records", "scan_provider_timings", "update_candidates", "scan_runs", "installation_instances", "canonical_products" }) deleted += await ExecuteCountAsync(connection, $"DELETE FROM {table};", transaction, cancellationToken);
+            await ExecuteAsync(connection, "DELETE FROM app_metadata WHERE key = 'scan_last_completed';", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO app_metadata(key, value) VALUES ('scan_data_last_cleared', $cleared) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$cleared", DateTimeOffset.UtcNow));
             await transaction.CommitAsync(cancellationToken);
             return new ClearScanDataResult(true, deleted, 0, deleted == 0 ? "No scan data was stored." : "Scan data was cleared.");
@@ -145,6 +157,7 @@ public sealed class SqliteDatabase : IScanDataStore, IStableDecisionStore
     }
 
     private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim()[..Math.Min(value.Trim().Length, MaxTextLength)];
+    private static string ConnectorKey(string connectorName) => "connector." + Text(connectorName).ToLowerInvariant();
     private static async Task InsertRunAsync(SqliteConnection connection, ScanRun run, IReadOnlyCollection<ScanProviderTiming> timings, SqliteTransaction transaction, CancellationToken token)
     {
         await ExecuteAsync(connection, "INSERT INTO scan_runs VALUES ($id,$started,$completed,$status,$correlation);", token, transaction, ("$id", run.Id), ("$started", run.StartedAt), ("$completed", run.CompletedAt), ("$status", Text(run.Status)), ("$correlation", run.CorrelationId));

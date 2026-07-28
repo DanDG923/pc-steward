@@ -73,6 +73,17 @@ public sealed class SqliteDatabaseTests
         Assert.AreEqual(5, summary.ItemCount);
         Assert.IsTrue(summary.SizeBytes > 0);
         Assert.AreEqual(0, (await database.Store.ClearScanDataAsync(CancellationToken.None)).RemainingItems);
+        Assert.IsNull(await database.Store.GetLastCompletedScanAtAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ConnectorChoicePersistsOutsideScanData()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.SaveConnectorEnabledAsync("Current-user AppX/MSIX catalog", false, CancellationToken.None);
+        Assert.IsFalse(await database.Store.GetConnectorEnabledAsync("Current-user AppX/MSIX catalog", true, CancellationToken.None));
+        await database.Store.ClearScanDataAsync(CancellationToken.None);
+        Assert.IsFalse(await database.Store.GetConnectorEnabledAsync("Current-user AppX/MSIX catalog", true, CancellationToken.None));
     }
 
     private sealed class TestDatabase : IAsyncDisposable

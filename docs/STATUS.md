@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 15 — Phase 1 review gate repeat (FAIL)
-**Last green commit:** `4f0e0fc`
+**Current task:** 15 — Phase 1 review gate repeat (pending fresh Sol / High review)
+**Last green commit:** `58ca1eb`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** FAIL
+**Phase gate:** NOT RUN
 
 ## Decisions
 
@@ -43,9 +43,9 @@
 
 ## Active blockers
 
-Task 00 recorded a BLOCKER for the reported Windows 10 Home host versus the Windows 11 x64 target; Task 04's independent capture reports Windows 11 Home, so the discrepancy must be reconciled on a clean baseline VM. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode/VM evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; clean-VM symbolic-link, volume-mount and concurrent ancestor-swap evidence remains mandatory. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
+Task 00 recorded a Windows-version discrepancy that must be reconciled on a supported Windows 11 x64 test environment. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; symbolic-link, volume-mount and concurrent ancestor-swap evidence remains required on an isolated disposable test environment. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
 
-ADR-002, ADR-003, ADR-011 and ADR-013 are Provisional with explicit clean-VM/implementation reconsideration gates. No ADR remains Proposed, and Task 06 has no unresolved security, persistence, execution, deletion, scheduling or scaffold-boundary decision.
+ADR-002, ADR-003, ADR-011 and ADR-013 are Provisional with explicit implementation and isolated-environment reconsideration gates. No ADR remains Proposed, and Task 06 has no unresolved security, persistence, execution, deletion, scheduling or scaffold-boundary decision.
 
 ## Task 01 result
 
@@ -53,19 +53,19 @@ PASS — architecture, trust boundaries, threat model, test strategy, phased imp
 
 ## Task 02 result
 
-PASS WITH EVIDENCE LIMITATIONS — isolated capability/parser and shell-free command-planning spike created. WinGet `v1.29.280` supports the required argument controls, but observed help exposes no structured list/upgrade output. ADR-002 and ADR-003 remain Proposed; clean Windows 11 VM lifecycle evidence and approved source queries remain outstanding.
+PASS WITH EVIDENCE LIMITATIONS — isolated capability/parser and shell-free command-planning spike created. WinGet `v1.29.280` supports the required argument controls, but observed help exposes no structured list/upgrade output. ADR-002 and ADR-003 remain Proposed; supported Windows lifecycle evidence and approved source queries remain outstanding.
 
 ## Task 03 result
 
-PASS WITH VM FOLLOW-UP — 42 disposable-root assertions passed for fixed-root/path validation, junction rejection, locked residuals, retry, idempotence, final-component swap mitigation and the authenticated no-op helper protocol. ADR-002, ADR-011 and ADR-013 remain Proposed; symbolic-link, volume-mount and ancestor-race VM evidence remains outstanding.
+PASS WITH ISOLATED-ENVIRONMENT FOLLOW-UP — 42 disposable-root assertions passed for fixed-root/path validation, junction rejection, locked residuals, retry, idempotence, final-component swap mitigation and the authenticated no-op helper protocol. ADR-002, ADR-011 and ADR-013 remain Proposed; symbolic-link, volume-mount and ancestor-race evidence remains outstanding.
 
 ## Task 04 result
 
-PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, redacted capture, 30 local and 20 simulated healthy-online raw samples, direct-worker CPU/working-set/cancellation/concurrency harness and OD-06 evidence update created. The spike’s 584.68 ms local p95, 1,764.93 ms simulated-online p95, 503.54 ms cancellation acknowledgement and observed concurrency of 3 are not final application compliance; clean-VM, fixed-power-plan, SSD-equivalent and real-source evidence remain outstanding.
+PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, redacted capture, 30 local and 20 simulated healthy-online raw samples, direct-worker CPU/working-set/cancellation/concurrency harness and OD-06 evidence update created. The spike’s 584.68 ms local p95, 1,764.93 ms simulated-online p95, 503.54 ms cancellation acknowledgement and observed concurrency of 3 are not final application compliance; fixed-power-plan, SSD-equivalent and real-source evidence remain outstanding.
 
 ## Task 05 result
 
-PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 architecture documents now lock component, persistence, diagnostics, immutable-job, helper IPC, artifact-root and scan-only scheduling boundaries. ADR-002/003/011/013 retain explicit evidence gates. All three spike suites passed: 11 WinGet assertions, 42 security assertions with one VM/manual skip category, and 14 fixture assertions.
+PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 architecture documents now lock component, persistence, diagnostics, immutable-job, helper IPC, artifact-root and scan-only scheduling boundaries. ADR-002/003/011/013 retain explicit evidence gates. All three spike suites passed: 11 WinGet assertions, 42 security assertions with one isolated-environment/manual skip category, and 14 fixture assertions.
 
 ## Task 06 result
 
@@ -109,10 +109,10 @@ REPEAT FAIL — seven findings: five High and two Medium. Duplicate provider row
 
 ## Task 90 result
 
-PASS WITH EVIDENCE LIMITATIONS — MSIX and opt-in fixed-argument WinGet composition, normalization, transactional raw/run/timing persistence, provider timeout isolation, cached freshness, connector selection and complete disposable-table size accounting added. The product workload ran 30 deterministic 300-record scans at 1.02 ms median/1.33 ms p95; it is not clean-VM, UI, idle or full-process-tree acceptance evidence. Repeat Task 15.
+Task 90 committed code-side P1R-01–03 remediation and partial P1R-05/06/07 remediation with deterministic evidence. Remaining required evidence is final-application performance, process-tree/idle/UI measurements, manual accessibility, approved enabled-WinGet behavior, typed provenance/events, and the desktop adapter boundary. A VM is optional, not required.
 ## Next task
 
-Run `prompts/90_REMEDIATE_A_PHASE_REVIEW.md`. Required model/reasoning: GPT-5.6 Terra / High.
+Run `prompts/15_PHASE_REVIEW.md` in a fresh GPT-5.6 Sol / High review.
 
 ## Rules for updating this file
 

@@ -43,8 +43,18 @@ public sealed class WindowsWingetProcess : IWingetProcess
         ProcessStartInfo start = new() { FileName = executable, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using Process process = new() { StartInfo = start };
-        process.Start(); Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken); Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
-        try { await process.WaitForExitAsync(cancellationToken).WaitAsync(timeout, cancellationToken); return new WingetProcessResult(process.ExitCode, await output, await error, false); }
-        catch (TimeoutException) { if (!process.HasExited) process.Kill(entireProcessTree: true); await process.WaitForExitAsync(CancellationToken.None); return new WingetProcessResult(-1, await output, await error, true); }
+        process.Start(); Task<string> output = process.StandardOutput.ReadToEndAsync(CancellationToken.None); Task<string> error = process.StandardError.ReadToEndAsync(CancellationToken.None); Task exit = process.WaitForExitAsync(CancellationToken.None);
+        Task cancellation = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); Task delay = Task.Delay(timeout, CancellationToken.None);
+        Task completed = await Task.WhenAny(exit, delay, cancellation);
+        if (completed == cancellation)
+        {
+            Terminate(process); await exit; cancellationToken.ThrowIfCancellationRequested();
+        }
+        if (completed == delay)
+        {
+            Terminate(process); await exit; return new WingetProcessResult(-1, await output, await error, true);
+        }
+        return new WingetProcessResult(process.ExitCode, await output, await error, false);
     }
+    private static void Terminate(Process process) { if (!process.HasExited) process.Kill(entireProcessTree: true); }
 }

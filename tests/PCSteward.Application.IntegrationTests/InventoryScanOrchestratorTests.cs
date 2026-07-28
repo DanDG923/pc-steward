@@ -23,9 +23,16 @@ public sealed class InventoryScanOrchestratorTests
     [TestMethod]
     public async Task TimedOutProviderDoesNotBlockAnotherProviderOrPublishPartialProviderData()
     {
-        FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [new DelayedProvider(), new FakeProvider("good", false)]);
+        DelayedProvider slow = new(); FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [slow, new FakeProvider("good", false)]);
         ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None);
-        Assert.IsTrue(result.Succeeded); Assert.AreEqual(1, store.Products.Count); CollectionAssert.Contains(result.Warnings.ToArray(), "slow:timeout");
+        Assert.IsTrue(result.Succeeded); Assert.AreEqual(1, store.Products.Count); CollectionAssert.Contains(result.Warnings.ToArray(), "slow:timeout"); Assert.IsTrue(slow.Cancelled);
+    }
+    [TestMethod]
+    public async Task DuplicateProviderProductsAreNormalizedWithoutAbortingTheScan()
+    {
+        FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [new DuplicateProvider()]);
+        ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None);
+        Assert.IsTrue(result.Succeeded); Assert.AreEqual(1, store.Products.Count);
     }
     private sealed class FakeStore : IInventorySnapshotStore
     {
@@ -45,6 +52,17 @@ public sealed class InventoryScanOrchestratorTests
     {
         public string Name => "slow";
         public TimeSpan Timeout => TimeSpan.FromMilliseconds(20);
-        public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { await Task.Delay(100, CancellationToken.None); return new ProviderScanResult([], [], [], []); }
+        public bool Cancelled { get; private set; }
+        public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { try { await Task.Delay(100, cancellationToken); } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { Cancelled = true; throw; } return new ProviderScanResult([], [], [], []); }
+    }
+    private sealed class DuplicateProvider : ILocalInventoryProvider
+    {
+        public string Name => "duplicate"; public TimeSpan Timeout => TimeSpan.FromSeconds(1);
+        public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
+        {
+            Guid productId = Guid.NewGuid(); CanonicalProduct product = new(productId, "duplicate", "Duplicate");
+            InstallationInstance first = new(Guid.NewGuid(), productId, "registry", "duplicate-key", "1", "Machine", "x64"); InstallationInstance second = new(Guid.NewGuid(), productId, "registry", "duplicate-key", "1", "Machine", "x64");
+            return Task.FromResult(new ProviderScanResult([product, product], [first, second], [], []));
+        }
     }
 }

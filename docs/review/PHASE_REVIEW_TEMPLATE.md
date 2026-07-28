@@ -18,7 +18,7 @@ A phase fails when it has any Blocker/High finding, a mandatory acceptance failu
 - ADRs:
 - Builds/tests:
 - Benchmarks:
-- Manual/VM tests:
+- Manual/isolated-environment tests:
 - Diff range:
 
 ## Findings

@@ -27,7 +27,7 @@ public sealed class MainWindow : Window
         string stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PCSteward");
         Directory.CreateDirectory(stateDirectory);
         database = new SqliteDatabase(Path.Combine(stateDirectory, "pcsteward.db"));
-        database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
+        database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult(); LoadConnectorState();
         orchestrator = new InventoryScanOrchestrator(database, [new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
         exports = new InventoryExportService(database);
         LoadSavedInventory(); Render();
@@ -39,6 +39,15 @@ public sealed class MainWindow : Window
         scanData = database.GetScanDataSummaryAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
+    private void LoadConnectorState()
+    {
+        foreach (ConnectorOption connector in viewModel.Connectors.ToArray())
+        {
+            bool enabled = database.GetConnectorEnabledAsync(connector.Name, connector.IsEnabled, CancellationToken.None).GetAwaiter().GetResult();
+            viewModel.SetConnectorEnabled(connector.Name, enabled);
+        }
+    }
+
     private void Render()
     {
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
@@ -47,9 +56,10 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
         foreach (ConnectorOption connector in viewModel.Connectors)
         {
-            CheckBox checkBox = new() { Content = $"{connector.Name} ({connector.TrustCategory})", IsChecked = connector.IsEnabled, IsEnabled = !connector.IsEssential };
-            checkBox.Checked += (_, _) => viewModel.SetConnectorEnabled(connector.Name, true);
-            checkBox.Unchecked += (_, _) => viewModel.SetConnectorEnabled(connector.Name, false);
+            bool isWinget = connector.Name == "WinGet installed inventory";
+            CheckBox checkBox = new() { Content = isWinget ? $"{connector.Name} (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})", IsChecked = connector.IsEnabled, IsEnabled = !connector.IsEssential && !isWinget };
+            checkBox.Checked += async (_, _) => { viewModel.SetConnectorEnabled(connector.Name, true); await database.SaveConnectorEnabledAsync(connector.Name, true, CancellationToken.None); };
+            checkBox.Unchecked += async (_, _) => { viewModel.SetConnectorEnabled(connector.Name, false); await database.SaveConnectorEnabledAsync(connector.Name, false, CancellationToken.None); };
             panel.Children.Add(checkBox);
         }
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -64,12 +74,18 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(search, "Search installed applications");
         search.TextChanged += (_, _) => { viewModel.SetFilters(search.Text, "All statuses", "All sources", "All scopes", "Name"); RenderInventory(list); };
         panel.Children.Add(search);
+        ComboBox source = FilterBox("All sources", "registry", "msix", "winget"); ComboBox scope = FilterBox("All scopes", "Machine", "User", "Unknown"); ComboBox sort = FilterBox("Name", "Source");
+        source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); sort.SelectionChanged += (_, _) => ApplyFilters();
+        panel.Children.Add(source); panel.Children.Add(scope); panel.Children.Add(sort);
+        void ApplyFilters() { viewModel.SetFilters(search.Text, "All statuses", source.SelectedItem?.ToString(), scope.SelectedItem?.ToString(), sort.SelectedItem?.ToString()); RenderInventory(list); }
         list.ItemClick += (_, args) => ShowDetails((InventoryRow)args.ClickedItem);
         panel.Children.Add(list); RenderInventory(list);
         panel.Children.Add(new TextBlock { Text = "Inventory records are local-only. “Live” and “cached” source checks are not available in this phase.", TextWrapping = TextWrapping.Wrap });
         AddDataAndResetSection(panel);
         Content = new ScrollViewer { Content = panel };
     }
+
+    private static ComboBox FilterBox(params string[] values) { ComboBox box = new(); foreach (string value in values) box.Items.Add(value); box.SelectedIndex = 0; return box; }
 
     private void RenderInventory(ListView list)
     {
@@ -89,7 +105,7 @@ public sealed class MainWindow : Window
     private void AddDataAndResetSection(StackPanel panel)
     {
         panel.Children.Add(new TextBlock { Text = "Data & reset", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
-        panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, {scanData.SizeBytes:N0} bytes. Last cleared: {(scanData.LastClearedAt is null ? "never" : scanData.LastClearedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated payload {scanData.SizeBytes:N0} characters. Last cleared: {(scanData.LastClearedAt is null ? "never" : scanData.LastClearedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", TextWrapping = TextWrapping.Wrap });
         StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button exportCsv = new() { Content = "Export inventory CSV" }; exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv);

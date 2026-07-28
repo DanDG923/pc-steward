@@ -16,19 +16,19 @@ Budgets need a repeatable Windows 11 x64 baseline and process-tree measurements.
 
 Realistic but difficult to reproduce and may be overpowered.
 
-### Option B — Fixed mid-range VM plus exploratory real PC
+### Option B — Fixed supported Windows baseline plus exploratory real PC
 
 Repeatable gate with separate real-world evidence.
 
 ## Decision
 
-Accept Option B. The repeatable acceptance baseline is a clean supported Windows 11 x64 VM with at least 4 vCPU, 8 GB RAM, SSD-equivalent storage and a fixed recorded power plan. Product-owner-PC results are exploratory and reported separately; they cannot replace the VM gate.
+Accept Option B. The repeatable acceptance baseline is a supported Windows 11 x64 environment with at least 4 logical processors, 8 GB RAM, SSD-equivalent storage and a fixed recorded power plan. It may be physical or virtual. Product-owner-PC results are reported separately unless that PC is the recorded baseline.
 
-Option A is rejected because one changing physical PC cannot provide a reproducible acceptance comparison.
+Option A is rejected because an unrecorded changing physical PC cannot provide a reproducible acceptance comparison.
 
 ## Consequences
 
-VM variance must be recorded; final claims are comparable.
+Environment variance must be recorded; final claims are comparable.
 
 ### Follow-up controls and tests
 
@@ -45,8 +45,8 @@ Raw results include environment/build IDs, warm-up, every sample, median and p95
 
 `spikes/performance-fixtures/` now supplies a deterministic 320-record fixture matrix, redacted system capture, raw machine-readable 30-local/20-simulated-online benchmark result, direct-worker CPU/working-set instrumentation, cancellation probe and bounded-concurrency observation. The recorded aggregate is `results/benchmark-20260728T095015Z.json`: local p95 584.68 ms, simulated-online p95 1,764.93 ms, cancellation acknowledgement 503.54 ms and maximum observed connector concurrency 3.
 
-This evidence validates the accepted measurement approach only. It is not a product-performance claim: the host has unverified SSD-equivalent storage and no agreed fixed power plan, the online path is a local simulation, and the future application/UI/process tree does not yet exist. Clean-VM and final-application evidence remains mandatory for acceptance criteria.
+This evidence validates the accepted measurement approach only. It is not a product-performance claim: the host has unverified SSD-equivalent storage and no agreed fixed power plan, the online path is a local simulation, and the future application/UI/process tree does not yet exist. Final-application evidence on the recorded baseline remains mandatory for acceptance criteria; a VM is optional.
 
 ## Reconsider when
 
-Virtualization noise prevents stable thresholds or the target-user hardware floor changes.
+Baseline variance prevents stable thresholds or the target-user hardware floor changes.

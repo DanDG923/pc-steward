@@ -35,7 +35,7 @@ More privilege has less capability, and each approval creates a fresh authentica
 
 ### Negative / trade-offs
 
-Windows process identity, signing, pipe ACL and teardown behavior require clean-VM security evidence.
+Windows process identity, signing, pipe ACL and teardown behavior require isolated-environment security evidence.
 
 ### Follow-up controls and tests
 
@@ -43,4 +43,4 @@ Task 22 must prove ACLs, server/client PID and token/session checks, signature/p
 
 ## Reconsider when
 
-The selected Windows APIs cannot prove both endpoint identities across UAC, signing is unavailable for external beta, or clean-VM tests expose a replay/spoofing path. No persistent-service fallback is allowed without a new product and threat-model decision.
+The selected Windows APIs cannot prove both endpoint identities across UAC, signing is unavailable for external beta, or isolated-environment tests expose a replay/spoofing path. No persistent-service fallback is allowed without a new product and threat-model decision.

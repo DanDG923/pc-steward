@@ -1,50 +1,30 @@
-# Task 90 — remediate Phase 1 review findings
+# Task 90 — remediate repeated Phase 1 review
 
 ## Goal
 
-Resolve P1-01 through P1-07 without adding update execution, elevation, network-source refresh, or any later-phase scope; leave baseline-VM/manual acceptance evidence explicitly unproven where it cannot be collected on this host.
+Resolve the code-side P1R findings without enabling WinGet source access, elevation, update execution, or other later-phase scope. Preserve unexecuted final-application/manual acceptance evidence as unproven unless separately authorized.
 
 ## Requirement IDs
 
-`FR-INV-04–09`, `FR-RSC-03/05`, `FR-HIS-01`, `FR-ONB-04`, `FR-UI-02/05`, `FR-DAT-10`, `NFR-PERF-01/03/05/06/08/09`, `NFR-MNT-01/05`, `NFR-OBS-01–02`, `AC-INV-01–02/04–07`, `AC-NFR-01/03/04/06–07/09`, `AC-UX-01/02/04/06/09`.
-
-## Current evidence
-
-Task 15 failed because production composition scans only the registry; raw records, scan summaries and timings are not written; cancellation is UI-thread-blocking and untimed; connector/freshness UI is misleading; the benchmark is a scaffold; and the desktop presentation calls adapter APIs directly.
-
-## Files and components affected
-
-Application scan/workspace ports and orchestration; Domain inventory evidence; SQLite schema and transactional persistence; Windows/MSIX and WinGet adapters; desktop composition and presentation; performance harness; unit, integration and architecture tests; review, traceability and status records.
+`FR-INV-06–09`, `FR-RSC-03`, `FR-DAT-06/10`, `FR-ONB-04`, `FR-UI-02/05`, `NFR-PERF-01/03/05/06/08/09`, `NFR-MNT-01/05`, `NFR-OBS-02`, `AC-INV-01–02/04–05`, `AC-DAT-06`, `AC-NFR-01/03/04/06–07/09`, `AC-UX-01/02/04/06/09`.
 
 ## Steps
 
-1. Replace the provider result with bounded raw inventory evidence, compose registry/MSIX/optional WinGet providers, and normalize before promotion (P1-01).
-2. Persist scan runs, correlations, raw evidence, provider timings and supported instance metadata in one SQLite transaction (P1-02).
-3. Run blocking providers away from the UI and enforce cancellable per-provider timeouts with regression tests (P1-03).
-4. Replace the product performance scaffold with a deterministic 300-record workload and retain its non-baseline limitations (P1-04).
-5. Make connector configuration, filters and cached freshness truthful through a desktop-facing application controller (P1-05).
-6. Move adapter calls out of `MainWindow` and enforce that presentation boundary; make scan-data size account for every disposable table (P1-06, P1-07).
-7. Run narrow regression suites, then Release build/full suite and affected fixture/performance evidence; append verification to the review report.
-8. Update traceability/status, review the diff, commit Task 90, and stop for a fresh Task 15 review.
+1. Completed — normalization now groups duplicate provider products deterministically; orchestration coverage passes (P1R-01).
+2. Completed — WinGet cancellation and timeout terminate the process tree; provider timeout coverage proves cooperative cancellation (P1R-02).
+3. Completed — clear-data removes scan freshness transactionally; persistence coverage proves reload has no last-completed value (P1R-03).
+4. Completed with limitation — deterministic measurement output was verified; final-application/UI/manual acceptance remains unexecuted (P1R-04).
+5. Completed in part — connector selection persists, unapproved WinGet is unavailable, source/scope/sort controls render, and the size label is truthful. Publisher/status filters and an approved enabled-WinGet flow remain for later work (P1R-05).
+6. Completed in part — the misleading byte label is corrected. Typed normalized provenance, structured scan events and the direct desktop adapter boundary remain for the fresh review to assess (P1R-06/07).
+7. Completed — focused integration suite (22), Release build, full suite (29), deterministic workload and fixture integrity (14 assertions) passed.
+8. Completed — commit only verified results, then stop for fresh Task 15 review.
 
-## Tests and measurable evidence
+## Evidence limits
 
-Composition fixtures cover all enabled providers, malformed data, deduplication and provider toggle selection. Persistence fixtures cover raw records/runs/timings, transactional failure and clear-data size. Orchestrator fixtures cover in-flight cancellation, timeout isolation and exclusive scans. The product benchmark runs 30 deterministic 300-record scans and records elapsed results; it does not claim clean-VM or UI/process-tree compliance.
-
-## Security and failure cases
-
-All provider input remains length-bounded and untrusted; no provider receives elevation. WinGet remains opt-in and its executable/arguments stay fixed. A timeout never grants an incomplete provider authority or replaces the last-known-good snapshot. No database row becomes command or deletion authority.
-
-## Rollback / safe stopping point
-
-Each scan writes a transactional replacement only after collection and normalization; cancellation, timeout or persistence failure leaves the previous snapshot intact. If baseline/manual evidence cannot be gathered, it remains a documented gate limitation rather than a pass.
-
-## Decisions or assumptions
-
-Current-user MSIX is enabled by default because it is a local Windows catalog. WinGet remains disabled by default, both because its installed-inventory command is optional and because no approval exists to disclose inventory to package sources. The fixed Task 04 fixture remains methodology evidence, not final baseline compliance.
+There is no approval for real WinGet source disclosure or manual desktop exercises. Those acceptance criteria remain unexecuted and cannot be reported as passed. A supported isolated Windows environment is acceptable where safety testing requires one; a VM is optional.
 
 ## Completion record
 
-- Commit: `29ad036` (amend pending status commit reference)
-- Tests: Release build; full suite (27 tests); focused integration suite (20 tests); 30-run 300-record product workload.
-- Remaining risks: Clean-VM baseline, manual UI, high contrast/text scaling and real WinGet-source behavior require later approved evidence.
+- Commit: `58ca1eb` — `fix: remediate phase review findings`
+- Tests: Release build (0 warnings/errors); full suite 29 passed; deterministic workload 30 runs (median 1.09 ms, p95 1.61 ms); performance fixture integrity 14 assertions passed.
+- Remaining risks: supported performance baseline, full process tree/idle/UI metrics, manual accessibility, approved enabled-WinGet behavior, typed scan provenance/events, and the desktop adapter boundary.

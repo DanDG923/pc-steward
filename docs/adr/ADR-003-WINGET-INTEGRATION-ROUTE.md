@@ -47,4 +47,4 @@ Golden parser/capability fixtures, locale/malformed-output rejection, source-fai
 
 ## Reconsider when
 
-A supported API proves equivalent inventory, source, cancellation and execution behavior; required CLI capabilities disappear; parser compatibility breaks; or clean-VM evidence shows the route cannot meet source isolation and exact-ID execution requirements.
+A supported API proves equivalent inventory, source, cancellation and execution behavior; required CLI capabilities disappear; parser compatibility breaks; or clean-environment evidence shows the route cannot meet source isolation and exact-ID execution requirements.

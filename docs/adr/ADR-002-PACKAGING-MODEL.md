@@ -40,11 +40,11 @@ The choice is evidence-based and preserves a common application/domain core.
 
 ### Negative / trade-offs
 
-The installer lifecycle and code-signing path remain unproven until clean-VM evidence exists.
+The installer lifecycle and code-signing path remain unproven until supported clean Windows environment evidence exists.
 
 ### Follow-up controls and tests
 
-Packaging-specific code remains outside domain. Before external beta, Tasks 25/30 must prove install, launch, helper/UAC, scheduled-task, upgrade, rollback, uninstall-retain-data and uninstall-remove-data cases on supported clean Windows 11 x64 VMs. Failure of any required interaction reopens this ADR before distribution.
+Packaging-specific code remains outside domain. Before external beta, Tasks 25/30 must prove install, launch, helper/UAC, scheduled-task, upgrade, rollback, uninstall-retain-data and uninstall-remove-data cases on supported clean Windows 11 x64 environments. The environment may be physical or virtual. Failure of any required interaction reopens this ADR before distribution.
 
 ## Evidence the upcoming spike must collect
 
@@ -52,11 +52,11 @@ Packaging-specific code remains outside domain. Before external beta, Tasks 25/3
 - Current-user storage, Task Scheduler, notifications and WinGet access.
 - Separate helper launch/UAC/signing boundary and no resident process.
 - Factory reset without deleting binaries.
-- Tooling and clean Windows 11 VM prerequisites.
+- Tooling and supported clean Windows 11 environment prerequisites.
 
 ## Task 02 evidence
 
-`spikes/winget-packaging/SPIKE_REPORT.md` records that WinGet is available to the current user, but its environment report identified Windows 10 while Task 04 later captured Windows 11 Home. Neither capture is a clean acceptance VM, and the discrepancy is unresolved. No PC Steward package lifecycle was executed. The spike favours Option B because a separate signed helper and an explicit retain/remove-data uninstall choice fit its boundary more directly.
+`spikes/winget-packaging/SPIKE_REPORT.md` records that WinGet is available to the current user, but its environment report identified Windows 10 while Task 04 later captured Windows 11 Home. Neither capture is a recorded clean acceptance environment, and the discrepancy is unresolved. No PC Steward package lifecycle was executed. The spike favours Option B because a separate signed helper and an explicit retain/remove-data uninstall choice fit its boundary more directly.
 
 ## Task 03 evidence
 
@@ -64,4 +64,4 @@ Packaging-specific code remains outside domain. Before external beta, Tasks 25/3
 
 ## Reconsider when
 
-MSIX proves the full required lifecycle without weakening helper, task or data-choice semantics; the traditional installer cannot meet a required clean-VM lifecycle case; or Windows packaging capabilities materially change.
+MSIX proves the full required lifecycle without weakening helper, task or data-choice semantics; the traditional installer cannot meet a required clean-environment lifecycle case; or Windows packaging capabilities materially change.
