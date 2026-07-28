@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 90 — capture approved mandatory source evidence, then repeat Task 20
+**Current task:** 20 — fresh GPT-5.6 Sol / High Phase 2 review
 **Last green commit:** `ce0cfae` — `docs: make accessibility criteria best effort`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -37,17 +37,17 @@
 
 ## Active blockers
 
-`P2R-07`–`P2R-10` are remediated locally with source-qualified identity, preserved multi-instance ambiguity, persisted approval for both fixed connector disclosures, and visible, non-actionable source disagreement. The final mandatory `AC-DAT-04` and ADR-003 real parser/capability evidence requires explicit product-owner approval before a read-only source query that can disclose installed-package metadata.
+`P2R-07`–`P2R-10` are remediated with source-qualified identity, preserved multi-instance ambiguity, persisted approval for both fixed connector disclosures, and visible, non-actionable source disagreement. Approved read-only fixed-source evidence recorded successful real parser/capability behavior and process-scoped connection metadata for `AC-DAT-04`; the fresh reviewer must assess sufficiency.
 
 The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
 
 ## Task 20 result
 
-Previous review: `FAIL`. Local remediation verification: Release build zero warnings/errors; full suite 94 passed; fixture benchmark 30 local runs at 1.88 ms median / 2.89 ms p95 and 20 two-source fixture refreshes at 15.33 ms median / 16.07 ms p95. A fresh GPT-5.6 Sol / High review is pending the approved mandatory evidence.
+Previous review: `FAIL`. Task 90 verification: Release build zero warnings/errors; full suite 94 passed; fixture benchmark 30 local runs at 1.88 ms median / 2.89 ms p95 and 20 two-source fixture refreshes at 15.33 ms median / 16.07 ms p95. Approved real fixed-source checks returned live parser results for both sources with zero warnings and successful exits; connection metadata is in `docs/review/TASK_90_P2R_EVIDENCE.md`.
 
 ## Next task
 
-Obtain explicit approval for the bounded read-only fixed-source evidence, complete it, then repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
+Repeat Task 20 in a fresh GPT-5.6 Sol / High review. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 

@@ -63,7 +63,7 @@ ADR-021 classifies all `AC-UX-01–09` criteria as Optional — best effort. The
 
 `AC-DAT-04` remains subject to independent fresh-review assessment of the approved process-scoped connection evidence. ADR-003 real-source parser/capability evidence remains unproven.
 
-## Repeated-review remediation — pending approved evidence
+## Repeated-review remediation — approved evidence complete
 
 **Scope:** `P2R-07`–`P2R-10` from the repeated Task 20 review.
 
@@ -74,6 +74,26 @@ ADR-021 classifies all `AC-UX-01–09` criteria as Optional — best effort. The
 | `P2R-09` | `SqliteDatabaseTests.BothWinGetConnectorDisclosuresPersistAndFailClosedWhenRevoked` | Both `WinGet installed inventory` and `WinGet package sources` disclosures survive restart and fail closed when revoked. |
 | `P2R-10` | `UpdateIntelligenceTests.DifferentTrustedSourceVersionsStayVisibleAndBlockAutomaticSelection`; `InventoryExperienceViewModelTests.UpdateDetailsExposeSafetyEvidenceAndNeverOfferAnExecutableAction` | Per-source candidate observations remain visible; trusted-source differences make automatic/provider-supplied mappings review-only with `SourceDisagreement`. |
 
-Local verification completed: Release build reported **0 warnings, 0 errors**; full Release suite reported **94 passed** (40 Domain, 50 Application integration, 3 Architecture, 1 Security fixture); fixture benchmark reported **1.88 ms median / 2.89 ms p95** over 30 local runs and **15.33 ms median / 16.07 ms p95** over 20 two-source fixture refreshes. No live WinGet or Microsoft Store query was made for this repeated remediation.
+Local verification completed: Release build reported **0 warnings, 0 errors**; full Release suite reported **94 passed** (40 Domain, 50 Application integration, 3 Architecture, 1 Security fixture); fixture benchmark reported **1.88 ms median / 2.89 ms p95** over 30 local runs and **15.33 ms median / 16.07 ms p95** over 20 two-source fixture refreshes.
 
-The only remaining evidence is a product-owner-approved, read-only fixed-source probe. It must discard package output and retain only safe aggregates, parser/capability classification, and process-scoped connection metadata sufficient for a fresh reviewer to assess `AC-DAT-04` and ADR-003.
+### Approved fixed-source parser/capability probe — 2026-07-28
+
+The product owner approved two read-only `WingetUpdateSourceConnector` calls, one for each allowlisted source. The connector ran only `winget.exe --version` and `winget.exe upgrade --source <winget|msstore> --disable-interactivity`. Package content was not written to disk or terminal; this record retains only safe aggregate parser results.
+
+| Source | Parser state | Provider version | Candidate count | Warnings | Duration |
+|---|---|---|---:|---:|---:|
+| `winget` | Live | present | 0 | 0 | 1,178.02 ms |
+| `msstore` | Live | present | 0 | 0 | 990.23 ms |
+
+This exercises the real fixed-argument connector, its process boundary, and its parser/capability path for ADR-003. It records no package identifiers, names, versions, listing text, or payload.
+
+### Approved process-scoped connection observation — 2026-07-28
+
+The product owner also approved one direct fixed source check per source for `AC-DAT-04`. Each process used exactly `winget.exe upgrade --source <winget|msstore> --disable-interactivity`; stdout and stderr were asynchronously drained to the null stream. The observer retained only source, process ID, UTC interval, exit code, elapsed time, and established remote IP/port.
+
+| Fixed source | Process | UTC interval | Exit | Duration | Observed destination |
+|---|---:|---|---:|---:|---|
+| `winget` | 36712 | 16:41:16.693–16:41:17.817 | 0 | 1,124.02 ms | No established socket observed during process lifetime. |
+| `msstore` | 37476 | 16:41:17.848–16:41:19.037 | 0 | 1,188.81 ms | `[2a02:26f0:1c80:d9b::4106]:443` |
+
+This is process-scoped connection metadata, not packet capture. Together with the fixed allowlist, explicit connector approval tests, and the local-only/disabled-connector tests, it is evidence for `AC-DAT-04`; a fresh reviewer must determine whether it is sufficient for the gate.
