@@ -28,6 +28,16 @@ public sealed class ReferenceBoundaryTests
         }
     }
 
+    [TestMethod]
+    public void MainWindowUsesTheApplicationWorkflowInsteadOfAdapters()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "InventoryWorkflow");
+        foreach (string forbidden in new[] { "SqliteDatabase", "new RegistryLocalInventoryProvider", "new MsixLocalInventoryProvider", "new WingetLocalInventoryProvider" }) Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal));
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? current = new(AppContext.BaseDirectory);

@@ -34,6 +34,31 @@ public sealed class InventoryScanOrchestratorTests
         ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None);
         Assert.IsTrue(result.Succeeded); Assert.AreEqual(1, store.Products.Count);
     }
+    [TestMethod]
+    public async Task ProviderFaultAfterTimeoutIsContainedAndOtherResultsPublish()
+    {
+        FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [new FaultAfterCancellationProvider(), new FakeProvider("good", false)]);
+        ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None);
+        Assert.IsTrue(result.Succeeded); Assert.AreEqual(1, store.Products.Count); CollectionAssert.Contains(result.Warnings.ToArray(), "fault:timeout-failed");
+    }
+    [TestMethod]
+    public async Task TimedOutProviderQuiescesBeforeTheScanPublishes()
+    {
+        UncooperativeButFiniteProvider slow = new(); FakeStore store = new(); InventoryScanOrchestrator orchestrator = new(store, [slow, new FakeProvider("good", false)]);
+        ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None);
+        Assert.IsTrue(result.Succeeded); Assert.IsTrue(slow.Completed); Assert.AreEqual(1, store.Products.Count);
+    }
+    [TestMethod]
+    public async Task UnresponsiveProviderBlocksReplacementScansUntilItStops()
+    {
+        UnresponsiveThenCompleteProvider slow = new(); FakeStore store = new(); using InventoryScanOrchestrator orchestrator = new(store, [slow], quiescenceTimeout: TimeSpan.FromMilliseconds(20));
+        ScanResult timedOut = await orchestrator.ScanAsync(null, CancellationToken.None);
+        Assert.IsFalse(timedOut.Succeeded); CollectionAssert.Contains(timedOut.Warnings.ToArray(), "unresponsive:timeout-unresponsive");
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => orchestrator.ScanAsync(null, CancellationToken.None));
+        await Task.Delay(180);
+        ScanResult replacement = await orchestrator.ScanAsync(null, CancellationToken.None);
+        Assert.IsTrue(replacement.Succeeded);
+    }
     private sealed class FakeStore : IInventorySnapshotStore
     {
         public List<CanonicalProduct> Products { get; } = [];
@@ -64,5 +89,21 @@ public sealed class InventoryScanOrchestratorTests
             InstallationInstance first = new(Guid.NewGuid(), productId, "registry", "duplicate-key", "1", "Machine", "x64"); InstallationInstance second = new(Guid.NewGuid(), productId, "registry", "duplicate-key", "1", "Machine", "x64");
             return Task.FromResult(new ProviderScanResult([product, product], [first, second], [], []));
         }
+    }
+    private sealed class FaultAfterCancellationProvider : ILocalInventoryProvider
+    {
+        public string Name => "fault"; public TimeSpan Timeout => TimeSpan.FromMilliseconds(10);
+        public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { try { await Task.Delay(100, cancellationToken); } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw new InvalidOperationException("fault after cancellation"); } return new ProviderScanResult([], [], [], []); }
+    }
+    private sealed class UncooperativeButFiniteProvider : ILocalInventoryProvider
+    {
+        public string Name => "finite"; public TimeSpan Timeout => TimeSpan.FromMilliseconds(10); public bool Completed { get; private set; }
+        public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { await Task.Delay(80, CancellationToken.None); Completed = true; return new ProviderScanResult([], [], [], []); }
+    }
+    private sealed class UnresponsiveThenCompleteProvider : ILocalInventoryProvider
+    {
+        public string Name => "unresponsive"; public TimeSpan Timeout => TimeSpan.FromMilliseconds(10);
+        private int calls;
+        public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { if (Interlocked.Increment(ref calls) == 1) await Task.Delay(100, CancellationToken.None); return new ProviderScanResult([], [], [], []); }
     }
 }

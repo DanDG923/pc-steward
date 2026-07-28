@@ -57,4 +57,20 @@ public sealed class InventoryExperienceViewModelTests
         InventoryExperienceViewModel viewModel = new(); viewModel.LoadInventory([new CanonicalProduct(Guid.NewGuid(), "alpha", "Alpha")], [], DateTimeOffset.UnixEpoch);
         StringAssert.Contains(viewModel.ScanPhase, "Cached"); StringAssert.Contains(viewModel.FreshnessLabel, "Local-only");
     }
+    [TestMethod]
+    public void PublisherStatusSourceScopeAndSortFiltersRemainActiveTogether()
+    {
+        InventoryExperienceViewModel viewModel = new(); Guid alpha = Guid.NewGuid(); Guid beta = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(alpha, "alpha", "Alpha"), new CanonicalProduct(beta, "beta", "Beta")], [new InstallationInstance(Guid.NewGuid(), alpha, "registry", "alpha", "1", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), beta, "msix", "beta", "1", "User", "x64", "Fabrikam")]);
+        viewModel.SetFilters("", "Installed", "Contoso", "registry", "Machine", "Publisher");
+        Assert.HasCount(1, viewModel.VisibleRows); Assert.AreEqual("Alpha", viewModel.VisibleRows.Single().Name); Assert.AreEqual("Contoso", viewModel.PublisherFilter);
+        viewModel.SetFilters("Alpha", viewModel.StatusFilter, viewModel.PublisherFilter, viewModel.SourceFilter, viewModel.ScopeFilter, viewModel.SortField);
+        Assert.HasCount(1, viewModel.VisibleRows); Assert.AreEqual("registry", viewModel.SourceFilter);
+    }
+    [TestMethod]
+    public void ApprovedWingetModeNeverUsesLocalOnlyLabels()
+    {
+        InventoryExperienceViewModel viewModel = new(); viewModel.SetConnectorEnabled("WinGet installed inventory", true);
+        StringAssert.Contains(viewModel.ScanModeLabel, "approved WinGet"); Assert.IsFalse(viewModel.ScanPhase.Contains("local-only", StringComparison.OrdinalIgnoreCase)); Assert.IsFalse(viewModel.FreshnessLabel.Contains("local-only", StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -15,7 +15,7 @@ internal static class Program
             ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None); if (!result.Succeeded || store.Products.Count != 300) return 1;
             samples.Add(timer.Elapsed.TotalMilliseconds);
         }
-        samples.Sort(); Console.WriteLine($"Phase 1 deterministic product workload: runs=30 records=300 medianMs={samples[14]:F2} p95Ms={samples[28]:F2}. This is not clean-VM, UI, idle, or process-tree acceptance evidence.");
+        samples.Sort(); Console.WriteLine($"Phase 1 deterministic product workload: runs=30 records=300 medianMs={samples[14]:F2} p95Ms={samples[28]:F2}. This is not final-app UI, idle, or process-tree acceptance evidence; a VM is optional.");
         return 0;
     }
     private sealed class FixtureProvider(int count) : ILocalInventoryProvider

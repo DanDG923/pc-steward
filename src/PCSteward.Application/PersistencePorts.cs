@@ -7,8 +7,16 @@ public interface IInventorySnapshotStore
     Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken cancellationToken);
     Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<RawProviderRecord>> GetRawProviderRecordsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RawProviderRecord>>([]);
     Task PersistScanAsync(ScanRun run, IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, IReadOnlyCollection<RawProviderRecord> rawRecords, IReadOnlyCollection<ScanProviderTiming> timings, CancellationToken cancellationToken) => PromoteAsync(products, instances, cancellationToken);
     Task RecordScanAsync(ScanRun run, IReadOnlyCollection<ScanProviderTiming> timings, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+public sealed record ConnectorState(bool Enabled, bool SourceDisclosureApproved);
+public interface IConnectorSettingsStore
+{
+    Task<ConnectorState> GetConnectorStateAsync(string connectorName, bool defaultEnabled, CancellationToken cancellationToken);
+    Task SaveConnectorStateAsync(string connectorName, ConnectorState state, CancellationToken cancellationToken);
 }
 
 public interface IStableDecisionStore
@@ -24,5 +32,6 @@ public sealed record ClearScanDataResult(bool Succeeded, int DeletedItems, int R
 public interface IScanDataStore : IInventorySnapshotStore
 {
     Task<ScanDataSummary> GetScanDataSummaryAsync(CancellationToken cancellationToken);
+    Task<DateTimeOffset?> GetLastCompletedScanAtAsync(CancellationToken cancellationToken);
     Task<ClearScanDataResult> ClearScanDataAsync(CancellationToken cancellationToken);
 }

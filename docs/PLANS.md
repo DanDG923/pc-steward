@@ -10,14 +10,13 @@ Resolve the code-side P1R findings without enabling WinGet source access, elevat
 
 ## Steps
 
-1. Completed — normalization now groups duplicate provider products deterministically; orchestration coverage passes (P1R-01).
-2. Completed — WinGet cancellation and timeout terminate the process tree; provider timeout coverage proves cooperative cancellation (P1R-02).
-3. Completed — clear-data removes scan freshness transactionally; persistence coverage proves reload has no last-completed value (P1R-03).
-4. Completed with limitation — deterministic measurement output was verified; final-application/UI/manual acceptance remains unexecuted (P1R-04).
-5. Completed in part — connector selection persists, unapproved WinGet is unavailable, source/scope/sort controls render, and the size label is truthful. Publisher/status filters and an approved enabled-WinGet flow remain for later work (P1R-05).
-6. Completed in part — the misleading byte label is corrected. Typed normalized provenance, structured scan events and the direct desktop adapter boundary remain for the fresh review to assess (P1R-06/07).
-7. Completed — focused integration suite (22), Release build, full suite (29), deterministic workload and fixture integrity (14 assertions) passed.
-8. Completed — commit only verified results, then stop for fresh Task 15 review.
+1. Completed — P1RR-01 fails closed for legacy WinGet state; approved mode is explicit.
+2. Completed — P1RR-02 contains late faults and blocks replacement scans until an unresponsive provider stops.
+3. Completed — P1RR-03 recorded physical Windows baseline, one approved final-app scan and restart evidence; remaining mandatory samples are explicitly unproven.
+4. Completed — P1RR-04 adds publisher/status controls and durable filter state.
+5. Completed — P1RR-05 preserves typed metadata and exposes bounded diagnostic events/records.
+6. Completed — P1RR-06 moves desktop composition behind the application workflow and guards it with an architecture test.
+7. Pending — full suite, benchmark/fixture integrity, scope review and commit.
 
 ## Evidence limits
 

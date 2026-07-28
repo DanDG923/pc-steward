@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 15 — Phase 1 review gate repeat (FAIL)
+**Current task:** 90 — Phase 1 remediation (evidence limited)
 **Last green commit:** `dde92df`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** FAIL
+**Phase gate:** FAIL — fresh Task 15 required
 
 ## Decisions
 
@@ -109,10 +109,10 @@ FRESH REPEAT FAIL — six findings: four High and two Medium. Persisted state ca
 
 ## Task 90 result
 
-Task 90 committed code-side P1R-01–03 remediation and partial P1R-05/06/07 remediation with deterministic evidence. Remaining required evidence is final-application performance, process-tree/idle/UI measurements, manual accessibility, approved enabled-WinGet behavior, typed provenance/events, and the desktop adapter boundary. A VM is optional, not required.
+P1RR-01–06 remediation is implemented: WinGet consent fails closed, timeout recovery contains late faults and blocks replacements, typed diagnostics and presentation boundaries are guarded, and filters persist. A physical Windows 11 baseline, approved WinGet scan and restart were recorded in `docs/review/TASK_90_P1RR_EVIDENCE.md`. Thirty final-app samples, idle/process-tree telemetry, cancellation/scaling and termination staging remain unproven.
 ## Next task
 
-Run `prompts/90_REMEDIATE_A_PHASE_REVIEW.md` with GPT-5.6 Terra / High, then repeat Task 15 in fresh GPT-5.6 Sol / High.
+Finish Task 90 verification/commit with GPT-5.6 Terra / High, then repeat Task 15 in fresh GPT-5.6 Sol / High.
 
 ## Rules for updating this file
 

@@ -24,7 +24,7 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
         MsixInventoryResult result = provider.ReadCurrentUserPackages(DateTimeOffset.UtcNow); List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (MsixInventoryRecord record in result.Records)
         {
-            cancellationToken.ThrowIfCancellationRequested(); Guid productId = GuidFor("product|" + record.PackageFamilyName); products.Add(new CanonicalProduct(productId, record.PackageFamilyName, record.DisplayName)); instances.Add(new InstallationInstance(GuidFor("instance|" + record.PackageFullName), productId, record.Provider, record.PackageFullName, record.Version, "User", record.Architecture)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, record.PackageFullName, $"family={record.PackageFamilyName};publisher={record.PublisherId};classification={record.Classification};path={record.InstallLocation}"));
+            cancellationToken.ThrowIfCancellationRequested(); Guid productId = GuidFor("product|" + record.PackageFamilyName); products.Add(new CanonicalProduct(productId, record.PackageFamilyName, record.DisplayName)); instances.Add(new InstallationInstance(GuidFor("instance|" + record.PackageFullName), productId, record.Provider, record.PackageFullName, record.Version, "User", record.Architecture, record.PublisherId, null, record.InstallLocation, null, record.Classification)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, record.PackageFullName, $"family={record.PackageFamilyName};publisher={record.PublisherId};classification={record.Classification};path={record.InstallLocation}"));
         }
         return new ProviderScanResult(products, instances, raw, result.Warnings);
     }, cancellationToken);
@@ -42,7 +42,7 @@ internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalI
         WingetInventoryResult result = await provider.ReadInstalledAsync(cancellationToken); List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (WingetInstalledRecord record in result.Records)
         {
-            Guid productId = GuidFor("product|winget|" + record.Id); products.Add(new CanonicalProduct(productId, "winget:" + record.Id, record.Name)); instances.Add(new InstallationInstance(GuidFor("instance|winget|" + record.Id + "|" + record.Version), productId, "winget", record.Id, record.Version, "Unknown", "Unknown")); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "winget", record.Id, $"name={record.Name};version={record.Version};source={record.Source}"));
+            Guid productId = GuidFor("product|winget|" + record.Id); products.Add(new CanonicalProduct(productId, "winget:" + record.Id, record.Name)); instances.Add(new InstallationInstance(GuidFor("instance|winget|" + record.Id + "|" + record.Version), productId, "winget", record.Id, record.Version, "Unknown", "Unknown", null, null, null, record.Source, "Application")); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "winget", record.Id, $"name={record.Name};version={record.Version};source={record.Source}"));
         }
         return new ProviderScanResult(products, instances, raw, result.Warnings);
     }

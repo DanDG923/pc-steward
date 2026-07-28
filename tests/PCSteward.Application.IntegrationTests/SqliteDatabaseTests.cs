@@ -86,6 +86,26 @@ public sealed class SqliteDatabaseTests
         Assert.IsFalse(await database.Store.GetConnectorEnabledAsync("Current-user AppX/MSIX catalog", true, CancellationToken.None));
     }
 
+    [TestMethod]
+    public async Task LegacyWingetEnabledSettingFailsClosedUntilSourceDisclosureIsApproved()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.SaveConnectorEnabledAsync("WinGet installed inventory", true, CancellationToken.None);
+        Assert.IsFalse(await database.Store.GetConnectorEnabledAsync("WinGet installed inventory", false, CancellationToken.None));
+        await database.Store.SaveConnectorStateAsync("WinGet installed inventory", new PCSteward.Application.ConnectorState(true, true), CancellationToken.None);
+        Assert.IsTrue(await database.Store.GetConnectorEnabledAsync("WinGet installed inventory", false, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task TypedInstallationMetadataSurvivesPersistence()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); Guid productId = Guid.NewGuid();
+        InstallationInstance instance = new(Guid.NewGuid(), productId, "registry", "contoso", "1", "Machine", "x64", "Contoso", "20260728", "C:\\Program Files\\Contoso", "Stable", "Application");
+        await database.Store.PromoteAsync([new CanonicalProduct(productId, "contoso", "Contoso")], [instance], CancellationToken.None);
+        InstallationInstance restored = (await database.Store.GetLastKnownGoodInstancesAsync(CancellationToken.None)).Single();
+        Assert.AreEqual(instance.Publisher, restored.Publisher); Assert.AreEqual(instance.InstallDate, restored.InstallDate); Assert.AreEqual(instance.InstallPath, restored.InstallPath); Assert.AreEqual(instance.Channel, restored.Channel); Assert.AreEqual(instance.Classification, restored.Classification);
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;
