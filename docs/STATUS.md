@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 25 — repeat independent security review under GPT-5.6 Sol / Extra High
-**Last green commit:** Task 90 remediation commit — Release build and full suite must remain green
+**Current task:** 25 — independent Phase 3 security review complete
+**Last green commit:** `4b77e321d98f0030012847fab42c3afe33b9f270` — Release build 0 warnings/errors; full suite 146 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -35,21 +35,19 @@
 | Scheduling without resident process | Accepted | ADR-020 |
 | Accessibility best-effort priority | Accepted | ADR-021 |
 
-## Residual risks and accepted deferrals
-
-Task 22 adds an on-demand, one-shot UAC helper with a current-user/SYSTEM local pipe, mutual PID/user/session/path/signature/signer checks, nonce/expiry binding and fixed machine-scope WinGet reconstruction. The temporary host-test exception covers disposable signed no-op UAC and scratch VHD/reparse evidence; a separately user-approved, one-time Firefox exercise supplied real machine-scope update evidence. Its temporary certificate was removed from both current-user stores and Firefox was uninstalled afterward. Clean-image behavior, a real provider-disconnect path, and per-user no-prompt behavior remain residual risks. The personal-use exception waives only manual cleanup-UI evidence, not functional cleanup safety or cache-exclusion requirements.
-
-ADR-003 remains Provisional under the product-owner exception: capture a sanitized real update row/source-column shape during Phase 3 when an update becomes available. The exception does not relax fixed executable/source/argument, bounded-output, validation or fail-closed controls.
-
-The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
-
 ## Task 25 result
 
-Task 90 remediated `P3R-01`–`P3R-06`: provider resolution is machine-trusted and fail-closed; verification requires an exact ID/source query plus concrete local compatibility evidence; cache deletion is root-handle relative and reconciles filesystem orphans; confirmation refreshes local installed evidence; and started interrupted work remains verification-required. Focused regressions, Release build and the full suite are recorded in the remediation commit. The gate is still FAIL until the fresh Task 25 reviewer independently confirms no Blocker or High finding remains.
+Fresh independent review at `4b77e32` is **FAIL**. `P3R-01`, `P3R-04` and `P3R-06` are closed, but `P3R-02` remains High because production post-update compatibility evidence is display-name correlated and untested end to end. `P3R-03` remains a Blocker because approved hostile fixtures exercise the older spike, not the remediated production deletion primitive; its `NtCreateFile` disposition is also open-if rather than open-only. `P3R-05` lacks current-provider confirmation regressions, and orphan bytes bypass retention/quota enforcement under new `P3R-07`.
+
+Security 16, Architecture 4, focused Phase 3 integration 39, and the full Release suite of 146 tests passed. The Release build had 0 warnings/errors; the safe hostile script passed 42 assertions with one documented VM/manual skip. Mandatory `AC-UPD-06/08` production-path and `AC-DAT-16` production-hostile evidence remain Missing. Existing product-owner exceptions remain explicit and do not waive these gaps.
+
+## Residual risks and accepted deferrals
+
+The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image behavior, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback and the un-replayed outcome dialog remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Stop here. Repeat Task 25 in a fresh GPT-5.6 Sol / Extra High review. Do not merge Phase 3 or begin Task 26.
+Run Task 90 to remediate the open review findings, update evidence, then repeat Task 25 under fresh GPT-5.6 Sol / Extra High review. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 
