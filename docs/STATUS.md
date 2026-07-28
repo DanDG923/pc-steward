@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 14 — Exports and Clear scan data (complete)
-**Last green commit:** `43c822b`
+**Current task:** 15 — Phase 1 review gate (FAIL)
+**Last green commit:** `48919ac`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -103,9 +103,13 @@ PASS WITH MANUAL-EXERCISE LIMITATION — local-only onboarding, connector trust/
 
 PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warning; optional JSON update history is schema-stable and empty until Phase 3. The Data & reset page has a confirmed, non-elevated Clear scan data action, scan lockout, current metadata and distinct future controls. SQLite clearing is transactional and idempotent, preserves decisions/mappings/history/artifacts, and returns the dashboard to no-scan. Build and 24 tests passed.
 
+## Task 15 result
+
+FAIL — seven findings: five High and two Medium. The composed desktop path omits MSIX/WinGet, normalization, raw records, scan runs/timings, provider timeouts, truthful connector/freshness behavior and final-application performance evidence. Run Task 90, then repeat Task 15.
+
 ## Next task
 
-Run `prompts/15_PHASE_1_REVIEW_GATE.md`. Required model/reasoning: GPT-5.6 Sol / High.
+Run `prompts/90_REMEDIATE_A_PHASE_REVIEW.md`. Required model/reasoning: GPT-5.6 Terra / High.
 
 ## Rules for updating this file
 
