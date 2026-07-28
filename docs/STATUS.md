@@ -1,9 +1,9 @@
 # PC Steward build status
 
-**Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 15 — Phase 1 gate repeat complete
-**Last green commit:** `5fcaf3e`
-**Current branch:** `phase/1-inventory`
+**Current phase:** Phase 2 — Update intelligence
+**Current task:** 16 — Version comparison engine pending
+**Last green commit:** `ea292b1`
+**Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
@@ -112,7 +112,7 @@ PASS WITH APPROVED TEMPORARY EXCEPTION — P1RRR-01–04 are closed by retained 
 P1RR-01–06 remediation remains closed. P1RRR-01–04 are now evidenced: keyboard cancellation returned to ready in 236 ms, active-scan process-tree CPU averaged 2.3173% with 194.7 MB peak working set, termination during collection preserved a previous snapshot, concurrency measured one/rejected a second scan, and 150% text scaling was exercised then restored. The five-minute CPU result remains temporarily excepted.
 ## Next task
 
-Integrate the Phase 1 branch when approved; do not begin Phase 2 before merge.
+Run Task 16 in a fresh GPT-5.6 Terra / Medium chat.
 
 ## Rules for updating this file
 
