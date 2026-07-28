@@ -1,13 +1,13 @@
 # PC Steward build status
 
-**Current phase:** Phase 2 — Update intelligence
-**Current task:** 20 — Phase 2 review gate passed; awaiting branch integration
-**Last green commit:** `5611439` — `docs: record blocked production trace evidence`
-**Current branch:** `phase/2-intelligence`
+**Current phase:** Phase 3 — Safe update execution and app-owned cache
+**Current task:** 22 — awaiting GPT-5.6 Sol / High
+**Last green commit:** `fd0cb3e` — `feat: add immutable update jobs and constrained runner`
+**Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** PASS — ADR-003 real-row evidence deferred to Phase 3 by product-owner exception
+**Phase gate:** IN PROGRESS — Task 21 passed
 
 ## Decisions
 
@@ -37,19 +37,19 @@
 
 ## Residual risks and accepted deferrals
 
-There are no remaining Phase 2 gate blockers. `P2R-07`–`P2R-10` are closed, including the fail-closed correction that always classifies `SourceDisagreement` as review-required.
+Task 21 structurally constrains execution to immutable, explicitly confirmed, integrity-checked WinGet jobs. Machine-scope jobs return elevation-required without execution; the Task 22 helper/UAC boundary is not implemented or proven yet. No real software update was run.
 
-The final Task 20 retest accepts the administrator-token ETW evidence for `AC-DAT-04`. ADR-003 remains Provisional: the product owner approved deferring its sanitized real update-row/source-column evidence until Phase 3 because WinGet default, WinGet `--include-unknown`, and Microsoft Store probes all returned zero rows and no update is currently available. The exception does not treat real-row parsing as proven or relax any fail-closed control.
+ADR-003 remains Provisional under the product-owner exception: capture a sanitized real update row/source-column shape during Phase 3 when an update becomes available. The exception does not relax fixed executable/source/argument, bounded-output, validation or fail-closed controls.
 
-The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
+The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021.
 
-## Task 20 result
+## Task 21 result
 
-Final Task 20 result: `PASS`. Focused safety regressions: 8 passed; Release build: zero warnings/errors; full suite: 95 passed; fixture benchmark: 30 local runs at 2.13 ms median / 2.74 ms p95 and 20 two-source fixture refreshes at 15.39 ms median / 15.76 ms p95.
+Task 21 result: `PASS`. Focused suites: Domain 49, Application integration 51 and Security fixture 6 passed. Release build: zero warnings/errors; full suite: 109 passed. Negative fixtures cover command/path/argument-shaped values, public execution surfaces, SQLite mutation, evidence substitution, non-zero exit, timeout, cancellation, output overflow and sanitization.
 
 ## Next task
 
-Integrate the passing Phase 2 branch into `main`, then begin Task 21. Carry the ADR-003 real-row evidence exception into Phase 3 and capture the sanitized row when an update becomes available.
+Run Task 22 — short-lived elevated helper and secure IPC — in a fresh GPT-5.6 Sol / High task. Stop before starting it under Terra.
 
 ## Rules for updating this file
 
