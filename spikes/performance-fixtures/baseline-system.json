@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "capturedUtc": "2026-07-28T09:50:15.5826361Z",
+  "redaction": "Host name, user name, serial numbers, network identifiers and absolute paths intentionally omitted.",
+  "os": {
+    "build": "26200",
+    "caption": "Microsoft Windows 11 Home",
+    "architecture": "64-bit",
+    "version": "10.0.26200"
+  },
+  "hardware": {
+    "memoryBytes": 33445400576,
+    "logicalProcessors": 16
+  },
+  "runtime": {
+    "dotnetSdks": [
+      "10.0.300",
+      "10.0.301",
+      "10.0.302"
+    ],
+    "powershell": "7.6.4"
+  },
+  "powerPlan": [
+    "Power Scheme GUID: <redacted-guid>  (3XS-Overclock)"
+  ],
+  "storage": "Unverified by this redacted capture; acceptance requires SSD-equivalent storage evidence on the agreed Windows 11 baseline."
+}
