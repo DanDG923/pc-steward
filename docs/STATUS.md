@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 1 — Local inventory vertical slice
-**Current task:** 90 — Phase 1 remediation and evidence (P1RRR complete)
-**Last green commit:** `2b4b0cf`
+**Current task:** 15 — Phase 1 gate repeat complete
+**Last green commit:** `5fcaf3e`
 **Current branch:** `phase/1-inventory`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** FAIL — fresh Task 15 review required
+**Phase gate:** PASS WITH APPROVED TEMPORARY EXCEPTION
 
 ## Decisions
 
@@ -105,14 +105,14 @@ PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warnin
 
 ## Task 15 result
 
-FRESH REPEAT FAIL — four High evidence findings remain: measured keyboard cancellation and scan-time resource responsiveness, termination during an active scan, measured connector concurrency, and Windows text scaling. P1RR-01/02/04/05/06 are closed. The five-minute CPU check is a temporary product-owner exception, not compliance evidence.
+PASS WITH APPROVED TEMPORARY EXCEPTION — P1RRR-01–04 are closed by retained final-app cancellation/resource, active-termination recovery, measured concurrency/second-scan rejection and 150% text-scaling evidence. Build passed with zero warnings; all 39 tests passed. The five-minute idle CPU check remains temporarily excepted and is not compliance evidence.
 
 ## Task 90 result
 
 P1RR-01–06 remediation remains closed. P1RRR-01–04 are now evidenced: keyboard cancellation returned to ready in 236 ms, active-scan process-tree CPU averaged 2.3173% with 194.7 MB peak working set, termination during collection preserved a previous snapshot, concurrency measured one/rejected a second scan, and 150% text scaling was exercised then restored. The five-minute CPU result remains temporarily excepted.
 ## Next task
 
-Repeat Task 15 in fresh GPT-5.6 Sol / High.
+Integrate the Phase 1 branch when approved; do not begin Phase 2 before merge.
 
 ## Rules for updating this file
 
