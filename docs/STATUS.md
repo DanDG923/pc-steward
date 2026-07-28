@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 2 — Update intelligence
-**Current task:** 19 — Manual decisions and update-intelligence UX pending
-**Last green commit:** `b445283`
+**Current task:** 20 — Phase 2 review gate failed; remediation pending
+**Last green commit:** `92eaf13`
 **Current branch:** `phase/2-intelligence`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
-**Performance command:** `pwsh -NoProfile -File .\spikes\performance-fixtures\Invoke-PerformanceBenchmark.ps1 -Scenario all -LocalRuns 30 -OnlineRuns 20`
-**Phase gate:** PASS WITH APPROVED TEMPORARY EXCEPTION
+**Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
+**Phase gate:** FAIL
 
 ## Decisions
 
@@ -36,80 +36,19 @@
 
 ## Active blockers
 
-Task 00 recorded a Windows-version discrepancy that must be reconciled on a supported Windows 11 x64 test environment. Warnings remain for missing native build/package tooling, unavailable `vswhere`, unverified Developer Mode evidence, and a failing Microsoft Store WinGet source search. These do not block documentation but do block unsupported native build/package claims. Task 02 additionally requires explicit approval before installed-inventory or upgrade metadata is disclosed to WinGet package sources; no such probe was run. Task 03 could not create a symbolic link without administrator privilege and did not create a real volume mount; symbolic-link, volume-mount and concurrent ancestor-swap evidence remains required on an isolated disposable test environment. Task 04's host does not yet prove fixed power-plan or SSD-equivalent baseline prerequisites.
+Task 20 records four High and two Medium findings in `docs/review/PHASE_2_REVIEW.md`. Production does not compose the source-refresh/intelligence/manual-mapping path; mixed-source freshness can present stale data as live; process output is not bounded while being read; and the canonical zero-false-positive fixture is not exercised.
 
-ADR-002, ADR-003, ADR-011 and ADR-013 are Provisional with explicit implementation and isolated-environment reconsideration gates. No ADR remains Proposed, and Task 06 has no unresolved security, persistence, execution, deletion, scheduling or scaffold-boundary decision.
+Mandatory network, end-to-end online-performance and Phase 2 accessibility evidence is missing. Explicit approval remains required before any real WinGet/Store source probe. The supported-Windows, native tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 also remain open.
 
-## Task 02 result
+ADR-002, ADR-003, ADR-011 and ADR-013 remain Provisional with their recorded evidence gates. The Phase 1 five-minute idle-CPU exception remains temporary and is not compliance evidence.
 
-PASS WITH EVIDENCE LIMITATIONS — isolated capability/parser and shell-free command-planning spike created. WinGet `v1.29.280` supports the required argument controls, but observed help exposes no structured list/upgrade output. ADR-002 and ADR-003 remain Proposed; supported Windows lifecycle evidence and approved source queries remain outstanding.
+## Task 20 result
 
-## Task 03 result
+FAIL — Release build passed with zero warnings/errors; all 82 tests passed; focused Phase 2 suites passed 32 Domain and 27 Application tests; the 20-run two-source fixture benchmark measured 15.32 ms median / 16.16 ms p95. Green tests do not close `P2R-01`–`P2R-06` or the missing mandatory evidence.
 
-PASS WITH ISOLATED-ENVIRONMENT FOLLOW-UP — 42 disposable-root assertions passed for fixed-root/path validation, junction rejection, locked residuals, retry, idempotence, final-component swap mitigation and the authenticated no-op helper protocol. ADR-002, ADR-011 and ADR-013 remain Proposed; symbolic-link, volume-mount and ancestor-race evidence remains outstanding.
-
-## Task 04 result
-
-PASS WITH BASELINE LIMITATIONS — deterministic 320-record fixture generator, redacted capture, 30 local and 20 simulated healthy-online raw samples, direct-worker CPU/working-set/cancellation/concurrency harness and OD-06 evidence update created. The spike’s 584.68 ms local p95, 1,764.93 ms simulated-online p95, 503.54 ms cancellation acknowledgement and observed concurrency of 3 are not final application compliance; fixed-power-plan, SSD-equivalent and real-source evidence remain outstanding.
-
-## Task 05 result
-
-PASS WITH FOUR PROVISIONAL DECISIONS — ADR-001–020 and the five Phase 0 architecture documents now lock component, persistence, diagnostics, immutable-job, helper IPC, artifact-root and scan-only scheduling boundaries. ADR-002/003/011/013 retain explicit evidence gates. All three spike suites passed: 11 WinGet assertions, 42 security assertions with one isolated-environment/manual skip category, and 14 fixture assertions.
-
-## Task 06 result
-
-PASS — .NET 10 solution scaffold created with accepted capability boundaries, unpackaged WinUI startup shell, separate scheduled and elevated hosts, unit/integration/architecture/security-fixture projects, and a benchmark entry point. Restore, Release build and all four test projects passed with zero build warnings; display name has one source occurrence in `AppIdentity`. No product feature is claimed complete.
-
-## Task 07 result
-
-PASS — core lifecycle records, application persistence ports and SQLite migration/snapshot semantics added. Migration, interruption and stable-decision preservation fixtures passed; no inventory provider or UI behavior added.
-
-## Task 08 result
-
-PASS — read-only HKLM 64-bit, HKLM 32-bit and HKCU uninstall-registry adapter added behind a testable abstraction. Bounded fields, malformed-record and access-denied fixtures passed; no MSI, WMI or elevation used.
-
-## Task 09 result
-
-PASS — current-user MSIX/AppX catalog boundary added with package identity retention, conservative framework/resource/system classification and malformed-package fixtures. Host capability integration remains unverified.
-
-## Task 10 result
-
-PASS WITH READ-ONLY INTEGRATION LIMITATION — fixed `winget.exe` plus `list --disable-interactivity` adapter, bounded parser and timeout/exit fixtures added. No source refresh, upgrade or installed-inventory probe was run; external metadata-disclosure approval remains required.
-
-## Task 11 result
-
-PASS — deterministic provider-identity fingerprints and conservative deduplication added. Raw provenance remains intact; scope, architecture, version, channel and near-name differences stay separately inspectable.
-
-## Task 12 result
-
-PASS WITH PERFORMANCE LIMITATION — exclusive cancellable local scan orchestration, provider isolation, timings and last-known-good publication semantics added. Build and 16 tests passed; the benchmark entry point ran but remains a scaffold, so UI/CPU/memory acceptance metrics are not yet measurable.
-
-## Task 13 result
-
-PASS WITH MANUAL-EXERCISE LIMITATION — local-only onboarding, connector trust/toggles, registry-backed scan shell, progress/cancel state, searchable inventory and provenance details added. Build and 20 tests passed. The launched desktop UI exposed all expected controls to accessibility inspection; the automation harness did not activate the scan button, so interactive completion requires a clean local manual retest.
-
-## Task 14 result
-
-PASS — CSV/JSON current-inventory exports carry a timestamp and privacy warning; optional JSON update history is schema-stable and empty until Phase 3. The Data & reset page has a confirmed, non-elevated Clear scan data action, scan lockout, current metadata and distinct future controls. SQLite clearing is transactional and idempotent, preserves decisions/mappings/history/artifacts, and returns the dashboard to no-scan. Build and 24 tests passed.
-
-## Task 15 result
-
-PASS WITH APPROVED TEMPORARY EXCEPTION — P1RRR-01–04 are closed by retained final-app cancellation/resource, active-termination recovery, measured concurrency/second-scan rejection and 150% text-scaling evidence. Build passed with zero warnings; all 39 tests passed. The five-minute idle CPU check remains temporarily excepted and is not compliance evidence.
-
-## Task 17 result
-
-PASS — pure deterministic product-to-package matching uses only exact identity, trusted provider-supplied or user/imported mapping evidence, with alias-and-publisher matches kept review-only. Architecture, scope, channel, version, trust, ambiguity and unsupported manual mappings fail closed; curated fixtures produced one true actionable match and zero false-positive actionable mappings.
-
-## Task 18 result
-
-PASS WITH FIXTURE-ONLY PERFORMANCE EVIDENCE — fixed WinGet/Store-only source connectors, bounded parser, source cache, explicit refresh/freshness states and deterministic non-executable update statuses are implemented. Healthy, stale, malformed, timeout, disagreement, compatibility and offline fixtures passed; no real source was contacted. The 20-run fixture online-check benchmark measured 15.40 ms median / 16.13 ms p95, but does not establish real-source performance or network-inspection evidence.
-
-## Task 19 result
-
-PASS — durable pins, ignores (including expiry), optional reasons, exact connector-supplied manual-mapping validation, reversal and decision reapplication were added outside disposable scan data. The UI model/details expose update counts, attention, freshness, metadata and disabled-action explanations; desktop supports pin/ignore and a unified reversible decision list without any update execution action. Build and focused 36 domain / 42 application tests passed.
 ## Next task
 
-Run Task 20 in a fresh GPT-5.6 Sol / High chat.
+Run Task 90 in a fresh GPT-5.6 Terra / High chat. After remediation, repeat Task 20 in a fresh GPT-5.6 Sol / High chat. Do not merge Phase 2 or begin Phase 3.
 
 ## Rules for updating this file
 
