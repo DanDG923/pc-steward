@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 90 — Phase 3 remediation evidence complete; fresh review pending
-**Last green commit:** `117b25b27f204bf5d646d9d5cd9df89dd0c5bcab` — Release build 0 warnings/errors; full suite 154 passed
+**Current task:** 25 — fresh Phase 3 security review complete; gate failed
+**Last green commit:** `17b46c4c2745ec41a49841d33aac3388d57fc655` — Release build 0 warnings/errors; full suite 158 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -37,17 +37,17 @@
 
 ## Task 25 result
 
-The repeat review closes the earlier scope/architecture collision, current-inventory confirmation, interrupted recovery, NT open-disposition, and orphan-inclusion defects. The current remediation working tree passes Release build (0 warnings/errors), focused evidence (22), security 16, architecture 4, integration 87, full suite 158, legacy hostile script 42 assertions/1 non-elevated skip, and the approved elevated local-PC production-cache fixture (14 assertions).
+Fresh Sol/Extra High review at `17b46c4` passes Release build (0 warnings/errors), security 16, architecture 4, focused integration 55, full suite 158 and host-safe hostile script 42 assertions/1 elevated-only skip. The recorded approved elevated production-cache fixture contributes 14 link/mount assertions.
 
-The gate remains FAIL pending fresh independent review, not an uncollected evidence prerequisite. `P3R-08` now uses bounded structured export data rather than display output, `P3R-09` evicts crash orphans oldest-first, and `P3R-03` now has production-cache evidence for file/directory/root links, scratch-VHD mount, deterministic ancestor swap, and deterministic root swap. See [the remediation evidence](review/TASK_90_P3RRR_EVIDENCE.md), [resolved evidence record](failures/90-phase3-production-hostile-evidence.md), and [the review](review/PHASE_3_SECURITY_REVIEW.md).
+The gate is **FAIL**. `P3R-03` is a Blocker: a controlled production-harness fixture placed a junction above the configured cache root, and cleanup followed it and deleted the outside sentinel. `P3R-02` is reopened High because structured export and the full scan omit the approved scope/architecture from post-update authority, permitting false `Success` from another installation target. `P3R-09` remains Medium because registered files are always processed before crash orphans instead of through one oldest-first quota order. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
-The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image behavior, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback and the un-replayed outcome dialog remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image behavior, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export and the un-replayed outcome dialog remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Repeat Task 25 under GPT-5.6 Sol / Extra High against this evidence set. Do not merge Phase 3 or begin Task 26.
+Run Task 90 to remediate `P3R-03`, `P3R-02` and `P3R-09`, then repeat Task 25 under GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 
