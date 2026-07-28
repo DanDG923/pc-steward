@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using PCSteward.Application;
@@ -21,6 +24,8 @@ public sealed class WingetInstalledInventoryProvider
     public WingetInstalledInventoryProvider() : this(new WindowsWingetProcess()) { }
     internal WingetInstalledInventoryProvider(IWingetProcess process) => this.process = process;
     public static IReadOnlyList<string> BuildInstalledListArguments() => ["list", "--disable-interactivity"];
+    public static IReadOnlyList<string> BuildExactInstalledArguments(UpdateJobSelection selection) =>
+    ["list", "--id", selection.PackageId, "--source", selection.Source == UpdateSource.WinGet ? "winget" : "msstore", "--exact", "--disable-interactivity"];
     public async Task<WingetInventoryResult> ReadInstalledAsync(CancellationToken cancellationToken)
     {
         WingetProcessResult result = await process.RunAsync(BuildInstalledListArguments(), TimeSpan.FromSeconds(30), cancellationToken);
@@ -28,6 +33,18 @@ public sealed class WingetInstalledInventoryProvider
         if (result.TimedOut) return new WingetInventoryResult([], ["winget:timeout"]);
         if (result.ExitCode != 0) return new WingetInventoryResult([], [$"winget:exit-{result.ExitCode}"]);
         return ParseTable(result.StandardOutput);
+    }
+    public async Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (job.Selection.Provider != UpdateProvider.WinGet) return false;
+        WingetProcessResult result = await process.RunAsync(BuildExactInstalledArguments(job.Selection), TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        if (result is { TimedOut: true } || result.OutputLimitExceeded || result.ExitCode != 0 || result.StandardOutput.Length > MaximumOutputLength) return false;
+        WingetInventoryResult parsed = ParseTable(result.StandardOutput);
+        return parsed.Warnings.Count == 0 && parsed.Records.Count == 1 &&
+            string.Equals(parsed.Records.Single().Id, job.Selection.PackageId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(parsed.Records.Single().Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
+            (string.IsNullOrWhiteSpace(parsed.Records.Single().Source) || string.Equals(parsed.Records.Single().Source, job.Selection.Source == UpdateSource.WinGet ? "winget" : "msstore", StringComparison.OrdinalIgnoreCase));
     }
     public static WingetInventoryResult ParseTable(string output)
     {
@@ -271,12 +288,75 @@ internal sealed class WindowsWingetProcess : IWingetProcess
     private static void Terminate(Process process) { if (!process.HasExited) process.Kill(entireProcessTree: true); }
     private static string ResolveWingetExecutable()
     {
-        string localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify);
-        if (string.IsNullOrWhiteSpace(localApplicationData) || !Path.IsPathFullyQualified(localApplicationData))
-        {
-            throw new IOException("The fixed WinGet application-alias root is unavailable.");
-        }
-
-        return Path.GetFullPath(Path.Combine(localApplicationData, "Microsoft", "WindowsApps", "winget.exe"));
+        return MachineTrustedWinget.ResolveExecutable();
     }
+}
+
+/// <summary>Resolves only the Microsoft-signed App Installer binary from the machine WindowsApps root.
+/// Current-user aliases, PATH lookup, reparse points, unsigned binaries and unexpected signers are denied.</summary>
+internal static class MachineTrustedWinget
+{
+    private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+
+    internal static string ResolveExecutable()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Machine WinGet resolution requires Windows.");
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolderOption.DoNotVerify);
+        if (string.IsNullOrWhiteSpace(programFiles) || !Path.IsPathFullyQualified(programFiles)) throw new IOException("The machine Program Files root is unavailable.");
+        string root = Path.GetFullPath(Path.Combine(programFiles, "WindowsApps"));
+        RejectReparse(root);
+        string[] candidates;
+        try { candidates = Directory.EnumerateDirectories(root, "Microsoft.DesktopAppInstaller_*", SearchOption.TopDirectoryOnly).Select(directory => Path.Combine(directory, "winget.exe")).Where(File.Exists).OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase).ToArray(); }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { throw new IOException("The machine App Installer package cannot be enumerated.", exception); }
+        foreach (string candidate in candidates)
+        {
+            try
+            {
+                string full = Path.GetFullPath(candidate);
+                if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                RejectReparse(Path.GetDirectoryName(full)!); RejectReparse(full);
+                if (IsMicrosoftTrusted(full)) return full;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        throw new IOException("No machine-trusted Microsoft App Installer WinGet executable is available.");
+    }
+
+    internal static bool IsMicrosoftTrusted(string path)
+    {
+        if (!File.Exists(path) || !VerifyTrust(path)) return false;
+        try
+        {
+#pragma warning disable SYSLIB0057
+            using X509Certificate certificate = X509Certificate.CreateFromSignedFile(path);
+#pragma warning restore SYSLIB0057
+            return certificate.Subject.Contains("Microsoft Corporation", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (CryptographicException) { return false; }
+    }
+
+    private static void RejectReparse(string path)
+    {
+        if (!Directory.Exists(path) && !File.Exists(path)) throw new IOException("The expected machine App Installer path is unavailable.");
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw new IOException("A reparse point is not an accepted machine WinGet path.");
+    }
+
+    private static bool VerifyTrust(string path)
+    {
+        IntPtr pathPointer = Marshal.StringToCoTaskMemUni(path);
+        WinTrustFileInfo fileInfo = new() { Size = (uint)Marshal.SizeOf<WinTrustFileInfo>(), FilePath = pathPointer };
+        IntPtr fileInfoPointer = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustFileInfo>());
+        try
+        {
+            Marshal.StructureToPtr(fileInfo, fileInfoPointer, false);
+            WinTrustData data = new() { Size = (uint)Marshal.SizeOf<WinTrustData>(), UiChoice = 2, UnionChoice = 1, FileInfo = fileInfoPointer, ProviderFlags = 0x1000 };
+            return WinVerifyTrust(IntPtr.Zero, ActionGenericVerifyV2, ref data) == 0;
+        }
+        finally { Marshal.FreeHGlobal(fileInfoPointer); Marshal.FreeCoTaskMem(pathPointer); }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WinTrustFileInfo { public uint Size; public IntPtr FilePath; public IntPtr FileHandle; public IntPtr KnownSubject; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WinTrustData { public uint Size; public IntPtr PolicyCallbackData; public IntPtr SipClientData; public uint UiChoice; public uint RevocationChecks; public uint UnionChoice; public IntPtr FileInfo; public uint StateAction; public IntPtr StateData; public IntPtr UrlReference; public uint ProviderFlags; public uint UiContext; public IntPtr SignatureSettings; }
+    [DllImport("wintrust.dll", SetLastError = true)] private static extern int WinVerifyTrust(IntPtr windowHandle, in Guid actionId, ref WinTrustData trustData);
 }

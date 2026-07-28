@@ -30,7 +30,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             new WingetUpdateSourceConnector("winget"),
             new WingetUpdateSourceConnector("msstore")
         ];
-        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database, database, updateSources);
+        InventoryWorkflow workflow = new(database, database, database, providers, new BoundedScanEventSink(), database, database, updateSources, new WingetTargetedInstalledInventory());
         DownloadedArtifactCache downloads = new(database);
         ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()), new ElevatedUpdateRunner());
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, new NoRunningApplicationDetector());

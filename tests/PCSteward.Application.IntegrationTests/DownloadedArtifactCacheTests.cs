@@ -69,6 +69,22 @@ public sealed class DownloadedArtifactCacheTests
         Assert.IsTrue(result.Succeeded); Assert.IsFalse(File.Exists(Path.Combine(fixture.Root, "success.bin"))); Assert.IsFalse(File.Exists(Path.Combine(fixture.Root, "failed.bin"))); Assert.IsTrue(File.Exists(Path.Combine(fixture.Root, "retained.bin")));
     }
 
+    [TestMethod]
+    public async Task LockedOrphanIsMeasuredAndPreventsFalseCleanupSuccess()
+    {
+        await using ArtifactFixture fixture = new();
+        string orphan = Path.Combine(fixture.Root, "crash-before-registration.bin");
+        await File.WriteAllBytesAsync(orphan, Enumerable.Repeat((byte)3, 9).ToArray());
+        await using FileStream lockHandle = new(orphan, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+        DownloadCacheSummary summary = await fixture.CreateCache().GetSummaryAsync(CancellationToken.None);
+
+        Assert.IsFalse(result.Succeeded); Assert.AreEqual(1, result.RemainingItems); Assert.AreEqual(9, result.RemainingBytes);
+        Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "crash-before-registration.bin"));
+        Assert.AreEqual(9, summary.TotalBytes);
+    }
+
     private sealed class ArtifactFixture : IAsyncDisposable
     {
         public ArtifactFixture() { Root = Path.Combine(Path.GetTempPath(), "pcsteward-cache-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(Root); Store = new MemoryArtifactStore(); }

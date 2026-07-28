@@ -221,7 +221,7 @@ public sealed class SqliteDatabaseTests
         IReadOnlyCollection<ProductTimelineEntry> timeline = await database.Store.GetTimelineAsync(job.Selection.StableProductKey, CancellationToken.None);
         await database.Store.PruneAsync(new UpdateHistoryRetention(2, now.AddDays(1)), CancellationToken.None);
 
-        Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.Queued && entry.Diagnostic == "recovered-after-interrupted-batch"));
+        Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.VerificationRequired && entry.Diagnostic.Contains("verification-required", StringComparison.Ordinal)));
         Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.Success && entry.ExitCode == 0));
         Assert.IsTrue(timeline.Any(entry => entry.Summary.Contains("Update Success", StringComparison.Ordinal)));
         Assert.IsTrue((await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None)).Count <= 2);

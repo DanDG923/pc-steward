@@ -1,4 +1,5 @@
 using PCSteward.Provider.WinGet;
+using PCSteward.Domain;
 
 namespace PCSteward.Application.IntegrationTests;
 
@@ -43,6 +44,17 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.HasCount(1, result.Records); Assert.AreEqual("Mozilla.Firefox", result.Records.Single().Id); Assert.AreEqual("winget", result.Records.Single().Source);
     }
     [TestMethod]
+    public async Task ExactPostUpdateQueryRequiresOneExpectedPackageAndVersion()
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new PCSteward.Domain.UpdateJobSelection("winget:contoso", PCSteward.Domain.UpdateProvider.WinGet, PCSteward.Domain.UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", PCSteward.Domain.UpdateScope.User, PCSteward.Domain.UpdateArchitecture.X64, PCSteward.Domain.UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+        FakeProcess matching = new(new WingetProcessResult(0, "Name  Id  Version  Source\n--------------------------------\nContoso  Contoso.Widget  1.1  winget", string.Empty, false));
+        FakeProcess mismatch = new(new WingetProcessResult(0, "Name  Id  Version  Source\n--------------------------------\nContoso  Contoso.Other  1.1  winget", string.Empty, false));
+
+        Assert.IsTrue(await new WingetInstalledInventoryProvider(matching).HasExactExpectedVersionAsync(job, CancellationToken.None));
+        Assert.IsFalse(await new WingetInstalledInventoryProvider(mismatch).HasExactExpectedVersionAsync(job, CancellationToken.None));
+        CollectionAssert.Contains(matching.Arguments.ToArray(), "--exact"); CollectionAssert.Contains(matching.Arguments.ToArray(), "--source");
+    }
+    [TestMethod]
     public void ProcessBoundaryHasNoExecutablePathParameterAndOversizedOutputFailsClosed()
     {
         Type[] parameterTypes = typeof(WindowsWingetProcess).GetMethod(nameof(WindowsWingetProcess.RunAsync))!.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
@@ -50,6 +62,17 @@ public sealed class WingetInstalledInventoryProviderTests
 
         WingetProcessResult oversized = new(-1, new string('x', 1_000_000), string.Empty, false, true);
         CollectionAssert.Contains(WingetUpdateSourceConnector.Classify(oversized, "v1", "winget").Warnings.ToArray(), "winget:output-too-large");
+    }
+    [TestMethod]
+    public async Task CurrentUserAliasAndUnsignedExecutableCannotBecomeProviderAuthority()
+    {
+        string unsigned = Path.Combine(Path.GetTempPath(), $"pcsteward-winget-{Guid.NewGuid():N}.exe");
+        await File.WriteAllTextAsync(unsigned, "not-a-signed-executable");
+        try
+        {
+            Assert.IsFalse(MachineTrustedWinget.IsMicrosoftTrusted(unsigned));
+        }
+        finally { File.Delete(unsigned); }
     }
     private sealed class FakeProcess(WingetProcessResult result) : IWingetProcess
     {

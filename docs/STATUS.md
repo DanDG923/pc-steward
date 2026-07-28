@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 25 — security review FAILED; Task 90 remediation required
-**Last green commit:** `949fc3b` — pre-review head; Release build and 142-test suite green
+**Current task:** 25 — repeat independent security review under GPT-5.6 Sol / Extra High
+**Last green commit:** Task 90 remediation commit — Release build and full suite must remain green
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -45,11 +45,11 @@ The supported-Windows, native-tooling, isolated reparse-point and fixed-performa
 
 ## Task 25 result
 
-Task 25 failed with two Blocker, two High and two Medium findings in `docs/review/PHASE_3_SECURITY_REVIEW.md`. The elevated helper can start a current-user-writable WinGet alias; the production post-update verifier cannot reach Success because WinGet rows always carry Unknown scope/architecture; the documented ancestor-component deletion race remains unresolved; and cleanup can claim Success while orphaned owned files remain. Installed evidence is not refreshed at confirmation, and interrupted started jobs can be relabelled queued/cancelled. Focused security/architecture/update/cleanup suites, 42 hostile-root assertions (one skip), the zero-warning Release build and all 142 tests passed but do not cover these composed failures.
+Task 90 remediated `P3R-01`–`P3R-06`: provider resolution is machine-trusted and fail-closed; verification requires an exact ID/source query plus concrete local compatibility evidence; cache deletion is root-handle relative and reconciles filesystem orphans; confirmation refreshes local installed evidence; and started interrupted work remains verification-required. Focused regressions, Release build and the full suite are recorded in the remediation commit. The gate is still FAIL until the fresh Task 25 reviewer independently confirms no Blocker or High finding remains.
 
 ## Next task
 
-Stop here. Task 90 requires GPT-5.6 Terra / High. Remediate the Task 25 findings, update evidence/traceability, then repeat Task 25 under GPT-5.6 Sol / Extra High.
+Stop here. Repeat Task 25 in a fresh GPT-5.6 Sol / Extra High review. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 

@@ -9,6 +9,7 @@ public enum UpdateHistoryStatus
     Queued,
     Running,
     RunningApplicationWarning,
+    VerificationRequired,
     Success,
     RestartRequired,
     Inconclusive,
@@ -89,7 +90,7 @@ public sealed record UpdateBatchResult(IReadOnlyCollection<UpdateHistoryEntry> E
 
 /// <summary>
 /// Runs reviewed jobs one at a time. A cancellation token is observed before every unstarted item;
-/// previously recorded outcomes are never rewritten and interrupted work is recovered as queued.
+/// previously recorded outcomes are never rewritten and started work remains verification-required after interruption.
 /// </summary>
 public sealed class SequentialUpdateBatchCoordinator(
     IApprovedUpdateExecutor executor,
@@ -148,7 +149,9 @@ public sealed class SequentialUpdateBatchCoordinator(
 
             if (attempt.Status != UpdateProviderAttemptStatus.AwaitingVerification)
             {
-                await RecordAsync(Entry(item.Job, Map(attempt.Status), attempt.ExitCode, attempt.SanitizedDiagnostic), recorded, CancellationToken.None).ConfigureAwait(false);
+                UpdateHistoryStatus finalStatus = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? UpdateHistoryStatus.VerificationRequired : Map(attempt.Status);
+                string diagnostic = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? "provider-start-state-interrupted; verification-required" : attempt.SanitizedDiagnostic;
+                await RecordAsync(Entry(item.Job, finalStatus, attempt.ExitCode, diagnostic), recorded, CancellationToken.None).ConfigureAwait(false);
                 continue;
             }
 
@@ -168,7 +171,7 @@ public sealed class SequentialUpdateBatchCoordinator(
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Cancelled, attempt.ExitCode, "user-cancelled-during-verification"), recorded, CancellationToken.None).ConfigureAwait(false);
+                await RecordAsync(Entry(item.Job, UpdateHistoryStatus.VerificationRequired, attempt.ExitCode, "verification-interrupted-after-provider-completed"), recorded, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception)
             {

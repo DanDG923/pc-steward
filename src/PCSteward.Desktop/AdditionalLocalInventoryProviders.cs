@@ -50,3 +50,9 @@ internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalI
     }
     private static Guid GuidFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }
+
+internal sealed class WingetTargetedInstalledInventory : ITargetedInstalledInventory
+{
+    private readonly WingetInstalledInventoryProvider provider = new();
+    public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => provider.HasExactExpectedVersionAsync(job, cancellationToken);
+}

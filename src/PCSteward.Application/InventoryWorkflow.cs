@@ -3,6 +3,7 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record InventoryDashboard(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, DateTimeOffset? LastCompletedAt, ScanDataSummary ScanData, IReadOnlyDictionary<string, ConnectorState> Connectors);
+public interface ITargetedInstalledInventory { Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken); }
 
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
@@ -17,6 +18,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly UserDecisionService? decisions;
     private readonly UpdateSourceRefreshService? updateSources;
     private readonly IReadOnlyCollection<IUpdateSourceConnector> updateSourceConnectors;
+    private readonly ITargetedInstalledInventory? targetedInstalledInventory;
+    private readonly bool hasCurrentLocalInventoryProviders;
 
     public InventoryWorkflow(
         IInventorySnapshotStore snapshots,
@@ -26,14 +29,17 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IScanEventSink? events = null,
         IUserDecisionStore? decisions = null,
         ISourceSnapshotStore? sourceCache = null,
-        IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null)
+        IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null,
+        ITargetedInstalledInventory? targetedInstalledInventory = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
         orchestrator = new InventoryScanOrchestrator(snapshots, providers, events); exports = new InventoryExportService(snapshots);
+        hasCurrentLocalInventoryProviders = providers.Count != 0;
         this.decisions = decisions is null ? null : new UserDecisionService(decisions);
         updateSources = sourceCache is null ? null : new UpdateSourceRefreshService(sourceCache);
         this.updateSourceConnectors = updateSourceConnectors ?? [];
+        this.targetedInstalledInventory = targetedInstalledInventory;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -83,6 +89,15 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(WingetSourceConnector, false, cancellationToken).ConfigureAwait(false);
         if (!sourceState.Enabled || !sourceState.SourceDisclosureApproved) return new(null, "Approved update sources are not enabled.");
 
+        // A persisted snapshot is never confirmation authority.  Refresh local installed evidence
+        // immediately before both review and execution; an unavailable or conflicting provider scan
+        // fails closed before a job or provider operation can be constructed.
+        if (hasCurrentLocalInventoryProviders)
+        {
+            ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
+            if (!currentInventory.Succeeded) return new(null, "Current installed inventory is unavailable. No update can be started.");
+        }
+
         UpdateIntelligenceSummary summary = await AssessUpdateIntelligenceAsync(true, true, cancellationToken).ConfigureAwait(false);
         UpdateIntelligenceItem? item = summary.Items.SingleOrDefault(candidate => string.Equals(candidate.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (item is not { Status: UpdateIntelligenceStatus.VerifiedUpdate, Mapping.IsActionable: true, Mapping.CandidateVersion: not null, SourceId: not null })
@@ -105,18 +120,27 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
+        if (targetedInstalledInventory is null || !await targetedInstalledInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
         ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
         if (!scan.Succeeded) return new(false, false);
         IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
-        HashSet<Guid> productIds = products.Where(product => string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal)).Select(product => product.Id).ToHashSet();
-        bool expectedVersionDetected = instances.Any(instance =>
+        CanonicalProduct[] selectedProducts = products.Where(product => string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal)).ToArray();
+        HashSet<Guid> productIds = selectedProducts.Select(product => product.Id).ToHashSet();
+        InstallationInstance[] exactWinget = instances.Where(instance =>
             productIds.Contains(instance.ProductId) &&
             string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.ProviderIdentity, job.Selection.PackageId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(instance.SourceId, SourceId(job.Selection.Source), StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal)).ToArray();
+        // The WinGet display table is not compatibility authority.  Exact ID/source/version evidence
+        // is reconciled with concrete local registry/MSIX scope and architecture observations.
+        bool expectedVersionDetected = exactWinget.Length == 1 && selectedProducts.Length == 1 && instances.Any(instance =>
+            IsConcreteLocalEvidence(instance) &&
             string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
             string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase));
+            string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase) &&
+            products.Any(product => product.Id == instance.ProductId && string.Equals(product.DisplayName, selectedProducts[0].DisplayName, StringComparison.OrdinalIgnoreCase)));
         return new(expectedVersionDetected, false);
     }
 
@@ -198,6 +222,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     }
 
     private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
+
+    private static string SourceId(UpdateSource source) => source switch { UpdateSource.WinGet => "winget", UpdateSource.MicrosoftStore => "msstore", _ => string.Empty };
 
     private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, out UpdateJobSelection? selection, out string message)
     {

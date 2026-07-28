@@ -63,6 +63,19 @@ public sealed class SequentialUpdateBatchTests
     }
 
     [TestMethod]
+    public async Task CancellationAfterProviderCompletionRemainsVerificationRequired()
+    {
+        using CancellationTokenSource cancellation = new();
+        ImmutableUpdateJob job = Job("Contoso.Interrupted", "1.1.0");
+        SequentialUpdateBatchCoordinator coordinator = new(new RecordingExecutor(), new CancellingInventory(cancellation), new InMemoryHistory(), new RunningDetector(false));
+
+        UpdateBatchResult result = await coordinator.RunAsync([Item(job)], cancellation.Token);
+
+        Assert.AreEqual(UpdateHistoryStatus.VerificationRequired, result.FinalEntries.Single().Status);
+        Assert.AreNotEqual(UpdateHistoryStatus.Cancelled, result.FinalEntries.Single().Status);
+    }
+
+    [TestMethod]
     [DataRow(UpdateProviderAttemptStatus.SourceFailed, UpdateHistoryStatus.SourceFailed)]
     [DataRow(UpdateProviderAttemptStatus.DownloadFailed, UpdateHistoryStatus.DownloadFailed)]
     [DataRow(UpdateProviderAttemptStatus.InstallerFailed, UpdateHistoryStatus.InstallerFailed)]
@@ -91,6 +104,7 @@ public sealed class SequentialUpdateBatchTests
     private sealed class FailingAttemptExecutor(UpdateProviderAttemptStatus status) : IApprovedUpdateExecutor { public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) => Task.FromResult(new UpdateProviderAttempt(status, 9, "provider-negative-result")); }
     private sealed class Inventory(Dictionary<Guid, PostUpdateInventoryResult> results) : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(results[job.Id]); }
     private sealed class ThrowingInventory : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => throw new IOException("inventory failed"); }
+    private sealed class CancellingInventory(CancellationTokenSource cancellation) : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) { cancellation.Cancel(); cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult(new PostUpdateInventoryResult(false, false)); } }
     private sealed class RunningDetector(bool running) : IRunningApplicationDetector { public Task<bool> IsRunningAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(running); }
     private sealed class InMemoryHistory : IUpdateHistoryStore
     {

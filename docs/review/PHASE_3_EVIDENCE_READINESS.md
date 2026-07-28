@@ -5,6 +5,10 @@
 **Implementation baseline:** `818f68e` (`feat: manage and safely clear downloaded artifacts`)  
 **Readiness decision:** **READY FOR TASK 25 REVIEW.** Automated evidence, the approved host substitute, and a separately user-approved real Firefox update are recorded. The host substitute intentionally does not prove a provider-disconnect path, clean-image behavior, or per-user no-prompt behavior; these are residual review risks, not missing evidence rows. This report prepares evidence only and does not grade Phase 3.
 
+**Task 90 update (2026-07-28):** The remediation set adds machine-trusted WinGet resolution, exact post-update ID/source inventory, handle-relative cache deletion, root/ledger reconciliation, current-inventory confirmation, and verification-required interrupted states. The full reproducible result matrix is in [Task 90 P3R evidence](TASK_90_P3R_EVIDENCE.md): focused regression 37 passed, Release build had 0 warnings/errors, full suite passed 146 tests, the hostile-root script passed 42 assertions with one VM/manual skip, and read-only machine-provider inspection proved non-reparse, valid Microsoft signing and no caller write ACL. No new elevated host/UAC or real-update exercise was run for this remediation, so the existing exception scope remains unchanged.
+
+The Task 90 benchmark command reported the deterministic 30-run/300-record workload at 1.84 ms median and 2.36 ms p95, but returned exit code 1 without a failure diagnostic. It is retained as a non-gating measurement anomaly; it is not claimed as Phase 3 cache or UI performance acceptance evidence.
+
 ## Automated evidence
 
 All commands below were run locally against disposable fixtures; none invoked UAC, WinGet, a real installer, or a provider cache.

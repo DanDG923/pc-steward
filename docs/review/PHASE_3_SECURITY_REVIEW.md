@@ -43,6 +43,19 @@ Two Blocker and two High findings remain. The elevated helper can execute a user
 - No cleanup test proves orphaned app-owned files prevent false Success.
 - The approved host substitute does not prove clean-image behavior, per-user no-prompt behavior or provider-disconnect cancellation. Those accepted scope limits remain residual risks but do not waive `P3R-01`–`P3R-04`.
 
+## Task 90 remediation record
+
+The implementation below is pending a fresh independent Task 25 review; the phase gate remains **FAIL** until that review passes. The remediation commit is identified by its `fix: remediate phase review findings` subject in Git history.
+
+| Finding | Remediation and regression evidence | Verification |
+|---|---|---|
+| `P3R-01` | `MachineTrustedWinget` accepts only a non-reparse `Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_*\\winget.exe` with valid Authenticode trust and a Microsoft Corporation signer; there is no PATH or current-user alias fallback. The unsigned executable fixture fails trust validation. | Focused integration/security fixtures; fresh signed cross-integrity host replay remains for the independent reviewer. |
+| `P3R-02` | Post-update verification now first runs an exact ID/source WinGet query and requires one matching expected-version record, then reconciles scope/architecture against concrete local registry/MSIX evidence. Mismatched exact IDs fail the regression. | Focused integration suite. |
+| `P3R-03` | Cache descendants are opened from an already-bound root/directory handle with `NtCreateFile` and no-follow semantics before handle-bound deletion; reparse/type mismatches fail closed. | Focused cleanup fixtures; the existing isolated hostile-root evidence remains scoped as documented. |
+| `P3R-04` | Summary and cleanup walk the owned root, reconcile ledger and active leases, delete safe orphans during clear, and retain a non-success residual/real byte count for locked or unknown data. | Focused cleanup suite includes a crash-before-registration locked orphan. |
+| `P3R-05` | Selection preparation performs a current local inventory scan before review and again immediately before approval/provider construction; unavailable evidence is non-actionable. | Review-to-confirmation workflow and focused integration fixtures. |
+| `P3R-06` | Started work now records `VerificationRequired` when provider completion or verification is interrupted; recovery appends the same state rather than relabelling it Queued/Cancelled. | Focused batch cancellation and SQLite recovery regressions. |
+
 ## Positive controls confirmed
 
 - Approved jobs are typed, immutable in memory, digest-checked on restore and contain no executable path, URL, working directory, environment or free-form flags.
