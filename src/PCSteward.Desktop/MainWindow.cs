@@ -83,7 +83,10 @@ public sealed class MainWindow : Window
 
     private async Task StartScanAsync()
     {
-        scanCancellation = new CancellationTokenSource(); Progress<ScanProgress> progress = new(value => { viewModel.ReportProgress(value); Render(); }); ScanResult result = await workflow.ScanAsync(progress, scanCancellation.Token);
+        scanCancellation = new CancellationTokenSource(); Progress<ScanProgress> progress = new(value => { viewModel.ReportProgress(value); Render(); });
+        // Providers and SQLite complete asynchronously.  Keep their continuations off the
+        // WinUI dispatcher; Progress posts the small UI updates back to it explicitly.
+        ScanResult result = await Task.Run(() => workflow.ScanAsync(progress, scanCancellation.Token));
         viewModel.CompleteScan(result, DateTimeOffset.UtcNow); LoadSavedInventory(); scanCancellation.Dispose(); scanCancellation = null; Render();
     }
 

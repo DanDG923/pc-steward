@@ -24,12 +24,17 @@ public sealed class InventoryWorkflow : IDisposable
         Dictionary<string, ConnectorState> states = [];
         foreach (ConnectorOption connector in connectors)
         {
-            ConnectorState state = await connectorSettings.GetConnectorStateAsync(connector.Name, connector.IsEnabled, cancellationToken);
+            ConnectorState state = await connectorSettings.GetConnectorStateAsync(connector.Name, connector.IsEnabled, cancellationToken).ConfigureAwait(false);
             if (connector.IsEssential) state = state with { Enabled = true };
             if (connector.Name == WingetConnector && !state.SourceDisclosureApproved) state = state with { Enabled = false };
             states.Add(connector.Name, state);
         }
-        return new InventoryDashboard(await snapshots.GetLastKnownGoodProductsAsync(cancellationToken), await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken), await scanData.GetLastCompletedScanAtAsync(cancellationToken), await scanData.GetScanDataSummaryAsync(cancellationToken), states);
+        return new InventoryDashboard(
+            await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false),
+            await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false),
+            await scanData.GetLastCompletedScanAtAsync(cancellationToken).ConfigureAwait(false),
+            await scanData.GetScanDataSummaryAsync(cancellationToken).ConfigureAwait(false),
+            states);
     }
 
     public async Task SaveConnectorStateAsync(string connectorName, bool enabled, bool sourceDisclosureApproved, CancellationToken cancellationToken)
