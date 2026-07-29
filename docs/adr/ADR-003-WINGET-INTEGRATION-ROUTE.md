@@ -45,6 +45,10 @@ Golden parser/capability fixtures, locale/malformed-output rejection, source-fai
 
 `spikes/winget-packaging/SPIKE_REPORT.md` records WinGet `v1.29.280` and confirms local help support for exact ID, source, version, architecture, scope and non-interactive arguments. The observed `list` and `upgrade` help does not advertise structured output, so table parsing is never execution authority. A supported programmatic route was not evidenced on this host. Installed/upgrade/Store probes require separate explicit authorization because they may disclose installed-software metadata to external sources. Their absence and the lack of structured output evidence make this ADR Provisional.
 
+## Task 90 Phase 3 review remediation
+
+`P3R-14` found that the available-version display column still crossed from the table connector through source matching into the immutable `--version` argument. Update preparation now requires a separate bounded structured-candidate authority whose live result exactly matches source ID, package ID and candidate version and is independently validated as a supported newer version. The WinGet table connector does not implement that authority; malformed, localized, injected-spacing and extra-column rows remain display evidence only. Because no supported production structured available-version route has been evidenced, the actual desktop fails closed before review/job/runner creation. This preserves the provisional CLI adapter for inventory display and post-update structured export verification without claiming actionable update support.
+
 ## Reconsider when
 
 A supported API proves equivalent inventory, source, cancellation and execution behavior; required CLI capabilities disappear; parser compatibility breaks; or clean-environment evidence shows the route cannot meet source isolation and exact-ID execution requirements.

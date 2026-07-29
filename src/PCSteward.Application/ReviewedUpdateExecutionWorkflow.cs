@@ -49,7 +49,16 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
 
         ImmutableUpdateJob job = await approvals.ConfirmAsync(review, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
-        UpdateBatchResult batch = await coordinator.RunAsync([new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true))], cancellationToken).ConfigureAwait(false);
+        UpdateBatchResult batch = await coordinator.RunAsync(
+            [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged)],
+            cancellationToken).ConfigureAwait(false);
+        if (batch.AcknowledgementRequired is { AppearsToBeRunning: true } lateRunning)
+        {
+            return new(
+                false,
+                $"Package {preparation.Selection.PackageId} started running after confirmation (detected process: {string.Join(", ", lateRunning.ProcessNames)}). PC Steward stopped before the provider. Open a new review and explicitly acknowledge the target-specific warning to continue; PC Steward did not close it.",
+                batch);
+        }
         UpdateHistoryEntry? final = batch.FinalEntries.SingleOrDefault();
         string message = final is null
             ? "The reviewed update did not produce a final result."

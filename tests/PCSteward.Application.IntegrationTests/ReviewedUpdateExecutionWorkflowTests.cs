@@ -79,6 +79,38 @@ public sealed class ReviewedUpdateExecutionWorkflowTests
         Assert.HasCount(0, executor.Jobs);
     }
 
+    [TestMethod]
+    public async Task TargetFirstDetectedAtFinalPreProviderSnapshotRequiresANewTargetSpecificReview()
+    {
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        SequenceRunningDetector running = new(
+            RunningApplicationDetection.NotDetected,
+            RunningApplicationDetection.NotDetected,
+            new RunningApplicationDetection(true, ["Widget"]),
+            new RunningApplicationDetection(true, ["Widget"]),
+            new RunningApplicationDetection(true, ["Widget"]),
+            new RunningApplicationDetection(true, ["Widget"]));
+        ReviewedUpdateExecutionWorkflow workflow = CreateWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(Selection(), "fresh")), store, executor, running);
+
+        UpdateReviewPreparation firstReview = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
+        ReviewedUpdateExecutionResult stopped = await workflow.ConfirmAndRunAsync(firstReview.Review!, false, CancellationToken.None);
+
+        Assert.IsFalse(firstReview.RunningApplication.AppearsToBeRunning);
+        Assert.IsFalse(stopped.Started);
+        StringAssert.Contains(stopped.Message, "started running after confirmation");
+        StringAssert.Contains(stopped.Message, "Widget");
+        Assert.HasCount(0, executor.Jobs);
+
+        UpdateReviewPreparation newReview = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
+        Assert.IsTrue(newReview.RunningApplication.AppearsToBeRunning);
+        ReviewedUpdateExecutionResult acknowledged = await workflow.ConfirmAndRunAsync(newReview.Review!, true, CancellationToken.None);
+
+        Assert.IsTrue(acknowledged.Started);
+        Assert.HasCount(1, executor.Jobs);
+        Assert.HasCount(2, store.Jobs);
+    }
+
     private static ReviewedUpdateExecutionWorkflow CreateWorkflow(
         Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepare,
         RecordingStore store,

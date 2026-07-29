@@ -14,13 +14,38 @@ using PCSteward.Provider.WinGet;
 
 namespace PCSteward.Execution;
 
+internal sealed record HelperLaunchPaths(string DesktopPath, string HelperPath);
+internal sealed record HelperLaunchTrustResult(bool Trusted, string Rejection);
+internal delegate Process? ElevatedHelperLauncher(
+    string helperPath,
+    string pipeName,
+    string nonce,
+    out ElevatedHelperResult? failure);
+
 internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTransport
 {
     private static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ExecutionTimeout = TimeSpan.FromMinutes(11);
     private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(5);
-    internal WindowsElevatedHelperTransport()
+    private readonly Func<HelperLaunchPaths?> resolvePaths;
+    private readonly Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust;
+    private readonly ElevatedHelperLauncher launchHelper;
+
+    internal WindowsElevatedHelperTransport() : this(
+        InstalledHelperLaunchTrust.ResolveFixedPaths,
+        InstalledHelperLaunchTrust.Validate,
+        LaunchHelper)
     {
+    }
+
+    internal WindowsElevatedHelperTransport(
+        Func<HelperLaunchPaths?> resolvePaths,
+        Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust,
+        ElevatedHelperLauncher launchHelper)
+    {
+        this.resolvePaths = resolvePaths ?? throw new ArgumentNullException(nameof(resolvePaths));
+        this.validatePreLaunchTrust = validatePreLaunchTrust ?? throw new ArgumentNullException(nameof(validatePreLaunchTrust));
+        this.launchHelper = launchHelper ?? throw new ArgumentNullException(nameof(launchHelper));
     }
 
     public async Task<ElevatedHelperResult> ExecuteAsync(
@@ -33,13 +58,15 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
             return Failed("elevated-helper-requires-windows");
         }
 
-        string? desktopPath = Environment.ProcessPath;
-        string helperPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "PCSteward.ElevatedHelper.exe"));
-        if (desktopPath is null ||
-            !string.Equals(Path.GetFileName(desktopPath), "PCSteward.Desktop.exe", StringComparison.OrdinalIgnoreCase) ||
-            !File.Exists(helperPath))
+        HelperLaunchPaths? paths = resolvePaths();
+        if (paths is null)
         {
             return Failed("fixed-signed-helper-or-desktop-path-unavailable");
+        }
+        HelperLaunchTrustResult initialTrust = validatePreLaunchTrust(paths);
+        if (!initialTrust.Trusted)
+        {
+            return Failed(initialTrust.Rejection);
         }
 
         string nonce = ElevatedHelperProtocol.CreateNonce();
@@ -52,7 +79,14 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         }
 
         using NamedPipeServerStream pipe = RestrictedNamedPipe.Create(pipeName, currentSid);
-        using Process? helper = LaunchHelper(helperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
+        // Validate again immediately before Process.Start. The protected install-root ACL is what
+        // makes the checked signed identity stable across this final path-based runas boundary.
+        HelperLaunchTrustResult finalTrust = validatePreLaunchTrust(paths);
+        if (!finalTrust.Trusted)
+        {
+            return Failed(finalTrust.Rejection);
+        }
+        using Process? helper = launchHelper(paths.HelperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
         if (launchFailure is not null)
         {
             return launchFailure;
@@ -97,8 +131,8 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
             clientProcessId != helper.Id ||
             !WindowsPeerIdentityVerifier.VerifyPeer(
                 clientProcessId,
-                helperPath,
-                desktopPath,
+                paths.HelperPath,
+                paths.DesktopPath,
                 currentSession,
                 currentSid,
                 out _))
@@ -213,6 +247,184 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
 
     [GeneratedRegex("^pcsteward-elevated-[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
     internal static partial Regex PipeNamePattern();
+}
+
+internal sealed record HelperLaunchTrustEvidence(
+    bool FixedInstalledLayout,
+    bool DesktopPresent,
+    bool HelperPresent,
+    bool NoReparseComponents,
+    bool CallerCannotModifyLayout,
+    bool DesktopSignatureTrusted,
+    bool HelperSignatureTrusted,
+    bool SameSigner);
+
+internal static class InstalledHelperLaunchTrust
+{
+    internal const string InstallDirectoryName = "PC Steward";
+    internal const string DesktopExecutableName = "PCSteward.Desktop.exe";
+    internal const string HelperExecutableName = "PCSteward.ElevatedHelper.exe";
+
+    internal static HelperLaunchPaths? ResolveFixedPaths()
+    {
+        string? actualDesktop = Environment.ProcessPath;
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (string.IsNullOrWhiteSpace(actualDesktop) || string.IsNullOrWhiteSpace(programFiles))
+        {
+            return null;
+        }
+
+        string installedRoot = Path.GetFullPath(Path.Combine(programFiles, InstallDirectoryName));
+        return new(
+            Path.GetFullPath(actualDesktop),
+            Path.Combine(installedRoot, HelperExecutableName));
+    }
+
+    internal static HelperLaunchTrustResult Validate(HelperLaunchPaths paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        try
+        {
+            string programFiles = Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+            string installedRoot = Path.GetFullPath(Path.Combine(programFiles, InstallDirectoryName));
+            string expectedDesktop = Path.Combine(installedRoot, DesktopExecutableName);
+            string expectedHelper = Path.Combine(installedRoot, HelperExecutableName);
+            bool fixedLayout =
+                string.Equals(Path.GetFullPath(paths.DesktopPath), expectedDesktop, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Path.GetFullPath(paths.HelperPath), expectedHelper, StringComparison.OrdinalIgnoreCase);
+            bool desktopPresent = File.Exists(expectedDesktop);
+            bool helperPresent = File.Exists(expectedHelper);
+            bool noReparse = desktopPresent && helperPresent &&
+                ProtectedLaunchLayout.HasNoReparseComponents(installedRoot, expectedDesktop, expectedHelper);
+            bool callerCannotModify = noReparse &&
+                ProtectedLaunchLayout.CallerCannotModify(installedRoot, expectedDesktop, expectedHelper);
+            bool desktopTrusted = desktopPresent && AuthenticodeIdentity.IsTrusted(expectedDesktop);
+            bool helperTrusted = helperPresent && AuthenticodeIdentity.IsTrusted(expectedHelper);
+            bool sameSigner = desktopTrusted && helperTrusted &&
+                AuthenticodeIdentity.HaveSameSigner(expectedDesktop, expectedHelper);
+            return Evaluate(new(
+                fixedLayout,
+                desktopPresent,
+                helperPresent,
+                noReparse,
+                callerCannotModify,
+                desktopTrusted,
+                helperTrusted,
+                sameSigner));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or CryptographicException)
+        {
+            return new(false, "elevated-helper-prelaunch-trust-unavailable");
+        }
+    }
+
+    internal static HelperLaunchTrustResult Evaluate(HelperLaunchTrustEvidence evidence)
+    {
+        if (!evidence.FixedInstalledLayout) return new(false, "elevated-helper-fixed-installed-path-invalid");
+        if (!evidence.DesktopPresent || !evidence.HelperPresent) return new(false, "elevated-helper-installed-binary-missing");
+        if (!evidence.NoReparseComponents) return new(false, "elevated-helper-reparse-layout-rejected");
+        if (!evidence.CallerCannotModifyLayout) return new(false, "elevated-helper-caller-writable-layout-rejected");
+        if (!evidence.DesktopSignatureTrusted || !evidence.HelperSignatureTrusted) return new(false, "elevated-helper-signature-untrusted");
+        if (!evidence.SameSigner) return new(false, "elevated-helper-signer-mismatch");
+        return new(true, string.Empty);
+    }
+}
+
+internal static class ProtectedLaunchLayout
+{
+    private static readonly uint[] FileModificationRights =
+    [
+        NativeMethods.FileWriteData,
+        NativeMethods.FileAppendData,
+        NativeMethods.FileWriteEa,
+        NativeMethods.FileWriteAttributes,
+        NativeMethods.Delete,
+        NativeMethods.WriteDac,
+        NativeMethods.WriteOwner
+    ];
+    private static readonly uint[] DirectoryModificationRights =
+    [
+        NativeMethods.FileAddFile,
+        NativeMethods.FileAddSubdirectory,
+        NativeMethods.FileDeleteChild,
+        NativeMethods.Delete,
+        NativeMethods.WriteDac,
+        NativeMethods.WriteOwner
+    ];
+
+    internal static bool HasNoReparseComponents(string installedRoot, params string[] files)
+    {
+        foreach (string directory in EnumerateAncestors(installedRoot))
+        {
+            if (!Directory.Exists(directory) ||
+                (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+            {
+                return false;
+            }
+        }
+
+        return files.All(file =>
+            File.Exists(file) &&
+            (File.GetAttributes(file) & FileAttributes.ReparsePoint) == 0);
+    }
+
+    internal static bool CallerCannotModify(string installedRoot, params string[] files)
+    {
+        foreach (string directory in EnumerateAncestors(installedRoot))
+        {
+            if (!TryProbeRights(directory, directory: true, DirectoryModificationRights, out bool canModify) || canModify)
+            {
+                return false;
+            }
+        }
+
+        foreach (string file in files)
+        {
+            if (!TryProbeRights(file, directory: false, FileModificationRights, out bool canModify) || canModify)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Stack<string> EnumerateAncestors(string installedRoot)
+    {
+        Stack<string> ancestors = new();
+        DirectoryInfo? current = new(Path.GetFullPath(installedRoot));
+        while (current is not null)
+        {
+            ancestors.Push(current.FullName);
+            current = current.Parent;
+        }
+        return ancestors;
+    }
+
+    private static bool TryProbeRights(string path, bool directory, IEnumerable<uint> rights, out bool canModify)
+    {
+        canModify = false;
+        foreach (uint right in rights)
+        {
+            using SafeFileHandle handle = NativeMethods.CreateFileForTrustProbe(
+                path,
+                right,
+                NativeMethods.FileShareRead | NativeMethods.FileShareWrite | NativeMethods.FileShareDelete,
+                IntPtr.Zero,
+                NativeMethods.OpenExisting,
+                NativeMethods.FileFlagOpenReparsePoint | (directory ? NativeMethods.FileFlagBackupSemantics : 0),
+                IntPtr.Zero);
+            if (!handle.IsInvalid)
+            {
+                canModify = true;
+                return true;
+            }
+            if (Marshal.GetLastWin32Error() != NativeMethods.ErrorAccessDenied)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 public static class ElevatedHelperEntryPoint
@@ -561,11 +773,18 @@ internal static class AuthenticodeIdentity
 
     internal static bool IsTrustedAndSameSigner(string firstPath, string secondPath)
     {
-        if (!VerifyTrust(firstPath) || !VerifyTrust(secondPath))
+        if (!IsTrusted(firstPath) || !IsTrusted(secondPath))
         {
             return false;
         }
 
+        return HaveSameSigner(firstPath, secondPath);
+    }
+
+    internal static bool IsTrusted(string path) => VerifyTrust(path);
+
+    internal static bool HaveSameSigner(string firstPath, string secondPath)
+    {
         try
         {
 #pragma warning disable SYSLIB0057
@@ -615,6 +834,23 @@ internal static class AuthenticodeIdentity
 internal static class NativeMethods
 {
     internal const int ErrorCancelled = 1223;
+    internal const int ErrorAccessDenied = 5;
+    internal const uint FileWriteData = 0x00000002;
+    internal const uint FileAppendData = 0x00000004;
+    internal const uint FileWriteEa = 0x00000010;
+    internal const uint FileAddFile = FileWriteData;
+    internal const uint FileAddSubdirectory = FileAppendData;
+    internal const uint FileDeleteChild = 0x00000040;
+    internal const uint FileWriteAttributes = 0x00000100;
+    internal const uint Delete = 0x00010000;
+    internal const uint WriteDac = 0x00040000;
+    internal const uint WriteOwner = 0x00080000;
+    internal const uint FileShareRead = 0x00000001;
+    internal const uint FileShareWrite = 0x00000002;
+    internal const uint FileShareDelete = 0x00000004;
+    internal const uint OpenExisting = 3;
+    internal const uint FileFlagBackupSemantics = 0x02000000;
+    internal const uint FileFlagOpenReparsePoint = 0x00200000;
     internal const uint PipeAccessDuplex = 0x00000003;
     internal const uint FileFlagOverlapped = 0x40000000;
     internal const uint PipeTypeByte = 0x00000000;
@@ -682,6 +918,16 @@ internal static class NativeMethods
         int inputBufferSize,
         uint defaultTimeout,
         ref SecurityAttributes securityAttributes);
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern SafeFileHandle CreateFileForTrustProbe(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
 
     [DllImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

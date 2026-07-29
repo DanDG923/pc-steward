@@ -61,6 +61,18 @@ Do not merge Phase 3 or begin Task 26. Run Task 90 and repeat Task 25 under a fr
 - `FR-UPD-05` is not Proven for a target first detected at the immediate pre-provider boundary.
 - Passing automated counts and the prior exceptions do not override an arbitrary-elevation path or a High execution-authority defect.
 
+## Task 90 remediation handoff
+
+The Task 90 commit following this review addresses `P3R-13–15`; this section records the handoff and does not regrade the independent gate.
+
+| Finding | Remediation-tree disposition | Verification |
+|---|---|---|
+| `P3R-15` | Closed in the remediation tree. Exact protected `%ProgramFiles%\PC Steward` layout, whole-path non-reparse and effective current-token non-modifiability, trusted desktop/helper signatures and exact signer equality are checked twice before the launcher/`runas` call. Post-connect identity remains. Current unsigned/writable developer output fails before UAC. | Security fixtures **19 passed**, including zero-launch initial/replacement failures; safe read-only local trust inspection. |
+| `P3R-14` | Closed in the remediation tree. An immutable selection now requires exact bounded structured candidate authority; the WinGet table connector is display-only and actual desktop composition supplies no structured provider, so it fails closed before review/job/runner construction. | Focused application filter **56 passed**, including malformed/localized/extra-column, wrong binding/version and actual composition tests. |
+| `P3R-13` | Closed in the remediation tree. A first positive final pre-provider snapshot returns target/process-specific acknowledgement-required before queue/provider execution; continuation requires a fresh review and explicit acknowledgement. | False/false/true production-workflow regression and no-close/kill surface checks pass. |
+
+Release build succeeded with 0 warnings/errors; the complete suite passed **176** tests; hostile and WinGet scripts passed **42/1 approved skip** and **11**. Full evidence is in [Task 90 P3R7 evidence](TASK_90_P3R7_EVIDENCE.md). A clean signed protected-root/UAC replay remains unavailable, so Phase 3 is still `FAIL` until a fresh Task 25 review.
+
 ## Residual risks
 
 Clean-image behavior, per-user no-prompt execution, provider-disconnect cancellation, the un-replayed outcome dialog, same-signer helper/provider rollback, same-user substitution of the name-based temporary export, root creation races before handle binding, imperfect package-ID/process-name correlation, and unconstrained hostile races remain unproven within their recorded exception scope. ADR-002, ADR-003 and ADR-011 remain Provisional; `AC-UX-01–09` remain Optional under ADR-021.

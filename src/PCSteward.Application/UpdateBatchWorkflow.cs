@@ -85,8 +85,13 @@ public interface IRunningApplicationDetector
     Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken);
 }
 
-public sealed record UpdateBatchItem(ImmutableUpdateJob Job, UpdateJobExecutionEvidence CurrentEvidence);
-public sealed record UpdateBatchResult(IReadOnlyCollection<UpdateHistoryEntry> Entries)
+public sealed record UpdateBatchItem(
+    ImmutableUpdateJob Job,
+    UpdateJobExecutionEvidence CurrentEvidence,
+    bool RunningApplicationWarningAcknowledged = false);
+public sealed record UpdateBatchResult(
+    IReadOnlyCollection<UpdateHistoryEntry> Entries,
+    RunningApplicationDetection? AcknowledgementRequired = null)
 {
     public IReadOnlyCollection<UpdateHistoryEntry> FinalEntries => Entries
         .Where(entry => entry.Status is not UpdateHistoryStatus.Queued and not UpdateHistoryStatus.Running and not UpdateHistoryStatus.RunningApplicationWarning)
@@ -135,6 +140,10 @@ public sealed class SequentialUpdateBatchCoordinator(
             if (running.AppearsToBeRunning)
             {
                 await RecordAsync(Entry(item.Job, UpdateHistoryStatus.RunningApplicationWarning, null, "target-application-appears-to-be-running; no-close-action-requested"), recorded, cancellationToken).ConfigureAwait(false);
+                if (!item.RunningApplicationWarningAcknowledged)
+                {
+                    return new(recorded, running);
+                }
             }
 
             await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Queued, null, "reviewed-job-queued"), recorded, cancellationToken).ConfigureAwait(false);

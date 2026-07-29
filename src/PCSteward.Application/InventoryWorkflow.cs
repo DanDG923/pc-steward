@@ -8,6 +8,23 @@ public interface IPostUpdatePackageInventory
     Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Supplies bounded provider-structured candidate evidence. Display-table fields never implement
+/// this authority and therefore cannot become immutable job or provider arguments.
+/// </summary>
+public interface IStructuredUpdateCandidateAuthority
+{
+    Task<StructuredUpdateCandidateEvidence?> ResolveAsync(
+        string sourceId,
+        string packageId,
+        CancellationToken cancellationToken);
+}
+
+public sealed record StructuredUpdateCandidateEvidence(
+    string SourceId,
+    string PackageId,
+    string CandidateVersion);
+
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 {
@@ -22,6 +39,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly UpdateSourceRefreshService? updateSources;
     private readonly IReadOnlyCollection<IUpdateSourceConnector> updateSourceConnectors;
     private readonly IPostUpdatePackageInventory? postUpdatePackageInventory;
+    private readonly IStructuredUpdateCandidateAuthority? structuredUpdateCandidates;
     private readonly bool hasCurrentLocalInventoryProviders;
 
     public InventoryWorkflow(
@@ -33,7 +51,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IUserDecisionStore? decisions = null,
         ISourceSnapshotStore? sourceCache = null,
         IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null,
-        IPostUpdatePackageInventory? postUpdatePackageInventory = null)
+        IPostUpdatePackageInventory? postUpdatePackageInventory = null,
+        IStructuredUpdateCandidateAuthority? structuredUpdateCandidates = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -43,6 +62,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         updateSources = sourceCache is null ? null : new UpdateSourceRefreshService(sourceCache);
         this.updateSourceConnectors = updateSourceConnectors ?? [];
         this.postUpdatePackageInventory = postUpdatePackageInventory;
+        this.structuredUpdateCandidates = structuredUpdateCandidates;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -115,7 +135,14 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
-        if (!TryCreateSelection(profile, item.Mapping, out UpdateJobSelection? selection, out string message)) return new(null, message);
+        StructuredUpdateCandidateEvidence? candidate = structuredUpdateCandidates is null
+            ? null
+            : await structuredUpdateCandidates.ResolveAsync(item.Mapping.SourceId, item.Mapping.PackageId, cancellationToken).ConfigureAwait(false);
+        if (!IsExactStructuredCandidate(item.Mapping, candidate))
+        {
+            return new(null, "The provider did not supply bounded structured candidate-version evidence for the exact source and package. Display results cannot authorize an update.");
+        }
+        if (!TryCreateSelection(profile, item.Mapping, candidate!.CandidateVersion, out UpdateJobSelection? selection, out string message)) return new(null, message);
         return new(selection, "Fresh exact source evidence is ready for your review.");
     }
 
@@ -220,17 +247,36 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 
     private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
 
-    private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, out UpdateJobSelection? selection, out string message)
+    private static bool IsExactStructuredCandidate(PackageMapping mapping, StructuredUpdateCandidateEvidence? candidate)
+    {
+        const int maximumVersionLength = 128;
+        if (candidate is null ||
+            !string.Equals(candidate.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.CandidateVersion, mapping.CandidateVersion, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(candidate.CandidateVersion) ||
+            candidate.CandidateVersion.Length > maximumVersionLength)
+        {
+            return false;
+        }
+
+        return candidate.CandidateVersion.All(character =>
+            char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
+    }
+
+    private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, string candidateVersion, out UpdateJobSelection? selection, out string message)
     {
         selection = null;
-        if (mapping.CandidateVersion is null || profile.InstalledVersion is null) { message = "The installed or available version is missing."; return false; }
+        if (profile.InstalledVersion is null) { message = "The installed version is missing."; return false; }
+        VersionComparisonResult comparison = VersionComparison.Compare(new(profile.InstalledVersion, candidateVersion, false));
+        if (comparison.Outcome != VersionComparisonOutcome.Newer) { message = "The structured candidate version is not a supported newer version."; return false; }
         if (!TrySource(mapping.SourceId, out UpdateSource source)) { message = "The selected source is not actionable."; return false; }
         if (!TryScope(profile.Scope, out UpdateScope scope)) { message = "The installed scope is not supported for a safe update."; return false; }
         if (!TryArchitecture(profile.Architecture, out UpdateArchitecture architecture)) { message = "The installed architecture is not supported for a safe update."; return false; }
         UpdateChannel channel = string.Equals(profile.Channel, "preview", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Preview : string.Equals(profile.Channel, "stable", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Stable : UpdateChannel.Unknown;
         try
         {
-            selection = new UpdateJobSelection(profile.StableProductKey, UpdateProvider.WinGet, source, mapping.PackageId, profile.InstalledVersion, mapping.CandidateVersion, scope, architecture, channel, "source-match-v1");
+            selection = new UpdateJobSelection(profile.StableProductKey, UpdateProvider.WinGet, source, mapping.PackageId, profile.InstalledVersion, candidateVersion, scope, architecture, channel, "structured-candidate-v1");
             message = "Fresh exact source evidence is ready for your review.";
             return true;
         }

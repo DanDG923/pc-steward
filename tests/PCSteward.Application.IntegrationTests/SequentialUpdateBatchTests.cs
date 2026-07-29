@@ -39,13 +39,30 @@ public sealed class SequentialUpdateBatchTests
         RecordingExecutor executor = new(() => cancellation.Cancel());
         SequentialUpdateBatchCoordinator coordinator = new(executor, new Inventory(new() { [first.Id] = new(true, false) }), history, new RunningDetector(true));
 
-        UpdateBatchResult result = await coordinator.RunAsync([Item(first), Item(second)], cancellation.Token);
+        UpdateBatchResult result = await coordinator.RunAsync([Item(first, runningAcknowledged: true), Item(second, runningAcknowledged: true)], cancellation.Token);
 
         Assert.HasCount(1, executor.Jobs);
         Assert.AreEqual(first.Id, executor.Jobs.Single());
         CollectionAssert.AreEquivalent(new[] { UpdateHistoryStatus.Success, UpdateHistoryStatus.Cancelled }, result.FinalEntries.Select(entry => entry.Status).ToArray());
         Assert.IsTrue(history.Entries.Any(entry => entry.Status == UpdateHistoryStatus.RunningApplicationWarning));
         Assert.IsFalse(typeof(IRunningApplicationDetector).GetMethods().Any(method => method.Name.Contains("close", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public async Task NewlyDetectedRunningTargetStopsBeforeQueueAndProviderUntilAcknowledged()
+    {
+        InMemoryHistory history = new();
+        RecordingExecutor executor = new();
+        ImmutableUpdateJob job = Job("Contoso.Widget", "1.1.0");
+        SequentialUpdateBatchCoordinator coordinator = new(executor, new ThrowingInventory(), history, new RunningDetector(true));
+
+        UpdateBatchResult result = await coordinator.RunAsync([Item(job)], CancellationToken.None);
+
+        Assert.IsNotNull(result.AcknowledgementRequired);
+        CollectionAssert.Contains(result.AcknowledgementRequired.ProcessNames.ToArray(), "fixture");
+        Assert.HasCount(0, executor.Jobs);
+        Assert.IsFalse(history.Entries.Any(entry => entry.Status is UpdateHistoryStatus.Queued or UpdateHistoryStatus.Running));
+        Assert.IsTrue(history.Entries.Any(entry => entry.Status == UpdateHistoryStatus.RunningApplicationWarning));
     }
 
     [TestMethod]
@@ -121,7 +138,7 @@ public sealed class SequentialUpdateBatchTests
         Assert.AreEqual(expectedStatus, result.FinalEntries.Single().Status);
     }
 
-    private static UpdateBatchItem Item(ImmutableUpdateJob job) => new(job, new UpdateJobExecutionEvidence(job.Selection, true, true));
+    private static UpdateBatchItem Item(ImmutableUpdateJob job, bool runningAcknowledged = false) => new(job, new UpdateJobExecutionEvidence(job.Selection, true, true), runningAcknowledged);
     private static ImmutableUpdateJob Job(string packageId, string candidate) => new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection($"winget:{packageId.ToLowerInvariant()}", UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0.0", candidate, UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(DateTimeOffset.UtcNow);
 
     private sealed class RecordingExecutor(Action? afterExecution = null) : IApprovedUpdateExecutor

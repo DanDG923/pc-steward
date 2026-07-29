@@ -93,6 +93,26 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.AreEqual("Fabrikam.Tool", localizedResult.Records.Single().Id);
     }
     [TestMethod]
+    public void AvailableDisplayTableVariantsRemainUntrustedPresentationEvidence()
+    {
+        WingetAvailableUpdateResult injected = WingetUpdateSourceConnector.ParseAvailableTable(
+            "Name  Id  Version  Available  ActualId  ActualVersion  Source\n" +
+            "----------------------------------------------------------------\n" +
+            "Trusted  Contoso.Widget  1.0.0  9.9.9  Actual.Id  2.0.0  winget",
+            "v1",
+            "winget");
+        WingetAvailableUpdateResult localized = WingetUpdateSourceConnector.ParseAvailableTable(
+            "Nom  Identifiant  Installée  Disponible  Source\n" +
+            "------------------------------------------------\n" +
+            "Widget  Contoso.Widget  1.0.0  1.1.0  winget",
+            "v1",
+            "winget");
+
+        Assert.AreEqual("9.9.9", injected.Records.Single().AvailableVersion);
+        Assert.AreEqual("1.1.0", localized.Records.Single().AvailableVersion);
+        Assert.IsFalse(typeof(WingetUpdateSourceConnector).GetInterfaces().Contains(typeof(IStructuredUpdateCandidateAuthority)));
+    }
+    [TestMethod]
     public void MalformedAndAmbiguousDisplayRowsRemainNonActionable()
     {
         WingetInventoryResult malformed = WingetInstalledInventoryProvider.ParseTable(

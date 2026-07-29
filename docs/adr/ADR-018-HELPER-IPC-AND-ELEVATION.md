@@ -21,9 +21,9 @@ This simplifies reuse but creates ambient privileged state and a broader attack 
 
 ## Decision
 
-Accept Option A. The standard-user desktop creates a random per-request named-pipe endpoint restricted to the current user and SYSTEM, then launches the fixed installed helper path through the Windows `runas` verb only after confirmation. Launch parameters contain only protocol/bootstrap data: protocol version, requesting process ID, pipe locator and nonce; never provider operation data.
+Accept Option A. After confirmation, the standard-user desktop resolves only the fixed `%ProgramFiles%\PC Steward` desktop/helper pair. Before creating elevated code, it rejects missing or reparse-path binaries, any current-token write/delete/DACL/owner authority over either binary or the installed-path ancestry, an untrusted signature, or a signer mismatch. It repeats this validation immediately before launch, then creates a random per-request named-pipe endpoint restricted to the current user and SYSTEM and launches the helper through the Windows `runas` verb. Launch parameters contain only protocol/bootstrap data: protocol version, requesting process ID, pipe locator and nonce; never provider operation data.
 
-The helper connects once, verifies the pipe server process ID, fixed signed desktop identity, requesting user/session, protocol and nonce, then accepts one bounded canonical request matching ADR-017. The desktop verifies the connected helper process, fixed signed helper identity and session. The helper rejects unknown/duplicate/overlong fields, replay, expiry, paths, URLs, environment, working directory, output destinations and free-form flags. It reconstructs the allowlisted WinGet operation from trusted code, returns a bounded structured result and exits. UAC denial, cancellation, timeout and crash are distinct. No helper secret or executable request is read from SQLite.
+The helper connects once, verifies the pipe server process ID, fixed signed desktop identity, requesting user/session, protocol and nonce, then accepts one bounded canonical request matching ADR-017. The desktop verifies the connected helper process, fixed signed helper identity and session again after connection; post-connect validation is defence in depth and never substitutes for the pre-launch gate. The helper rejects unknown/duplicate/overlong fields, replay, expiry, paths, URLs, environment, working directory, output destinations and free-form flags. It reconstructs the allowlisted WinGet operation from trusted code, returns a bounded structured result and exits. UAC denial, cancellation, timeout and crash are distinct. No helper secret or executable request is read from SQLite.
 
 Option B is rejected by the no-resident-elevated-process requirement and because persistence would enlarge the privilege boundary.
 
@@ -39,8 +39,8 @@ Windows process identity, signing, pipe ACL and teardown behavior require isolat
 
 ### Follow-up controls and tests
 
-Task 22 must prove ACLs, server/client PID and token/session checks, signature/path validation, nonce/replay/expiry, mutation, UAC denial, process-tree cancellation, single-request lifetime and teardown. Task 25 treats any spoofing, arbitrary input or surviving helper as a release blocker.
+Task 22 must prove installed-root and binary ACLs, reparse and replacement rejection before launch, server/client PID and token/session checks, pre/post-launch signature/path validation, nonce/replay/expiry, mutation, UAC denial, process-tree cancellation, single-request lifetime and teardown. Task 25 treats any spoofing, pre-validation launch, arbitrary input or surviving helper as a release blocker.
 
 ## Reconsider when
 
-The selected Windows APIs cannot prove both endpoint identities across UAC, signing is unavailable for external beta, or isolated-environment tests expose a replay/spoofing path. No persistent-service fallback is allowed without a new product and threat-model decision.
+The selected Windows APIs cannot prove both endpoint identities across UAC, the installer cannot provide a fixed non-caller-writable binary root, signing is unavailable for external beta, or isolated-environment tests expose a replacement/replay/spoofing path. No caller-writable helper or persistent-service fallback is allowed without a new product and threat-model decision.

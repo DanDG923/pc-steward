@@ -1,4 +1,5 @@
 ﻿using System.IO.Pipes;
+using System.Diagnostics;
 using System.Security.Principal;
 using System.Text;
 using PCSteward.Domain;
@@ -203,6 +204,88 @@ public sealed class ElevatedHelperSecurityTests
         Assert.IsFalse(parameters.Any(type => typeof(IDictionary<string, string>).IsAssignableFrom(type)));
         Assert.HasCount(1, typeof(ElevatedUpdateRunner).GetConstructors());
         CollectionAssert.AreEqual(Type.EmptyTypes, typeof(ElevatedUpdateRunner).GetConstructors().Single().GetParameters().Select(parameter => parameter.ParameterType).ToArray());
+    }
+
+    [TestMethod]
+    public void PreLaunchTrustRejectsUnsignedWrongSignerWritableReparseAndNonFixedLayouts()
+    {
+        HelperLaunchTrustEvidence trusted = new(true, true, true, true, true, true, true, true);
+        Assert.IsTrue(InstalledHelperLaunchTrust.Evaluate(trusted).Trusted);
+
+        Dictionary<string, HelperLaunchTrustEvidence> rejected = new()
+        {
+            ["elevated-helper-fixed-installed-path-invalid"] = trusted with { FixedInstalledLayout = false },
+            ["elevated-helper-installed-binary-missing"] = trusted with { HelperPresent = false },
+            ["elevated-helper-reparse-layout-rejected"] = trusted with { NoReparseComponents = false },
+            ["elevated-helper-caller-writable-layout-rejected"] = trusted with { CallerCannotModifyLayout = false },
+            ["elevated-helper-signature-untrusted"] = trusted with { HelperSignatureTrusted = false },
+            ["elevated-helper-signer-mismatch"] = trusted with { SameSigner = false }
+        };
+
+        foreach ((string expected, HelperLaunchTrustEvidence evidence) in rejected)
+        {
+            HelperLaunchTrustResult result = InstalledHelperLaunchTrust.Evaluate(evidence);
+            Assert.IsFalse(result.Trusted, expected);
+            Assert.AreEqual(expected, result.Rejection);
+        }
+    }
+
+    [TestMethod]
+    public async Task PreLaunchRejectionAndReplacementNeverInvokeRunasLauncher()
+    {
+        int launches = 0;
+        int validations = 0;
+        HelperLaunchPaths paths = new("C:\\Program Files\\PC Steward\\PCSteward.Desktop.exe", "C:\\Program Files\\PC Steward\\PCSteward.ElevatedHelper.exe");
+        Process? Launcher(string helperPath, string pipeName, string nonce, out ElevatedHelperResult? failure)
+        {
+            launches++;
+            failure = new ElevatedHelperResult(ElevatedHelperOutcome.Failed, null, "fixture-launch-should-not-run");
+            return null;
+        }
+
+        WindowsElevatedHelperTransport initiallyRejected = new(
+            () => paths,
+            _ => new(false, "elevated-helper-signature-untrusted"),
+            Launcher);
+        ElevatedHelperResult unsigned = await initiallyRejected.ExecuteAsync(ApprovedJob(UpdateScope.Machine), CancellationToken.None);
+
+        WindowsElevatedHelperTransport replacedBeforeLaunch = new(
+            () => paths,
+            _ => ++validations == 1
+                ? new(true, string.Empty)
+                : new(false, "elevated-helper-prelaunch-replacement-detected"),
+            Launcher);
+        ElevatedHelperResult replaced = await replacedBeforeLaunch.ExecuteAsync(ApprovedJob(UpdateScope.Machine), CancellationToken.None);
+
+        Assert.AreEqual(ElevatedHelperOutcome.Failed, unsigned.Outcome);
+        Assert.AreEqual("elevated-helper-signature-untrusted", unsigned.SanitizedOutput);
+        Assert.AreEqual(ElevatedHelperOutcome.Failed, replaced.Outcome);
+        Assert.AreEqual("elevated-helper-prelaunch-replacement-detected", replaced.SanitizedOutput);
+        Assert.AreEqual(2, validations);
+        Assert.AreEqual(0, launches);
+    }
+
+    [TestMethod]
+    public async Task CurrentCallerWritableUnsignedFixtureFailsTheProductionTrustChecks()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"pcsteward-helper-trust-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string desktop = Path.Combine(root, InstalledHelperLaunchTrust.DesktopExecutableName);
+        string helper = Path.Combine(root, InstalledHelperLaunchTrust.HelperExecutableName);
+        await File.WriteAllTextAsync(desktop, "unsigned desktop");
+        await File.WriteAllTextAsync(helper, "unsigned helper");
+        try
+        {
+            Assert.IsFalse(AuthenticodeIdentity.IsTrusted(desktop));
+            Assert.IsFalse(AuthenticodeIdentity.IsTrusted(helper));
+            Assert.IsFalse(ProtectedLaunchLayout.CallerCannotModify(root, desktop, helper));
+        }
+        finally
+        {
+            File.Delete(desktop);
+            File.Delete(helper);
+            Directory.Delete(root);
+        }
     }
 
     private static ImmutableUpdateJob ApprovedJob(UpdateScope scope) =>

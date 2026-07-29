@@ -65,6 +65,10 @@ The helper accepts one length-bounded canonical request, validates nonce and two
 
 Sixteen security fixtures and four architecture tests pass replay, substitution, stale evidence, malformed/overlong IPC, duplicate request, path injection, bootstrap authority injection, per-user privilege confusion, fixed machine arguments, result binding/sanitization and local ACL/PID behavior. Analyzer verification, the Release build and all 120 tests pass. No UAC prompt or real update was invoked. The current artifacts are unsigned and therefore deliberately fail peer-signature validation; signed UAC acceptance/denial, cross-integrity identity checks, disconnect cancellation and immediate teardown remain mandatory disposable-Windows-11-VM evidence for Tasks 25/30.
 
+## Task 90 P3R-15 evidence
+
+The desktop now fails before `runas` unless it is executing from the fixed `%ProgramFiles%\PC Steward` root beside the expected helper, neither file nor any root component is a reparse point, the current token cannot write/delete/change ownership or DACLs across the layout, both files have trusted Authenticode signatures, and their signer certificates match exactly. Trust is evaluated once before pipe/bootstrap setup and again immediately before the launch call; the connected-process identity/signature check remains. Negative fixtures cover missing/fixed-layout, writable, reparse, unsigned, wrong-signer and between-check replacement evidence and assert zero launcher calls. On this host the fixed root is absent and current Release binaries are unsigned and caller-writable, so production fails closed without UAC. Clean protected-root signing/UAC evidence remains mandatory for the fresh Task 25 review.
+
 ## Residual risks requiring evidence
 
 - The provisional constrained WinGet CLI route requires approved isolated-environment inventory/source and parser/process evidence: Tasks 10, 18, 21 and 25.
