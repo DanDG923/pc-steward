@@ -58,6 +58,7 @@ public sealed class MainWindow : Window
     {
         if (destination == "settings") { RenderSettings(); return; }
         if (destination == "scan") { RenderScanPage(); return; }
+        if (destination == "updates") { RenderUpdatesPage(); return; }
         if (destination is not "overview" and not "applications") { RenderPlaceholder(); return; }
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
@@ -205,6 +206,26 @@ public sealed class MainWindow : Window
         if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
         panel.Children.Add(actions);
         panel.Children.Add(new TextBlock { Text = "Source checks remain opt-in: enable a trusted source only after the disclosure shown on Overview. A scan never begins an update.", TextWrapping = TextWrapping.Wrap });
+        Content = BuildShell(panel);
+    }
+
+    private void RenderUpdatesPage()
+    {
+        StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 960 };
+        panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
+        panel.Children.Add(new TextBlock { Text = "Updates", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = viewModel.UpdateFreshnessLabel, TextWrapping = TextWrapping.Wrap });
+        foreach (InventoryRow row in viewModel.VisibleRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "FailedUnavailable"))
+        {
+            UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
+            string action = row.Status == "VerifiedUpdate" && detail is not null ? "Open evidence review from Applications before any update can start." : "No update action is available: evidence is review-only, stale, unavailable, or not an exact match.";
+            Button item = new() { Content = $"{row.Name} — {row.Status}", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            AutomationProperties.SetName(item, $"{row.Name}. {row.Status}. {action}");
+            item.Click += (_, _) => { destination = "applications"; Render(); };
+            panel.Children.Add(item);
+            panel.Children.Add(new TextBlock { Text = detail is null ? action : $"Source {detail.SourceId ?? "unknown"}; package {detail.PackageId ?? "unknown"}; installed {detail.InstalledVersion}; candidate {detail.CandidateVersion ?? "none"}; scope/architecture {detail.Architecture}; channel {detail.Channel ?? "unknown"}; confidence {detail.Confidence}. {detail.Freshness} {action}", TextWrapping = TextWrapping.Wrap });
+        }
+        if (!panel.Children.OfType<Button>().Any()) panel.Children.Add(new TextBlock { Text = "No update evidence needs review. Local-only, stale, unavailable, and low-confidence evidence never creates an install action.", TextWrapping = TextWrapping.Wrap });
         Content = BuildShell(panel);
     }
 

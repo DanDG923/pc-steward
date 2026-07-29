@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** 26B complete — Task 26C applications, findings and update review experience is next
-**Last green tree:** Task 26B committed state — Release build 0 warnings/errors; full suite 188 passed
+**Current task:** 26C complete — Task 26A factory-reset evidence readiness is next
+**Last green tree:** Task 26C committed state — Release build 0 warnings/errors; full suite 188 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Start Task 26C: applications, findings and update review experience. Then complete Task 26A before the factory-reset design gate. No live Task Scheduler registration was created because no explicit approval for a harmless test schedule was supplied; visual appearance remains best-effort evidence only, not accessibility acceptance.
+Start Task 26A: prepare factory-reset evidence readiness before the design gate. No live Task Scheduler registration was created because no explicit approval for a harmless test schedule was supplied; visual appearance remains best-effort evidence only, not accessibility acceptance.
 
 ## Rules for updating this file
 
