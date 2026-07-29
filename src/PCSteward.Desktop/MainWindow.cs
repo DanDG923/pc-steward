@@ -59,6 +59,7 @@ public sealed class MainWindow : Window
         if (destination == "settings") { RenderSettings(); return; }
         if (destination == "scan") { RenderScanPage(); return; }
         if (destination == "updates") { RenderUpdatesPage(); return; }
+        if (destination == "current") { RenderCurrentPage(); return; }
         if (destination == "results") { RenderResultsPage(); return; }
         if (destination == "review") { RenderReviewPage(); return; }
         if (destination == "overview") { RenderOverviewPage(); return; }
@@ -136,8 +137,11 @@ public sealed class MainWindow : Window
         }
         panel.Children.Add(metrics);
         panel.Children.Add(new TextBlock { Text = "What is worth reviewing", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(PageCopy("Open Applications to inspect the installed inventory, or Updates to inspect only the evidence that could lead to a separate confirmation."));
-        Button applications = new() { Content = "Open applications" }; AutomationProperties.SetName(applications, "Open applications inventory"); applications.Click += (_, _) => { destination = "applications"; Render(); }; panel.Children.Add(applications);
+        panel.Children.Add(PageCopy("Open Applications to inspect the installed inventory, Up to date for repository-confirmed current apps, or Updates to inspect evidence that could lead to a separate confirmation."));
+        StackPanel records = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        Button applications = new() { Content = "Open applications" }; AutomationProperties.SetName(applications, "Open applications inventory"); applications.Click += (_, _) => { destination = "applications"; Render(); }; records.Children.Add(applications);
+        Button currentApps = new() { Content = "View up-to-date applications" }; AutomationProperties.SetName(currentApps, "View up-to-date applications"); currentApps.Click += (_, _) => { destination = "current"; Render(); }; records.Children.Add(currentApps);
+        panel.Children.Add(records);
         Content = BuildShell(panel);
     }
 
@@ -172,6 +176,61 @@ public sealed class MainWindow : Window
         panel.Children.Add(matching);
         panel.Children.Add(new TextBlock { Text = "Application    Version    Status    Scope · source", Style = AppStyle("StewardCaptionStyle") });
         panel.Children.Add(list);
+        Content = BuildShell(panel);
+    }
+
+    private void RenderCurrentPage()
+    {
+        StackPanel panel = CreatePagePanel(960);
+        IReadOnlyList<InventoryRow> currentRows = viewModel.CurrentRepositoryRows;
+        panel.Children.Add(new TextBlock { Text = "Up to date", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("These installed applications have an exact version match from an enabled repository. Cached evidence is shown as cached and may be stale; local-only inventory is excluded."));
+        panel.Children.Add(PageCopy($"Repository evidence: {viewModel.UpdateFreshnessLabel}"));
+
+        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        Button refresh = new()
+        {
+            Content = viewModel.IsCheckingUpdates ? "Checking connected repositories" : "Refresh connected repositories",
+            IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates && !viewModel.IsScanning && !isExecuting
+        };
+        AutomationProperties.SetName(refresh, "Refresh connected repositories");
+        refresh.Click += async (_, _) => await CheckUpdateSourcesAsync();
+        actions.Children.Add(refresh);
+        if (!viewModel.IsUpdateSourceEnabled)
+        {
+            Button settings = new() { Content = "Open source settings" };
+            AutomationProperties.SetName(settings, "Open source settings");
+            settings.Click += (_, _) => { destination = "settings"; Render(); };
+            actions.Children.Add(settings);
+        }
+        panel.Children.Add(actions);
+
+        if (currentRows.Count == 0)
+        {
+            string empty = viewModel.IsUpdateSourceEnabled
+                ? "No installed application currently has matching repository evidence. Refresh the connected repositories to update this view; no update or download will start."
+                : "No repository is enabled, so installed applications cannot be confirmed up to date. Enable WinGet trusted sources after its disclosure, then refresh when you choose.";
+            panel.Children.Add(PageCopy(empty));
+        }
+        else
+        {
+            panel.Children.Add(PageCopy($"{currentRows.Count:N0} installed application{(currentRows.Count == 1 ? string.Empty : "s")} confirmed current by repository evidence."));
+            foreach (InventoryRow row in currentRows)
+            {
+                UpdateDetail detail = viewModel.UpdateDetails[row.StableProductKey];
+                StackPanel current = new() { Spacing = 5 };
+                current.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
+                current.Children.Add(PageCopy(row.Publisher));
+                current.Children.Add(PageCopy($"Installed version: {row.Version}"));
+                current.Children.Add(PageCopy($"Repository: {detail.SourceId} · Package ID: {detail.PackageId}"));
+                current.Children.Add(PageCopy(detail.Freshness));
+                Button evidence = new() { Content = "Open evidence" };
+                AutomationProperties.SetName(evidence, $"Open current evidence for {row.Name}");
+                evidence.Click += async (_, _) => await ShowDetailsAsync(row);
+                current.Children.Add(evidence);
+                panel.Children.Add(Card(current));
+            }
+        }
         Content = BuildShell(panel);
     }
 
@@ -328,6 +387,7 @@ public sealed class MainWindow : Window
         AddNavigationItem(navigation, "Review actions", "review", "\uE8C8");
         AddNavigationItem(navigation, "Applications", "applications", "\uE71D");
         AddNavigationItem(navigation, "Updates", "updates", "\uE896");
+        AddNavigationItem(navigation, "Up to date", "current", "\uE73E");
         AddNavigationItem(navigation, "Storage", "storage", "\uE7F1");
         navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Records" });
         AddNavigationItem(navigation, "Activity", "activity", "\uE823");

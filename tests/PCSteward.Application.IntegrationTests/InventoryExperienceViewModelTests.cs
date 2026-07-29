@@ -116,6 +116,29 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void CurrentRepositoryRowsRequireExactCurrentStatusAndRepositoryPackageEvidence()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        viewModel.SetConnectorEnabled("WinGet package sources", true);
+        Guid currentId = Guid.NewGuid(); Guid installedOnlyId = Guid.NewGuid();
+        viewModel.LoadInventory(
+            [new CanonicalProduct(currentId, "product:current", "Current Tool"), new CanonicalProduct(installedOnlyId, "product:installed", "Installed Only")],
+            [new InstallationInstance(Guid.NewGuid(), currentId, "registry", "current-tool", "2.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), installedOnlyId, "registry", "installed-only", "1.0", "Machine", "x64", "Contoso")]);
+        PackageMapping mapping = new("winget", "Contoso.CurrentTool", "2.0", MappingConfidence.High, MappingOrigin.Automatic, "Exact version match.", false, [], new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted));
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary(
+            [new UpdateIntelligenceItem("product:current", UpdateIntelligenceStatus.Current, mapping, "Exact version match.", "winget", DateTimeOffset.UnixEpoch)],
+            Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => status == UpdateIntelligenceStatus.Current ? 1 : 0),
+            [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"])]));
+
+        Assert.HasCount(1, viewModel.CurrentRepositoryRows);
+        Assert.AreEqual("Current Tool", viewModel.CurrentRepositoryRows.Single().Name);
+        Assert.AreEqual("winget", viewModel.UpdateDetails["product:current"].SourceId);
+        StringAssert.Contains(viewModel.UpdateDetails["product:current"].Freshness, "cached", StringComparison.OrdinalIgnoreCase);
+        viewModel.SetConnectorEnabled("WinGet package sources", false);
+        Assert.HasCount(0, viewModel.CurrentRepositoryRows);
+    }
+
+    [TestMethod]
     public void UpdateDetailsExposeSafetyEvidenceAndOnlyOfferReviewedExecution()
     {
         InventoryExperienceViewModel viewModel = new(); Guid id = Guid.NewGuid(); viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "registry", "widget", "1.0", "Machine", "x64", "Contoso", Channel: "Stable")]);

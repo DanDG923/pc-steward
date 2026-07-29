@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29B complete — supported native-prototype parity and unified WinGet source consent
-**Last green tree:** Task 29B working tree — Release build 0 warnings/errors; full suite 192 passed
+**Current task:** Task 29C complete — repository-current application evidence view
+**Last green tree:** Task 29C working tree — Release build 0 warnings/errors; full suite 193 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29B is complete: all supported native-prototype navigation and evidence layouts are present, while the prototype-only state selector and future Startup concept are intentionally excluded. The two internal WinGet connectors now use one disclosure-gated setting and retain their existing authority boundaries. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
+Task 29C is complete: Up to date lists only installed applications whose exact version is supported by named live or cached trusted-repository evidence, including the package ID and freshness warning. It offers an on-demand source refresh without starting an update. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
 
 ## Rules for updating this file
 

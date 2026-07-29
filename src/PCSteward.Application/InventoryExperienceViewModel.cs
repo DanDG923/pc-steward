@@ -43,6 +43,14 @@ public sealed class InventoryExperienceViewModel
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
     public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
     public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
+    /// <summary>Installed products whose versions exactly match a live or cached trusted repository record.</summary>
+    public IReadOnlyList<InventoryRow> CurrentRepositoryRows => !IsUpdateSourceEnabled ? [] : allRows
+        .Where(row => row.Status == nameof(UpdateIntelligenceStatus.Current)
+            && UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail)
+            && !string.IsNullOrWhiteSpace(detail.SourceId)
+            && !string.IsNullOrWhiteSpace(detail.PackageId))
+        .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
     public string UpdateFreshnessLabel { get; private set; } = "Local-only — no enabled update source has been checked.";
     public IReadOnlyCollection<string> SourceFreshnessLabels { get; private set; } = [];
     public bool IsCheckingUpdates { get; private set; }
