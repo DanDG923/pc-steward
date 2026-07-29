@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29F — WinGet inventory scan follow-up; offline verification complete, recorded-host recheck pending
-**Last green tree:** Task 29F working tree — Release build 0 warnings/errors; full suite 197 passed
+**Current task:** Task 29F — WinGet inventory scan follow-up; package-catalog resolver rebuilt, recorded-host recheck pending
+**Last green tree:** Task 29F working tree — Release build 0 warnings/errors; full suite 198 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29F follows a recorded-host WinGet inventory failure. The provider now classifies a launch/read failure without exposing exception text, isolates any invalid installed row, and preserves every valid result instead of failing the scan wholesale. The read-only source-warning table parser and AppX hardening from Task 29E remain in place. Release build passed with 0 warnings/errors and the full offline suite passed 197 tests. A user-run scan of the rebuilt Release desktop is still required to confirm host-specific inventory evidence; its enabled-source disclosure remains in force. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30 packaging/release evidence remains gated by its required model or reasoning setting and must not begin yet.
+Task 29F follows a recorded-host WinGet inventory failure. The first resilient run identified the cause: a normal user cannot enumerate protected `%ProgramFiles%\\WindowsApps`, so the old resolver could not reach App Installer. It now obtains only the registered `Microsoft.DesktopAppInstaller` package with the expected Microsoft publisher identity from the Windows package catalog, then still enforces the fixed WindowsApps root, no reparse points, and Microsoft Authenticode trust before launch. The provider also classifies a launch/read failure without exposing exception text, isolates any invalid installed row, and preserves every valid result instead of failing the scan wholesale. The read-only source-warning table parser and AppX hardening from Task 29E remain in place. Release build passed with 0 warnings/errors and the full offline suite passed 198 tests. A user-run scan of the rebuilt Release desktop is still required to confirm host-specific inventory evidence; its enabled-source disclosure remains in force. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30 packaging/release evidence remains gated by its required model or reasoning setting and must not begin yet.
 
 ## Rules for updating this file
 

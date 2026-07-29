@@ -68,6 +68,17 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void WinGetResolverUsesThePackageCatalogInsteadOfEnumeratingProtectedWindowsApps()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Provider.WinGet", "WingetInstalledInventoryProvider.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "new PackageManager().FindPackagesForUser(string.Empty)");
+        StringAssert.Contains(source, "package.Id.PublisherId, \"8wekyb3d8bbwe\"");
+        Assert.IsFalse(source.Contains("Directory.EnumerateDirectories(root", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void DesktopVisualFoundationProvidesSemanticResourcesForEverySupportedTheme()
     {
         string desktopDirectory = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop");

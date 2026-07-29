@@ -8,6 +8,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using PCSteward.Application;
 using PCSteward.Domain;
+using Windows.ApplicationModel;
+using Windows.Management.Deployment;
 
 namespace PCSteward.Provider.WinGet;
 
@@ -460,7 +462,7 @@ internal sealed class WindowsWingetProcess : IWingetProcess
     }
 }
 
-/// <summary>Resolves only the Microsoft-signed App Installer binary from the machine WindowsApps root.
+/// <summary>Resolves only the Microsoft-signed App Installer binary registered by the current user's Windows package catalog.
 /// Current-user aliases, PATH lookup, reparse points, unsigned binaries and unexpected signers are denied.</summary>
 internal static class MachineTrustedWinget
 {
@@ -472,10 +474,22 @@ internal static class MachineTrustedWinget
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolderOption.DoNotVerify);
         if (string.IsNullOrWhiteSpace(programFiles) || !Path.IsPathFullyQualified(programFiles)) throw new IOException("The machine Program Files root is unavailable.");
         string root = Path.GetFullPath(Path.Combine(programFiles, "WindowsApps"));
-        RejectReparse(root);
         string[] candidates;
-        try { candidates = Directory.EnumerateDirectories(root, "Microsoft.DesktopAppInstaller_*", SearchOption.TopDirectoryOnly).Select(directory => Path.Combine(directory, "winget.exe")).Where(File.Exists).OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase).ToArray(); }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { throw new IOException("The machine App Installer package cannot be enumerated.", exception); }
+        try
+        {
+            candidates = new PackageManager().FindPackagesForUser(string.Empty)
+                .Where(IsDesktopAppInstaller)
+                .Select(package => package.InstalledLocation?.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => Path.Combine(path!, "winget.exe"))
+                .Where(File.Exists)
+                .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            throw new IOException("The App Installer package catalog is unavailable.", exception);
+        }
         foreach (string candidate in candidates)
         {
             try
@@ -490,6 +504,12 @@ internal static class MachineTrustedWinget
         }
         throw new IOException("No machine-trusted Microsoft App Installer WinGet executable is available.");
     }
+
+    private static bool IsDesktopAppInstaller(Package package) =>
+        string.Equals(package.Id.Name, "Microsoft.DesktopAppInstaller", StringComparison.Ordinal) &&
+        string.Equals(package.Id.PublisherId, "8wekyb3d8bbwe", StringComparison.OrdinalIgnoreCase) &&
+        !package.IsFramework &&
+        !package.IsResourcePackage;
 
     internal static bool IsMicrosoftTrusted(string path)
     {
