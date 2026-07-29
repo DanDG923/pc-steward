@@ -44,7 +44,7 @@ Task 26 adds scan-only scheduling/notifications. Task 26A assembles evidence bef
 | OD-10 path export | Accepted ADR-010/016; verify Tasks 14/30 |
 | OD-11 cache defaults | Provisional ADR-011; verify Tasks 24/29 |
 | OD-12 scheduled priority | Accepted ADR-012/020; verify Task 26 |
-| OD-13 reset mechanism | Provisional next-launch ADR-013; verify Tasks 27/28 |
+| OD-13 reset mechanism | Accepted next-launch ADR-013 and Task 27 design; implement/verify Task 28 |
 
 ## Cross-cutting definition of done
 

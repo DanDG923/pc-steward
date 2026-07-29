@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** 26A complete — Task 27 factory-reset design gate is next
-**Last green tree:** Task 26C committed state — Release build 0 warnings/errors; full suite 188 passed
+**Current task:** Task 27 complete — Task 28 factory reset and advanced data controls is next
+**Last green tree:** Task 27 committed state — Release build 0 warnings/errors; full suite 188 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -25,7 +25,7 @@
 | Diagnostic path redaction | Accepted | ADR-010 / OD-10 |
 | Download-cache quota/retention | Provisional | ADR-011 / OD-11 |
 | Scheduled process priority | Accepted | ADR-012 / OD-12 |
-| Factory-reset mechanism | Provisional | ADR-013 / OD-13 |
+| Factory-reset mechanism | Accepted | ADR-013 / OD-13 |
 | Solution/component boundaries | Accepted | ADR-014 |
 | SQLite ownership/migrations | Accepted | ADR-015 |
 | Structured logging/redaction | Accepted | ADR-016 |
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Start Task 27: factory-reset design gate (GPT-5.6 Sol / High). No live Task Scheduler registration was created because no explicit approval for a harmless test schedule was supplied; visual appearance remains best-effort evidence only, not accessibility acceptance.
+Start Task 28: factory reset and advanced data controls (GPT-5.6 Terra / High). Task 27 accepted the fixed next-launch marker/no-helper design and exact reset manifest; implementation and hostile reset-manifest evidence remain required. No live Task Scheduler registration was created because no explicit approval for a harmless test schedule was supplied; visual appearance remains best-effort evidence only, not accessibility acceptance.
 
 ## Rules for updating this file
 

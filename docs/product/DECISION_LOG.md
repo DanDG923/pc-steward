@@ -16,10 +16,10 @@ Use this file for product decisions that do not require a full architecture deci
 |---|---|---|---|---|
 | Q-001 | What exact packaging model best supports WinGet integration, on-demand elevation and reliable factory reset? | Signed unpackaged app plus traditional per-user installer. | Task 30 | Resolved provisionally — ADR-002 |
 | Q-002 | Are the 2 GB download-cache soft quota and retention defaults appropriate after testing real installer sizes? | 2 GB, seven days after verified success and 24 hours for failed/incomplete files. | Tasks 24/29 | Resolved provisionally — ADR-011 |
-| Q-003 | Which reset mechanism most reliably verifies full cleanup without adding privileged or arbitrary-path capability? | Verified next-launch cleanup marker; no reset helper. | Tasks 27/28 | Resolved provisionally — ADR-013 |
+| Q-003 | Which reset mechanism most reliably verifies full cleanup without adding privileged or arbitrary-path capability? | Verified next-launch cleanup marker; no reset helper. | Tasks 27/28 | Resolved — Accepted ADR-013; Task 28 implementation evidence remains |
 
 ## Phase 0 ADR lock
 
-Accepted: ADR-001, ADR-004–010, ADR-012 and ADR-014–020.
-Provisional with explicit reconsideration gates: ADR-002, ADR-003, ADR-011 and ADR-013.
+Accepted: ADR-001, ADR-004–010, ADR-012–020.
+Provisional with explicit reconsideration gates: ADR-002, ADR-003 and ADR-011.
 No ADR remains Proposed.
