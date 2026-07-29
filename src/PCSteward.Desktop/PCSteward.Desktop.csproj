@@ -4,6 +4,7 @@
     <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
+    <ApplicationIcon>..\..\design\assets\ico\pc-steward.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
@@ -16,6 +17,10 @@
     <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
     <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <ProjectReference Include="../PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\design\assets\ico\pc-steward.ico" Link="Assets\pc-steward.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\design\assets\png\logo-mark-64.png" Link="Assets\logo-mark-64.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CopyElevatedHelperRuntime" AfterTargets="Build">
     <ItemGroup>

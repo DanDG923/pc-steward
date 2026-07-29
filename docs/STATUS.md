@@ -1,13 +1,13 @@
 # PC Steward build status
 
-**Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 25 — Phase 3 independent security review complete
-**Last green tree:** reviewed implementation commit `5013c942ae2fa0dc62c9bf71258bcbffedd03347` — focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile 42/1 skip, WinGet boundary 11, installed-helper host evidence 6/6
-**Current branch:** `phase/3-execution`
+**Current phase:** Phase 4 — approved visual foundation integration
+**Current task:** Design visual foundation complete — supporting Task 26
+**Last green tree:** uncommitted visual-foundation working tree on `main` — Release build 0 warnings/errors; full suite 183 passed
+**Current branch:** `main`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** PASS — Phase 3 is merge-ready; do not begin Task 26 before the branch is merged
+**Phase gate:** PASS — Phase 3 is merged through `b473792`; visual foundation may proceed, while Task 26 scheduling remains separately scoped
 
 ## Decisions
 
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Merge Phase 3 only through a separately authorized repository action. Begin Task 26 only after that merge; this review did not merge, push or start Phase 4 work.
+Commit the verified visual foundation as the approved native UI prerequisite when authorised. Task 26 remains scheduled checks and notifications; do not treat visual appearance alone as acceptance evidence for any accessibility or product requirement.
 
 ## Rules for updating this file
 

@@ -1,0 +1,330 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "name": "PC Steward Quiet Authority",
+    "version": "1.0.0",
+    "platform": "Windows 11 / WinUI 3",
+    "baseGridPx": 4,
+    "defaultTheme": "light",
+    "notes": "Semantic tokens are authoritative. Component code must not depend directly on palette values."
+  },
+  "global": {
+    "font": {
+      "family": {
+        "sans": "Segoe UI Variable Text, Segoe UI, sans-serif",
+        "display": "Segoe UI Variable Display, Segoe UI, sans-serif",
+        "mono": "Cascadia Mono, Consolas, monospace"
+      },
+      "weight": {
+        "regular": 400,
+        "semibold": 600,
+        "bold": 700
+      },
+      "sizePx": {
+        "caption": 12,
+        "bodySmall": 13,
+        "body": 14,
+        "bodyLarge": 16,
+        "subtitle": 18,
+        "title": 24,
+        "display": 32
+      },
+      "lineHeight": {
+        "caption": 1.35,
+        "body": 1.45,
+        "heading": 1.2
+      }
+    },
+    "spacePx": {
+      "0": 0,
+      "1": 4,
+      "2": 8,
+      "3": 12,
+      "4": 16,
+      "5": 20,
+      "6": 24,
+      "8": 32,
+      "10": 40,
+      "12": 48,
+      "16": 64
+    },
+    "sizePx": {
+      "controlCompact": 32,
+      "control": 40,
+      "controlLarge": 48,
+      "iconSmall": 16,
+      "icon": 20,
+      "iconLarge": 24,
+      "navExpanded": 232,
+      "navCollapsed": 56,
+      "contentMax": 1440,
+      "dialogSmall": 440,
+      "dialog": 560,
+      "dialogLarge": 720
+    },
+    "radiusPx": {
+      "small": 4,
+      "control": 8,
+      "card": 12,
+      "panel": 16,
+      "pill": 999
+    },
+    "borderPx": {
+      "hairline": 1,
+      "emphasis": 2,
+      "focus": 2
+    },
+    "motionMs": {
+      "instant": 0,
+      "fast": 120,
+      "standard": 180,
+      "deliberate": 240,
+      "progressLoop": 1400
+    },
+    "easing": {
+      "standard": "cubic-bezier(0.2, 0, 0, 1)",
+      "exit": "cubic-bezier(0.4, 0, 1, 1)"
+    }
+  },
+  "palette": {
+    "blue": {
+      "50": "#EDF4FF",
+      "100": "#D9E7FF",
+      "200": "#B9D2FF",
+      "300": "#8FB7FF",
+      "400": "#6496F5",
+      "500": "#3478E5",
+      "600": "#1F62D1",
+      "700": "#174EA6",
+      "800": "#173F7D",
+      "900": "#17355F"
+    },
+    "slate": {
+      "0": "#FFFFFF",
+      "25": "#FBFCFE",
+      "50": "#F5F7FA",
+      "100": "#EDF1F6",
+      "200": "#DCE2EA",
+      "300": "#C4CCD8",
+      "400": "#97A3B6",
+      "500": "#6B788D",
+      "600": "#526077",
+      "700": "#3C485C",
+      "800": "#273244",
+      "900": "#172033",
+      "950": "#0E1522"
+    },
+    "green": {
+      "50": "#EAF7F0",
+      "200": "#A9E1C2",
+      "500": "#2A8B5C",
+      "700": "#17663F",
+      "900": "#0E4128"
+    },
+    "amber": {
+      "50": "#FFF6DD",
+      "200": "#F8D987",
+      "500": "#B87800",
+      "700": "#7A5000",
+      "900": "#4D3300"
+    },
+    "red": {
+      "50": "#FDEDEC",
+      "200": "#F5B5B0",
+      "500": "#C63C31",
+      "700": "#9C261D",
+      "900": "#631A15"
+    },
+    "cyan": {
+      "50": "#E8F7FA",
+      "200": "#9CDCE6",
+      "500": "#16859A",
+      "700": "#0E6575",
+      "900": "#08424D"
+    }
+  },
+  "themes": {
+    "light": {
+      "color": {
+        "canvas": "#F3F6FA",
+        "canvasAlt": "#EAF0F6",
+        "surface": "#FFFFFF",
+        "surfaceSubtle": "#F7F9FC",
+        "surfaceStrong": "#EDF1F6",
+        "surfaceScrim": "#17203399",
+        "border": "#D7DEE8",
+        "borderStrong": "#8994A6",
+        "textPrimary": "#172033",
+        "textSecondary": "#526077",
+        "textTertiary": "#6B788D",
+        "textDisabled": "#8994A6",
+        "textInverse": "#FFFFFF",
+        "brand": "#1F62D1",
+        "brandHover": "#174EA6",
+        "brandPressed": "#173F7D",
+        "brandSubtle": "#EDF4FF",
+        "brandText": "#174EA6",
+        "focus": "#1F62D1",
+        "selection": "#D9E7FF",
+        "info": "#1F62D1",
+        "infoSurface": "#EDF4FF",
+        "success": "#17663F",
+        "successSurface": "#EAF7F0",
+        "warning": "#7A5000",
+        "warningSurface": "#FFF6DD",
+        "danger": "#9C261D",
+        "dangerHover": "#7D1D17",
+        "dangerSurface": "#FDEDEC",
+        "neutralStatus": "#526077",
+        "neutralStatusSurface": "#EDF1F6",
+        "chart1": "#1F62D1",
+        "chart2": "#16859A",
+        "chart3": "#2A8B5C",
+        "chart4": "#B87800",
+        "chart5": "#7A6FD0",
+        "shadow": "#17203324"
+      },
+      "elevation": {
+        "card": "0 1px 2px #17203312",
+        "flyout": "0 8px 28px #17203324",
+        "dialog": "0 20px 60px #17203338"
+      }
+    },
+    "dark": {
+      "color": {
+        "canvas": "#0E1522",
+        "canvasAlt": "#111A28",
+        "surface": "#171F2D",
+        "surfaceSubtle": "#1D2736",
+        "surfaceStrong": "#263244",
+        "surfaceScrim": "#000000B3",
+        "border": "#364357",
+        "borderStrong": "#68778F",
+        "textPrimary": "#F2F5F9",
+        "textSecondary": "#BBC5D4",
+        "textTertiary": "#98A6BA",
+        "textDisabled": "#778398",
+        "textInverse": "#0E1522",
+        "brand": "#8FB7FF",
+        "brandHover": "#B9D2FF",
+        "brandPressed": "#D9E7FF",
+        "brandSubtle": "#17355F",
+        "brandText": "#B9D2FF",
+        "focus": "#8FB7FF",
+        "selection": "#173F7D",
+        "info": "#8FB7FF",
+        "infoSurface": "#17355F",
+        "success": "#7AD6A3",
+        "successSurface": "#123C29",
+        "warning": "#F0C86A",
+        "warningSurface": "#443300",
+        "danger": "#FF9A91",
+        "dangerHover": "#F5B5B0",
+        "dangerSurface": "#4A1E1B",
+        "neutralStatus": "#BBC5D4",
+        "neutralStatusSurface": "#263244",
+        "chart1": "#8FB7FF",
+        "chart2": "#72CEDD",
+        "chart3": "#7AD6A3",
+        "chart4": "#F0C86A",
+        "chart5": "#B6ABFF",
+        "shadow": "#00000066"
+      },
+      "elevation": {
+        "card": "0 1px 2px #00000033",
+        "flyout": "0 8px 28px #00000066",
+        "dialog": "0 20px 60px #00000080"
+      }
+    },
+    "highContrast": {
+      "color": {
+        "canvas": "Canvas",
+        "surface": "Canvas",
+        "border": "CanvasText",
+        "textPrimary": "CanvasText",
+        "textSecondary": "CanvasText",
+        "brand": "Highlight",
+        "brandText": "HighlightText",
+        "focus": "Highlight",
+        "danger": "CanvasText"
+      },
+      "rules": [
+        "Remove shadows and translucent fills.",
+        "Use a 2px system-colour border on cards, controls, status chips and dialogs.",
+        "Preserve icon plus text status; never depend on filled background colour.",
+        "Use system Highlight and HighlightText for selection and primary action."
+      ]
+    }
+  },
+  "semantic": {
+    "severity": {
+      "information": {
+        "foregroundToken": "color.neutralStatus",
+        "surfaceToken": "color.neutralStatusSurface",
+        "icon": "info"
+      },
+      "opportunity": {
+        "foregroundToken": "color.info",
+        "surfaceToken": "color.infoSurface",
+        "icon": "spark"
+      },
+      "attention": {
+        "foregroundToken": "color.warning",
+        "surfaceToken": "color.warningSurface",
+        "icon": "attention"
+      },
+      "blocked": {
+        "foregroundToken": "color.danger",
+        "surfaceToken": "color.dangerSurface",
+        "icon": "blocked"
+      }
+    },
+    "confidence": {
+      "verified": {
+        "foregroundToken": "color.brandText",
+        "surfaceToken": "color.brandSubtle",
+        "label": "Verified match"
+      },
+      "high": {
+        "foregroundToken": "color.success",
+        "surfaceToken": "color.successSurface",
+        "label": "High confidence"
+      },
+      "review": {
+        "foregroundToken": "color.warning",
+        "surfaceToken": "color.warningSurface",
+        "label": "Review required"
+      },
+      "low": {
+        "foregroundToken": "color.neutralStatus",
+        "surfaceToken": "color.neutralStatusSurface",
+        "label": "Low confidence — no action"
+      }
+    }
+  },
+  "component": {
+    "button": {
+      "heightPx": 40,
+      "horizontalPaddingPx": 16,
+      "gapPx": 8,
+      "radiusToken": "radius.control",
+      "minimumTargetPx": 32
+    },
+    "card": {
+      "paddingPx": 20,
+      "gapPx": 16,
+      "radiusToken": "radius.card",
+      "borderToken": "color.border"
+    },
+    "tableRow": {
+      "minimumHeightPx": 52,
+      "denseHeightPx": 44,
+      "horizontalPaddingPx": 16
+    },
+    "dialog": {
+      "paddingPx": 24,
+      "radiusToken": "radius.panel",
+      "defaultWidthPx": 560
+    }
+  }
+}

@@ -1,0 +1,111 @@
+<Application
+    x:Class="PCSteward.NativePrototype.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="StewardPageBrush" Color="#F4F7FB" />
+                    <SolidColorBrush x:Key="StewardCardBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="StewardSubtleBrush" Color="#EDF4FF" />
+                    <SolidColorBrush x:Key="StewardTextBrush" Color="#172033" />
+                    <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="#526077" />
+                    <SolidColorBrush x:Key="StewardBorderBrush" Color="#8994A6" />
+                    <SolidColorBrush x:Key="StewardBrandBrush" Color="#1F62D1" />
+                    <SolidColorBrush x:Key="StewardBrandTextBrush" Color="#174EA6" />
+                    <SolidColorBrush x:Key="StewardSuccessBrush" Color="#17663F" />
+                    <SolidColorBrush x:Key="StewardSuccessSurfaceBrush" Color="#EAF7F0" />
+                    <SolidColorBrush x:Key="StewardWarningBrush" Color="#7A5000" />
+                    <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="#FFF6DD" />
+                    <SolidColorBrush x:Key="StewardDangerBrush" Color="#9C261D" />
+                    <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#FDEDEC" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="StewardPageBrush" Color="#F4F7FB" />
+                    <SolidColorBrush x:Key="StewardCardBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="StewardSubtleBrush" Color="#EDF4FF" />
+                    <SolidColorBrush x:Key="StewardTextBrush" Color="#172033" />
+                    <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="#526077" />
+                    <SolidColorBrush x:Key="StewardBorderBrush" Color="#8994A6" />
+                    <SolidColorBrush x:Key="StewardBrandBrush" Color="#1F62D1" />
+                    <SolidColorBrush x:Key="StewardBrandTextBrush" Color="#174EA6" />
+                    <SolidColorBrush x:Key="StewardSuccessBrush" Color="#17663F" />
+                    <SolidColorBrush x:Key="StewardSuccessSurfaceBrush" Color="#EAF7F0" />
+                    <SolidColorBrush x:Key="StewardWarningBrush" Color="#7A5000" />
+                    <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="#FFF6DD" />
+                    <SolidColorBrush x:Key="StewardDangerBrush" Color="#9C261D" />
+                    <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#FDEDEC" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="StewardPageBrush" Color="#0E1522" />
+                    <SolidColorBrush x:Key="StewardCardBrush" Color="#171F2D" />
+                    <SolidColorBrush x:Key="StewardSubtleBrush" Color="#172B4D" />
+                    <SolidColorBrush x:Key="StewardTextBrush" Color="#F2F5F9" />
+                    <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="#BBC5D4" />
+                    <SolidColorBrush x:Key="StewardBorderBrush" Color="#68778F" />
+                    <SolidColorBrush x:Key="StewardBrandBrush" Color="#8FB7FF" />
+                    <SolidColorBrush x:Key="StewardBrandTextBrush" Color="#B9D2FF" />
+                    <SolidColorBrush x:Key="StewardSuccessBrush" Color="#7AD6A3" />
+                    <SolidColorBrush x:Key="StewardSuccessSurfaceBrush" Color="#123C29" />
+                    <SolidColorBrush x:Key="StewardWarningBrush" Color="#F0C86A" />
+                    <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="#443300" />
+                    <SolidColorBrush x:Key="StewardDangerBrush" Color="#FF9A91" />
+                    <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#4A1E1B" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="StewardPageBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="StewardCardBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="StewardSubtleBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="StewardTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardBrandBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="StewardBrandTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardSuccessBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardSuccessSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="StewardWarningBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="StewardDangerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <Style x:Key="StewardPageTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+                <Setter Property="FontSize" Value="32" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{ThemeResource StewardTextBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="StewardSectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+                <Setter Property="FontSize" Value="21" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{ThemeResource StewardTextBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="StewardBodyStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="Foreground" Value="{ThemeResource StewardSecondaryTextBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="LineHeight" Value="21" />
+            </Style>
+            <Style x:Key="StewardCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource StewardCardBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource StewardBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Padding" Value="20" />
+            </Style>
+            <Style x:Key="StewardButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="38" />
+                <Setter Property="Padding" Value="16,8" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

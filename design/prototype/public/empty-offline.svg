@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-labelledby="title desc">
+  <title id="title">Offline operation</title>
+  <desc id="desc">A local computer remains available while its network connection is paused.</desc>
+  <rect x="49" y="41" width="222" height="132" rx="22" fill="#EDF1F6"/>
+  <rect x="75" y="65" width="128" height="83" rx="11" fill="#fff" stroke="#C4CCD8" stroke-width="2"/>
+  <path d="M103 90h72M103 106h49M103 122h61" stroke="#97A3B6" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="221" cy="124" r="34" fill="#526077"/>
+  <path d="M201 121c12-11 28-11 40 0M208 131c8-7 18-7 26 0M218 141h6" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <path d="m196 100 50 50" stroke="#F5F7FA" stroke-width="6" stroke-linecap="round"/>
+</svg>
+

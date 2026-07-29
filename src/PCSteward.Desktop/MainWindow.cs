@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System.Globalization;
 using PCSteward.Application;
 using PCSteward.Storage;
@@ -27,7 +28,11 @@ public sealed class MainWindow : Window
 
     public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates)
     {
-        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; Title = AppIdentity.DisplayName; LoadSavedInventory(); Render();
+        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates;
+        Title = AppIdentity.DisplayName;
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
+        LoadSavedInventory();
+        Render();
     }
 
     private void LoadSavedInventory()
@@ -44,9 +49,11 @@ public sealed class MainWindow : Window
     private void Render()
     {
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
-        panel.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["TitleTextBlockStyle"] });
+        panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
+        panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
+        panel.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "First scan reads installed-app information stored locally by Windows. It does not request elevation, install updates, refresh package sources, or send data to an account. Local-only Windows inventory is the safe default.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = AppStyle("StewardSectionTitleStyle") });
         foreach (ConnectorOption connector in viewModel.Connectors)
         {
             CheckBox checkBox = new() { Content = connector.RequiresSourceDisclosure ? $"{connector.Name} (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})", IsChecked = connector.IsEnabled, IsEnabled = !connector.IsEssential };
@@ -78,7 +85,46 @@ public sealed class MainWindow : Window
         list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem); panel.Children.Add(list); RenderInventory(list);
         panel.Children.Add(new TextBlock { Text = isExecuting ? "An approved update is running. Scans and cleanup are unavailable until its controlled verification completes." : viewModel.IsUpdateSourceEnabled ? "Verified updates can be opened from product details for a separate review and confirmation. Cached or unavailable source evidence cannot be executed." : "Inventory is local-only until you explicitly enable approved update sources.", TextWrapping = TextWrapping.Wrap });
         AddDecisionsSection(panel);
-        AddDataAndResetSection(panel); Content = new ScrollViewer { Content = panel };
+        AddDataAndResetSection(panel);
+        Content = BuildShell(panel);
+    }
+
+    private static Style AppStyle(string key) => (Style)global::Microsoft.UI.Xaml.Application.Current.Resources[key];
+
+    private static Grid BuildShell(StackPanel panel)
+    {
+        Grid shell = new() { Background = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardCanvasBrush"] };
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        Border header = new()
+        {
+            Background = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardSurfaceBrush"],
+            BorderBrush = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardBorderBrush"],
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(24, 12, 24, 12)
+        };
+        StackPanel brand = new() { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        Image mark = new() { Width = 32, Height = 32, Source = new BitmapImage(new Uri("ms-appx:///Assets/logo-mark-64.png")) };
+        AutomationProperties.SetName(mark, AppIdentity.DisplayName);
+        brand.Children.Add(mark);
+        StackPanel copy = new() { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
+        copy.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardSectionTitleStyle") });
+        copy.Children.Add(new TextBlock { Text = "Evidence before action", Style = AppStyle("StewardCaptionStyle") });
+        brand.Children.Add(copy);
+        header.Child = brand;
+        shell.Children.Add(header);
+
+        Border contentCard = new() { Style = AppStyle("StewardCardStyle"), Margin = new Thickness(24), Child = panel };
+        ScrollViewer content = new()
+        {
+            Content = contentCard,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        Grid.SetRow(content, 1);
+        shell.Children.Add(content);
+        return shell;
     }
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);
@@ -117,7 +163,7 @@ public sealed class MainWindow : Window
 
     private void AddDataAndResetSection(StackPanel panel)
     {
-        panel.Children.Add(new TextBlock { Text = "Data & reset", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = "Data & reset", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated payload {scanData.SizeBytes:N0} characters. Last cleared: {(scanData.LastClearedAt is null ? "never" : scanData.LastClearedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", TextWrapping = TextWrapping.Wrap });
         StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; Button exportCsv = new() { Content = "Export inventory CSV" }; exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv); Button exportJson = new() { Content = "Export inventory JSON" }; exportJson.Click += async (_, _) => await SaveExportAsync(true); exportActions.Children.Add(exportJson); panel.Children.Add(exportActions);
@@ -130,12 +176,12 @@ public sealed class MainWindow : Window
             Button completionDelete = new() { Content = "Delete downloaded files", IsEnabled = available }; AutomationProperties.SetName(completionDelete, "Delete downloaded files after update completion"); completionDelete.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Delete downloaded files after update completion?"); panel.Children.Add(completionDelete);
         }
         panel.Children.Add(new TextBlock { Text = available ? "Routine cleanup is available without administrator elevation." : "Cleanup is unavailable while a scan, update, or cleanup is active. Cancel or wait for it to finish.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Future controls", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] }); panel.Children.Add(new TextBlock { Text = "Factory reset will have its own two-step confirmation and will remove settings and stored decisions; routine cleanup above will not.", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(new Button { Content = "Factory reset PC Steward (available in a later phase)", IsEnabled = false });
+        panel.Children.Add(new TextBlock { Text = "Future controls", Style = AppStyle("StewardSectionTitleStyle") }); panel.Children.Add(new TextBlock { Text = "Factory reset will have its own two-step confirmation and will remove settings and stored decisions; routine cleanup above will not.", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(new Button { Content = "Factory reset PC Steward (available in a later phase)", IsEnabled = false });
     }
 
     private void AddDecisionsSection(StackPanel panel)
     {
-        panel.Children.Add(new TextBlock { Text = "Update decisions", Style = (Style)global::Microsoft.UI.Xaml.Application.Current.Resources["SubtitleTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = "Update decisions", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(new TextBlock { Text = activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or manual mappings. Decisions are optional, reversible, and do not enable updates." : "Active decisions and manual mappings are listed below. Remove one to reapply normal review rules on the next source check.", TextWrapping = TextWrapping.Wrap });
         foreach (PCSteward.Domain.StableDecision decision in activeDecisions)
         {

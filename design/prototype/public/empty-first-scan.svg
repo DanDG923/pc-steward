@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-labelledby="title desc">
+  <title id="title">Ready for first scan</title>
+  <desc id="desc">A tidy local computer inventory waiting to be checked.</desc>
+  <rect x="45" y="34" width="230" height="148" rx="22" fill="#EDF4FF"/>
+  <rect x="76" y="58" width="168" height="100" rx="12" fill="#fff" stroke="#B9D2FF" stroke-width="2"/>
+  <rect x="96" y="79" width="48" height="48" rx="12" fill="#1F62D1"/>
+  <path d="M129 95a14 14 0 1 0 1 14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <rect x="108" y="93" width="7" height="7" rx="2" fill="#fff"/>
+  <rect x="118" y="103" width="10" height="7" rx="2" fill="#fff"/>
+  <path d="M162 83h57M162 97h45M162 117h57M162 131h34" stroke="#97A3B6" stroke-width="7" stroke-linecap="round"/>
+  <path d="M132 182h56" stroke="#C4CCD8" stroke-width="8" stroke-linecap="round"/>
+</svg>
+

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" role="img" aria-labelledby="title desc">
+  <title id="title">PC Steward interface icon library</title>
+  <desc id="desc">A line-icon contact sheet for overview, scan, applications, updates, startup, storage, privacy, history, settings and help.</desc>
+  <rect width="640" height="240" rx="20" fill="#F7F9FC"/>
+  <g fill="none" stroke="#273244" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(40 40)"><rect width="36" height="36" rx="8"/><path d="M8 21h7v7H8zm13-13h7v12h-7zM8 8h7v7H8zm13 18h7v2h-7z"/></g>
+    <g transform="translate(104 40)"><circle cx="18" cy="18" r="13"/><path d="M18 9v9l6 4M31 31l-5-5"/></g>
+    <g transform="translate(168 40)"><rect x="5" y="7" width="26" height="22" rx="4"/><path d="M11 12h14M11 18h14M11 24h8"/></g>
+    <g transform="translate(232 40)"><path d="M18 4v19M11 16l7 7 7-7"/><path d="M7 29h22"/></g>
+    <g transform="translate(296 40)"><path d="M6 28h24M10 28V12l8-6 8 6v16"/><path d="M15 19h6"/></g>
+    <g transform="translate(360 40)"><ellipse cx="18" cy="10" rx="13" ry="6"/><path d="M5 10v15c0 3 6 6 13 6s13-3 13-6V10M5 18c0 3 6 6 13 6s13-3 13-6"/></g>
+    <g transform="translate(424 40)"><path d="M18 4 30 9v9c0 8-5 13-12 15C11 31 6 26 6 18V9z"/><path d="m12 18 4 4 8-9"/></g>
+    <g transform="translate(488 40)"><circle cx="18" cy="18" r="13"/><path d="M18 10v8l6 4"/></g>
+    <g transform="translate(552 40)"><circle cx="18" cy="18" r="5"/><path d="M18 4v5M18 27v5M4 18h5M27 18h5M8 8l4 4M24 24l4 4M28 8l-4 4M12 24l-4 4"/></g>
+    <g transform="translate(40 128)"><circle cx="18" cy="18" r="13"/><path d="M18 25v-8M18 11h.01"/></g>
+    <g transform="translate(104 128)"><path d="M6 18h24M18 6v24"/><circle cx="18" cy="18" r="13"/></g>
+    <g transform="translate(168 128)"><path d="m8 18 6 6 14-16"/><circle cx="18" cy="18" r="14"/></g>
+    <g transform="translate(232 128)"><path d="M18 5 32 30H4z"/><path d="M18 14v7M18 26h.01"/></g>
+    <g transform="translate(296 128)"><path d="M8 8h20v20H8zM4 13h4M4 23h4M28 13h4M28 23h4"/></g>
+    <g transform="translate(360 128)"><path d="M8 12h20M12 8v20M24 8v20M8 24h20"/></g>
+  </g>
+  <g fill="#526077" font-family="Segoe UI, sans-serif" font-size="11" text-anchor="middle">
+    <text x="58" y="93">Overview</text><text x="122" y="93">Scan</text><text x="186" y="93">Apps</text><text x="250" y="93">Updates</text><text x="314" y="93">Startup</text><text x="378" y="93">Storage</text><text x="442" y="93">Privacy</text><text x="506" y="93">History</text><text x="570" y="93">Settings</text>
+    <text x="58" y="181">Help</text><text x="122" y="181">Add</text><text x="186" y="181">Success</text><text x="250" y="181">Attention</text><text x="314" y="181">Chip</text><text x="378" y="181">Grid</text>
+  </g>
+</svg>

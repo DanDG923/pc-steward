@@ -6,6 +6,12 @@ namespace PCSteward.ArchitectureTests;
 [TestClass]
 public sealed class ReferenceBoundaryTests
 {
+    private static readonly string[] RequiredVisualFoundationBrushes = [
+        "StewardCanvasBrush", "StewardSurfaceBrush", "StewardTextBrush", "StewardBrandBrush",
+        "StewardFocusBrush", "StewardSuccessBrush", "StewardWarningBrush", "StewardDangerBrush"
+    ];
+    private static readonly string[] SupportedThemeKeys = ["Default", "Light", "Dark", "HighContrast"];
+
     [TestMethod]
     public void ScheduledHostDoesNotReferenceExecutionOrElevatedHelper()
     {
@@ -59,6 +65,39 @@ public sealed class ReferenceBoundaryTests
 
         StringAssert.Contains(source, "new WingetStructuredUpdateCandidateAuthority()");
         StringAssert.Contains(source, "new WingetPostUpdatePackageInventory()");
+    }
+
+    [TestMethod]
+    public void DesktopVisualFoundationProvidesSemanticResourcesForEverySupportedTheme()
+    {
+        string desktopDirectory = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop");
+        string appXaml = File.ReadAllText(Path.Combine(desktopDirectory, "App.xaml"));
+        StringAssert.Contains(appXaml, "Resources/ColorTokens.xaml");
+        StringAssert.Contains(appXaml, "Resources/Typography.xaml");
+        StringAssert.Contains(appXaml, "Resources/ControlStyles.xaml");
+
+        XDocument tokens = XDocument.Load(Path.Combine(desktopDirectory, "Resources", "ColorTokens.xaml"));
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        string[] themeKeys = tokens.Descendants(presentation + "ResourceDictionary")
+            .Attributes(xaml + "Key")
+            .Select(attribute => attribute.Value)
+            .ToArray();
+        CollectionAssert.AreEquivalent(SupportedThemeKeys, themeKeys);
+
+        string[] brushKeys = tokens.Descendants(presentation + "SolidColorBrush")
+            .Attributes(xaml + "Key")
+            .Select(attribute => attribute.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        foreach (string semanticBrush in RequiredVisualFoundationBrushes)
+        {
+            CollectionAssert.Contains(brushKeys, semanticBrush);
+        }
+
+        string project = File.ReadAllText(Path.Combine(desktopDirectory, "PCSteward.Desktop.csproj"));
+        StringAssert.Contains(project, "logo-mark-64.png");
+        StringAssert.Contains(project, "pc-steward.ico");
     }
 
     private static string FindRepositoryRoot()
