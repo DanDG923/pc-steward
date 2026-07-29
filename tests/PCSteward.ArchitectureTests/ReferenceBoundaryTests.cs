@@ -29,6 +29,19 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void ElevatedHelperIsAOneShotEntryPointWithoutServiceOrPersistenceCode()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ElevatedHelper", "Program.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "ElevatedHelperEntryPoint.RunAsync(args)");
+        foreach (string forbidden in new[] { "while (", "ServiceBase", "Sqlite", "Registry", "TaskScheduler", "File." })
+        {
+            Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
     public void MainWindowUsesTheApplicationWorkflowInsteadOfAdapters()
     {
         string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
@@ -36,6 +49,16 @@ public sealed class ReferenceBoundaryTests
 
         StringAssert.Contains(source, "InventoryWorkflow");
         foreach (string forbidden in new[] { "SqliteDatabase", "new RegistryLocalInventoryProvider", "new MsixLocalInventoryProvider", "new WingetLocalInventoryProvider" }) Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void DesktopCompositionWiresTheProductionStructuredWinGetAuthority()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "App.xaml.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "new WingetStructuredUpdateCandidateAuthority()");
+        StringAssert.Contains(source, "new WingetPostUpdatePackageInventory()");
     }
 
     private static string FindRepositoryRoot()

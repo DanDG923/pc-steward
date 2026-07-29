@@ -109,7 +109,7 @@ try {
         $linkCreated = $true
     }
     catch {
-        $script:Skips.Add('Symbolic-link creation unavailable; execute the report VM case.')
+        $script:Skips.Add('Symbolic-link creation unavailable; execute the approved elevated local-PC case.')
     }
     if ($linkCreated) {
         Assert-Throws {
@@ -181,7 +181,7 @@ try {
         $duplicate, $jobId, $nonce, $now, $key, [string[]]@('Contoso.App'))
     Assert-True ($deniedDuplicate.State -eq [PcSteward.SecurityBoundarySpike.HelperState]::Denied) 'Duplicate fields must be denied.'
 
-    Write-Output "PASS: $Assertions assertions; $($Skips.Count) VM/manual skips"
+    Write-Output "PASS: $Assertions assertions; $($Skips.Count) local-PC/manual skips"
     foreach ($skip in $Skips) { Write-Output "SKIP: $skip" }
 }
 finally {

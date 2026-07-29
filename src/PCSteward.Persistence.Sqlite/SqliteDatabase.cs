@@ -5,7 +5,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, ISourceSnapshotStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -44,6 +44,21 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         {
             await ExecuteAsync(connection, "ALTER TABLE installation_instances ADD COLUMN source_id TEXT;", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (5);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 6, cancellationToken))
+        {
+            await ExecuteAsync(connection, "CREATE TABLE approved_update_jobs (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, stable_product_key TEXT NOT NULL, provider TEXT NOT NULL, source_id TEXT NOT NULL, package_id TEXT NOT NULL, installed_version TEXT NOT NULL, candidate_version TEXT NOT NULL, scope TEXT NOT NULL, architecture TEXT NOT NULL, channel TEXT NOT NULL, mapping_evidence_version TEXT NOT NULL, approved_at TEXT NOT NULL, digest TEXT NOT NULL);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (6);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 7, cancellationToken))
+        {
+            await ExecuteAsync(connection, "CREATE TABLE update_job_history (event_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, correlation_id TEXT NOT NULL, stable_product_key TEXT NOT NULL, provider TEXT NOT NULL, package_id TEXT NOT NULL, installed_version TEXT NOT NULL, target_version TEXT NOT NULL, occurred_at TEXT NOT NULL, status TEXT NOT NULL, exit_code INTEGER, diagnostic TEXT NOT NULL); CREATE INDEX ix_update_job_history_product_time ON update_job_history(stable_product_key, occurred_at DESC); CREATE TABLE update_job_execution_state (job_id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, stable_product_key TEXT NOT NULL, provider TEXT NOT NULL, package_id TEXT NOT NULL, installed_version TEXT NOT NULL, target_version TEXT NOT NULL, occurred_at TEXT NOT NULL, status TEXT NOT NULL, exit_code INTEGER, diagnostic TEXT NOT NULL);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (7);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 8, cancellationToken))
+        {
+            await ExecuteAsync(connection, "ALTER TABLE downloaded_artifacts ADD COLUMN sha256 TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN job_id TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'Incomplete'; ALTER TABLE downloaded_artifacts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0; CREATE INDEX ix_downloaded_artifacts_created ON downloaded_artifacts(created_at);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (8);", cancellationToken, transaction);
         }
         await transaction.CommitAsync(cancellationToken);
     }
@@ -211,16 +226,130 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         }
     }
 
-    public async Task SaveUpdateJobAsync(UpdateJobRecord job, CancellationToken cancellationToken)
+    public async Task SaveApprovedJobAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(job);
+        if (!job.HasValidDigest) throw new InvalidOperationException("The update job failed its integrity check.");
+        UpdateJobSelection selection = job.Selection;
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        await ExecuteAsync(connection, "INSERT INTO update_jobs VALUES ($id,$provider,$source,$package,$created);", cancellationToken, null, ("$id", job.Id), ("$provider", Text(job.Provider)), ("$source", Text(job.SourceId)), ("$package", Text(job.PackageId)), ("$created", job.CreatedAt));
+        await ExecuteAsync(connection,
+            "INSERT INTO approved_update_jobs(id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest) VALUES ($id,$correlation,$stable,$provider,$source,$package,$installed,$candidate,$scope,$architecture,$channel,$mapping,$approved,$digest);",
+            cancellationToken,
+            null,
+            ("$id", job.Id),
+            ("$correlation", job.CorrelationId),
+            ("$stable", selection.StableProductKey),
+            ("$provider", selection.Provider),
+            ("$source", selection.Source),
+            ("$package", selection.PackageId),
+            ("$installed", selection.InstalledVersion),
+            ("$candidate", selection.CandidateVersion),
+            ("$scope", selection.Scope),
+            ("$architecture", selection.Architecture),
+            ("$channel", selection.Channel),
+            ("$mapping", selection.MappingEvidenceVersion),
+            ("$approved", job.ApprovedAt),
+            ("$digest", job.Digest));
+    }
+
+    public async Task<ImmutableUpdateJob?> GetApprovedJobAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        if (jobId == Guid.Empty) throw new ArgumentException("A job ID is required.", nameof(jobId));
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest FROM approved_update_jobs WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", jobId.ToString("D", CultureInfo.InvariantCulture));
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        try
+        {
+            UpdateJobSelection selection = new(
+                reader.GetString(2),
+                Enum.Parse<UpdateProvider>(reader.GetString(3), ignoreCase: false),
+                Enum.Parse<UpdateSource>(reader.GetString(4), ignoreCase: false),
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetString(7),
+                Enum.Parse<UpdateScope>(reader.GetString(8), ignoreCase: false),
+                Enum.Parse<UpdateArchitecture>(reader.GetString(9), ignoreCase: false),
+                Enum.Parse<UpdateChannel>(reader.GetString(10), ignoreCase: false),
+                reader.GetString(11));
+            return ImmutableUpdateJob.Restore(
+                Guid.Parse(reader.GetString(0)),
+                Guid.Parse(reader.GetString(1)),
+                selection,
+                DateTimeOffset.Parse(reader.GetString(12), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                reader.GetString(13));
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException)
+        {
+            throw new InvalidOperationException("The persisted update job is invalid or has been modified.", exception);
+        }
+    }
+
+    public async Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (entry.EventId == Guid.Empty || entry.JobId == Guid.Empty || entry.CorrelationId == Guid.Empty) throw new ArgumentException("Update history needs event, job and correlation IDs.", nameof(entry));
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "INSERT INTO update_job_history(event_id,job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version,occurred_at,status,exit_code,diagnostic) VALUES ($event,$job,$correlation,$stable,$provider,$package,$installed,$target,$occurred,$status,$exit,$diagnostic);", cancellationToken, transaction, ("$event", entry.EventId), ("$job", entry.JobId), ("$correlation", entry.CorrelationId), ("$stable", Text(entry.StableProductKey)), ("$provider", entry.Provider), ("$package", Text(entry.PackageId)), ("$installed", Text(entry.InstalledVersion)), ("$target", Text(entry.TargetVersion)), ("$occurred", entry.OccurredAt), ("$status", entry.Status), ("$exit", entry.ExitCode), ("$diagnostic", DiagnosticText(entry.Diagnostic)));
+        await ExecuteAsync(connection, "INSERT INTO update_job_execution_state(job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version,occurred_at,status,exit_code,diagnostic) VALUES ($job,$correlation,$stable,$provider,$package,$installed,$target,$occurred,$status,$exit,$diagnostic) ON CONFLICT(job_id) DO UPDATE SET correlation_id=excluded.correlation_id,stable_product_key=excluded.stable_product_key,provider=excluded.provider,package_id=excluded.package_id,installed_version=excluded.installed_version,target_version=excluded.target_version,occurred_at=excluded.occurred_at,status=excluded.status,exit_code=excluded.exit_code,diagnostic=excluded.diagnostic;", cancellationToken, transaction, ("$job", entry.JobId), ("$correlation", entry.CorrelationId), ("$stable", Text(entry.StableProductKey)), ("$provider", entry.Provider), ("$package", Text(entry.PackageId)), ("$installed", Text(entry.InstalledVersion)), ("$target", Text(entry.TargetVersion)), ("$occurred", entry.OccurredAt), ("$status", entry.Status), ("$exit", entry.ExitCode), ("$diagnostic", DiagnosticText(entry.Diagnostic)));
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<UpdateHistoryEntry>> GetHistoryForProductAsync(string stableProductKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stableProductKey)) throw new ArgumentException("A stable product key is required.", nameof(stableProductKey));
+        List<UpdateHistoryEntry> entries = []; await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT event_id,job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version,occurred_at,status,exit_code,diagnostic FROM update_job_history WHERE stable_product_key = $stable ORDER BY occurred_at DESC,event_id DESC;"; command.Parameters.AddWithValue("$stable", Text(stableProductKey)); await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) entries.Add(new UpdateHistoryEntry(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), Guid.Parse(reader.GetString(2)), reader.GetString(3), Enum.Parse<UpdateProvider>(reader.GetString(4), false), reader.GetString(5), reader.GetString(6), reader.GetString(7), DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), Enum.Parse<UpdateHistoryStatus>(reader.GetString(9), false), reader.IsDBNull(10) ? null : reader.GetInt32(10), reader.GetString(11)));
+        return entries;
+    }
+
+    public async Task RecoverInterruptedAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction();
+        List<UpdateHistoryEntry> interrupted = []; await using (SqliteCommand command = connection.CreateCommand()) { command.Transaction = transaction; command.CommandText = "SELECT job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version FROM update_job_execution_state WHERE status IN ('Running','VerificationRequired');"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) interrupted.Add(new UpdateHistoryEntry(Guid.NewGuid(), Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), Enum.Parse<UpdateProvider>(reader.GetString(3), false), reader.GetString(4), reader.GetString(5), reader.GetString(6), DateTimeOffset.UtcNow, UpdateHistoryStatus.VerificationRequired, null, "recovered-after-interrupted-started-update; verification-required")); }
+        foreach (UpdateHistoryEntry entry in interrupted)
+        {
+            await ExecuteAsync(connection, "INSERT INTO update_job_history(event_id,job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version,occurred_at,status,exit_code,diagnostic) VALUES ($event,$job,$correlation,$stable,$provider,$package,$installed,$target,$occurred,$status,NULL,$diagnostic);", cancellationToken, transaction, ("$event", entry.EventId), ("$job", entry.JobId), ("$correlation", entry.CorrelationId), ("$stable", Text(entry.StableProductKey)), ("$provider", entry.Provider), ("$package", Text(entry.PackageId)), ("$installed", Text(entry.InstalledVersion)), ("$target", Text(entry.TargetVersion)), ("$occurred", entry.OccurredAt), ("$status", entry.Status), ("$diagnostic", entry.Diagnostic));
+            await ExecuteAsync(connection, "UPDATE update_job_execution_state SET occurred_at=$occurred,status=$status,exit_code=NULL,diagnostic=$diagnostic WHERE job_id=$job;", cancellationToken, transaction, ("$occurred", entry.OccurredAt), ("$status", entry.Status), ("$diagnostic", entry.Diagnostic), ("$job", entry.JobId));
+        }
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task PruneAsync(UpdateHistoryRetention retention, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(retention); int maximum = Math.Clamp(retention.MaximumEventsPerJob, 1, 1024);
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await ExecuteAsync(connection, "DELETE FROM update_job_history WHERE status IN ('Queued','Running','RunningApplicationWarning') AND occurred_at < $before; DELETE FROM update_job_history WHERE event_id IN (SELECT event_id FROM (SELECT event_id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY occurred_at DESC,event_id DESC) AS row_number FROM update_job_history) WHERE row_number > $maximum);", cancellationToken, null, ("$before", retention.RemoveVerboseBefore), ("$maximum", maximum));
     }
 
     public async Task SaveDownloadedArtifactAsync(DownloadedArtifact artifact, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        await ExecuteAsync(connection, "INSERT INTO downloaded_artifacts VALUES ($id,$category,$path,$size,$created);", cancellationToken, null, ("$id", artifact.Id), ("$category", Text(artifact.Category)), ("$path", Text(artifact.RelativePath)), ("$size", artifact.SizeBytes), ("$created", artifact.CreatedAt));
+        await ExecuteAsync(connection, "INSERT INTO downloaded_artifacts(id,category,relative_path,size_bytes,created_at,sha256,job_id,outcome,is_active) VALUES ($id,$category,$path,$size,$created,$hash,$job,$outcome,$active) ON CONFLICT(id) DO UPDATE SET category=excluded.category,relative_path=excluded.relative_path,size_bytes=excluded.size_bytes,created_at=excluded.created_at,sha256=excluded.sha256,job_id=excluded.job_id,outcome=excluded.outcome,is_active=excluded.is_active;", cancellationToken, null, ("$id", artifact.Id), ("$category", Text(artifact.Category)), ("$path", Text(artifact.RelativePath)), ("$size", artifact.SizeBytes), ("$created", artifact.CreatedAt), ("$hash", Text(artifact.Sha256)), ("$job", artifact.JobId?.ToString()), ("$outcome", artifact.Outcome), ("$active", artifact.IsActive ? 1 : 0));
+    }
+
+    public async Task<IReadOnlyCollection<DownloadedArtifact>> GetDownloadedArtifactsAsync(CancellationToken cancellationToken)
+    {
+        List<DownloadedArtifact> result = []; await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id,category,relative_path,size_bytes,created_at,sha256,job_id,outcome,is_active FROM downloaded_artifacts ORDER BY created_at;"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(new DownloadedArtifact(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : Guid.Parse(reader.GetString(6)), Enum.Parse<DownloadedArtifactOutcome>(reader.GetString(7), false), reader.GetInt64(8) != 0));
+        return result;
+    }
+
+    public async Task DeleteDownloadedArtifactAsync(Guid artifactId, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "DELETE FROM downloaded_artifacts WHERE id=$id;", cancellationToken, null, ("$id", artifactId));
+    }
+
+    public async Task<DateTimeOffset?> GetDownloadedArtifactsLastCleanedAtAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key='downloads_last_cleaned';"; object? value = await command.ExecuteScalarAsync(cancellationToken); return value is string text && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset result) ? result : null;
+    }
+
+    public async Task SetDownloadedArtifactsLastCleanedAtAsync(DateTimeOffset cleanedAt, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ('downloads_last_cleaned',$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value;", cancellationToken, null, ("$value", cleanedAt));
     }
 
     public async Task SaveManualMappingAsync(ManualMapping mapping, CancellationToken cancellationToken)
@@ -241,15 +370,21 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
 
     public async Task<IReadOnlyCollection<ProductTimelineEntry>> GetTimelineAsync(string stableProductKey, CancellationToken cancellationToken)
     {
-        IReadOnlyCollection<StableDecision> decisions = await GetForProductAsync(stableProductKey, cancellationToken); return decisions.Select(decision => new ProductTimelineEntry(decision.CreatedAt, decision.Kind, $"{decision.Kind}: {decision.Value}", decision.Reason)).OrderByDescending(entry => entry.OccurredAt).ToArray();
+        IReadOnlyCollection<StableDecision> decisions = await GetForProductAsync(stableProductKey, cancellationToken);
+        IReadOnlyCollection<UpdateHistoryEntry> updates = await GetHistoryForProductAsync(stableProductKey, cancellationToken);
+        return decisions.Select(decision => new ProductTimelineEntry(decision.CreatedAt, decision.Kind, $"{decision.Kind}: {decision.Value}", decision.Reason))
+            .Concat(updates.Select(update => new ProductTimelineEntry(update.OccurredAt, "Update", $"Update {update.Status}: {update.TargetVersion}", update.Diagnostic)))
+            .OrderByDescending(entry => entry.OccurredAt)
+            .ToArray();
     }
 
     public async Task<(int UpdateJobs, int DownloadedArtifacts, int StableDecisions, int ManualMappings)> GetPreservedDataCountsAsync(CancellationToken cancellationToken)
     {
-        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT (SELECT COUNT(*) FROM update_jobs), (SELECT COUNT(*) FROM downloaded_artifacts), (SELECT COUNT(*) FROM stable_decisions), (SELECT COUNT(*) FROM manual_mappings);"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); await reader.ReadAsync(cancellationToken); return (reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3));
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT ((SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM approved_update_jobs)), (SELECT COUNT(*) FROM downloaded_artifacts), (SELECT COUNT(*) FROM stable_decisions), (SELECT COUNT(*) FROM manual_mappings);"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); await reader.ReadAsync(cancellationToken); return (reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3));
     }
 
     private static string Text(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim()[..Math.Min(value.Trim().Length, MaxTextLength)];
+    private static string DiagnosticText(string? value) => SanitizedDiagnosticBundle.Sanitize(value)[..Math.Min(SanitizedDiagnosticBundle.Sanitize(value).Length, 4096)];
     private static StableDecision ReadDecision(SqliteDataReader reader) => new(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2), reader.GetString(3), DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     private static string SourceId(string value) => value.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(value), "Only supported connector sources may be cached.") };
     private static string ConnectorKey(string connectorName) => "connector." + Text(connectorName).ToLowerInvariant();

@@ -368,9 +368,9 @@ Add adapter fixtures and Windows integration tests that can skip with an explici
 
 ## Task 10 — WinGet installed-inventory provider
 
-**Model:** GPT-5.6 Terra  
-**Reasoning:** High  
-**Branch:** `phase/1-inventory`  
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/1-inventory`
 **Run after:** Task 09 complete
 
 ```text
@@ -517,15 +517,28 @@ Do not implement Clear downloaded files or Factory reset in this task; show them
 Add persistence/integration tests proving delete/preserve semantics, offline operation, export fidelity, and no elevation. Run the full suite and update status/traceability.
 ```
 
+## Task 14A — Prepare Phase 1 review evidence
+
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/1-inventory`
+**Run after:** Task 14 complete
+
+```text
+Task 14A — prepare the Phase 1 review evidence. Do not add product scope or grade the phase. Run the safe fixture, Release build, full-suite, and benchmark commands required by the Phase 1 brief and Task 15. Create docs/review/PHASE_1_EVIDENCE_READINESS.md with a criterion-to-evidence table: command, result, artifact/commit, Proven/Missing/Approved exception, and exact next action. Update traceability/status. Do not start Task 15 unless all mandatory rows are Proven or explicitly product-owner-approved. Commit the evidence package.
+```
+
 ## Task 15 — Phase 1 review gate
 
 **Model:** GPT-5.6 Sol  
 **Reasoning:** High  
 **Branch:** `phase/1-inventory`  
-**Run after:** Tasks 07–14 complete
+**Run after:** Task 14A complete
 
 ```text
 Task 15 — review Phase 1. Start with `/review` and review the branch from its merge-base with `main`. Do not modify production code.
+
+Read `docs/review/PHASE_1_EVIDENCE_READINESS.md`; a missing or stale readiness package is unproven mandatory evidence.
 
 Read:
 - `AGENTS.md`
@@ -573,9 +586,9 @@ Use the fixture catalog and add adversarial cases. No source calls, UI, matching
 
 ## Task 17 — Deterministic matching and confidence engine
 
-**Model:** GPT-5.6 Terra  
-**Reasoning:** High  
-**Branch:** `phase/2-intelligence`  
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/2-intelligence`
 **Run after:** Task 16 complete
 
 ```text
@@ -652,15 +665,28 @@ Do not expose an executable Update action yet. Do not let UI state override matc
 Add view-model, persistence, decision-reapplication, and accessibility tests. Run the full suite and the zero-false-positive fixture test. Update status and traceability.
 ```
 
+## Task 19A — Prepare Phase 2 review evidence
+
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/2-intelligence`
+**Run after:** Task 19 complete
+
+```text
+Task 19A — prepare the Phase 2 review evidence. Do not add product scope or grade the phase. Run the safe fixture, Release build, full-suite, and source-cache/benchmark commands required by the Phase 2 brief and Task 20. Create docs/review/PHASE_2_EVIDENCE_READINESS.md with a criterion-to-evidence table: command, result, artifact/commit, Proven/Missing/Approved exception, and exact next action. Preserve and cross-reference Task 90 evidence. Update traceability/status. Do not start Task 20 unless all mandatory rows are Proven or explicitly product-owner-approved. Commit the evidence package.
+```
+
 ## Task 20 — Phase 2 review gate
 
 **Model:** GPT-5.6 Sol  
 **Reasoning:** High  
 **Branch:** `phase/2-intelligence`  
-**Run after:** Tasks 16–19 complete
+**Run after:** Task 19A complete
 
 ```text
 Task 20 — review Phase 2. Start with `/review` and review the branch from its merge-base with `main`. Do not modify production code.
+
+Read `docs/review/PHASE_2_EVIDENCE_READINESS.md`; a missing or stale readiness package is unproven mandatory evidence.
 
 Read the Phase 2 brief, accepted ADRs, fixture catalog/results, source-cache evidence, and complete diff.
 
@@ -683,9 +709,9 @@ Only update the review report and status. If failed, run Task 90 and repeat this
 
 ## Task 21 — Immutable update jobs and constrained non-elevated runner
 
-**Model:** GPT-5.6 Terra  
-**Reasoning:** High  
-**Branch:** `phase/3-execution`  
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/3-execution`
 **Run after:** Phase 2 gate passed and merged; accepted update-execution and helper ADRs exist
 
 ```text
@@ -789,15 +815,28 @@ Do not broaden deletion to provider-owned caches or accept any deletion path fro
 Reuse and promote the hostile deletion fixtures from the security spike. Add junction/symlink/reparse, path-swap, prefix-confusion, locked-file, quota, active-artifact, and preservation tests. Run static analysis and the full suite. Update threat model, status, and traceability.
 ```
 
+## Task 24A — Prepare Phase 3 security-review evidence
+
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/3-execution`
+**Run after:** Task 24 complete
+
+```text
+Task 24A — prepare the Phase 3 security-review evidence. Do not add product scope or grade the phase. Run static analysis, hostile fixtures, security suites, Release build, full suite, and safe cache checks required by the Phase 3 brief and Task 25. Create docs/review/PHASE_3_EVIDENCE_READINESS.md with a criterion-to-evidence table: command, result, artifact/commit, Proven/Missing/Approved exception, and exact next action. List VM/manual evidence separately; do not run UAC, real updates, or destructive tests outside approved disposable roots without approval. Update traceability/status. Do not start Task 25 unless all mandatory rows are Proven or explicitly product-owner-approved. Commit the evidence package.
+```
+
 ## Task 25 — Phase 3 security review gate
 
 **Model:** GPT-5.6 Sol  
 **Reasoning:** Extra High  
 **Branch:** `phase/3-execution`  
-**Run after:** Tasks 21–24 complete
+**Run after:** Task 24A complete
 
 ```text
 Task 25 — perform the Phase 3 security review. Start with `/review` and inspect the branch from its merge-base with `main`. Do not modify production code.
+
+Read `docs/review/PHASE_3_EVIDENCE_READINESS.md`; a missing or stale readiness package is unproven mandatory evidence.
 
 Read the Phase 3 brief, all execution/helper/deletion ADRs, threat model, hostile fixtures, VM/manual evidence, and complete diff.
 
@@ -846,15 +885,28 @@ Implement:
 Add task-definition fixtures, create/update/delete/idempotence tests, overlap tests, no-install tests, and process-exit measurements. Use a harmless short test schedule only with explicit approval, then remove it. Update status and traceability.
 ```
 
+## Task 26A — Prepare factory-reset design-gate evidence
+
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/4-beta`
+**Run after:** Task 26 complete
+
+```text
+Task 26A — prepare evidence for the Task 27 factory-reset design gate. Do not implement factory reset or grade the design. Create docs/review/FACTORY_RESET_DESIGN_EVIDENCE_READINESS.md covering owned roots, retained categories, active-work locks, scheduled-task ownership, restart/file-handle observations, hostile reparse/path coverage, Proven/Missing/Approved exception status, and exact next actions. Update traceability/status. Do not start Task 27 unless all required design inputs are Proven or explicitly product-owner-approved. Commit the evidence package.
+```
+
 ## Task 27 — Factory-reset design gate
 
 **Model:** GPT-5.6 Sol  
 **Reasoning:** High  
 **Branch:** `phase/4-beta`  
-**Run after:** Task 26 complete
+**Run after:** Task 26A complete
 
 ```text
 Task 27 — finalize the factory-reset and advanced data-control design before implementation. Do not change production code.
+
+Read `docs/review/FACTORY_RESET_DESIGN_EVIDENCE_READINESS.md`; a missing or stale readiness package is an unresolved design input.
 
 Read:
 - `AGENTS.md`
@@ -882,9 +934,9 @@ Update status. Do not implement until the document has no unresolved security de
 
 ## Task 28 — Factory reset and advanced data controls
 
-**Model:** GPT-5.6 Terra  
-**Reasoning:** High  
-**Branch:** `phase/4-beta`  
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/4-beta`
 **Run after:** Task 27 complete
 
 ```text
@@ -968,15 +1020,28 @@ Do not publish, push, tag, upload, buy a certificate, or claim production signin
 Create `docs/release/PRIVATE_BETA_CHECKLIST.md`, `docs/release/KNOWN_LIMITATIONS.md`, and `docs/release/RELEASE_EVIDENCE.md`. Build the candidate and run all locally available release tests. Update status and traceability.
 ```
 
+## Task 30A — Prepare final release-audit evidence
+
+**Model:** GPT-5.6 Terra
+**Reasoning:** High
+**Branch:** `phase/4-beta`
+**Run after:** Task 30 complete
+
+```text
+Task 30A — prepare final release-audit evidence. Do not grade release readiness or publish anything. Run safe critical suites, Release build, full suite, benchmark, static/dependency/secret/SBOM checks available in the repository. Create docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md with every mandatory criterion, command/artifact/commit, result, Proven/Missing/Approved exception, owner, and exact next action. Missing or unapproved evidence blocks Task 31. Update traceability/status and commit the evidence package.
+```
+
 ## Task 31 — Final release audit
 
 **Model:** GPT-5.6 Sol  
 **Reasoning:** Extra High  
 **Branch:** `phase/4-beta`  
-**Run after:** Task 30 complete
+**Run after:** Task 30A complete
 
 ```text
 Task 31 — perform the final MVP release audit. Start with `/review`. Review the complete repository and all evidence; do not modify production code.
+
+Read `docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md`; a missing or stale readiness package is material Unverified evidence.
 
 Read:
 - full product specification;

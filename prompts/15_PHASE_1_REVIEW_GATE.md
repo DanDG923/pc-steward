@@ -7,7 +7,7 @@
 | Speed | **Standard** |
 | Mode | **Review** |
 | Branch | `phase/1-inventory` |
-| Run after | Tasks 07–14 complete |
+| Run after | Task 14A complete |
 | Expected commit | `review: assess Phase 1 inventory gate` |
 
 **Primary requirement references:** See the task and current phase brief.
@@ -19,6 +19,7 @@ Task 15 — review Phase 1. Start with `/review` and review the branch from its 
 
 Read:
 - `AGENTS.md`
+- `docs/review/PHASE_1_EVIDENCE_READINESS.md`
 - `docs/requirements/PHASE_1.md`
 - accepted ADRs;
 - benchmark evidence;
@@ -37,7 +38,7 @@ Run safe builds/tests/benchmarks needed to verify evidence. Review specifically 
 - resource-budget evidence and measurement quality;
 - requirement/test traceability.
 
-Write `docs/review/PHASE_1_REVIEW.md` with file/line references, severities, requirement IDs, missing evidence, and PASS/FAIL. A gate cannot pass with a Blocker/High finding or an unproven mandatory acceptance criterion.
+Write `docs/review/PHASE_1_REVIEW.md` with file/line references, severities, requirement IDs, missing evidence, and PASS/FAIL. A missing or stale readiness package is unproven mandatory evidence. A gate cannot pass with a Blocker/High finding or an unproven mandatory acceptance criterion.
 
 Only update the review report and `docs/STATUS.md`. If the gate fails, state that Task 90 must be run and this review repeated.
 ```

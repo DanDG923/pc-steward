@@ -7,11 +7,13 @@ Add non-resident scheduled checks, notifications, factory reset, advanced data c
 ## Required task order
 
 1. **Task 26:** Scheduled checks and Windows notifications
-2. **Task 27:** Factory-reset design gate
-3. **Task 28:** Factory reset and advanced data controls
-4. **Task 29:** Accessibility, reliability, and performance hardening
-5. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
-6. **Task 31:** Final release audit
+2. **Task 26A:** Prepare factory-reset design-gate evidence
+3. **Task 27:** Factory-reset design gate
+4. **Task 28:** Factory reset and advanced data controls
+5. **Task 29:** Accessibility, reliability, and performance hardening
+6. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
+7. **Task 30A:** Prepare final release-audit evidence
+8. **Task 31:** Final release audit
 
 ## Exit condition
 

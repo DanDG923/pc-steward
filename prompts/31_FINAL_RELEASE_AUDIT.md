@@ -7,7 +7,7 @@
 | Speed | **Standard** |
 | Mode | **Review** |
 | Branch | `phase/4-beta` |
-| Run after | Task 30 complete |
+| Run after | Task 30A complete |
 | Expected commit | `review: perform final MVP release audit` |
 
 **Primary requirement references:** See the task and current phase brief.
@@ -19,6 +19,7 @@ Task 31 — perform the final MVP release audit. Start with `/review`. Review th
 
 Read:
 - full product specification;
+- `docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md`;
 - all accepted ADRs and architecture documents;
 - all phase review reports;
 - traceability matrix;
@@ -43,7 +44,7 @@ Create `docs/review/FINAL_RELEASE_AUDIT.md` with:
 - exact remediation and verification;
 - residual risks requiring explicit product-owner acceptance.
 
-Any Blocker/High finding, executable false positive, privilege/deletion escape, false Success, failed mandatory criterion, or material Unverified criterion means NOT READY. Only update the audit report and status.
+Any Blocker/High finding, executable false positive, privilege/deletion escape, false Success, failed mandatory criterion, material Unverified criterion, or missing/stale readiness package means NOT READY. Only update the audit report and status.
 ```
 
 ## Completion rule

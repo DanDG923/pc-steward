@@ -10,7 +10,8 @@ Resolve trusted WinGet source data into explainable, deterministic, non-executab
 2. **Task 17:** Deterministic matching and confidence engine
 3. **Task 18:** WinGet update intelligence, source cache, and freshness
 4. **Task 19:** Manual decisions and update-intelligence UX
-5. **Task 20:** Phase 2 review gate
+5. **Task 19A:** Prepare Phase 2 review evidence
+6. **Task 20:** Phase 2 review gate
 
 ## Exit condition
 

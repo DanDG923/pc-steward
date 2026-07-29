@@ -3,9 +3,31 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record InventoryDashboard(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, DateTimeOffset? LastCompletedAt, ScanDataSummary ScanData, IReadOnlyDictionary<string, ConnectorState> Connectors);
+public interface IPostUpdatePackageInventory
+{
+    Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Supplies bounded provider-structured candidate evidence. Display-table fields never implement
+/// this authority and therefore cannot become immutable job or provider arguments.
+/// </summary>
+public interface IStructuredUpdateCandidateAuthority
+{
+    Task<StructuredUpdateCandidateEvidence?> ResolveAsync(
+        string sourceId,
+        string packageId,
+        CancellationToken cancellationToken);
+}
+
+public sealed record StructuredUpdateCandidateEvidence(
+    string SourceId,
+    string PackageId,
+    string InstalledVersion,
+    string CandidateVersion);
 
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
-public sealed class InventoryWorkflow : IDisposable
+public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 {
     private const string WingetInventoryConnector = "WinGet installed inventory";
     private const string WingetSourceConnector = "WinGet package sources";
@@ -17,6 +39,9 @@ public sealed class InventoryWorkflow : IDisposable
     private readonly UserDecisionService? decisions;
     private readonly UpdateSourceRefreshService? updateSources;
     private readonly IReadOnlyCollection<IUpdateSourceConnector> updateSourceConnectors;
+    private readonly IPostUpdatePackageInventory? postUpdatePackageInventory;
+    private readonly IStructuredUpdateCandidateAuthority? structuredUpdateCandidates;
+    private readonly bool hasCurrentLocalInventoryProviders;
 
     public InventoryWorkflow(
         IInventorySnapshotStore snapshots,
@@ -26,14 +51,19 @@ public sealed class InventoryWorkflow : IDisposable
         IScanEventSink? events = null,
         IUserDecisionStore? decisions = null,
         ISourceSnapshotStore? sourceCache = null,
-        IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null)
+        IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null,
+        IPostUpdatePackageInventory? postUpdatePackageInventory = null,
+        IStructuredUpdateCandidateAuthority? structuredUpdateCandidates = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
         orchestrator = new InventoryScanOrchestrator(snapshots, providers, events); exports = new InventoryExportService(snapshots);
+        hasCurrentLocalInventoryProviders = providers.Count != 0;
         this.decisions = decisions is null ? null : new UserDecisionService(decisions);
         updateSources = sourceCache is null ? null : new UpdateSourceRefreshService(sourceCache);
         this.updateSourceConnectors = updateSourceConnectors ?? [];
+        this.postUpdatePackageInventory = postUpdatePackageInventory;
+        this.structuredUpdateCandidates = structuredUpdateCandidates;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -75,6 +105,72 @@ public sealed class InventoryWorkflow : IDisposable
 
     public Task<UpdateIntelligenceSummary> LoadUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, false, cancellationToken);
     public Task<UpdateIntelligenceSummary> RefreshUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, true, cancellationToken);
+
+    /// <summary>Prepares only a fresh, persisted-consent source match for explicit update review.</summary>
+    public async Task<UpdateSelectionPreparation> PrepareApprovedUpdateSelectionAsync(string stableProductKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stableProductKey)) return new(null, "No installed product was selected.");
+        ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(WingetSourceConnector, false, cancellationToken).ConfigureAwait(false);
+        if (!sourceState.Enabled || !sourceState.SourceDisclosureApproved) return new(null, "Approved update sources are not enabled.");
+
+        // A persisted snapshot is never confirmation authority.  Refresh local installed evidence
+        // immediately before both review and execution; an unavailable or conflicting provider scan
+        // fails closed before a job or provider operation can be constructed.
+        if (hasCurrentLocalInventoryProviders)
+        {
+            ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
+            if (!currentInventory.Succeeded) return new(null, "Current installed inventory is unavailable. No update can be started.");
+        }
+
+        UpdateIntelligenceSummary summary = await AssessUpdateIntelligenceAsync(true, true, cancellationToken).ConfigureAwait(false);
+        UpdateIntelligenceItem? item = summary.Items.SingleOrDefault(candidate => string.Equals(candidate.StableProductKey, stableProductKey, StringComparison.Ordinal));
+        if (item is not { Status: UpdateIntelligenceStatus.VerifiedUpdate, Mapping.IsActionable: true, Mapping.CandidateVersion: not null, SourceId: not null })
+        {
+            return new(null, item?.Explanation ?? "The selected product is no longer present in current inventory.");
+        }
+
+        SourceSnapshot? source = summary.Sources.SingleOrDefault(snapshot => string.Equals(snapshot.SourceId, item.SourceId, StringComparison.OrdinalIgnoreCase));
+        if (source?.State != SourceSnapshotState.Live) return new(null, "The approved source did not provide a fresh live result. No update can be started.");
+
+        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
+        if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
+        StructuredUpdateCandidateEvidence? candidate = structuredUpdateCandidates is null
+            ? null
+            : await structuredUpdateCandidates.ResolveAsync(item.Mapping.SourceId, item.Mapping.PackageId, cancellationToken).ConfigureAwait(false);
+        if (!IsExactStructuredCandidate(item.Mapping, profile, candidate))
+        {
+            return new(null, "The provider did not supply bounded structured candidate-version evidence for the exact source and package. Display results cannot authorize an update.");
+        }
+        if (!TryCreateSelection(profile, item.Mapping, candidate!.CandidateVersion, out UpdateJobSelection? selection, out string message)) return new(null, message);
+        return new(selection, "Fresh exact source evidence is ready for your review.");
+    }
+
+    /// <summary>
+    /// Performs a controlled full scan and requires two independent authorities: exact source/ID/version
+    /// from bounded WinGet export JSON, and exact version/scope/architecture from the reviewed structured
+    /// registry or MSIX product. Display-table inventory is never post-update success authority.
+    /// </summary>
+    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
+        ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
+        if (!scan.Succeeded) return new(false, false);
+        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        CanonicalProduct[] selectedProducts = products.Where(product => string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal)).ToArray();
+        HashSet<Guid> productIds = selectedProducts.Select(product => product.Id).ToHashSet();
+        InstallationInstance[] exactLocal = instances.Where(instance =>
+            productIds.Contains(instance.ProductId) &&
+            IsConcreteLocalEvidence(instance) &&
+            string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
+            string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        bool expectedVersionDetected = exactLocal.Length == 1 && selectedProducts.Length == 1;
+        return new(expectedVersionDetected, false);
+    }
 
     public Task PinCurrentVersionAsync(string stableProductKey, string currentVersion, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinCurrentVersionAsync(stableProductKey, currentVersion, reason, cancellationToken);
     public Task PinSourcePackageAsync(string stableProductKey, string sourceId, string packageId, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinSourcePackageAsync(stableProductKey, sourceId, packageId, reason, cancellationToken);
@@ -123,16 +219,101 @@ public sealed class InventoryWorkflow : IDisposable
     private static ProductMatchProfile[] CreateProfiles(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances)
     {
         Dictionary<Guid, InstallationInstance[]> byProduct = instances.GroupBy(instance => instance.ProductId).ToDictionary(group => group.Key, group => group.ToArray());
+        Dictionary<Guid, CanonicalProduct> productsById = products.ToDictionary(product => product.Id);
         return products.Select(product =>
         {
             InstallationInstance[] productInstances = byProduct.GetValueOrDefault(product.Id, []);
             InstallationInstance? preferred = productInstances.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
             InstallationInstance[] wingetInstances = productInstances.Where(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)).ToArray();
             InstallationInstance? winget = wingetInstances.OrderBy(instance => instance.SourceId, StringComparer.Ordinal).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
+            InstallationInstance? executionEvidence = ConcreteExecutionEvidence(productInstances, winget) ?? preferred;
             InstallationInstance? msix = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase));
             bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any();
-            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, preferred?.Version, preferred?.Scope ?? "Unknown", preferred?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
         }).ToArray();
+    }
+
+    private static InstallationInstance? ConcreteExecutionEvidence(IReadOnlyCollection<InstallationInstance> productInstances, InstallationInstance? winget)
+    {
+        if (winget?.Version is null) return null;
+        InstallationInstance[] candidates = productInstances.Where(instance =>
+            IsConcreteLocalEvidence(instance) &&
+            string.Equals(instance.Version, winget.Version, StringComparison.OrdinalIgnoreCase) &&
+            TryScope(instance.Scope, out _) &&
+            TryArchitecture(instance.Architecture, out _)).ToArray();
+        return candidates.Select(instance => (instance.Scope, instance.Architecture)).Distinct().Skip(1).Any()
+            ? null
+            : candidates.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
+    }
+
+    private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExactStructuredCandidate(PackageMapping mapping, ProductMatchProfile profile, StructuredUpdateCandidateEvidence? candidate)
+    {
+        const int maximumVersionLength = 128;
+        if (candidate is null ||
+            !string.Equals(candidate.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.InstalledVersion, profile.InstalledVersion, StringComparison.Ordinal) ||
+            !string.Equals(candidate.CandidateVersion, mapping.CandidateVersion, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(candidate.InstalledVersion) ||
+            candidate.InstalledVersion.Length > maximumVersionLength ||
+            string.IsNullOrWhiteSpace(candidate.CandidateVersion) ||
+            candidate.CandidateVersion.Length > maximumVersionLength)
+        {
+            return false;
+        }
+
+        return IsBoundedVersion(candidate.InstalledVersion) && IsBoundedVersion(candidate.CandidateVersion);
+    }
+
+    private static bool IsBoundedVersion(string version) => version.All(character =>
+        char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
+
+    private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, string candidateVersion, out UpdateJobSelection? selection, out string message)
+    {
+        selection = null;
+        if (profile.InstalledVersion is null) { message = "The installed version is missing."; return false; }
+        VersionComparisonResult comparison = VersionComparison.Compare(new(profile.InstalledVersion, candidateVersion, false));
+        if (comparison.Outcome != VersionComparisonOutcome.Newer) { message = "The structured candidate version is not a supported newer version."; return false; }
+        if (!TrySource(mapping.SourceId, out UpdateSource source)) { message = "The selected source is not actionable."; return false; }
+        if (!TryScope(profile.Scope, out UpdateScope scope)) { message = "The installed scope is not supported for a safe update."; return false; }
+        if (!TryArchitecture(profile.Architecture, out UpdateArchitecture architecture)) { message = "The installed architecture is not supported for a safe update."; return false; }
+        UpdateChannel channel = string.Equals(profile.Channel, "preview", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Preview : string.Equals(profile.Channel, "stable", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Stable : UpdateChannel.Unknown;
+        try
+        {
+            selection = new UpdateJobSelection(profile.StableProductKey, UpdateProvider.WinGet, source, mapping.PackageId, profile.InstalledVersion, candidateVersion, scope, architecture, channel, "winget-com-v1");
+            message = "Fresh exact source evidence is ready for your review.";
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            message = "The source evidence contained an unsupported value. No update can be started.";
+            return false;
+        }
+    }
+
+    private static bool TrySource(string sourceId, out UpdateSource source)
+    {
+        if (string.Equals(sourceId, "winget", StringComparison.OrdinalIgnoreCase)) { source = UpdateSource.WinGet; return true; }
+        if (string.Equals(sourceId, "msstore", StringComparison.OrdinalIgnoreCase)) { source = UpdateSource.MicrosoftStore; return true; }
+        source = default; return false;
+    }
+
+    private static bool TryScope(string scopeName, out UpdateScope scope)
+    {
+        if (string.Equals(scopeName, "user", StringComparison.OrdinalIgnoreCase)) { scope = UpdateScope.User; return true; }
+        if (string.Equals(scopeName, "machine", StringComparison.OrdinalIgnoreCase)) { scope = UpdateScope.Machine; return true; }
+        scope = default; return false;
+    }
+
+    private static bool TryArchitecture(string architectureName, out UpdateArchitecture architecture)
+    {
+        if (string.Equals(architectureName, "x64", StringComparison.OrdinalIgnoreCase)) { architecture = UpdateArchitecture.X64; return true; }
+        if (string.Equals(architectureName, "x86", StringComparison.OrdinalIgnoreCase)) { architecture = UpdateArchitecture.X86; return true; }
+        if (string.Equals(architectureName, "arm64", StringComparison.OrdinalIgnoreCase)) { architecture = UpdateArchitecture.Arm64; return true; }
+        if (string.Equals(architectureName, "neutral", StringComparison.OrdinalIgnoreCase)) { architecture = UpdateArchitecture.Neutral; return true; }
+        architecture = default; return false;
     }
 
     private static int ProviderPriority(InstallationInstance instance) => instance.Provider.ToLowerInvariant() switch { "winget" => 0, "msix" => 1, "registry" => 2, _ => 3 };

@@ -30,6 +30,19 @@ public sealed class UpdateIntelligenceTests
     }
 
     [TestMethod]
+    public void UnavailableUnrelatedSourceDoesNotHideAnInstalledWingetProduct()
+    {
+        ProductMatchProfile firefox = Product("firefox", "Mozilla.Firefox", "152.0.6");
+        SourceSnapshot winget = Source([]);
+        SourceSnapshot store = new("msstore", null, null, SourceSnapshotState.Unavailable, [], ["source:unavailable"]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([firefox], [winget, store]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Unmanaged, item.Status);
+        Assert.AreNotEqual(UpdateIntelligenceStatus.FailedUnavailable, item.Status);
+    }
+
+    [TestMethod]
     public void ExpiredIgnoreIsReappliedAsNormalSafeMatchingRatherThanRemainingHidden()
     {
         ProductMatchProfile product = Product("expired", "Contoso.Expired", "1.0.0");

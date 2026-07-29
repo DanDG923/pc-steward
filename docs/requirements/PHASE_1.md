@@ -14,7 +14,8 @@ Deliver a local-only, non-elevated inventory workflow with durable storage, cons
 6. **Task 12:** Scan orchestration, cancellation, timings, and performance harness
 7. **Task 13:** App shell, onboarding, and inventory experience
 8. **Task 14:** Exports and Clear scan data
-9. **Task 15:** Phase 1 review gate
+9. **Task 14A:** Prepare Phase 1 review evidence
+10. **Task 15:** Phase 1 review gate
 
 ## Exit condition
 

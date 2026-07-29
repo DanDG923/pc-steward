@@ -27,6 +27,7 @@
 
 - Use native Windows/PowerShell unless an ADR explicitly changes this.
 - Inspect before editing. State a plan of no more than eight bullets, then execute unless there is a genuine blocker.
+- At the start of each Codex task, rename the task to its numbered task and concise purpose (for example, `Task 25 — Phase 3 review`) without waiting for a reminder.
 - Make the smallest coherent change for the task. Do not refactor unrelated code.
 - Keep domain rules, provider adapters, process execution, persistence, privileged code, and UI separated.
 - Use deterministic, unit-testable rules. AI must not make trust or execution decisions.

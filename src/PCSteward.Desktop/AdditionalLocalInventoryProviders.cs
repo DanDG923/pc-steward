@@ -31,22 +31,8 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
     private static Guid GuidFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }
 
-internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalInventoryProvider
+internal sealed class WingetPostUpdatePackageInventory : IPostUpdatePackageInventory
 {
-    private readonly WingetInstalledInventoryProvider provider = new(new WindowsWingetProcess());
-    public string Name => "WinGet installed inventory";
-    public TimeSpan Timeout => TimeSpan.FromSeconds(35);
-    public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
-    {
-        if (!enabled()) return new ProviderScanResult([], [], [], ["disabled"]);
-        WingetInventoryResult result = await provider.ReadInstalledAsync(cancellationToken); List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
-        foreach (WingetInstalledRecord record in result.Records)
-        {
-            string? sourceId = record.Source?.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => null };
-            string sourceKey = sourceId ?? "unknown";
-            Guid productId = GuidFor("product|winget|" + sourceKey + "|" + record.Id); products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name)); instances.Add(new InstallationInstance(GuidFor("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version), productId, "winget", record.Id, record.Version, "Unknown", "Unknown", null, null, null, null, "Application", sourceId)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "winget", record.Id, $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"}"));
-        }
-        return new ProviderScanResult(products, instances, raw, result.Warnings);
-    }
-    private static Guid GuidFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
+    private readonly WingetInstalledInventoryProvider provider = new();
+    public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => provider.HasExactExpectedVersionAsync(job, cancellationToken);
 }

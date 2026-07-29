@@ -55,7 +55,8 @@ public sealed class SqliteDatabaseTests
         await database.Store.PromoteAsync([product], [new InstallationInstance(Guid.NewGuid(), product.Id, "registry", "contoso-widget", "1.0", "User", "x64")], CancellationToken.None);
         await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), product.StableKey, "Pin", "1.0", DateTimeOffset.UtcNow), CancellationToken.None);
         await database.Store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), product.StableKey, "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
-        await database.Store.SaveUpdateJobAsync(new UpdateJobRecord(Guid.NewGuid(), "winget", "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
+        UpdateJobSelection updateSelection = new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
+        await new UpdateJobApprovalService(database.Store).ConfirmAsync(new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), updateSelection), DateTimeOffset.UtcNow, CancellationToken.None);
         await database.Store.SaveDownloadedArtifactAsync(new DownloadedArtifact(Guid.NewGuid(), "update", "payload.bin", 512, DateTimeOffset.UtcNow), CancellationToken.None);
 
         ClearScanDataResult first = await database.Store.ClearScanDataAsync(CancellationToken.None);
@@ -156,6 +157,74 @@ public sealed class SqliteDatabaseTests
         await database.Store.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow.AddDays(-30), CancellationToken.None);
 
         Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task DownloadedArtifactLedgerPersistsOwnershipStateHashAndLastCleanedTime()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); Guid jobId = Guid.NewGuid();
+        DownloadedArtifact artifact = new(Guid.NewGuid(), "update", "payload.bin", 512, DateTimeOffset.UtcNow, "aabbcc", jobId, DownloadedArtifactOutcome.VerifiedSuccess, true);
+        await database.Store.SaveDownloadedArtifactAsync(artifact, CancellationToken.None); await database.Store.SetDownloadedArtifactsLastCleanedAtAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        DownloadedArtifact restored = (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).Single();
+
+        Assert.AreEqual(artifact, restored); Assert.IsNotNull(await database.Store.GetDownloadedArtifactsLastCleanedAtAsync(CancellationToken.None));
+        await database.Store.DeleteDownloadedArtifactAsync(artifact.Id, CancellationToken.None); Assert.HasCount(0, await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ApprovedJobRoundTripsButTamperedDatabaseEvidenceFailsClosed()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pcsteward-job-{Guid.NewGuid():N}.db");
+        try
+        {
+            SqliteDatabase store = new(path);
+            await store.MigrateAsync(CancellationToken.None);
+            UpdateJobSelection selection = new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
+            UpdateJobReview review = new(Guid.NewGuid(), Guid.NewGuid(), selection);
+            ImmutableUpdateJob job = await new UpdateJobApprovalService(store).ConfirmAsync(review, DateTimeOffset.UtcNow, CancellationToken.None);
+
+            ImmutableUpdateJob restored = (await store.GetApprovedJobAsync(job.Id, CancellationToken.None))!;
+            Assert.AreEqual(job.Digest, restored.Digest);
+            Assert.AreEqual(job.Selection.CandidateVersion, restored.Selection.CandidateVersion);
+            await Assert.ThrowsExactlyAsync<SqliteException>(() => store.SaveApprovedJobAsync(job, CancellationToken.None));
+
+            await using (SqliteConnection connection = new($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "UPDATE approved_update_jobs SET candidate_version = '9.9.9' WHERE id = $id;";
+                command.Parameters.AddWithValue("$id", job.Id.ToString("D"));
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => store.GetApprovedJobAsync(job.Id, CancellationToken.None));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public async Task UpdateHistoryIsAppendOnlyRecoverableRetainedAndIncludedInTheProductTimeline()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(DateTimeOffset.UtcNow);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        UpdateHistoryEntry running = new(Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider, job.Selection.PackageId, job.Selection.InstalledVersion, job.Selection.CandidateVersion, now, UpdateHistoryStatus.Running, null, "running");
+        await database.Store.RecordAsync(running, CancellationToken.None);
+        await database.Store.RecoverInterruptedAsync(CancellationToken.None);
+        await database.Store.RecordAsync(running with { EventId = Guid.NewGuid(), OccurredAt = now.AddMinutes(1), Status = UpdateHistoryStatus.Success, ExitCode = 0, Diagnostic = "verified" }, CancellationToken.None);
+
+        IReadOnlyCollection<UpdateHistoryEntry> history = await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None);
+        IReadOnlyCollection<ProductTimelineEntry> timeline = await database.Store.GetTimelineAsync(job.Selection.StableProductKey, CancellationToken.None);
+        await database.Store.PruneAsync(new UpdateHistoryRetention(2, now.AddDays(1)), CancellationToken.None);
+
+        Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.VerificationRequired && entry.Diagnostic.Contains("verification-required", StringComparison.Ordinal)));
+        Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.Success && entry.ExitCode == 0));
+        Assert.IsTrue(timeline.Any(entry => entry.Summary.Contains("Update Success", StringComparison.Ordinal)));
+        Assert.IsTrue((await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None)).Count <= 2);
     }
 
     private sealed class TestDatabase : IAsyncDisposable

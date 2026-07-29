@@ -1,21 +1,21 @@
 # PC Steward build status
 
-**Current phase:** Phase 2 — Update intelligence
-**Current task:** 20 — Phase 2 review gate passed; awaiting branch integration
-**Last green commit:** `5611439` — `docs: record blocked production trace evidence`
-**Current branch:** `phase/2-intelligence`
+**Current phase:** Phase 3 — Safe update execution and app-owned cache
+**Current task:** 25 — Phase 3 independent security review complete
+**Last green tree:** reviewed implementation commit `5013c942ae2fa0dc62c9bf71258bcbffedd03347` — focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile 42/1 skip, WinGet boundary 11, installed-helper host evidence 6/6
+**Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** PASS — ADR-003 real-row evidence deferred to Phase 3 by product-owner exception
+**Phase gate:** PASS — Phase 3 is merge-ready; do not begin Task 26 before the branch is merged
 
 ## Decisions
 
 | Decision | Status | ADR |
 |---|---|---|
 | Product name/identity | Accepted | ADR-001 / OD-01 |
-| Packaging model | Provisional | ADR-002 / OD-02 |
-| WinGet integration route | Provisional — Phase 3 evidence exception | ADR-003 / OD-03 |
+| Packaging model | Provisional — protected machine binary root required | ADR-002 / OD-02 |
+| WinGet integration route | Provisional split route — official COM candidate authority plus constrained CLI execution/display | ADR-003 / OD-03 |
 | GitHub Releases MVP scope | Accepted | ADR-004 / OD-04 |
 | Runtime grouping | Accepted | ADR-005 / OD-05 |
 | Performance baseline | Accepted | ADR-006 / OD-06 |
@@ -35,21 +35,21 @@
 | Scheduling without resident process | Accepted | ADR-020 |
 | Accessibility best-effort priority | Accepted | ADR-021 |
 
+## Task 25 independent gate
+
+Fresh GPT-5.6 Sol / Extra High review at exact commit `5013c94` closes `P3R-01–15` with no remaining Blocker, High or Medium finding. `P3R-14` uses the official WinGet COM projection as the sole executable candidate authority, bound to predefined trusted source, exact ID, installed version and newer candidate version. Display-table text remains non-executable. Current-tree evidence reaches review, runner and exact post-update verification.
+
+`P3R-15` has production-path evidence for the real default transport/validator: a protected, non-reparse, valid same-signer `%ProgramFiles%\PC Steward` no-op UAC path completed. Actual tamper, trusted-wrong-signer, caller-writable, helper-reparse and between-validation replacement layouts all stopped before the helper marker. A fresh read-only check corroborates that the exact installed root, RunId temporary root and both certificate thumbprints are absent.
+
+The final verdict and residual-risk disposition are in [Phase 3 security review](review/PHASE_3_SECURITY_REVIEW.md). Fresh gates pass: focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile boundary 42/1 approved skip, WinGet boundary 11, NuGet known-vulnerability count zero, and immutable installed-helper evidence 6/6.
+
 ## Residual risks and accepted deferrals
 
-There are no remaining Phase 2 gate blockers. `P2R-07`–`P2R-10` are closed, including the fail-closed correction that always classifies `SourceDisagreement` as review-required.
-
-The final Task 20 retest accepts the administrator-token ETW evidence for `AC-DAT-04`. ADR-003 remains Provisional: the product owner approved deferring its sanitized real update-row/source-column evidence until Phase 3 because WinGet default, WinGet `--include-unknown`, and Microsoft Store probes all returned zero rows and no update is currently available. The exception does not treat real-row parsing as proven or relax any fail-closed control.
-
-The supported-Windows, native-tooling, isolated reparse-point and fixed-performance-baseline limitations from Phase 0 remain open. `AC-UX-01–09` are Optional — best effort under ADR-021 and are not gate blockers.
-
-## Task 20 result
-
-Final Task 20 result: `PASS`. Focused safety regressions: 8 passed; Release build: zero warnings/errors; full suite: 95 passed; fixture benchmark: 30 local runs at 2.13 ms median / 2.74 ms p95 and 20 two-source fixture refreshes at 15.39 ms median / 15.76 ms p95.
+The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image installer lifecycle, a new real update/live external COM query, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain accepted residual risks. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Integrate the passing Phase 2 branch into `main`, then begin Task 21. Carry the ADR-003 real-row evidence exception into Phase 3 and capture the sanitized row when an update becomes available.
+Merge Phase 3 only through a separately authorized repository action. Begin Task 26 only after that merge; this review did not merge, push or start Phase 4 work.
 
 ## Rules for updating this file
 

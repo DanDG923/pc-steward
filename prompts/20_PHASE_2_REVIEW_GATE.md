@@ -7,7 +7,7 @@
 | Speed | **Standard** |
 | Mode | **Review** |
 | Branch | `phase/2-intelligence` |
-| Run after | Tasks 16–19 complete |
+| Run after | Task 19A complete |
 | Expected commit | `review: assess Phase 2 intelligence gate` |
 
 **Primary requirement references:** See the task and current phase brief.
@@ -17,7 +17,7 @@
 ```text
 Task 20 — review Phase 2. Start with `/review` and review the branch from its merge-base with `main`. Do not modify production code.
 
-Read the Phase 2 brief, accepted ADRs, fixture catalog/results, source-cache evidence, and complete diff.
+Read the Phase 2 brief, accepted ADRs, fixture catalog/results, source-cache evidence, `docs/review/PHASE_2_EVIDENCE_READINESS.md`, and complete diff.
 
 Review for:
 - false-positive actionable mappings;
@@ -31,7 +31,7 @@ Review for:
 - cache/offline/timeout resilience;
 - traceability and missing tests.
 
-Run the curated mapping suite and relevant full tests. Write `docs/review/PHASE_2_REVIEW.md` using the template. The gate fails for any actionable false positive, Blocker/High finding, or unproven mandatory acceptance criterion.
+Run the curated mapping suite and relevant full tests. Write `docs/review/PHASE_2_REVIEW.md` using the template. A missing or stale readiness package is unproven mandatory evidence. The gate fails for any actionable false positive, Blocker/High finding, or unproven mandatory acceptance criterion.
 
 Only update the review report and status. If failed, run Task 90 and repeat this review.
 ```

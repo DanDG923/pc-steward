@@ -53,13 +53,35 @@ Reset and cleanup operate from a compile-time/configuration-owned manifest of ca
 
 Symbolic-link creation required administrator privilege on this host, and a true volume mount was not attempted. Public path-based handle acquisition also leaves an unproven ancestor-component race. The report therefore defines mandatory isolated-environment symbolic-link, volume-mount and concurrent ancestor-swap cases for Tasks 24/25. No production deletion or elevation claim is made.
 
+## Task 24 evidence
+
+The download cache now resolves only `%LocalAppData%\PCSteward\downloads` (or an isolated test root) from code. SQLite path values are treated as relative evidence, not deletion authority. Cleanup validates containment and every existing component before a second validation followed by a `FILE_FLAG_OPEN_REPARSE_POINT` handle-bound deletion. It rejects relative, rooted, UNC, device, alternate-data-stream, prefix-confusion and reparse paths; active leases are excluded. The focused suite proves quota order, active-artifact protection, seven-day/24-hour retention, idempotence, locked partial cleanup, and outside-sentinel preservation. Symbolic-link, volume-mount and concurrent ancestor-swap evidence remains restricted to the approved disposable-VM phase gate.
+
+## Task 22 evidence
+
+The production boundary now creates a random local-only, single-instance named pipe with an explicit protected ACL granting only the current user and SYSTEM. The desktop launches the fixed helper path through `runas` only after a fresh immutable machine-scope job reaches execution. Bootstrap arguments are limited to protocol version, desktop PID, pipe locator and a 256-bit nonce. Both endpoints bind the pipe-reported peer PID to the launched/requesting process and verify the same user SID, session, fixed executable path, trusted Authenticode signature and same signer.
+
+The helper accepts one length-bounded canonical request, validates nonce and two-minute issuance lifetime, restores the immutable job through its digest, rejects unknown/duplicate/malformed fields and reconstructs a fixed machine-scope WinGet argument array in provider code. It monitors desktop disconnect for process-tree cancellation, returns a bounded sanitized result and exits. UAC denial, cancellation, timeout, output overflow, provider failure, helper failure/crash and completed-provider execution are distinct; completed remains awaiting Task 23 verification rather than Success.
+
+Sixteen security fixtures and four architecture tests pass replay, substitution, stale evidence, malformed/overlong IPC, duplicate request, path injection, bootstrap authority injection, per-user privilege confusion, fixed machine arguments, result binding/sanitization and local ACL/PID behavior. Analyzer verification, the Release build and all 120 tests pass. No UAC prompt or real update was invoked. The current artifacts are unsigned and therefore deliberately fail peer-signature validation; signed UAC acceptance/denial, cross-integrity identity checks, disconnect cancellation and immediate teardown remain mandatory disposable-Windows-11-VM evidence for Tasks 25/30.
+
+## Task 90 P3R-15 evidence
+
+The desktop fails before `runas` unless it is executing from the fixed `%ProgramFiles%\PC Steward` root beside the expected helper, neither file nor any root component is a reparse point, the current token lacks write/delete/DACL/owner authority over the root/files and replacement/delete/DACL/owner authority over higher ancestors, both files have trusted Authenticode signatures, and signer certificates match exactly. Trust is evaluated before pipe/bootstrap setup and again immediately before launch; connected-process identity/signature validation remains.
+
+The approved host fixture exercised the real production validator/transport. A protected same-signer layout completed the signed no-op UAC/pipe path. Actual tampered, wrong-signer, caller-writable, helper-reparse and privileged between-validation replacement layouts all failed before the helper launch marker. The fixed root, unique temporary root and both exact certificate thumbprints were absent after teardown. This closes the Phase 3 `TM-04/TM-06` production-boundary evidence gap on the approved host; clean installer lifecycle and unconstrained administrator/OS compromise remain outside this proof.
+
+## Task 90 P3R-14 evidence
+
+The actual desktop now composes an official WinGet COM structured-candidate authority. Only predefined trusted `winget`/`msstore` catalogs, one exact ID match, and bounded exact installed/newer-candidate versions can cross into review. Wrong source/ID, fuzzy/duplicate/limit-exceeded/untrusted results, malformed/equal/older versions, cancellation, timeout or COM/catalog error return no authority. Display-table fields remain non-executable. A current-tree composition test uses the production authority around a controlled COM observation and proves the exact evidence crosses review and runner, then becomes Success only after exact export plus concrete local post-update version/scope/architecture evidence.
+
 ## Residual risks requiring evidence
 
 - The provisional constrained WinGet CLI route requires approved isolated-environment inventory/source and parser/process evidence: Tasks 10, 18, 21 and 25.
 - The provisional unpackaged installer requires Windows 11 install/upgrade/uninstall/signing evidence: Task 30.
 - Full-walk Windows deletion/TOCTOU primitive, symbolic-link and volume-mount behavior without over-privilege: Tasks 24/25, following Task 03's partial evidence.
 - Final-application performance on the accepted recorded baseline: Tasks 12 and 29.
-- Isolated-environment, UAC, signing and package lifecycle evidence remains unavailable on the current audited host.
+- Clean-image installer lifecycle, provider-disconnect cancellation and broader cross-integrity teardown remain Task 30 evidence; the approved current-host fixed-root signature/ACL/reparse/UAC/no-op and hostile replacement cases are recorded for the current Phase 3 production boundary.
 
 ## Review rule
 

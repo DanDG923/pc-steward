@@ -1,7 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework></PropertyGroup>
+  <PropertyGroup><TargetFramework>net10.0-windows10.0.22000.0</TargetFramework></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
     <ProjectReference Include="../PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
+    <InternalsVisibleTo Include="PCSteward.ProductionTrustDesktop" />
+    <InternalsVisibleTo Include="PCSteward.ProductionTrustHelper" />
   </ItemGroup>
 </Project>

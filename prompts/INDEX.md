@@ -19,22 +19,27 @@ Open a fresh Codex chat for every numbered task. Keep the same chat only while c
 | 12 | Scan orchestration, cancellation, timings, and performance harness | GPT-5.6 Terra / High | `phase/1-inventory` | [`12_SCAN_ORCHESTRATION_CANCELLATION_TIMINGS_AND_PERFORMANCE_HARNESS.md`](12_SCAN_ORCHESTRATION_CANCELLATION_TIMINGS_AND_PERFORMANCE_HARNESS.md) |
 | 13 | App shell, onboarding, and inventory experience | GPT-5.6 Terra / Medium | `phase/1-inventory` | [`13_APP_SHELL_ONBOARDING_AND_INVENTORY_EXPERIENCE.md`](13_APP_SHELL_ONBOARDING_AND_INVENTORY_EXPERIENCE.md) |
 | 14 | Exports and Clear scan data | GPT-5.6 Terra / High | `phase/1-inventory` | [`14_EXPORTS_AND_CLEAR_SCAN_DATA.md`](14_EXPORTS_AND_CLEAR_SCAN_DATA.md) |
+| 14A | Prepare Phase 1 review evidence | GPT-5.6 Terra / High | `phase/1-inventory` | [`14A_PREPARE_PHASE_1_REVIEW_EVIDENCE.md`](14A_PREPARE_PHASE_1_REVIEW_EVIDENCE.md) |
 | 15 | Phase 1 review gate | GPT-5.6 Sol / High | `phase/1-inventory` | [`15_PHASE_1_REVIEW_GATE.md`](15_PHASE_1_REVIEW_GATE.md) |
 | 16 | Version comparison engine | GPT-5.6 Terra / Medium | `phase/2-intelligence` | [`16_VERSION_COMPARISON_ENGINE.md`](16_VERSION_COMPARISON_ENGINE.md) |
 | 17 | Deterministic matching and confidence engine | GPT-5.6 Terra / High | `phase/2-intelligence` | [`17_DETERMINISTIC_MATCHING_AND_CONFIDENCE_ENGINE.md`](17_DETERMINISTIC_MATCHING_AND_CONFIDENCE_ENGINE.md) |
 | 18 | WinGet update intelligence, source cache, and freshness | GPT-5.6 Terra / High | `phase/2-intelligence` | [`18_WINGET_UPDATE_INTELLIGENCE_SOURCE_CACHE_AND_FRESHNESS.md`](18_WINGET_UPDATE_INTELLIGENCE_SOURCE_CACHE_AND_FRESHNESS.md) |
 | 19 | Manual decisions and update-intelligence UX | GPT-5.6 Terra / Medium | `phase/2-intelligence` | [`19_MANUAL_DECISIONS_AND_UPDATE_INTELLIGENCE_UX.md`](19_MANUAL_DECISIONS_AND_UPDATE_INTELLIGENCE_UX.md) |
+| 19A | Prepare Phase 2 review evidence | GPT-5.6 Terra / High | `phase/2-intelligence` | [`19A_PREPARE_PHASE_2_REVIEW_EVIDENCE.md`](19A_PREPARE_PHASE_2_REVIEW_EVIDENCE.md) |
 | 20 | Phase 2 review gate | GPT-5.6 Sol / High | `phase/2-intelligence` | [`20_PHASE_2_REVIEW_GATE.md`](20_PHASE_2_REVIEW_GATE.md) |
 | 21 | Immutable update jobs and constrained non-elevated runner | GPT-5.6 Terra / High | `phase/3-execution` | [`21_IMMUTABLE_UPDATE_JOBS_AND_CONSTRAINED_NON_ELEVATED_RUNNER.md`](21_IMMUTABLE_UPDATE_JOBS_AND_CONSTRAINED_NON_ELEVATED_RUNNER.md) |
 | 22 | Short-lived elevated helper and secure IPC | GPT-5.6 Sol / High | `phase/3-execution` | [`22_SHORT_LIVED_ELEVATED_HELPER_AND_SECURE_IPC.md`](22_SHORT_LIVED_ELEVATED_HELPER_AND_SECURE_IPC.md) |
 | 23 | Sequential batches, post-update verification, history, and diagnostics | GPT-5.6 Terra / High | `phase/3-execution` | [`23_SEQUENTIAL_BATCHES_POST_UPDATE_VERIFICATION_HISTORY_AND_DIAGNOSTICS.md`](23_SEQUENTIAL_BATCHES_POST_UPDATE_VERIFICATION_HISTORY_AND_DIAGNOSTICS.md) |
 | 24 | Downloaded-artifact cache and safe cleanup | GPT-5.6 Terra / High | `phase/3-execution` | [`24_DOWNLOADED_ARTIFACT_CACHE_AND_SAFE_CLEANUP.md`](24_DOWNLOADED_ARTIFACT_CACHE_AND_SAFE_CLEANUP.md) |
+| 24A | Prepare Phase 3 security-review evidence | GPT-5.6 Terra / High | `phase/3-execution` | [`24A_PREPARE_PHASE_3_REVIEW_EVIDENCE.md`](24A_PREPARE_PHASE_3_REVIEW_EVIDENCE.md) |
 | 25 | Phase 3 security review gate | GPT-5.6 Sol / Extra High | `phase/3-execution` | [`25_PHASE_3_SECURITY_REVIEW_GATE.md`](25_PHASE_3_SECURITY_REVIEW_GATE.md) |
 | 26 | Scheduled checks and Windows notifications | GPT-5.6 Terra / Medium | `phase/4-beta` | [`26_SCHEDULED_CHECKS_AND_WINDOWS_NOTIFICATIONS.md`](26_SCHEDULED_CHECKS_AND_WINDOWS_NOTIFICATIONS.md) |
+| 26A | Prepare factory-reset design-gate evidence | GPT-5.6 Terra / High | `phase/4-beta` | [`26A_PREPARE_FACTORY_RESET_DESIGN_EVIDENCE.md`](26A_PREPARE_FACTORY_RESET_DESIGN_EVIDENCE.md) |
 | 27 | Factory-reset design gate | GPT-5.6 Sol / High | `phase/4-beta` | [`27_FACTORY_RESET_DESIGN_GATE.md`](27_FACTORY_RESET_DESIGN_GATE.md) |
 | 28 | Factory reset and advanced data controls | GPT-5.6 Terra / High | `phase/4-beta` | [`28_FACTORY_RESET_AND_ADVANCED_DATA_CONTROLS.md`](28_FACTORY_RESET_AND_ADVANCED_DATA_CONTROLS.md) |
 | 29 | Accessibility, reliability, and performance hardening | GPT-5.6 Terra / High | `phase/4-beta` | [`29_ACCESSIBILITY_RELIABILITY_AND_PERFORMANCE_HARDENING.md`](29_ACCESSIBILITY_RELIABILITY_AND_PERFORMANCE_HARDENING.md) |
 | 30 | Packaging, release evidence, SBOM, and private beta preparation | GPT-5.6 Terra / High | `phase/4-beta` | [`30_PACKAGING_RELEASE_EVIDENCE_SBOM_AND_PRIVATE_BETA_PREPARATION.md`](30_PACKAGING_RELEASE_EVIDENCE_SBOM_AND_PRIVATE_BETA_PREPARATION.md) |
+| 30A | Prepare final release-audit evidence | GPT-5.6 Terra / High | `phase/4-beta` | [`30A_PREPARE_FINAL_RELEASE_AUDIT_EVIDENCE.md`](30A_PREPARE_FINAL_RELEASE_AUDIT_EVIDENCE.md) |
 | 31 | Final release audit | GPT-5.6 Sol / Extra High | `phase/4-beta` | [`31_FINAL_RELEASE_AUDIT.md`](31_FINAL_RELEASE_AUDIT.md) |
 
 ## Conditional prompts

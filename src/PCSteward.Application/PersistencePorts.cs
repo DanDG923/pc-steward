@@ -53,3 +53,13 @@ public interface IScanDataStore : IInventorySnapshotStore
     Task<DateTimeOffset?> GetLastCompletedScanAtAsync(CancellationToken cancellationToken);
     Task<ClearScanDataResult> ClearScanDataAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>Ledger entries are evidence only; the fixed cache root remains the deletion authority.</summary>
+public interface IDownloadedArtifactStore
+{
+    Task SaveDownloadedArtifactAsync(DownloadedArtifact artifact, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<DownloadedArtifact>> GetDownloadedArtifactsAsync(CancellationToken cancellationToken);
+    Task DeleteDownloadedArtifactAsync(Guid artifactId, CancellationToken cancellationToken);
+    Task<DateTimeOffset?> GetDownloadedArtifactsLastCleanedAtAsync(CancellationToken cancellationToken);
+    Task SetDownloadedArtifactsLastCleanedAtAsync(DateTimeOffset cleanedAt, CancellationToken cancellationToken);
+}

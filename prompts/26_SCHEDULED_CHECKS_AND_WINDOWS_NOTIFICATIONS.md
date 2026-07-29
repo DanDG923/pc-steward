@@ -35,4 +35,4 @@ Add task-definition fixtures, create/update/delete/idempotence tests, overlap te
 
 ## Completion rule
 
-Do not proceed to the next numbered task until this task is committed and `docs/STATUS.md` points to the next task. Review tasks must pass; otherwise run Task 90 and repeat the same review.
+Do not proceed to Task 26A until this task is committed and `docs/STATUS.md` points to Task 26A. Review tasks must pass; otherwise run Task 90 and repeat the same review.

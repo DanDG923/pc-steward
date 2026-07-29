@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
@@ -12,5 +12,6 @@
     <ProjectReference Include="../../src/PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
     <ProjectReference Include="../../src/PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
     <ProjectReference Include="../../src/PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Storage/PCSteward.Storage.csproj" />
   </ItemGroup>
 </Project>
