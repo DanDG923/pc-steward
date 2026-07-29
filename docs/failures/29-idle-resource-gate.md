@@ -1,4 +1,4 @@
-# Task 29 — idle resource gate blocked
+# Task 29 — idle resource gate deferred by approved exception
 
 ## Requirement IDs
 
@@ -44,6 +44,14 @@ The controlled page isolation corroborates that finding without changing code: t
 
 The smallest remaining unblocker is a source-level stack capture that explicitly includes `Profile` stackwalks, taken on the recorded ADR-006 baseline with its fixed power plan and process-attributed network collection. Use that capture to identify the UI-thread call path, then make only the evidenced change and repeat the full five-minute gate.
 
-## Scope preserved
+## ETW comparison — Overview surface isolated; frame names unavailable
+
+A second, loss-free WPR capture held the same Release process open for controlled 45-second windows on the Scan, Activity, and Overview surfaces. `xperf -a profile -detail` identified PID `40372` and reports total-system module shares of `Microsoft.UI.Xaml.dll` 0.22% on Scan, 0.21% on Activity, and 1.83% on Overview. `coreclr.dll` is 0.71% only on Overview. `UIAutomationCore.dll` remains 0.08%, 0.08%, and 0.10%, respectively, so UI Automation is not the source of the increase; the trace summary contains no UI Automation provider events. The verbose heap collector produced no usable PCSteward heap report, while expanding the system trace to 50.6 GB.
+
+The trace has sampled stacks, but their function frames require framework symbols. Both a Microsoft-symbol-server attempt and a local-PDB-only attempt were blocked by the host Avast URL policy when the toolkit fell back to a Microsoft blob endpoint. Both attempts were stopped; no exception, scan, or Avast action was taken. This leaves the Overview visual surface and managed execution evidenced, but not a particular source method. The next smallest non-destructive experiment is a CPU-only WPR comparison on the recorded ADR-006 baseline between the existing populated Overview and the existing Overview after filtering the inventory list to no matches; retain process-attributed network capture. Do not change the ListView or navigation until that comparison establishes the list's contribution.
+
+## Approved exception and scope preserved
+
+On 2026-07-29, the product owner approved `PO-EXC-29-PERF-01` to defer the `NFR-PERF-05` / `AC-NFR-06` idle-resource remediation and final baseline proof to a future performance-improvement task. This is a recorded exception, not a passing result: the `<= 1%` CPU budget and recurring-network requirement remain unmet/unverified on this host. The 50.6-GB comparison ETL and temporary WPT installation were removed at the product owner's direction after analysis. Future work must re-establish the source-level cause on the ADR-006 fixed-power baseline before changing UI composition.
 
 No provider, matching, execution, deletion, scheduling, or reset behavior was changed. Both Release instances were closed normally; `Get-Process` found no `PCSteward.Desktop` process 30 seconds after normal close.

@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29 blocked — idle-resource gate requires source-level UI-stack diagnosis
+**Current task:** Task 29 complete with approved performance exception `PO-EXC-29-PERF-01`
 **Last green tree:** Task 28 working tree — Release build 0 warnings/errors; full suite 190 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -45,11 +45,11 @@ The final verdict and residual-risk disposition are in [Phase 3 security review]
 
 ## Residual risks and accepted deferrals
 
-The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image installer lifecycle, a new real update/live external COM query, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain accepted residual risks. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image installer lifecycle, a new real update/live external COM query, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain accepted residual risks. `PO-EXC-29-PERF-01` defers the unmet `NFR-PERF-05` / `AC-NFR-06` idle-resource remediation and final baseline proof; it is not a pass claim. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Continue Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). The five-minute Overview capture reports 4.9883% average CPU against the <=1% `NFR-PERF-05` budget; the same Release desktop on the lightweight Scan page reports 1.8392%, so Overview composition adds ~3.15 points but the shared shell still fails. Approved WPT analysis of a 76,950,076-event loss-free ETL attributes 72.73 CPU-seconds/85.53 seconds to PCSteward, 88.1% on its window thread and 2.55% sampled total CPU in `Microsoft.UI.Xaml.dll`; no usable stacks/allocation events were captured. WPT has been removed; the 3.5-GB system trace remains local/ignored. Capture source-level `Profile` stacks on the ADR-006 fixed-power baseline, then make only an evidenced correction and rerun all Task 29 gates. Do not begin Task 30.
+Task 29 is complete with `PO-EXC-29-PERF-01`. The documented idle-resource failure remains deferred as a future performance-improvement task; it is not a pass claim. The 50.6-GB comparison ETL and the temporary WPT installation have been removed. Stop here: do not begin Task 30 because it may require a different model or reasoning setting.
 
 ## Rules for updating this file
 
