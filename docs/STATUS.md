@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29 complete with approved performance exception `PO-EXC-29-PERF-01`
-**Last green tree:** Task 28 working tree — Release build 0 warnings/errors; full suite 190 passed
+**Current task:** Task 29A complete — prototype-parity UI completion for existing features
+**Last green tree:** Task 29A working tree — Release build 0 warnings/errors; full suite 191 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29 is complete with `PO-EXC-29-PERF-01`. The documented idle-resource failure remains deferred as a future performance-improvement task; it is not a pass claim. The 50.6-GB comparison ETL and the temporary WPT installation have been removed. Stop here: do not begin Task 30 because it may require a different model or reasoning setting.
+Task 29A is complete: the existing production Overview, Scan, Applications, Updates, Activity, Privacy & data, and Settings surfaces now follow the authoritative native prototype without new modules or a change to scan, update, deletion, scheduling, or elevation authority. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
 
 ## Rules for updating this file
 

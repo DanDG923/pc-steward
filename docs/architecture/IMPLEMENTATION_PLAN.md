@@ -26,7 +26,7 @@ Task 21 creates immutable jobs and the constrained non-elevated runner. Task 22 
 
 ## Phase 4 — beta
 
-Task 26 adds scan-only scheduling/notifications. Task 26A assembles evidence before Task 27 locks reset design from actual handles/state. Task 28 implements data controls/reset. Task 29 measures and hardens accessibility/reliability/performance. Task 30 produces packaging/SBOM/release evidence. Task 30A assembles final criterion-level evidence before Task 31 independently determines READY/NOT READY.
+Task 26 adds scan-only scheduling/notifications. Task 26A assembles evidence before Task 27 locks reset design from actual handles/state. Task 28 implements data controls/reset. Task 29 measures and hardens accessibility/reliability/performance. Task 29A completes the existing production surfaces to the authoritative native-prototype visual and interaction contract without adding new authority or future modules. Task 30 then produces packaging/SBOM/release evidence. Task 30A assembles final criterion-level evidence before Task 31 independently determines READY/NOT READY.
 
 ## Decision-to-evidence map
 

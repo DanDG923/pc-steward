@@ -22,6 +22,8 @@ public sealed class InventoryExperienceViewModel
     }
 
     public ObservableCollection<ConnectorOption> Connectors { get; }
+    /// <summary>Unfiltered locally recorded inventory for cross-page summary and update evidence.</summary>
+    public IReadOnlyList<InventoryRow> AllRows => allRows;
     public IReadOnlyList<InventoryRow> VisibleRows { get; private set; } = [];
     public IReadOnlyCollection<string> AvailablePublishers => allRows.Select(row => row.Publisher).Where(publisher => !string.Equals(publisher, "Unknown", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(publisher => publisher, StringComparer.OrdinalIgnoreCase).ToArray();
     public string SearchText { get; private set; } = string.Empty;

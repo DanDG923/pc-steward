@@ -77,6 +77,17 @@ public sealed class InventoryExperienceViewModelTests
         viewModel.SetFilters("Alpha", viewModel.StatusFilter, viewModel.PublisherFilter, viewModel.SourceFilter, viewModel.ScopeFilter, viewModel.SortField);
         Assert.HasCount(1, viewModel.VisibleRows); Assert.AreEqual("registry", viewModel.SourceFilter);
     }
+
+    [TestMethod]
+    public void AllRowsRemainAvailableForCrossPageSummariesWhenAppsFiltersAreActive()
+    {
+        InventoryExperienceViewModel viewModel = new(); Guid alpha = Guid.NewGuid(); Guid beta = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(alpha, "alpha", "Alpha"), new CanonicalProduct(beta, "beta", "Beta")], [new InstallationInstance(Guid.NewGuid(), alpha, "registry", "alpha", "1", "Machine", "x64"), new InstallationInstance(Guid.NewGuid(), beta, "msix", "beta", "1", "User", "x64")]);
+        viewModel.SetFilters("Alpha", "Installed", "All publishers", "registry", "Machine", "Name");
+        Assert.HasCount(1, viewModel.VisibleRows);
+        Assert.HasCount(2, viewModel.AllRows);
+    }
+
     [TestMethod]
     public void ApprovedWingetModeNeverUsesLocalOnlyLabels()
     {

@@ -59,46 +59,144 @@ public sealed class MainWindow : Window
         if (destination == "settings") { RenderSettings(); return; }
         if (destination == "scan") { RenderScanPage(); return; }
         if (destination == "updates") { RenderUpdatesPage(); return; }
-        if (destination is not "overview" and not "applications") { RenderPlaceholder(); return; }
-        StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
+        if (destination == "overview") { RenderOverviewPage(); return; }
+        if (destination == "applications") { RenderApplicationsPage(); return; }
+        if (destination == "activity") { RenderActivityPage(); return; }
+        if (destination == "privacy") { RenderPrivacyPage(); return; }
+        RenderPlaceholder();
+    }
+
+    private static StackPanel CreatePagePanel(double maxWidth = 1040)
+    {
+        StackPanel panel = new() { Spacing = 16, Padding = new Thickness(24), MaxWidth = maxWidth };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
         panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
         panel.Resources[typeof(TextBox)] = AppStyle("StewardInputStyle");
         panel.Resources[typeof(ComboBox)] = AppStyle("StewardSelectStyle");
-        panel.Children.Add(new TextBlock { Text = destination == "applications" ? "Applications" : AppIdentity.DisplayName, Style = AppStyle("StewardPageTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = "First scan reads installed-app information stored locally by Windows. It does not request elevation, install updates, refresh package sources, or send data to an account. Local-only Windows inventory is the safe default.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = AppStyle("StewardSectionTitleStyle") });
-        foreach (ConnectorOption connector in viewModel.Connectors)
-        {
-            CheckBox checkBox = new() { Content = connector.RequiresSourceDisclosure ? $"{connector.Name} (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})", IsChecked = connector.IsEnabled, IsEnabled = !connector.IsEssential };
-            AutomationProperties.SetName(checkBox, connector.RequiresSourceDisclosure ? $"Enable {connector.Name} after source-disclosure approval" : $"Enable {connector.Name}");
-            checkBox.Checked += async (_, _) => await ChangeConnectorAsync(connector.Name, true);
-            checkBox.Unchecked += async (_, _) => await ChangeConnectorAsync(connector.Name, false);
-            panel.Children.Add(checkBox);
-        }
-        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        Button scan = new() { Content = viewModel.IsWinGetEnabled ? "Start approved WinGet inventory scan" : "Start local-only scan", IsEnabled = !viewModel.IsScanning && !isExecuting };
-        AutomationProperties.SetName(scan, scan.Content.ToString()); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
-        Button checkUpdates = new() { Content = "Check approved update sources", IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates && !isExecuting };
-        AutomationProperties.SetName(checkUpdates, "Check approved update sources"); checkUpdates.Click += async (_, _) => await CheckUpdateSourcesAsync(); actions.Children.Add(checkUpdates);
-        if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Loaded += (_, _) => DispatcherQueue.TryEnqueue(() => cancel.Focus(FocusState.Programmatic)); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
-        panel.Children.Add(actions);
-        panel.Children.Add(new TextBlock { Text = $"Status: {viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss} · {viewModel.FreshnessLabel}", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = $"Update intelligence: {viewModel.UpdateFreshnessLabel} Verified {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate]}, review {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired]}, current {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Current]}, unmanaged {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged]}, pinned {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Pinned]}, ignored {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.Ignored]}, unavailable {viewModel.UpdateStatusCounts[PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable]}. Attention needed: {viewModel.AttentionNeeded.Count}.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = $"Source cache retention: {workflow.SourceCacheRetention.TotalDays:0} days. {(viewModel.IsUpdateSourceEnabled ? "Use Check approved update sources to refresh without installing anything." : "Enable approved update sources to check metadata.")}", TextWrapping = TextWrapping.Wrap });
+        return panel;
+    }
 
-        // A finite list viewport preserves ListView virtualization inside the outer page
-        // scroller; an unconstrained ListView measures every installed product repeatedly.
-        ListView list = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, MaxHeight = 520 };
-        TextBox search = new() { PlaceholderText = "Search installed applications", Text = viewModel.SearchText }; AutomationProperties.SetName(search, "Search installed applications");
-        ComboBox status = FilterBox(viewModel.StatusFilter, ["All statuses", "Installed", ..Enum.GetNames<PCSteward.Domain.UpdateIntelligenceStatus>()]); ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", ..viewModel.AvailablePublishers]); ComboBox source = FilterBox(viewModel.SourceFilter, "All sources", "registry", "msix", "winget"); ComboBox scope = FilterBox(viewModel.ScopeFilter, "All scopes", "Machine", "User", "Unknown"); ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
-        AutomationProperties.SetName(status, "Filter by status"); AutomationProperties.SetName(publisher, "Filter by publisher"); AutomationProperties.SetName(source, "Filter by source"); AutomationProperties.SetName(scope, "Filter by scope"); AutomationProperties.SetName(sort, "Sort inventory");
-        void ApplyFilters() { viewModel.SetFilters(search.Text, status.SelectedItem?.ToString(), publisher.SelectedItem?.ToString(), source.SelectedItem?.ToString(), scope.SelectedItem?.ToString(), sort.SelectedItem?.ToString()); RenderInventory(list); }
+    private static TextBlock PageCopy(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap };
+
+    private static Border Card(FrameworkElement child) => new() { Style = AppStyle("StewardCardStyle"), Child = child };
+
+    private void RenderOverviewPage()
+    {
+        int ready = viewModel.UpdateStatusCounts.GetValueOrDefault(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate);
+        int review = viewModel.UpdateStatusCounts.GetValueOrDefault(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired);
+        int current = viewModel.UpdateStatusCounts.GetValueOrDefault(PCSteward.Domain.UpdateIntelligenceStatus.Current);
+        int unmanaged = viewModel.UpdateStatusCounts.GetValueOrDefault(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged);
+        StackPanel panel = CreatePagePanel();
+        panel.Children.Add(new TextBlock { Text = "Overview", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy(ready > 0 ? $"{ready} update{(ready == 1 ? string.Empty : "s")} are ready to review" : "Your PC is accounted for"));
+        panel.Children.Add(PageCopy("PC Steward keeps local inventory, source evidence, and any action separate. Nothing changes until you explicitly review and confirm it."));
+
+        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        Button reviewUpdates = new() { Content = ready > 0 ? $"Review {ready} update{(ready == 1 ? string.Empty : "s")}" : "Open updates", IsEnabled = !isExecuting };
+        AutomationProperties.SetName(reviewUpdates, "Review update evidence");
+        reviewUpdates.Click += (_, _) => { destination = "updates"; Render(); };
+        Button scan = new() { Content = viewModel.IsScanning ? "Scan in progress" : "Scan again", IsEnabled = !viewModel.IsScanning && !isExecuting };
+        AutomationProperties.SetName(scan, scan.Content.ToString());
+        scan.Click += async (_, _) => await StartScanAsync();
+        actions.Children.Add(reviewUpdates); actions.Children.Add(scan);
+
+        Grid hero = new() { ColumnSpacing = 24 };
+        hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
+        hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.75, GridUnitType.Star) });
+        StackPanel heroCopy = new() { Spacing = 8 };
+        heroCopy.Children.Add(new TextBlock { Text = "EVIDENCE BEFORE ACTION", Style = AppStyle("StewardCaptionStyle") });
+        heroCopy.Children.Add(new TextBlock { Text = "Your PC is accounted for", Style = AppStyle("StewardSectionTitleStyle") });
+        heroCopy.Children.Add(PageCopy($"{viewModel.AllRows.Count:N0} installed applications. {ready} verified update{(ready == 1 ? string.Empty : "s")} can be reviewed; {review} item{(review == 1 ? string.Empty : "s")} need a decision; unmanaged software remains visible."));
+        heroCopy.Children.Add(actions);
+        hero.Children.Add(heroCopy);
+        StackPanel evidence = new() { Spacing = 8 };
+        evidence.Children.Add(PageCopy($"Scan mode: {viewModel.ScanModeLabel}"));
+        evidence.Children.Add(PageCopy($"Completed: {(viewModel.LastScanAt is null ? "not yet" : viewModel.LastScanAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}"));
+        evidence.Children.Add(PageCopy($"Source evidence: {viewModel.UpdateFreshnessLabel}"));
+        evidence.Children.Add(PageCopy("Changes made: none automatically"));
+        Grid.SetColumn(evidence, 1); hero.Children.Add(evidence);
+        panel.Children.Add(Card(hero));
+
+        Grid metrics = new() { ColumnSpacing = 12, RowSpacing = 12 };
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        metrics.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        metrics.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        (int count, string label, string detail)[] values = [(ready, "Ready to review", "Verified package identity"), (review, "Need a decision", "No automatic action"), (current, "Current", "No action expected"), (unmanaged, "Unmanaged", "Visible, not labelled unsafe")];
+        for (int index = 0; index < values.Length; index++)
+        {
+            StackPanel metric = new() { Spacing = 4 };
+            metric.Children.Add(new TextBlock { Text = values[index].count.ToString(CultureInfo.CurrentCulture), Style = AppStyle("StewardPageTitleStyle") });
+            metric.Children.Add(new TextBlock { Text = values[index].label, Style = AppStyle("StewardSectionTitleStyle") });
+            metric.Children.Add(PageCopy(values[index].detail));
+            Border card = Card(metric); Grid.SetColumn(card, index % 2); Grid.SetRow(card, index / 2); metrics.Children.Add(card);
+        }
+        panel.Children.Add(metrics);
+        panel.Children.Add(new TextBlock { Text = "What is worth reviewing", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(PageCopy("Open Applications to inspect the installed inventory, or Updates to inspect only the evidence that could lead to a separate confirmation."));
+        Button applications = new() { Content = "Open applications" }; AutomationProperties.SetName(applications, "Open applications inventory"); applications.Click += (_, _) => { destination = "applications"; Render(); }; panel.Children.Add(applications);
+        Content = BuildShell(panel);
+    }
+
+    private void RenderApplicationsPage()
+    {
+        StackPanel panel = CreatePagePanel();
+        panel.Children.Add(new TextBlock { Text = "Applications", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("Installed applications appear once while their provider, scope, version, and update evidence remain inspectable. Filtering changes only this view."));
+        panel.Children.Add(PageCopy($"Local inventory: {viewModel.FreshnessLabel}"));
+        TextBox search = new() { PlaceholderText = "Search applications", Text = viewModel.SearchText };
+        AutomationProperties.SetName(search, "Search applications");
+        ComboBox status = FilterBox(viewModel.StatusFilter, ["All statuses", "Installed", .. Enum.GetNames<PCSteward.Domain.UpdateIntelligenceStatus>()]);
+        ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", .. viewModel.AvailablePublishers]);
+        ComboBox source = FilterBox(viewModel.SourceFilter, "All sources", "registry", "msix", "winget");
+        ComboBox scope = FilterBox(viewModel.ScopeFilter, "All scopes", "Machine", "User", "Unknown");
+        ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
+        AutomationProperties.SetName(status, "Filter applications by status"); AutomationProperties.SetName(publisher, "Filter applications by publisher"); AutomationProperties.SetName(source, "Filter applications by source"); AutomationProperties.SetName(scope, "Filter applications by scope"); AutomationProperties.SetName(sort, "Sort applications");
+        ListView list = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, MaxHeight = 560 };
+        TextBlock matching = PageCopy(string.Empty);
+        void ApplyFilters()
+        {
+            viewModel.SetFilters(search.Text, status.SelectedItem?.ToString(), publisher.SelectedItem?.ToString(), source.SelectedItem?.ToString(), scope.SelectedItem?.ToString(), sort.SelectedItem?.ToString());
+            RenderInventory(list);
+            matching.Text = $"{viewModel.VisibleRows.Count:N0} application{(viewModel.VisibleRows.Count == 1 ? string.Empty : "s")} match the current filters.";
+        }
         search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); sort.SelectionChanged += (_, _) => ApplyFilters();
-        panel.Children.Add(search); panel.Children.Add(status); panel.Children.Add(publisher); panel.Children.Add(source); panel.Children.Add(scope); panel.Children.Add(sort);
-        list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem); panel.Children.Add(list); RenderInventory(list);
-        panel.Children.Add(new TextBlock { Text = isExecuting ? "An approved update is running. Scans and cleanup are unavailable until its controlled verification completes." : viewModel.IsUpdateSourceEnabled ? "Verified updates can be opened from product details for a separate review and confirmation. Cached or unavailable source evidence cannot be executed." : "Inventory is local-only until you explicitly enable approved update sources.", TextWrapping = TextWrapping.Wrap });
-        AddDecisionsSection(panel);
+        panel.Children.Add(search);
+        StackPanel filters = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        filters.Children.Add(status); filters.Children.Add(publisher); filters.Children.Add(source); filters.Children.Add(scope); filters.Children.Add(sort); panel.Children.Add(filters);
+        list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem);
+        ApplyFilters();
+        panel.Children.Add(matching);
+        panel.Children.Add(list);
+        Content = BuildShell(panel);
+    }
+
+    private void RenderActivityPage()
+    {
+        StackPanel panel = CreatePagePanel();
+        panel.Children.Add(new TextBlock { Text = "Activity", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("A local record of scan state, saved decisions, and update evidence. PC Steward does not upload activity telemetry."));
+        panel.Children.Add(Card(new StackPanel
+        {
+            Spacing = 8,
+            Children =
+            {
+                new TextBlock { Text = "Latest inventory", Style = AppStyle("StewardSectionTitleStyle") },
+                PageCopy(viewModel.LastScanAt is null ? "No completed scan is recorded." : $"Completed {viewModel.LastScanAt.Value.ToLocalTime():g}. {viewModel.ScanPhase}."),
+                PageCopy($"Saved decisions: {activeDecisions.Count}; manual mappings: {manualMappings.Count}."),
+                PageCopy($"Update evidence: {viewModel.UpdateFreshnessLabel}")
+            }
+        }));
+        Button privacy = new() { Content = "View privacy and data controls" }; AutomationProperties.SetName(privacy, "View privacy and data controls"); privacy.Click += (_, _) => { destination = "privacy"; Render(); }; panel.Children.Add(privacy);
+        Content = BuildShell(panel);
+    }
+
+    private void RenderPrivacyPage()
+    {
+        StackPanel panel = CreatePagePanel();
+        panel.Children.Add(new TextBlock { Text = "Privacy & data", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("Your PC Steward data stays on this PC. Each category has a separate purpose, retention model, and confirmation before removal."));
+        panel.Children.Add(PageCopy("Routine cleanup affects only the stated PC Steward data. Factory reset is separate and preserves installed applications and provider caches."));
         AddDataAndResetSection(panel);
         Content = BuildShell(panel);
     }
@@ -205,17 +303,16 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(scan, "Scan this PC"); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
         if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
         panel.Children.Add(actions);
-        panel.Children.Add(new TextBlock { Text = "Source checks remain opt-in: enable a trusted source only after the disclosure shown on Overview. A scan never begins an update.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "Source checks remain opt-in: enable a trusted source in Settings only after its disclosure. A scan never begins an update.", TextWrapping = TextWrapping.Wrap });
         Content = BuildShell(panel);
     }
 
     private void RenderUpdatesPage()
     {
-        StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 960 };
-        panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
+        StackPanel panel = CreatePagePanel(960);
         panel.Children.Add(new TextBlock { Text = "Updates", Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(new TextBlock { Text = viewModel.UpdateFreshnessLabel, TextWrapping = TextWrapping.Wrap });
-        foreach (InventoryRow row in viewModel.VisibleRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "FailedUnavailable"))
+        foreach (InventoryRow row in viewModel.AllRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "FailedUnavailable"))
         {
             UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
             string action = row.Status == "VerifiedUpdate" && detail is not null ? "Open evidence review from Applications before any update can start." : "No update action is available: evidence is review-only, stale, unavailable, or not an exact match.";
@@ -235,6 +332,23 @@ public sealed class MainWindow : Window
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
         panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
         panel.Children.Add(new TextBlock { Text = "Settings", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = "Preferences and trusted sources", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = "Source choices explain their disclosure and resource impact before they change. Enabling a source never starts a scan, check, download, or update.", TextWrapping = TextWrapping.Wrap });
+        StackPanel sources = new() { Spacing = 8 };
+        foreach (ConnectorOption connector in viewModel.Connectors)
+        {
+            CheckBox checkBox = new()
+            {
+                Content = connector.RequiresSourceDisclosure ? $"{connector.Name} (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})",
+                IsChecked = connector.IsEnabled,
+                IsEnabled = !connector.IsEssential
+            };
+            AutomationProperties.SetName(checkBox, connector.RequiresSourceDisclosure ? $"Enable {connector.Name} after source-disclosure approval" : $"Enable {connector.Name}");
+            checkBox.Checked += async (_, _) => await ChangeConnectorAsync(connector.Name, true);
+            checkBox.Unchecked += async (_, _) => await ChangeConnectorAsync(connector.Name, false);
+            sources.Children.Add(checkBox);
+        }
+        panel.Children.Add(Card(sources));
         panel.Children.Add(new TextBlock { Text = "Schedule & notifications", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "Checks only. Scheduled work never installs updates.", TextWrapping = TextWrapping.Wrap });
         RadioButtons cadence = new() { Header = "Check cadence", SelectedIndex = scheduledSettings.Cadence switch { ScheduleCadence.Daily => 1, ScheduleCadence.Weekly => 2, _ => 0 } };

@@ -11,9 +11,10 @@ Add non-resident scheduled checks, notifications, factory reset, advanced data c
 3. **Task 27:** Factory-reset design gate
 4. **Task 28:** Factory reset and advanced data controls
 5. **Task 29:** Accessibility, reliability, and performance hardening
-6. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
-7. **Task 30A:** Prepare final release-audit evidence
-8. **Task 31:** Final release audit
+6. **Task 29A:** Prototype-parity UI completion for existing features
+7. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
+8. **Task 30A:** Prepare final release-audit evidence
+9. **Task 31:** Final release audit
 
 ## Exit condition
 
