@@ -45,6 +45,13 @@ public interface ISourceSnapshotStore
 
 public sealed record ScanDataSummary(long SizeBytes, DateTimeOffset? LastClearedAt, int ItemCount);
 public sealed record ClearScanDataResult(bool Succeeded, int DeletedItems, int RemainingItems, string Message);
+public sealed record AdvancedDataClearResult(string Category, bool Succeeded, int DeletedItems, string Message);
+public interface IAdvancedDataControlStore
+{
+    Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken);
+    Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken);
+    Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken);
+}
 
 /// <summary>Owns only scan-derived records. It intentionally excludes settings, decisions, history and downloaded artifacts.</summary>
 public interface IScanDataStore : IInventorySnapshotStore

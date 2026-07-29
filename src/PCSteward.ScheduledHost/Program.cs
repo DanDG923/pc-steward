@@ -4,6 +4,7 @@ using PCSteward.Diagnostics;
 using PCSteward.Domain;
 using PCSteward.Persistence.Sqlite;
 using PCSteward.Provider.WinGet;
+using PCSteward.Storage;
 
 namespace PCSteward.ScheduledHost;
 
@@ -26,6 +27,9 @@ internal static class Program
         if (!mutex.WaitOne(0)) return 0;
         try
         {
+            // This preflight intentionally occurs before the state directory, SQLite, settings,
+            // providers, or diagnostics are opened.
+            if (FactoryReset.IsPending()) return 0;
             try { Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal; } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
             using CancellationTokenSource timeout = new(TimeSpan.FromMinutes(3));
             string stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), StateDirectoryName);

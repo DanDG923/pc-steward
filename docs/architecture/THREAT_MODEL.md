@@ -35,7 +35,7 @@ Consider a compromised source response, malicious/corrupt local records, a stand
 | TM-13 | Source/package substitution between review and execution | Immutable reviewed IDs/version/source, freshness policy, revalidation at execution, provider identity | Tasks 21, 23 |
 | TM-14 | Scheduled task becomes unattended installer or persistence | Scan-only entry point, fixed task definition, standard user, no update verb, overlap guard, exit test | Task 26 |
 | TM-15 | Cleanup deletes active artifacts or provider caches | Ownership ledger, active lease, fixed category, provider-cache exclusion, accurate residual report | Task 24 |
-| TM-16 | Factory reset partly completes but claims fresh state | Fixed reset manifest, double confirmation, active-work lockout, marker/transaction design, next-launch verification | Tasks 03, 27, 28 |
+| TM-16 | Factory reset partly completes but claims fresh state | Fixed reset manifest, double confirmation, active-work lockout, marker/transaction design, desktop bootstrap before SQLite, scheduled-host sentinel preflight and blocking partial-reset window | Tasks 03, 27, 28 |
 | TM-17 | Malformed inventory/source data corrupts UI/database | Bounded DTOs, encoding handling, transactional writes, per-adapter warnings | Tasks 08–12, 18 |
 | TM-18 | Dependency/build compromise | Lock files, minimal dependencies, static/dependency/secret scans, SBOM, signed release | Tasks 06, 30, 31 |
 

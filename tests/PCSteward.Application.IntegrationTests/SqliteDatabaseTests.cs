@@ -101,6 +101,26 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task AdvancedDataControlsClearOnlyTheirIndependentCategories()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Widget", null, "1.0", "1.1", "User", "x64", "Stable")], []), CancellationToken.None);
+        await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), "winget:contoso.widget", "Pin", "1.0", DateTimeOffset.UtcNow), CancellationToken.None);
+        await database.Store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), "winget:contoso.widget", "winget", "Contoso.Widget", DateTimeOffset.UtcNow), CancellationToken.None);
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(DateTimeOffset.UtcNow);
+        await database.Store.RecordAsync(new UpdateHistoryEntry(Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider, job.Selection.PackageId, "1.0", "1.1", DateTimeOffset.UtcNow, UpdateHistoryStatus.Success, 0, "verified"), CancellationToken.None);
+
+        Assert.IsTrue((await database.Store.ClearSourceMetadataAsync(CancellationToken.None)).Succeeded);
+        Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
+        Assert.HasCount(1, await database.Store.GetAllAsync(CancellationToken.None));
+        Assert.IsTrue((await database.Store.ClearUpdateHistoryAsync(CancellationToken.None)).Succeeded);
+        Assert.HasCount(0, await database.Store.GetHistoryForProductAsync("winget:contoso.widget", CancellationToken.None));
+        Assert.IsTrue((await database.Store.ClearMappingsAndPoliciesAsync(CancellationToken.None)).Succeeded);
+        Assert.HasCount(0, await database.Store.GetAllAsync(CancellationToken.None));
+        Assert.HasCount(0, await database.Store.GetManualMappingsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ScheduledCheckSettingsPersistIndependentlyAndManualModeCannotCreateASchedule()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

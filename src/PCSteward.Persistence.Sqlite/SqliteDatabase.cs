@@ -5,7 +5,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -276,6 +276,29 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         }
     }
 
+    public Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Source metadata", ["source_package_cache", "source_snapshots"], ["source."], cancellationToken);
+
+    public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Update history", ["update_job_history", "update_job_execution_state"], ["history."], cancellationToken);
+
+    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions"], [], cancellationToken);
+
+    private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction();
+            int deleted = 0;
+            foreach (string table in tables) deleted += await ExecuteCountAsync(connection, $"DELETE FROM {table};", transaction, cancellationToken);
+            foreach (string prefix in metadataPrefixes) deleted += await ExecuteCountAsync(connection, "DELETE FROM app_metadata WHERE key LIKE $prefix;", transaction, cancellationToken, ("$prefix", prefix + "%"));
+            await transaction.CommitAsync(cancellationToken);
+            return new(category, true, deleted, deleted == 0 ? $"No {category.ToLowerInvariant()} was stored." : $"{category} was cleared.");
+        }
+        catch (Exception exception) when (exception is SqliteException or IOException or UnauthorizedAccessException)
+        {
+            return new(category, false, 0, $"{category} could not be cleared: {exception.Message}");
+        }
+    }
+
     public async Task SaveApprovedJobAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
@@ -450,5 +473,5 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         foreach (ScanProviderTiming timing in timings) await ExecuteAsync(connection, "INSERT INTO scan_provider_timings VALUES ($id,$scan,$provider,$duration,$warning);", token, transaction, ("$id", timing.Id), ("$scan", timing.ScanRunId), ("$provider", Text(timing.Provider)), ("$duration", (long)timing.Duration.TotalMilliseconds), ("$warning", Text(timing.Warning)));
     }
     private static async Task ExecuteAsync(SqliteConnection connection, string sql, CancellationToken token, SqliteTransaction? transaction = null, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value is DateTimeOffset timestamp ? timestamp.ToString("O", CultureInfo.InvariantCulture) : value?.ToString() is string text ? text : DBNull.Value); await command.ExecuteNonQueryAsync(token); }
-    private static async Task<int> ExecuteCountAsync(SqliteConnection connection, string sql, SqliteTransaction transaction, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; return await command.ExecuteNonQueryAsync(token); }
+    private static async Task<int> ExecuteCountAsync(SqliteConnection connection, string sql, SqliteTransaction transaction, CancellationToken token, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value ?? DBNull.Value); return await command.ExecuteNonQueryAsync(token); }
 }

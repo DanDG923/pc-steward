@@ -41,6 +41,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly IReadOnlyCollection<IUpdateSourceConnector> updateSourceConnectors;
     private readonly IPostUpdatePackageInventory? postUpdatePackageInventory;
     private readonly IStructuredUpdateCandidateAuthority? structuredUpdateCandidates;
+    private readonly IAdvancedDataControlStore? advancedData;
     private readonly bool hasCurrentLocalInventoryProviders;
 
     public InventoryWorkflow(
@@ -53,7 +54,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         ISourceSnapshotStore? sourceCache = null,
         IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null,
         IPostUpdatePackageInventory? postUpdatePackageInventory = null,
-        IStructuredUpdateCandidateAuthority? structuredUpdateCandidates = null)
+        IStructuredUpdateCandidateAuthority? structuredUpdateCandidates = null,
+        IAdvancedDataControlStore? advancedData = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -64,9 +66,14 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         this.updateSourceConnectors = updateSourceConnectors ?? [];
         this.postUpdatePackageInventory = postUpdatePackageInventory;
         this.structuredUpdateCandidates = structuredUpdateCandidates;
+        this.advancedData = advancedData;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
+
+    public Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearSourceMetadataAsync(cancellationToken);
+    public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearUpdateHistoryAsync(cancellationToken);
+    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearMappingsAndPoliciesAsync(cancellationToken);
 
     public async Task<InventoryDashboard> LoadAsync(IReadOnlyCollection<ConnectorOption> connectors, CancellationToken cancellationToken)
     {
