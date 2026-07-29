@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Continue Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). The five-minute Release-desktop capture reports 4.9883% average CPU against the <=1% `NFR-PERF-05` budget; peak working set is 240.53 MiB and disk I/O is zero, but process-attributed network is unverified. A second Windows performance-counter attempt could not resolve the desktop instance. See `docs/failures/29-idle-resource-gate.md` and `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md`; do not begin Task 30 until Task 29 has a diagnosed, rerun idle pass.
+Continue Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). The five-minute Release-desktop capture reports 4.9883% average CPU against the <=1% `NFR-PERF-05` budget; peak working set is 240.53 MiB and disk I/O is zero. A privileged WPR capture is now stored locally with 76,950,076 loss-free events, but the host lacks WPA/WPA Exporter and built-in filtering times out; the 3.5-GB system trace is ignored by Git. See `docs/failures/29-idle-resource-gate.md` and `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md`; do not begin Task 30 until Task 29 has a diagnosed, rerun idle pass.
 
 ## Rules for updating this file
 

@@ -38,6 +38,9 @@ temp/
 *.appxbundle
 *.nupkg
 
+# Local performance traces can include system-wide metadata and are too large for Git.
+*.etl
+
 # OS
 Thumbs.db
 Desktop.ini

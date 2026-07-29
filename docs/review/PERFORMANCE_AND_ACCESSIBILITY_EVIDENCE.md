@@ -8,6 +8,7 @@
 - Host: Windows `10.0.26200.0`, .NET `10.0.10`, 16 logical processors. This host is not recorded as the agreed ADR-006 baseline.
 - Raw fixture samples: [task-29-fixture-performance.json](raw/task-29-fixture-performance.json).
 - Raw five-minute idle capture: [task-29-idle.json](raw/task-29-idle.json).
+- A local 3.5-GB WPR ETL was captured with CPU, heap, XAML, desktop-composition, responsiveness and network profiles. It has 76,950,076 events and zero reported loss, but is ignored by Git because it contains system-wide metadata and requires WPA for stack analysis.
 
 ## Measured results
 
@@ -27,4 +28,4 @@ Keyboard traversal, Narrator narration, Windows High Contrast, and 100/125/150/1
 
 ## Required next action
 
-Task 29 remains blocked at the mandatory idle-resource gate. Obtain a process-attributed ETW/WPR capture (or a Windows host exposing that counter), identify the sustained CPU source, make only the evidenced correction, and rerun the full idle protocol plus affected performance, accessibility, reliability, and full-suite checks.
+Task 29 remains blocked at the mandatory idle-resource gate. The process-attributed ETW capture now exists, but the host lacks Windows Performance Analyzer/WPA Exporter and the built-in reader cannot extract its stacks within the bounded run. Install the Microsoft Windows Performance Toolkit/WPA only with explicit approval, or analyse the ETL on a controlled WPA-equipped baseline; then identify the sustained CPU source, make only the evidenced correction, and rerun the full idle protocol plus affected performance, accessibility, reliability, and full-suite checks.
