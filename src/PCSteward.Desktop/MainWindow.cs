@@ -115,7 +115,7 @@ public sealed class MainWindow : Window
         hero.Children.Add(heroCopy);
         StackPanel evidence = new() { Spacing = 8 };
         evidence.Children.Add(PageCopy($"Scan mode: {viewModel.ScanModeLabel}"));
-        evidence.Children.Add(PageCopy($"Completed: {(viewModel.LastScanAt is null ? "not yet" : viewModel.LastScanAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}"));
+        evidence.Children.Add(PageCopy($"Completed: {viewModel.LastScanCompletedLabel}"));
         evidence.Children.Add(PageCopy($"Source evidence: {viewModel.UpdateFreshnessLabel}"));
         evidence.Children.Add(PageCopy("Changes made: none automatically"));
         Grid.SetColumn(evidence, 1); hero.Children.Add(evidence);
@@ -323,7 +323,7 @@ public sealed class MainWindow : Window
             Children =
             {
                 new TextBlock { Text = "Latest inventory", Style = AppStyle("StewardSectionTitleStyle") },
-                PageCopy(viewModel.LastScanAt is null ? "No completed scan is recorded." : $"Completed {viewModel.LastScanAt.Value.ToLocalTime():g}. {viewModel.ScanPhase}."),
+                PageCopy(viewModel.LastScanAt is null ? "No completed scan is recorded." : $"Completed {viewModel.LastScanCompletedLabel}. {viewModel.ScanPhase}."),
                 PageCopy($"Saved decisions: {activeDecisions.Count}; manual mappings: {manualMappings.Count}."),
                 PageCopy($"Update evidence: {viewModel.UpdateFreshnessLabel}")
             }

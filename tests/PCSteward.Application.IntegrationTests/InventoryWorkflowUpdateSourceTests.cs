@@ -368,9 +368,15 @@ public sealed class InventoryWorkflowUpdateSourceTests
         public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
         {
             Calls.Add(arguments);
-            return Task.FromResult(arguments.SequenceEqual(["--version"])
-                ? new WingetProcessResult(0, "v1.9.0", string.Empty, false)
-                : new WingetProcessResult(
+            if (arguments.SequenceEqual(["--version"])) return Task.FromResult(new WingetProcessResult(0, "v1.9.0", string.Empty, false));
+            if (arguments.Count > 0 && arguments[0] == "list") return Task.FromResult(new WingetProcessResult(
+                0,
+                $"{"Name",-20}{"Id",-26}{"Version",-15}Source\n" +
+                "----------------------------------------------------------------------------\n" +
+                $"{"Trusted",-20}{"Contoso.Widget",-26}{"1.0.0",-15}winget",
+                string.Empty,
+                false));
+            return Task.FromResult(new WingetProcessResult(
                     0,
                     "Name  Id  Version  Available  ActualId  ActualVersion  Source\n" +
                     "----------------------------------------------------------------\n" +

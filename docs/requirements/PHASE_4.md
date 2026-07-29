@@ -15,9 +15,10 @@ Add non-resident scheduled checks, notifications, factory reset, advanced data c
 7. **Task 29B:** Complete supported native-prototype parity and unify WinGet source consent
 8. **Task 29C:** Repository-current application evidence view
 9. **Task 29D:** Repository-managed application status view
-10. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
-11. **Task 30A:** Prepare final release-audit evidence
-12. **Task 31:** Final release audit
+10. **Task 29E:** Repository evidence, provider resilience, and readable freshness
+11. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
+12. **Task 30A:** Prepare final release-audit evidence
+13. **Task 31:** Final release audit
 
 ## Exit condition
 

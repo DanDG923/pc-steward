@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using PCSteward.Domain;
 
 namespace PCSteward.Application;
@@ -58,7 +59,8 @@ public sealed class InventoryExperienceViewModel
     public bool IsUpdateSourceEnabled => Connectors.Any(connector => connector.Name == "WinGet package sources" && connector.IsEnabled);
     public bool IsWinGetTrustedSourcesEnabled => IsWinGetEnabled && IsUpdateSourceEnabled;
     public string ScanModeLabel => IsWinGetEnabled ? "Windows-local inventory plus approved WinGet installed inventory" : "Local-only Windows inventory";
-    public string FreshnessLabel => LastScanAt is null ? $"No scan yet — {ScanModeLabel}" : $"{ScanModeLabel} completed {LastScanAt:O}";
+    public string LastScanCompletedLabel => LastScanAt is null ? "not yet" : FriendlyLocalTime(LastScanAt.Value);
+    public string FreshnessLabel => LastScanAt is null ? $"No scan yet — {ScanModeLabel}" : $"{ScanModeLabel} completed {LastScanCompletedLabel}";
 
     public void SetConnectorEnabled(string name, bool enabled)
     {
@@ -107,13 +109,16 @@ public sealed class InventoryExperienceViewModel
 
     private static string DescribeSource(SourceSnapshot source) => source.State switch
     {
-        SourceSnapshotState.Live => $"{source.SourceId}: live result from {source.LastSuccessAt:O}.",
-        SourceSnapshotState.Cached => $"{source.SourceId}: cached result from {source.LastSuccessAt:O}; source data may be stale. {string.Join(" ", source.Warnings)}",
-        SourceSnapshotState.Unavailable => $"{source.SourceId}: unavailable; last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : source.LastSuccessAt.Value.ToString("O"))}. {string.Join(" ", source.Warnings)}",
+        SourceSnapshotState.Live => $"{source.SourceId}: live result from {FriendlyLocalTime(source.LastSuccessAt)}.",
+        SourceSnapshotState.Cached => $"{source.SourceId}: cached result from {FriendlyLocalTime(source.LastSuccessAt)}; source data may be stale. {string.Join(" ", source.Warnings)}",
+        SourceSnapshotState.Unavailable => $"{source.SourceId}: unavailable; last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : FriendlyLocalTime(source.LastSuccessAt.Value))}. {string.Join(" ", source.Warnings)}",
         _ => $"{source.SourceId}: local-only; no source check has been run."
     };
 
-    private static string DescribeCandidate(SourceCandidateObservation candidate) => $"{candidate.SourceId}: {candidate.PackageId} {candidate.CandidateVersion ?? "unknown version"}; {candidate.State.ToString().ToLowerInvariant()} result from {(candidate.LastSuccessAt is null ? "an unknown time" : candidate.LastSuccessAt.Value.ToString("O"))}; confidence {candidate.Confidence}.";
+    private static string DescribeCandidate(SourceCandidateObservation candidate) => $"{candidate.SourceId}: {candidate.PackageId} {candidate.CandidateVersion ?? "unknown version"}; {candidate.State.ToString().ToLowerInvariant()} result from {(candidate.LastSuccessAt is null ? "an unknown time" : FriendlyLocalTime(candidate.LastSuccessAt.Value))}; confidence {candidate.Confidence}.";
+
+    private static string FriendlyLocalTime(DateTimeOffset? value) => value is null ? "an unknown time" : FriendlyLocalTime(value.Value);
+    private static string FriendlyLocalTime(DateTimeOffset value) => value.ToLocalTime().ToString("dddd, d MMMM yyyy 'at' HH:mm", CultureInfo.CurrentCulture);
 
     private void ApplyFilters()
     {

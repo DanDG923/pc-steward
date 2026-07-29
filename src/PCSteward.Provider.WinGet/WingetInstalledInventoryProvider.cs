@@ -123,10 +123,11 @@ public sealed partial class WingetInstalledInventoryProvider
     {
         List<WingetInstalledRecord> records = []; List<string> warnings = [];
         string[] lines = output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        if (lines.Length < 2) return new WingetInventoryResult([], ["winget:unrecognized-output"]);
-        int[] columnStarts = HeaderColumns().Matches(lines[0]).Select(match => match.Index).ToArray();
+        int separator = TableSeparator(lines);
+        if (separator < 1) return new WingetInventoryResult([], ["winget:unrecognized-output"]);
+        int[] columnStarts = HeaderColumns().Matches(lines[separator - 1]).Select(match => match.Index).ToArray();
         if (columnStarts.Length is < 3 or > 5 || columnStarts[0] != 0) return new WingetInventoryResult([], ["winget:unrecognized-output"]);
-        foreach (string line in lines.Skip(2))
+        foreach (string line in lines.Skip(separator + 1))
         {
             string[] columns = columnStarts.Select((start, index) =>
                 line.Length <= start
@@ -143,8 +144,10 @@ public sealed partial class WingetInstalledInventoryProvider
             }
             records.Add(new WingetInstalledRecord(columns[0], columns[1], columns[2], columns.Length > 3 && columns[^1].Length > 0 ? columns[^1] : null));
         }
-        return new WingetInventoryResult(records, warnings);
+        return new WingetInventoryResult(records, warnings.Distinct(StringComparer.Ordinal).ToArray());
     }
+
+    private static int TableSeparator(string[] lines) => Enumerable.Range(0, lines.Length).FirstOrDefault(index => lines[index].Length >= 3 && lines[index].All(character => character is '-' or ' ' or '\t'), -1);
     private static bool ContainsExactExportedPackage(JsonElement root, UpdateJobSelection selection)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("Sources", out JsonElement sources) || sources.ValueKind != JsonValueKind.Array) return false;
@@ -184,17 +187,41 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     }
     public string SourceId { get; }
     public TimeSpan Timeout => TimeSpan.FromSeconds(45);
+    public static IReadOnlyList<string> BuildInstalledSourceArguments(string sourceId) => ["list", "--source", CanonicalSource(sourceId), "--disable-interactivity"];
     public static IReadOnlyList<string> BuildAvailableUpdateArguments(string sourceId) => ["upgrade", "--source", CanonicalSource(sourceId), "--disable-interactivity"];
     public async Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken)
     {
         WingetProcessResult versionResult = await process.RunAsync(["--version"], Timeout, cancellationToken).ConfigureAwait(false);
         string? providerVersion = ReadVersion(versionResult);
-        WingetProcessResult result = await process.RunAsync(BuildAvailableUpdateArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
-        WingetAvailableUpdateResult parsed = Classify(result, providerVersion, SourceId);
-        if (parsed.Warnings.Any(warning => warning is "winget:timeout" or "winget:output-too-large" or "winget:unrecognized-output" || warning.StartsWith("winget:exit-", StringComparison.Ordinal))) throw new InvalidOperationException(string.Join(",", parsed.Warnings));
+        WingetProcessResult installedResult = await process.RunAsync(BuildInstalledSourceArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
+        WingetInventoryResult installed = ClassifyInstalled(installedResult);
+        if (HasFatalWarning(installed.Warnings)) throw new InvalidOperationException(string.Join(",", installed.Warnings));
+        WingetProcessResult availableResult = await process.RunAsync(BuildAvailableUpdateArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
+        WingetAvailableUpdateResult parsed = Classify(availableResult, providerVersion, SourceId);
+        if (HasFatalWarning(parsed.Warnings)) throw new InvalidOperationException(string.Join(",", parsed.Warnings));
+        Dictionary<string, WingetAvailableUpdateRecord> upgrades = parsed.Records.ToDictionary(record => record.Id, StringComparer.OrdinalIgnoreCase);
+        SourcePackageRecord[] packages = installed.Records
+            .Where(record => record.Source is null || string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Single())
+            .OrderBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(record => upgrades.GetValueOrDefault(record.Id) is WingetAvailableUpdateRecord update
+                ? new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
+                : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, record.Version, "Unknown", "Unknown", null))
+            .ToArray();
+        string[] warnings = installed.Warnings.Concat(parsed.Warnings).Concat(installed.Records.GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1).Select(_ => "winget:duplicate-installed-id")).Distinct(StringComparer.Ordinal).ToArray();
         return new(SourceId, parsed.ProviderVersion, DateTimeOffset.UtcNow, SourceSnapshotState.Live,
-            parsed.Records.Select(record => new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.InstalledVersion, record.AvailableVersion, "Unknown", "Unknown", null)).ToArray(), parsed.Warnings);
+            packages, warnings);
     }
+    private static WingetInventoryResult ClassifyInstalled(WingetProcessResult result)
+    {
+        if (result.OutputLimitExceeded || result.StandardOutput.Length > MaximumOutputLength) return new([], ["winget:output-too-large"]);
+        if (result.TimedOut) return new([], ["winget:timeout"]);
+        if (result.ExitCode != 0) return new([], [$"winget:exit-{result.ExitCode}"]);
+        return WingetInstalledInventoryProvider.ParseTable(result.StandardOutput);
+    }
+    private static bool HasFatalWarning(IEnumerable<string> warnings) => warnings.Any(warning => warning is "winget:timeout" or "winget:output-too-large" or "winget:unrecognized-output" || warning.StartsWith("winget:exit-", StringComparison.Ordinal));
     public static WingetAvailableUpdateResult Classify(WingetProcessResult result, string? providerVersion, string sourceId)
     {
         string expectedSource = CanonicalSource(sourceId);
@@ -207,14 +234,15 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     {
         List<WingetAvailableUpdateRecord> records = []; List<string> warnings = [];
         string[] lines = output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        if (lines.Length < 2)
+        if (output.Contains("No applicable upgrade found", StringComparison.OrdinalIgnoreCase)) return new(providerVersion, [], providerVersion is null ? ["winget:provider-version-unavailable"] : []);
+        int separator = TableSeparator(lines);
+        if (separator < 1)
         {
-            if (output.Contains("No applicable upgrade found", StringComparison.OrdinalIgnoreCase)) return new(providerVersion, [], providerVersion is null ? ["winget:provider-version-unavailable"] : []);
             return new(providerVersion, [], ["winget:unrecognized-output"]);
         }
-        int[] columnStarts = Regex.Matches(lines[0], @"\S+").Select(match => match.Index).ToArray();
+        int[] columnStarts = Regex.Matches(lines[separator - 1], @"\S+").Select(match => match.Index).ToArray();
         if (columnStarts.Length < 4) return new(providerVersion, [], ["winget:unrecognized-output"]);
-        foreach (string line in lines.Skip(2))
+        foreach (string line in lines.Skip(separator + 1))
         {
             string[] columns = columnStarts.Select((start, index) => line.Length <= start ? string.Empty : line[start..(index + 1 < columnStarts.Length ? Math.Min(line.Length, columnStarts[index + 1]) : line.Length)].Trim()).ToArray();
             if (!LooksLikeUpdateRow(columns)) columns = Regex.Split(line.Trim(), @"\s{2,}").Where(value => value.Length > 0).ToArray();
@@ -230,6 +258,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     private static bool LooksLikeUpdateRow(string[] columns) => columns.Length >= 4 && PackageId().IsMatch(columns[1]) && Version(columns[2]) && Version(columns[3]);
     private static bool Valid(string value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= MaximumFieldLength && value.All(character => !char.IsControl(character));
     private static bool Version(string value) => Valid(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
+    private static int TableSeparator(string[] lines) => Enumerable.Range(0, lines.Length).FirstOrDefault(index => lines[index].Length >= 3 && lines[index].All(character => character is '-' or ' ' or '\t'), -1);
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$")]
     private static partial Regex PackageId();

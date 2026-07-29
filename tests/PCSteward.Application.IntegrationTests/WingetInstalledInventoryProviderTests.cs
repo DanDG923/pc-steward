@@ -9,6 +9,7 @@ public sealed class WingetInstalledInventoryProviderTests
 {
     private static readonly string[] ExpectedArguments = ["list", "--disable-interactivity"];
     private static readonly string[] ExpectedVersionArguments = ["--version"];
+    private static readonly string[] ExpectedSourceListArguments = ["list", "--source", "winget", "--disable-interactivity"];
     private static readonly string[] ExpectedUpdateArguments = ["upgrade", "--source", "winget", "--disable-interactivity"];
     [TestMethod]
     public async Task UsesFixedExecutableReadOnlyArgumentsAndParsesBoundedTableOutput()
@@ -26,10 +27,25 @@ public sealed class WingetInstalledInventoryProviderTests
     [TestMethod]
     public async Task UpdateSourceConnectorUsesOnlyFixedSourceArgumentsAndReturnsBoundedLiveRecords()
     {
-        SequencedProcess process = new(new WingetProcessResult[] { new(0, "v1.9.0", "", false), new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nContoso Widget  Contoso.Widget  1.0.0  1.1.0  winget", "", false) });
+        SequencedProcess process = new(new WingetProcessResult[] { new(0, "v1.9.0", "", false), new(0, InstalledTable(("Contoso Widget", "Contoso.Widget", "1.0.0", "winget")), "", false), new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nContoso Widget  Contoso.Widget  1.0.0  1.1.0  winget", "", false) });
         PCSteward.Domain.SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
-        CollectionAssert.AreEqual(ExpectedVersionArguments, process.Calls[0].ToArray()); CollectionAssert.AreEqual(ExpectedUpdateArguments, process.Calls[1].ToArray());
+        CollectionAssert.AreEqual(ExpectedVersionArguments, process.Calls[0].ToArray()); CollectionAssert.AreEqual(ExpectedSourceListArguments, process.Calls[1].ToArray()); CollectionAssert.AreEqual(ExpectedUpdateArguments, process.Calls[2].ToArray());
         Assert.AreEqual("v1.9.0", snapshot.ProviderVersion); Assert.AreEqual(PCSteward.Domain.SourceSnapshotState.Live, snapshot.State); Assert.AreEqual("Contoso.Widget", snapshot.Packages.Single().PackageId);
+    }
+    [TestMethod]
+    public async Task SourceConnectorRecordsManagedCurrentAppsAlongsideAvailableUpdates()
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.9.0", "", false),
+            new(0, InstalledTable(("Current Tool", "Contoso.Current", "2.0", "winget"), ("Update Tool", "Contoso.Update", "1.0", "winget")), "", false),
+            new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nUpdate Tool  Contoso.Update  1.0  1.1  winget", "", false)
+        });
+
+        PCSteward.Domain.SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual("2.0", snapshot.Packages.Single(package => package.PackageId == "Contoso.Current").AvailableVersion);
+        Assert.AreEqual("1.1", snapshot.Packages.Single(package => package.PackageId == "Contoso.Update").AvailableVersion);
     }
     [TestMethod]
     public void MalformedOrWrongSourceUpdateRowsAreExcludedAndUnsupportedSourcesAreRejected()
@@ -91,6 +107,13 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.AreEqual("Contoso.Actual", injected.Records.Single().Id);
         Assert.AreEqual("9.9", injected.Records.Single().Version);
         Assert.AreEqual("Fabrikam.Tool", localizedResult.Records.Single().Id);
+    }
+    [TestMethod]
+    public void LeadingSourceWarningDoesNotDiscardAValidInstalledTable()
+    {
+        WingetInventoryResult result = WingetInstalledInventoryProvider.ParseTable("Failed when searching source; results will not be included: msstore\n" + InstalledTable(("Contoso Widget", "Contoso.Widget", "1.0", "winget")));
+
+        Assert.AreEqual("Contoso.Widget", result.Records.Single().Id);
     }
     [TestMethod]
     public void AvailableDisplayTableVariantsRemainUntrustedPresentationEvidence()

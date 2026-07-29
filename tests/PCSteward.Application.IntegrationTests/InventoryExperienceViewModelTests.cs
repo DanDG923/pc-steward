@@ -49,6 +49,15 @@ public sealed class InventoryExperienceViewModelTests
         StringAssert.Contains(viewModel.FreshnessLabel, "1970");
         CollectionAssert.Contains(viewModel.LastScanWarnings.ToArray(), "registry:timeout");
     }
+    [TestMethod]
+    public void FreshnessUsesAReadableLocalCompletionTime()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        viewModel.LoadInventory([], [], DateTimeOffset.UnixEpoch);
+
+        StringAssert.Contains(viewModel.LastScanCompletedLabel, "1970");
+        Assert.IsFalse(viewModel.FreshnessLabel.Contains("T00:00:00", StringComparison.Ordinal));
+    }
 
     [TestMethod]
     public void ClearScanDataReturnsDashboardToNoScanState()
