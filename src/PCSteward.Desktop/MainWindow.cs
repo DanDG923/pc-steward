@@ -57,6 +57,7 @@ public sealed class MainWindow : Window
     private void Render()
     {
         if (destination == "settings") { RenderSettings(); return; }
+        if (destination == "scan") { RenderScanPage(); return; }
         if (destination is not "overview" and not "applications") { RenderPlaceholder(); return; }
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
@@ -186,6 +187,24 @@ public sealed class MainWindow : Window
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
         panel.Children.Add(new TextBlock { Text = pageTitle, Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(new TextBlock { Text = destination == "scan" ? "Use Overview to start or cancel the current read-only inventory scan. Scanning never installs updates." : "This destination preserves the approved navigation structure. Its detailed experience is delivered in the next scoped task.", TextWrapping = TextWrapping.Wrap });
+        Content = BuildShell(panel);
+    }
+
+    private void RenderScanPage()
+    {
+        StackPanel panel = new() { Spacing = 16, Padding = new Thickness(24), MaxWidth = 900 };
+        panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
+        panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
+        panel.Children.Add(new TextBlock { Text = "Scan", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = viewModel.IsScanning ? "Scanning only reads installed-software information. Your prior completed inventory remains available until the replacement snapshot is published." : viewModel.LastScanAt is null ? "Start with a local-only inventory. It does not request elevation, install, uninstall, or delete anything." : "Review the current scan state and start a replacement inventory when you are ready.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = $"Status: {viewModel.ScanPhase}. Elapsed: {viewModel.Elapsed:mm\\:ss}. {viewModel.FreshnessLabel}", TextWrapping = TextWrapping.Wrap });
+        if (viewModel.LastScanWarnings.Count != 0) panel.Children.Add(new TextBlock { Text = "Provider result: " + string.Join(", ", viewModel.LastScanWarnings) + ". Previous completed data is retained where available.", TextWrapping = TextWrapping.Wrap });
+        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        Button scan = new() { Content = "Scan this PC", IsEnabled = !viewModel.IsScanning && !isExecuting };
+        AutomationProperties.SetName(scan, "Scan this PC"); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
+        if (viewModel.IsScanning) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
+        panel.Children.Add(actions);
+        panel.Children.Add(new TextBlock { Text = "Source checks remain opt-in: enable a trusted source only after the disclosure shown on Overview. A scan never begins an update.", TextWrapping = TextWrapping.Wrap });
         Content = BuildShell(panel);
     }
 

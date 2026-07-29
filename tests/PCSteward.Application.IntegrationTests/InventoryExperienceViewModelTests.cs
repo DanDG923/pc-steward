@@ -41,6 +41,16 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void FailedOrPartialScanKeepsPriorFreshnessAndExposesProviderWarnings()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        viewModel.LoadInventory([new CanonicalProduct(Guid.NewGuid(), "prior", "Prior snapshot")], [], DateTimeOffset.UnixEpoch);
+        viewModel.CompleteScan(new ScanResult(Guid.NewGuid(), false, false, new Dictionary<string, TimeSpan>(), ["registry:timeout"]), DateTimeOffset.UtcNow);
+        StringAssert.Contains(viewModel.FreshnessLabel, "1970");
+        CollectionAssert.Contains(viewModel.LastScanWarnings.ToArray(), "registry:timeout");
+    }
+
+    [TestMethod]
     public void ClearScanDataReturnsDashboardToNoScanState()
     {
         InventoryExperienceViewModel viewModel = new();

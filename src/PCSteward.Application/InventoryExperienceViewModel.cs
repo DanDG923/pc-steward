@@ -33,6 +33,7 @@ public sealed class InventoryExperienceViewModel
     public string ScanPhase { get; private set; } = "Ready for a local-only scan";
     public TimeSpan Elapsed { get; private set; }
     public bool IsScanning { get; private set; }
+    public IReadOnlyCollection<string> LastScanWarnings { get; private set; } = [];
     public DateTimeOffset? LastScanAt { get; private set; }
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
     public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
@@ -73,7 +74,7 @@ public sealed class InventoryExperienceViewModel
     }
 
     public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; }
-    public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? $"{ScanModeLabel} scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
+    public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); LastScanWarnings = result.Warnings; ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? $"{ScanModeLabel} scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
     public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = $"No scan data — ready for {ScanModeLabel}"; }
     public void BeginUpdateCheck() { IsCheckingUpdates = true; UpdateFreshnessLabel = "Checking approved update sources — no update will be installed."; }
     public void CompleteUpdateCheck() => IsCheckingUpdates = false;
