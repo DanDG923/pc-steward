@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 28 complete — Task 29 accessibility, reliability, and performance hardening is next
+**Current task:** Task 29 blocked — idle-resource gate requires process-attributed diagnosis
 **Last green tree:** Task 28 working tree — Release build 0 warnings/errors; full suite 190 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Start Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). Task 28 adds marker-led, fixed-manifest reset bootstrap before desktop SQLite composition and scheduled-host sentinel preflight, independent advanced data controls, two-stage `RESET` confirmation, partial-reset blocking, and focused reset/ownership coverage. No live Task Scheduler registration was created because no explicit approval for a harmless test schedule was supplied; visual appearance remains best-effort evidence only, not accessibility acceptance.
+Continue Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). The five-minute Release-desktop capture reports 4.9883% average CPU against the <=1% `NFR-PERF-05` budget; peak working set is 240.53 MiB and disk I/O is zero, but process-attributed network is unverified. A second Windows performance-counter attempt could not resolve the desktop instance. See `docs/failures/29-idle-resource-gate.md` and `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md`; do not begin Task 30 until Task 29 has a diagnosed, rerun idle pass.
 
 ## Rules for updating this file
 

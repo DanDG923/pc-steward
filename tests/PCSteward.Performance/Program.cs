@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using PCSteward.Application;
 using PCSteward.Domain;
 
@@ -6,8 +7,11 @@ namespace PCSteward.Performance;
 
 internal static class Program
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     private static async Task<int> Main()
     {
+        string? outputPath = GetOutputPath();
         List<double> samples = [];
         for (int run = 0; run < 30; run++)
         {
@@ -24,8 +28,42 @@ internal static class Program
             online.Add(timer.Elapsed.TotalMilliseconds);
         }
         online.Sort(); Console.WriteLine($"Task 18 fixture online-check workload: runs=20 sources=2 medianMs={online[9]:F2} p95Ms={online[18]:F2}. Fixture connectors only; no live WinGet or Store source was contacted.");
+        if (outputPath is not null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+            PerformanceResult result = new(
+                DateTimeOffset.UtcNow,
+                Environment.MachineName,
+                Environment.OSVersion.VersionString,
+                Environment.ProcessorCount,
+                Environment.Version.ToString(),
+                samples,
+                online,
+                "Fixture-only harness. It does not represent the WinUI shell, real update sources, five-minute idle activity, or process-tree resource use.");
+            await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(result, JsonOptions));
+            Console.WriteLine($"Raw machine-readable performance result: {outputPath}");
+        }
         return 0;
     }
+
+    private static string? GetOutputPath()
+    {
+        string[] arguments = Environment.GetCommandLineArgs();
+        int outputIndex = Array.IndexOf(arguments, "--output");
+        if (outputIndex < 0) return null;
+        if (outputIndex == arguments.Length - 1 || string.IsNullOrWhiteSpace(arguments[outputIndex + 1])) throw new ArgumentException("--output requires a file path.");
+        return Path.GetFullPath(arguments[outputIndex + 1]);
+    }
+
+    private sealed record PerformanceResult(
+        DateTimeOffset CapturedAtUtc,
+        string MachineName,
+        string OperatingSystem,
+        int LogicalProcessorCount,
+        string Runtime,
+        IReadOnlyList<double> LocalInventoryMilliseconds,
+        IReadOnlyList<double> OnlineCheckMilliseconds,
+        string ScopeNote);
     private sealed class FixtureProvider(int count) : ILocalInventoryProvider
     {
         public string Name => "fixture"; public TimeSpan Timeout => TimeSpan.FromSeconds(5);
