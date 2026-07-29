@@ -47,7 +47,7 @@ public sealed class DownloadedArtifactCache : IDisposable
         FileSystemObject[] objects = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
         HashSet<string> active = artifacts.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         long total = objects.Sum(item => item.SizeBytes);
-        long recoverable = objects.Where(item => !active.Contains(item.RelativePath)).Sum(item => item.SizeBytes);
+        long recoverable = objects.Where(item => !IsActivePath(item.RelativePath, active)).Sum(item => item.SizeBytes);
         return new DownloadCacheSummary(total, recoverable, objects.Length, active.Count, await store.GetDownloadedArtifactsLastCleanedAtAsync(cancellationToken).ConfigureAwait(false));
     }
 
@@ -72,7 +72,7 @@ public sealed class DownloadedArtifactCache : IDisposable
             HashSet<string> attempted = [];
             foreach (FileSystemObject item in initialObjects.OrderBy(item => item.IsDirectory).ThenBy(item => ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? registered) ? registered.CreatedAt.UtcDateTime : item.LastWriteTimeUtc).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
             {
-                if (active.Contains(item.RelativePath)) continue;
+                if (IsActivePath(item.RelativePath, active)) continue;
                 ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? artifact);
                 bool expired = artifact is not null && (artifact.Outcome == DownloadedArtifactOutcome.VerifiedSuccess ? artifact.CreatedAt < now.AddDays(-7) : artifact.CreatedAt < now.AddDays(-1));
                 bool quotaExceeded = retainedBytes > SoftQuotaBytes;
@@ -92,10 +92,13 @@ public sealed class DownloadedArtifactCache : IDisposable
             }
 
             DownloadedArtifact[] remaining = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).ToArray();
+            foreach (DownloadedArtifact missing in remaining.Where(artifact => !artifact.IsActive && !initialSizes.ContainsKey(PathSafety.NormalizeRelativePath(artifact.RelativePath))))
+                await store.DeleteDownloadedArtifactAsync(missing.Id, cancellationToken).ConfigureAwait(false);
+            remaining = (await store.GetDownloadedArtifactsAsync(cancellationToken).ConfigureAwait(false)).ToArray();
             ledger = remaining.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
             active = remaining.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             FileSystemObject[] filesystemRemaining = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
-            foreach (FileSystemObject item in filesystemRemaining.Where(item => !active.Contains(item.RelativePath) && (clearAllInactive || ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
+            foreach (FileSystemObject item in filesystemRemaining.Where(item => !IsActivePath(item.RelativePath, active) && (clearAllInactive || ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
                 residuals.Add(new DownloadCleanupResidual(item.RelativePath, ledger.ContainsKey(item.RelativePath) ? "UndeletedOwnedObject" : "UnknownOwnedObject"));
             bool succeeded = residuals.Count == 0;
             if (succeeded) await store.SetDownloadedArtifactsLastCleanedAtAsync(now, cancellationToken).ConfigureAwait(false);
@@ -103,6 +106,8 @@ public sealed class DownloadedArtifactCache : IDisposable
         }
         finally { cleanupGate.Release(); }
     }
+
+    private static bool IsActivePath(string relativePath, IReadOnlySet<string> active) => active.Any(path => string.Equals(path, relativePath, StringComparison.OrdinalIgnoreCase) || relativePath.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
 }
 
 internal static class PathSafety

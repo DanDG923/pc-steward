@@ -44,7 +44,10 @@ internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalI
         {
             string? sourceId = record.Source?.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => null };
             string sourceKey = sourceId ?? "unknown";
-            Guid productId = GuidFor("product|winget|" + sourceKey + "|" + record.Id); products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name)); instances.Add(new InstallationInstance(GuidFor("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version), productId, "winget", record.Id, record.Version, "Unknown", "Unknown", null, null, null, null, "Application", sourceId)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "winget", record.Id, $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"}"));
+            IReadOnlyCollection<TargetedInstalledCompatibility> compatibility = sourceId is null ? [] : await provider.ResolveExactCompatibilityAsync(sourceId == "winget" ? UpdateSource.WinGet : UpdateSource.MicrosoftStore, record.Id, record.Version, cancellationToken);
+            string scope = compatibility.Count == 1 ? compatibility.Single().Scope.ToString() : "Unknown";
+            string architecture = compatibility.Count == 1 ? compatibility.Single().Architecture.ToString() : "Unknown";
+            Guid productId = GuidFor("product|winget|" + sourceKey + "|" + record.Id); products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name)); instances.Add(new InstallationInstance(GuidFor("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version + "|" + scope + "|" + architecture), productId, "winget", record.Id, record.Version, scope, architecture, null, null, null, null, "Application", sourceId)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "winget", record.Id, $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"};scope={scope};architecture={architecture}"));
         }
         return new ProviderScanResult(products, instances, raw, result.Warnings);
     }

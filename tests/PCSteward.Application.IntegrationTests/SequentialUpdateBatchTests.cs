@@ -47,6 +47,21 @@ public sealed class SequentialUpdateBatchTests
     }
 
     [TestMethod]
+    public async Task ProductionRunningApplicationDetectorFindsOnlyTheBoundedPackageDerivedProcessName()
+    {
+        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("pwsh.exe", "-NoProfile -Command Start-Sleep -Seconds 10") { UseShellExecute = false })!;
+        try
+        {
+            ImmutableUpdateJob job = Job("Contoso.pwsh", "1.1.0");
+            Assert.IsTrue(await new NoRunningApplicationDetector().IsRunningAsync(job, CancellationToken.None));
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(true);
+        }
+    }
+
+    [TestMethod]
     public async Task VerificationFailureAndDiagnosticsRemainDistinctAndSanitized()
     {
         InMemoryHistory history = new();

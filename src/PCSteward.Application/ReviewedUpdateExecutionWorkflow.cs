@@ -54,6 +54,8 @@ public sealed class NoRunningApplicationDetector : IRunningApplicationDetector
     public Task<bool> IsRunningAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
-        return Task.FromResult(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        string[] names = [job.Selection.PackageId, job.Selection.PackageId.Split('.').Last()];
+        return Task.FromResult(System.Diagnostics.Process.GetProcesses().Any(process => names.Any(name => string.Equals(process.ProcessName, name, StringComparison.OrdinalIgnoreCase))));
     }
 }

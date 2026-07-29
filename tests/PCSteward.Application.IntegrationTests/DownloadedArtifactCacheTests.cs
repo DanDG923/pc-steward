@@ -145,6 +145,44 @@ public sealed class DownloadedArtifactCacheTests
     }
 
     [TestMethod]
+    public async Task ActiveDirectoryLedgerEntryProtectsItsEntireSubtree()
+    {
+        await using ArtifactFixture fixture = new();
+        string activeDirectory = Path.Combine(fixture.Root, "active-extraction");
+        Directory.CreateDirectory(activeDirectory);
+        string payload = Path.Combine(activeDirectory, "payload.bin");
+        await File.WriteAllBytesAsync(payload, [1, 2, 3]);
+        DownloadedArtifact active = new(Guid.NewGuid(), "update", "active-extraction", 3, DateTimeOffset.UtcNow, IsActive: true);
+        await fixture.CreateCache().RegisterAsync(active, CancellationToken.None);
+
+        DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsTrue(File.Exists(payload));
+        Assert.AreEqual(3, result.RemainingBytes);
+        Assert.HasCount(1, await fixture.Store.GetDownloadedArtifactsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task MissingInactiveArtifactIsReconciledButMissingActiveArtifactIsRetained()
+    {
+        await using ArtifactFixture fixture = new();
+        DownloadedArtifact inactive = fixture.Write("missing-inactive.bin", 3, DateTimeOffset.UtcNow);
+        DownloadedArtifact active = fixture.Write("missing-active.bin", 3, DateTimeOffset.UtcNow, active: true);
+        await fixture.CreateCache().RegisterAsync(inactive, CancellationToken.None);
+        await fixture.CreateCache().RegisterAsync(active, CancellationToken.None);
+        File.Delete(Path.Combine(fixture.Root, "missing-inactive.bin"));
+        File.Delete(Path.Combine(fixture.Root, "missing-active.bin"));
+
+        DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        IReadOnlyCollection<DownloadedArtifact> remaining = await fixture.Store.GetDownloadedArtifactsAsync(CancellationToken.None);
+        Assert.HasCount(1, remaining);
+        Assert.AreEqual(active.Id, remaining.Single().Id);
+    }
+
+    [TestMethod]
     public async Task ProductionCacheRejectsConfiguredRootWithAReparseAncestor()
     {
         foreach (string level in new[] { "parent", "grandparent" })
