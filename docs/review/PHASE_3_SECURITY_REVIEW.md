@@ -2,7 +2,8 @@
 
 **Phase:** Phase 3 — Safe update execution and app-owned cache
 **Base commit:** `1b6389deb1926a3134322da9760b7ef9ceb6fdbc`
-**Head reviewed:** `b5cc57738d0e8583bc81bd8019226c44661e9466`
+**Head reviewed:** `30ba65ae5f461fd5526b63a44eb77d765c10b6a2`
+**Remediation reviewed:** `9bc817f5a2da74385b31eb9412086c9e5f112a28..30ba65ae5f461fd5526b63a44eb77d765c10b6a2`
 **Reviewer model/effort:** GPT-5.6 Sol / Extra High
 **Date:** 2026-07-29
 
@@ -10,69 +11,63 @@
 
 `FAIL`
 
-The latest remediation closes the exact `P3R-10` eight-probe/display-compatibility defect and adds a user-visible initial running-target acknowledgement. The gate still fails. A malformed WinGet available-update display row can supply the immutable `--version` execution argument, contrary to ADR-003, and the desktop launches the helper through `runas` before checking its signature or signer from a path writable by the caller. A late running-target detection can also still execute without the user's target-specific acknowledgement.
+The remediation removes the previously executable display-table candidate authority and correctly stops a newly detected final running target before queue/provider execution. The pre-`runas` implementation also fails closed on this development tree. Phase 3 still cannot merge: the actual desktop supplies no structured candidate authority, so no current production update can reach review or execution and the mandatory current-tree update-verification path is unproven; and the `P3R-15` trust boundary has neither production-path negative fixtures nor the required clean signed protected-root positive/UAC evidence.
 
-Do not merge Phase 3 or begin Task 26. Run Task 90 and repeat Task 25 under a fresh GPT-5.6 Sol / Extra High review.
+Do not merge Phase 3 or begin Task 26. Run Task 90 for the remaining `P3R-14` gate evidence and `P3R-15` evidence blocker, then repeat Task 25 under a fresh GPT-5.6 Sol / Extra High review.
 
-## Scope and reproducible results
+## Scope and fresh reproducible results
 
-- Complete implementation diff: `1b6389deb1926a3134322da9760b7ef9ceb6fdbc..b5cc57738d0e8583bc81bd8019226c44661e9466` — 88 files, 5,827 insertions, 185 deletions.
-- Security fixtures — 16 passed.
-- Architecture tests — 4 passed.
-- Focused WinGet, production workflow, reviewed execution, batch and production-cache integration filter — 51 passed.
-- Host-safe hostile script — 42 assertions passed; one documented elevated-only symbolic-link skip.
-- Recorded approved elevated production-cache rerun after the root-open changes — 14 assertions passed; all file/directory/root-link and scratch-VHD sentinels survived.
-- `pwsh -NoProfile -File .\scripts\Build.ps1` — succeeded, 0 warnings, 0 errors.
-- `pwsh -NoProfile -File .\scripts\Test.ps1` — 168 passed: Security 16, Architecture 4, Domain 51, Application integration 97.
-- Host-safe WinGet boundary script — 11 assertions passed.
-- Read-only machine-provider inspection — six controls passed: WindowsApps root, package directory and provider were non-reparse; Authenticode was valid; signer subject contained Microsoft Corporation; caller write allows were zero.
-- Direct current-Release reproduction parsed mapped package `Contoso.Widget` and available version `9.9.9` from a malformed display table with later `ActualId`/`ActualVersion` columns, then emitted `upgrade --id Contoso.Widget --version 9.9.9 --source winget --exact --scope machine --architecture x64 --disable-interactivity`.
-- Fresh Release helper inspection reported both desktop/helper `NotSigned`; the actual helper file and containing output directory grant the current user inherited `FullControl`. Static order is `LaunchHelper(... runas)` before the connected-process signature/signer check.
-- `git diff --check` passed before this report was edited.
-- No UAC prompt, WinGet command, provider-cache mutation, installer, real update, VHD, privileged certificate operation or non-fixture deletion was invoked during this review.
+- Complete Phase 3 diff: `1b6389deb1926a3134322da9760b7ef9ceb6fdbc..30ba65ae5f461fd5526b63a44eb77d765c10b6a2` — 92 files, 6,454 insertions, 195 deletions.
+- Remediation diff: 19 files, 658 insertions, 48 deletions.
+- Focused current-inventory, candidate-authority, reviewed-workflow, batch, WinGet and cache filter — **56 passed**.
+- Security fixtures — **19 passed**.
+- Architecture tests — **4 passed**.
+- Host-safe hostile deletion/IPC script — **42 assertions passed; one documented elevated-only symbolic-link case skipped**.
+- Host-safe WinGet boundary script — **11 assertions passed**.
+- `pwsh -NoProfile -File .\scripts\Build.ps1` — succeeded, **0 warnings, 0 errors**.
+- `pwsh -NoProfile -File .\scripts\Test.ps1` — **176 passed:** Security 19, Architecture 4, Domain 51, Application integration 102.
+- Fresh read-only trust inspection — `%ProgramFiles%\PC Steward` absent; current Release desktop/helper and helper output directory non-reparse but both executables `NotSigned`; the current caller could open each executable for write and each inspected path had eight write-capable allow entries. No UAC was invoked.
+- Static production composition — `App.xaml.cs` supplies `WingetUpdateSourceConnector` display connectors and `WingetPostUpdatePackageInventory`, but no `IStructuredUpdateCandidateAuthority`; `PrepareApprovedUpdateSelectionAsync` therefore returns no selection before review/job/runner construction.
+- Static final-target flow — a positive coordinator snapshot records only `RunningApplicationWarning` and returns `AcknowledgementRequired` before `Queued`, `Running`, or executor calls; a fresh review and explicit acknowledgement are required to continue.
+- Static elevation flow — fixed-path resolution and trust validation occur before pipe creation, are repeated immediately before the launcher, and the connected-process identity check remains after launch.
+- `git diff --check` passed before this report was edited. The worktree was clean after all validation.
+- No WinGet update, installer, UAC prompt, certificate mutation, VHD, provider-cache mutation or non-fixture deletion was invoked.
 
-## Findings
+## Remaining findings and mandatory evidence gaps
 
-| ID | Severity | Requirement | Evidence | Finding and required remediation |
+| ID | Severity | Requirement | Evidence | Finding and required closure |
 |---|---|---|---|---|
-| `P3R-14` | High | `FR-UPD-02–03`, `NFR-MNT-03`, `AC-UPD-01–02`, `TM-01–03/13`, ADR-003/017 | `WingetInstalledInventoryProvider.cs:187–224, 255–270, 308–323`; `InventoryWorkflow.cs:104–119, 223–234`; direct current-Release reproduction | `WingetUpdateSourceConnector` converts `winget upgrade` display-table fields into `SourcePackageRecord.AvailableVersion`; the fresh-preparation path promotes that value into `UpdateJobSelection.CandidateVersion`, and both runners place it in the fixed `--version` argument. Exact user mapping binds source/package but supplies no structured candidate-version authority. The parser accepts arbitrary extra columns and ignores all between Available and the last Source column; the direct reproduction therefore converted malformed display text into the immutable execution argument. This is the authority ADR-003 expressly deferred while Phase 2 had no execution UI. Stop all table-derived values from authorizing a job or provider argument. Use a supported structured/programmatic authority binding exact source, ID and candidate version, or keep the candidate non-actionable. Add malformed/localized/injected-spacing/extra-column and actual desktop-composition tests proving table-only evidence cannot create a job or call either runner. |
-| `P3R-15` | Blocker | `FR-UPD-02/04`, `AC-UPD-02/04`, `TM-03–04`, ADR-002/018 | `WindowsElevatedHelperTransport.cs:36–55, 96–107, 156–182, 528–575`; fresh Release signature/ACL inspection; signed host-exception record | The desktop calls `Process.Start` with `Verb=runas` before any signature/signer verification of the helper. Verification occurs only after the elevated process connects; a substituted executable has already acquired high integrity and need never connect. The exact Release path is unsigned and caller-writable, while the approved signed host fixture proves only post-connect mutual identity. This is an arbitrary-elevation/confused-deputy path for the modeled same-user adversary. Resolve the helper from an installer-protected, non-caller-writable, non-reparse fixed root; validate its trusted signature and exact expected signer before `runas`; preserve the post-connect check; and close replacement between validation and launch through protected ownership/ACLs and reviewed launch semantics. Add caller-writable, unsigned, wrong-signer, reparse and replacement fixtures proving no elevated process/UAC launch occurs, plus clean installed-path evidence. Revisit ADR-002 if a per-user installation cannot provide that boundary. |
-| `P3R-13` | Medium | `FR-UPD-05–06`, `TM-10` | `ReviewedUpdateExecutionWorkflow.cs:36–52`; `UpdateBatchWorkflow.cs:134–145`; `MainWindow.cs:208–225`; `SequentialUpdateBatchTests.cs:33–49`; `ReviewedUpdateExecutionWorkflowTests.cs:64–80` | Initial and confirmation snapshots are now user-visible/gated, and process objects are disposed. However, a target can start after the confirmation snapshot. The coordinator's immediate pre-provider detection then appends history and executes without consulting or obtaining the user's acknowledgement; the existing true-detector batch test proves this behavior. Make a newly detected pre-provider target stop before execution and return a user-visible acknowledgement-required result; only a subsequent explicit target-specific confirmation may resume. Add the three-snapshot false/false/true production-workflow regression and retain no close/kill authority. |
+| `P3R-14` | High gate gap | `FR-UPD-02–03/08–09`, `AC-UPD-01–02/06/08`, `NFR-MNT-03`, `TM-01–03/12–13`, ADR-003/017 | `App.xaml.cs:29–38`; `InventoryWorkflow.cs:109–146`; `InventoryWorkflowUpdateSourceTests.cs`; prior Firefox record | The unsafe display-table-to-`--version` path is removed: a separate exact structured authority is required and table connectors do not implement it. However, the actual desktop injects no authority at all, so every apparent update stops before review and execution. The approved Firefox exercise predates this gate and used the now-rejected authority path; it cannot prove `AC-UPD-06` or the present production composition. Supply a supported bounded structured candidate source bound to exact source/package/version, wire it into the actual desktop, retain all malformed/wrong-binding negatives, and capture current-tree composed positive evidence through review, runner and post-update verification. Until then the remediation is safe but Phase 3's mandatory update path is absent. |
+| `P3R-15` | Blocker | `FR-UPD-02/04`, `AC-UPD-02/04`, `TM-03–04/06`, ADR-002/018 | `WindowsElevatedHelperTransport.cs:25–103, 213–386`; `ElevatedHelperSecurityTests.cs:209–280`; fresh host inspection; `TASK_90_P3R7_EVIDENCE.md` | The implementation now checks fixed layout, reparse ancestry, effective current-token modification rights, trusted signatures and exact signer equality twice before `runas`, and current binaries fail closed. Evidence is not adequate to close the finding. `PreLaunchTrustRejects...` evaluates caller-supplied booleans; `PreLaunchRejectionAndReplacement...` injects both validator and launcher; and the temporary unsigned fixture calls individual helpers rather than the production `InstalledHelperLaunchTrust.Validate`/transport path. There is no real wrong-signer, reparse, writable-layout or replacement fixture proving the production validator prevents the launcher/UAC call, and no clean signed `%ProgramFiles%\PC Steward` non-caller-writable success path reaching the approved no-op UAC boundary. Run those negative and positive cases in an approved isolated environment, record exact ACL/owner/reparse/signature/signer evidence and zero-launch assertions, and verify teardown. |
 
-## Remediation disposition
+## Complete `P3R-01`–`P3R-15` disposition
 
-| Finding | Disposition |
+| Finding | Independent disposition at `30ba65a` |
 |---|---|
-| `P3R-01–02` | Closed for the reported machine WinGet path and false cross-scope/cross-architecture `Success` defects. |
-| `P3R-03` | Closed: handle-relative root acquisition is structurally reviewed and the elevated production link/mount fixture is fresh for that primitive. |
-| `P3R-04–09` | Closed for the previously reported clear, inventory, recovery, parser-success and mixed quota defects. |
-| `P3R-10` | Closed narrowly: the eight per-row probes are removed; installed table data makes one bounded display-only call and retains `Unknown` compatibility. The distinct available-version authority defect is `P3R-14`. |
-| `P3R-11–12` | Closed: active directory descendants survive and missing inactive ledger entries reconcile while missing active entries remain. |
-| `P3R-13` | Open — initial/confirmation acknowledgement works, but the final pre-provider detection is history-only and does not gate execution. |
-| `P3R-14` | Open — display-table candidate version becomes an executable provider argument. |
-| `P3R-15` | Open — caller-writable helper is elevated before trust validation. |
+| `P3R-01` | Closed. Machine WinGet resolution remains machine-rooted, non-reparse, Authenticode/signer checked and fail-closed; provider boundary fixtures pass. |
+| `P3R-02` | Closed. Post-update success requires exact structured source/ID/version plus one exact concrete local version/scope/architecture target; cross-target negatives pass. |
+| `P3R-03` | Closed within the recorded approved host evidence. Handle-relative, open-only root/descendant acquisition and the current production primitive retain the 14-assertion link/mount/swap record; no cache primitive changed in `30ba65a`. |
+| `P3R-04` | Closed. Owned-root enumeration, orphan reconciliation and residual accounting prevent false cleanup Success. |
+| `P3R-05` | Closed. Actual local inventory is refreshed at review and confirmation; changed/unavailable evidence stops before job/provider construction. |
+| `P3R-06` | Closed. Started/interrupted work remains `VerificationRequired`; unstarted work alone is queued/cancelled. |
+| `P3R-07` | Closed. Safe inactive crash-orphan bytes participate in quota enforcement. |
+| `P3R-08` | Closed. Display tables cannot authorize post-update Success; exact bounded export JSON is required. |
+| `P3R-09` | Closed. Registered inactive artifacts and safe crash orphans share one deterministic oldest-first eviction order. |
+| `P3R-10` | Closed. Per-row compatibility probes are removed, table inventory remains display-only/`Unknown`, and actual composition makes one bounded display call. |
+| `P3R-11` | Closed. An active directory ledger entry protects its entire descendant subtree. |
+| `P3R-12` | Closed. Missing inactive ledger entries reconcile; missing active entries remain protected. |
+| `P3R-13` | Closed. Initial/confirmation warnings are user-visible, and a first positive final snapshot stops before queue/provider execution with target/process-specific evidence and no close/kill authority. |
+| `P3R-14` | Security defect treated, gate evidence open. Table text no longer supplies an executable version, but the current desktop has no actionable structured candidate route or current-tree positive update evidence. |
+| `P3R-15` | Implementation treated, evidence open. The pre-launch policy is structurally present and fails closed locally, but required production-boundary negative fixtures and clean protected signed installed-path/UAC evidence are missing. |
 
-## Mandatory evidence status
+## Mandatory evidence judgment
 
-- `AC-DAT-16` is Proven within the approved host exception against the current root-open primitive.
-- `AC-NFR-10` and `FR-DAT-15` are Proven for the remediated active-subtree and missing-ledger cases.
-- `AC-UPD-06/08` retains fail-closed post-update evidence, but the update that reaches it is not authorized through an ADR-003-compliant candidate-version path.
-- `AC-UPD-04`/`TM-04` is not Proven for a trusted helper launch; post-connect signature checks cannot undo arbitrary code already launched elevated.
-- `FR-UPD-05` is not Proven for a target first detected at the immediate pre-provider boundary.
-- Passing automated counts and the prior exceptions do not override an arbitrary-elevation path or a High execution-authority defect.
+- `AC-DAT-16`, `AC-NFR-10` and `FR-DAT-15` remain Proven for the current cleanup primitive and remediated active/orphan/ledger cases.
+- `FR-UPD-05–06` is Proven for the bounded detector and all three snapshots; no force-close surface exists.
+- `AC-UPD-06/08` is not Proven through the actual current desktop because no production structured candidate authority can create a reviewed job.
+- `AC-UPD-04` and `TM-04/06` are not Proven for the new pre-launch boundary. Local rejection is necessary but does not substitute for a clean protected signed positive path and production-path negative hostile fixtures.
+- Task 25's rule says a missing mandatory production/hostile evidence row fails the gate regardless of passing automated counts.
 
-## Task 90 remediation handoff
+## Residual risks and approved deferrals
 
-The Task 90 commit following this review addresses `P3R-13–15`; this section records the handoff and does not regrade the independent gate.
-
-| Finding | Remediation-tree disposition | Verification |
-|---|---|---|
-| `P3R-15` | Closed in the remediation tree. Exact protected `%ProgramFiles%\PC Steward` layout, whole-path non-reparse and effective current-token non-modifiability, trusted desktop/helper signatures and exact signer equality are checked twice before the launcher/`runas` call. Post-connect identity remains. Current unsigned/writable developer output fails before UAC. | Security fixtures **19 passed**, including zero-launch initial/replacement failures; safe read-only local trust inspection. |
-| `P3R-14` | Closed in the remediation tree. An immutable selection now requires exact bounded structured candidate authority; the WinGet table connector is display-only and actual desktop composition supplies no structured provider, so it fails closed before review/job/runner construction. | Focused application filter **56 passed**, including malformed/localized/extra-column, wrong binding/version and actual composition tests. |
-| `P3R-13` | Closed in the remediation tree. A first positive final pre-provider snapshot returns target/process-specific acknowledgement-required before queue/provider execution; continuation requires a fresh review and explicit acknowledgement. | False/false/true production-workflow regression and no-close/kill surface checks pass. |
-
-Release build succeeded with 0 warnings/errors; the complete suite passed **176** tests; hostile and WinGet scripts passed **42/1 approved skip** and **11**. Full evidence is in [Task 90 P3R7 evidence](TASK_90_P3R7_EVIDENCE.md). A clean signed protected-root/UAC replay remains unavailable, so Phase 3 is still `FAIL` until a fresh Task 25 review.
-
-## Residual risks
-
-Clean-image behavior, per-user no-prompt execution, provider-disconnect cancellation, the un-replayed outcome dialog, same-signer helper/provider rollback, same-user substitution of the name-based temporary export, root creation races before handle binding, imperfect package-ID/process-name correlation, and unconstrained hostile races remain unproven within their recorded exception scope. ADR-002, ADR-003 and ADR-011 remain Provisional; `AC-UX-01–09` remain Optional under ADR-021.
+The recorded host substitute and personal-use UI waiver retain only their narrow historical scope. Per-user no-prompt execution, provider-disconnect cancellation, the un-replayed outcome dialog, same-signer rollback, same-user substitution of the name-based temporary export, root-creation and unconstrained hostile races, and imperfect package-ID/process-name correlation remain residual risks. None waives the two mandatory gaps above. ADR-002, ADR-003 and ADR-011 remain Provisional; `AC-UX-01–09` remain Optional under ADR-021.
