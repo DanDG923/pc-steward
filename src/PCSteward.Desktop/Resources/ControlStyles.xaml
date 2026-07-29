@@ -5,12 +5,31 @@
         <Setter Property="Background" Value="{ThemeResource StewardSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource StewardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="12" />
-        <Setter Property="Padding" Value="20" />
+        <Setter Property="CornerRadius" Value="{StaticResource StewardCardCornerRadius}" />
+        <Setter Property="Padding" Value="{StaticResource StewardCardPadding}" />
     </Style>
     <Style x:Key="StewardButtonStyle" TargetType="Button">
         <Setter Property="MinHeight" Value="40" />
-        <Setter Property="Padding" Value="16,8" />
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="{StaticResource StewardControlPadding}" />
+        <Setter Property="CornerRadius" Value="{StaticResource StewardControlCornerRadius}" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource StewardFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource StewardSurfaceBrush}" />
+    </Style>
+    <Style x:Key="StewardInputStyle" TargetType="TextBox">
+        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource StewardFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource StewardSurfaceBrush}" />
+    </Style>
+    <Style x:Key="StewardSelectStyle" TargetType="ComboBox">
+        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource StewardFocusBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource StewardSurfaceBrush}" />
+    </Style>
+    <Style x:Key="StewardStatusChipStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource StewardSurfaceSubtleBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource StewardBorderStrongBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource StewardControlCornerRadius}" />
+        <Setter Property="Padding" Value="8,4" />
     </Style>
 </ResourceDictionary>

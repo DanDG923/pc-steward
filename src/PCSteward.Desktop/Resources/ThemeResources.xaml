@@ -1,0 +1,9 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Thickness x:Key="StewardPagePadding">24</Thickness>
+    <Thickness x:Key="StewardCardPadding">20</Thickness>
+    <Thickness x:Key="StewardControlPadding">16,8</Thickness>
+    <CornerRadius x:Key="StewardControlCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="StewardCardCornerRadius">12</CornerRadius>
+</ResourceDictionary>

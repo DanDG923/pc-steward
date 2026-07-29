@@ -24,6 +24,7 @@ Read:
 - OD-13 ADR and security spike;
 - current persistence, schedule, logging, artifact, and settings implementations;
 - specification sections 12.5, 15.5, 17.3, and relevant acceptance criteria.
+- `docs/DESIGN_DELIVERY_PLAN.md`, `design/SCREEN_INVENTORY.md`, `design/COMPONENT_SPECIFICATION.md`, and `design/ACCESSIBILITY_REVIEW.md`.
 
 Produce/update:
 - an exact reset manifest listing every deleted and preserved category;
@@ -36,6 +37,7 @@ Produce/update:
 - rollback/safe failure state;
 - hostile reparse/path tests;
 - uninstall retain/remove-data interaction.
+- the native UI contract: DataCategoryCard grouping, a separate factory-reset danger zone, Deletes/Preserves content, two-stage dialog order, exact `RESET` phrase, Cancel default, focus restoration, live partial-failure messaging, 200% scaling and system high contrast.
 
 Update the OD-13 ADR to Accepted with current evidence and create `docs/architecture/FACTORY_RESET_DESIGN.md`. The design must not require admin rights, delete binaries, delete provider-owned caches, or accept arbitrary paths.
 

@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Design visual foundation complete — supporting Task 26
-**Last green tree:** uncommitted visual-foundation working tree on `main` — Release build 0 warnings/errors; full suite 183 passed
+**Current task:** Design delivery plan and remaining foundation styles complete — Task 26 is next
+**Last green tree:** current design-delivery state on `main` — Release build 0 warnings/errors; full suite 183 passed
 **Current branch:** `main`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Commit the verified visual foundation as the approved native UI prerequisite when authorised. Task 26 remains scheduled checks and notifications; do not treat visual appearance alone as acceptance evidence for any accessibility or product requirement.
+Start Task 26: scheduled checks, settings surface and native shell. Complete Tasks 26B and 26C before the Task 26A factory-reset evidence gate. Do not treat visual appearance alone as acceptance evidence for any accessibility or product requirement.
 
 ## Rules for updating this file
 

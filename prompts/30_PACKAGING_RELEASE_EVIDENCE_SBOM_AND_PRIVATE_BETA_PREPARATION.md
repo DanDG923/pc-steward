@@ -29,6 +29,7 @@ Implement or produce:
 - static analysis, dependency vulnerability, secret, licence, and package-integrity reports using approved tooling;
 - known limitations and privacy/security statement;
 - a clean-VM evidence checklist.
+- packaging checks for the selected PC Steward mark at 16, 24, 32, 48 and 256 px, correct display name/icon, light/dark/high-contrast launch, and no external font, icon-pack, WebView or browser-runtime dependency.
 
 Do not publish, push, tag, upload, buy a certificate, or claim production signing. Do not mark a clean-VM test passed unless it actually ran and produced evidence.
 

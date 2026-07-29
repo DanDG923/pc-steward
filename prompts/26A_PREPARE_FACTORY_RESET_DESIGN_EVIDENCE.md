@@ -19,6 +19,8 @@ Task 26A — prepare evidence for the Task 27 factory-reset design gate. Do not 
 
 Read AGENTS.md, STATUS.md, the Phase 4 brief, ADR-013 and ADR-019, the security spike, current persistence/schedule/logging/artifact roots, and Task 27. Record the current-state inventory and safe design constraints needed for a reviewable reset manifest: owned roots, retained categories, active-work locks, scheduled-task ownership, file-handle/restart observations, and hostile reparse/path coverage.
 
+Also read `docs/DESIGN_DELIVERY_PLAN.md`, `design/SCREEN_INVENTORY.md`, `design/COMPONENT_SPECIFICATION.md` and `design/ACCESSIBILITY_REVIEW.md`. Record the required UI contract for the future reset flow: independent data-category cards; a visibly separated danger zone; Deletes/Preserves groups; two distinct dialogs; exact `RESET` phrase; Cancel default/focus; non-Enter-triggered destructive action; high-contrast and 200% scale behaviour; pending/partial-reset states; and focus/announcement recovery. This is evidence/design work only and must not implement reset UI or reset logic.
+
 Create docs/review/FACTORY_RESET_DESIGN_EVIDENCE_READINESS.md with each Task 27 deliverable, the supporting source/command/evidence, status (Proven, Missing, or Approved exception), and an exact next action. No destructive action may run outside disposable allowlisted roots. Update traceability and status. Do not proceed to Task 27 unless every required design input is Proven or carries an explicit product-owner exception. Commit the evidence package.
 ```
 

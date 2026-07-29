@@ -19,6 +19,8 @@ Task 28 — implement advanced data controls and Factory reset PC Steward exactl
 
 Requirements are listed under Task 28 in `docs/requirements/TRACEABILITY.md`.
 
+Also read `docs/DESIGN_DELIVERY_PLAN.md` and the approved native design resources. This task implements Design Phase 5 activity/privacy/data surfaces and Design Phase 7 reset surfaces only after Task 27 accepts the exact mechanism.
+
 Implement:
 - independent advanced clearing of source metadata, logs, update history, and manual mappings/policies;
 - a visually separate Factory reset control;
@@ -31,9 +33,15 @@ Implement:
 - restart/close and verified first-run onboarding;
 - idempotence and no elevation.
 
+In the visual system:
+- add Activity and Privacy & data pages with activity timeline/detail, sanitized diagnostic disclosure, DataCategoryCard, separate clear-scan/clear-download controls and explicit Deletes/Preserves confirmation content;
+- retain the export privacy warning, provider-cache preservation wording and active-work disabled reason;
+- add advanced data controls and reset screens only from the accepted Task 27 manifest: separate danger zone, two dialogs, exact phrase and pending/partial result states;
+- make destructive scope text-plus-icon based, default every dialog to Cancel, restore focus and use shared light/dark/high-contrast resources.
+
 Reuse the allowlisted-root deletion subsystem; do not create a broader delete primitive. Add full integration tests, hostile reparse/path fixtures, locked-file tests, scheduled-task cleanup, restart verification, and uninstall interaction tests where package tooling permits.
 
-Run static analysis and the full suite. Update threat model, status, and traceability.
+Run static analysis and the full suite. Capture keyboard, 200% scale, high-contrast, locked-file/partial cleanup and reset-accident evidence; update threat model, status, and traceability only with measured evidence.
 ```
 
 ## Completion rule

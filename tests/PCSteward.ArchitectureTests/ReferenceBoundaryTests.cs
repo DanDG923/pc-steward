@@ -73,6 +73,7 @@ public sealed class ReferenceBoundaryTests
         string desktopDirectory = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop");
         string appXaml = File.ReadAllText(Path.Combine(desktopDirectory, "App.xaml"));
         StringAssert.Contains(appXaml, "Resources/ColorTokens.xaml");
+        StringAssert.Contains(appXaml, "Resources/ThemeResources.xaml");
         StringAssert.Contains(appXaml, "Resources/Typography.xaml");
         StringAssert.Contains(appXaml, "Resources/ControlStyles.xaml");
 
@@ -98,6 +99,12 @@ public sealed class ReferenceBoundaryTests
         string project = File.ReadAllText(Path.Combine(desktopDirectory, "PCSteward.Desktop.csproj"));
         StringAssert.Contains(project, "logo-mark-64.png");
         StringAssert.Contains(project, "pc-steward.ico");
+
+        string styles = File.ReadAllText(Path.Combine(desktopDirectory, "Resources", "ControlStyles.xaml"));
+        StringAssert.Contains(styles, "StewardInputStyle");
+        StringAssert.Contains(styles, "StewardSelectStyle");
+        StringAssert.Contains(styles, "StewardStatusChipStyle");
+        StringAssert.Contains(styles, "FocusVisualPrimaryBrush");
     }
 
     private static string FindRepositoryRoot()

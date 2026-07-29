@@ -26,6 +26,7 @@ Read:
 - threat model;
 - test, benchmark, VM/manual, SBOM, static-analysis, dependency, secret-scan, packaging, and uninstall evidence;
 - complete diff/history from the initial product-spec commit.
+- `docs/DESIGN_DELIVERY_PLAN.md`, the approved native design package, and measured real-app visual/accessibility evidence.
 
 Independently verify every mandatory acceptance criterion and release-definition item. Re-run safe critical suites, especially:
 - zero false-positive actionable mapping;

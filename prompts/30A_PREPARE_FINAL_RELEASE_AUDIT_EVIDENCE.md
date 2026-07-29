@@ -19,7 +19,7 @@ Task 30A — prepare final release-audit evidence. Do not grade release readines
 
 Read AGENTS.md, STATUS.md, every phase brief, test strategy, all ADRs, phase-review reports, Task 30 artifacts, and Task 31. Run safe critical suites, Release build, full suite, benchmark commands, and static/dependency/secret/SBOM checks available in the repository. Assemble only reproducible, sanitized evidence for every mandatory acceptance criterion, packaging/uninstall/reset behavior, performance/raw measurements, and all approved VM/manual observations.
 
-Create docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md with a criterion-to-evidence table: requirement ID, command/artifact/commit, result, status (Proven, Missing, or Approved exception), owner, and exact next action. Missing or unapproved evidence blocks Task 31; do not relabel it as Proven. Update traceability and status, then commit the evidence package.
+Create docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md with a criterion-to-evidence table: requirement ID, command/artifact/commit, result, status (Proven, Missing, or Approved exception), owner, and exact next action. Include the `docs/DESIGN_DELIVERY_PLAN.md` work items and actual-app visual/accessibility evidence; missing or unapproved evidence blocks Task 31 and must not be relabelled as Proven. Update traceability and status, then commit the evidence package.
 ```
 
 ## Completion rule

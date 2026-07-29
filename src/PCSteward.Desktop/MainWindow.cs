@@ -51,6 +51,8 @@ public sealed class MainWindow : Window
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
         panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
+        panel.Resources[typeof(TextBox)] = AppStyle("StewardInputStyle");
+        panel.Resources[typeof(ComboBox)] = AppStyle("StewardSelectStyle");
         panel.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "First scan reads installed-app information stored locally by Windows. It does not request elevation, install updates, refresh package sources, or send data to an account. Local-only Windows inventory is the safe default.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = AppStyle("StewardSectionTitleStyle") });

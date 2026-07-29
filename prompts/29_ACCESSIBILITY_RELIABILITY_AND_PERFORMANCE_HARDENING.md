@@ -19,6 +19,8 @@ Task 29 — run the best-effort accessibility, reliability, cancellation, and re
 
 Requirements are listed under Task 29 in `docs/requirements/TRACEABILITY.md`.
 
+Read `docs/DESIGN_DELIVERY_PLAN.md`, `design/ACCESSIBILITY_REVIEW.md`, `design/DESIGN_SYSTEM.md`, `design/SCREEN_INVENTORY.md` and the native prototype before planning evidence. Treat design contrast calculations and prototype behaviour as hypotheses to verify in the actual desktop app.
+
 First measure; then change only evidenced bottlenecks or failures. Execute the documented protocols for:
 - cold start;
 - five-minute idle CPU, working set, disk, and network;
@@ -34,6 +36,8 @@ First measure; then change only evidenced bottlenecks or failures. Execute the d
 - crash/interruption last-known-good recovery.
 
 Attempt keyboard, screen-reader naming, text scaling, high contrast, icon-plus-text, focus order, confirmation, and failure-message checks for every primary action. Under ADR-021, `AC-UX-01–09` are Optional — best effort; record any unproven item honestly but do not treat it as a phase or release-gate failure.
+
+For every implemented state, compare the real app with its native-prototype reference and record intentional versus unintentional variance. Include light/dark/high-contrast, 100/125/150/175/200% display/text scale, 900 x 640 and 1366 x 820 layouts, long/missing data, focus/hover/pressed/disabled/busy/error states, reduced motion, visible focus, F6 region order, Back/focus restoration, and icon-only automation-name checks.
 
 Store raw machine-readable results and a concise `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md`. Do not relax safety, matching precision, or destructive-operation controls to hit budgets. Fix failures, rerun affected protocols, and update status/traceability with measured—not assumed—results.
 ```
