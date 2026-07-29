@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 90 — final follow-up remediation evidence complete; fresh review pending
-**Last green commit:** `5e3638386a8729f7c9c111c7fb51c1bfbddce8b7` — Release build 0 warnings/errors; full suite 160 passed
+**Current task:** 25 — repeated Phase 3 security review complete; gate failed
+**Last green commit:** `7a9452f9d7fcdc1221382e92591a5cdd0f84ad8d` — Release build 0 warnings/errors; full suite 163 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -37,9 +37,9 @@
 
 ## Task 25 result
 
-The repeat review closes the configured-root ancestor escape in code and the mixed registered-file/orphan oldest-first defect. Release build remains 0 warnings/errors; security 16, architecture 4, focused integration 57, hostile script 42/1 skip and the full suite 160 all pass.
+The repeat review closes the stale elevated cleanup evidence, active-subtree deletion and absent-ledger defects. Release build remains 0 warnings/errors; security 16, architecture 4, focused integration 60, hostile script 42/1 skip and the full suite 163 all pass. The recorded current-head elevated production fixture passed 14 link/mount assertions.
 
-The gate remains **FAIL pending fresh independent review**. The current remediation reran the elevated link/mount fixture against the changed primitive, resolves desktop scope/architecture, protects active subtrees, reconciles missing inactive rows, and composes bounded running-process detection. Focused evidence passed 34 and the full suite passed 163. See [the final evidence](review/TASK_90_P3R5_EVIDENCE.md) and [the review](review/PHASE_3_SECURITY_REVIEW.md).
+The gate remains **FAIL**. `P3R-10` is High because desktop scope/architecture is derived from display-table parsing forbidden by ADR-003, with eight sequential exact probes per installed row and no desktop-composition regression. `P3R-13` is Medium because detected running state is recorded only after confirmation and is not shown to the user before provider execution. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
@@ -47,7 +47,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Repeat Task 25 under fresh GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
+Stop here. Run Task 90 under GPT-5.6 Terra / High, then repeat Task 25 under fresh GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 

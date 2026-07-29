@@ -2,7 +2,7 @@
 
 **Phase:** Phase 3 — Safe update execution and app-owned cache
 **Base commit:** `1b6389deb1926a3134322da9760b7ef9ceb6fdbc`
-**Head reviewed:** `5e3638386a8729f7c9c111c7fb51c1bfbddce8b7`
+**Head reviewed:** `7a9452f9d7fcdc1221382e92591a5cdd0f84ad8d`
 **Reviewer model/effort:** GPT-5.6 Sol / Extra High
 **Date:** 2026-07-29
 
@@ -10,56 +10,50 @@
 
 `FAIL`
 
-The follow-up remediation fixes the reproduced configured-root ancestor escape and unifies oldest-first eviction for registered files and crash orphans. The gate still fails. The current production composition cannot reach a verified post-update `Success`, the latest cleanup primitive has not rerun the mandatory elevated link/mount fixture, two disposable production-cache reproductions show active extraction content being deleted and absent ledger state being retained while cleanup reports `Success`, and the desktop's running-application detector is a production no-op.
+The final remediation closes the stale hostile-cleanup evidence, active-subtree deletion, absent-ledger reconciliation and always-false running-detector defects. The gate still fails because the production WinGet composition now uses display-table parsing as execution compatibility authority, directly contradicting ADR-003 and the required `P3R-10` remediation. The detector can create an internal warning event, but that detected state is not surfaced to the user before provider execution, so `P3R-13` also remains open.
 
 Do not merge Phase 3 or begin Task 26. Run Task 90 and repeat Task 25 under a fresh GPT-5.6 Sol / Extra High review.
 
 ## Scope and reproducible results
 
-- Complete diff: `1b6389deb1926a3134322da9760b7ef9ceb6fdbc..5e3638386a8729f7c9c111c7fb51c1bfbddce8b7` — 85 files, 5,463 insertions, 166 deletions.
+- Complete diff: `1b6389deb1926a3134322da9760b7ef9ceb6fdbc..7a9452f9d7fcdc1221382e92591a5cdd0f84ad8d` — 86 files, 5,544 insertions, 167 deletions.
 - Security fixtures — 16 passed.
 - Architecture tests — 4 passed.
-- Focused WinGet, production-workflow, reviewed-execution, batch/recovery, SQLite, cleanup and quota integration filter — 57 passed.
-- Host-safe hostile script — 42 assertions passed; one approved elevated-only symbolic-link skip.
+- Focused WinGet, production-workflow, reviewed-execution, batch/recovery, SQLite, cleanup and quota integration filter — 60 passed.
+- Host-safe hostile script — 42 assertions passed; one documented elevated-only symbolic-link skip.
+- Recorded approved elevated production-cache rerun after the root-open changes — 14 assertions passed; all file/directory/root-link and scratch-VHD sentinels survived.
 - `pwsh -NoProfile -File .\scripts\Build.ps1` — succeeded, 0 warnings, 0 errors.
-- `pwsh -NoProfile -File .\scripts\Test.ps1` — 160 passed: Security 16, Architecture 4, Domain 51, Application integration 89.
-- Active-directory production-cache reproduction — `SUCCEEDED=True PAYLOAD_EXISTS=False REMAINING_BYTES=0 ACTIVE_LEDGER_COUNT=1`.
-- Already-absent registered-artifact reproduction — `SUCCEEDED=True REMAINING_ITEMS=0 LEDGER_COUNT=1`.
-- Production running-application composition — `App.xaml.cs:36` injects `NoRunningApplicationDetector`; its only implementation at `ReviewedUpdateExecutionWorkflow.cs:52–59` returns `false` for every job. The passing warning test injects a separate `RunningDetector(true)`.
-- The recorded 14-assertion elevated production link/mount fixture ran at `17b46c4`, before `5e36383` changed production root acquisition; it was not rerun during this review.
+- `pwsh -NoProfile -File .\scripts\Test.ps1` — 163 passed: Security 16, Architecture 4, Domain 51, Application integration 92.
+- Direct production-split reproduction parsed trusted ID/version `Contoso.Widget`/`1.0` from a row whose actual ID/version fields were `Contoso.Widget`/`9.9`.
 - `git diff --check` still reports trailing whitespace only in seven previously committed review/evidence Markdown lines.
-- No UAC prompt, WinGet mutation, provider-cache mutation, installer, real update, VHD, privileged certificate operation or non-fixture deletion was invoked.
+- No UAC prompt, WinGet command, provider-cache mutation, installer, real update, VHD, privileged certificate operation or non-fixture deletion was invoked during this review.
 
 ## Findings
 
 | ID | Severity | Requirement | Evidence | Finding and required remediation |
 |---|---|---|---|---|
-| `P3R-03` | Blocker | `AC-DAT-16`, `TM-05–06`, ADR-019 | `DownloadedArtifactCache.cs:112–119, 241–316`; `TASK_90_P3R4_EVIDENCE.md`; approved elevated fixture at `17b46c4` | The configured-root ancestor escape is structurally remediated: deletion opens the volume and each root component handle-relatively, rejects reparse objects, and denies delete sharing. Parent/grandparent junction and safe root/ancestor-swap fixtures pass. However, `5e36383` changed this production root-acquisition primitive after the approved 14-assertion symbolic-link/root-link/scratch-VHD run. The latest evidence reruns only the 42-assertion host-safe script with its elevated case skipped. Rerun the approved production-cache file/directory/root-link and VHD fixtures against the final remediated head and record sentinel survival and teardown. |
-| `P3R-10` | High | `FR-UPD-08–09`, `AC-UPD-06/08`, `TM-02/12`, ADR-003/017 | `AdditionalLocalInventoryProviders.cs:34–49`; `InventoryWorkflow.cs:132–152`; `WingetInstalledInventoryProvider.cs:60–75`; `InventoryWorkflowUpdateSourceTests.cs:101–118` | `ReInventoryAsync` now requires the full-scan WinGet instance to match scope and architecture, but the desktop’s only production WinGet scan adapter hard-codes both fields to `Unknown`. The positive test uses a `FixedProvider` that injects `Machine/x64`, a state production cannot emit, so every real completed update remains Inconclusive and mandatory `AC-UPD-06` is unproven. The available targeted scope/architecture resolver still derives execution compatibility from display-table parsing, contrary to ADR-003. Provide one fail-closed, production-reachable authority for exact source, ID, candidate version, scope and architecture without display-table authorization; add a test using the actual desktop provider composition plus cross-scope/architecture negatives. |
-| `P3R-11` | High | `FR-DAT-08`, `NFR-PERF-10`, `AC-DAT-08/15`, `AC-NFR-10`, `TM-11/15`, ADR-011/019 | `DownloadedArtifactCache.cs:63–92, 134–169`; disposable production-cache reproduction | Active protection compares only exact relative paths. When an active ledger artifact is an extraction directory, its descendant files are enumerated as separate unregistered objects and deleted by both explicit clear and quota enforcement. The reproduction registered active `active-extraction`, then `ClearInactiveAsync` deleted `active-extraction\required.bin` and reported `Success`. Protect the complete subtree of every active directory artifact, or formally restrict registered artifacts to files and enforce that invariant before persistence; add explicit clear, quota and retention regressions proving active content survives. |
-| `P3R-12` | Medium | `FR-DAT-15`, `AC-DAT-08/11`, `TM-07/11/15`, ADR-011 | `DownloadedArtifactCache.cs:63–102`; disposable production-cache reproduction | The unified loop considers only filesystem objects. An inactive registered artifact whose file is already absent is never visited, so its ledger row remains while cleanup reports `Success` and zero remaining items. This regresses idempotent ledger reconciliation and can later create duplicate-path ambiguity. Reconcile absent inactive rows as `AlreadyAbsent`, retain active rows, and add repeated-clear plus missing-at-start ledger assertions. |
-| `P3R-13` | Medium | `FR-UPD-05–06`, `TM-10` | `App.xaml.cs:35–37`; `ReviewedUpdateExecutionWorkflow.cs:51–59`; `SequentialUpdateBatchTests.cs:36–46, 108` | Production always injects `NoRunningApplicationDetector`, whose `IsRunningAsync` returns `false` without inspecting the approved target. The only positive warning test injects a fake `RunningDetector(true)`, so the passing fixture cannot be reached in the desktop. The generic confirmation text is not the required target-specific warning. Implement a bounded, identity-derived, non-closing detector (or a provider-supported equivalent), wire it into the desktop, and add a production-composition positive plus unknown/ambiguous and no-force-close negatives. |
+| `P3R-10` | High | `FR-UPD-02/08–09`, `NFR-MNT-03`, `AC-UPD-01–02/06/08`, `TM-01–03/11–13`, ADR-003/017 | `AdditionalLocalInventoryProviders.cs:34–52`; `WingetInstalledInventoryProvider.cs:27–89`; `InventoryWorkflow.cs:116–152`; `WingetInstalledInventoryProviderTests.cs:68–79` | The desktop now resolves scope/architecture for every installed WinGet table row by calling `ResolveExactCompatibilityAsync`. That method runs eight exact `winget list` queries and accepts `ParseTable` output as the decisive ID/version evidence. `ParseTable` splits on two spaces without header boundaries; the direct reproduction shifted approved ID/version text from a crafted display field into trusted columns while the row's actual version was different. This is execution compatibility authority expressly forbidden by ADR-003. It also multiplies every inventory record into eight sequential provider processes inside a 35-second provider timeout, yet no test constructs `WingetLocalInventoryProvider`; the passing test covers only one injected provider method call. Use a structured/programmatic authority that binds source, ID, version, scope and architecture, or keep the provider non-actionable. Remove per-record exact probing and add malformed/localized/injected-spacing, bounded-call-count, timeout, ambiguity and actual desktop-composition tests. |
+| `P3R-13` | Medium | `FR-UPD-05–06`, `TM-10` | `ReviewedUpdateExecutionWorkflow.cs:32–60`; `UpdateBatchWorkflow.cs:129–139`; `MainWindow.cs:206–221`; `SequentialUpdateBatchTests.cs:49–62` | The detector now performs bounded package-suffix process-name matching and has no close authority, but it runs only inside the coordinator after the user confirms. A positive result appends `RunningApplicationWarning` and then immediately queues and executes the provider. `ConfirmAndRunAsync` returns only the final entry's message, so the detected warning is not shown before execution; the dialog contains only an unconditional generic reminder. The new test proves detection of a deliberately matching `Contoso.pwsh` suffix, not a user-visible warning or representative package/process mapping. Surface target-specific detected state before final confirmation or pause execution for explicit acknowledgement; dispose enumerated `Process` objects and add production-flow positive, ambiguous-name, exited-process and no-force-close tests. |
 
 ## Remediation disposition
 
 | Finding | Disposition |
 |---|---|
-| `P3R-01` | Closed: provider resolution remains machine-rooted, non-reparse and signature/signer checked. |
-| `P3R-02` | Closed for false cross-scope/cross-architecture `Success`; the mandatory production positive path is separately open as `P3R-10`. |
-| `P3R-03` | Structural escape closed in code and safe fixtures; open because mandatory elevated evidence is stale for the changed primitive. |
-| `P3R-04–07` | Closed for the previously reported explicit-clear, current-inventory, recovery and orphan-inclusion defects. |
-| `P3R-08` | Closed for post-update display-table authority; targeted compatibility still uses table output under `P3R-10`. |
-| `P3R-09` | Closed for mixed registered-file/orphan oldest-first eviction. Active-subtree protection is separately open as `P3R-11`. |
+| `P3R-01–02` | Closed for the previously reported provider-path and false cross-scope/cross-architecture `Success` defects. |
+| `P3R-03` | Closed: handle-relative root acquisition is structurally reviewed and the elevated production link/mount fixture is fresh for that primitive. |
+| `P3R-04–09` | Closed for the previously reported clear, inventory, recovery, parser-success and mixed quota defects. |
+| `P3R-10` | Open — the remediation restores production reachability by making forbidden display-table output execution compatibility authority. |
+| `P3R-11–12` | Closed: active directory descendants survive and missing inactive ledger entries reconcile while missing active entries remain. |
+| `P3R-13` | Open — detection is production-composed, but its result is not a user-visible pre-execution warning. |
 
 ## Mandatory evidence status
 
-- `AC-DAT-16` remains unproven at the final cleanup head because the approved elevated link/mount evidence predates the root-opening change.
-- `AC-UPD-06/08` is not Proven through the actual desktop composition; the only positive test uses an impossible production WinGet instance.
-- `AC-NFR-10` is contradicted by direct deletion of a required file beneath an active extraction-directory artifact.
-- `FR-DAT-15` idempotent/accurate cleanup is contradicted by a retained missing ledger row with a reported `Success`.
-- `FR-UPD-05` is contradicted by the desktop's always-false detector; only a test double can produce `RunningApplicationWarning`.
-- Passing automated counts do not override stale mandatory evidence or the two High production-path defects.
+- `AC-DAT-16` is Proven within the approved host exception against the current root-open primitive.
+- `AC-NFR-10` and `FR-DAT-15` are Proven for the remediated active-subtree and missing-ledger cases.
+- `AC-UPD-06/08` is not Proven through an ADR-compliant production path while table output supplies scope/architecture execution compatibility.
+- `FR-UPD-05` is not Proven as a detected, user-visible warning before execution.
+- Passing automated counts do not override a High execution-authority defect.
 
 ## Residual risks
 
-Clean-image behavior, per-user no-prompt execution, provider-disconnect cancellation, the un-replayed outcome dialog, same-signer helper/provider rollback, same-user substitution of the name-based temporary export, root creation races before handle binding, and unconstrained hostile races remain unproven within their recorded exception scope. ADR-003 and ADR-011 remain Provisional; `AC-UX-01–09` remain Optional under ADR-021.
+Clean-image behavior, per-user no-prompt execution, provider-disconnect cancellation, the un-replayed outcome dialog, same-signer helper/provider rollback, same-user substitution of the name-based temporary export, root creation races before handle binding, unreliable package-ID/process-name correlation, and unconstrained hostile races remain unproven within their recorded exception scope. ADR-003 and ADR-011 remain Provisional; `AC-UX-01–09` remain Optional under ADR-021.
