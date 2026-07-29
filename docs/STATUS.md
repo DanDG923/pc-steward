@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 90 — follow-up remediation evidence complete; fresh review pending
-**Last green commit:** `17b46c4c2745ec41a49841d33aac3388d57fc655` — Release build 0 warnings/errors; full suite 158 passed
+**Current task:** 25 — repeated Phase 3 security review complete; gate failed
+**Last green commit:** `5e3638386a8729f7c9c111c7fb51c1bfbddce8b7` — Release build 0 warnings/errors; full suite 160 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -37,9 +37,9 @@
 
 ## Task 25 result
 
-Fresh Sol/Extra High review at `17b46c4` passes Release build (0 warnings/errors), security 16, architecture 4, focused integration 55, full suite 158 and host-safe hostile script 42 assertions/1 elevated-only skip. The recorded approved elevated production-cache fixture contributes 14 link/mount assertions.
+The repeat review closes the configured-root ancestor escape in code and the mixed registered-file/orphan oldest-first defect. Release build remains 0 warnings/errors; security 16, architecture 4, focused integration 57, hostile script 42/1 skip and the full suite 160 all pass.
 
-The gate remains **FAIL pending fresh independent review**. The current remediation rejects configured-root reparse ancestors and opens them handle-relatively, binds final re-inventory to scope/architecture, and unifies registered/orphan quota ordering. Focused evidence passed 31; Release build passed with 0 warnings/errors; full suite passed 160. See [the follow-up evidence](review/TASK_90_P3R4_EVIDENCE.md) and [the review](review/PHASE_3_SECURITY_REVIEW.md).
+The gate remains **FAIL**. `P3R-03` is a Blocker because the approved elevated link/mount fixture predates the changed production root-opening primitive. `P3R-10` is High because the real WinGet scan always emits `Unknown` scope/architecture, making the new positive verification test impossible in desktop composition. `P3R-11` is High because cleanup directly reproduced deletion beneath an active extraction-directory lease. `P3R-12` is Medium because an already-absent registered artifact remains in the ledger while cleanup reports Success. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
@@ -47,7 +47,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Repeat Task 25 under GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
+Stop here. Run Task 90 under GPT-5.6 Terra / High, then repeat Task 25 under fresh GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 
