@@ -64,7 +64,15 @@ Packaging-specific code remains outside domain. Before external beta, Tasks 25/3
 
 ## Task 90 Phase 3 review remediation
 
-`P3R-15` proved the prior current-build sibling-helper path was unsigned and caller-writable, so post-connect signer validation occurred too late to prevent arbitrary elevation. The production launch policy now resolves only `%ProgramFiles%\PC Steward\PCSteward.ElevatedHelper.exe` from a desktop running at the exact sibling installed path. It checks the whole path for reparse components, probes the current token for write/delete/DACL/owner authority over the files and every ancestor, verifies both Authenticode signatures and exact signer equality, and repeats the check immediately before `runas`. Current developer output and an absent protected install fail closed before UAC. A clean installed-path replay remains required; this ADR stays Provisional.
+`P3R-15` proved the prior current-build sibling-helper path was unsigned and caller-writable, so post-connect signer validation occurred too late to prevent arbitrary elevation. The production launch policy now resolves only `%ProgramFiles%\PC Steward\PCSteward.ElevatedHelper.exe` from a desktop running at the exact sibling installed path. It checks the whole path for reparse components; rejects write/delete/DACL/owner authority over the installed root and binaries; rejects replacement-capable delete, DACL, or owner authority on higher ancestors; verifies both Authenticode signatures and exact signer equality; and repeats the check immediately before `runas`. Harmless sibling-creation rights on a protected ancestor do not imply authority to replace its existing protected child. Current developer output and an absent protected install fail closed before UAC. A clean installed-path replay remains required; this ADR stays Provisional.
+
+## Task 90 final protected-root evidence
+
+The product-owner-approved physical-host fixture installed only disposable signed evidence binaries at the exact `%ProgramFiles%\PC Steward` root. The root owner was `BUILTIN\Administrators`; its protected ACL granted SYSTEM/Administrators full control and Users read/execute, while both executable files inherited read/execute only for Users. Root and files were non-reparse, both signatures were `Valid`, and signer thumbprints matched. The real default transport and production validator reached a signed no-op helper through UAC and returned `Completed`/exit `0`.
+
+Real tamper, second-trusted-signer, caller-writable ACL, helper symbolic-link and privileged between-validation replacement layouts each failed before the transport launcher; the helper-start marker remained absent. Exact root and temporary My/Root/TrustedPublisher certificate entries were removed and independently verified absent. Raw ACL/signature/case/teardown evidence is retained in `docs/review/TASK_90_P3R15_HOST_EVIDENCE.json`.
+
+This closes the Phase 3 protected-launch evidence gap on the approved physical host. It does not prove the traditional install/upgrade/rollback/uninstall lifecycle on a supported clean image, so this packaging ADR remains Provisional for Task 30.
 
 ## Reconsider when
 

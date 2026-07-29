@@ -1,7 +1,7 @@
-# Task 90 — remediate final Phase 3 review findings (2026-07-29)
+# Task 90 — final Phase 3 gate remediation handoff (2026-07-29)
 
-1. **P3R-15 — Blocker:** resolve the desktop/helper only from a fixed installer-protected machine root; reject missing, caller-writable, reparse, unsigned, wrong-signer or changed pre-launch evidence before any `runas`/UAC call; retain the connected-process identity check.
-2. **P3R-14 — High:** separate display-table update intelligence from execution authority; require an exact, bounded, structured source/package/candidate provider result at both review and confirmation, and keep the current desktop non-actionable while no supported production structured route is evidenced.
-3. **Mandatory evidence:** add negative replacement/unsigned/writable/reparse/signer tests; add malformed/localized/extra-column table and actual composition tests; rerun focused, security, architecture, Release build, full suite, hostile and WinGet boundary evidence plus safe read-only local trust inspection.
-4. **P3R-13 — Medium:** make the coordinator's immediate pre-provider running-target snapshot stop before queue/provider execution when it was not acknowledged; return target-specific evidence and require a fresh explicit review/acknowledgement.
-5. Update ADR-002/018, threat model, review disposition, status, traceability and a durable Task 90 evidence report. Commit only after diff review finds no remaining Blocker/High and every required automated gate passes. Do not merge Phase 3 or start Task 26.
+1. `P3R-14` implemented: the actual desktop composes the official WinGet COM structured-candidate authority; exact trusted source/ID/installed/candidate evidence is required and all display text remains non-executable.
+2. `P3R-15` implemented and host-evidenced: the real fixed-root production validator/transport passes the protected signed no-op UAC path and prevents tamper, wrong-signer, caller-writable, reparse and between-validation replacement layouts before helper launch.
+3. `P3R-13` remains closed: a newly detected final running target stops before provider execution and requires a fresh target-specific review.
+4. Complete all Task 90 gates and a Medium+ diff audit, commit the remediation, then repeat Task 25 under a fresh GPT-5.6 Sol / Extra High review.
+5. Do not merge Phase 3, push, or begin Task 26 before the fresh review changes the phase gate.

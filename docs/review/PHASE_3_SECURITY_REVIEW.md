@@ -15,6 +15,12 @@ The remediation removes the previously executable display-table candidate author
 
 Do not merge Phase 3 or begin Task 26. Run Task 90 for the remaining `P3R-14` gate evidence and `P3R-15` evidence blocker, then repeat Task 25 under a fresh GPT-5.6 Sol / Extra High review.
 
+## Post-review Task 90 handoff — not an independent re-review
+
+The subsequent Task 90 tree implements both required closures. `P3R-14` now uses the official WinGet COM structured authority in actual desktop composition and has a current-tree review → runner → exact post-update verification test. `P3R-15` now has an approved production-path host record: the real fixed-root validator/default transport completed the protected same-signer no-op UAC path, while actual tamper, trusted-wrong-signer, caller-writable, helper-reparse and between-validation replacement layouts all produced zero helper launches and exact teardown.
+
+Final local gates are focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile boundary 42/1 approved skip, WinGet boundary 11, and installed-helper host evidence 6/6. See [Task 90 final evidence](TASK_90_P3R14_P3R15_EVIDENCE.md) and [raw host evidence](TASK_90_P3R15_HOST_EVIDENCE.json). This addendum does not change this review's historical `FAIL`; a fresh Task 25 review must independently grade the new commit before merge or Task 26.
+
 ## Scope and fresh reproducible results
 
 - Complete Phase 3 diff: `1b6389deb1926a3134322da9760b7ef9ceb6fdbc..30ba65ae5f461fd5526b63a44eb77d765c10b6a2` — 92 files, 6,454 insertions, 195 deletions.

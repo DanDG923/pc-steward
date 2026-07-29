@@ -41,6 +41,12 @@ Windows process identity, signing, pipe ACL and teardown behavior require isolat
 
 Task 22 must prove installed-root and binary ACLs, reparse and replacement rejection before launch, server/client PID and token/session checks, pre/post-launch signature/path validation, nonce/replay/expiry, mutation, UAC denial, process-tree cancellation, single-request lifetime and teardown. Task 25 treats any spoofing, pre-validation launch, arbitrary input or surviving helper as a release blocker.
 
+## Task 90 final evidence
+
+An approved disposable host fixture exercised the actual default `WindowsElevatedHelperTransport`, `InstalledHelperLaunchTrust.Validate`, named-pipe protocol and helper peer verification from the exact fixed path. The signed, same-signer, non-reparse, Users-RX protected layout reached UAC only at execution; the helper accepted one immutable machine job, used a friend-only no-op provider delegate, returned `Completed`/exit `0`, and exited. Tampered-signature, trusted-wrong-signer, Users-modifiable, helper-symbolic-link and privileged between-validation replacement layouts all returned the expected production diagnostic with the helper-start marker absent.
+
+Windows' default volume-root ACL grants Authenticated Users `FILE_ADD_SUBDIRECTORY` without delete-child/delete/DACL/owner. The first clean fixture therefore exposed an over-broad ancestor probe. The corrected policy retains full create/write/delete/DACL/owner denial on the installed root and binaries, and checks deletion/replacement/DACL/owner rights on higher ancestors; harmless sibling creation at a higher ancestor is not path-replacement authority. The final positive and replacement cases validate both checks around that boundary. `TASK_90_P3R15_HOST_EVIDENCE.json` records exact owner, SDDL, `icacls`, attributes, signatures, signer equality, outcomes and zero-residual teardown.
+
 ## Reconsider when
 
 The selected Windows APIs cannot prove both endpoint identities across UAC, the installer cannot provide a fixed non-caller-writable binary root, signing is unavailable for external beta, or isolated-environment tests expose a replacement/replay/spoofing path. No caller-writable helper or persistent-service fallback is allowed without a new product and threat-model decision.

@@ -67,7 +67,13 @@ Sixteen security fixtures and four architecture tests pass replay, substitution,
 
 ## Task 90 P3R-15 evidence
 
-The desktop now fails before `runas` unless it is executing from the fixed `%ProgramFiles%\PC Steward` root beside the expected helper, neither file nor any root component is a reparse point, the current token cannot write/delete/change ownership or DACLs across the layout, both files have trusted Authenticode signatures, and their signer certificates match exactly. Trust is evaluated once before pipe/bootstrap setup and again immediately before the launch call; the connected-process identity/signature check remains. Negative fixtures cover missing/fixed-layout, writable, reparse, unsigned, wrong-signer and between-check replacement evidence and assert zero launcher calls. On this host the fixed root is absent and current Release binaries are unsigned and caller-writable, so production fails closed without UAC. Clean protected-root signing/UAC evidence remains mandatory for the fresh Task 25 review.
+The desktop fails before `runas` unless it is executing from the fixed `%ProgramFiles%\PC Steward` root beside the expected helper, neither file nor any root component is a reparse point, the current token lacks write/delete/DACL/owner authority over the root/files and replacement/delete/DACL/owner authority over higher ancestors, both files have trusted Authenticode signatures, and signer certificates match exactly. Trust is evaluated before pipe/bootstrap setup and again immediately before launch; connected-process identity/signature validation remains.
+
+The approved host fixture exercised the real production validator/transport. A protected same-signer layout completed the signed no-op UAC/pipe path. Actual tampered, wrong-signer, caller-writable, helper-reparse and privileged between-validation replacement layouts all failed before the helper launch marker. The fixed root, unique temporary root and both exact certificate thumbprints were absent after teardown. This closes the Phase 3 `TM-04/TM-06` production-boundary evidence gap on the approved host; clean installer lifecycle and unconstrained administrator/OS compromise remain outside this proof.
+
+## Task 90 P3R-14 evidence
+
+The actual desktop now composes an official WinGet COM structured-candidate authority. Only predefined trusted `winget`/`msstore` catalogs, one exact ID match, and bounded exact installed/newer-candidate versions can cross into review. Wrong source/ID, fuzzy/duplicate/limit-exceeded/untrusted results, malformed/equal/older versions, cancellation, timeout or COM/catalog error return no authority. Display-table fields remain non-executable. A current-tree composition test uses the production authority around a controlled COM observation and proves the exact evidence crosses review and runner, then becomes Success only after exact export plus concrete local post-update version/scope/architecture evidence.
 
 ## Residual risks requiring evidence
 
@@ -75,7 +81,7 @@ The desktop now fails before `runas` unless it is executing from the fixed `%Pro
 - The provisional unpackaged installer requires Windows 11 install/upgrade/uninstall/signing evidence: Task 30.
 - Full-walk Windows deletion/TOCTOU primitive, symbolic-link and volume-mount behavior without over-privilege: Tasks 24/25, following Task 03's partial evidence.
 - Final-application performance on the accepted recorded baseline: Tasks 12 and 29.
-- Signed isolated-environment UAC acceptance/denial, cross-integrity identity, process-tree cancellation/teardown and package lifecycle evidence remains unavailable on the current audited host; the unsigned Task 22 path fails closed.
+- Clean-image installer lifecycle, provider-disconnect cancellation and broader cross-integrity teardown remain Task 30 evidence; the approved current-host fixed-root signature/ACL/reparse/UAC/no-op and hostile replacement cases are recorded for the current Phase 3 production boundary.
 
 ## Review rule
 

@@ -30,22 +30,34 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
     private readonly Func<HelperLaunchPaths?> resolvePaths;
     private readonly Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust;
     private readonly ElevatedHelperLauncher launchHelper;
+    private readonly Action<HelperLaunchPaths>? afterInitialTrust;
 
     internal WindowsElevatedHelperTransport() : this(
         InstalledHelperLaunchTrust.ResolveFixedPaths,
         InstalledHelperLaunchTrust.Validate,
-        LaunchHelper)
+        LaunchHelper,
+        null)
+    {
+    }
+
+    internal WindowsElevatedHelperTransport(Action<HelperLaunchPaths> afterInitialTrust) : this(
+        InstalledHelperLaunchTrust.ResolveFixedPaths,
+        InstalledHelperLaunchTrust.Validate,
+        LaunchHelper,
+        afterInitialTrust)
     {
     }
 
     internal WindowsElevatedHelperTransport(
         Func<HelperLaunchPaths?> resolvePaths,
         Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust,
-        ElevatedHelperLauncher launchHelper)
+        ElevatedHelperLauncher launchHelper,
+        Action<HelperLaunchPaths>? afterInitialTrust = null)
     {
         this.resolvePaths = resolvePaths ?? throw new ArgumentNullException(nameof(resolvePaths));
         this.validatePreLaunchTrust = validatePreLaunchTrust ?? throw new ArgumentNullException(nameof(validatePreLaunchTrust));
         this.launchHelper = launchHelper ?? throw new ArgumentNullException(nameof(launchHelper));
+        this.afterInitialTrust = afterInitialTrust;
     }
 
     public async Task<ElevatedHelperResult> ExecuteAsync(
@@ -67,6 +79,14 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         if (!initialTrust.Trusted)
         {
             return Failed(initialTrust.Rejection);
+        }
+        try
+        {
+            afterInitialTrust?.Invoke(paths);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Failed("elevated-helper-prelaunch-evidence-hook-failed");
         }
 
         string nonce = ElevatedHelperProtocol.CreateNonce();
@@ -351,6 +371,13 @@ internal static class ProtectedLaunchLayout
         NativeMethods.WriteDac,
         NativeMethods.WriteOwner
     ];
+    private static readonly uint[] AncestorReplacementRights =
+    [
+        NativeMethods.FileDeleteChild,
+        NativeMethods.Delete,
+        NativeMethods.WriteDac,
+        NativeMethods.WriteOwner
+    ];
 
     internal static bool HasNoReparseComponents(string installedRoot, params string[] files)
     {
@@ -372,7 +399,17 @@ internal static class ProtectedLaunchLayout
     {
         foreach (string directory in EnumerateAncestors(installedRoot))
         {
-            if (!TryProbeRights(directory, directory: true, DirectoryModificationRights, out bool canModify) || canModify)
+            // Creating an unrelated sibling at a volume/Program Files ancestor does not permit
+            // replacement of the already-existing protected child. At ancestors, deny the rights
+            // that can delete/rename the path component or change its ACL/owner. At the installed
+            // root itself, additionally deny creation and mutation anywhere inside the layout.
+            IEnumerable<uint> rights = string.Equals(
+                Path.GetFullPath(directory),
+                Path.GetFullPath(installedRoot),
+                StringComparison.OrdinalIgnoreCase)
+                ? DirectoryModificationRights
+                : AncestorReplacementRights;
+            if (!TryProbeRights(directory, directory: true, rights, out bool canModify) || canModify)
             {
                 return false;
             }
@@ -429,7 +466,25 @@ internal static class ProtectedLaunchLayout
 
 public static class ElevatedHelperEntryPoint
 {
-    public static async Task<int> RunAsync(string[] arguments)
+    public static Task<int> RunAsync(string[] arguments) =>
+        RunAsync(
+            arguments,
+            static (job, cancellationToken) =>
+                new WingetMachineUpdateExecutor().ExecuteAsync(job, cancellationToken));
+
+    internal static Task<int> RunNoOpEvidenceAsync(string[] arguments) =>
+        RunAsync(
+            arguments,
+            static (_, _) => Task.FromResult(
+                new WingetProcessResult(
+                    0,
+                    "approved-no-op-installed-helper-evidence",
+                    string.Empty,
+                    false)));
+
+    private static async Task<int> RunAsync(
+        string[] arguments,
+        Func<ImmutableUpdateJob, CancellationToken, Task<WingetProcessResult>> executeProvider)
     {
         if (!OperatingSystem.IsWindows() ||
             !HelperBootstrap.TryParse(arguments, out HelperBootstrap? bootstrap) ||
@@ -493,7 +548,7 @@ public static class ElevatedHelperEntryPoint
             try
             {
                 WingetProcessResult providerResult =
-                    await new WingetMachineUpdateExecutor().ExecuteAsync(job, providerCancellation.Token).ConfigureAwait(false);
+                    await executeProvider(job, providerCancellation.Token).ConfigureAwait(false);
                 string output = NonElevatedUpdateRunner.Sanitize(
                     string.Join(' ', providerResult.StandardOutput, providerResult.StandardError));
                 ElevatedHelperOutcome outcome = providerResult switch

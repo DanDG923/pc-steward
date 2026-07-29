@@ -63,7 +63,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
-        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.1.0")));
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0")));
 
         UpdateSelectionPreparation withoutConsent = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
@@ -78,6 +78,93 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.AreEqual("1.1.0", prepared.Selection.CandidateVersion);
         Assert.AreEqual(UpdateScope.Machine, prepared.Selection.Scope);
         Assert.AreEqual(UpdateArchitecture.X64, prepared.Selection.Architecture);
+    }
+
+    [TestMethod]
+    public async Task ProductionStructuredAuthorityComposesThroughReviewRunnerAndPostUpdateVerification()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        Guid productId = Guid.NewGuid();
+        string stableKey = InventoryNormalization.ProductFingerprint(
+            new RawInstallEvidence(
+                "registry",
+                "ContosoRegistryKey",
+                "Contoso Widget",
+                "Contoso",
+                "1.0.0",
+                "Machine",
+                "x64",
+                "Stable",
+                "Application",
+                "fixture"));
+        CanonicalProduct product = new(productId, stableKey, "Contoso Widget");
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        InstallationInstance updated = installed with { Id = Guid.NewGuid(), Version = "1.1.0" };
+        ProviderScanResult before = new([product], [installed], [], []);
+        ProviderScanResult after = new([product], [updated], [], []);
+        await database.Store.PersistScanAsync(
+            new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()),
+            [product],
+            [installed],
+            [],
+            [],
+            CancellationToken.None);
+        await database.Store.SaveConnectorStateAsync(
+            "WinGet package sources",
+            new ConnectorState(true, true),
+            CancellationToken.None);
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        RecordingStructuredCatalogQuery structuredQuery = new(new(
+            "winget",
+            CatalogIsPredefined: true,
+            CatalogIsTrusted: true,
+            ExactIdMatch: true,
+            MatchCount: 1,
+            WasLimitExceeded: false,
+            "Contoso.Widget",
+            "1.0.0",
+            "1.1.0",
+            "winget",
+            IsUpdateAvailable: true));
+        using InventoryWorkflow inventory = new(
+            database.Store,
+            database.Store,
+            database.Store,
+            [new SequenceProvider(before, before, after)],
+            decisions: database.Store,
+            sourceCache: database.Store,
+            updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))],
+            postUpdatePackageInventory: new PostUpdatePackageInventory(true),
+            structuredUpdateCandidates: new WingetStructuredUpdateCandidateAuthority(structuredQuery, TimeSpan.FromSeconds(1)));
+        await inventory.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        Assert.IsTrue(
+            (await inventory.CreateManualMappingAsync(
+                stableKey,
+                "winget",
+                "Contoso.Widget",
+                true,
+                "reviewed",
+                CancellationToken.None)).IsValid);
+        RecordingExecutor executor = new();
+        PackageDerivedRunningApplicationDetector running = new(() => []);
+        ReviewedUpdateExecutionWorkflow workflow = new(
+            inventory.PrepareApprovedUpdateSelectionAsync,
+            new UpdateJobApprovalService(database.Store),
+            new SequentialUpdateBatchCoordinator(executor, inventory, database.Store, running),
+            running);
+
+        UpdateReviewPreparation review = await workflow.BeginReviewAsync(stableKey, CancellationToken.None);
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(
+            review.Review!,
+            false,
+            CancellationToken.None);
+
+        Assert.IsNotNull(review.Review);
+        Assert.AreEqual("winget-com-v1", review.Review.Selection.MappingEvidenceVersion);
+        Assert.IsTrue(result.Started, result.Message);
+        Assert.AreEqual(UpdateHistoryStatus.Success, result.Batch!.FinalEntries.Single().Status);
+        Assert.HasCount(1, executor.Jobs);
+        Assert.AreEqual(2, structuredQuery.CallCount);
     }
 
     [TestMethod]
@@ -129,14 +216,15 @@ public sealed class InventoryWorkflowUpdateSourceTests
             Assert.IsTrue((await mappingWorkflow.CreateManualMappingAsync(product.StableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
         }
 
-        Assert.IsNull((await PrepareAsync(new("msstore", "Contoso.Widget", "1.1.0"))).Selection);
-        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Other", "1.1.0"))).Selection);
-        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", new string('1', 129)))).Selection);
-        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", "1.0.0"))).Selection);
-        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", "1.2.0"))).Selection);
-        UpdateSelectionPreparation accepted = await PrepareAsync(new("winget", "Contoso.Widget", "1.1.0"));
+        Assert.IsNull((await PrepareAsync(new("msstore", "Contoso.Widget", "1.0.0", "1.1.0"))).Selection);
+        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Other", "1.0.0", "1.1.0"))).Selection);
+        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", "1.0.0", new string('1', 129)))).Selection);
+        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", "1.0.0", "1.0.0"))).Selection);
+        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", "1.0.0", "1.2.0"))).Selection);
+        Assert.IsNull((await PrepareAsync(new("winget", "Contoso.Widget", "0.9.0", "1.1.0"))).Selection);
+        UpdateSelectionPreparation accepted = await PrepareAsync(new("winget", "Contoso.Widget", "1.0.0", "1.1.0"));
         Assert.AreEqual("1.1.0", accepted.Selection!.CandidateVersion);
-        Assert.AreEqual("structured-candidate-v1", accepted.Selection.MappingEvidenceVersion);
+        Assert.AreEqual("winget-com-v1", accepted.Selection.MappingEvidenceVersion);
     }
 
     [TestMethod]
@@ -149,7 +237,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         InstallationInstance registry = new(Guid.NewGuid(), registryProduct.Id, "registry", "Mozilla Firefox", "152.0.6", "Machine", "x64", "Mozilla");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [wingetProduct, registryProduct], [winget, registry], [], [], CancellationToken.None);
         SourcePackageRecord package = new("winget", "Mozilla.Firefox", "Mozilla Firefox", null, "152.0.6", "153.0.1", "Unknown", "Unknown", null);
-        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Mozilla.Firefox", "153.0.1")));
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Mozilla.Firefox", "152.0.6", "153.0.1")));
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
 
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(wingetProduct.StableKey, CancellationToken.None);
@@ -210,7 +298,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "Machine", "x64", "Stable", "Application", "fixture"));
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
-        using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [new SequenceProvider(new ProviderScanResult([product], [installed], [], []), new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.1.0")));
+        using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [new SequenceProvider(new ProviderScanResult([product], [installed], [], []), new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0")));
         await inventory.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
         Assert.IsTrue((await inventory.CreateManualMappingAsync(stableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
         RecordingExecutor executor = new();
@@ -256,6 +344,21 @@ public sealed class InventoryWorkflowUpdateSourceTests
     {
         public Task<StructuredUpdateCandidateEvidence?> ResolveAsync(string sourceId, string packageId, CancellationToken cancellationToken) =>
             Task.FromResult(evidence);
+    }
+
+    private sealed class RecordingStructuredCatalogQuery(WinGetStructuredCatalogObservation result)
+        : IWinGetStructuredCatalogQuery
+    {
+        public int CallCount { get; private set; }
+
+        public Task<WinGetStructuredCatalogObservation?> QueryAsync(
+            string sourceId,
+            string packageId,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return Task.FromResult<WinGetStructuredCatalogObservation?>(result);
+        }
     }
 
     private sealed class DisplayTableProcess : IWingetProcess

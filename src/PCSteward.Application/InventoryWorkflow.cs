@@ -23,6 +23,7 @@ public interface IStructuredUpdateCandidateAuthority
 public sealed record StructuredUpdateCandidateEvidence(
     string SourceId,
     string PackageId,
+    string InstalledVersion,
     string CandidateVersion);
 
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
@@ -138,7 +139,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         StructuredUpdateCandidateEvidence? candidate = structuredUpdateCandidates is null
             ? null
             : await structuredUpdateCandidates.ResolveAsync(item.Mapping.SourceId, item.Mapping.PackageId, cancellationToken).ConfigureAwait(false);
-        if (!IsExactStructuredCandidate(item.Mapping, candidate))
+        if (!IsExactStructuredCandidate(item.Mapping, profile, candidate))
         {
             return new(null, "The provider did not supply bounded structured candidate-version evidence for the exact source and package. Display results cannot authorize an update.");
         }
@@ -247,22 +248,27 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 
     private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsExactStructuredCandidate(PackageMapping mapping, StructuredUpdateCandidateEvidence? candidate)
+    private static bool IsExactStructuredCandidate(PackageMapping mapping, ProductMatchProfile profile, StructuredUpdateCandidateEvidence? candidate)
     {
         const int maximumVersionLength = 128;
         if (candidate is null ||
             !string.Equals(candidate.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(candidate.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.InstalledVersion, profile.InstalledVersion, StringComparison.Ordinal) ||
             !string.Equals(candidate.CandidateVersion, mapping.CandidateVersion, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(candidate.InstalledVersion) ||
+            candidate.InstalledVersion.Length > maximumVersionLength ||
             string.IsNullOrWhiteSpace(candidate.CandidateVersion) ||
             candidate.CandidateVersion.Length > maximumVersionLength)
         {
             return false;
         }
 
-        return candidate.CandidateVersion.All(character =>
-            char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
+        return IsBoundedVersion(candidate.InstalledVersion) && IsBoundedVersion(candidate.CandidateVersion);
     }
+
+    private static bool IsBoundedVersion(string version) => version.All(character =>
+        char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
 
     private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, string candidateVersion, out UpdateJobSelection? selection, out string message)
     {
@@ -276,7 +282,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         UpdateChannel channel = string.Equals(profile.Channel, "preview", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Preview : string.Equals(profile.Channel, "stable", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Stable : UpdateChannel.Unknown;
         try
         {
-            selection = new UpdateJobSelection(profile.StableProductKey, UpdateProvider.WinGet, source, mapping.PackageId, profile.InstalledVersion, candidateVersion, scope, architecture, channel, "structured-candidate-v1");
+            selection = new UpdateJobSelection(profile.StableProductKey, UpdateProvider.WinGet, source, mapping.PackageId, profile.InstalledVersion, candidateVersion, scope, architecture, channel, "winget-com-v1");
             message = "Fresh exact source evidence is ready for your review.";
             return true;
         }

@@ -51,6 +51,16 @@ public sealed class ReferenceBoundaryTests
         foreach (string forbidden in new[] { "SqliteDatabase", "new RegistryLocalInventoryProvider", "new MsixLocalInventoryProvider", "new WingetLocalInventoryProvider" }) Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public void DesktopCompositionWiresTheProductionStructuredWinGetAuthority()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "App.xaml.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "new WingetStructuredUpdateCandidateAuthority()");
+        StringAssert.Contains(source, "new WingetPostUpdatePackageInventory()");
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? current = new(AppContext.BaseDirectory);

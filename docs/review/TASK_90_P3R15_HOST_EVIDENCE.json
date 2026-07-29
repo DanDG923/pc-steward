@@ -1,0 +1,72 @@
+{
+  "Outcome": "PASS",
+  "RunId": "c27f884b52e944e9a569def8d1dae073",
+  "InstalledRoot": "C:\\Program Files\\PC Steward",
+  "PrimarySigner": "D80E0F5C675F326CEA8A8297DF2F04A34FBFC830",
+  "WrongSigner": "CB8F50A0D887591D414A169C30B5213350F10267",
+  "SameSignerFixture": true,
+  "CleanLayout": {
+    "RootOwner": "BUILTIN\\Administrators",
+    "RootSddl": "O:BAG:S-1-5-21-3155725008-2022254695-243829672-1005D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)",
+    "ProgramFilesSddl": "O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464G:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464D:PAI(A;OICIIO;GA;;;CO)(A;OICIIO;GA;;;SY)(A;;0x1301bf;;;SY)(A;OICIIO;GA;;;BA)(A;;0x1301bf;;;BA)(A;OICIIO;GXGR;;;BU)(A;;0x1200a9;;;BU)(A;CIIO;GA;;;S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464)(A;;FA;;;S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464)(A;;0x1200a9;;;AC)(A;OICIIO;GXGR;;;AC)(A;;0x1200a9;;;S-1-15-2-2)(A;OICIIO;GXGR;;;S-1-15-2-2)",
+    "VolumeRootSddl": "O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464G:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464D:(A;OICIIO;0x1301bf;;;AU)(A;;0x100004;;;AU)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;;0x1000a1;;;S-1-15-3-65536-1888954469-739942743-1668119174-2468466756-4239452838-1296943325-355587736-700089176)",
+    "DesktopSddl": "O:BAG:S-1-5-21-3155725008-2022254695-243829672-1005D:AI(A;ID;0x1200a9;;;BU)(A;ID;FA;;;BA)(A;ID;FA;;;SY)",
+    "HelperSddl": "O:BAG:S-1-5-21-3155725008-2022254695-243829672-1005D:AI(A;ID;0x1200a9;;;BU)(A;ID;FA;;;BA)(A;ID;FA;;;SY)",
+    "RootAttributes": "Directory",
+    "DesktopAttributes": "Archive",
+    "HelperAttributes": "Archive",
+    "DesktopSignature": "Valid",
+    "HelperSignature": "Valid",
+    "DesktopSigner": "D80E0F5C675F326CEA8A8297DF2F04A34FBFC830",
+    "HelperSigner": "D80E0F5C675F326CEA8A8297DF2F04A34FBFC830",
+    "RootIcacls": "C:\\Program Files\\PC Steward BUILTIN\\Users:(OI)(CI)(RX)\r\n                            BUILTIN\\Administrators:(OI)(CI)(F)\r\n                            NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\r\n\r\nSuccessfully processed 1 files; Failed processing 0 files",
+    "ProgramFilesIcacls": "C:\\Program Files NT SERVICE\\TrustedInstaller:(F)\r\n                 NT SERVICE\\TrustedInstaller:(CI)(IO)(F)\r\n                 NT AUTHORITY\\SYSTEM:(M)\r\n                 NT AUTHORITY\\SYSTEM:(OI)(CI)(IO)(F)\r\n                 BUILTIN\\Administrators:(M)\r\n                 BUILTIN\\Administrators:(OI)(CI)(IO)(F)\r\n                 BUILTIN\\Users:(RX)\r\n                 BUILTIN\\Users:(OI)(CI)(IO)(GR,GE)\r\n                 CREATOR OWNER:(OI)(CI)(IO)(F)\r\n                 APPLICATION PACKAGE AUTHORITY\\ALL APPLICATION PACKAGES:(RX)\r\n                 APPLICATION PACKAGE AUTHORITY\\ALL APPLICATION PACKAGES:(OI)(CI)(IO)(GR,GE)\r\n                 APPLICATION PACKAGE AUTHORITY\\ALL RESTRICTED APP PACKAGES:(RX)\r\n                 APPLICATION PACKAGE AUTHORITY\\ALL RESTRICTED APP PACKAGES:(OI)(CI)(IO)(GR,GE)\r\n\r\nSuccessfully processed 1 files; Failed processing 0 files",
+    "VolumeRootIcacls": "C:\\ S-1-15-3-65536-1888954469-739942743-1668119174-2468466756-4239452838-1296943325-355587736-700089176:(S,RD,X,RA)\r\n    NT AUTHORITY\\Authenticated Users:(S,AD)\r\n    NT AUTHORITY\\Authenticated Users:(OI)(CI)(IO)(M)\r\n    NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\r\n    BUILTIN\\Administrators:(OI)(CI)(F)\r\n    BUILTIN\\Users:(OI)(CI)(RX)\r\n    Mandatory Label\\High Mandatory Level:(OI)(NP)(IO)(NW)\r\n\r\nSuccessfully processed 1 files; Failed processing 0 files"
+  },
+  "Cases": [
+    {
+      "Case": "clean-signed-protected-uac-no-op",
+      "ExitCode": 0,
+      "HelperStarted": true,
+      "Output": "{\"outcome\":\"Completed\",\"ExitCode\":0,\"diagnostic\":\"approved-no-op-installed-helper-evidence\"}"
+    },
+    {
+      "Case": "tampered-signature-zero-launch",
+      "ExitCode": 0,
+      "HelperStarted": false,
+      "Output": "{\"outcome\":\"Failed\",\"ExitCode\":null,\"diagnostic\":\"elevated-helper-signature-untrusted\"}"
+    },
+    {
+      "Case": "wrong-signer-zero-launch",
+      "ExitCode": 0,
+      "HelperStarted": false,
+      "Output": "{\"outcome\":\"Failed\",\"ExitCode\":null,\"diagnostic\":\"elevated-helper-signer-mismatch\"}"
+    },
+    {
+      "Case": "caller-writable-zero-launch",
+      "ExitCode": 0,
+      "HelperStarted": false,
+      "Output": "{\"outcome\":\"Failed\",\"ExitCode\":null,\"diagnostic\":\"elevated-helper-caller-writable-layout-rejected\"}"
+    },
+    {
+      "Case": "helper-reparse-zero-launch",
+      "ExitCode": 0,
+      "HelperStarted": false,
+      "Output": "{\"outcome\":\"Failed\",\"ExitCode\":null,\"diagnostic\":\"elevated-helper-reparse-layout-rejected\"}"
+    },
+    {
+      "Case": "between-validations-replacement-zero-launch",
+      "ExitCode": 0,
+      "HelperStarted": false,
+      "Output": "{\"outcome\":\"Failed\",\"ExitCode\":null,\"diagnostic\":\"elevated-helper-signature-untrusted\"}"
+    }
+  ],
+  "Teardown": {
+    "InstalledRootAbsent": true,
+    "TemporaryRootAbsent": true,
+    "CertificateEntriesRemaining": {
+      "D80E0F5C675F326CEA8A8297DF2F04A34FBFC830": 0,
+      "CB8F50A0D887591D414A169C30B5213350F10267": 0
+    }
+  }
+}

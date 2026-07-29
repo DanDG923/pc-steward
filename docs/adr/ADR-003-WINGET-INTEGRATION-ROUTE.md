@@ -22,13 +22,16 @@ Potentially stronger typing; deployment/support surface may be more complex or i
 
 ## Decision
 
-Provisionally select Option A behind the provider interface. The adapter uses the fixed `winget.exe` identity, structured argument arrays, capability detection, bounded output, timeout/cancellation and fail-closed parsers. Table output may inform inventory display only; it never authorizes execution. An actionable job must carry an exact source and package ID already validated by deterministic rules.
+Provisionally select a split route behind provider interfaces:
 
-Option B is rejected for the current path because Task 02 found no supported programmatic route available to prove. The abstraction remains so a later supported API can replace the adapter without changing domain behavior.
+- Option A remains the constrained execution and display adapter. It uses the fixed `winget.exe` identity, structured argument arrays, capability detection, bounded output, timeout/cancellation and fail-closed parsers. Table output may inform inventory display only and never authorizes execution.
+- Option B is now the sole candidate-version authority. The production adapter uses Microsoft's supported `Microsoft.WindowsPackageManager.ComInterop` projection, selects only the predefined `winget` or `msstore` catalog, requires a predefined trusted catalog, queries an exact package-ID filter with a two-result bound, rejects zero/duplicate/limit-exceeded/fuzzy results, and preserves structured installed and default-candidate versions from the exact source catalog.
+
+The authority accepts only bounded source/ID/version shapes, requires exactly one newer version, propagates caller cancellation, applies a 20-second query bound and converts API/activation/catalog failures to no authority. The application then independently requires exact source, package ID, installed version and candidate version equality with current local evidence and the fresh display mapping before creating review/job/provider authority. The actual desktop composes this adapter; no display parser implements `IStructuredUpdateCandidateAuthority`.
 
 ## Consequences
 
-Adapters can change without changing domain behavior; both routes require explicit error semantics.
+Adapters can change without changing domain behavior; both routes require explicit error semantics. Windows-targeted projects compile against the Windows 11 `22000` minimum, matching the documented x64 MVP baseline and the compatible official COM projection.
 
 ### Follow-up controls and tests
 
@@ -47,8 +50,8 @@ Golden parser/capability fixtures, locale/malformed-output rejection, source-fai
 
 ## Task 90 Phase 3 review remediation
 
-`P3R-14` found that the available-version display column still crossed from the table connector through source matching into the immutable `--version` argument. Update preparation now requires a separate bounded structured-candidate authority whose live result exactly matches source ID, package ID and candidate version and is independently validated as a supported newer version. The WinGet table connector does not implement that authority; malformed, localized, injected-spacing and extra-column rows remain display evidence only. Because no supported production structured available-version route has been evidenced, the actual desktop fails closed before review/job/runner creation. This preserves the provisional CLI adapter for inventory display and post-update structured export verification without claiming actionable update support.
+`P3R-14` found that the available-version display column still crossed from the table connector through source matching into the immutable `--version` argument. The first remediation removed that authority but left the desktop universally non-actionable. The final remediation adds and composes `WingetStructuredUpdateCandidateAuthority` over the official WinGet COM API while retaining all table-only negatives. Production-adapter tests cover trusted/predefined/exact/single/newer acceptance and untrusted, wrong-source, wrong-ID, duplicate, limit, malformed version, stale/equal/older and stalled-query rejection. Architecture evidence fixes the actual desktop composition; application integration keeps exact installed/candidate matching, explicit review and targeted post-update verification separate.
 
 ## Reconsider when
 
-A supported API proves equivalent inventory, source, cancellation and execution behavior; required CLI capabilities disappear; parser compatibility breaks; or clean-environment evidence shows the route cannot meet source isolation and exact-ID execution requirements.
+The official COM contract or compatible projection disappears; required CLI execution capabilities disappear; parser compatibility breaks; supported Windows baselines change; or clean-environment evidence shows the split route cannot meet source isolation and exact-ID execution requirements.
