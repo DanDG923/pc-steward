@@ -39,7 +39,7 @@
 
 The repeat review closes the configured-root ancestor escape in code and the mixed registered-file/orphan oldest-first defect. Release build remains 0 warnings/errors; security 16, architecture 4, focused integration 57, hostile script 42/1 skip and the full suite 160 all pass.
 
-The gate remains **FAIL**. `P3R-03` is a Blocker because the approved elevated link/mount fixture predates the changed production root-opening primitive. `P3R-10` is High because the real WinGet scan always emits `Unknown` scope/architecture, making the new positive verification test impossible in desktop composition. `P3R-11` is High because cleanup directly reproduced deletion beneath an active extraction-directory lease. `P3R-12` is Medium because an already-absent registered artifact remains in the ledger while cleanup reports Success. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
+The gate remains **FAIL**. `P3R-03` is a Blocker because the approved elevated link/mount fixture predates the changed production root-opening primitive. `P3R-10` is High because the real WinGet scan always emits `Unknown` scope/architecture, making the new positive verification test impossible in desktop composition. `P3R-11` is High because cleanup directly reproduced deletion beneath an active extraction-directory lease. `P3R-12` is Medium because an already-absent registered artifact remains in the ledger while cleanup reports Success. `P3R-13` is Medium because the desktop always injects a detector that returns false, so its running-application warning is reachable only through a test double. See [the review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
