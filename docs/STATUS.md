@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29A complete — prototype-parity UI completion for existing features
-**Last green tree:** Task 29A working tree — Release build 0 warnings/errors; full suite 191 passed
+**Current task:** Task 29B complete — supported native-prototype parity and unified WinGet source consent
+**Last green tree:** Task 29B working tree — Release build 0 warnings/errors; full suite 192 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29A is complete: the existing production Overview, Scan, Applications, Updates, Activity, Privacy & data, and Settings surfaces now follow the authoritative native prototype without new modules or a change to scan, update, deletion, scheduling, or elevation authority. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
+Task 29B is complete: all supported native-prototype navigation and evidence layouts are present, while the prototype-only state selector and future Startup concept are intentionally excluded. The two internal WinGet connectors now use one disclosure-gated setting and retain their existing authority boundaries. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
 
 ## Rules for updating this file
 

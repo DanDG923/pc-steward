@@ -89,6 +89,19 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void SearchMatchesApplicationPublishersAndWingetStateRequiresBothTrustedConnectors()
+    {
+        InventoryExperienceViewModel viewModel = new(); Guid product = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(product, "alpha", "Alpha")], [new InstallationInstance(Guid.NewGuid(), product, "registry", "alpha", "1", "Machine", "x64", "Contoso")]);
+        viewModel.SetFilters("contoso", "Installed", "All publishers", "All sources", "All scopes", "Name");
+        Assert.HasCount(1, viewModel.VisibleRows);
+        viewModel.SetConnectorEnabled("WinGet installed inventory", true);
+        Assert.IsFalse(viewModel.IsWinGetTrustedSourcesEnabled);
+        viewModel.SetConnectorEnabled("WinGet package sources", true);
+        Assert.IsTrue(viewModel.IsWinGetTrustedSourcesEnabled);
+    }
+
+    [TestMethod]
     public void ApprovedWingetModeNeverUsesLocalOnlyLabels()
     {
         InventoryExperienceViewModel viewModel = new(); viewModel.SetConnectorEnabled("WinGet installed inventory", true);

@@ -59,10 +59,13 @@ public sealed class MainWindow : Window
         if (destination == "settings") { RenderSettings(); return; }
         if (destination == "scan") { RenderScanPage(); return; }
         if (destination == "updates") { RenderUpdatesPage(); return; }
+        if (destination == "results") { RenderResultsPage(); return; }
+        if (destination == "review") { RenderReviewPage(); return; }
         if (destination == "overview") { RenderOverviewPage(); return; }
         if (destination == "applications") { RenderApplicationsPage(); return; }
         if (destination == "activity") { RenderActivityPage(); return; }
         if (destination == "privacy") { RenderPrivacyPage(); return; }
+        if (destination == "storage") { RenderStoragePage(); return; }
         RenderPlaceholder();
     }
 
@@ -167,7 +170,74 @@ public sealed class MainWindow : Window
         list.ItemClick += async (_, args) => await ShowDetailsAsync((InventoryRow)args.ClickedItem);
         ApplyFilters();
         panel.Children.Add(matching);
+        panel.Children.Add(new TextBlock { Text = "Application    Version    Status    Scope · source", Style = AppStyle("StewardCaptionStyle") });
         panel.Children.Add(list);
+        Content = BuildShell(panel);
+    }
+
+    private void RenderResultsPage()
+    {
+        StackPanel panel = CreatePagePanel();
+        int actionable = viewModel.AllRows.Count(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString());
+        int decisions = viewModel.AllRows.Count(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired.ToString());
+        int unmanaged = viewModel.AllRows.Count(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged.ToString());
+        panel.Children.Add(new TextBlock { Text = "Scan results", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("Results distinguish verified opportunities, decisions, unmanaged software, and app-owned cleanup. No action starts until you open evidence and confirm it separately."));
+        StackPanel filters = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        foreach (string label in new[] { $"All {actionable + decisions + unmanaged}", $"Actionable {actionable}", $"Needs decision {decisions}", $"Unmanaged {unmanaged}" })
+        {
+            Button filter = new() { Content = label, IsEnabled = false }; filters.Children.Add(filter);
+        }
+        panel.Children.Add(filters);
+        foreach (InventoryRow row in viewModel.AllRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "Unmanaged"))
+        {
+            StackPanel finding = new() { Spacing = 5 };
+            finding.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
+            finding.Children.Add(PageCopy($"{row.Status} · {row.Provider} · {row.Scope} scope"));
+            finding.Children.Add(PageCopy(row.Status == "VerifiedUpdate" ? "Open the exact source evidence before a separate update confirmation." : row.Status == "ReviewRequired" ? "No source is selected automatically; inspect the evidence and choose a safe next step." : "Inventoried locally; unmanaged is visible, not labelled unsafe."));
+            Button open = new() { Content = "Open evidence" }; AutomationProperties.SetName(open, $"Open {row.Name} evidence"); open.Click += async (_, _) => await ShowDetailsAsync(row); finding.Children.Add(open);
+            panel.Children.Add(Card(finding));
+        }
+        if (downloadCache.RecoverableBytes > 0)
+        {
+            Button storage = new() { Content = $"Review {downloadCache.RecoverableBytes:N0} bytes of app-owned downloads" }; storage.Click += (_, _) => { destination = "storage"; Render(); }; panel.Children.Add(storage);
+        }
+        Button review = new() { Content = "Review available actions" }; review.Click += (_, _) => { destination = "review"; Render(); }; panel.Children.Add(review);
+        Content = BuildShell(panel);
+    }
+
+    private void RenderReviewPage()
+    {
+        StackPanel panel = CreatePagePanel();
+        InventoryRow[] ready = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString()).ToArray();
+        panel.Children.Add(new TextBlock { Text = "Review actions", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("Open each approved item to review its frozen evidence. If evidence changes, execution stops and asks again; updates are never batched or started from this page."));
+        panel.Children.Add(PageCopy(ready.Length == 0 ? "No approved actions are ready. Cached, unavailable, low-confidence, or conflicting evidence remains review-only." : $"{ready.Length} approved action{(ready.Length == 1 ? string.Empty : "s")} can be opened for separate confirmation."));
+        foreach (InventoryRow row in ready)
+        {
+            UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
+            StackPanel action = new() { Spacing = 5 };
+            action.Children.Add(new TextBlock { Text = $"{row.Name} {row.Version} → {detail?.CandidateVersion ?? "candidate unavailable"}", Style = AppStyle("StewardSectionTitleStyle") });
+            action.Children.Add(PageCopy($"{detail?.SourceId ?? "Unknown source"} · exact identity required · {row.Scope} scope · {detail?.Architecture ?? "Unknown architecture"}"));
+            Button open = new() { Content = "Review evidence" }; AutomationProperties.SetName(open, $"Review {row.Name} evidence"); open.Click += async (_, _) => await ShowDetailsAsync(row); action.Children.Add(open);
+            panel.Children.Add(Card(action));
+        }
+        panel.Children.Add(PageCopy("Sequential and verified: PC Steward rechecks the installed version before recording an update as successful."));
+        Content = BuildShell(panel);
+    }
+
+    private void RenderStoragePage()
+    {
+        StackPanel panel = CreatePagePanel();
+        panel.Children.Add(new TextBlock { Text = "Storage", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("Storage shown here is limited to PC Steward-owned data. Windows temporary files, provider caches, documents, drivers, and firmware are outside this scope."));
+        StackPanel summary = new() { Spacing = 8 };
+        summary.Children.Add(new TextBlock { Text = "App-owned storage", Style = AppStyle("StewardSectionTitleStyle") });
+        summary.Children.Add(PageCopy($"Scan data: {scanData.ItemCount:N0} items; estimated payload {scanData.SizeBytes:N0} characters."));
+        summary.Children.Add(PageCopy($"Downloaded update files: {downloadCache.TotalBytes:N0} bytes total; {downloadCache.RecoverableBytes:N0} bytes recoverable."));
+        summary.Children.Add(PageCopy("Source metadata, logs, and update history are controlled separately in Privacy & data."));
+        panel.Children.Add(Card(summary));
+        Button privacy = new() { Content = "Manage privacy and data" }; privacy.Click += (_, _) => { destination = "privacy"; Render(); }; panel.Children.Add(privacy);
         Content = BuildShell(panel);
     }
 
@@ -254,8 +324,11 @@ public sealed class MainWindow : Window
         AddNavigationItem(navigation, "Overview", "overview", "\uE80F");
         AddNavigationItem(navigation, "Scan", "scan", "\uE721");
         navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Review" });
+        AddNavigationItem(navigation, "Scan results", "results", "\uE9D2");
+        AddNavigationItem(navigation, "Review actions", "review", "\uE8C8");
         AddNavigationItem(navigation, "Applications", "applications", "\uE71D");
         AddNavigationItem(navigation, "Updates", "updates", "\uE896");
+        AddNavigationItem(navigation, "Storage", "storage", "\uE7F1");
         navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Records" });
         AddNavigationItem(navigation, "Activity", "activity", "\uE823");
         AddNavigationItem(navigation, "Privacy & data", "privacy", "\uEA18");
@@ -282,10 +355,10 @@ public sealed class MainWindow : Window
 
     private void RenderPlaceholder()
     {
-        string pageTitle = destination switch { "scan" => "Scan", "updates" => "Updates", "activity" => "Activity", "privacy" => "Privacy & data", "about" => "About & support", _ => AppIdentity.DisplayName };
+        string pageTitle = destination switch { "about" => "About & support", _ => AppIdentity.DisplayName };
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
         panel.Children.Add(new TextBlock { Text = pageTitle, Style = AppStyle("StewardPageTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = destination == "scan" ? "Use Overview to start or cancel the current read-only inventory scan. Scanning never installs updates." : "This destination preserves the approved navigation structure. Its detailed experience is delivered in the next scoped task.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "This destination preserves the approved navigation structure.", TextWrapping = TextWrapping.Wrap });
         Content = BuildShell(panel);
     }
 
@@ -298,6 +371,16 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = viewModel.IsScanning ? "Scanning only reads installed-software information. Your prior completed inventory remains available until the replacement snapshot is published." : viewModel.LastScanAt is null ? "Start with a local-only inventory. It does not request elevation, install, uninstall, or delete anything." : "Review the current scan state and start a replacement inventory when you are ready.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = $"Status: {viewModel.ScanPhase}. Elapsed: {viewModel.Elapsed:mm\\:ss}. {viewModel.FreshnessLabel}", TextWrapping = TextWrapping.Wrap });
         if (viewModel.LastScanWarnings.Count != 0) panel.Children.Add(new TextBlock { Text = "Provider result: " + string.Join(", ", viewModel.LastScanWarnings) + ". Previous completed data is retained where available.", TextWrapping = TextWrapping.Wrap });
+        if (!viewModel.IsScanning)
+        {
+            StackPanel scope = new() { Spacing = 8 };
+            scope.Children.Add(new TextBlock { Text = "Choose what PC Steward may check", Style = AppStyle("StewardSectionTitleStyle") });
+            scope.Children.Add(new CheckBox { Content = "Windows application inventory (required · read-only)", IsChecked = true, IsEnabled = false });
+            ToggleSwitch winget = new() { Header = "WinGet trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Local only", OnContent = "Enabled after disclosure" };
+            AutomationProperties.SetName(winget, "Enable WinGet trusted sources"); winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn); scope.Children.Add(winget);
+            scope.Children.Add(PageCopy("Enabling WinGet may disclose installed package identifiers to configured sources. Scanning remains read-only and never installs a package."));
+            panel.Children.Add(Card(scope));
+        }
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button scan = new() { Content = "Scan this PC", IsEnabled = !viewModel.IsScanning && !isExecuting };
         AutomationProperties.SetName(scan, "Scan this PC"); scan.Click += async (_, _) => await StartScanAsync(); actions.Children.Add(scan);
@@ -311,18 +394,24 @@ public sealed class MainWindow : Window
     {
         StackPanel panel = CreatePagePanel(960);
         panel.Children.Add(new TextBlock { Text = "Updates", Style = AppStyle("StewardPageTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = viewModel.UpdateFreshnessLabel, TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(PageCopy("Only fresh, compatible, and explicitly reviewed package identities can move into an update confirmation."));
+        panel.Children.Add(PageCopy(viewModel.UpdateFreshnessLabel));
+        bool hasEvidence = false;
         foreach (InventoryRow row in viewModel.AllRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "FailedUnavailable"))
         {
+            hasEvidence = true;
             UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
             string action = row.Status == "VerifiedUpdate" && detail is not null ? "Open evidence review from Applications before any update can start." : "No update action is available: evidence is review-only, stale, unavailable, or not an exact match.";
-            Button item = new() { Content = $"{row.Name} — {row.Status}", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
-            AutomationProperties.SetName(item, $"{row.Name}. {row.Status}. {action}");
-            item.Click += (_, _) => { destination = "applications"; Render(); };
-            panel.Children.Add(item);
-            panel.Children.Add(new TextBlock { Text = detail is null ? action : $"Source {detail.SourceId ?? "unknown"}; package {detail.PackageId ?? "unknown"}; installed {detail.InstalledVersion}; candidate {detail.CandidateVersion ?? "none"}; scope/architecture {detail.Architecture}; channel {detail.Channel ?? "unknown"}; confidence {detail.Confidence}. {detail.Freshness} {action}", TextWrapping = TextWrapping.Wrap });
+            StackPanel update = new() { Spacing = 5 };
+            update.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
+            update.Children.Add(PageCopy(row.Publisher));
+            update.Children.Add(PageCopy($"{row.Version}  →  {detail?.CandidateVersion ?? "candidate unavailable"}"));
+            update.Children.Add(PageCopy($"{row.Scope} scope · {detail?.Architecture ?? "Unknown architecture"} · {detail?.SourceId ?? row.Provider}"));
+            update.Children.Add(PageCopy($"Package ID: {detail?.PackageId ?? "unknown"}. {detail?.Freshness ?? action}"));
+            Button review = new() { Content = "Review evidence" }; AutomationProperties.SetName(review, $"Review {row.Name} evidence. {row.Status}. {action}"); review.Click += async (_, _) => await ShowDetailsAsync(row); update.Children.Add(review);
+            panel.Children.Add(Card(update));
         }
-        if (!panel.Children.OfType<Button>().Any()) panel.Children.Add(new TextBlock { Text = "No update evidence needs review. Local-only, stale, unavailable, and low-confidence evidence never creates an install action.", TextWrapping = TextWrapping.Wrap });
+        if (!hasEvidence) panel.Children.Add(new TextBlock { Text = "No update evidence needs review. Local-only, stale, unavailable, and low-confidence evidence never creates an install action.", TextWrapping = TextWrapping.Wrap });
         Content = BuildShell(panel);
     }
 
@@ -334,20 +423,19 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = "Settings", Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "Preferences and trusted sources", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "Source choices explain their disclosure and resource impact before they change. Enabling a source never starts a scan, check, download, or update.", TextWrapping = TextWrapping.Wrap });
-        StackPanel sources = new() { Spacing = 8 };
-        foreach (ConnectorOption connector in viewModel.Connectors)
-        {
-            CheckBox checkBox = new()
-            {
-                Content = connector.RequiresSourceDisclosure ? $"{connector.Name} (requires source-disclosure approval)" : $"{connector.Name} ({connector.TrustCategory})",
-                IsChecked = connector.IsEnabled,
-                IsEnabled = !connector.IsEssential
-            };
-            AutomationProperties.SetName(checkBox, connector.RequiresSourceDisclosure ? $"Enable {connector.Name} after source-disclosure approval" : $"Enable {connector.Name}");
-            checkBox.Checked += async (_, _) => await ChangeConnectorAsync(connector.Name, true);
-            checkBox.Unchecked += async (_, _) => await ChangeConnectorAsync(connector.Name, false);
-            sources.Children.Add(checkBox);
-        }
+        StackPanel sources = new() { Spacing = 12 };
+        sources.Children.Add(new TextBlock { Text = "Inventory and update sources", Style = AppStyle("StewardSectionTitleStyle") });
+        sources.Children.Add(new CheckBox { Content = "Windows local inventory (required · local only)", IsChecked = true, IsEnabled = false });
+        ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
+        CheckBox includeAppx = new() { Content = "Include current-user AppX/MSIX catalog", IsChecked = appx.IsEnabled };
+        AutomationProperties.SetName(includeAppx, "Include current-user AppX/MSIX catalog");
+        includeAppx.Checked += async (_, _) => await ChangeConnectorAsync(appx.Name, true);
+        includeAppx.Unchecked += async (_, _) => await ChangeConnectorAsync(appx.Name, false);
+        sources.Children.Add(includeAppx);
+        ToggleSwitch winget = new() { Header = "WinGet trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Disabled", OnContent = "Enabled after disclosure" };
+        AutomationProperties.SetName(winget, "Enable WinGet trusted sources");
+        winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);
+        sources.Children.Add(winget);
         panel.Children.Add(Card(sources));
         panel.Children.Add(new TextBlock { Text = "Schedule & notifications", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "Checks only. Scheduled work never installs updates.", TextWrapping = TextWrapping.Wrap });
@@ -378,7 +466,39 @@ public sealed class MainWindow : Window
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);
     private static ComboBox FilterBox(string selected, IReadOnlyCollection<string> values) { ComboBox box = new(); foreach (string value in values.Distinct(StringComparer.OrdinalIgnoreCase)) box.Items.Add(value); box.SelectedItem = values.FirstOrDefault(value => string.Equals(value, selected, StringComparison.OrdinalIgnoreCase)) ?? values.First(); return box; }
-    private void RenderInventory(ListView list) { list.Items.Clear(); foreach (InventoryRow row in viewModel.VisibleRows) list.Items.Add(row); list.DisplayMemberPath = nameof(InventoryRow.Name); }
+    private void RenderInventory(ListView list) { list.Items.Clear(); foreach (InventoryRow row in viewModel.VisibleRows) list.Items.Add(row); list.DisplayMemberPath = nameof(InventoryRow.DisplayLabel); }
+
+    private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)
+    {
+        bool approved = false;
+        if (enabled)
+        {
+            ContentDialog consent = new()
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = "Enable WinGet trusted sources?",
+                Content = "WinGet may disclose installed-software identifiers to configured package sources. It supplies installed-inventory and update-source evidence, remains read-only during scans, and never installs or updates software without a separate review and confirmation.",
+                PrimaryButtonText = "I approve",
+                CloseButtonText = "Keep local-only",
+                DefaultButton = ContentDialogButton.Close
+            };
+            approved = await consent.ShowAsync() == ContentDialogResult.Primary;
+            if (!approved) { Render(); return; }
+        }
+        try
+        {
+            await workflow.SaveConnectorStateAsync("WinGet installed inventory", enabled, enabled, CancellationToken.None);
+            await workflow.SaveConnectorStateAsync("WinGet package sources", enabled, enabled, CancellationToken.None);
+            viewModel.SetConnectorEnabled("WinGet installed inventory", enabled);
+            viewModel.SetConnectorEnabled("WinGet package sources", enabled);
+        }
+        catch (Exception)
+        {
+            LoadSavedInventory();
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "WinGet sources were not changed", Content = "PC Steward could not save the combined WinGet setting. The current saved connector state has been restored.", CloseButtonText = "Close" }.ShowAsync();
+        }
+        Render();
+    }
 
     private async Task ChangeConnectorAsync(string connectorName, bool enabled)
     {

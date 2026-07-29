@@ -4,7 +4,10 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record ConnectorOption(string Name, string TrustCategory, bool IsEssential, bool IsEnabled, bool RequiresSourceDisclosure = false);
-public sealed record InventoryRow(Guid ProductId, string Name, string Publisher, string Provider, string Scope, string Version, string Status, string Classification, IReadOnlyCollection<InstallationInstance> Instances, string StableProductKey = "");
+public sealed record InventoryRow(Guid ProductId, string Name, string Publisher, string Provider, string Scope, string Version, string Status, string Classification, IReadOnlyCollection<InstallationInstance> Instances, string StableProductKey = "")
+{
+    public string DisplayLabel => $"{Name}    {Version}    {Status}    {Scope} · {Provider}";
+}
 public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons, IReadOnlyCollection<string> SourceCandidates);
 
 /// <summary>Presentation-only state for the local inventory journey. It contains no provider commands or trust decisions.</summary>
@@ -45,6 +48,7 @@ public sealed class InventoryExperienceViewModel
     public bool IsCheckingUpdates { get; private set; }
     public bool IsWinGetEnabled => Connectors.Any(connector => connector.Name == "WinGet installed inventory" && connector.IsEnabled);
     public bool IsUpdateSourceEnabled => Connectors.Any(connector => connector.Name == "WinGet package sources" && connector.IsEnabled);
+    public bool IsWinGetTrustedSourcesEnabled => IsWinGetEnabled && IsUpdateSourceEnabled;
     public string ScanModeLabel => IsWinGetEnabled ? "Windows-local inventory plus approved WinGet installed inventory" : "Local-only Windows inventory";
     public string FreshnessLabel => LastScanAt is null ? $"No scan yet — {ScanModeLabel}" : $"{ScanModeLabel} completed {LastScanAt:O}";
 
@@ -106,7 +110,7 @@ public sealed class InventoryExperienceViewModel
     private void ApplyFilters()
     {
         IEnumerable<InventoryRow> rows = allRows;
-        if (!string.IsNullOrWhiteSpace(SearchText)) rows = rows.Where(row => row.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(SearchText)) rows = rows.Where(row => row.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || row.Publisher.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
         if (StatusFilter != "All statuses") rows = rows.Where(row => row.Status == StatusFilter);
         if (PublisherFilter != "All publishers") rows = rows.Where(row => row.Publisher == PublisherFilter);
         if (SourceFilter != "All sources") rows = rows.Where(row => row.Provider == SourceFilter);
