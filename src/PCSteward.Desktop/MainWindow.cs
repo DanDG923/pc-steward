@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System.Globalization;
 using PCSteward.Application;
 using PCSteward.Storage;
+using PCSteward.Scheduling.Windows;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -18,6 +19,8 @@ public sealed class MainWindow : Window
     private readonly InventoryExperienceViewModel viewModel;
     private readonly DownloadedArtifactCache downloads;
     private readonly ReviewedUpdateExecutionWorkflow updates;
+    private readonly IScheduledCheckSettingsStore scheduleSettingsStore;
+    private readonly ScheduledCheckRegistrationService scheduleRegistration;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
@@ -25,10 +28,13 @@ public sealed class MainWindow : Window
     private bool isClearing;
     private bool isExecuting;
     private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
+    private ScheduledCheckSettings scheduledSettings = ScheduledCheckSettings.Manual;
+    private ScheduledCheckStatus scheduledStatus = ScheduledCheckStatus.NotScheduled;
+    private string destination = "overview";
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration)
     {
-        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates;
+        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration;
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         LoadSavedInventory();
@@ -44,16 +50,20 @@ public sealed class MainWindow : Window
         downloadCache = downloads.GetSummaryAsync(CancellationToken.None).GetAwaiter().GetResult();
         activeDecisions = workflow.GetActiveDecisionsAsync(CancellationToken.None).GetAwaiter().GetResult();
         manualMappings = workflow.GetManualMappingsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        scheduledSettings = scheduleSettingsStore.GetScheduledCheckSettingsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        scheduledStatus = scheduleSettingsStore.GetScheduledCheckStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
     private void Render()
     {
+        if (destination == "settings") { RenderSettings(); return; }
+        if (destination is not "overview" and not "applications") { RenderPlaceholder(); return; }
         StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
         panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
         panel.Resources[typeof(TextBox)] = AppStyle("StewardInputStyle");
         panel.Resources[typeof(ComboBox)] = AppStyle("StewardSelectStyle");
-        panel.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = destination == "applications" ? "Applications" : AppIdentity.DisplayName, Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(new TextBlock { Text = "First scan reads installed-app information stored locally by Windows. It does not request elevation, install updates, refresh package sources, or send data to an account. Local-only Windows inventory is the safe default.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Connectors — trust category", Style = AppStyle("StewardSectionTitleStyle") });
         foreach (ConnectorOption connector in viewModel.Connectors)
@@ -93,7 +103,7 @@ public sealed class MainWindow : Window
 
     private static Style AppStyle(string key) => (Style)global::Microsoft.UI.Xaml.Application.Current.Resources[key];
 
-    private static Grid BuildShell(StackPanel panel)
+    private NavigationView BuildShell(StackPanel panel)
     {
         Grid shell = new() { Background = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardCanvasBrush"] };
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -114,7 +124,10 @@ public sealed class MainWindow : Window
         copy.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardSectionTitleStyle") });
         copy.Children.Add(new TextBlock { Text = "Evidence before action", Style = AppStyle("StewardCaptionStyle") });
         brand.Children.Add(copy);
-        header.Child = brand;
+        StackPanel headerContents = new() { Spacing = 4 };
+        headerContents.Children.Add(brand);
+        headerContents.Children.Add(new TextBlock { Text = viewModel.IsScanning ? $"Scan in progress · {viewModel.ScanPhase}" : isExecuting ? "Approved update verification is in progress" : "No background coordinator is running.", Style = AppStyle("StewardCaptionStyle") });
+        header.Child = headerContents;
         shell.Children.Add(header);
 
         Border contentCard = new() { Style = AppStyle("StewardCardStyle"), Margin = new Thickness(24), Child = panel };
@@ -126,7 +139,87 @@ public sealed class MainWindow : Window
         };
         Grid.SetRow(content, 1);
         shell.Children.Add(content);
-        return shell;
+        NavigationView navigation = new()
+        {
+            PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
+            IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
+            IsSettingsVisible = true,
+            OpenPaneLength = 232,
+            CompactPaneLength = 56,
+            AlwaysShowHeader = false,
+            SelectionFollowsFocus = NavigationViewSelectionFollowsFocus.Disabled,
+            Content = shell
+        };
+        navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Home" });
+        AddNavigationItem(navigation, "Overview", "overview", "\uE80F");
+        AddNavigationItem(navigation, "Scan", "scan", "\uE721");
+        navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Review" });
+        AddNavigationItem(navigation, "Applications", "applications", "\uE71D");
+        AddNavigationItem(navigation, "Updates", "updates", "\uE896");
+        navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Records" });
+        AddNavigationItem(navigation, "Activity", "activity", "\uE823");
+        AddNavigationItem(navigation, "Privacy & data", "privacy", "\uEA18");
+        AddNavigationItem(navigation, "About & support", "about", "\uE897", true);
+        navigation.SelectedItem = navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(item => string.Equals(item.Tag as string, destination, StringComparison.Ordinal));
+        navigation.SelectionChanged += (_, args) =>
+        {
+            string? selected = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag as string;
+            if (selected is not null && !string.Equals(selected, destination, StringComparison.Ordinal)) { destination = selected; Render(); }
+        };
+        navigation.ItemInvoked += (_, args) =>
+        {
+            if (args.IsSettingsInvoked && !string.Equals(destination, "settings", StringComparison.Ordinal)) { destination = "settings"; Render(); }
+        };
+        return navigation;
+    }
+
+    private static void AddNavigationItem(NavigationView navigation, string label, string tag, string glyph, bool footer = false)
+    {
+        NavigationViewItem item = new() { Content = label, Tag = tag, Icon = new FontIcon { Glyph = glyph } };
+        AutomationProperties.SetName(item, label);
+        if (footer) navigation.FooterMenuItems.Add(item); else navigation.MenuItems.Add(item);
+    }
+
+    private void RenderPlaceholder()
+    {
+        string pageTitle = destination switch { "scan" => "Scan", "updates" => "Updates", "activity" => "Activity", "privacy" => "Privacy & data", "about" => "About & support", _ => AppIdentity.DisplayName };
+        StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
+        panel.Children.Add(new TextBlock { Text = pageTitle, Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = destination == "scan" ? "Use Overview to start or cancel the current read-only inventory scan. Scanning never installs updates." : "This destination preserves the approved navigation structure. Its detailed experience is delivered in the next scoped task.", TextWrapping = TextWrapping.Wrap });
+        Content = BuildShell(panel);
+    }
+
+    private void RenderSettings()
+    {
+        StackPanel panel = new() { Spacing = 16, Padding = new Thickness(24), MaxWidth = 900 };
+        panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
+        panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
+        panel.Children.Add(new TextBlock { Text = "Settings", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = "Schedule & notifications", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(new TextBlock { Text = "Checks only. Scheduled work never installs updates.", TextWrapping = TextWrapping.Wrap });
+        RadioButtons cadence = new() { Header = "Check cadence", SelectedIndex = scheduledSettings.Cadence switch { ScheduleCadence.Daily => 1, ScheduleCadence.Weekly => 2, _ => 0 } };
+        cadence.Items.Add("Manual only"); cadence.Items.Add("Daily"); cadence.Items.Add("Weekly");
+        AutomationProperties.SetName(cadence, "Scheduled check cadence");
+        TimePicker startTime = new() { Header = "Local start time", Time = scheduledSettings.LocalStartTime.ToTimeSpan() };
+        ComboBox weeklyDay = new() { Header = "Weekly day", IsEnabled = scheduledSettings.Cadence == ScheduleCadence.Weekly };
+        foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>()) weeklyDay.Items.Add(day);
+        weeklyDay.SelectedItem = scheduledSettings.WeeklyDay;
+        cadence.SelectionChanged += (_, _) => weeklyDay.IsEnabled = cadence.SelectedIndex == 2;
+        ToggleSwitch scheduleEnabled = new() { Header = "Enable scheduled checks", IsOn = scheduledSettings.IsEnabled, OffContent = "Not scheduled", OnContent = "Current-user task · no resident service" };
+        ToggleSwitch notifications = new() { Header = "Windows notifications", IsOn = scheduledSettings.NotificationsEnabled, OffContent = "Off", OnContent = "Attention and repeated scan failures only" };
+        Button save = new() { Content = "Save schedule" };
+        AutomationProperties.SetName(save, "Save scheduled check settings");
+        save.Click += async (_, _) =>
+        {
+            ScheduleCadence selectedCadence = cadence.SelectedIndex switch { 1 => ScheduleCadence.Daily, 2 => ScheduleCadence.Weekly, _ => ScheduleCadence.Manual };
+            ScheduledCheckSettings requested = new ScheduledCheckSettings(selectedCadence, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem is DayOfWeek day ? day : DayOfWeek.Monday, TimeOnly.FromTimeSpan(startTime.Time)).Normalize();
+            try { await scheduleRegistration.ApplyAsync(requested, CancellationToken.None); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, CancellationToken.None); scheduledSettings = requested; scheduledStatus = await scheduleSettingsStore.GetScheduledCheckStatusAsync(CancellationToken.None); Render(); }
+            catch (Exception) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Schedule was not changed", Content = "Windows could not create the current-user scan-only task. Your saved settings were left unchanged.", CloseButtonText = "Close" }.ShowAsync(); }
+        };
+        panel.Children.Add(cadence); panel.Children.Add(startTime); panel.Children.Add(weeklyDay); panel.Children.Add(scheduleEnabled); panel.Children.Add(notifications); panel.Children.Add(save);
+        panel.Children.Add(new TextBlock { Text = $"Task status: {scheduledStatus.LastResult}. Last completed: {(scheduledStatus.LastCompletedAt is null ? "not yet" : scheduledStatus.LastCompletedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "A scheduled task runs at lower priority, avoids overlap, exits after its bounded work, and never starts a tray app, service, or update installer.", TextWrapping = TextWrapping.Wrap });
+        Content = BuildShell(panel);
     }
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);

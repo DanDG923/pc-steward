@@ -1,9 +1,9 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Design delivery plan and remaining foundation styles complete — Task 26 is next
-**Last green tree:** current design-delivery state on `main` — Release build 0 warnings/errors; full suite 183 passed
-**Current branch:** `main`
+**Current task:** 26 complete — Task 26B native shell, onboarding and scan experience is next
+**Last green tree:** Task 26 committed state — Release build 0 warnings/errors; full suite 187 passed
+**Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Start Task 26: scheduled checks, settings surface and native shell. Complete Tasks 26B and 26C before the Task 26A factory-reset evidence gate. Do not treat visual appearance alone as acceptance evidence for any accessibility or product requirement.
+Start Task 26B: native shell, onboarding and scan experience. Complete Task 26C before the Task 26A factory-reset evidence gate. No live Task Scheduler registration was created because no explicit approval for a harmless test schedule was supplied; visual appearance remains best-effort evidence only, not accessibility acceptance.
 
 ## Rules for updating this file
 

@@ -33,7 +33,7 @@ Open a fresh Codex chat for every numbered task. Keep the same chat only while c
 | 24 | Downloaded-artifact cache and safe cleanup | GPT-5.6 Terra / High | `phase/3-execution` | [`24_DOWNLOADED_ARTIFACT_CACHE_AND_SAFE_CLEANUP.md`](24_DOWNLOADED_ARTIFACT_CACHE_AND_SAFE_CLEANUP.md) |
 | 24A | Prepare Phase 3 security-review evidence | GPT-5.6 Terra / High | `phase/3-execution` | [`24A_PREPARE_PHASE_3_REVIEW_EVIDENCE.md`](24A_PREPARE_PHASE_3_REVIEW_EVIDENCE.md) |
 | 25 | Phase 3 security review gate | GPT-5.6 Sol / Extra High | `phase/3-execution` | [`25_PHASE_3_SECURITY_REVIEW_GATE.md`](25_PHASE_3_SECURITY_REVIEW_GATE.md) |
-| 26 | Scheduled checks and Windows notifications | GPT-5.6 Terra / Medium | `phase/4-beta` | [`26_SCHEDULED_CHECKS_AND_WINDOWS_NOTIFICATIONS.md`](26_SCHEDULED_CHECKS_AND_WINDOWS_NOTIFICATIONS.md) |
+| 26 | Scheduled checks and Windows notifications | GPT-5.6 Terra / High | `phase/4-beta` | [`26_SCHEDULED_CHECKS_AND_WINDOWS_NOTIFICATIONS.md`](26_SCHEDULED_CHECKS_AND_WINDOWS_NOTIFICATIONS.md) |
 | 26B | Native shell, onboarding, and scan experience | GPT-5.6 Terra / High | `phase/4-beta` | [`26B_NATIVE_SHELL_ONBOARDING_AND_SCAN_EXPERIENCE.md`](26B_NATIVE_SHELL_ONBOARDING_AND_SCAN_EXPERIENCE.md) |
 | 26C | Applications, findings, and update review experience | GPT-5.6 Terra / High | `phase/4-beta` | [`26C_APPLICATIONS_FINDINGS_AND_UPDATE_REVIEW_EXPERIENCE.md`](26C_APPLICATIONS_FINDINGS_AND_UPDATE_REVIEW_EXPERIENCE.md) |
 | 26A | Prepare factory-reset design-gate evidence | GPT-5.6 Terra / High | `phase/4-beta` | [`26A_PREPARE_FACTORY_RESET_DESIGN_EVIDENCE.md`](26A_PREPARE_FACTORY_RESET_DESIGN_EVIDENCE.md) |

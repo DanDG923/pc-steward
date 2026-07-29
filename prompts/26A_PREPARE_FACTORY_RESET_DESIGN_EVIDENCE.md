@@ -7,7 +7,7 @@
 | Speed | **Standard** |
 | Mode | **Agent** |
 | Branch | `phase/4-beta` |
-| Run after | Task 26 complete |
+| Run after | Task 26C complete |
 | Expected commit | `docs: prepare factory-reset design evidence` |
 
 **Primary requirement references:** `FR-DAT-04/12–15`, `AC-DAT-12–16/18`, `AC-UX-07–08`, ADR-013, ADR-019, and the Phase 4 reset scope.

@@ -3,7 +3,7 @@
 | Setting | Use |
 |---|---|
 | Model | **GPT-5.6 Terra** |
-| Reasoning | **Medium** |
+| Reasoning | **High** |
 | Speed | **Standard** |
 | Mode | **Agent** |
 | Branch | `phase/4-beta` |

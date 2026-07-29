@@ -15,6 +15,7 @@
     <ProjectReference Include="../PCSteward.Execution/PCSteward.Execution.csproj" />
     <ProjectReference Include="../PCSteward.Storage/PCSteward.Storage.csproj" />
     <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
+    <ProjectReference Include="../PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <ProjectReference Include="../PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
@@ -27,5 +28,11 @@
       <ElevatedHelperRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ElevatedHelper\bin\$(Configuration)\$(TargetFramework)\PCSteward.ElevatedHelper.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(ElevatedHelperRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyScheduledHostRuntime" AfterTargets="Build">
+    <ItemGroup>
+      <ScheduledHostRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ScheduledHostRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

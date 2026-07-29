@@ -5,6 +5,7 @@ using PCSteward.Execution;
 using PCSteward.Persistence.Sqlite;
 using PCSteward.Provider.WinGet;
 using PCSteward.Storage;
+using PCSteward.Scheduling.Windows;
 
 namespace PCSteward.Desktop;
 
@@ -46,7 +47,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications);
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);
-        MainWindow window = new(workflow, viewModel, downloads, updates);
+        WindowsCurrentUserScheduledTaskRegistrar scheduleRegistrar = new(Path.Combine(AppContext.BaseDirectory, "PCSteward.ScheduledHost.exe"));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar));
         window.Activate();
     }
 }

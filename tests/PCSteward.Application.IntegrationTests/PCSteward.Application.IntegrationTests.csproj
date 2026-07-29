@@ -13,5 +13,6 @@
     <ProjectReference Include="../../src/PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
     <ProjectReference Include="../../src/PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <ProjectReference Include="../../src/PCSteward.Storage/PCSteward.Storage.csproj" />
+    <ProjectReference Include="../../src/PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
   </ItemGroup>
 </Project>

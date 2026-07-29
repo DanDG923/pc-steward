@@ -5,7 +5,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -144,6 +144,56 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorKey(connectorName)), ("$value", state.Enabled));
         if (RequiresSourceDisclosure(connectorName)) await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
+    }
+
+    public async Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        string cadenceValue = await GetMetadataAsync(connection, "schedule.cadence", cancellationToken) ?? ScheduleCadence.Manual.ToString();
+        ScheduleCadence cadence = Enum.TryParse(cadenceValue, true, out ScheduleCadence parsedCadence) && Enum.IsDefined(parsedCadence) ? parsedCadence : ScheduleCadence.Manual;
+        bool enabled = await GetMetadataBoolAsync(connection, "schedule.enabled", false, cancellationToken);
+        bool notifications = await GetMetadataBoolAsync(connection, "schedule.notifications-enabled", false, cancellationToken);
+        string? dayValue = await GetMetadataAsync(connection, "schedule.weekly-day", cancellationToken);
+        DayOfWeek day = Enum.TryParse(dayValue, true, out DayOfWeek parsedDay) && Enum.IsDefined(parsedDay) ? parsedDay : DayOfWeek.Monday;
+        string? timeValue = await GetMetadataAsync(connection, "schedule.local-start-time", cancellationToken);
+        TimeOnly time = TimeOnly.TryParseExact(timeValue, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out TimeOnly parsedTime) ? parsedTime : new TimeOnly(9, 0);
+        return new ScheduledCheckSettings(cadence, enabled, notifications, day, time).Normalize();
+    }
+
+    public async Task SaveScheduledCheckSettingsAsync(ScheduledCheckSettings settings, CancellationToken cancellationToken)
+    {
+        ScheduledCheckSettings normalized = settings.Normalize();
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.cadence"), ("$value", normalized.Cadence));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.enabled"), ("$value", normalized.IsEnabled));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.notifications-enabled"), ("$value", normalized.NotificationsEnabled));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.weekly-day"), ("$value", normalized.WeeklyDay));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.local-start-time"), ("$value", normalized.LocalStartTime.ToString("HH:mm", CultureInfo.InvariantCulture)));
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        string? completed = await GetMetadataAsync(connection, "schedule.last-completed-at", cancellationToken);
+        DateTimeOffset? completedAt = DateTimeOffset.TryParse(completed, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
+        string result = await GetMetadataAsync(connection, "schedule.last-result", cancellationToken) ?? "Not scheduled";
+        string? failures = await GetMetadataAsync(connection, "schedule.consecutive-failures", cancellationToken);
+        int consecutiveFailures = int.TryParse(failures, CultureInfo.InvariantCulture, out int parsedFailures) && parsedFailures >= 0 ? parsedFailures : 0;
+        return new ScheduledCheckStatus(completedAt, result, consecutiveFailures);
+    }
+
+    public async Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        int failures = Math.Max(0, status.ConsecutiveFailures);
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.last-completed-at"), ("$value", status.LastCompletedAt?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.last-result"), ("$value", Text(status.LastResult)));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.consecutive-failures"), ("$value", failures));
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken)
@@ -391,6 +441,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     private static string ConnectorApprovalKey(string connectorName) => ConnectorKey(connectorName) + ".source-disclosure-approved";
     private static bool RequiresSourceDisclosure(string connectorName) => connectorName is "WinGet installed inventory" or "WinGet package sources";
     private static async Task<bool> GetMetadataBoolAsync(SqliteConnection connection, string key, bool defaultValue, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key = $key;"; command.Parameters.AddWithValue("$key", key); object? value = await command.ExecuteScalarAsync(token); return value is string text && bool.TryParse(text, out bool parsed) ? parsed : defaultValue; }
+    private static async Task<string?> GetMetadataAsync(SqliteConnection connection, string key, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT value FROM app_metadata WHERE key = $key;"; command.Parameters.AddWithValue("$key", key); return await command.ExecuteScalarAsync(token) as string; }
     private static async Task<bool> MigrationRequiredAsync(SqliteConnection connection, SqliteTransaction transaction, int version, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = "SELECT COUNT(*) FROM schema_migrations WHERE version = $version;"; command.Parameters.AddWithValue("$version", version); return Convert.ToInt32(await command.ExecuteScalarAsync(token), CultureInfo.InvariantCulture) == 0; }
     private static async Task InsertInstanceAsync(SqliteConnection connection, InstallationInstance instance, SqliteTransaction transaction, CancellationToken token) => await ExecuteAsync(connection, "INSERT INTO installation_instances(id,product_id,provider,provider_identity,version,scope,architecture,publisher,install_date,install_path,channel,classification,source_id) VALUES ($id,$product,$provider,$identity,$version,$scope,$architecture,$publisher,$installDate,$installPath,$channel,$classification,$source);", token, transaction, ("$id", instance.Id), ("$product", instance.ProductId), ("$provider", Text(instance.Provider)), ("$identity", Text(instance.ProviderIdentity)), ("$version", Text(instance.Version)), ("$scope", Text(instance.Scope)), ("$architecture", Text(instance.Architecture)), ("$publisher", Text(instance.Publisher)), ("$installDate", Text(instance.InstallDate)), ("$installPath", Text(instance.InstallPath)), ("$channel", Text(instance.Channel)), ("$classification", Text(instance.Classification)), ("$source", Text(instance.SourceId)));
     private static async Task InsertRunAsync(SqliteConnection connection, ScanRun run, IReadOnlyCollection<ScanProviderTiming> timings, SqliteTransaction transaction, CancellationToken token)

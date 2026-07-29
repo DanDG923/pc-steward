@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Persistence.Sqlite;
 
@@ -97,6 +98,29 @@ public sealed class SqliteDatabaseTests
         Assert.IsFalse(await database.Store.GetConnectorEnabledAsync("Current-user AppX/MSIX catalog", true, CancellationToken.None));
         await database.Store.ClearScanDataAsync(CancellationToken.None);
         Assert.IsFalse(await database.Store.GetConnectorEnabledAsync("Current-user AppX/MSIX catalog", true, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ScheduledCheckSettingsPersistIndependentlyAndManualModeCannotCreateASchedule()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        ScheduledCheckSettings requested = new(ScheduleCadence.Weekly, true, true, DayOfWeek.Friday, new TimeOnly(18, 30));
+        await database.Store.SaveScheduledCheckSettingsAsync(requested, CancellationToken.None);
+        Assert.AreEqual(requested, await database.Store.GetScheduledCheckSettingsAsync(CancellationToken.None));
+
+        await database.Store.SaveScheduledCheckSettingsAsync(ScheduledCheckSettings.Manual with { IsEnabled = true, NotificationsEnabled = true }, CancellationToken.None);
+        ScheduledCheckSettings manual = await database.Store.GetScheduledCheckSettingsAsync(CancellationToken.None);
+        Assert.AreEqual(ScheduleCadence.Manual, manual.Cadence);
+        Assert.IsFalse(manual.IsEnabled);
+        Assert.IsTrue(manual.NotificationsEnabled);
+
+        await database.Store.ClearScanDataAsync(CancellationToken.None);
+        Assert.AreEqual(manual, await database.Store.GetScheduledCheckSettingsAsync(CancellationToken.None));
+
+        await database.Store.SaveScheduledCheckStatusAsync(new ScheduledCheckStatus(DateTimeOffset.Parse("2026-07-29T09:00:00Z", System.Globalization.CultureInfo.InvariantCulture), "Completed", 0), CancellationToken.None);
+        ScheduledCheckStatus status = await database.Store.GetScheduledCheckStatusAsync(CancellationToken.None);
+        Assert.AreEqual("Completed", status.LastResult);
+        Assert.AreEqual(0, status.ConsecutiveFailures);
     }
 
     [TestMethod]
