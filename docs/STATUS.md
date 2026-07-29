@@ -1,7 +1,7 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29 blocked — idle-resource gate requires process-attributed diagnosis
+**Current task:** Task 29 blocked — idle-resource gate requires source-level UI-stack diagnosis
 **Last green tree:** Task 28 working tree — Release build 0 warnings/errors; full suite 190 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Continue Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). The five-minute Release-desktop capture reports 4.9883% average CPU against the <=1% `NFR-PERF-05` budget; peak working set is 240.53 MiB and disk I/O is zero. A privileged WPR capture is now stored locally with 76,950,076 loss-free events, but the host lacks WPA/WPA Exporter and built-in filtering times out; the 3.5-GB system trace is ignored by Git. See `docs/failures/29-idle-resource-gate.md` and `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md`; do not begin Task 30 until Task 29 has a diagnosed, rerun idle pass.
+Continue Task 29: accessibility, reliability, and performance hardening (GPT-5.6 Terra / High). The five-minute Overview capture reports 4.9883% average CPU against the <=1% `NFR-PERF-05` budget; the same Release desktop on the lightweight Scan page reports 1.8392%, so Overview composition adds ~3.15 points but the shared shell still fails. Approved WPT analysis of a 76,950,076-event loss-free ETL attributes 72.73 CPU-seconds/85.53 seconds to PCSteward, 88.1% on its window thread and 2.55% sampled total CPU in `Microsoft.UI.Xaml.dll`; no usable stacks/allocation events were captured. WPT has been removed; the 3.5-GB system trace remains local/ignored. Capture source-level `Profile` stacks on the ADR-006 fixed-power baseline, then make only an evidenced correction and rerun all Task 29 gates. Do not begin Task 30.
 
 ## Rules for updating this file
 
