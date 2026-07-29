@@ -6,6 +6,8 @@ namespace PCSteward.Application.IntegrationTests;
 [TestClass]
 public sealed class SequentialUpdateBatchTests
 {
+    private static readonly string[] ExpectedDetectedProcessNames = ["firefox"];
+
     [TestMethod]
     public async Task VerificationIsTheOnlyPathToSuccessAndBatchRemainsSequential()
     {
@@ -47,18 +49,29 @@ public sealed class SequentialUpdateBatchTests
     }
 
     [TestMethod]
-    public async Task ProductionRunningApplicationDetectorFindsOnlyTheBoundedPackageDerivedProcessName()
+    public async Task ProductionRunningApplicationDetectorFindsARepresentativeBoundedPackageSuffix()
     {
-        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("pwsh.exe", "-NoProfile -Command Start-Sleep -Seconds 10") { UseShellExecute = false })!;
-        try
-        {
-            ImmutableUpdateJob job = Job("Contoso.pwsh", "1.1.0");
-            Assert.IsTrue(await new NoRunningApplicationDetector().IsRunningAsync(job, CancellationToken.None));
-        }
-        finally
-        {
-            if (!process.HasExited) process.Kill(true);
-        }
+        ImmutableUpdateJob job = Job("Mozilla.Firefox", "1.1.0");
+        PackageDerivedRunningApplicationDetector detector = new(() => ["firefox", "unrelated"]);
+
+        RunningApplicationDetection detected = await detector.DetectAsync(job.Selection, CancellationToken.None);
+
+        Assert.IsTrue(detected.AppearsToBeRunning);
+        CollectionAssert.AreEqual(ExpectedDetectedProcessNames, detected.ProcessNames.ToArray());
+    }
+
+    [TestMethod]
+    public async Task AmbiguousGenericSuffixAndExitedProcessSnapshotDoNotCreateAWarning()
+    {
+        PackageDerivedRunningApplicationDetector ambiguous = new(() => ["App"]);
+        PackageDerivedRunningApplicationDetector exited = new(() => []);
+
+        RunningApplicationDetection ambiguousResult = await ambiguous.DetectAsync(Job("Contoso.App", "1.1.0").Selection, CancellationToken.None);
+        RunningApplicationDetection exitedResult = await exited.DetectAsync(Job("Contoso.Widget", "1.1.0").Selection, CancellationToken.None);
+
+        Assert.IsFalse(ambiguousResult.AppearsToBeRunning);
+        Assert.IsFalse(exitedResult.AppearsToBeRunning);
+        Assert.IsFalse(typeof(IRunningApplicationDetector).GetMethods().Any(method => method.Name.Contains("close", StringComparison.OrdinalIgnoreCase) || method.Name.Contains("kill", StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]
@@ -120,7 +133,11 @@ public sealed class SequentialUpdateBatchTests
     private sealed class Inventory(Dictionary<Guid, PostUpdateInventoryResult> results) : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(results[job.Id]); }
     private sealed class ThrowingInventory : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => throw new IOException("inventory failed"); }
     private sealed class CancellingInventory(CancellationTokenSource cancellation) : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) { cancellation.Cancel(); cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult(new PostUpdateInventoryResult(false, false)); } }
-    private sealed class RunningDetector(bool running) : IRunningApplicationDetector { public Task<bool> IsRunningAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(running); }
+    private sealed class RunningDetector(bool running) : IRunningApplicationDetector
+    {
+        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) =>
+            Task.FromResult(running ? new RunningApplicationDetection(true, ["fixture"]) : RunningApplicationDetection.NotDetected);
+    }
     private sealed class InMemoryHistory : IUpdateHistoryStore
     {
         public List<UpdateHistoryEntry> Entries { get; } = [];

@@ -75,9 +75,14 @@ public interface IPostUpdateInventory
     Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
 }
 
+public sealed record RunningApplicationDetection(bool AppearsToBeRunning, IReadOnlyCollection<string> ProcessNames)
+{
+    public static RunningApplicationDetection NotDetected { get; } = new(false, []);
+}
+
 public interface IRunningApplicationDetector
 {
-    Task<bool> IsRunningAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+    Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken);
 }
 
 public sealed record UpdateBatchItem(ImmutableUpdateJob Job, UpdateJobExecutionEvidence CurrentEvidence);
@@ -126,7 +131,8 @@ public sealed class SequentialUpdateBatchCoordinator(
                 break;
             }
 
-            if (await runningApplications.IsRunningAsync(item.Job, cancellationToken).ConfigureAwait(false))
+            RunningApplicationDetection running = await runningApplications.DetectAsync(item.Job.Selection, cancellationToken).ConfigureAwait(false);
+            if (running.AppearsToBeRunning)
             {
                 await RecordAsync(Entry(item.Job, UpdateHistoryStatus.RunningApplicationWarning, null, "target-application-appears-to-be-running; no-close-action-requested"), recorded, cancellationToken).ConfigureAwait(false);
             }

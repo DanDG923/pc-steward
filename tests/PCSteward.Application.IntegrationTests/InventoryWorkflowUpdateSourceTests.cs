@@ -58,14 +58,16 @@ public sealed class InventoryWorkflowUpdateSourceTests
     public async Task ApprovedUpdateSelectionRequiresPersistedConsentFreshEvidenceAndExactInstalledFields()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
-        CanonicalProduct product = new(Guid.NewGuid(), "winget:contoso.widget", "Contoso Widget");
-        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "winget", "Contoso.Widget", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable", SourceId: "winget");
+        CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
-        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], targetedInstalledInventory: new TargetedInventory(true, [new TargetedInstalledCompatibility(UpdateScope.Machine, UpdateArchitecture.X64)]));
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))]);
 
         UpdateSelectionPreparation withoutConsent = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        Assert.IsTrue((await workflow.CreateManualMappingAsync(product.StableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
 
         Assert.IsNull(withoutConsent.Selection);
@@ -78,7 +80,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
-    public async Task UnknownWingetScopeCannotBeInferredFromAnUnrelatedSameNameRegistryProduct()
+    public async Task TableOnlyWingetScopeCannotBeInferredFromAnUnrelatedSameNameRegistryProduct()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
         CanonicalProduct wingetProduct = new(Guid.NewGuid(), "winget:mozilla.firefox", "Mozilla Firefox (x64 en-US)");
@@ -87,34 +89,38 @@ public sealed class InventoryWorkflowUpdateSourceTests
         InstallationInstance registry = new(Guid.NewGuid(), registryProduct.Id, "registry", "Mozilla Firefox", "152.0.6", "Machine", "x64", "Mozilla");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [wingetProduct, registryProduct], [winget, registry], [], [], CancellationToken.None);
         SourcePackageRecord package = new("winget", "Mozilla.Firefox", "Mozilla Firefox", null, "152.0.6", "153.0.1", "Unknown", "Unknown", null);
-        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], targetedInstalledInventory: new TargetedInventory(true, [new TargetedInstalledCompatibility(UpdateScope.Machine, UpdateArchitecture.X64)]));
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))]);
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
 
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(wingetProduct.StableKey, CancellationToken.None);
 
-        Assert.IsNotNull(prepared.Selection, prepared.Message);
-        Assert.AreEqual(UpdateScope.Machine, prepared.Selection.Scope);
-        Assert.AreEqual(UpdateArchitecture.X64, prepared.Selection.Architecture);
+        Assert.IsNull(prepared.Selection);
+        StringAssert.Contains(prepared.Message, "scope is not supported");
     }
 
     [TestMethod]
-    public async Task ReInventoryUsesTheProductionWorkflowAndRejectsAChangedExactPackage()
+    public async Task ReInventoryCombinesExactExportWithTheReviewedStructuredProductAndRejectsConflicts()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
         Guid providerProductId = Guid.NewGuid();
         CanonicalProduct providerProduct = new(providerProductId, "ignored", "Contoso Widget");
-        InstallationInstance installed = new(Guid.NewGuid(), providerProductId, "winget", "Contoso.Widget", "1.1.0", "Machine", "x64", "Contoso", SourceId: "winget");
-        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.1.0", "Unknown", "Unknown", null, "Application", "fixture", "winget"));
+        InstallationInstance installed = new(Guid.NewGuid(), providerProductId, "registry", "ContosoRegistryKey", "1.1.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.1.0", "Machine", "x64", "Stable", "Application", "fixture"));
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(stableKey, UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
-        using InventoryWorkflow matching = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed], [], []))], targetedInstalledInventory: new TargetedInventory(true));
-        using InventoryWorkflow changed = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { ProviderIdentity = "Contoso.Other" }], [], []))], targetedInstalledInventory: new TargetedInventory(true));
-        using InventoryWorkflow wrongScope = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { Scope = "User" }], [], []))], targetedInstalledInventory: new TargetedInventory(true));
-        using InventoryWorkflow wrongArchitecture = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { Architecture = "x86" }], [], []))], targetedInstalledInventory: new TargetedInventory(true));
+        InstallationInstance duplicateChannel = installed with { Id = Guid.NewGuid(), Channel = "Preview" };
+        using InventoryWorkflow matching = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        using InventoryWorkflow changed = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { ProviderIdentity = "Contoso.Other" }], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        using InventoryWorkflow wrongScope = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { Scope = "User" }], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        using InventoryWorkflow wrongArchitecture = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed with { Architecture = "x86" }], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        using InventoryWorkflow ambiguous = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed, duplicateChannel], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        using InventoryWorkflow wrongExport = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([providerProduct], [installed], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(false));
 
         Assert.IsTrue((await matching.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
         Assert.IsFalse((await changed.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
         Assert.IsFalse((await wrongScope.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
         Assert.IsFalse((await wrongArchitecture.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await ambiguous.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await wrongExport.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
     }
 
     [TestMethod]
@@ -140,16 +146,19 @@ public sealed class InventoryWorkflowUpdateSourceTests
         await using TestDatabase database = await TestDatabase.CreateAsync();
         Guid productId = Guid.NewGuid();
         CanonicalProduct product = new(productId, "ignored", "Contoso Widget");
-        InstallationInstance installed = new(Guid.NewGuid(), productId, "winget", "Contoso.Widget", "1.0.0", "Unknown", "Unknown", "Contoso", SourceId: "winget");
-        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "Unknown", "Unknown", null, "Application", "fixture", "winget"));
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "Machine", "x64", "Stable", "Application", "fixture"));
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
-        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Unknown", "Unknown", "Stable");
-        using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [new SequenceProvider(new ProviderScanResult([product], [installed], [], []), new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], targetedInstalledInventory: new TargetedInventory(true, [new TargetedInstalledCompatibility(UpdateScope.Machine, UpdateArchitecture.X64)]));
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [new SequenceProvider(new ProviderScanResult([product], [installed], [], []), new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))]);
+        await inventory.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        Assert.IsTrue((await inventory.CreateManualMappingAsync(stableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
         RecordingExecutor executor = new();
-        ReviewedUpdateExecutionWorkflow workflow = new(inventory.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store), new SequentialUpdateBatchCoordinator(executor, new NeverReachedInventory(), new InMemoryHistory(), new NoRunningApplicationDetector()));
+        PackageDerivedRunningApplicationDetector running = new(() => []);
+        ReviewedUpdateExecutionWorkflow workflow = new(inventory.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store), new SequentialUpdateBatchCoordinator(executor, new NeverReachedInventory(), new InMemoryHistory(), running), running);
 
         UpdateReviewPreparation review = await workflow.BeginReviewAsync(stableKey, CancellationToken.None);
-        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, CancellationToken.None);
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None);
 
         Assert.IsFalse(result.Started);
         Assert.HasCount(0, executor.Jobs);
@@ -178,9 +187,8 @@ public sealed class InventoryWorkflowUpdateSourceTests
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.FromResult(results.Dequeue());
     }
 
-    private sealed class TargetedInventory(bool expected, IReadOnlyCollection<TargetedInstalledCompatibility>? compatibility = null) : ITargetedInstalledInventory
+    private sealed class PostUpdatePackageInventory(bool expected) : IPostUpdatePackageInventory
     {
-        public Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken) => Task.FromResult(compatibility ?? Array.Empty<TargetedInstalledCompatibility>() as IReadOnlyCollection<TargetedInstalledCompatibility>);
         public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(expected);
     }
 

@@ -1,7 +1,7 @@
-# Task 90 — repeated Phase 3 remediation plan (2026-07-29)
+# Task 90 — Phase 3 Sol closeout plan (2026-07-29)
 
-1. **P3R-08 — remediated in the working tree:** use bounded, app-owned `winget export --include-versions` JSON as the sole post-update success authority; a display-table forgery must fail closed.
-2. **P3R-09 — remediated in the working tree:** include crash orphans in quota accounting and evict inactive candidates by oldest write time before path ordering.
-3. **P3R-03 — partial evidence only:** deterministic production cleanup proves a post-root-handle ancestor replacement cannot delete an outside sentinel. Existing junction root/final/repeated-ancestor fixtures still pass.
-4. **P3R-03 — local-PC evidence complete:** the approved elevated fixture creates only a new temporary-root link/VHD set, runs every link/mount case through the production cache primitive, and removes all fixtures in `finally`. Deterministic production ancestor and root swaps also pass.
-5. Record focused, Release-build, complete-suite, legacy hostile-root, and elevated local-PC evidence; then hand off to a fresh Task 25 Sol/Extra High review. Do not merge Phase 3 or start Task 26.
+1. **P3R-10 — remediated:** remove all display-table scope/architecture authority and the eight-probe-per-row path. The production desktop WinGet adapter performs one bounded display-only call and emits `Unknown` compatibility.
+2. **P3R-10 — safe production route proven:** explicit approved mapping binds the reviewed structured registry/MSIX product to the exact source/package; bounded WinGet export JSON independently proves source/ID/version; post-update success also requires the same stable product's exact structured version/scope/architecture.
+3. **P3R-13 — remediated:** return a bounded target-specific running-process snapshot before final confirmation, require explicit acknowledgement, recheck before approval and execution, dispose every enumerated process object, and retain no close/kill authority.
+4. **Prior findings — rechecked:** retain the closed dispositions for `P3R-01–09` and `P3R-11–12`; rerun execution/helper, cache, recovery, hostile-root and provider-boundary evidence without changing the cache primitive covered by the fresh 14-assertion elevated record.
+5. Record focused, security, architecture, Release-build, complete-suite, hostile-script and read-only local-PC evidence in `docs/review/TASK_90_P3R6_EVIDENCE.md`; then hand off to a fresh Task 25 Sol/Extra High review. Do not merge Phase 3 or start Task 26.

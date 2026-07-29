@@ -3,10 +3,8 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record InventoryDashboard(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, DateTimeOffset? LastCompletedAt, ScanDataSummary ScanData, IReadOnlyDictionary<string, ConnectorState> Connectors);
-public sealed record TargetedInstalledCompatibility(UpdateScope Scope, UpdateArchitecture Architecture);
-public interface ITargetedInstalledInventory
+public interface IPostUpdatePackageInventory
 {
-    Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken);
     Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
 }
 
@@ -23,7 +21,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly UserDecisionService? decisions;
     private readonly UpdateSourceRefreshService? updateSources;
     private readonly IReadOnlyCollection<IUpdateSourceConnector> updateSourceConnectors;
-    private readonly ITargetedInstalledInventory? targetedInstalledInventory;
+    private readonly IPostUpdatePackageInventory? postUpdatePackageInventory;
     private readonly bool hasCurrentLocalInventoryProviders;
 
     public InventoryWorkflow(
@@ -35,7 +33,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IUserDecisionStore? decisions = null,
         ISourceSnapshotStore? sourceCache = null,
         IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null,
-        ITargetedInstalledInventory? targetedInstalledInventory = null)
+        IPostUpdatePackageInventory? postUpdatePackageInventory = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -44,7 +42,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         this.decisions = decisions is null ? null : new UserDecisionService(decisions);
         updateSources = sourceCache is null ? null : new UpdateSourceRefreshService(sourceCache);
         this.updateSourceConnectors = updateSourceConnectors ?? [];
-        this.targetedInstalledInventory = targetedInstalledInventory;
+        this.postUpdatePackageInventory = postUpdatePackageInventory;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -117,39 +115,32 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
-        if (!TryCreateSelection(profile, item.Mapping, out UpdateJobSelection? selection, out string message))
-        {
-            if (targetedInstalledInventory is null || profile.InstalledVersion is null || !TrySource(item.Mapping.SourceId, out UpdateSource updateSource)) return new(null, message);
-            IReadOnlyCollection<TargetedInstalledCompatibility> compatible = await targetedInstalledInventory.ResolveExactCompatibilityAsync(updateSource, item.Mapping.PackageId, profile.InstalledVersion, cancellationToken).ConfigureAwait(false);
-            if (compatible.Count != 1) return new(null, "Exact installed scope and architecture evidence is unavailable or ambiguous. No update can be started.");
-            profile = profile with { Scope = compatible.Single().Scope.ToString(), Architecture = compatible.Single().Architecture.ToString() };
-            if (!TryCreateSelection(profile, item.Mapping, out selection, out message)) return new(null, message);
-        }
+        if (!TryCreateSelection(profile, item.Mapping, out UpdateJobSelection? selection, out string message)) return new(null, message);
         return new(selection, "Fresh exact source evidence is ready for your review.");
     }
 
-    /// <summary>Performs the controlled post-update full scan and only accepts an exact WinGet instance/version match.</summary>
+    /// <summary>
+    /// Performs a controlled full scan and requires two independent authorities: exact source/ID/version
+    /// from bounded WinGet export JSON, and exact version/scope/architecture from the reviewed structured
+    /// registry or MSIX product. Display-table inventory is never post-update success authority.
+    /// </summary>
     public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
-        if (targetedInstalledInventory is null || !await targetedInstalledInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
+        if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
         ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
         if (!scan.Succeeded) return new(false, false);
         IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         CanonicalProduct[] selectedProducts = products.Where(product => string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal)).ToArray();
         HashSet<Guid> productIds = selectedProducts.Select(product => product.Id).ToHashSet();
-        InstallationInstance[] exactWinget = instances.Where(instance =>
+        InstallationInstance[] exactLocal = instances.Where(instance =>
             productIds.Contains(instance.ProductId) &&
-            string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instance.ProviderIdentity, job.Selection.PackageId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instance.SourceId, SourceId(job.Selection.Source), StringComparison.OrdinalIgnoreCase) &&
+            IsConcreteLocalEvidence(instance) &&
             string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
             string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
-        // Scope and architecture are proven by the targeted provider query before this scan.  Do not
-        // correlate a registry/MSIX row by display name: another product can share that text.
-        bool expectedVersionDetected = exactWinget.Length == 1 && selectedProducts.Length == 1;
+        bool expectedVersionDetected = exactLocal.Length == 1 && selectedProducts.Length == 1;
         return new(expectedVersionDetected, false);
     }
 
@@ -228,8 +219,6 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     }
 
     private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
-
-    private static string SourceId(UpdateSource source) => source switch { UpdateSource.WinGet => "winget", UpdateSource.MicrosoftStore => "msstore", _ => string.Empty };
 
     private static bool TryCreateSelection(ProductMatchProfile profile, PackageMapping mapping, out UpdateJobSelection? selection, out string message)
     {

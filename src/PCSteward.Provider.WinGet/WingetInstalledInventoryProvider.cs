@@ -18,17 +18,79 @@ public sealed record WingetInventoryResult(IReadOnlyCollection<WingetInstalledRe
 public sealed record WingetAvailableUpdateRecord(string Name, string Id, string InstalledVersion, string AvailableVersion, string Source);
 public sealed record WingetAvailableUpdateResult(string? ProviderVersion, IReadOnlyCollection<WingetAvailableUpdateRecord> Records, IReadOnlyCollection<string> Warnings);
 
+/// <summary>
+/// Desktop-facing display inventory. A single bounded WinGet list supplies package display data,
+/// while scope and architecture deliberately remain non-actionable until structured local evidence
+/// is reviewed through a separate product mapping.
+/// </summary>
+public sealed class WingetLocalInventoryProvider : ILocalInventoryProvider
+{
+    private readonly Func<bool> enabled;
+    private readonly WingetInstalledInventoryProvider provider;
+
+    public WingetLocalInventoryProvider(Func<bool> enabled) : this(enabled, new WingetInstalledInventoryProvider()) { }
+
+    internal WingetLocalInventoryProvider(Func<bool> enabled, WingetInstalledInventoryProvider provider)
+    {
+        this.enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
+        this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
+    }
+
+    public string Name => "WinGet installed inventory";
+    public TimeSpan Timeout => TimeSpan.FromSeconds(35);
+
+    public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
+    {
+        if (!enabled()) return new ProviderScanResult([], [], [], ["disabled"]);
+
+        WingetInventoryResult result = await provider.ReadInstalledAsync(cancellationToken).ConfigureAwait(false);
+        List<CanonicalProduct> products = [];
+        List<InstallationInstance> instances = [];
+        List<RawProviderRecord> raw = [];
+        foreach (WingetInstalledRecord record in result.Records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string? sourceId = record.Source?.Trim().ToLowerInvariant() switch
+            {
+                "winget" => "winget",
+                "msstore" => "msstore",
+                _ => null
+            };
+            string sourceKey = sourceId ?? "unknown";
+            Guid productId = StableGuid("product|winget|" + sourceKey + "|" + record.Id);
+            products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name));
+            instances.Add(new InstallationInstance(
+                StableGuid("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version),
+                productId,
+                "winget",
+                record.Id,
+                record.Version,
+                "Unknown",
+                "Unknown",
+                Classification: "Application",
+                SourceId: sourceId));
+            raw.Add(new RawProviderRecord(
+                Guid.NewGuid(),
+                Guid.Empty,
+                "winget",
+                record.Id,
+                $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"};compatibility=display-only"));
+        }
+
+        return new ProviderScanResult(products, instances, raw, result.Warnings);
+    }
+
+    private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
+}
+
 public sealed partial class WingetInstalledInventoryProvider
 {
     private const int MaximumOutputLength = 1_000_000;
+    private const int MaximumFieldLength = 256;
     private readonly IWingetProcess process;
     public WingetInstalledInventoryProvider() : this(new WindowsWingetProcess()) { }
     internal WingetInstalledInventoryProvider(IWingetProcess process) => this.process = process;
     public static IReadOnlyList<string> BuildInstalledListArguments() => ["list", "--disable-interactivity"];
-    public static IReadOnlyList<string> BuildExactInstalledArguments(UpdateJobSelection selection) =>
-        BuildExactInstalledArguments(selection.Source, selection.PackageId, selection.Scope, selection.Architecture);
-    public static IReadOnlyList<string> BuildExactInstalledArguments(UpdateSource source, string packageId, UpdateScope scope, UpdateArchitecture architecture) =>
-    ["list", "--id", packageId, "--source", source == UpdateSource.WinGet ? "winget" : "msstore", "--exact", "--scope", Scope(scope), "--architecture", Architecture(architecture), "--disable-interactivity"];
     internal static IReadOnlyList<string> BuildInstalledExportArguments(UpdateSource source, string outputPath) =>
     ["export", "--output", outputPath, "--include-versions", "--source", source == UpdateSource.WinGet ? "winget" : "msstore", "--disable-interactivity"];
     public async Task<WingetInventoryResult> ReadInstalledAsync(CancellationToken cancellationToken)
@@ -57,34 +119,29 @@ public sealed partial class WingetInstalledInventoryProvider
         catch (JsonException) { return false; }
         finally { try { File.Delete(output); } catch (IOException) { } }
     }
-    public async Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(packageId) || string.IsNullOrWhiteSpace(installedVersion) || !PackageId().IsMatch(packageId)) return [];
-        List<TargetedInstalledCompatibility> matches = [];
-        foreach (UpdateScope scope in Enum.GetValues<UpdateScope>())
-        foreach (UpdateArchitecture architecture in Enum.GetValues<UpdateArchitecture>())
-        {
-            WingetProcessResult result = await process.RunAsync(BuildExactInstalledArguments(source, packageId, scope, architecture), TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
-            if (result is { TimedOut: true } || result.OutputLimitExceeded || result.ExitCode != 0 || result.StandardOutput.Length > MaximumOutputLength) continue;
-            WingetInventoryResult parsed = ParseTable(result.StandardOutput);
-            if (parsed.Warnings.Count == 0 && parsed.Records.Count == 1 &&
-                string.Equals(parsed.Records.Single().Id, packageId, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(parsed.Records.Single().Version, installedVersion, StringComparison.Ordinal) &&
-                (string.IsNullOrWhiteSpace(parsed.Records.Single().Source) || string.Equals(parsed.Records.Single().Source, source == UpdateSource.WinGet ? "winget" : "msstore", StringComparison.OrdinalIgnoreCase)))
-                matches.Add(new TargetedInstalledCompatibility(scope, architecture));
-        }
-        return matches;
-    }
     public static WingetInventoryResult ParseTable(string output)
     {
         List<WingetInstalledRecord> records = []; List<string> warnings = [];
         string[] lines = output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length < 2) return new WingetInventoryResult([], ["winget:unrecognized-output"]);
+        int[] columnStarts = HeaderColumns().Matches(lines[0]).Select(match => match.Index).ToArray();
+        if (columnStarts.Length is < 3 or > 5 || columnStarts[0] != 0) return new WingetInventoryResult([], ["winget:unrecognized-output"]);
         foreach (string line in lines.Skip(2))
         {
-            string[] columns = line.Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (columns.Length < 3) { warnings.Add("winget:malformed-row"); continue; }
-            records.Add(new WingetInstalledRecord(columns[0], columns[1], columns[2], columns.Length > 3 ? columns[^1] : null));
+            string[] columns = columnStarts.Select((start, index) =>
+                line.Length <= start
+                    ? string.Empty
+                    : line[start..(index + 1 < columnStarts.Length ? Math.Min(line.Length, columnStarts[index + 1]) : line.Length)].Trim()).ToArray();
+            if (columns.Length < 3 ||
+                !ValidDisplayField(columns[0]) ||
+                !PackageId().IsMatch(columns[1]) ||
+                !ValidInstalledVersion(columns[2]) ||
+                columns.Length > 3 && columns[^1].Length > 0 && !ValidSource(columns[^1]))
+            {
+                warnings.Add("winget:malformed-row");
+                continue;
+            }
+            records.Add(new WingetInstalledRecord(columns[0], columns[1], columns[2], columns.Length > 3 && columns[^1].Length > 0 ? columns[^1] : null));
         }
         return new WingetInventoryResult(records, warnings);
     }
@@ -104,8 +161,11 @@ public sealed partial class WingetInstalledInventoryProvider
         }
         return matches.Count(match => string.Equals(match.Id, selection.PackageId, StringComparison.OrdinalIgnoreCase) && string.Equals(match.Version, selection.CandidateVersion, StringComparison.Ordinal)) == 1;
     }
-    private static string Scope(UpdateScope scope) => scope switch { UpdateScope.User => "user", UpdateScope.Machine => "machine", _ => throw new ArgumentOutOfRangeException(nameof(scope)) };
-    private static string Architecture(UpdateArchitecture architecture) => architecture switch { UpdateArchitecture.X64 => "x64", UpdateArchitecture.X86 => "x86", UpdateArchitecture.Arm64 => "arm64", UpdateArchitecture.Neutral => "neutral", _ => throw new ArgumentOutOfRangeException(nameof(architecture)) };
+    private static bool ValidDisplayField(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= MaximumFieldLength && value.All(character => !char.IsControl(character));
+    private static bool ValidInstalledVersion(string value) => ValidDisplayField(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
+    private static bool ValidSource(string value) => value is "winget" or "msstore";
+    [GeneratedRegex(@"\S+")]
+    private static partial Regex HeaderColumns();
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$")]
     private static partial Regex PackageId();
 }

@@ -15,7 +15,7 @@ public sealed class ReviewedUpdateExecutionWorkflowTests
         ReviewedUpdateExecutionWorkflow workflow = CreateWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(Selection(++calls == 1 ? "1.1.0" : "1.2.0"), "fresh")), store, executor);
 
         UpdateReviewPreparation review = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
-        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, CancellationToken.None);
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None);
 
         Assert.IsFalse(result.Started);
         Assert.HasCount(0, store.Jobs);
@@ -31,7 +31,7 @@ public sealed class ReviewedUpdateExecutionWorkflowTests
         ReviewedUpdateExecutionWorkflow workflow = CreateWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(Selection(), "fresh")), store, executor);
 
         UpdateReviewPreparation review = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
-        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, CancellationToken.None);
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None);
 
         Assert.IsTrue(result.Started);
         Assert.HasCount(1, store.Jobs);
@@ -39,10 +39,55 @@ public sealed class ReviewedUpdateExecutionWorkflowTests
         Assert.AreEqual(UpdateHistoryStatus.Success, result.Batch!.FinalEntries.Single().Status);
     }
 
-    private static ReviewedUpdateExecutionWorkflow CreateWorkflow(Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepare, RecordingStore store, RecordingExecutor executor)
+    [TestMethod]
+    public async Task RunningTargetIsVisibleBeforeConfirmationAndRequiresExplicitAcknowledgement()
     {
-        SequentialUpdateBatchCoordinator coordinator = new(executor, new VerifiedInventory(), new InMemoryHistory(), new NoRunningApplicationDetector());
-        return new ReviewedUpdateExecutionWorkflow(prepare, new UpdateJobApprovalService(store), coordinator);
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        RunningDetector running = new(new RunningApplicationDetection(true, ["Widget"]));
+        ReviewedUpdateExecutionWorkflow workflow = CreateWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(Selection(), "fresh")), store, executor, running);
+
+        UpdateReviewPreparation review = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
+        ReviewedUpdateExecutionResult withoutAcknowledgement = await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None);
+        ReviewedUpdateExecutionResult acknowledged = await workflow.ConfirmAndRunAsync(review.Review!, true, CancellationToken.None);
+
+        Assert.IsTrue(review.RunningApplication.AppearsToBeRunning);
+        CollectionAssert.Contains(review.RunningApplication.ProcessNames.ToArray(), "Widget");
+        Assert.IsFalse(withoutAcknowledgement.Started);
+        StringAssert.Contains(withoutAcknowledgement.Message, "appears to be running");
+        Assert.IsTrue(acknowledged.Started);
+        Assert.HasCount(1, store.Jobs);
+        Assert.HasCount(1, executor.Jobs);
+    }
+
+    [TestMethod]
+    public async Task TargetStartingAfterReviewStopsBeforeApprovalUntilWarningIsAcknowledged()
+    {
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        SequenceRunningDetector running = new(
+            RunningApplicationDetection.NotDetected,
+            new RunningApplicationDetection(true, ["Widget"]));
+        ReviewedUpdateExecutionWorkflow workflow = CreateWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(Selection(), "fresh")), store, executor, running);
+
+        UpdateReviewPreparation review = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None);
+
+        Assert.IsFalse(review.RunningApplication.AppearsToBeRunning);
+        Assert.IsFalse(result.Started);
+        Assert.HasCount(0, store.Jobs);
+        Assert.HasCount(0, executor.Jobs);
+    }
+
+    private static ReviewedUpdateExecutionWorkflow CreateWorkflow(
+        Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepare,
+        RecordingStore store,
+        RecordingExecutor executor,
+        IRunningApplicationDetector? detector = null)
+    {
+        IRunningApplicationDetector running = detector ?? new RunningDetector(RunningApplicationDetection.NotDetected);
+        SequentialUpdateBatchCoordinator coordinator = new(executor, new VerifiedInventory(), new InMemoryHistory(), running);
+        return new ReviewedUpdateExecutionWorkflow(prepare, new UpdateJobApprovalService(store), coordinator, running);
     }
 
     private static UpdateJobSelection Selection(string candidate = "1.1.0") => new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", candidate, UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "source-match-v1");
@@ -72,5 +117,16 @@ public sealed class ReviewedUpdateExecutionWorkflowTests
         public Task<IReadOnlyCollection<UpdateHistoryEntry>> GetHistoryForProductAsync(string stableProductKey, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<UpdateHistoryEntry>>(Entries.Where(entry => entry.StableProductKey == stableProductKey).ToArray());
         public Task RecoverInterruptedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PruneAsync(UpdateHistoryRetention retention, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class RunningDetector(RunningApplicationDetection result) : IRunningApplicationDetector
+    {
+        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) => Task.FromResult(result);
+    }
+
+    private sealed class SequenceRunningDetector(params RunningApplicationDetection[] results) : IRunningApplicationDetector
+    {
+        private readonly Queue<RunningApplicationDetection> results = new(results);
+        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) => Task.FromResult(results.Dequeue());
     }
 }

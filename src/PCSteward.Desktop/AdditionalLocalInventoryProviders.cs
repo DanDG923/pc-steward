@@ -31,32 +31,8 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
     private static Guid GuidFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }
 
-internal sealed class WingetLocalInventoryProvider(Func<bool> enabled) : ILocalInventoryProvider
+internal sealed class WingetPostUpdatePackageInventory : IPostUpdatePackageInventory
 {
     private readonly WingetInstalledInventoryProvider provider = new();
-    public string Name => "WinGet installed inventory";
-    public TimeSpan Timeout => TimeSpan.FromSeconds(35);
-    public async Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
-    {
-        if (!enabled()) return new ProviderScanResult([], [], [], ["disabled"]);
-        WingetInventoryResult result = await provider.ReadInstalledAsync(cancellationToken); List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
-        foreach (WingetInstalledRecord record in result.Records)
-        {
-            string? sourceId = record.Source?.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => null };
-            string sourceKey = sourceId ?? "unknown";
-            IReadOnlyCollection<TargetedInstalledCompatibility> compatibility = sourceId is null ? [] : await provider.ResolveExactCompatibilityAsync(sourceId == "winget" ? UpdateSource.WinGet : UpdateSource.MicrosoftStore, record.Id, record.Version, cancellationToken);
-            string scope = compatibility.Count == 1 ? compatibility.Single().Scope.ToString() : "Unknown";
-            string architecture = compatibility.Count == 1 ? compatibility.Single().Architecture.ToString() : "Unknown";
-            Guid productId = GuidFor("product|winget|" + sourceKey + "|" + record.Id); products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name)); instances.Add(new InstallationInstance(GuidFor("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version + "|" + scope + "|" + architecture), productId, "winget", record.Id, record.Version, scope, architecture, null, null, null, null, "Application", sourceId)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "winget", record.Id, $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"};scope={scope};architecture={architecture}"));
-        }
-        return new ProviderScanResult(products, instances, raw, result.Warnings);
-    }
-    private static Guid GuidFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
-}
-
-internal sealed class WingetTargetedInstalledInventory : ITargetedInstalledInventory
-{
-    private readonly WingetInstalledInventoryProvider provider = new();
-    public Task<IReadOnlyCollection<TargetedInstalledCompatibility>> ResolveExactCompatibilityAsync(UpdateSource source, string packageId, string installedVersion, CancellationToken cancellationToken) => provider.ResolveExactCompatibilityAsync(source, packageId, installedVersion, cancellationToken);
     public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => provider.HasExactExpectedVersionAsync(job, cancellationToken);
 }

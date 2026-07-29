@@ -1,3 +1,4 @@
+using PCSteward.Application;
 using PCSteward.Provider.WinGet;
 using PCSteward.Domain;
 
@@ -12,7 +13,7 @@ public sealed class WingetInstalledInventoryProviderTests
     [TestMethod]
     public async Task UsesFixedExecutableReadOnlyArgumentsAndParsesBoundedTableOutput()
     {
-        FakeProcess process = new(new WingetProcessResult(0, "Name  Id  Version  Source\n--------------------------------\nContoso App  Contoso.App  1.2.3  winget", string.Empty, false));
+        FakeProcess process = new(new WingetProcessResult(0, InstalledTable(("Contoso App", "Contoso.App", "1.2.3", "winget")), string.Empty, false));
         WingetInventoryResult result = await new WingetInstalledInventoryProvider(process).ReadInstalledAsync(CancellationToken.None);
         CollectionAssert.AreEqual(ExpectedArguments, process.Arguments.ToArray()); Assert.AreEqual("Contoso.App", result.Records.Single().Id);
     }
@@ -65,18 +66,46 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.IsFalse(forgedTable.Arguments.Contains("list"));
     }
     [TestMethod]
-    public async Task ExactCompatibilityResolutionAcceptsOnlyOneScopeArchitecturePair()
+    public async Task DesktopCompositionUsesOneDisplayCallAndNeverEmitsExecutionCompatibility()
     {
-        WingetProcessResult noMatch = new(1, string.Empty, string.Empty, false);
-        WingetProcessResult match = new(0, "Name  Id  Version  Source\n--------------------------------\nContoso  Contoso.Widget  1.0  winget", string.Empty, false);
-        SequencedProcess process = new([noMatch, noMatch, noMatch, noMatch, match, noMatch, noMatch, noMatch]);
+        FakeProcess process = new(new WingetProcessResult(0, InstalledTable(
+            ("Contoso Widget", "Contoso.Widget", "1.0", "winget"),
+            ("Fabrikam Tool", "Fabrikam.Tool", "2.0", "winget")), string.Empty, false));
+        WingetLocalInventoryProvider desktopProvider = new(() => true, new WingetInstalledInventoryProvider(process));
 
-        IReadOnlyCollection<TargetedInstalledCompatibility> resolved = await new WingetInstalledInventoryProvider(process).ResolveExactCompatibilityAsync(UpdateSource.WinGet, "Contoso.Widget", "1.0", CancellationToken.None);
+        ProviderScanResult result = await desktopProvider.ScanAsync(CancellationToken.None);
 
-        Assert.HasCount(1, resolved);
-        Assert.AreEqual(UpdateScope.Machine, resolved.Single().Scope);
-        Assert.AreEqual(UpdateArchitecture.X64, resolved.Single().Architecture);
-        Assert.AreEqual(8, process.Calls.Count);
+        Assert.AreEqual(1, process.CallCount);
+        Assert.HasCount(2, result.Instances);
+        Assert.IsTrue(result.Instances.All(instance => instance.Scope == "Unknown" && instance.Architecture == "Unknown"));
+        Assert.IsTrue(result.RawRecords.All(record => record.Payload.Contains("compatibility=display-only", StringComparison.Ordinal)));
+    }
+    [TestMethod]
+    public void HeaderBoundariesResistInjectedSpacingAndDoNotDependOnEnglishLabels()
+    {
+        const string injectedName = "Trusted  Contoso.Widget  1.0";
+        WingetInventoryResult injected = WingetInstalledInventoryProvider.ParseTable(InstalledTable((injectedName, "Contoso.Actual", "9.9", "winget")));
+        string localized = FixedTable("Nom", "Identifiant", "Version", "Source", ("Outil Fabrikam", "Fabrikam.Tool", "2.0", "winget"));
+        WingetInventoryResult localizedResult = WingetInstalledInventoryProvider.ParseTable(localized);
+
+        Assert.AreEqual("Contoso.Actual", injected.Records.Single().Id);
+        Assert.AreEqual("9.9", injected.Records.Single().Version);
+        Assert.AreEqual("Fabrikam.Tool", localizedResult.Records.Single().Id);
+    }
+    [TestMethod]
+    public void MalformedAndAmbiguousDisplayRowsRemainNonActionable()
+    {
+        WingetInventoryResult malformed = WingetInstalledInventoryProvider.ParseTable(
+            "Name                                    Id                              Version         Source\n" +
+            "------------------------------------------------------------------------------------------\n" +
+            "Contoso Widget                          not an id                       1.0             winget");
+        WingetInventoryResult duplicate = WingetInstalledInventoryProvider.ParseTable(InstalledTable(
+            ("Contoso Widget", "Contoso.Widget", "1.0", "winget"),
+            ("Contoso Widget copy", "Contoso.Widget", "2.0", "winget")));
+
+        Assert.HasCount(0, malformed.Records);
+        CollectionAssert.Contains(malformed.Warnings.ToArray(), "winget:malformed-row");
+        Assert.HasCount(2, duplicate.Records);
     }
     [TestMethod]
     public void ProcessBoundaryHasNoExecutablePathParameterAndOversizedOutputFailsClosed()
@@ -101,7 +130,8 @@ public sealed class WingetInstalledInventoryProviderTests
     private sealed class FakeProcess(WingetProcessResult result) : IWingetProcess
     {
         public IReadOnlyList<string> Arguments { get; private set; } = [];
-        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Arguments = arguments; return Task.FromResult(result); }
+        public int CallCount { get; private set; }
+        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Arguments = arguments; CallCount++; return Task.FromResult(result); }
     }
     private sealed class SequencedProcess(IEnumerable<WingetProcessResult> results) : IWingetProcess
     {
@@ -119,4 +149,17 @@ public sealed class WingetInstalledInventoryProviderTests
             return new WingetProcessResult(0, string.Empty, string.Empty, false);
         }
     }
+
+    private static string InstalledTable(params (string Name, string Id, string Version, string Source)[] rows) =>
+        FixedTable("Name", "Id", "Version", "Source", rows);
+
+    private static string FixedTable(
+        string nameHeader,
+        string idHeader,
+        string versionHeader,
+        string sourceHeader,
+        params (string Name, string Id, string Version, string Source)[] rows) =>
+        $"{nameHeader,-40}{idHeader,-32}{versionHeader,-16}{sourceHeader}\n" +
+        new string('-', 96) + "\n" +
+        string.Join("\n", rows.Select(row => $"{row.Name,-40}{row.Id,-32}{row.Version,-16}{row.Source}"));
 }

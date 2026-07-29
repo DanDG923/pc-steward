@@ -205,12 +205,15 @@ public sealed class MainWindow : Window
 
         PCSteward.Domain.UpdateJobSelection selection = preparation.Review.Selection;
         string elevation = selection.Scope == PCSteward.Domain.UpdateScope.Machine ? "Windows will request UAC only after you confirm this review." : "This is a user-scope update and does not request UAC.";
+        string runningWarning = preparation.RunningApplication.AppearsToBeRunning
+            ? $"\n\nTarget-specific warning: {selection.PackageId} appears to be running (detected process: {string.Join(", ", preparation.RunningApplication.ProcessNames)}). PC Steward will not close it. Close the application and cancel this review, or explicitly choose Install approved update anyway."
+            : $"\n\nNo bounded package-derived process match was detected for {selection.PackageId}. Close the target application first if you know it is running; PC Steward will not close applications.";
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
             Title = "Review approved update",
-            Content = $"Package: {selection.PackageId}\nInstalled version: {selection.InstalledVersion}\nTarget version: {selection.CandidateVersion}\nSource: {selection.Source}\nScope: {selection.Scope}\nArchitecture: {selection.Architecture}\n\nClose the application first if it is running. PC Steward will not close applications. {elevation}\n\nProvider completion is not marked successful until the controlled post-update inventory verifies the target version.",
-            PrimaryButtonText = "Install approved update",
+            Content = $"Package: {selection.PackageId}\nInstalled version: {selection.InstalledVersion}\nTarget version: {selection.CandidateVersion}\nSource: {selection.Source}\nScope: {selection.Scope}\nArchitecture: {selection.Architecture}{runningWarning}\n\n{elevation}\n\nProvider completion is not marked successful until the controlled post-update inventory verifies the target version.",
+            PrimaryButtonText = preparation.RunningApplication.AppearsToBeRunning ? "Install approved update anyway" : "Install approved update",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
@@ -219,7 +222,7 @@ public sealed class MainWindow : Window
         isExecuting = true;
         Render();
         ReviewedUpdateExecutionResult result;
-        try { result = await updates.ConfirmAndRunAsync(preparation.Review, CancellationToken.None); }
+        try { result = await updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, CancellationToken.None); }
         catch (Exception) { result = new(false, "PC Steward could not start the reviewed update. No success was recorded.", null); }
         finally { isExecuting = false; LoadSavedInventory(); Render(); }
         await ShowUpdateOutcomeAsync(result.Started ? "Update completed" : "Update not started", result.Message);
