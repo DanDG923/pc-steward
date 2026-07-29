@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -43,42 +44,71 @@ public sealed class WingetLocalInventoryProvider : ILocalInventoryProvider
     {
         if (!enabled()) return new ProviderScanResult([], [], [], ["disabled"]);
 
-        WingetInventoryResult result = await provider.ReadInstalledAsync(cancellationToken).ConfigureAwait(false);
+        WingetInventoryResult result;
+        try
+        {
+            result = await provider.ReadInstalledAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return new ProviderScanResult([], [], [], [InventoryFailureWarning(exception)]);
+        }
+
         List<CanonicalProduct> products = [];
         List<InstallationInstance> instances = [];
         List<RawProviderRecord> raw = [];
+        List<string> warnings = [.. result.Warnings];
         foreach (WingetInstalledRecord record in result.Records)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string? sourceId = record.Source?.Trim().ToLowerInvariant() switch
+            try
             {
-                "winget" => "winget",
-                "msstore" => "msstore",
-                _ => null
-            };
-            string sourceKey = sourceId ?? "unknown";
-            Guid productId = StableGuid("product|winget|" + sourceKey + "|" + record.Id);
-            products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name));
-            instances.Add(new InstallationInstance(
-                StableGuid("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version),
-                productId,
-                "winget",
-                record.Id,
-                record.Version,
-                "Unknown",
-                "Unknown",
-                Classification: "Application",
-                SourceId: sourceId));
-            raw.Add(new RawProviderRecord(
-                Guid.NewGuid(),
-                Guid.Empty,
-                "winget",
-                record.Id,
-                $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"};compatibility=display-only"));
+                string? sourceId = record.Source?.Trim().ToLowerInvariant() switch
+                {
+                    "winget" => "winget",
+                    "msstore" => "msstore",
+                    _ => null
+                };
+                string sourceKey = sourceId ?? "unknown";
+                Guid productId = StableGuid("product|winget|" + sourceKey + "|" + record.Id);
+                products.Add(new CanonicalProduct(productId, "winget:" + sourceKey + ":" + record.Id, record.Name));
+                instances.Add(new InstallationInstance(
+                    StableGuid("instance|winget|" + sourceKey + "|" + record.Id + "|" + record.Version),
+                    productId,
+                    "winget",
+                    record.Id,
+                    record.Version,
+                    "Unknown",
+                    "Unknown",
+                    Classification: "Application",
+                    SourceId: sourceId));
+                raw.Add(new RawProviderRecord(
+                    Guid.NewGuid(),
+                    Guid.Empty,
+                    "winget",
+                    record.Id,
+                    $"name={record.Name};version={record.Version};source={sourceId ?? "unknown"};compatibility=display-only"));
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                warnings.Add("winget:invalid-installed-record");
+            }
         }
 
-        return new ProviderScanResult(products, instances, raw, result.Warnings);
+        return new ProviderScanResult(products, instances, raw, warnings.Distinct(StringComparer.Ordinal).ToArray());
     }
+
+    private static string InventoryFailureWarning(Exception exception) => exception switch
+    {
+        UnauthorizedAccessException => "winget:executable-access-denied",
+        IOException => "winget:executable-unavailable",
+        Win32Exception => "winget:executable-launch-failed",
+        _ => "winget:runtime-error"
+    };
 
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }

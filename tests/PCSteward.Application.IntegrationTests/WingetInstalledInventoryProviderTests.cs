@@ -97,6 +97,16 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.IsTrue(result.RawRecords.All(record => record.Payload.Contains("compatibility=display-only", StringComparison.Ordinal)));
     }
     [TestMethod]
+    public async Task DesktopInventoryReportsAStableLocalWarningWhenTheReadOnlyProcessCannotLaunch()
+    {
+        WingetLocalInventoryProvider desktopProvider = new(() => true, new WingetInstalledInventoryProvider(new FaultingProcess(new IOException("fixture"))));
+
+        ProviderScanResult result = await desktopProvider.ScanAsync(CancellationToken.None);
+
+        Assert.HasCount(0, result.Instances);
+        CollectionAssert.Contains(result.Warnings.ToArray(), "winget:executable-unavailable");
+    }
+    [TestMethod]
     public void HeaderBoundariesResistInjectedSpacingAndDoNotDependOnEnglishLabels()
     {
         const string injectedName = "Trusted  Contoso.Widget  1.0";
@@ -180,6 +190,10 @@ public sealed class WingetInstalledInventoryProviderTests
     {
         private readonly Queue<WingetProcessResult> results = new(results); public List<IReadOnlyList<string>> Calls { get; } = [];
         public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) { Calls.Add(arguments); return Task.FromResult(results.Dequeue()); }
+    }
+    private sealed class FaultingProcess(Exception exception) : IWingetProcess
+    {
+        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) => Task.FromException<WingetProcessResult>(exception);
     }
     private sealed class ExportingProcess(string json) : IWingetProcess
     {

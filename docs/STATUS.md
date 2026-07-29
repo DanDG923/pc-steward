@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29E complete — repository evidence, provider resilience, and readable freshness
-**Last green tree:** Task 29E working tree — Release build 0 warnings/errors; full suite 196 passed
+**Current task:** Task 29F — WinGet inventory scan follow-up; offline verification complete, recorded-host recheck pending
+**Last green tree:** Task 29F working tree — Release build 0 warnings/errors; full suite 197 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29E is complete: repository checks now merge each source's managed installed-package list with its available updates, so the Repository apps view can distinguish current from update-available packages. WinGet table preambles no longer discard valid records, AppX catalog collection skips inaccessible package metadata rather than failing the provider, and completion/source times use readable local dates. On the recorded host the Community `winget` source is connected; the registered `msstore` source currently fails its own lookup and remains explicitly unavailable rather than guessed. A live refresh was not run by the agent because it transmits installed package identifiers under the source disclosure. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
+Task 29F follows a recorded-host WinGet inventory failure. The provider now classifies a launch/read failure without exposing exception text, isolates any invalid installed row, and preserves every valid result instead of failing the scan wholesale. The read-only source-warning table parser and AppX hardening from Task 29E remain in place. Release build passed with 0 warnings/errors and the full offline suite passed 197 tests. A user-run scan of the rebuilt Release desktop is still required to confirm host-specific inventory evidence; its enabled-source disclosure remains in force. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30 packaging/release evidence remains gated by its required model or reasoning setting and must not begin yet.
 
 ## Rules for updating this file
 

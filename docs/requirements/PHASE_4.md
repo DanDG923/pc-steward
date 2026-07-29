@@ -16,9 +16,10 @@ Add non-resident scheduled checks, notifications, factory reset, advanced data c
 8. **Task 29C:** Repository-current application evidence view
 9. **Task 29D:** Repository-managed application status view
 10. **Task 29E:** Repository evidence, provider resilience, and readable freshness
-11. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
-12. **Task 30A:** Prepare final release-audit evidence
-13. **Task 31:** Final release audit
+11. **Task 29F:** WinGet inventory scan follow-up and resilient failure evidence
+12. **Task 30:** Packaging, release evidence, SBOM, and private beta preparation
+13. **Task 30A:** Prepare final release-audit evidence
+14. **Task 31:** Final release audit
 
 ## Exit condition
 
