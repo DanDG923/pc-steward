@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29C complete — repository-current application evidence view
-**Last green tree:** Task 29C working tree — Release build 0 warnings/errors; full suite 193 passed
+**Current task:** Task 29D complete — repository-managed application status view
+**Last green tree:** Task 29D working tree — Release build 0 warnings/errors; full suite 193 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29C is complete: Up to date lists only installed applications whose exact version is supported by named live or cached trusted-repository evidence, including the package ID and freshness warning. It offers an on-demand source refresh without starting an update. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
+Task 29D is complete: Repository apps lists installed applications with a concrete package identity from an enabled WinGet or Microsoft Store source, identifying whether each is managed and up to date, managed with an update available, or a repository match requiring review. It includes source/package identity and freshness, and offers an on-demand source refresh without starting an update. Task 29 remains complete with `PO-EXC-29-PERF-01`; the idle-resource failure is deferred and is not a pass claim. Next is Task 30 packaging/release evidence only when its required model or reasoning setting is confirmed.
 
 ## Rules for updating this file
 

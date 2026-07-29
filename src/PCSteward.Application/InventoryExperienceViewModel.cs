@@ -43,9 +43,9 @@ public sealed class InventoryExperienceViewModel
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
     public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
     public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
-    /// <summary>Installed products whose versions exactly match a live or cached trusted repository record.</summary>
-    public IReadOnlyList<InventoryRow> CurrentRepositoryRows => !IsUpdateSourceEnabled ? [] : allRows
-        .Where(row => row.Status == nameof(UpdateIntelligenceStatus.Current)
+    /// <summary>Installed products with a concrete package identity from an enabled trusted repository.</summary>
+    public IReadOnlyList<InventoryRow> RepositoryManagedRows => !IsUpdateSourceEnabled ? [] : allRows
+        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired)
             && UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail)
             && !string.IsNullOrWhiteSpace(detail.SourceId)
             && !string.IsNullOrWhiteSpace(detail.PackageId))

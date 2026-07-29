@@ -116,26 +116,30 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
-    public void CurrentRepositoryRowsRequireExactCurrentStatusAndRepositoryPackageEvidence()
+    public void RepositoryManagedRowsExposeCurrentAndUpdateStatusesOnlyWhenAConnectedSourceHasPackageIdentity()
     {
         InventoryExperienceViewModel viewModel = new();
         viewModel.SetConnectorEnabled("WinGet package sources", true);
-        Guid currentId = Guid.NewGuid(); Guid installedOnlyId = Guid.NewGuid();
+        Guid currentId = Guid.NewGuid(); Guid updateId = Guid.NewGuid(); Guid reviewId = Guid.NewGuid(); Guid installedOnlyId = Guid.NewGuid();
         viewModel.LoadInventory(
-            [new CanonicalProduct(currentId, "product:current", "Current Tool"), new CanonicalProduct(installedOnlyId, "product:installed", "Installed Only")],
-            [new InstallationInstance(Guid.NewGuid(), currentId, "registry", "current-tool", "2.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), installedOnlyId, "registry", "installed-only", "1.0", "Machine", "x64", "Contoso")]);
-        PackageMapping mapping = new("winget", "Contoso.CurrentTool", "2.0", MappingConfidence.High, MappingOrigin.Automatic, "Exact version match.", false, [], new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted));
+            [new CanonicalProduct(currentId, "product:current", "Current Tool"), new CanonicalProduct(updateId, "product:update", "Update Tool"), new CanonicalProduct(reviewId, "product:review", "Review Tool"), new CanonicalProduct(installedOnlyId, "product:installed", "Installed Only")],
+            [new InstallationInstance(Guid.NewGuid(), currentId, "registry", "current-tool", "2.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), updateId, "registry", "update-tool", "1.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), reviewId, "registry", "review-tool", "1.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), installedOnlyId, "registry", "installed-only", "1.0", "Machine", "x64", "Contoso")]);
+        PackageMapping currentMapping = new("winget", "Contoso.CurrentTool", "2.0", MappingConfidence.High, MappingOrigin.Automatic, "Exact version match.", false, [], new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted));
+        PackageMapping updateMapping = new("msstore", "Contoso.UpdateTool", "1.1", MappingConfidence.High, MappingOrigin.Automatic, "Verified update.", true, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+        PackageMapping reviewMapping = new("winget", "Contoso.ReviewTool", "1.1", MappingConfidence.Low, MappingOrigin.Automatic, "Review required.", false, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
         viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary(
-            [new UpdateIntelligenceItem("product:current", UpdateIntelligenceStatus.Current, mapping, "Exact version match.", "winget", DateTimeOffset.UnixEpoch)],
-            Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => status == UpdateIntelligenceStatus.Current ? 1 : 0),
-            [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"])]));
+            [new UpdateIntelligenceItem("product:current", UpdateIntelligenceStatus.Current, currentMapping, "Exact version match.", "winget", DateTimeOffset.UnixEpoch), new UpdateIntelligenceItem("product:update", UpdateIntelligenceStatus.VerifiedUpdate, updateMapping, "Verified update.", "msstore", DateTimeOffset.UnixEpoch), new UpdateIntelligenceItem("product:review", UpdateIntelligenceStatus.ReviewRequired, reviewMapping, "Review required.", "winget", DateTimeOffset.UnixEpoch)],
+            Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => status is UpdateIntelligenceStatus.Current or UpdateIntelligenceStatus.VerifiedUpdate or UpdateIntelligenceStatus.ReviewRequired ? 1 : 0),
+            [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"]), new SourceSnapshot("msstore", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [], [])]));
 
-        Assert.HasCount(1, viewModel.CurrentRepositoryRows);
-        Assert.AreEqual("Current Tool", viewModel.CurrentRepositoryRows.Single().Name);
+        Assert.HasCount(3, viewModel.RepositoryManagedRows);
+        Assert.AreEqual(1, viewModel.RepositoryManagedRows.Count(row => row.Status == "Current"));
+        Assert.AreEqual(1, viewModel.RepositoryManagedRows.Count(row => row.Status == "VerifiedUpdate"));
+        Assert.AreEqual(1, viewModel.RepositoryManagedRows.Count(row => row.Status == "ReviewRequired"));
         Assert.AreEqual("winget", viewModel.UpdateDetails["product:current"].SourceId);
         StringAssert.Contains(viewModel.UpdateDetails["product:current"].Freshness, "cached", StringComparison.OrdinalIgnoreCase);
         viewModel.SetConnectorEnabled("WinGet package sources", false);
-        Assert.HasCount(0, viewModel.CurrentRepositoryRows);
+        Assert.HasCount(0, viewModel.RepositoryManagedRows);
     }
 
     [TestMethod]

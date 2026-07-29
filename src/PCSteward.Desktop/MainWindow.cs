@@ -137,10 +137,10 @@ public sealed class MainWindow : Window
         }
         panel.Children.Add(metrics);
         panel.Children.Add(new TextBlock { Text = "What is worth reviewing", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(PageCopy("Open Applications to inspect the installed inventory, Up to date for repository-confirmed current apps, or Updates to inspect evidence that could lead to a separate confirmation."));
+        panel.Children.Add(PageCopy("Open Applications to inspect the installed inventory, Repository apps to see source-managed status, or Updates to inspect evidence that could lead to a separate confirmation."));
         StackPanel records = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button applications = new() { Content = "Open applications" }; AutomationProperties.SetName(applications, "Open applications inventory"); applications.Click += (_, _) => { destination = "applications"; Render(); }; records.Children.Add(applications);
-        Button currentApps = new() { Content = "View up-to-date applications" }; AutomationProperties.SetName(currentApps, "View up-to-date applications"); currentApps.Click += (_, _) => { destination = "current"; Render(); }; records.Children.Add(currentApps);
+        Button currentApps = new() { Content = "View repository apps" }; AutomationProperties.SetName(currentApps, "View repository apps"); currentApps.Click += (_, _) => { destination = "current"; Render(); }; records.Children.Add(currentApps);
         panel.Children.Add(records);
         Content = BuildShell(panel);
     }
@@ -182,9 +182,12 @@ public sealed class MainWindow : Window
     private void RenderCurrentPage()
     {
         StackPanel panel = CreatePagePanel(960);
-        IReadOnlyList<InventoryRow> currentRows = viewModel.CurrentRepositoryRows;
-        panel.Children.Add(new TextBlock { Text = "Up to date", Style = AppStyle("StewardPageTitleStyle") });
-        panel.Children.Add(PageCopy("These installed applications have an exact version match from an enabled repository. Cached evidence is shown as cached and may be stale; local-only inventory is excluded."));
+        IReadOnlyList<InventoryRow> managedRows = viewModel.RepositoryManagedRows;
+        int upToDate = managedRows.Count(row => row.Status == "Current");
+        int updatesAvailable = managedRows.Count(row => row.Status == "VerifiedUpdate");
+        int reviewRequired = managedRows.Count(row => row.Status == "ReviewRequired");
+        panel.Children.Add(new TextBlock { Text = "Repository-managed apps", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("These installed applications have a concrete WinGet or Microsoft Store package identity from an enabled repository. Their status says whether they are up to date, have an update available, or require review. Cached evidence is shown as cached and may be stale; local-only inventory is excluded."));
         panel.Children.Add(PageCopy($"Repository evidence: {viewModel.UpdateFreshnessLabel}"));
 
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -205,27 +208,28 @@ public sealed class MainWindow : Window
         }
         panel.Children.Add(actions);
 
-        if (currentRows.Count == 0)
+        if (managedRows.Count == 0)
         {
             string empty = viewModel.IsUpdateSourceEnabled
-                ? "No installed application currently has matching repository evidence. Refresh the connected repositories to update this view; no update or download will start."
-                : "No repository is enabled, so installed applications cannot be confirmed up to date. Enable WinGet trusted sources after its disclosure, then refresh when you choose.";
+                ? "No installed application currently has a concrete managed package identity from the connected repositories. Refresh the connected repositories to update this view; no update or download will start."
+                : "No repository is enabled, so installed applications cannot be assessed as repository-managed or up to date. Enable WinGet trusted sources after its disclosure, then refresh when you choose.";
             panel.Children.Add(PageCopy(empty));
         }
         else
         {
-            panel.Children.Add(PageCopy($"{currentRows.Count:N0} installed application{(currentRows.Count == 1 ? string.Empty : "s")} confirmed current by repository evidence."));
-            foreach (InventoryRow row in currentRows)
+            panel.Children.Add(PageCopy($"{managedRows.Count:N0} repository-managed app{(managedRows.Count == 1 ? string.Empty : "s")}: {upToDate} up to date, {updatesAvailable} update{(updatesAvailable == 1 ? string.Empty : "s")} available, {reviewRequired} requiring review."));
+            foreach (InventoryRow row in managedRows)
             {
                 UpdateDetail detail = viewModel.UpdateDetails[row.StableProductKey];
                 StackPanel current = new() { Spacing = 5 };
                 current.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
                 current.Children.Add(PageCopy(row.Publisher));
-                current.Children.Add(PageCopy($"Installed version: {row.Version}"));
+                current.Children.Add(PageCopy($"Status: {RepositoryManagementStatus(row.Status)}"));
+                current.Children.Add(PageCopy($"Installed version: {row.Version}{(detail.CandidateVersion is null || detail.CandidateVersion == row.Version ? string.Empty : $" · repository version: {detail.CandidateVersion}")}"));
                 current.Children.Add(PageCopy($"Repository: {detail.SourceId} · Package ID: {detail.PackageId}"));
                 current.Children.Add(PageCopy(detail.Freshness));
                 Button evidence = new() { Content = "Open evidence" };
-                AutomationProperties.SetName(evidence, $"Open current evidence for {row.Name}");
+                AutomationProperties.SetName(evidence, $"Open repository evidence for {row.Name}");
                 evidence.Click += async (_, _) => await ShowDetailsAsync(row);
                 current.Children.Add(evidence);
                 panel.Children.Add(Card(current));
@@ -233,6 +237,14 @@ public sealed class MainWindow : Window
         }
         Content = BuildShell(panel);
     }
+
+    private static string RepositoryManagementStatus(string status) => status switch
+    {
+        "Current" => "Managed · up to date",
+        "VerifiedUpdate" => "Managed · update available",
+        "ReviewRequired" => "Repository match · review required",
+        _ => "Repository status unavailable"
+    };
 
     private void RenderResultsPage()
     {
@@ -387,7 +399,7 @@ public sealed class MainWindow : Window
         AddNavigationItem(navigation, "Review actions", "review", "\uE8C8");
         AddNavigationItem(navigation, "Applications", "applications", "\uE71D");
         AddNavigationItem(navigation, "Updates", "updates", "\uE896");
-        AddNavigationItem(navigation, "Up to date", "current", "\uE73E");
+        AddNavigationItem(navigation, "Repository apps", "current", "\uE73E");
         AddNavigationItem(navigation, "Storage", "storage", "\uE7F1");
         navigation.MenuItems.Add(new NavigationViewItemHeader { Content = "Records" });
         AddNavigationItem(navigation, "Activity", "activity", "\uE823");
