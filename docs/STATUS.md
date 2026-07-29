@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 90 — Phase 3 Sol closeout remediation complete; independent repeat review required
-**Last green tree:** Task 90 remediation (this commit) — Release build 0 warnings/errors; full suite 168 passed
+**Current task:** 25 — repeat security review complete; Task 90 remediation required
+**Last green tree:** Task 25 review of `b5cc577` — Release build 0 warnings/errors; full suite 168 passed
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -35,21 +35,21 @@
 | Scheduling without resident process | Accepted | ADR-020 |
 | Accessibility best-effort priority | Accepted | ADR-021 |
 
-## Task 90 result
+## Task 25 repeat review result
 
-`P3R-10` is remediated without display-table execution authority. The production desktop adapter performs one bounded WinGet display call and retains `Unknown` compatibility. Safe execution requires explicit exact-package mapping from the reviewed structured registry/MSIX product; post-update Success requires both bounded WinGet export JSON source/ID/version and the same stable product's exact structured version/scope/architecture. Table-only, injected-spacing, wrong identity/source/scope/architecture and ambiguous evidence fail closed.
+`P3R-10` is closed narrowly: installed WinGet table inventory performs one bounded display-only call and retains `Unknown` compatibility; post-update Success combines export JSON with the reviewed structured local product. `P3R-01–12` otherwise retain their closed dispositions.
 
-`P3R-13` is remediated with a target-specific bounded process snapshot before confirmation, explicit **Install approved update anyway** acknowledgement, confirmation/execution rechecks, disposal of every enumerated process object and no close/kill authority.
+The gate fails on three actionable findings. `P3R-14` (High) promotes a WinGet available-update display-table version into the immutable `--version` argument. `P3R-15` (Blocker) launches the caller-writable helper through `runas` before signature/signer validation. `P3R-13` (Medium) remains open because a target first detected by the coordinator immediately before provider execution is recorded but not user-visible or acknowledgement-gated.
 
-Independent review of `P3R-01–13` found no remaining Blocker/High in the remediation tree. Focused 51, security 16, architecture 4, Release build 0 warnings/errors, full suite 168, hostile deletion/IPC 42 with one elevated-only skip, WinGet boundary 11 and read-only machine-provider 6 all pass. See [Task 90 closeout evidence](review/TASK_90_P3R6_EVIDENCE.md).
+Focused 51, security 16, architecture 4, Release build 0 warnings/errors, full suite 168, hostile deletion/IPC 42 with one elevated-only skip, WinGet boundary 11 and read-only machine-provider 6 all pass. Direct Release evidence reproduced table-to-argument authority and found the unsigned helper path grants the caller `FullControl`; passing counts do not override either security boundary. See [Phase 3 security review](review/PHASE_3_SECURITY_REVIEW.md).
 
 ## Residual risks and accepted deferrals
 
-The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image behavior, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image behavior, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain residual risks. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Stop here. Repeat Task 25 under fresh GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
+Run Task 90 for `P3R-13–15`, then repeat Task 25 under fresh GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26.
 
 ## Rules for updating this file
 
