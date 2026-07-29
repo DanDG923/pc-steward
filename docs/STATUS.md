@@ -1,13 +1,13 @@
 # PC Steward build status
 
 **Current phase:** Phase 3 — Safe update execution and app-owned cache
-**Current task:** 90 — final P3R-14/P3R-15 remediation complete; fresh Task 25 review required
-**Last green tree:** this Task 90 commit — focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile 42/1 skip, WinGet boundary 11, installed-helper host evidence 6/6
+**Current task:** 25 — Phase 3 independent security review complete
+**Last green tree:** reviewed implementation commit `5013c942ae2fa0dc62c9bf71258bcbffedd03347` — focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile 42/1 skip, WinGet boundary 11, installed-helper host evidence 6/6
 **Current branch:** `phase/3-execution`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** FAIL — do not merge Phase 3 or begin Task 26
+**Phase gate:** PASS — Phase 3 is merge-ready; do not begin Task 26 before the branch is merged
 
 ## Decisions
 
@@ -35,21 +35,21 @@
 | Scheduling without resident process | Accepted | ADR-020 |
 | Accessibility best-effort priority | Accepted | ADR-021 |
 
-## Task 90 final remediation handoff
+## Task 25 independent gate
 
-`P3R-01–13` remain closed. `P3R-14` is now implemented through the actual desktop: the official WinGet COM projection supplies the sole executable candidate authority, bound to predefined trusted source, exact ID, installed version and newer candidate version. Display-table text remains non-executable. The current-tree composition test reaches review, runner and exact post-update verification.
+Fresh GPT-5.6 Sol / Extra High review at exact commit `5013c94` closes `P3R-01–15` with no remaining Blocker, High or Medium finding. `P3R-14` uses the official WinGet COM projection as the sole executable candidate authority, bound to predefined trusted source, exact ID, installed version and newer candidate version. Display-table text remains non-executable. Current-tree evidence reaches review, runner and exact post-update verification.
 
-`P3R-15` now has production-path host evidence. The real default transport/validator completed a protected, non-reparse, valid same-signer `%ProgramFiles%\PC Steward` no-op UAC path. Actual tamper, trusted-wrong-signer, caller-writable, helper-reparse and between-validation replacement layouts all stopped before the helper marker. The exact root, temporary root and certificate-store entries were verified absent after teardown.
+`P3R-15` has production-path evidence for the real default transport/validator: a protected, non-reparse, valid same-signer `%ProgramFiles%\PC Steward` no-op UAC path completed. Actual tamper, trusted-wrong-signer, caller-writable, helper-reparse and between-validation replacement layouts all stopped before the helper marker. A fresh read-only check corroborates that the exact installed root, RunId temporary root and both certificate thumbprints are absent.
 
-The remediation record is [Task 90 P3R-14/P3R-15 evidence](review/TASK_90_P3R14_P3R15_EVIDENCE.md), with [raw host evidence](review/TASK_90_P3R15_HOST_EVIDENCE.json). All required local gates pass. The phase gate remains procedurally `FAIL` until a fresh independent Task 25 review evaluates this commit.
+The final verdict and residual-risk disposition are in [Phase 3 security review](review/PHASE_3_SECURITY_REVIEW.md). Fresh gates pass: focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile boundary 42/1 approved skip, WinGet boundary 11, NuGet known-vulnerability count zero, and immutable installed-helper evidence 6/6.
 
 ## Residual risks and accepted deferrals
 
-The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image installer lifecycle, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain residual risks. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image installer lifecycle, a new real update/live external COM query, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain accepted residual risks. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Repeat Task 25 under fresh GPT-5.6 Sol / Extra High. Do not merge Phase 3 or begin Task 26 before that review changes the gate.
+Merge Phase 3 only through a separately authorized repository action. Begin Task 26 only after that merge; this review did not merge, push or start Phase 4 work.
 
 ## Rules for updating this file
 
