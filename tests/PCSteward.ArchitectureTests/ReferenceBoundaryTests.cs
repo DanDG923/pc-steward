@@ -79,6 +79,19 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void ApplicationDetailsUseThePrototypeStyleDetailRouteAndReviewPageShowsDecisionItems()
+    {
+        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains(source, "RenderProductDetailPage()");
+        StringAssert.Contains(source, "destination = \"detail\"");
+        StringAssert.Contains(source, "Header = \"Technical details\"");
+        StringAssert.Contains(source, "InventoryRow[] decisions");
+        StringAssert.Contains(source, "Needs a decision");
+    }
+
+    [TestMethod]
     public void DesktopVisualFoundationProvidesSemanticResourcesForEverySupportedTheme()
     {
         string desktopDirectory = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop");

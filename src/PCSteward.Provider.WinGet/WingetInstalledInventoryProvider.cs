@@ -227,24 +227,48 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         string? providerVersion = ReadVersion(versionResult);
         WingetProcessResult installedResult = await process.RunAsync(BuildInstalledSourceArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
         WingetInventoryResult installed = ClassifyInstalled(installedResult);
-        if (HasFatalWarning(installed.Warnings)) throw new InvalidOperationException(string.Join(",", installed.Warnings));
+        bool usedGlobalInventoryFallback = false;
+        List<string> warnings = [.. installed.Warnings];
+        if (HasFatalWarning(installed.Warnings))
+        {
+            WingetProcessResult globalInstalledResult = await process.RunAsync(WingetInstalledInventoryProvider.BuildInstalledListArguments(), Timeout, cancellationToken).ConfigureAwait(false);
+            installed = ClassifyInstalled(globalInstalledResult);
+            if (HasFatalWarning(installed.Warnings)) throw new InvalidOperationException(string.Join(",", installed.Warnings));
+            usedGlobalInventoryFallback = true;
+            warnings = [.. installed.Warnings, "winget:source-inventory-fallback"];
+        }
         WingetProcessResult availableResult = await process.RunAsync(BuildAvailableUpdateArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
         WingetAvailableUpdateResult parsed = Classify(availableResult, providerVersion, SourceId);
-        if (HasFatalWarning(parsed.Warnings)) throw new InvalidOperationException(string.Join(",", parsed.Warnings));
+        bool updateCheckAvailable = true;
+        if (HasFatalWarning(parsed.Warnings))
+        {
+            updateCheckAvailable = false;
+            warnings.Add("winget:update-check-unavailable");
+            parsed = new WingetAvailableUpdateResult(providerVersion, [], []);
+        }
         Dictionary<string, WingetAvailableUpdateRecord> upgrades = parsed.Records.ToDictionary(record => record.Id, StringComparer.OrdinalIgnoreCase);
-        SourcePackageRecord[] packages = installed.Records
-            .Where(record => record.Source is null || string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase))
+        WingetInstalledRecord[] sourceManaged = installed.Records
+            .Where(record => usedGlobalInventoryFallback
+                ? string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase)
+                : record.Source is null || string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase))
             .GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() == 1)
             .Select(group => group.Single())
             .OrderBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (usedGlobalInventoryFallback && sourceManaged.Length == 0)
+        {
+            return new(SourceId, providerVersion, null, SourceSnapshotState.Unavailable, [], warnings.Concat(["winget:no-source-labelled-inventory"]).Distinct(StringComparer.Ordinal).ToArray());
+        }
+        SourcePackageRecord[] packages = sourceManaged
             .Select(record => upgrades.GetValueOrDefault(record.Id) is WingetAvailableUpdateRecord update
                 ? new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
-                : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, record.Version, "Unknown", "Unknown", null))
+                : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, updateCheckAvailable ? record.Version : null, "Unknown", "Unknown", null))
             .ToArray();
-        string[] warnings = installed.Warnings.Concat(parsed.Warnings).Concat(installed.Records.GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1).Select(_ => "winget:duplicate-installed-id")).Distinct(StringComparer.Ordinal).ToArray();
+        warnings.AddRange(parsed.Warnings);
+        warnings.AddRange(sourceManaged.GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1).Select(_ => "winget:duplicate-installed-id"));
         return new(SourceId, parsed.ProviderVersion, DateTimeOffset.UtcNow, SourceSnapshotState.Live,
-            packages, warnings);
+            packages, warnings.Distinct(StringComparer.Ordinal).ToArray());
     }
     private static WingetInventoryResult ClassifyInstalled(WingetProcessResult result)
     {

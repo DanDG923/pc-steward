@@ -48,6 +48,26 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.AreEqual("1.1", snapshot.Packages.Single(package => package.PackageId == "Contoso.Update").AvailableVersion);
     }
     [TestMethod]
+    public async Task SourceConnectorFallsBackToSourceLabelledGlobalInventoryWhenScopedQueryFails()
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.9.0", "", false),
+            new(1, "", "", false),
+            new(0, InstalledTable(("Contoso Widget", "Contoso.Widget", "1.0", "winget")), "", false),
+            new(1, "", "", false)
+        });
+
+        PCSteward.Domain.SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(PCSteward.Domain.SourceSnapshotState.Live, snapshot.State);
+        Assert.AreEqual("Contoso.Widget", snapshot.Packages.Single().PackageId);
+        Assert.IsNull(snapshot.Packages.Single().AvailableVersion);
+        CollectionAssert.Contains(snapshot.Warnings.ToArray(), "winget:source-inventory-fallback");
+        CollectionAssert.Contains(snapshot.Warnings.ToArray(), "winget:update-check-unavailable");
+        CollectionAssert.AreEqual(ExpectedArguments, process.Calls[2].ToArray());
+    }
+    [TestMethod]
     public void MalformedOrWrongSourceUpdateRowsAreExcludedAndUnsupportedSourcesAreRejected()
     {
         WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable("Name  Id  Version  Available  Source\n----------------------------------------------\nBad  bad id!  1.0  2.0  winget\nOther  Other.App  1.0  2.0  msstore", "v1", "winget");

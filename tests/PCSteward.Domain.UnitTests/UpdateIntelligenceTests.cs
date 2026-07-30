@@ -68,6 +68,18 @@ public sealed class UpdateIntelligenceTests
         Assert.IsTrue(observations.Any(candidate => candidate.SourceId == "winget" && candidate.CandidateVersion == "1.1.0"));
         Assert.IsTrue(observations.Any(candidate => candidate.SourceId == "msstore" && candidate.CandidateVersion == "1.2.0"));
     }
+    [TestMethod]
+    public void RepositoryIdentityWithoutAnAvailableVersionIsReviewRequiredNotCurrent()
+    {
+        ProductMatchProfile product = Product("availability-unknown", "Contoso.AvailabilityUnknown", "1.0.0");
+        SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.AvailabilityUnknown", "Availability unknown", "Contoso", "1.0.0", null, "Machine", "x64", "Stable")], ["winget:update-check-unavailable"]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
+    }
 
     [TestMethod]
     public void SourceDisagreementNeverClassifiesAnOtherwiseCurrentMappingAsCurrent()
