@@ -11,5 +11,7 @@
     <NoWarn>$(NoWarn);1591</NoWarn>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <LangVersion>latest</LangVersion>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionSuffix>private-beta</VersionSuffix>
   </PropertyGroup>
 </Project>
