@@ -56,6 +56,7 @@ public static class UpdateIntelligence
                 MappingReviewReason[] reasons = mapping.ReviewReasons.Concat([MappingReviewReason.SourceDisagreement]).Distinct().ToArray();
                 mapping = mapping with { IsActionable = false, ReviewReasons = reasons, EvidenceExplanation = mapping.EvidenceExplanation + " Review required: source candidates disagree." };
             }
+            mapping = UseConfirmedSourceCurrentEvidence(mapping, snapshots);
             SourceSnapshot? source = sourceById.GetValueOrDefault(mapping.SourceId);
             UpdateIntelligenceStatus status = mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement) ? UpdateIntelligenceStatus.ReviewRequired
                 : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
@@ -80,6 +81,35 @@ public static class UpdateIntelligence
         mapping.Confidence == MappingConfidence.High &&
         mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal &&
         mapping.ReviewReasons.All(reason => reason == MappingReviewReason.CandidateIsCurrent);
+
+    private static PackageMapping UseConfirmedSourceCurrentEvidence(PackageMapping mapping, IReadOnlyCollection<SourceSnapshot> snapshots)
+    {
+        if (mapping.Origin != MappingOrigin.UserConfirmed ||
+            !mapping.ReviewReasons.All(reason => reason is MappingReviewReason.CandidateIsOlder or MappingReviewReason.CandidateIsCurrent or MappingReviewReason.IncomparableVersion))
+        {
+            return mapping;
+        }
+
+        SourcePackageRecord? package = snapshots
+            .Where(snapshot => snapshot.State is SourceSnapshotState.Live or SourceSnapshotState.Cached)
+            .Where(snapshot => string.Equals(snapshot.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(snapshot => snapshot.Packages)
+            .FirstOrDefault(candidate => string.Equals(candidate.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase));
+        if (package?.InstalledVersion is null || package.AvailableVersion is null ||
+            !string.Equals(package.InstalledVersion, package.AvailableVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            return mapping;
+        }
+
+        return mapping with
+        {
+            CandidateVersion = package.AvailableVersion,
+            IsActionable = false,
+            ReviewReasons = [],
+            VersionComparison = new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted),
+            EvidenceExplanation = "The user confirmed this exact package identity. The source reports that its installed version matches the available version."
+        };
+    }
 
     private static bool HasDifferentKnownValues(IEnumerable<string?> values) => values.Where(value => !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase)).Select(value => value!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).Count() > 1;
 }

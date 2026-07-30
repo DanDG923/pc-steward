@@ -112,6 +112,22 @@ public sealed class UpdateIntelligenceTests
     }
 
     [TestMethod]
+    public void UserConfirmedMappingUsesTheSourceCurrentVersionWhenRegistryVersionIsIncompatible()
+    {
+        ProductMatchProfile product = Product("confirmed-registry-current", null, "80.40.55332");
+        SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.ConfirmedRegistry", "confirmed-registry-current", null, "10.0.10", "10.0.10", "Machine", "x64", "Stable")], []);
+        DeclaredPackageMapping mapping = new(product.StableProductKey, "winget", "Contoso.ConfirmedRegistry", MappingOrigin.UserConfirmed);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source], [mapping]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
+        Assert.IsEmpty(item.Mapping.ReviewReasons);
+        StringAssert.Contains(item.Explanation, "source reports", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
     public void SourceDisagreementNeverClassifiesAnOtherwiseCurrentMappingAsCurrent()
     {
         ProductMatchProfile product = Product("current-disagreement", "Contoso.CurrentDisagreement", "1.0.0");

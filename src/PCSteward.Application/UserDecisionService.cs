@@ -18,6 +18,9 @@ public sealed class UserDecisionService
         PackageMatchCandidate candidate = new(package.SourceId, package.PackageId, package.DisplayName, null, null, package.Publisher, package.AvailableVersion, package.Scope, package.Architecture, package.Channel, true, package.ProviderSuppliedStableProductKey, package.RequiresConnectorSpecificVersionSemantics);
         ManualMappingValidation validation = supplied ? ProductPackageMatching.ValidateManualMapping(declared, candidate, snapshots.Where(snapshot => snapshot.State is SourceSnapshotState.Live or SourceSnapshotState.Cached).Select(snapshot => snapshot.SourceId)) : new(false, MappingReviewReason.UnsupportedManualMapping, "Manual mappings must select an exact package ID currently supplied by an enabled trusted connector.");
         if (!validation.IsValid) return validation;
+        bool alreadyMapped = (await store.GetManualMappingsAsync(cancellationToken))
+            .Any(mapping => Same(mapping.StableProductKey, stableProductKey) && Same(mapping.SourceId, package.SourceId) && Same(mapping.PackageId, package.PackageId));
+        if (alreadyMapped) return validation;
         await store.SaveManualMappingAsync(new ManualMapping(Guid.NewGuid(), stableProductKey, package.SourceId, package.PackageId, DateTimeOffset.UtcNow, BoundedReason(reason)), cancellationToken);
         return validation;
     }

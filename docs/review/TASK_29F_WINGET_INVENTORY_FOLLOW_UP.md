@@ -13,6 +13,7 @@ The recorded host completed a new scan with the readable local completion time f
 - The Review actions route now shows `Needs a decision` separately from approved updates. Application activation opens the prototype contract's full-page detail fallback: summary, installed/source comparison, plain-language reasoning, decisions, and a collapsed technical disclosure.
 - `Current` now requires a trusted high-confidence identity and an equal source version. An incomplete-publisher alias remains review-only; its local installer version is not presented as a downgrade comparison against the package version.
 - A review-required detail now visibly offers `Confirm package identity` for the displayed exact source package. Confirmation records a reversible manual mapping, immediately re-assesses the status, and never starts an update.
+- A confirmed mapping may use the source's equal installed/available version to classify an otherwise incompatible registry installer-version string as current; it does not make the mapping actionable. Review actions can bulk-confirm only these source-reported-current identities, skipping newer, unknown, unavailable, and conflicting source records.
 - Cancellation still propagates, so the orchestrator keeps its existing timeout and close semantics.
 
 ## Verification
@@ -22,7 +23,7 @@ The recorded host completed a new scan with the readable local completion time f
 - Current-status safety test: 1 passed.
 - Detail/review route regression test: 1 passed.
 - Release build: 0 warnings, 0 errors.
-- Full offline suite: 203 passed.
+- Full offline suite: 205 passed.
 
 ## Recorded-host follow-up
 

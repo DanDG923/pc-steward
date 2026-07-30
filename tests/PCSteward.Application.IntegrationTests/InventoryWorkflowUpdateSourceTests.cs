@@ -31,6 +31,33 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    public async Task BulkConfirmationMapsOnlySourceReportedCurrentPackagesWithoutStartingUpdates()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "80.40.55332", "Machine", "x64", "Contoso", Channel: "Stable");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
+        SourcePackageRecord current = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "10.0.10", "10.0.10", "Machine", "x64", "Stable");
+        SourcePackageRecord newer = new("winget", "Contoso.Newer", "Contoso Newer", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [current, newer], []))]);
+
+        await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        RepositoryIdentityConfirmationResult result = await workflow.ConfirmCurrentRepositoryIdentitiesAsync(
+            [new(product.StableKey, "winget", "Contoso.Widget"), new(product.StableKey, "winget", "Contoso.Newer")],
+            true,
+            "bulk",
+            CancellationToken.None);
+        UpdateIntelligenceItem item = (await workflow.LoadUpdateIntelligenceAsync(true, CancellationToken.None)).Items.Single();
+
+        Assert.AreEqual(1, result.Confirmed);
+        Assert.AreEqual(1, result.Skipped);
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
+        Assert.HasCount(1, await workflow.GetManualMappingsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task SamePackageIdFromAnotherSourceAndMultipleInstallTargetsRemainReviewOnly()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

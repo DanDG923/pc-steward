@@ -3,6 +3,8 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 public sealed record InventoryDashboard(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, DateTimeOffset? LastCompletedAt, ScanDataSummary ScanData, IReadOnlyDictionary<string, ConnectorState> Connectors);
+public sealed record RepositoryIdentityConfirmation(string StableProductKey, string SourceId, string PackageId);
+public sealed record RepositoryIdentityConfirmationResult(int Confirmed, int Skipped, string Message);
 public interface IPostUpdatePackageInventory
 {
     Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
@@ -205,6 +207,39 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         return package is null
             ? new(false, MappingReviewReason.UnsupportedManualMapping, "The package is not present in the current approved source cache.")
             : await RequiredDecisions().CreateManualMappingAsync(stableProductKey, package, snapshots, reason, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<RepositoryIdentityConfirmationResult> ConfirmCurrentRepositoryIdentitiesAsync(IEnumerable<RepositoryIdentityConfirmation> confirmations, bool sourcesEnabled, string? reason, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(confirmations);
+        RepositoryIdentityConfirmation[] requested = confirmations
+            .Where(confirmation => !string.IsNullOrWhiteSpace(confirmation.StableProductKey) && !string.IsNullOrWhiteSpace(confirmation.SourceId) && !string.IsNullOrWhiteSpace(confirmation.PackageId))
+            .DistinctBy(confirmation => (confirmation.StableProductKey, confirmation.SourceId, confirmation.PackageId))
+            .ToArray();
+        if (!sourcesEnabled) return new(0, requested.Length, "Enable an approved source and run a source check before confirming package identities.");
+        SourceSnapshot[] snapshots = await ReadSourceSnapshotsAsync(true, false, cancellationToken).ConfigureAwait(false);
+        int confirmed = 0;
+        int skipped = 0;
+        foreach (RepositoryIdentityConfirmation confirmation in requested)
+        {
+            SourcePackageRecord? package = snapshots
+                .Where(snapshot => snapshot.State is SourceSnapshotState.Live or SourceSnapshotState.Cached)
+                .Where(snapshot => string.Equals(snapshot.SourceId, confirmation.SourceId, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(snapshot => snapshot.Packages)
+                .FirstOrDefault(candidate => string.Equals(candidate.PackageId, confirmation.PackageId, StringComparison.OrdinalIgnoreCase));
+            if (package?.InstalledVersion is null || package.AvailableVersion is null || !string.Equals(package.InstalledVersion, package.AvailableVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                skipped++;
+                continue;
+            }
+
+            ManualMappingValidation validation = await RequiredDecisions().CreateManualMappingAsync(confirmation.StableProductKey, package, snapshots, reason, cancellationToken).ConfigureAwait(false);
+            if (validation.IsValid) confirmed++; else skipped++;
+        }
+
+        return new(confirmed, skipped, confirmed == 0
+            ? "No source-reported current package identities were confirmed. Updates were not started."
+            : $"Confirmed {confirmed} current repository mapping{(confirmed == 1 ? string.Empty : "s")}. Updates were not started.{(skipped == 0 ? string.Empty : $" Skipped {skipped} item{(skipped == 1 ? string.Empty : "s")}." )}");
     }
 
     private async Task<UpdateIntelligenceSummary> AssessUpdateIntelligenceAsync(bool sourcesEnabled, bool online, CancellationToken cancellationToken)

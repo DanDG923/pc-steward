@@ -301,6 +301,37 @@ public sealed class MainWindow : Window
             Button open = new() { Content = "Review evidence" }; AutomationProperties.SetName(open, $"Review {row.Name} decision evidence"); open.Click += async (_, _) => await ShowDetailsAsync(row); decision.Children.Add(open);
             panel.Children.Add(Card(decision));
         }
+        InventoryRow[] currentIdentityCandidates = decisions
+            .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)
+            .ToArray();
+        if (currentIdentityCandidates.Length > 0)
+        {
+            panel.Children.Add(PageCopy($"{currentIdentityCandidates.Length} item{(currentIdentityCandidates.Length == 1 ? string.Empty : "s")} can be confirmed together because the repository reports its installed version is already the available version."));
+            Button confirmAll = new() { Content = "Confirm all current package identities" };
+            AutomationProperties.SetName(confirmAll, "Confirm all source-reported current package identities");
+            confirmAll.Click += async (_, _) =>
+            {
+                ContentDialog confirmation = new()
+                {
+                    XamlRoot = Content.XamlRoot,
+                    Title = "Confirm current package identities?",
+                    Content = "This records reversible mappings only for the listed items where the approved source reports its installed version equals the available version. It skips newer, unknown, unavailable or conflicting candidates. No update will start.",
+                    PrimaryButtonText = "Confirm mappings",
+                    CloseButtonText = "Cancel",
+                    DefaultButton = ContentDialogButton.Close
+                };
+                if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+                RepositoryIdentityConfirmation[] confirmations = currentIdentityCandidates
+                    .Select(row => viewModel.UpdateDetails[row.StableProductKey])
+                    .Select(detail => new RepositoryIdentityConfirmation(detail.StableProductKey, detail.SourceId!, detail.PackageId!))
+                    .ToArray();
+                RepositoryIdentityConfirmationResult result = await workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", CancellationToken.None);
+                LoadSavedInventory();
+                Render();
+                await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message);
+            };
+            panel.Children.Add(confirmAll);
+        }
         panel.Children.Add(new TextBlock { Text = "Approved updates", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(PageCopy(ready.Length == 0 ? "No approved actions are ready. Cached, unavailable, low-confidence, or conflicting evidence remains review-only." : $"{ready.Length} approved action{(ready.Length == 1 ? string.Empty : "s")} can be opened for separate confirmation."));
         foreach (InventoryRow row in ready)
@@ -773,7 +804,7 @@ public sealed class MainWindow : Window
         StackPanel decisionActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button pin = new() { Content = "Pin current version" }; pin.Click += async (_, _) => { await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); LoadSavedInventory(); Render(); }; decisionActions.Children.Add(pin);
         Button ignore = new() { Content = "Ignore product" }; ignore.Click += async (_, _) => { await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render(); }; decisionActions.Children.Add(ignore);
-        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null } && viewModel.IsUpdateSourceEnabled)
+        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null, CanConfirmAsCurrent: true } && viewModel.IsUpdateSourceEnabled)
         {
             decisions.Children.Add(PageCopy($"Confirm this only if you recognise {detail.PackageId} from {detail.SourceId} as this installed application. The reversible mapping does not start an update."));
             Button confirmPackage = new() { Content = "Confirm package identity" };
