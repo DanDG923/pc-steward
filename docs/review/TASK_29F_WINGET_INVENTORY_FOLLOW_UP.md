@@ -26,6 +26,6 @@ The recorded host completed a new scan with the readable local completion time f
 - Release build: 0 warnings, 0 errors.
 - Full offline suite: 205 passed.
 
-## Recorded-host follow-up
+## Recorded-host follow-up — complete
 
-The user must start a fresh scan from the rebuilt Release desktop. This executes the same disclosure-gated, read-only WinGet list request and may send installed package identifiers to enabled package sources. The result should either show the managed inventory or a specific bounded category rather than a generic provider failure. No performance pass claim is made; `PO-EXC-29-PERF-01` remains unchanged.
+The user rechecked the rebuilt Release desktop. Repository inventory, detail decisions, bulk confirmation and the post-confirmation result flow all behaved as intended. The disclosure-gated source check remains read-only; it may send installed package identifiers to enabled package sources, and it never begins an update. No performance pass claim is made; `PO-EXC-29-PERF-01` remains unchanged.
