@@ -1,13 +1,13 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 30A — final release-audit evidence complete; Task 31 is next (requires GPT-5.6 Sol / Extra High)
-**Last green tree:** Task 30A worktree — Release build 0 warnings/errors; full suite 209 passed
+**Current phase:** Phase 4 — final MVP release remediation required
+**Current task:** Task 31 complete — final release audit NOT READY; Task 90 is next (requires GPT-5.6 Terra / High)
+**Last green tree:** Task 31 reviewed implementation `2ff0cd2` — Release build 0 warnings/errors; full suite 209 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** PASS — Phase 3 is merged through `b473792`; visual foundation may proceed, while Task 26 scheduling remains separately scoped
+**Phase gate:** FAIL — final MVP audit is NOT READY; do not release or repeat Task 31 until Task 90 remediation is committed
 
 ## Decisions
 
@@ -45,11 +45,11 @@ The final verdict and residual-risk disposition are in [Phase 3 security review]
 
 ## Residual risks and accepted deferrals
 
-The standalone package does not ship or compose the elevated helper; protected-root evidence is historical/future-installed-mode evidence only. Signing, positive task removal/isolation, retain/remove-data lifecycle, a real controlled user-scope update, provider-disconnect cancellation, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain residual evidence. `PO-EXC-29-PERF-01` defers the unmet `NFR-PERF-05` / `AC-NFR-06` idle-resource remediation and final baseline proof; it is not a pass claim. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The standalone package does not ship or compose the elevated helper; protected-root evidence is historical/future-installed-mode evidence only. The final audit found eight High and two Medium findings: reset coordination/exact-task verification/onboarding, signing/distribution, current user-scope update proof, performance, standalone lifecycle/scheduled exit, in-app limitations/release accuracy, licence/SBOM/manifest quality, and WebView runtime contents. `PO-EXC-29-PERF-01` remains a deferral, not a pass. Provider-disconnect cancellation, same-user temporary-export substitution, imperfect package-ID/process-name correlation, and the un-replayed outcome dialog remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Task 30A evidence now includes a development-signed standard-user-only ZIP, hash/SBOM/dependency inventory, 0 known NuGet advisories, positive exact-task removal/unrelated-task isolation, actual launch/close/relaunch retention, a two-confirmation reset that removed the prior 674-row state, dark-theme/accessibility-tree inspection, a Release build with 0 warnings/errors, 209 passing tests and fresh fixture benchmark data. The temporary signing certificate and all test tasks were removed. The post-reset app did not show required first-run onboarding; the sole approved `winget` candidate was an HKLM Chrome update, so a user-scope update was not run. Production-trusted signing, reset/onboarding correction, user-scope update evidence, approved-baseline performance, and remaining optional visual/accessibility matrix evidence are Missing or explicitly excepted in `docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md`; VM testing is product-owner-excluded. Task 31 must begin only under GPT-5.6 Sol / Extra High and must not infer readiness from this evidence package.
+Task 31 reviewed the complete repository/history and independently reran the critical gates: Release build 0 warnings/errors, full suite 209/209, focused critical matrix 114/114, fresh fixture benchmark, zero known NuGet vulnerabilities, classified secret scan, and exact package/hash inspection. [The final release audit](review/FINAL_RELEASE_AUDIT.md) is **NOT READY**: 43/54 mandatory acceptance criteria are Proven, 4 Failed and 7 Unverified; mandatory NFRs include 1 Failed and 6 Unverified. Run Task 90 next under GPT-5.6 Terra / High, remediate `FRA-01` through `FRA-10`, commit, then stop for a fresh Task 31 Sol / Extra High review. The current Sol / Extra High task must stop before Task 90 because its required model/reasoning settings differ.
 
 ## Rules for updating this file
 
