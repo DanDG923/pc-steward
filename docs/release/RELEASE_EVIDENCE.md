@@ -6,7 +6,7 @@
 
 | Area | Evidence / command | Result |
 |---|---|---|
-| Package model | `packaging/PCSteward.iss`; guarded `scripts/New-PrivateBetaPackage.ps1` | Reproducible Inno Setup configuration stages a fixed Program Files payload and offers explicit retain/remove-data choice; compilation requires locally installed ISCC. |
+| Package model | `packaging/PCSteward.iss`; guarded `scripts/New-PrivateBetaPackage.ps1` | Reproducible Inno Setup configuration stages a fixed Program Files payload and offers explicit retain/remove-data choice; compilation requires locally installed ISCC. Product-owner direction excludes VM testing; lifecycle evidence remains required on a supported Windows 11 x64 test machine. |
 | Scheduled task cleanup | Installer deletes only `PCSteward.ScheduledCheck`, matching the product constant | Configured; clean-VM execution required. |
 | Per-user data choice | Uninstall confirmation defaults to retaining `%LocalAppData%\PCSteward`; deletion is an explicit Yes choice | Configured; clean-VM execution required. |
 | SBOM/inventory | `New-PrivateBetaPackage.ps1` emits CycloneDX 1.5 `sbom.cdx.json`, dependency inventory and SHA-256 payload manifest | Locally reproducible after publish. |
@@ -17,4 +17,4 @@
 | Vulnerability advisory scan | `dotnet list PCSteward.slnx package --vulnerable --include-transitive --format json` against `https://api.nuget.org/v3/index.json` | 2026-07-30: 0 known vulnerable direct or transitive packages reported across 17 projects. |
 | Icons/runtime dependency | Checked-in 16/24/32/48/256 PNG marks and `.ico`; Desktop uses local icon asset | Compile/clean-VM visual verification pending. |
 
-The package script intentionally does not download tooling, create a certificate, sign, install, publish, push, tag, upload, or modify a real scheduled task. Task 30A must run the final safe checks and classify this unexecuted lifecycle evidence as Missing unless a clean-VM record is attached.
+The package script intentionally does not download tooling, create a certificate, sign, install, publish, push, tag, upload, or modify a real scheduled task. Task 30A must run the final safe checks and classify unexecuted lifecycle evidence as Missing unless a supported Windows 11 x64 test-machine record is attached; VM execution is explicitly excluded by product-owner direction.

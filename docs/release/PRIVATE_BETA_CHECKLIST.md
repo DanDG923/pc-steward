@@ -6,14 +6,14 @@
 
 ## Build and package
 
-- [ ] Use Windows 11 x64 clean VM with Inno Setup 6 and the supported .NET/Windows App SDK prerequisites.
+- [ ] Use a supported Windows 11 x64 test machine with Inno Setup 6 and the supported .NET/Windows App SDK prerequisites. Product-owner direction excludes VM execution from this release path.
 - [ ] Run `pwsh -NoProfile -File .\scripts\Restore.ps1`, then `Build.ps1` and `Test.ps1`.
 - [ ] Run `pwsh -NoProfile -File .\scripts\New-PrivateBetaPackage.ps1` to stage a `win-x64` payload and CycloneDX SBOM.
 - [ ] Inspect `artifacts\private-beta\reports\payload-sha256.json`; sign the desktop, helper, scheduled host, and installer only with an approved certificate.
 - [ ] Run `pwsh -NoProfile -File .\scripts\New-PrivateBetaPackage.ps1 -CompileInstaller` only after Inno Setup is installed. This task does not install it.
 - [ ] Verify Authenticode status and a matching approved signer for desktop/helper before installing.
 
-## Clean-VM lifecycle evidence (record command, VM image, operator, UTC time, version and sanitized result)
+## Lifecycle evidence (record machine description, operator, UTC time, version and sanitized result)
 
 - [ ] Fresh install places binaries only under `%ProgramFiles%\PC Steward`, uses the PC Steward display name/icon, and launches in light, dark and high-contrast modes.
 - [ ] Inspect the 16, 24, 32, 48 and 256 px marks from `design\assets\png`; verify the installer, Start menu and executable icon show the approved mark with no external font, icon-pack, WebView or browser-runtime dependency.
@@ -23,7 +23,7 @@
 - [ ] Uninstall and choose **No**: binaries and `PCSteward.ScheduledCheck` are removed while `%LocalAppData%\PCSteward` remains byte-for-byte.
 - [ ] Reinstall, uninstall and choose **Yes**: binaries, task and `%LocalAppData%\PCSteward` are removed; the next install shows first-run onboarding.
 - [ ] Exercise factory reset separately: it removes only per-user PC Steward state and the task, never installed binaries.
-- [ ] Reboot/relaunch after each lifecycle case; record residual processes and files. Any failed mandatory case reopens ADR-002.
+- [ ] Reboot/relaunch after each lifecycle case; record residual processes and files. Any failed mandatory case reopens ADR-002; VM execution is not required.
 
 ## Distribution controls
 

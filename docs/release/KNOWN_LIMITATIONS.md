@@ -1,9 +1,9 @@
 # Private-beta known limitations
 
-The current candidate is not eligible for external distribution. It is an unsigned, locally staged payload until an approved certificate, installer toolchain and clean Windows 11 x64 lifecycle evidence are supplied.
+The current candidate is not eligible for external distribution. It is an unsigned, locally staged payload until an approved certificate, installer toolchain and Windows 11 x64 lifecycle evidence are supplied.
 
 - ADR-002 remains Provisional: fresh install, signed protected root, upgrade, rollback, uninstall retain/remove-data, task cleanup and clean-host helper/UAC behavior are unproven.
-- The current host is not a recorded clean Windows 11 acceptance image; the environment report also found no installer or signing toolchain.
+- The current host is not a recorded Windows 11 acceptance image; the environment report also found no installer or signing toolchain. Product-owner direction excludes VM execution from required testing, but does not waive lifecycle evidence on a supported test machine.
 - `PO-EXC-29-PERF-01` defers `NFR-PERF-05` / `AC-NFR-06`; the five-minute idle budget is not a pass claim.
 - Live external COM/repository evidence, a fresh real update, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback protection and replay of the historical outcome dialog remain bounded residual risks.
 - The private beta has no automatic self-update, public-source claim, GitHub Releases connector, generic cleaner, registry cleaning, driver/firmware/Windows Update path, arbitrary download path, or unattended installation.
