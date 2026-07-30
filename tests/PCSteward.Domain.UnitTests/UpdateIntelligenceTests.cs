@@ -82,6 +82,21 @@ public sealed class UpdateIntelligenceTests
     }
 
     [TestMethod]
+    public void AmbiguousPublisherWithAnEqualVersionIsReviewRequiredNotCurrent()
+    {
+        ProductMatchProfile product = Product("ambiguous-current", null, "1.0.0");
+        SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.AmbiguousCurrent", "ambiguous-current", null, "1.0.0", "1.0.0", "Machine", "x64", "Stable")], []);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.AmbiguousPublisher);
+        CollectionAssert.DoesNotContain(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.CandidateIsCurrent);
+        StringAssert.Contains(item.Explanation, "not used until package identity is verified", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
     public void SourceDisagreementNeverClassifiesAnOtherwiseCurrentMappingAsCurrent()
     {
         ProductMatchProfile product = Product("current-disagreement", "Contoso.CurrentDisagreement", "1.0.0");

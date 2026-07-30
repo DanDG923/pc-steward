@@ -165,10 +165,14 @@ public static class ProductPackageMatching
         if (product.HasConflictingTargetInstances) reasons.Add(MappingReviewReason.MultipleInstallationInstanceAmbiguity);
         AddCompatibilityReasons(product, candidate, reasons);
         VersionComparisonResult comparison = VersionComparison.Compare(new(product.InstalledVersion, candidate.CandidateVersion, candidate.RequiresConnectorSpecificVersionSemantics));
-        AddVersionReason(comparison, reasons);
+        // A name-only candidate with incomplete publisher evidence has not established that its
+        // version uses the same scheme as the installed product. Keep it review-only without
+        // presenting an incidental installer version as a potential downgrade.
+        bool versionEvidenceIsUsable = confidence >= MappingConfidence.Medium;
+        if (versionEvidenceIsUsable) AddVersionReason(comparison, reasons);
 
         bool actionable = confidence == MappingConfidence.High && candidate.IsTrustedConnector && reasons.Count == 0 && comparison.Outcome == VersionComparisonOutcome.Newer;
-        return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons), actionable, reasons.ToArray(), comparison);
+        return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons, versionEvidenceIsUsable), actionable, reasons.ToArray(), comparison);
     }
 
     private static (MappingConfidence Confidence, MappingOrigin Origin, string Evidence, List<MappingReviewReason> Reasons) Identify(ProductMatchProfile product, PackageMatchCandidate candidate, IReadOnlyCollection<DeclaredPackageMapping> declaredMappings, HashSet<string> supportedSources)
@@ -245,7 +249,7 @@ public static class ProductPackageMatching
     private static PackageMapping Create(PackageMatchCandidate candidate, MappingConfidence confidence, MappingOrigin origin, string evidence, IReadOnlyCollection<MappingReviewReason> reasons, ProductMatchProfile product)
     {
         VersionComparisonResult comparison = VersionComparison.Compare(new(product.InstalledVersion, candidate.CandidateVersion, candidate.RequiresConnectorSpecificVersionSemantics));
-        return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons), false, reasons.ToArray(), comparison);
+        return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons, false), false, reasons.ToArray(), comparison);
     }
 
     private static void AddCompatibilityReasons(ProductMatchProfile product, PackageMatchCandidate candidate, List<MappingReviewReason> reasons)
@@ -274,9 +278,11 @@ public static class ProductPackageMatching
         }
     }
 
-    private static string Describe(string evidence, VersionComparisonResult comparison, IReadOnlyCollection<MappingReviewReason> reasons)
+    private static string Describe(string evidence, VersionComparisonResult comparison, IReadOnlyCollection<MappingReviewReason> reasons, bool versionEvidenceIsUsable)
     {
-        string version = comparison.Outcome switch
+        string version = !versionEvidenceIsUsable
+            ? "The candidate version is not used until package identity is verified."
+            : comparison.Outcome switch
         {
             VersionComparisonOutcome.Newer => "Candidate version is newer.",
             VersionComparisonOutcome.Equal => "Candidate version is already installed.",

@@ -59,7 +59,7 @@ public static class UpdateIntelligence
             SourceSnapshot? source = sourceById.GetValueOrDefault(mapping.SourceId);
             UpdateIntelligenceStatus status = mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement) ? UpdateIntelligenceStatus.ReviewRequired
                 : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
-                : mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal ? UpdateIntelligenceStatus.Current
+                : IsVerifiedCurrent(mapping) ? UpdateIntelligenceStatus.Current
                 : UpdateIntelligenceStatus.ReviewRequired;
             items.Add(new(product.StableProductKey, status, mapping, mapping.EvidenceExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
         }
@@ -75,6 +75,11 @@ public static class UpdateIntelligence
             || HasDifferentKnownValues(observations.Select(observation => observation.Architecture))
             || HasDifferentKnownValues(observations.Select(observation => observation.Channel));
     }
+
+    private static bool IsVerifiedCurrent(PackageMapping mapping) =>
+        mapping.Confidence == MappingConfidence.High &&
+        mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal &&
+        mapping.ReviewReasons.All(reason => reason == MappingReviewReason.CandidateIsCurrent);
 
     private static bool HasDifferentKnownValues(IEnumerable<string?> values) => values.Where(value => !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase)).Select(value => value!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).Count() > 1;
 }
