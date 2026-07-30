@@ -14,7 +14,7 @@
 | Installer toolchain | Environment report and Task 30 check: no `ISCC.exe`, WiX or equivalent | Unproven; no download/install attempted. |
 | Privacy/secret review | ADR-010 and repository history reviewed; release artifacts contain no machine-specific paths or credentials | Source review only; final scan recorded by Task 30A. |
 | Licence/dependency review | ADR-008; central package versions and resolved dependency inventory are included in generated reports | Private distribution only; final legal review remains product-owner work. |
-| Vulnerability advisory scan | `dotnet list ... --vulnerable` was not run: it would send dependency inventory to an external advisory service and no approval was supplied | Missing; Task 30A must rerun only with explicit egress approval or record an approved exception. |
+| Vulnerability advisory scan | `dotnet list PCSteward.slnx package --vulnerable --include-transitive --format json` against `https://api.nuget.org/v3/index.json` | 2026-07-30: 0 known vulnerable direct or transitive packages reported across 17 projects. |
 | Icons/runtime dependency | Checked-in 16/24/32/48/256 PNG marks and `.ico`; Desktop uses local icon asset | Compile/clean-VM visual verification pending. |
 
 The package script intentionally does not download tooling, create a certificate, sign, install, publish, push, tag, upload, or modify a real scheduled task. Task 30A must run the final safe checks and classify this unexecuted lifecycle evidence as Missing unless a clean-VM record is attached.

@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 30 is complete. It adds a guarded private-beta staging script, Inno Setup configuration, version/release notes, lifecycle checklist, known limitations, and release-evidence package. Local staging produced the payload, SHA-256 manifest, dependency inventory and CycloneDX SBOM; Release build passed with 0 warnings/errors and the full offline suite passed 205 tests. The current host has neither an installer/signing toolchain nor clean Windows 11 lifecycle evidence, so it does not claim a signed installer, package install/upgrade/uninstall, task cleanup, visual-mode or accessibility verification. Vulnerability-advisory egress was not authorized. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30A is next after this evidence package is committed.
+Task 30 is complete. It adds a guarded private-beta staging script, Inno Setup configuration, version/release notes, lifecycle checklist, known limitations, and release-evidence package. Local staging produced the payload, SHA-256 manifest, dependency inventory and CycloneDX SBOM; Release build passed with 0 warnings/errors and the full offline suite passed 205 tests. The approved NuGet advisory scan reported 0 known vulnerable direct or transitive packages across 17 projects. The current host has neither an installer/signing toolchain nor clean Windows 11 lifecycle evidence, so it does not claim a signed installer, package install/upgrade/uninstall, task cleanup, visual-mode or accessibility verification. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30A is next after this evidence package is committed.
 
 ## Rules for updating this file
 
