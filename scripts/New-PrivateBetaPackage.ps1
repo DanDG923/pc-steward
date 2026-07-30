@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$CertificateThumbprint
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -27,6 +29,46 @@ if (!(Test-Path -LiteralPath $compiledResources)) { throw 'Required compiled Win
 Copy-Item -LiteralPath $compiledResources -Destination $payload -Recurse
 if (Test-Path -LiteralPath (Join-Path $payload 'PCSteward.ElevatedHelper.exe')) { throw 'Standalone payload must not contain the elevated helper.' }
 Copy-Item -LiteralPath (Join-Path $root 'packaging\Remove-PCSteward.ps1') -Destination $payload
+
+$signingTargets = @(
+    Get-ChildItem -LiteralPath $payload -File -Recurse |
+        Where-Object { $_.Name -like 'PCSteward.*.exe' -or $_.Name -like 'PCSteward.*.dll' }
+)
+$signingTargets += Get-Item -LiteralPath (Join-Path $payload 'Remove-PCSteward.ps1')
+$signingEvidence = [ordered]@{ status = 'Not requested'; files = @() }
+if ($CertificateThumbprint)
+{
+    $certificate = Get-Item -LiteralPath (Join-Path 'Cert:\CurrentUser\My' $CertificateThumbprint) -ErrorAction Stop
+    if (!$certificate.HasPrivateKey) { throw 'The requested signing certificate has no private key.' }
+    if ($certificate.NotAfter -le (Get-Date)) { throw 'The requested signing certificate is expired.' }
+    $codeSigningUsage = $certificate.Extensions |
+        Where-Object { $_.Oid.Value -eq '2.5.29.37' } |
+        ForEach-Object { $_.Format($true) } |
+        Where-Object { $_ -match '1\.3\.6\.1\.5\.5\.7\.3\.3' }
+    if (!$codeSigningUsage) { throw 'The requested certificate is not valid for code signing.' }
+
+    $signedFiles = foreach ($target in $signingTargets | Sort-Object FullName)
+    {
+        $signature = Set-AuthenticodeSignature -FilePath $target.FullName -Certificate $certificate
+        if (!$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint)
+        {
+            throw "Development signing did not attach the expected signer to $($target.Name)."
+        }
+        [ordered]@{
+            path = $target.FullName.Substring($payload.Length + 1)
+            status = $signature.Status
+            statusMessage = $signature.StatusMessage
+            signerThumbprint = $certificate.Thumbprint
+        }
+    }
+    $signingEvidence = [ordered]@{
+        status = 'Signed with an untrusted development certificate'
+        subject = $certificate.Subject
+        thumbprint = $certificate.Thumbprint
+        files = @($signedFiles)
+    }
+}
+$signingEvidence | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $reports 'development-signing.json') -Encoding utf8
 
 $packageList = & dotnet list (Join-Path $root 'PCSteward.slnx') package --include-transitive --format json
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

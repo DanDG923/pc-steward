@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Standalone package security revision — complete; Task 30A is next
-**Last green tree:** Standalone security revision — Release build 0 warnings/errors; full suite 209 passed
+**Current task:** Task 30A — final release-audit evidence complete; Task 31 is next (requires GPT-5.6 Sol / Extra High)
+**Last green tree:** Task 30A worktree — Release build 0 warnings/errors; full suite 209 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The standalone package does not ship or compose the elevated helper; protected-r
 
 ## Next task
 
-The product-owner-approved standalone revision replaces the installer with a standard-user-only ZIP. Machine-scope preparation and execution fail closed, the desktop/payload omit the helper, and user-scope execution retains the reviewed boundary. The corrected ZIP includes WinUI resources and remained running in a five-second on-machine launch check; absent-task cleanup completed twice. Release build passed with 0 warnings/errors and 209 tests passed. Signing, positive task removal/isolation, retain/remove-data lifecycle and remaining observations are not claimed. Task 30A is next after this revision is committed.
+Task 30A evidence now includes a development-signed standard-user-only ZIP, hash/SBOM/dependency inventory, 0 known NuGet advisories, positive exact-task removal/unrelated-task isolation, actual launch/close/relaunch retention, a two-confirmation reset that removed the prior 674-row state, dark-theme/accessibility-tree inspection, a Release build with 0 warnings/errors, 209 passing tests and fresh fixture benchmark data. The temporary signing certificate and all test tasks were removed. The post-reset app did not show required first-run onboarding; the sole approved `winget` candidate was an HKLM Chrome update, so a user-scope update was not run. Production-trusted signing, reset/onboarding correction, user-scope update evidence, approved-baseline performance, and remaining optional visual/accessibility matrix evidence are Missing or explicitly excepted in `docs/review/FINAL_RELEASE_EVIDENCE_READINESS.md`; VM testing is product-owner-excluded. Task 31 must begin only under GPT-5.6 Sol / Extra High and must not infer readiness from this evidence package.
 
 ## Rules for updating this file
 
