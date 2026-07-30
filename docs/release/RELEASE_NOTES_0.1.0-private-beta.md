@@ -1,7 +1,7 @@
 # PC Steward 0.1.0-private-beta
 
 **Channel:** private beta — not published  
-**Release status:** candidate preparation only; installer lifecycle and signing are unproven.
+**Release status:** standalone candidate preparation; lifecycle observations and signing remain incomplete.
 
 ## Included capability
 
@@ -12,7 +12,7 @@
 
 ## Upgrade and rollback
 
-This private beta has no automatic updater. A future signed candidate is upgraded manually using the installer only after clean-VM evidence passes. Do not install this unsigned staging output. Rollback requires a separately signed prior installer and must be recorded as a clean-VM lifecycle case.
+This private beta has no automatic updater and no installer. Replace the complete extracted package from the approved private channel; do not mix files between versions. Machine-scope updates are non-actionable because the standalone package ships no elevated helper. Rollback means replacing the complete package with the approved prior signed ZIP while retaining the per-user data root.
 
 ## Known limitations
 

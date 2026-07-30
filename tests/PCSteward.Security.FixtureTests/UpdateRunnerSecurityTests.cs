@@ -1,3 +1,4 @@
+using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Execution;
 using PCSteward.Provider.WinGet;
@@ -43,6 +44,20 @@ public sealed class UpdateRunnerSecurityTests
         Assert.AreEqual(UpdateExecutionStatus.Denied, mismatch.Status);
         Assert.AreEqual(UpdateExecutionDenial.CurrentEvidenceMismatch, mismatch.Denial);
         Assert.AreEqual(UpdateExecutionStatus.ElevationRequired, elevation.Status);
+        Assert.HasCount(0, process.Arguments);
+    }
+
+    [TestMethod]
+    public async Task StandaloneExecutorRejectsMachineScopeWithoutElevatedTransport()
+    {
+        RecordingProcess process = new(new WingetProcessResult(0, string.Empty, string.Empty, false));
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor(process)));
+        ImmutableUpdateJob machineJob = ApprovedJob(UpdateScope.Machine);
+
+        UpdateProviderAttempt result = await executor.ExecuteAsync(machineJob, FreshEvidence(machineJob), CancellationToken.None);
+
+        Assert.AreEqual(UpdateProviderAttemptStatus.ProductFailed, result.Status);
+        Assert.AreEqual("standalone-package-machine-scope-disabled", result.SanitizedDiagnostic);
         Assert.HasCount(0, process.Arguments);
     }
 

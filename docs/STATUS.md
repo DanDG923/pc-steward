@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 30 — complete; Task 30A is next
-**Last green tree:** Task 29F complete — Release build 0 warnings/errors; full suite 205 passed
+**Current task:** Standalone package security revision — complete; Task 30A is next
+**Last green tree:** Standalone security revision — Release build 0 warnings/errors; full suite 209 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -14,7 +14,7 @@
 | Decision | Status | ADR |
 |---|---|---|
 | Product name/identity | Accepted | ADR-001 / OD-01 |
-| Packaging model | Provisional — protected machine binary root required | ADR-002 / OD-02 |
+| Packaging model | Accepted — standalone standard-user-only ZIP | ADR-002 / OD-02 |
 | WinGet integration route | Provisional split route — official COM candidate authority plus constrained CLI execution/display | ADR-003 / OD-03 |
 | GitHub Releases MVP scope | Accepted | ADR-004 / OD-04 |
 | Runtime grouping | Accepted | ADR-005 / OD-05 |
@@ -45,11 +45,11 @@ The final verdict and residual-risk disposition are in [Phase 3 security review]
 
 ## Residual risks and accepted deferrals
 
-The recorded host substitute and personal-use UI waiver retain their narrow approved scope. Clean-image installer lifecycle, a new real update/live external COM query, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain accepted residual risks. `PO-EXC-29-PERF-01` defers the unmet `NFR-PERF-05` / `AC-NFR-06` idle-resource remediation and final baseline proof; it is not a pass claim. ADR-002, ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The standalone package does not ship or compose the elevated helper; protected-root evidence is historical/future-installed-mode evidence only. Signing, positive task removal/isolation, retain/remove-data lifecycle, a real controlled user-scope update, provider-disconnect cancellation, same-user substitution of the name-based temporary export, imperfect package-ID/process-name correlation and the un-replayed outcome dialog remain residual evidence. `PO-EXC-29-PERF-01` defers the unmet `NFR-PERF-05` / `AC-NFR-06` idle-resource remediation and final baseline proof; it is not a pass claim. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Task 30 is complete. It adds a guarded private-beta staging script, Inno Setup configuration, version/release notes, lifecycle checklist, known limitations, and release-evidence package. Local staging produced the payload, SHA-256 manifest, dependency inventory and CycloneDX SBOM; Release build passed with 0 warnings/errors and the full offline suite passed 205 tests. The approved NuGet advisory scan reported 0 known vulnerable direct or transitive packages across 17 projects. Product-owner direction excludes VM testing from this release path; it does not waive installer/signing/lifecycle evidence on a supported Windows 11 x64 test machine. The current host lacks the installer/signing toolchain and that lifecycle evidence, so it does not claim a signed installer, package install/upgrade/uninstall, task cleanup, visual-mode or accessibility verification. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30A is next after this evidence package is committed.
+The product-owner-approved standalone revision replaces the installer with a standard-user-only ZIP. Machine-scope preparation and execution fail closed, the desktop/payload omit the helper, and user-scope execution retains the reviewed boundary. The corrected ZIP includes WinUI resources and remained running in a five-second on-machine launch check; absent-task cleanup completed twice. Release build passed with 0 warnings/errors and 209 tests passed. Signing, positive task removal/isolation, retain/remove-data lifecycle and remaining observations are not claimed. Task 30A is next after this revision is committed.
 
 ## Rules for updating this file
 

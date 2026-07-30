@@ -1,7 +1,5 @@
 [CmdletBinding()]
-param(
-    [switch]$CompileInstaller
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -17,6 +15,18 @@ dotnet restore $desktopProject --runtime win-x64
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 dotnet publish $desktopProject --configuration Release --no-restore --runtime win-x64 --self-contained false --output $payload
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$winuiOutput = Join-Path $root 'src\PCSteward.Desktop\bin\Release\net10.0-windows10.0.22000.0\win-x64'
+foreach ($resourceLeaf in @('App.xbf', 'PCSteward.Desktop.pri'))
+{
+    $resourcePath = Join-Path $winuiOutput $resourceLeaf
+    if (!(Test-Path -LiteralPath $resourcePath)) { throw "Required WinUI resource is missing: $resourceLeaf" }
+    Copy-Item -LiteralPath $resourcePath -Destination $payload
+}
+$compiledResources = Join-Path $winuiOutput 'Resources'
+if (!(Test-Path -LiteralPath $compiledResources)) { throw 'Required compiled WinUI resource directory is missing.' }
+Copy-Item -LiteralPath $compiledResources -Destination $payload -Recurse
+if (Test-Path -LiteralPath (Join-Path $payload 'PCSteward.ElevatedHelper.exe')) { throw 'Standalone payload must not contain the elevated helper.' }
+Copy-Item -LiteralPath (Join-Path $root 'packaging\Remove-PCSteward.ps1') -Destination $payload
 
 $packageList = & dotnet list (Join-Path $root 'PCSteward.slnx') package --include-transitive --format json
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -35,12 +45,6 @@ $sbom = [ordered]@{ bomFormat = 'CycloneDX'; specVersion = '1.5'; serialNumber =
 $sbom | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reports 'sbom.cdx.json') -Encoding utf8
 Get-FileHash -LiteralPath (Get-ChildItem -LiteralPath $payload -File -Recurse | Select-Object -ExpandProperty FullName) -Algorithm SHA256 | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reports 'payload-sha256.json') -Encoding utf8
 
-$iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-if ($CompileInstaller) {
-    if ($null -eq $iscc) { throw 'Inno Setup 6 (ISCC.exe) is required to compile the installer; no download was attempted.' }
-    & $iscc.Source (Join-Path $root 'packaging\PCSteward.iss')
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
-
-if ($null -eq $iscc) { Write-Warning 'Payload and reports were produced; installer compilation remains unproven because ISCC.exe is unavailable.' }
+$archive = Join-Path $artifactRoot 'PCSteward-0.1.0-private-beta-win-x64.zip'
+Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $payload | Select-Object -ExpandProperty FullName) -DestinationPath $archive -CompressionLevel Optimal
 Write-Host "Private-beta artifacts: $artifactRoot"

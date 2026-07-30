@@ -108,6 +108,34 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    public async Task StandaloneDeploymentRejectsMachineScopeBeforeStructuredExecutionAuthority()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
+        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        using InventoryWorkflow workflow = new(
+            database.Store,
+            database.Store,
+            database.Store,
+            [],
+            decisions: database.Store,
+            sourceCache: database.Store,
+            updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))],
+            structuredUpdateCandidates: new NeverReachedStructuredAuthority(),
+            executionCapabilities: UpdateExecutionCapabilities.UserScopeOnly);
+
+        await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        Assert.IsTrue((await workflow.CreateManualMappingAsync(product.StableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
+        UpdateSelectionPreparation preparation = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
+
+        Assert.IsNull(preparation.Selection);
+        StringAssert.Contains(preparation.Message, "user-scope updates only");
+    }
+
+    [TestMethod]
     public async Task ProductionStructuredAuthorityComposesThroughReviewRunnerAndPostUpdateVerification()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
@@ -371,6 +399,12 @@ public sealed class InventoryWorkflowUpdateSourceTests
     {
         public Task<StructuredUpdateCandidateEvidence?> ResolveAsync(string sourceId, string packageId, CancellationToken cancellationToken) =>
             Task.FromResult(evidence);
+    }
+
+    private sealed class NeverReachedStructuredAuthority : IStructuredUpdateCandidateAuthority
+    {
+        public Task<StructuredUpdateCandidateEvidence?> ResolveAsync(string sourceId, string packageId, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Standalone machine-scope preparation must stop before structured execution authority.");
     }
 
     private sealed class RecordingStructuredCatalogQuery(WinGetStructuredCatalogObservation result)

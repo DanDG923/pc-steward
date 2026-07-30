@@ -2,7 +2,7 @@
 
 ## Objective
 
-Add non-resident scheduled checks, notifications, factory reset, advanced data controls, accessibility, measured resource hardening, packaging, uninstall behaviour, SBOM, and final release evidence.
+Add non-resident scheduled checks, notifications, factory reset, advanced data controls, accessibility, measured resource hardening, standalone packaging/removal behaviour, SBOM, and final release evidence.
 
 ## Required task order
 
@@ -58,7 +58,7 @@ The release definition of done is evidenced; no Blocker/High review findings rem
 | `AC-DAT-14` | Clear and reset controls require no administrator elevation for the per-user MVP data model. | Mandatory | 14, 24, 28 |
 | `AC-DAT-15` | Clear and reset actions are unavailable during an active update or scan until the user cancels or completes it. | Mandatory | 14, 24, 28 |
 | `AC-DAT-16` | Cleanup tests prove that a junction, symbolic link or crafted metadata value cannot cause deletion outside the allowlisted PC Steward data roots. | Mandatory | 24, 28 |
-| `AC-DAT-18` | Uninstall removes binaries and scheduled tasks and offers a clear choice to retain or remove per-user data. | Mandatory | 28, 30 |
+| `AC-DAT-18` | Removing the standalone package deletes extracted binaries and the exact scheduled task; data is retained by default and the existing factory reset is the explicit remove-data choice. | Mandatory | 28, 30 |
 | `AC-UX-07` | The Data & reset page visibly separates routine cleanup from factory reset and shows what each action deletes, preserves and can recover in storage. | Optional — best effort | 14, 24, 28, 29 |
 | `AC-UX-08` | Factory reset requires a second explicit confirmation and cannot be triggered by a single accidental click or keyboard activation. | Optional — best effort | 28, 29 |
 | `NFR-PERF-01` | Local inventory must complete within 15 seconds at the 95th percentile on the agreed baseline PC with 300 provider records. | Mandatory | 12, 29 |

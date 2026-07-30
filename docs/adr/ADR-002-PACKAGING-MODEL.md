@@ -1,79 +1,72 @@
 # ADR-002 — Packaging model
 
-**Status:** Provisional
-**Date:** 2026-07-28
-**Decision owners:** Product owner and implementation reviewer
-**Related requirements:** `FR-DAT-12`, `AC-DAT-18`, sections 13–15
+**Status:** Accepted
+**Date:** 2026-07-28; revised 2026-07-30
+**Decision owners:** Product owner and security reviewer
+**Related requirements:** `FR-DAT-12`, `AC-DAT-18`, sections 14–15
 **Related open decision:** `OD-02`
 
 ## Context
 
-Deployment must support per-user storage, WinGet, Task Scheduler, notifications, on-demand UAC, a separately signed helper, upgrade identity, uninstall data choice and factory reset.
+The first private beta needs a reproducible Windows x64 package, per-user storage, WinGet inventory/source access, Task Scheduler integration, explicit removal semantics and no ambient privileged process. Earlier work provisionally selected a traditional protected-root installer because machine-scope updates used a separately signed elevated helper. `P3R-15` proved that helper is safe only from a signed, non-caller-writable `%ProgramFiles%\PC Steward` layout; a caller-writable portable helper cannot safely cross UAC.
 
-## Decision drivers
-
-- Least privilege and signing
-- Windows App SDK compatibility
-- Reliable install/upgrade/uninstall/reset
+The product owner subsequently selected a standalone package that does not require installation and approved revision and security re-review. That choice cannot retain machine-scope update execution.
 
 ## Options considered
 
-### Option A — Signed MSIX main application
+### Option A — Signed standalone ZIP, standard-user-only
 
-Strong identity/lifecycle; package boundaries may complicate helper, WinGet, storage or uninstall-data choice.
+The desktop and scheduled host run from an extracted folder. The package omits the elevated helper. User-scope updates retain the existing immutable review/execution/verification path; machine-scope updates are non-actionable.
 
-### Option B — Signed unpackaged application with traditional installer
+### Option B — Signed traditional protected-root installer
 
-More integration flexibility; requires disciplined installer/update/signing controls and installation-time elevation for a protected binary root.
+Supports the previously reviewed elevated helper but requires installer, signing, upgrade and uninstall lifecycle evidence.
+
+### Option C — Caller-writable standalone package with sibling elevation helper
+
+Rejected. A same-user attacker can replace caller-writable code before `runas`; signature checks cannot make that layout a protected installation.
 
 ## Decision
 
-Provisionally select Option B: a signed unpackaged Windows App SDK application installed by a signed traditional installer, with a separately signed helper executable. Per-user data, settings and lifecycle choices remain per-user, but executable binaries that participate in elevation must be installed below the fixed machine-protected `%ProgramFiles%\PC Steward` root. A caller-writable per-user binary root is prohibited because pre-launch signature validation cannot prevent same-user replacement before `runas`. Task 06 may scaffold unpackaged application and helper boundaries, but must not claim install, signing, upgrade or uninstall support.
+Accept Option A for the MVP private beta.
 
-Option A is rejected for the current implementation path because no evidence shows that MSIX can satisfy the separate helper, current-user Task Scheduler and retain/remove-data uninstall requirements on the target lifecycle. This is a provisional choice, not permission to distribute unsigned binaries.
+- Deliver a reproducible `win-x64` ZIP; no install registration is required.
+- Omit `PCSteward.ElevatedHelper` from the desktop project graph and release payload.
+- Compose `UpdateExecutionCapabilities.UserScopeOnly` in the production desktop.
+- Reject a machine-scope candidate before structured execution authority or immutable job creation.
+- Retain a second executor-level denial if a machine-scope job reaches the standalone executor.
+- Preserve read-only machine inventory and update awareness; “not actionable in this standalone package” is not “current” or “safe to run.”
+- Remove the exact `PCSteward.ScheduledCheck` task with the bundled cleanup script. The script does not delete data.
+- Retain per-user data by default. The existing two-confirmation in-app factory reset is the only remove-data path before deleting the extracted package folder.
+- Replace the package manually for self-update; no automatic updater is added.
 
-## Consequences
+Option B remains a possible future deployment only after a new scoped decision, protected-root lifecycle evidence and security review. Option C is prohibited.
 
-### Positive
+## Security consequences
 
-The choice is evidence-based and preserves a common application/domain core.
+The private-beta package contains no product path that requests UAC. The historical elevated-helper implementation remains tested source code but is not production-composed or packaged. A modified caller-writable binary can ask Windows for UAC like any arbitrary local program, but it receives no trusted PC Steward helper capability; Windows consent remains the operating-system boundary. Remote metadata, persisted jobs and package mappings cannot enable elevation because both preparation and execution fail closed for machine scope.
 
-### Negative / trade-offs
+The standalone package does not protect its own binaries from same-user modification. Distribution signing and published hashes remain required outside the developer’s machine, and users must replace the complete package from the approved channel rather than mixing files.
 
-The installer lifecycle, protected-root ACL and code-signing path remain unproven until supported clean Windows environment evidence exists. The current developer output is intentionally non-actionable for elevation.
+## Removal and replacement evidence
 
-### Follow-up controls and tests
+Before private beta, Task 30/30A must prove on the approved test machine:
 
-Packaging-specific code remains outside domain. Before external beta, Tasks 25/30 must prove install, protected-root ownership/ACL and non-reparse layout, launch, helper/UAC, scheduled-task, upgrade, rollback, uninstall-retain-data and uninstall-remove-data cases on supported clean Windows 11 x64 environments. The environment may be physical or virtual. Failure of any required interaction reopens this ADR before distribution.
+- ZIP extraction and launch as standard user;
+- payload contains desktop/scheduled host and no elevated helper;
+- user-scope update negative/controlled fixtures remain constrained;
+- machine-scope review creates no job and invokes no execution authority or UAC;
+- exact scheduled-task cleanup is idempotent and does not delete unrelated tasks;
+- retain-data replacement preserves the per-user root;
+- factory reset followed by package deletion removes app state, task and extracted binaries;
+- light/dark/high-contrast identity assets and release hashes/SBOM are present.
 
-## Evidence the upcoming spike must collect
+VM execution is not required by product-owner direction. Unexecuted machine observations remain Missing, not Pass.
 
-- Install/launch/upgrade/uninstall and retain/remove-data behavior.
-- Current-user storage, Task Scheduler, notifications and WinGet access.
-- Separate helper launch/UAC/signing boundary and no resident process.
-- Factory reset without deleting binaries.
-- Tooling and supported clean Windows 11 environment prerequisites.
+## Historical disposition
 
-## Task 02 evidence
-
-`spikes/winget-packaging/SPIKE_REPORT.md` records that WinGet is available to the current user, but its environment report identified Windows 10 while Task 04 later captured Windows 11 Home. Neither capture is a recorded clean acceptance environment, and the discrepancy is unresolved. No PC Steward package lifecycle was executed. The spike favours Option B because a separate signed helper and an explicit retain/remove-data uninstall choice fit its boundary more directly.
-
-## Task 03 evidence
-
-`spikes/security-boundaries/SPIKE_REPORT.md` demonstrates a strict authenticated, nonce/job-bound, two-minute no-op helper message with fixed operation/provider/source and a reviewed package allowlist. Unknown fields, request mutation, replay, expiry and cancellation were exercised without starting a process or requesting UAC. This supports the selected separate short-lived helper boundary but does not prove packaging, signing, IPC ACLs or UAC lifecycle; those limitations are why this ADR is Provisional.
-
-## Task 90 Phase 3 review remediation
-
-`P3R-15` proved the prior current-build sibling-helper path was unsigned and caller-writable, so post-connect signer validation occurred too late to prevent arbitrary elevation. The production launch policy now resolves only `%ProgramFiles%\PC Steward\PCSteward.ElevatedHelper.exe` from a desktop running at the exact sibling installed path. It checks the whole path for reparse components; rejects write/delete/DACL/owner authority over the installed root and binaries; rejects replacement-capable delete, DACL, or owner authority on higher ancestors; verifies both Authenticode signatures and exact signer equality; and repeats the check immediately before `runas`. Harmless sibling-creation rights on a protected ancestor do not imply authority to replace its existing protected child. Current developer output and an absent protected install fail closed before UAC. A clean installed-path replay remains required; this ADR stays Provisional.
-
-## Task 90 final protected-root evidence
-
-The product-owner-approved physical-host fixture installed only disposable signed evidence binaries at the exact `%ProgramFiles%\PC Steward` root. The root owner was `BUILTIN\Administrators`; its protected ACL granted SYSTEM/Administrators full control and Users read/execute, while both executable files inherited read/execute only for Users. Root and files were non-reparse, both signatures were `Valid`, and signer thumbprints matched. The real default transport and production validator reached a signed no-op helper through UAC and returned `Completed`/exit `0`.
-
-Real tamper, second-trusted-signer, caller-writable ACL, helper symbolic-link and privileged between-validation replacement layouts each failed before the transport launcher; the helper-start marker remained absent. Exact root and temporary My/Root/TrustedPublisher certificate entries were removed and independently verified absent. Raw ACL/signature/case/teardown evidence is retained in `docs/review/TASK_90_P3R15_HOST_EVIDENCE.json`.
-
-This closes the Phase 3 protected-launch evidence gap on the approved physical host. It does not prove the traditional install/upgrade/rollback/uninstall lifecycle on a supported clean image, so this packaging ADR remains Provisional for Task 30.
+The former provisional traditional-installer decision and the exact protected-root `P3R-15` evidence remain valid for that historical/future boundary. They do not authorize a helper in the standalone package and no longer block the MVP package choice.
 
 ## Reconsider when
 
-MSIX proves the full required lifecycle without weakening helper, task or data-choice semantics; the traditional installer cannot meet a required clean-environment lifecycle case; or Windows packaging capabilities materially change.
+Machine-scope update execution becomes mandatory, user-scope-only behavior is unacceptable, a Store/MSIX deployment is selected, or standalone integrity/removal evidence fails. Any restoration of elevation requires a new protected deployment decision and fresh security gate.

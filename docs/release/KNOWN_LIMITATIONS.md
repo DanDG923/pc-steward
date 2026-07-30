@@ -1,12 +1,12 @@
 # Private-beta known limitations
 
-The current candidate is not eligible for external distribution. It is an unsigned, locally staged payload until an approved certificate, installer toolchain and Windows 11 x64 lifecycle evidence are supplied.
-
-- ADR-002 remains Provisional: fresh install, signed protected root, upgrade, rollback, uninstall retain/remove-data, task cleanup and clean-host helper/UAC behavior are unproven.
-- The current host is not a recorded Windows 11 acceptance image; the environment report also found no installer or signing toolchain. Product-owner direction excludes VM execution from required testing, but does not waive lifecycle evidence on a supported test machine.
+- The candidate is a standalone, standard-user-only package. Machine-scope updates are visible for awareness but cannot be reviewed or executed; the elevated helper is not shipped.
+- The extracted folder is caller-writable and therefore does not provide installed-binary tamper resistance. External distribution still requires approved signing, hashes and a trusted private channel.
+- Package removal is explicit: run the exact scheduled-task cleanup script and delete the extracted folder. Per-user data is retained unless the user first completes the in-app two-confirmation factory reset.
+- On-machine extraction/launch, replacement, task cleanup, removal and factory-reset observations remain required. VM execution is excluded by product-owner direction.
 - `PO-EXC-29-PERF-01` defers `NFR-PERF-05` / `AC-NFR-06`; the five-minute idle budget is not a pass claim.
-- Live external COM/repository evidence, a fresh real update, per-user no-prompt behavior, provider-disconnect cancellation, unconstrained hostile races, same-signer rollback protection and replay of the historical outcome dialog remain bounded residual risks.
-- The private beta has no automatic self-update, public-source claim, GitHub Releases connector, generic cleaner, registry cleaning, driver/firmware/Windows Update path, arbitrary download path, or unattended installation.
-- Optional `AC-UX-01–09` accessibility evidence remains best effort under ADR-021; clean-VM high-contrast and screen-reader observations are still required for release confidence.
+- Provider-disconnect cancellation, same-user substitution of the name-based temporary WinGet export, imperfect package-ID/process-name correlation and replay of the historical outcome dialog remain bounded residual risks.
+- The private beta has no automatic self-update, public-source claim, generic cleaner, registry cleaning, driver/firmware/Windows Update path, arbitrary download path, unattended installation or privileged service.
+- Optional `AC-UX-01–09` accessibility evidence remains best effort under ADR-021.
 
-Before any controlled install, provide the evidence items in `PRIVATE_BETA_CHECKLIST.md`; before any release decision, Task 30A must prepare and Task 31 must independently assess the complete evidence package.
+Task 30A must classify every remaining observation as Proven, Missing or explicitly excepted before Task 31.

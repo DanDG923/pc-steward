@@ -1023,25 +1023,25 @@ The MVP build must support:
 
 - a reproducible release build;
 - code signing for distributed binaries before external beta use;
-- a clean installer and uninstaller;
-- per-user data preservation choice during uninstall;
+- a standalone Windows x64 ZIP package that runs without installation;
+- an explicit removal workflow that deletes the extracted binaries, removes the exact current-user scheduled task and lets the user retain or remove per-user data through the existing in-app factory reset;
 - a documented manual update path for PC Steward itself; and
-- a stable application identifier so upgrades retain settings and history.
+- a stable per-user data root so replacing the standalone package retains settings and history.
 
 **Preferred distribution options to evaluate**
 
-1. Signed MSIX package for the main UI, plus a separately signed helper if elevation is needed.
-2. Signed traditional installer if MSIX restrictions materially block the required provider integrations.
-3. Private GitHub Releases during development, with Microsoft Store distribution considered after the security and update model is stable.
+1. Signed standalone Windows x64 ZIP for the private beta, operating as standard user only.
+2. A protected signed installer plus separately signed helper only in a future reviewed deployment if machine-scope update execution is restored.
+3. Private distribution during development, with Microsoft Store distribution considered after the security and update model is stable.
 
-The final packaging choice should be recorded in an architecture decision record after a small elevation and WinGet integration spike.
+The standalone package must omit the elevated helper. Machine-scope candidates may be displayed for awareness but must be non-actionable before job creation. The packaging choice and any future elevation-capable deployment must be recorded in architecture decisions.
 
 ### 14.4 Deployment requirements
 
 - The application must not require SQL Server, Docker, a browser extension or a cloud backend.
 - Normal startup must not require administrator rights.
-- Uninstall must remove application binaries and scheduled tasks.
-- The user must be able to choose whether local inventory/history data is retained or deleted during uninstall.
+- Removing the standalone package means closing PC Steward, running its exact scheduled-task cleanup script, and deleting the extracted package directory.
+- Per-user inventory/history data is retained by default; the user removes it through **Factory reset PC Steward** before deleting the package.
 - A separate in-app **Factory reset PC Steward** action must delete all local state and the current-user scheduled task while leaving installed binaries in place.
 - Development builds must be visibly labelled and must not silently update into production builds.
 - Closing the application must leave no PC Steward background process running unless a user-approved update or scheduled scan is actively in progress; that operation must exit when complete.
@@ -1330,7 +1330,7 @@ Acceptance testing must use:
 | AC-DAT-15 | Clear and reset actions are unavailable during an active update or scan until the user cancels or completes it. |
 | AC-DAT-16 | Cleanup tests prove that a junction, symbolic link or crafted metadata value cannot cause deletion outside the allowlisted PC Steward data roots. |
 | AC-DAT-17 | Default logs contain no credentials, licence keys, browser data or document contents. |
-| AC-DAT-18 | Uninstall removes binaries and scheduled tasks and offers a clear choice to retain or remove per-user data. |
+| AC-DAT-18 | Removing the standalone package deletes the extracted binaries and exact current-user scheduled task. Per-user data is retained by default; running **Factory reset PC Steward** before package removal provides the explicit remove-data choice. |
 
 ### 19.6 UX and accessibility acceptance
 
@@ -1375,7 +1375,7 @@ The MVP is ready for private beta only when:
 - critical update-execution and privilege code has automated tests and manual review;
 - dependency, static-analysis and secret-scanning checks pass;
 - an SBOM is generated for the release;
-- install, upgrade, uninstall and factory-reset paths have been tested on supported clean Windows test environments;
+- standalone launch, replacement-upgrade, scheduled-task cleanup, package removal and factory-reset paths have been tested on a supported Windows test machine;
 - scan performance and idle-resource acceptance criteria pass on the agreed baseline;
 - destructive cleanup path-safety, locked-file and partial-reset tests pass;
 - known limitations are documented in the application and release notes; and

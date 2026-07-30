@@ -1,20 +1,18 @@
 # Task 30 release evidence
 
-**Task:** 30 — Packaging, release evidence, SBOM, and private beta preparation  
-**Requirements:** `AC-DAT-18`, ADR-002, ADR-008–010, `TM-18`  
-**Status:** evidence preparation; no installer lifecycle is claimed as passed.
+**Requirements:** `AC-DAT-18`, ADR-002, ADR-008–010/018, `TM-04/18`
+**Status:** standalone-package preparation; on-machine lifecycle observations remain pending.
 
-| Area | Evidence / command | Result |
+| Area | Evidence | Result |
 |---|---|---|
-| Package model | `packaging/PCSteward.iss`; guarded `scripts/New-PrivateBetaPackage.ps1` | Reproducible Inno Setup configuration stages a fixed Program Files payload and offers explicit retain/remove-data choice; compilation requires locally installed ISCC. Product-owner direction excludes VM testing; lifecycle evidence remains required on a supported Windows 11 x64 test machine. |
-| Scheduled task cleanup | Installer deletes only `PCSteward.ScheduledCheck`, matching the product constant | Configured; clean-VM execution required. |
-| Per-user data choice | Uninstall confirmation defaults to retaining `%LocalAppData%\PCSteward`; deletion is an explicit Yes choice | Configured; clean-VM execution required. |
-| SBOM/inventory | `New-PrivateBetaPackage.ps1` emits CycloneDX 1.5 `sbom.cdx.json`, dependency inventory and SHA-256 payload manifest | Locally reproducible after publish. |
-| Signing | Environment report: `signtool.exe` absent; no certificate creation/use was authorized | Unproven; no production-signing claim. |
-| Installer toolchain | Environment report and Task 30 check: no `ISCC.exe`, WiX or equivalent | Unproven; no download/install attempted. |
-| Privacy/secret review | ADR-010 and repository history reviewed; release artifacts contain no machine-specific paths or credentials | Source review only; final scan recorded by Task 30A. |
-| Licence/dependency review | ADR-008; central package versions and resolved dependency inventory are included in generated reports | Private distribution only; final legal review remains product-owner work. |
-| Vulnerability advisory scan | `dotnet list PCSteward.slnx package --vulnerable --include-transitive --format json` against `https://api.nuget.org/v3/index.json` | 2026-07-30: 0 known vulnerable direct or transitive packages reported across 17 projects. |
-| Icons/runtime dependency | Checked-in 16/24/32/48/256 PNG marks and `.ico`; Desktop uses local icon asset | Compile/clean-VM visual verification pending. |
+| Package model | `New-PrivateBetaPackage.ps1` publishes `win-x64`, adds required WinUI XBF/PRI resources, emits reports and creates a ZIP | Implemented; initial payload crashed with missing XBF/PRI resources; corrected payload remained running for the five-second observation. |
+| Privilege boundary | Desktop composes `UserScopeOnly`, executor has no elevated transport, project/payload omit elevated helper | Focused application/security/architecture regressions pass. |
+| Machine-scope denial | Preparation stops before structured authority/job creation; executor independently rejects machine scope | Proven by controlled tests; on-machine no-UAC observation pending. |
+| Removal | `Remove-PCSteward.ps1` refuses while product processes run and removes only `PCSteward.ScheduledCheck`; folder deletion removes binaries | Exact task query returned absent; cleanup completed twice as an idempotent no-op. Positive exact-task removal and unrelated-task isolation remain pending. |
+| Data choice | Data retained by default; existing two-confirmation factory reset is the explicit remove-data path | Implemented previously; combined removal observation pending. |
+| SBOM/inventory | Generated CycloneDX 1.5 SBOM, resolved dependency inventory and SHA-256 payload manifest | Locally reproducible. |
+| Vulnerability scan | `dotnet list PCSteward.slnx package --vulnerable --include-transitive --format json` via NuGet | 2026-07-30: 0 known vulnerable packages across 17 projects. |
+| Signing | No approved production certificate was supplied | Missing for external distribution; no signing claim. |
+| Icons | Checked-in 16/24/32/48/256 PNG marks and `.ico` | Package inspection and visual-mode observation pending. |
 
-The package script intentionally does not download tooling, create a certificate, sign, install, publish, push, tag, upload, or modify a real scheduled task. Task 30A must run the final safe checks and classify unexecuted lifecycle evidence as Missing unless a supported Windows 11 x64 test-machine record is attached; VM execution is explicitly excluded by product-owner direction.
+The package script downloads no tool, creates no certificate, installs nothing, requests no UAC and modifies no scheduled task. VM evidence is not required. Task 30A must not promote pending observations to Pass.

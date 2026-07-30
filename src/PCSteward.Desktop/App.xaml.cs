@@ -52,9 +52,10 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             updateSources,
             new WingetPostUpdatePackageInventory(),
             new WingetStructuredUpdateCandidateAuthority(),
-            database);
+            database,
+            UpdateExecutionCapabilities.UserScopeOnly);
         DownloadedArtifactCache downloads = new(database);
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()), new ElevatedUpdateRunner());
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()));
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications);
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);

@@ -77,7 +77,7 @@ An unclassified object directly under the owned root or an unsafe/reparse object
 
 | Preserved | Boundary |
 |---|---|
-| PC Steward binaries and installer files | Protected installation root, never `%LocalAppData%\PCSteward` |
+| PC Steward standalone binaries/package files | Extracted package root, never `%LocalAppData%\PCSteward` |
 | Installed applications, runtimes, and packages | Provider/Windows ownership; reset never invokes uninstall/update |
 | Windows, WinGet, Microsoft Store, and other provider caches | Outside the app-owned roots; no provider cleanup adapter is called |
 | User-chosen inventory or diagnostic exports | Picker-selected paths are never registered as deletion authority |
@@ -208,16 +208,18 @@ Partial reset is a blocking page, not a success dialog. It uses visible text/ico
 
 At 200% text/display scaling, cards become one column; dialog bodies scroll while titles/actions remain visible; Deletes/Preserves and the final action remain reachable without horizontal page scrolling. High contrast uses system colours, 2 px essential boundaries, visible status icon/text, and focus distinct from selection. These are implementation obligations under Optional best-effort `AC-UX-02/04/07–08`, not evidence claims at this design gate.
 
-## 10. Uninstall interaction
+## 10. Standalone package removal
 
-Uninstall and factory reset share the compiled data manifest but remain separate operations:
+Standalone package removal and factory reset remain separate operations:
 
-- uninstall always removes installed binaries and the exact scheduled task;
-- **Keep my PC Steward data** leaves the per-user root byte-for-byte as found; if a reset marker is already present, reinstall resumes that pending reset and the uninstaller must disclose this;
-- **Remove my PC Steward data** applies the same fixed non-following manifest and reports residuals accurately; it accepts no path and never touches provider caches or user exports; and
-- factory reset applies the data/schedule portion only and never removes binaries.
+- the bundled cleanup script refuses to proceed while the desktop or scheduled host is running and removes only the exact `PCSteward.ScheduledCheck` task;
+- deleting the extracted package folder removes the binaries;
+- per-user data is retained by default across package replacement;
+- the explicit remove-data choice is the existing two-confirmation **Factory reset PC Steward** action, run before closing and deleting the package;
+- the cleanup script never duplicates the application’s path-deletion logic and never deletes the per-user root; and
+- factory reset never removes package binaries.
 
-Packaging implementation and clean-image uninstall evidence remain Task 30. Task 28 supplies the reusable manifest and per-user cleanup result needed by that packaging path.
+Task 30/30A must prove the standalone removal sequence, task-name isolation, retain-data replacement and remove-data factory-reset result on the approved test machine.
 
 ## 11. Task 28 implementation gate
 

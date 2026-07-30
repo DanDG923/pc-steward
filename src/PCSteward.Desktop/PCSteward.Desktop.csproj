@@ -17,18 +17,11 @@
     <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
     <ProjectReference Include="../PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
-    <ProjectReference Include="../PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\design\assets\ico\pc-steward.ico" Link="Assets\pc-steward.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\design\assets\png\logo-mark-64.png" Link="Assets\logo-mark-64.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="CopyElevatedHelperRuntime" AfterTargets="Build;Publish">
-    <ItemGroup>
-      <ElevatedHelperRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ElevatedHelper\bin\$(Configuration)\$(TargetFramework)\PCSteward.ElevatedHelper.*" />
-    </ItemGroup>
-    <Copy SourceFiles="@(ElevatedHelperRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-  </Target>
   <Target Name="CopyScheduledHostRuntime" AfterTargets="Build;Publish">
     <ItemGroup>
       <ScheduledHostRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.*" />

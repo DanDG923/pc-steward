@@ -68,6 +68,30 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void StandaloneDesktopOmitsElevatedHelperAndComposesUserScopeOnlyUpdates()
+    {
+        string root = FindRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "App.xaml.cs"));
+        string project = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "PCSteward.Desktop.csproj"));
+
+        StringAssert.Contains(source, "UpdateExecutionCapabilities.UserScopeOnly");
+        Assert.IsFalse(source.Contains("new ElevatedUpdateRunner", StringComparison.Ordinal));
+        Assert.IsFalse(project.Contains("PCSteward.ElevatedHelper", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void StandaloneRemovalScriptHasFixedTaskAuthorityAndNoDataDeletion()
+    {
+        string script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "packaging", "Remove-PCSteward.ps1"));
+
+        StringAssert.Contains(script, "$taskName = 'PCSteward.ScheduledCheck'");
+        StringAssert.Contains(script, "/Delete /TN $taskName /F");
+        Assert.IsFalse(script.Contains("Remove-Item", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(script.Contains("DelTree", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(script.Contains("LocalAppData", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public void WinGetResolverUsesThePackageCatalogInsteadOfEnumeratingProtectedWindowsApps()
     {
         string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Provider.WinGet", "WingetInstalledInventoryProvider.cs");

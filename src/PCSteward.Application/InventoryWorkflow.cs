@@ -28,6 +28,13 @@ public sealed record StructuredUpdateCandidateEvidence(
     string InstalledVersion,
     string CandidateVersion);
 
+/// <summary>Compile-time composition policy for update scopes exposed by a deployment.</summary>
+public sealed record UpdateExecutionCapabilities(bool MachineScopeEnabled)
+{
+    public static UpdateExecutionCapabilities UserScopeOnly { get; } = new(false);
+    public static UpdateExecutionCapabilities UserAndMachine { get; } = new(true);
+}
+
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 {
@@ -45,6 +52,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly IStructuredUpdateCandidateAuthority? structuredUpdateCandidates;
     private readonly IAdvancedDataControlStore? advancedData;
     private readonly bool hasCurrentLocalInventoryProviders;
+    private readonly UpdateExecutionCapabilities executionCapabilities;
 
     public InventoryWorkflow(
         IInventorySnapshotStore snapshots,
@@ -57,7 +65,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyCollection<IUpdateSourceConnector>? updateSourceConnectors = null,
         IPostUpdatePackageInventory? postUpdatePackageInventory = null,
         IStructuredUpdateCandidateAuthority? structuredUpdateCandidates = null,
-        IAdvancedDataControlStore? advancedData = null)
+        IAdvancedDataControlStore? advancedData = null,
+        UpdateExecutionCapabilities? executionCapabilities = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -69,6 +78,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         this.postUpdatePackageInventory = postUpdatePackageInventory;
         this.structuredUpdateCandidates = structuredUpdateCandidates;
         this.advancedData = advancedData;
+        this.executionCapabilities = executionCapabilities ?? UpdateExecutionCapabilities.UserAndMachine;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -145,6 +155,12 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
+        if (!executionCapabilities.MachineScopeEnabled &&
+            TryScope(profile.Scope, out UpdateScope deploymentScope) &&
+            deploymentScope == UpdateScope.Machine)
+        {
+            return new(null, "This standalone PC Steward package supports user-scope updates only. Machine-scope updates require a separately reviewed protected installation and are not actionable here.");
+        }
         StructuredUpdateCandidateEvidence? candidate = structuredUpdateCandidates is null
             ? null
             : await structuredUpdateCandidates.ResolveAsync(item.Mapping.SourceId, item.Mapping.PackageId, cancellationToken).ConfigureAwait(false);

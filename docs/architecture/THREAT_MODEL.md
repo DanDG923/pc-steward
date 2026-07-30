@@ -67,7 +67,7 @@ Sixteen security fixtures and four architecture tests pass replay, substitution,
 
 ## Task 90 P3R-15 evidence
 
-The desktop fails before `runas` unless it is executing from the fixed `%ProgramFiles%\PC Steward` root beside the expected helper, neither file nor any root component is a reparse point, the current token lacks write/delete/DACL/owner authority over the root/files and replacement/delete/DACL/owner authority over higher ancestors, both files have trusted Authenticode signatures, and signer certificates match exactly. Trust is evaluated before pipe/bootstrap setup and again immediately before launch; connected-process identity/signature validation remains.
+The standalone private-beta desktop composes user-scope update execution only and ships no elevated helper. Machine-scope preparation stops before structured execution authority or immutable job creation, and the standalone executor independently rejects a machine-scope job without invoking a transport. The historical installed-mode path still fails before `runas` unless it is executing from the fixed `%ProgramFiles%\PC Steward` root beside the expected helper, neither file nor any root component is a reparse point, the current token lacks write/delete/DACL/owner authority over the root/files and replacement/delete/DACL/owner authority over higher ancestors, both files have trusted Authenticode signatures, and signer certificates match exactly. That path is dormant and not packaged.
 
 The approved host fixture exercised the real production validator/transport. A protected same-signer layout completed the signed no-op UAC/pipe path. Actual tampered, wrong-signer, caller-writable, helper-reparse and privileged between-validation replacement layouts all failed before the helper launch marker. The fixed root, unique temporary root and both exact certificate thumbprints were absent after teardown. This closes the Phase 3 `TM-04/TM-06` production-boundary evidence gap on the approved host; clean installer lifecycle and unconstrained administrator/OS compromise remain outside this proof.
 
@@ -78,10 +78,10 @@ The actual desktop now composes an official WinGet COM structured-candidate auth
 ## Residual risks requiring evidence
 
 - The provisional constrained WinGet CLI route requires approved isolated-environment inventory/source and parser/process evidence: Tasks 10, 18, 21 and 25.
-- The provisional unpackaged installer requires Windows 11 install/upgrade/uninstall/signing evidence: Task 30.
+- The accepted standalone package requires extraction/launch, helper-absence, user-scope-only, replacement/removal, exact task cleanup and factory-reset evidence: Tasks 30/30A.
 - Full-walk Windows deletion/TOCTOU primitive, symbolic-link and volume-mount behavior without over-privilege: Tasks 24/25, following Task 03's partial evidence.
 - Final-application performance on the accepted recorded baseline: Tasks 12 and 29.
-- Clean-image installer lifecycle, provider-disconnect cancellation and broader cross-integrity teardown remain Task 30 evidence; the approved current-host fixed-root signature/ACL/reparse/UAC/no-op and hostile replacement cases are recorded for the current Phase 3 production boundary.
+- Provider-disconnect cancellation remains residual evidence. Protected-root cross-integrity evidence is retained only for a future installed deployment; it is not required by the standard-user-only standalone package.
 
 ## Review rule
 
