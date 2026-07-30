@@ -1,8 +1,8 @@
 # PC Steward build status
 
 **Current phase:** Phase 4 — approved visual foundation integration
-**Current task:** Task 29F — repository evidence accuracy and review/detail follow-up; Release output rebuild pending desktop close
-**Last green tree:** Task 29F working tree — isolated Release compile 0 warnings/errors; full suite 201 passed
+**Current task:** Task 29F — repository evidence accuracy and review/detail follow-up; recorded-host recheck pending
+**Last green tree:** Task 29F working tree — Release build 0 warnings/errors; full suite 201 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
@@ -49,7 +49,7 @@ The recorded host substitute and personal-use UI waiver retain their narrow appr
 
 ## Next task
 
-Task 29F follows recorded-host WinGet inventory and source-refresh failures. A normal user cannot enumerate protected `%ProgramFiles%\\WindowsApps`, so discovery now uses only the registered `Microsoft.DesktopAppInstaller` package with the expected Microsoft publisher identity, then retains fixed-root, reparse-point and Authenticode validation. When a source-scoped query fails, the connector falls back to the successful global, source-labelled installed inventory: exact matches remain managed; unavailable update availability is `Review required`, never `Current`. The Review actions route now exposes those decision-required items separately from approved updates, and application activation opens a prototype-style detail route with summary, evidence comparison, decisions and a technical disclosure rather than a diagnostics-first dialog. An isolated Release compile passed with 0 warnings/errors and the full offline suite passed 201 tests. The normal Release output rebuild remains pending until the open desktop is closed; a user-run source refresh is still required for host evidence. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30 packaging/release evidence remains gated by its required model or reasoning setting and must not begin yet.
+Task 29F follows recorded-host WinGet inventory and source-refresh failures. A normal user cannot enumerate protected `%ProgramFiles%\\WindowsApps`, so discovery now uses only the registered `Microsoft.DesktopAppInstaller` package with the expected Microsoft publisher identity, then retains fixed-root, reparse-point and Authenticode validation. When a source-scoped query fails, the connector falls back to the successful global, source-labelled installed inventory: exact matches remain managed; unavailable update availability is `Review required`, never `Current`. The Review actions route now exposes those decision-required items separately from approved updates, and application activation opens a prototype-style detail route with summary, evidence comparison, decisions and a technical disclosure rather than a diagnostics-first dialog. Release build passed with 0 warnings/errors and the full offline suite passed 201 tests. A user-run source refresh is still required for host evidence. `PO-EXC-29-PERF-01` is unchanged and is not a pass claim. Task 30 packaging/release evidence remains gated by its required model or reasoning setting and must not begin yet.
 
 ## Rules for updating this file
 

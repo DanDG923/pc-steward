@@ -19,7 +19,7 @@ The recorded host completed a new scan with the readable local completion time f
 - Resolver regression test: 1 passed.
 - Current-status safety test: 1 passed.
 - Detail/review route regression test: 1 passed.
-- Isolated Release compile: 0 warnings, 0 errors. The ordinary Release output is locked by the currently open desktop and must be rebuilt after it closes.
+- Release build: 0 warnings, 0 errors.
 - Full offline suite: 201 passed.
 
 ## Recorded-host follow-up
