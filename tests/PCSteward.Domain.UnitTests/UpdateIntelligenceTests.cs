@@ -97,6 +97,21 @@ public sealed class UpdateIntelligenceTests
     }
 
     [TestMethod]
+    public void UserConfirmedExactPackageMappingMakesAnEqualVersionCurrent()
+    {
+        ProductMatchProfile product = Product("confirmed-current", null, "1.0.0");
+        SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.ConfirmedCurrent", "confirmed-current", null, "1.0.0", "1.0.0", "Machine", "x64", "Stable")], []);
+        DeclaredPackageMapping mapping = new(product.StableProductKey, "winget", "Contoso.ConfirmedCurrent", MappingOrigin.UserConfirmed);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source], [mapping]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        Assert.AreEqual(MappingOrigin.UserConfirmed, item.Mapping.Origin);
+        Assert.AreEqual(MappingConfidence.High, item.Mapping.Confidence);
+    }
+
+    [TestMethod]
     public void SourceDisagreementNeverClassifiesAnOtherwiseCurrentMappingAsCurrent()
     {
         ProductMatchProfile product = Product("current-disagreement", "Contoso.CurrentDisagreement", "1.0.0");

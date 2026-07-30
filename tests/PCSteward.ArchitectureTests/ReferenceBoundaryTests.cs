@@ -89,6 +89,7 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "Header = \"Technical details\"");
         StringAssert.Contains(source, "InventoryRow[] decisions");
         StringAssert.Contains(source, "Needs a decision");
+        StringAssert.Contains(source, "Confirm package identity");
     }
 
     [TestMethod]

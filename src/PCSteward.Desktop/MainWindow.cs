@@ -773,6 +773,22 @@ public sealed class MainWindow : Window
         StackPanel decisionActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button pin = new() { Content = "Pin current version" }; pin.Click += async (_, _) => { await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); LoadSavedInventory(); Render(); }; decisionActions.Children.Add(pin);
         Button ignore = new() { Content = "Ignore product" }; ignore.Click += async (_, _) => { await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render(); }; decisionActions.Children.Add(ignore);
+        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null } && viewModel.IsUpdateSourceEnabled)
+        {
+            decisions.Children.Add(PageCopy($"Confirm this only if you recognise {detail.PackageId} from {detail.SourceId} as this installed application. The reversible mapping does not start an update."));
+            Button confirmPackage = new() { Content = "Confirm package identity" };
+            AutomationProperties.SetName(confirmPackage, $"Confirm {detail.PackageId} is this installed application");
+            confirmPackage.Click += async (_, _) =>
+            {
+                PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, reason.Text, CancellationToken.None);
+                outcome.Text = validation.Explanation;
+                if (!validation.IsValid) return;
+                LoadSavedInventory();
+                detailRow = viewModel.AllRows.SingleOrDefault(candidate => candidate.StableProductKey == row.StableProductKey) ?? row;
+                Render();
+            };
+            decisionActions.Children.Add(confirmPackage);
+        }
         if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate) && viewModel.IsUpdateSourceEnabled && !isExecuting)
         {
             Button review = new() { Content = "Review and update" }; AutomationProperties.SetName(review, "Review and update this verified package"); review.Click += async (_, _) => await ReviewAndExecuteAsync(row); decisionActions.Children.Add(review);
@@ -789,7 +805,7 @@ public sealed class MainWindow : Window
         technical.Children.Add(PageCopy($"Source candidates:\n{string.Join("\n", detail?.SourceCandidates ?? [])}"));
         technical.Children.Add(mappingSource);
         technical.Children.Add(mappingPackage);
-        Button map = new() { Content = "Map exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, mappingSource.SelectedItem?.ToString() ?? "winget", string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text, viewModel.IsUpdateSourceEnabled, reason.Text, CancellationToken.None); outcome.Text = validation.Explanation; }; technical.Children.Add(map);
+        Button map = new() { Content = "Map exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, mappingSource.SelectedItem?.ToString() ?? "winget", string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text, viewModel.IsUpdateSourceEnabled, reason.Text, CancellationToken.None); outcome.Text = validation.Explanation; if (validation.IsValid) { LoadSavedInventory(); detailRow = viewModel.AllRows.SingleOrDefault(candidate => candidate.StableProductKey == row.StableProductKey) ?? row; Render(); } }; technical.Children.Add(map);
         technical.Children.Add(PageCopy($"Bounded raw diagnostic records: {detailRaw.Count}."));
         Expander disclosure = new() { Header = "Technical details", Content = technical };
         panel.Children.Add(disclosure);
