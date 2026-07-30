@@ -327,8 +327,8 @@ public sealed class MainWindow : Window
                     .ToArray();
                 RepositoryIdentityConfirmationResult result = await workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", CancellationToken.None);
                 LoadSavedInventory();
-                Render();
                 await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message);
+                Render();
             };
             panel.Children.Add(confirmAll);
         }

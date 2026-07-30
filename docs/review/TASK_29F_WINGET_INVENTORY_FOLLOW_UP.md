@@ -14,6 +14,7 @@ The recorded host completed a new scan with the readable local completion time f
 - `Current` now requires a trusted high-confidence identity and an equal source version. An incomplete-publisher alias remains review-only; its local installer version is not presented as a downgrade comparison against the package version.
 - A review-required detail now visibly offers `Confirm package identity` for the displayed exact source package. Confirmation records a reversible manual mapping, immediately re-assesses the status, and never starts an update.
 - A confirmed mapping may use the source's equal installed/available version to classify an otherwise incompatible registry installer-version string as current; it does not make the mapping actionable. Review actions can bulk-confirm only these source-reported-current identities, skipping newer, unknown, unavailable, and conflicting source records.
+- The post-bulk-confirm outcome dialog is shown before the review page is re-rendered, avoiding the observed host WinUI crash. Completed mappings remain persisted and repeated confirmation does not create duplicates.
 - Cancellation still propagates, so the orchestrator keeps its existing timeout and close semantics.
 
 ## Verification
