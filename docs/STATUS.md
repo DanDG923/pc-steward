@@ -1,13 +1,36 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — Task 90 remediation complete; fresh final audit required
-**Current task:** Task 90 complete; next is Task 31 in a fresh GPT-5.6 Sol / Extra High review
-**Last green tree:** Task 90 candidate (this commit) — Release build 0 warnings/errors; full suite 237 passed
+**Current phase:** Phase 4 — final audit complete; release is NOT READY
+
+**Current task:** Task 31 complete; next is Task 90 under GPT-5.6 Terra / High
+
+**Audited candidate:** `632b7afb6fb97aa8597ffe8a66ef6e3599396b3f`
+
+**Last green tree:** audited candidate — Release build 0 warnings/errors; full suite 237 passed
+
 **Current branch:** `phase/4-beta`
+
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
+
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
+
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** FAIL — external release remains NOT READY until a fresh Task 31 audit returns READY
+
+**Phase gate:** FAIL — 5 High, 1 Medium, and 1 Low finding remain open
+
+## Fresh Task 31 verdict
+
+The independent final audit is **NOT READY**. Mandatory acceptance is 45 Proven / 4 Failed / 5 Unverified; mandatory NFR status is 19 Proven / 0 Failed / 6 Unverified.
+
+- `FRA-11` High — factory reset ignores an unexpected object directly below the owned state root and can report Success/onboarding while it remains.
+- `FRA-12` High — packaged task cleanup treats every failed exact-task query as absence and does not verify absence after deletion.
+- `FRA-13` Medium — the durable reset marker omits the accepted bounded identity/attempt/category/progress record.
+- `FRA-14` High — final-app 30/20 timing, update responsiveness, idle I/O/network, scan process tree, and scheduled-timeout evidence remain incomplete.
+- `FRA-15` High — mandatory destructive reset, replacement/removal, residual, and final-timeout lifecycle observations remain incomplete.
+- `FRA-16` High — no approved release signer, trusted channel, recipient/support controls, or distributable rollback artifact exists.
+- `FRA-17` Low — release-facing known limitations contain stale update/performance-exception wording.
+
+See [final release audit](review/FINAL_RELEASE_AUDIT.md) for exact file/line evidence, remediation, verification, criterion grading, and residual risks.
 
 ## Decisions
 
@@ -35,21 +58,19 @@
 | Scheduling without resident process | Accepted | ADR-020 |
 | Accessibility best-effort priority | Accepted | ADR-021 |
 
-## Task 25 independent gate
+## Verification snapshot
 
-Fresh GPT-5.6 Sol / Extra High review at exact commit `5013c94` closes `P3R-01–15` with no remaining Blocker, High or Medium finding. `P3R-14` uses the official WinGet COM projection as the sole executable candidate authority, bound to predefined trusted source, exact ID, installed version and newer candidate version. Display-table text remains non-executable. Current-tree evidence reaches review, runner and exact post-update verification.
+Fresh Task 31 checks: focused safety 164/164; hostile boundary 42 assertions with one approved manual symbolic-link skip; WinGet boundary 11; Release build 0 warnings/errors; full suite 237/237 (55 Domain, 145 Application integration, 17 Architecture, 20 Security); zero known vulnerable NuGet packages; zero tracked secret candidates. The package validator passes 94 files, 15 components, 16 SBOM nodes/32 edges, licences/notices, and exact SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`.
 
-`P3R-15` has production-path evidence for the real default transport/validator: a protected, non-reparse, valid same-signer `%ProgramFiles%\PC Steward` no-op UAC path completed. Actual tamper, trusted-wrong-signer, caller-writable, helper-reparse and between-validation replacement layouts all stopped before the helper marker. A fresh read-only check corroborates that the exact installed root, RunId temporary root and both certificate thumbprints are absent.
-
-The final verdict and residual-risk disposition are in [Phase 3 security review](review/PHASE_3_SECURITY_REVIEW.md). Fresh gates pass: focused 61, security 19, architecture 5, Release build 0 warnings/errors, full suite 182, hostile boundary 42/1 approved skip, WinGet boundary 11, NuGet known-vulnerability count zero, and immutable installed-helper evidence 6/6.
+The archive remains unsigned and local-owner-only. Do not release, tag, publish, upload, share, or distribute it.
 
 ## Residual risks and accepted deferrals
 
-The standalone package does not ship or compose the elevated helper; protected-root evidence is historical/future-installed-mode evidence only. Task 90 closes its remediation gate with three product-owner exceptions bound to the local-only archive: missing signer/channel, the remaining performance protocol, and omitted destructive/supported-host lifecycle observations. Those omissions are not promoted to Proven and prohibit an external-release claim. Provider-disconnect cancellation, same-user temporary-export substitution, and imperfect package-ID/process-name correlation remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+Task 90 exceptions do not convert omitted evidence to Proven and expire before a release-ready or external-distribution claim. Provider-disconnect cancellation, same-user temporary-export substitution, imperfect package-ID/process-name correlation, and the historical outcome-dialog crash remain bounded risks. The standalone payload contains/composes no elevated helper; protected-helper evidence is historical/future-installed-mode only. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` remain Optional under ADR-021.
 
 ## Next task
 
-Run Task 31 as a fresh GPT-5.6 Sol / Extra High audit. Task 90 records a successful production-path current-user VS Code update from 1.129.0 to 1.130.0 with no observed UAC/helper, accepted 3XS/`3XS-Overclock` CPU/memory baseline evidence, corrected reset/scheduler/onboarding/clean-profile controls, accurate native About/support content, and a successful exact packaged-app launch/close smoke. Final verification is Release build 0 warnings/errors and 237/237 tests (55 Domain, 145 Application integration, 17 Architecture, 20 Security). The mechanically validated unsigned archive has 94 files, 15 package components, 16 SBOM nodes/32 edges, shipped notices, and SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`. Do not release, tag, publish or distribute it unless the fresh audit returns READY and all exception boundaries are respected.
+Stop here: Task 90 requires GPT-5.6 Terra / High, different from the current settings. After that settings change, remediate `FRA-11–13` first, using independent agents only for isolated non-overlapping changes per product-owner direction; integrate and re-test centrally. Then resolve or collect fresh evidence for `FRA-14–17`, rebuild/re-hash, run focused/host/package/build/full gates, commit only if green, and repeat Task 31 under GPT-5.6 Sol / Extra High.
 
 ## Rules for updating this file
 
