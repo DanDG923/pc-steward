@@ -246,6 +246,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.HasCount(0, executor.Jobs);
         Assert.IsTrue(process.Calls.All(call => !call.Contains("--id") && !call.Contains("--version", StringComparer.Ordinal) || call.Count == 1));
         StringAssert.Contains(preparation.Message, "structured candidate-version evidence");
+
     }
 
     [TestMethod]

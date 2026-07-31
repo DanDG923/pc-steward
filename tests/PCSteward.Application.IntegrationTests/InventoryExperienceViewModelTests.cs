@@ -162,6 +162,26 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void NewerPackageIdentityCanBeConfirmedOnlyFromOneLiveExactSourceRecordBoundToInstalledVersion()
+    {
+        static InventoryExperienceViewModel CreateViewModel(SourceSnapshot source)
+        {
+            InventoryExperienceViewModel viewModel = new();
+            Guid id = Guid.NewGuid();
+            viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "registry", "widget", "1.0", "User", "x64", "Contoso")]);
+            PackageMapping mapping = new("winget", "Contoso.Widget", "1.1", MappingConfidence.Medium, MappingOrigin.Automatic, "Review exact identity.", false, [MappingReviewReason.AmbiguousPublisher], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+            viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.ReviewRequired, mapping, "Review exact identity.", "winget", source.LastSuccessAt)], Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0), [source]));
+            return viewModel;
+        }
+
+        SourcePackageRecord exact = new("winget", "Contoso.Widget", "Widget", "Contoso", "1.0", "1.1", "Unknown", "Unknown", null);
+        Assert.IsTrue(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
+        Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Cached, [exact], ["source:stale"])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
+        Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact, exact], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
+        Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact with { InstalledVersion = "0.9" }], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
+    }
+
+    [TestMethod]
     public void MixedSourceFreshnessIsShownPerCandidateInsteadOfAsTheAlphabeticallyFirstSource()
     {
         InventoryExperienceViewModel viewModel = new();

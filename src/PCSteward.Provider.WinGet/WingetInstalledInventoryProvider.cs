@@ -165,16 +165,38 @@ public sealed partial class WingetInstalledInventoryProvider
                 line.Length <= start
                     ? string.Empty
                     : line[start..(index + 1 < columnStarts.Length ? Math.Min(line.Length, columnStarts[index + 1]) : line.Length)].Trim()).ToArray();
+            bool optionalColumnsValid = columns.Length switch
+            {
+                3 => true,
+                4 => ValidOptionalAvailable(columns[3]) || ValidSource(columns[3]),
+                5 => ValidOptionalAvailable(columns[3]) && ValidSource(columns[4]),
+                _ => false
+            };
             if (columns.Length < 3 ||
                 !ValidDisplayField(columns[0]) ||
                 !PackageId().IsMatch(columns[1]) ||
-                !ValidInstalledVersion(columns[2]) ||
-                columns.Length > 3 && columns[^1].Length > 0 && !ValidSource(columns[^1]))
+                !optionalColumnsValid)
             {
                 warnings.Add("winget:malformed-row");
                 continue;
             }
-            records.Add(new WingetInstalledRecord(columns[0], columns[1], columns[2], columns.Length > 3 && columns[^1].Length > 0 ? columns[^1] : null));
+            if (InexactInstalledVersion().IsMatch(columns[2]))
+            {
+                warnings.Add("winget:inexact-installed-version-skipped");
+                continue;
+            }
+            if (!ValidInstalledVersion(columns[2]))
+            {
+                warnings.Add("winget:malformed-row");
+                continue;
+            }
+            string? source = columns.Length switch
+            {
+                4 when ValidSource(columns[3]) => columns[3],
+                5 => columns[4],
+                _ => null
+            };
+            records.Add(new WingetInstalledRecord(columns[0], columns[1], columns[2], source));
         }
         return new WingetInventoryResult(records, warnings.Distinct(StringComparer.Ordinal).ToArray());
     }
@@ -198,11 +220,14 @@ public sealed partial class WingetInstalledInventoryProvider
     }
     private static bool ValidDisplayField(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= MaximumFieldLength && value.All(character => !char.IsControl(character));
     private static bool ValidInstalledVersion(string value) => ValidDisplayField(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
+    private static bool ValidOptionalAvailable(string value) => value.Length == 0 || ValidInstalledVersion(value);
     private static bool ValidSource(string value) => value is "winget" or "msstore";
     [GeneratedRegex(@"\S+")]
     private static partial Regex HeaderColumns();
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$")]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
     private static partial Regex PackageId();
+    [GeneratedRegex(@"^[<>]=?\s+[A-Za-z0-9][A-Za-z0-9._+-]{0,252}$")]
+    private static partial Regex InexactInstalledVersion();
 }
 
 /// <summary>Read-only, fixed-argument WinGet source connector. Parsed rows remain update intelligence only.</summary>
@@ -316,7 +341,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     private static bool Version(string value) => Valid(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
     private static int TableSeparator(string[] lines) => Enumerable.Range(0, lines.Length).FirstOrDefault(index => lines[index].Length >= 3 && lines[index].All(character => character is '-' or ' ' or '\t'), -1);
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$")]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
     private static partial Regex PackageId();
 }
 

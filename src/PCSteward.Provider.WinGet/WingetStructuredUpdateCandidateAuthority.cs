@@ -178,7 +178,15 @@ internal sealed class WinGetComStructuredCatalogQuery : IWinGetStructuredCatalog
             referenceInfo.Origin == PackageCatalogOrigin.Predefined &&
             string.Equals(referenceInfo.Name, sourceId, StringComparison.OrdinalIgnoreCase);
 
-        ConnectResult connection = await reference.ConnectAsync().AsTask(cancellationToken).ConfigureAwait(false);
+        CreateCompositePackageCatalogOptions compositeOptions = new()
+        {
+            CompositeSearchBehavior = CompositeSearchBehavior.RemotePackagesFromAllCatalogs,
+            InstalledScope = PackageInstallScope.User
+        };
+        compositeOptions.Catalogs.Add(reference);
+        PackageCatalogReference compositeReference = manager.CreateCompositePackageCatalog(compositeOptions);
+
+        ConnectResult connection = await compositeReference.ConnectAsync().AsTask(cancellationToken).ConfigureAwait(false);
         if (connection.Status != ConnectResultStatus.Ok)
         {
             return null;

@@ -1,6 +1,6 @@
 # PC Steward design handoff
 
-This folder is the implementation-ready product-design package for the native PC Steward Windows desktop application. The sole production UI target is **WinUI 3 on the Windows App SDK for Windows 11 x64**; no website, browser runtime or embedded web UI is part of the product. This handoff is additive: no production application source was changed.
+This folder is the implementation-ready product-design package for the native PC Steward Windows desktop application. The sole production UI target is **WinUI 3 on the Windows App SDK for Windows 11 x64**; no website, embedded WebView or browser UI is part of the product. The product owner accepted on 2026-07-30 that unused transitive WinUI/WebView2 runtime support files may ship with the Windows App SDK payload; this does not authorize embedded browser features. This handoff is additive: no production application source was changed.
 
 `design/native-prototype/` is the authoritative interactive design prototype. It is a separate, unpackaged WinUI 3 desktop application used to review hierarchy, interaction and native window behaviour without inspecting or changing the computer.
 

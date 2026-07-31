@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 using PCSteward.Application;
 using PCSteward.Domain;
@@ -236,10 +238,10 @@ internal static class NativeDelete
     // Internal test seam: production never assigns this hook. It lets the hostile fixture replace
     // an ancestor only after the fixed root handle has been bound.
     internal static Action? BeforeDescendantOpenForTesting { get; set; }
-    private const uint DeleteAccess = 0x00010000, ReadAttributes = 0x00000080, ShareRead = 1, ShareWrite = 2, OpenExisting = 3, NtOpen = 1, OpenReparsePoint = 0x00200000;
+    internal const uint DeleteAccess = 0x00010000, ReadData = 0x00000001, WriteData = 0x00000002, AddSubdirectory = 0x00000004, ReadAttributes = 0x00000080, WriteAttributes = 0x00000100, Synchronize = 0x00100000, ShareRead = 1, ShareWrite = 2, OpenExisting = 3, NtOpen = 1, NtCreate = 2, NtOpenIf = 3, OpenReparsePoint = 0x00200000;
     private const int FileDispositionInfo = 4;
     [StructLayout(LayoutKind.Sequential)] private struct FileDisposition { [MarshalAs(UnmanagedType.Bool)] public bool DeleteFile; }
-    [StructLayout(LayoutKind.Sequential)] private struct ByHandleFileInformation { public uint Attributes; public uint CreationTimeLow; public uint CreationTimeHigh; public uint LastAccessTimeLow; public uint LastAccessTimeHigh; public uint LastWriteTimeLow; public uint LastWriteTimeHigh; public uint VolumeSerialNumber; public uint FileSizeHigh; public uint FileSizeLow; public uint NumberOfLinks; public uint FileIndexHigh; public uint FileIndexLow; }
+    [StructLayout(LayoutKind.Sequential)] internal struct ByHandleFileInformation { public uint Attributes; public uint CreationTimeLow; public uint CreationTimeHigh; public uint LastAccessTimeLow; public uint LastAccessTimeHigh; public uint LastWriteTimeLow; public uint LastWriteTimeHigh; public uint VolumeSerialNumber; public uint FileSizeHigh; public uint FileSizeLow; public uint NumberOfLinks; public uint FileIndexHigh; public uint FileIndexLow; }
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateFileW(string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
     [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetFileInformationByHandle(SafeFileHandle file, int fileInformationClass, ref FileDisposition fileInformation, uint bufferSize);
     [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetFileInformationByHandle(SafeFileHandle file, out ByHandleFileInformation information);
@@ -255,16 +257,29 @@ internal static class NativeDelete
         if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf<FileDisposition>())) throw Error("Handle-bound deletion failed.");
     }
 
-    private static SafeFileHandle OpenVerifiedRoot(string root)
+    internal static void DeleteRelativeObject(SafeFileHandle parent, string name, bool directory)
+    {
+        using SafeFileHandle handle = OpenRelativeObject(parent, name, DeleteAccess | ReadAttributes, directory);
+        MarkForDeletion(handle);
+    }
+
+    internal static void MarkForDeletion(SafeFileHandle handle)
+    {
+        FileDisposition disposition = new() { DeleteFile = true };
+        if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf<FileDisposition>())) throw Error("Handle-bound deletion failed.");
+    }
+
+    internal static SafeFileHandle OpenVerifiedRoot(string root, uint finalAccess = ReadAttributes)
     {
         string volume = Path.GetPathRoot(root) ?? throw new SecurityException("A cache root volume is required.");
-        SafeFileHandle current = CreateFileW(volume, ReadAttributes, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, OpenReparsePoint | 0x02000000, IntPtr.Zero);
+        string[] components = Path.GetRelativePath(volume, root).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        SafeFileHandle current = CreateFileW(volume, components.Length == 0 ? finalAccess : ReadAttributes, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, OpenReparsePoint | 0x02000000, IntPtr.Zero);
         if (current.IsInvalid) throw Error("Opening the cache volume failed.");
         try
         {
-            foreach (string component in Path.GetRelativePath(volume, root).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+            for (int index = 0; index < components.Length; index++)
             {
-                SafeFileHandle next = OpenRelativeObject(current, component, ReadAttributes, true);
+                SafeFileHandle next = OpenRelativeObject(current, components[index], index == components.Length - 1 ? finalAccess : ReadAttributes, true);
                 current.Dispose();
                 current = next;
             }
@@ -294,7 +309,7 @@ internal static class NativeDelete
         finally { foreach (SafeFileHandle item in parents) item.Dispose(); }
     }
 
-    private static SafeFileHandle OpenRelativeObject(SafeFileHandle parent, string name, uint access, bool directory)
+    internal static SafeFileHandle OpenRelativeObject(SafeFileHandle parent, string name, uint access, bool directory, uint createDisposition = NtOpen)
     {
         IntPtr nameBuffer = Marshal.StringToHGlobalUni(name);
         try
@@ -304,7 +319,7 @@ internal static class NativeDelete
             try
             {
                 Marshal.StructureToPtr(unicode, attributes.ObjectName, false);
-                int status = NtCreateFile(out SafeFileHandle handle, access | 0x00100000u, ref attributes, out _, IntPtr.Zero, 0, ShareRead | ShareWrite, NtOpen, (directory ? 0x1u : 0u) | 0x00200000u | 0x20u, IntPtr.Zero, 0);
+                int status = NtCreateFile(out SafeFileHandle handle, access | Synchronize, ref attributes, out _, IntPtr.Zero, 0, ShareRead | ShareWrite, createDisposition, (directory ? 0x1u : 0u) | 0x00200000u | 0x20u, IntPtr.Zero, 0);
                 if (status != 0 || handle.IsInvalid) { handle?.Dispose(); throw new IOException("Opening a cache descendant relative to its parent failed. NTSTATUS=" + status.ToString("X8", CultureInfo.InvariantCulture), status); }
                 if (!GetFileInformationByHandle(handle, out ByHandleFileInformation info) ||
                     (info.Attributes & (uint)FileAttributes.ReparsePoint) != 0 ||
@@ -320,9 +335,270 @@ internal static class NativeDelete
         finally { Marshal.FreeHGlobal(nameBuffer); }
     }
 
+    internal static ByHandleFileInformation GetInformation(SafeFileHandle handle)
+    {
+        if (!GetFileInformationByHandle(handle, out ByHandleFileInformation information)) throw Error("Reading handle information failed.");
+        return information;
+    }
+
     [StructLayout(LayoutKind.Sequential)] private struct UnicodeString { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
     [StructLayout(LayoutKind.Sequential)] private struct ObjectAttributes { public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
     [StructLayout(LayoutKind.Sequential)] private struct IoStatusBlock { public IntPtr Status; public UIntPtr Information; }
     [DllImport("ntdll.dll")] private static extern int NtCreateFile(out SafeFileHandle fileHandle, uint desiredAccess, ref ObjectAttributes objectAttributes, out IoStatusBlock ioStatusBlock, IntPtr allocationSize, uint fileAttributes, uint shareAccess, uint createDisposition, uint createOptions, IntPtr eaBuffer, uint eaLength);
     private static IOException Error(string message) { int code = Marshal.GetLastWin32Error(); return new IOException(message + " Win32=" + code, unchecked((int)(0x80070000u | (uint)code))); }
+}
+
+/// <summary>
+/// Fixed-name reset control state.  The public reset API supplies only a root already validated
+/// by <see cref="PathSafety"/>; every control child is then opened relative to that root handle.
+/// </summary>
+internal static class NativeResetControl
+{
+    private const string ResetDirectory = "reset";
+    private const string Marker = "pending.v1.json";
+    private const string Temporary = "pending.v1.tmp";
+    private const int MaximumMarkerBytes = 128;
+    private const int FileRenameInformation = 10;
+    private const int FileDirectoryInformation = 1;
+    private const int StatusNoMoreFiles = unchecked((int)0x80000006);
+
+    internal sealed record ControlSnapshot(bool ResetDirectoryExists, string? MarkerPayload, string? TemporaryPayload);
+    // Test-only cutpoints: the handles are already bound before either callback runs.
+    internal static Action? BeforeMarkerDispositionForTesting { get; set; }
+    internal static Action? BeforeDirectoryDispositionForTesting { get; set; }
+
+    internal static ControlSnapshot Read(string root)
+    {
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
+        using SafeFileHandle? resetHandle = TryOpenReset(rootHandle);
+        if (resetHandle is null) return new(false, null, null);
+        HashSet<string> names = EnumerateExactChildren(resetHandle);
+        return new(true, names.Contains(Marker) ? ReadLeaf(resetHandle, Marker) : null, names.Contains(Temporary) ? ReadLeaf(resetHandle, Temporary) : null);
+    }
+
+    internal static void CreateResetPending(string root)
+    {
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+        using (SafeFileHandle? existing = TryOpenReset(rootHandle))
+        {
+            if (existing is not null) throw new InvalidOperationException("Reset control state already exists, including an empty crash-state directory.");
+        }
+        using SafeFileHandle resetHandle = OpenOrCreateReset(rootHandle);
+        if (EnumerateExactChildren(resetHandle).Count != 0) throw new InvalidOperationException("Reset control state already exists or contains an unexpected child.");
+        WriteNewLeaf(resetHandle, Temporary, "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
+        RenameLeaf(resetHandle, Temporary, Marker, replace: false);
+    }
+
+    internal static void ReplaceWithOnboardingPending(string root)
+    {
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+        using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
+        HashSet<string> names = EnumerateExactChildren(resetHandle);
+        if (!names.SetEquals([Marker])) throw new InvalidOperationException("Reset control state is not exactly the expected marker.");
+        _ = ReadLeaf(resetHandle, Marker); // validates leaf type, link count and bounded content access before replacement.
+        WriteNewLeaf(resetHandle, Temporary, "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}");
+        RenameLeaf(resetHandle, Temporary, Marker, replace: true);
+    }
+
+    /// <summary>A crash after durable temporary creation is recoverable without dropping authority.</summary>
+    /// <returns>True when a previously-written onboarding temporary marker was atomically promoted.</returns>
+    internal static bool PromoteTemporaryResetMarker(string root)
+    {
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+        using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
+        HashSet<string> names = EnumerateExactChildren(resetHandle);
+        if (names.SetEquals([Temporary]))
+        {
+            _ = ReadLeaf(resetHandle, Temporary);
+            RenameLeaf(resetHandle, Temporary, Marker, replace: false);
+            return false;
+        }
+        if (names.SetEquals([Marker])) return false;
+        if (names.SetEquals([Marker, Temporary]))
+        {
+            string marker = ReadLeaf(resetHandle, Marker);
+            string temporary = ReadLeaf(resetHandle, Temporary);
+            if (!IsExactState(marker, "ResetPending") || !IsExactState(temporary, "OnboardingPending")) throw new InvalidOperationException("Reset control state contains an invalid transition combination.");
+            RenameLeaf(resetHandle, Temporary, Marker, replace: true);
+            return true;
+        }
+        throw new InvalidOperationException("Reset control state is not exactly one recoverable marker.");
+    }
+
+    internal static void VerifyOnlyMarker(string root, List<FactoryResetResidual> residuals)
+    {
+        try
+        {
+            using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+            using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
+            HashSet<string> names = EnumerateExactChildren(resetHandle);
+            if (!names.SetEquals([Marker])) throw new InvalidOperationException("Reset control state is not exactly the expected marker.");
+            _ = ReadLeaf(resetHandle, Marker);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+        {
+            residuals.Add(new FactoryResetResidual("Reset marker", "ControlStateVerificationFailed", exception.GetType().Name));
+        }
+    }
+
+    internal static PathSafety.DeleteResult AcknowledgeAndDelete(string root)
+    {
+        try
+        {
+            using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
+            using (SafeFileHandle resetHandle = OpenExistingReset(rootHandle, NativeDelete.DeleteAccess | NativeDelete.ReadData | NativeDelete.ReadAttributes))
+            {
+                HashSet<string> names = EnumerateExactChildren(resetHandle);
+                string authority = names.SetEquals([Marker]) ? Marker : names.SetEquals([Temporary]) ? Temporary : string.Empty;
+                if (authority.Length == 0) return new(false, false, "UnexpectedControlState");
+                using (SafeFileHandle markerHandle = NativeDelete.OpenRelativeObject(resetHandle, authority, NativeDelete.DeleteAccess | NativeDelete.ReadData | NativeDelete.ReadAttributes, directory: false))
+                {
+                    if (NativeDelete.GetInformation(markerHandle).NumberOfLinks != 1) return new(false, false, "UnsafePath");
+                    if (!IsExactState(ReadLeaf(markerHandle), "OnboardingPending")) return new(false, false, "InvalidMarker");
+                    BeforeMarkerDispositionForTesting?.Invoke();
+                    NativeDelete.MarkForDeletion(markerHandle);
+                }
+                try
+                {
+                    BeforeDirectoryDispositionForTesting?.Invoke();
+                    NativeDelete.MarkForDeletion(resetHandle);
+                }
+                catch
+                {
+                    // The marker is already unlinked.  Retain a durable, valid temporary authority
+                    // through the still-bound reset handle before reporting failure.
+                    try { WriteNewLeaf(resetHandle, Temporary, "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}"); }
+                    catch { }
+                    throw;
+                }
+            }
+            // The root handle is still the same verified file object.  A name reintroduced at
+            // the fixed child position proves a swap and cannot be acknowledged as success.
+            if (EnumerateNames(rootHandle).Contains(ResetDirectory, StringComparer.Ordinal)) return new(false, false, "ControlDirectoryReintroduced");
+            return new(true, false, "Deleted");
+        }
+        catch (FileNotFoundException) { return new(false, true, "Absent"); }
+        catch (DirectoryNotFoundException) { return new(false, true, "Absent"); }
+        catch (SecurityException) { return new(false, false, "UnsafePath"); }
+        catch (UnauthorizedAccessException) { return new(false, false, "AccessDenied"); }
+        catch (IOException exception) { return new(false, false, Classify(exception)); }
+    }
+
+    private static SafeFileHandle OpenOrCreateReset(SafeFileHandle root) => NativeDelete.OpenRelativeObject(root, ResetDirectory, NativeDelete.ReadData | NativeDelete.ReadAttributes | NativeDelete.AddSubdirectory, directory: true, createDisposition: NativeDelete.NtOpenIf);
+    private static SafeFileHandle OpenExistingReset(SafeFileHandle root, uint access = NativeDelete.ReadData | NativeDelete.ReadAttributes) => NativeDelete.OpenRelativeObject(root, ResetDirectory, access, directory: true);
+    private static SafeFileHandle? TryOpenReset(SafeFileHandle root)
+    {
+        try { return OpenExistingReset(root); }
+        catch (IOException exception) when ((uint)exception.HResult == 0xC0000034u || (exception.HResult & 0xFFFF) is 2 or 3) { return null; }
+    }
+
+    private static HashSet<string> EnumerateExactChildren(SafeFileHandle reset)
+    {
+        HashSet<string> names = EnumerateNames(reset).ToHashSet(StringComparer.Ordinal);
+        if (names.Any(name => name is not Marker and not Temporary)) throw new SecurityException("The reset control directory contains an unknown child.");
+        return names;
+    }
+
+    private static bool IsExactState(string payload, string expected)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(payload);
+            JsonElement root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object && root.EnumerateObject().Count() == 2 &&
+                root.TryGetProperty("schemaVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number && version.GetInt32() == 1 &&
+                root.TryGetProperty("state", out JsonElement state) && state.ValueKind == JsonValueKind.String && state.GetString() == expected &&
+                root.EnumerateObject().All(item => item.Name is "schemaVersion" or "state");
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static string ReadLeaf(SafeFileHandle reset, string name)
+    {
+        using SafeFileHandle leaf = NativeDelete.OpenRelativeObject(reset, name, NativeDelete.ReadData | NativeDelete.ReadAttributes, directory: false);
+        return ReadLeaf(leaf);
+    }
+
+    private static string ReadLeaf(SafeFileHandle leaf)
+    {
+        NativeDelete.ByHandleFileInformation info = NativeDelete.GetInformation(leaf);
+        long bytes = ((long)info.FileSizeHigh << 32) | info.FileSizeLow;
+        if (info.NumberOfLinks != 1 || bytes is <= 0 or > MaximumMarkerBytes) throw new SecurityException("A reset marker has an unsafe link count or size.");
+        byte[] buffer = new byte[bytes];
+        if (!ReadFile(leaf, buffer, (uint)buffer.Length, out uint read, IntPtr.Zero) || read != buffer.Length) throw Error("Reading the reset marker through its bound handle failed.");
+        return Encoding.UTF8.GetString(buffer);
+    }
+
+    private static void WriteNewLeaf(SafeFileHandle reset, string name, string payload)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(payload);
+        if (bytes.Length > MaximumMarkerBytes) throw new InvalidOperationException("The fixed reset marker exceeds its bounded size.");
+        using SafeFileHandle leaf = NativeDelete.OpenRelativeObject(reset, name, NativeDelete.ReadData | NativeDelete.WriteData | NativeDelete.ReadAttributes | NativeDelete.WriteAttributes, directory: false, createDisposition: NativeDelete.NtCreate);
+        NativeDelete.ByHandleFileInformation info = NativeDelete.GetInformation(leaf);
+        if (info.NumberOfLinks != 1) throw new SecurityException("A reset marker with multiple links is unsafe.");
+        if (!WriteFile(leaf, bytes, (uint)bytes.Length, out uint written, IntPtr.Zero) || written != bytes.Length || !FlushFileBuffers(leaf)) throw Error("Writing the durable reset marker through its bound handle failed.");
+    }
+
+    private static void RenameLeaf(SafeFileHandle reset, string source, string target, bool replace)
+    {
+        using SafeFileHandle leaf = NativeDelete.OpenRelativeObject(reset, source, NativeDelete.DeleteAccess | NativeDelete.ReadAttributes, directory: false);
+        NativeDelete.ByHandleFileInformation info = NativeDelete.GetInformation(leaf);
+        if (info.NumberOfLinks != 1) throw new SecurityException("A reset marker with multiple links is unsafe.");
+        int rootOffset = (int)Marshal.OffsetOf<FileRenameInformationData>(nameof(FileRenameInformationData.RootDirectory));
+        int nameOffset = (int)Marshal.OffsetOf<FileRenameInformationData>(nameof(FileRenameInformationData.FileName));
+        byte[] name = Encoding.Unicode.GetBytes(target);
+        IntPtr buffer = Marshal.AllocHGlobal(nameOffset + name.Length);
+        try
+        {
+            Marshal.Copy(new byte[nameOffset + name.Length], 0, buffer, nameOffset + name.Length);
+            Marshal.WriteInt32(buffer, replace ? 1 : 0);
+            Marshal.WriteIntPtr(buffer, rootOffset, reset.DangerousGetHandle());
+            Marshal.WriteInt32(buffer, nameOffset - sizeof(uint), name.Length);
+            Marshal.Copy(name, 0, IntPtr.Add(buffer, nameOffset), name.Length);
+            int status = NtSetInformationFile(leaf, out _, buffer, (uint)(nameOffset + name.Length), FileRenameInformation);
+            if (status != 0) throw new IOException("Atomically replacing the bound reset marker failed. NTSTATUS=" + status.ToString("X8", CultureInfo.InvariantCulture), status);
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    private static IEnumerable<string> EnumerateNames(SafeFileHandle directory)
+    {
+        const int bufferSize = 4096;
+        IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+        try
+        {
+            bool restart = true;
+            while (true)
+            {
+                int status = NtQueryDirectoryFile(directory, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out _, buffer, bufferSize, FileDirectoryInformation, false, IntPtr.Zero, restart);
+                restart = false;
+                if (status == StatusNoMoreFiles) yield break;
+                if (status != 0) throw new IOException("Enumerating reset control state through its bound handle failed. NTSTATUS=" + status.ToString("X8", CultureInfo.InvariantCulture), status);
+                int offset = 0;
+                while (true)
+                {
+                    uint next = unchecked((uint)Marshal.ReadInt32(buffer, offset));
+                    uint attributes = unchecked((uint)Marshal.ReadInt32(buffer, offset + 56));
+                    int nameBytes = Marshal.ReadInt32(buffer, offset + 60);
+                    if (nameBytes < 0 || nameBytes > 1024 || (nameBytes & 1) != 0 || (attributes & (uint)FileAttributes.ReparsePoint) != 0) throw new SecurityException("An unsafe reset control entry was enumerated.");
+                    string name = Marshal.PtrToStringUni(IntPtr.Add(buffer, offset + 64), nameBytes / 2) ?? throw new SecurityException("An unnamed reset control entry was enumerated.");
+                    if (name is not "." and not "..") yield return name;
+                    if (next == 0) break;
+                    if (next > bufferSize - offset) throw new SecurityException("A malformed reset control enumeration was returned.");
+                    offset += checked((int)next);
+                }
+            }
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    [StructLayout(LayoutKind.Sequential)] private struct FileRenameInformationData { public int ReplaceIfExists; public IntPtr RootDirectory; public uint FileNameLength; public char FileName; }
+    [StructLayout(LayoutKind.Sequential)] private struct IoStatusBlock { public IntPtr Status; public UIntPtr Information; }
+    [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool ReadFile(SafeFileHandle file, byte[] buffer, uint count, out uint read, IntPtr overlapped);
+    [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool WriteFile(SafeFileHandle file, byte[] buffer, uint count, out uint written, IntPtr overlapped);
+    [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool FlushFileBuffers(SafeFileHandle file);
+    [DllImport("ntdll.dll")] private static extern int NtSetInformationFile(SafeFileHandle file, out IoStatusBlock ioStatus, IntPtr information, uint length, int informationClass);
+    [DllImport("ntdll.dll")] private static extern int NtQueryDirectoryFile(SafeFileHandle file, IntPtr evt, IntPtr apcRoutine, IntPtr apcContext, out IoStatusBlock ioStatus, IntPtr information, uint length, int informationClass, [MarshalAs(UnmanagedType.Bool)] bool returnSingleEntry, IntPtr fileName, [MarshalAs(UnmanagedType.Bool)] bool restartScan);
+    private static IOException Error(string message) { int code = Marshal.GetLastWin32Error(); return new IOException(message + " Win32=" + code, unchecked((int)(0x80070000u | (uint)code))); }
+    private static string Classify(IOException exception) { int code = exception.HResult & 0xFFFF; return code is 32 or 33 or 67 ? "LockedOrInUse" : "IoError:" + code; }
 }

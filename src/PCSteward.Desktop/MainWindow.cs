@@ -21,6 +21,7 @@ public sealed class MainWindow : Window
     private readonly ReviewedUpdateExecutionWorkflow updates;
     private readonly IScheduledCheckSettingsStore scheduleSettingsStore;
     private readonly ScheduledCheckRegistrationService scheduleRegistration;
+    private readonly Func<FactoryResetResult>? acknowledgeResetOnboarding;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
@@ -35,31 +36,44 @@ public sealed class MainWindow : Window
     private InventoryRow? detailRow;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
+    private bool onboardingAcknowledging;
+    private bool startupStateLoadFailed;
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
-        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration;
+        this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration; this.acknowledgeResetOnboarding = acknowledgeResetOnboarding;
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
-        LoadSavedInventory();
+        destination = showPostResetOnboarding ? "onboarding" : "overview";
+        if (!showPostResetOnboarding) startupStateLoadFailed = !LoadSavedInventory();
         Render();
     }
 
-    private void LoadSavedInventory()
+    private bool LoadSavedInventory()
     {
-        InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
-        foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
-        viewModel.LoadInventory(dashboard.Products, dashboard.Instances, dashboard.LastCompletedAt);
-        viewModel.LoadUpdateIntelligence(workflow.LoadUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, CancellationToken.None).GetAwaiter().GetResult()); scanData = dashboard.ScanData;
-        downloadCache = downloads.GetSummaryAsync(CancellationToken.None).GetAwaiter().GetResult();
-        activeDecisions = workflow.GetActiveDecisionsAsync(CancellationToken.None).GetAwaiter().GetResult();
-        manualMappings = workflow.GetManualMappingsAsync(CancellationToken.None).GetAwaiter().GetResult();
-        scheduledSettings = scheduleSettingsStore.GetScheduledCheckSettingsAsync(CancellationToken.None).GetAwaiter().GetResult();
-        scheduledStatus = scheduleSettingsStore.GetScheduledCheckStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+        try { DataOperationLease.RunSynchronous(() =>
+        {
+            InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
+            foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
+            viewModel.LoadInventory(dashboard.Products, dashboard.Instances, dashboard.LastCompletedAt);
+            viewModel.LoadUpdateIntelligence(workflow.LoadUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, CancellationToken.None).GetAwaiter().GetResult()); scanData = dashboard.ScanData;
+            downloadCache = downloads.GetSummaryAsync(CancellationToken.None).GetAwaiter().GetResult();
+            activeDecisions = workflow.GetActiveDecisionsAsync(CancellationToken.None).GetAwaiter().GetResult();
+            manualMappings = workflow.GetManualMappingsAsync(CancellationToken.None).GetAwaiter().GetResult();
+            scheduledSettings = scheduleSettingsStore.GetScheduledCheckSettingsAsync(CancellationToken.None).GetAwaiter().GetResult();
+            scheduledStatus = scheduleSettingsStore.GetScheduledCheckStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }); return true; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private async Task ShowDataOperationUnavailableAsync()
+    {
+        await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Action unavailable", Content = "Factory reset recovery or another PC Steward data operation is active. Wait for it to finish, then try again.", CloseButtonText = "Close" }.ShowAsync();
     }
 
     private void Render()
     {
+        if (startupStateLoadFailed) { RenderStartupStateLoadFailure(); return; }
         if (destination == "settings") { RenderSettings(); return; }
         if (destination == "scan") { RenderScanPage(); return; }
         if (destination == "updates") { RenderUpdatesPage(); return; }
@@ -72,7 +86,17 @@ public sealed class MainWindow : Window
         if (destination == "activity") { RenderActivityPage(); return; }
         if (destination == "privacy") { RenderPrivacyPage(); return; }
         if (destination == "storage") { RenderStoragePage(); return; }
+        if (destination == "onboarding") { RenderOnboardingPage(); return; }
+        if (destination == "about") { RenderAboutPage(); return; }
         RenderPlaceholder();
+    }
+
+    private void RenderStartupStateLoadFailure()
+    {
+        StackPanel panel = CreatePagePanel(760);
+        panel.Children.Add(new TextBlock { Text = "PC Steward could not open local state", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("A local data operation is still active or reset recovery is in progress. No scan or state-changing action was started. Close PC Steward and try again after the other operation finishes."));
+        Content = panel;
     }
 
     private static StackPanel CreatePagePanel(double maxWidth = 1040)
@@ -88,6 +112,57 @@ public sealed class MainWindow : Window
     private static TextBlock PageCopy(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap };
 
     private static Border Card(FrameworkElement child) => new() { Style = AppStyle("StewardCardStyle"), Child = child };
+
+    private void RenderOnboardingPage()
+    {
+        StackPanel panel = CreatePagePanel(760);
+        panel.Children.Add(new TextBlock { Text = "Start fresh with PC Steward", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("Factory reset is complete. Your previous PC Steward inventory, source evidence, settings, decisions, history, downloads, logs and scheduled check were removed. PC Steward did not start a scan automatically."));
+        panel.Children.Add(PageCopy("Start with a local-only inventory when you are ready. It reads installed application information and never requests elevation, installs software, or changes your PC."));
+        Button continueButton = new() { Content = "Continue to local inventory" };
+        AutomationProperties.SetName(continueButton, "Continue to local-only inventory after factory reset");
+        continueButton.Click += async (_, _) =>
+        {
+            if (onboardingAcknowledging) return;
+            onboardingAcknowledging = true;
+            continueButton.IsEnabled = false;
+            FactoryResetResult result = acknowledgeResetOnboarding?.Invoke() ?? new FactoryResetResult(true, []);
+            FactoryResetMarkerState markerState = FactoryReset.GetMarkerState();
+            if (!result.Succeeded && markerState != FactoryResetMarkerState.None)
+            {
+                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset still needs attention", Content = string.Join(", ", result.Residuals.Select(item => item.Reason)), CloseButtonText = "Close" }.ShowAsync();
+                onboardingAcknowledging = false;
+                continueButton.IsEnabled = true;
+                return;
+            }
+            if (markerState != FactoryResetMarkerState.None || !LoadSavedInventory())
+            {
+                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Fresh state could not be loaded", Content = "PC Steward could not confirm and reload the fresh local state. No scan was started.", CloseButtonText = "Close" }.ShowAsync();
+                onboardingAcknowledging = false;
+                continueButton.IsEnabled = true;
+                return;
+            }
+            destination = "scan"; Render();
+        };
+        panel.Children.Add(continueButton);
+        Content = panel;
+    }
+
+    private void RenderAboutPage()
+    {
+        StackPanel panel = CreatePagePanel(820);
+        panel.Children.Add(new TextBlock { Text = "About & support", Style = AppStyle("StewardPageTitleStyle") });
+        panel.Children.Add(PageCopy("PC Steward is a local-first Windows 11 x64 application inventory and evidence review tool. It has no account, cloud sync, telemetry, background service, or automatic updates."));
+        panel.Children.Add(new TextBlock { Text = "Update scope", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(PageCopy("This standalone package can review and run only explicitly approved current-user WinGet updates. Machine-scope updates are not actionable here. PC Steward does not use elevation or an elevated helper in this package."));
+        panel.Children.Add(new TextBlock { Text = "Data and removal", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(PageCopy("Inventory, settings, decisions, history, source evidence, downloads and logs are stored locally under your PC Steward data root. Removing the extracted package removes its binaries but retains that data by default. Use Factory reset PC Steward to remove app-owned local data and the current-user scheduled check before removal."));
+        panel.Children.Add(new TextBlock { Text = "Current release status", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(PageCopy("This build is not approved for external distribution until a trusted release signature, approved private channel, supported-host lifecycle checks, and agreed-baseline performance evidence are complete. Do not treat an unsigned archive as a release candidate."));
+        panel.Children.Add(new TextBlock { Text = "Support and rollback", Style = AppStyle("StewardSectionTitleStyle") });
+        panel.Children.Add(PageCopy("Use only the approved private release channel and its published checksum. If a supported update or package replacement fails, stop, preserve the diagnostic export, and use the product-owner-approved rollback package. Do not download installers from mirrors or third-party portals."));
+        Content = BuildShell(panel);
+    }
 
     private void RenderOverviewPage()
     {
@@ -325,10 +400,8 @@ public sealed class MainWindow : Window
                     .Select(row => viewModel.UpdateDetails[row.StableProductKey])
                     .Select(detail => new RepositoryIdentityConfirmation(detail.StableProductKey, detail.SourceId!, detail.PackageId!))
                     .ToArray();
-                RepositoryIdentityConfirmationResult result = await workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", CancellationToken.None);
-                LoadSavedInventory();
-                await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message);
-                Render();
+                try { RepositoryIdentityConfirmationResult result = await DataOperationLease.RunAsync(token => workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", token), CancellationToken.None); LoadSavedInventory(); await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message); Render(); }
+                catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
             };
             panel.Children.Add(confirmAll);
         }
@@ -577,7 +650,8 @@ public sealed class MainWindow : Window
         {
             ScheduleCadence selectedCadence = cadence.SelectedIndex switch { 1 => ScheduleCadence.Daily, 2 => ScheduleCadence.Weekly, _ => ScheduleCadence.Manual };
             ScheduledCheckSettings requested = new ScheduledCheckSettings(selectedCadence, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem is DayOfWeek day ? day : DayOfWeek.Monday, TimeOnly.FromTimeSpan(startTime.Time)).Normalize();
-            try { await scheduleRegistration.ApplyAsync(requested, CancellationToken.None); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, CancellationToken.None); scheduledSettings = requested; scheduledStatus = await scheduleSettingsStore.GetScheduledCheckStatusAsync(CancellationToken.None); Render(); }
+            try { scheduledStatus = await DataOperationLease.RunAsync(async token => { await scheduleRegistration.ApplyAsync(requested, token); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, token); return await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }, CancellationToken.None); scheduledSettings = requested; Render(); }
+            catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
             catch (Exception) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Schedule was not changed", Content = "Windows could not create the current-user scan-only task. Your saved settings were left unchanged.", CloseButtonText = "Close" }.ShowAsync(); }
         };
         panel.Children.Add(cadence); panel.Children.Add(startTime); panel.Children.Add(weeklyDay); panel.Children.Add(scheduleEnabled); panel.Children.Add(notifications); panel.Children.Add(save);
@@ -609,8 +683,7 @@ public sealed class MainWindow : Window
         }
         try
         {
-            await workflow.SaveConnectorStateAsync("WinGet installed inventory", enabled, enabled, CancellationToken.None);
-            await workflow.SaveConnectorStateAsync("WinGet package sources", enabled, enabled, CancellationToken.None);
+            await DataOperationLease.RunAsync(async token => { await workflow.SaveConnectorStateAsync("WinGet installed inventory", enabled, enabled, token); await workflow.SaveConnectorStateAsync("WinGet package sources", enabled, enabled, token); }, CancellationToken.None);
             viewModel.SetConnectorEnabled("WinGet installed inventory", enabled);
             viewModel.SetConnectorEnabled("WinGet package sources", enabled);
         }
@@ -632,7 +705,8 @@ public sealed class MainWindow : Window
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
             if (!approved) enabled = false;
         }
-        await workflow.SaveConnectorStateAsync(connectorName, enabled, approved, CancellationToken.None); viewModel.SetConnectorEnabled(connectorName, enabled); Render();
+        try { await DataOperationLease.RunAsync(token => workflow.SaveConnectorStateAsync(connectorName, enabled, approved, token), CancellationToken.None); viewModel.SetConnectorEnabled(connectorName, enabled); Render(); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); Render(); }
     }
 
     private async Task StartScanAsync()
@@ -640,16 +714,18 @@ public sealed class MainWindow : Window
         scanCancellation = new CancellationTokenSource(); Progress<ScanProgress> progress = new(value => { viewModel.ReportProgress(value); Render(); });
         // Providers and SQLite complete asynchronously.  Keep their continuations off the
         // WinUI dispatcher; Progress posts the small UI updates back to it explicitly.
-        ScanResult result = await Task.Run(() => workflow.ScanAsync(progress, scanCancellation.Token));
-        viewModel.CompleteScan(result, DateTimeOffset.UtcNow); LoadSavedInventory(); scanCancellation.Dispose(); scanCancellation = null; Render();
+        try { ScanResult result = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), scanCancellation.Token); viewModel.CompleteScan(result, DateTimeOffset.UtcNow); LoadSavedInventory(); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
+        finally { scanCancellation?.Dispose(); scanCancellation = null; Render(); }
     }
 
     private async Task CheckUpdateSourcesAsync()
     {
         viewModel.BeginUpdateCheck(); Render();
-        try { viewModel.LoadUpdateIntelligence(await workflow.RefreshUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, CancellationToken.None)); }
+        try { viewModel.LoadUpdateIntelligence(await DataOperationLease.RunAsync(token => workflow.RefreshUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, token), CancellationToken.None)); activeDecisions = await DataOperationLease.RunAsync(token => workflow.GetActiveDecisionsAsync(token), CancellationToken.None); manualMappings = await DataOperationLease.RunAsync(token => workflow.GetManualMappingsAsync(token), CancellationToken.None); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
         finally { viewModel.CompleteUpdateCheck(); }
-        activeDecisions = await workflow.GetActiveDecisionsAsync(CancellationToken.None); manualMappings = await workflow.GetManualMappingsAsync(CancellationToken.None); Render();
+        Render();
     }
 
     private void AddDataAndResetSection(StackPanel panel)
@@ -685,7 +761,10 @@ public sealed class MainWindow : Window
         {
             ContentDialog confirmation = new() { XamlRoot = Content.XamlRoot, Title = label + "?", Content = scope, PrimaryButtonText = label, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
             if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
-            isClearing = true; Render(); AdvancedDataClearResult result = await clear(); isClearing = false; LoadSavedInventory(); Render();
+            isClearing = true; Render(); AdvancedDataClearResult result;
+            try { result = await DataOperationLease.RunAsync(_ => clear(), CancellationToken.None); LoadSavedInventory(); }
+            catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+            finally { isClearing = false; Render(); }
             await new ContentDialog { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? label + " complete" : label + " was not completed", Content = result.Message, CloseButtonText = "Close" }.ShowAsync();
         };
         panel.Children.Add(new TextBlock { Text = scope, TextWrapping = TextWrapping.Wrap }); panel.Children.Add(button);
@@ -701,7 +780,11 @@ public sealed class MainWindow : Window
         if (await final.ShowAsync() != ContentDialogResult.Primary) { invoker.Focus(FocusState.Programmatic); return; }
         if (viewModel.IsScanning || isExecuting || isClearing || downloads.IsCleaning) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset unavailable", Content = "Cancel or wait for active work to finish, then try again.", CloseButtonText = "Close" }.ShowAsync(); return; }
         try { FactoryReset.Arm(); Close(); }
-        catch (Exception exception) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset was not started", Content = exception.Message, CloseButtonText = "Close" }.ShowAsync(); }
+        catch (Exception exception)
+        {
+            if (FactoryReset.IsPending()) { Close(); return; }
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset was not started", Content = exception.Message, CloseButtonText = "Close" }.ShowAsync();
+        }
     }
 
     private void AddDecisionsSection(StackPanel panel)
@@ -710,27 +793,35 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or manual mappings. Decisions are optional, reversible, and do not enable updates." : "Active decisions and manual mappings are listed below. Remove one to reapply normal review rules on the next source check.", TextWrapping = TextWrapping.Wrap });
         foreach (PCSteward.Domain.StableDecision decision in activeDecisions)
         {
-            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"{decision.Kind}: {decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" — {decision.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, $"Remove {decision.Kind} decision"); remove.Click += async (_, _) => { await workflow.ReverseDecisionAsync(decision.Id, CancellationToken.None); LoadSavedInventory(); Render(); }; row.Children.Add(remove); panel.Children.Add(row);
+            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"{decision.Kind}: {decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" — {decision.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, $"Remove {decision.Kind} decision"); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.ReverseDecisionAsync(decision.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; row.Children.Add(remove); panel.Children.Add(row);
         }
         foreach (PCSteward.Domain.ManualMapping mapping in manualMappings)
         {
-            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"Manual mapping: {mapping.SourceId}:{mapping.PackageId}{(string.IsNullOrWhiteSpace(mapping.Reason) ? string.Empty : $" — {mapping.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove mapping" }; AutomationProperties.SetName(remove, $"Remove manual mapping {mapping.PackageId}"); remove.Click += async (_, _) => { await workflow.DeleteManualMappingAsync(mapping.Id, CancellationToken.None); LoadSavedInventory(); Render(); }; row.Children.Add(remove); panel.Children.Add(row);
+            StackPanel row = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; row.Children.Add(new TextBlock { Text = $"Manual mapping: {mapping.SourceId}:{mapping.PackageId}{(string.IsNullOrWhiteSpace(mapping.Reason) ? string.Empty : $" — {mapping.Reason}")}", TextWrapping = TextWrapping.Wrap, Width = 760 }); Button remove = new() { Content = "Remove mapping" }; AutomationProperties.SetName(remove, $"Remove manual mapping {mapping.PackageId}"); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.DeleteManualMappingAsync(mapping.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; row.Children.Add(remove); panel.Children.Add(row);
         }
     }
 
-    private async Task SaveExportAsync(bool json) { InventoryExport export = await workflow.CreateExportAsync(json, CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); }
+    private async Task SaveExportAsync(bool json) { try { InventoryExport export = await DataOperationLease.RunAsync(token => workflow.CreateExportAsync(json, token), CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }
 
     private async Task ConfirmAndClearScanDataAsync()
     {
         ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = "Clear scan data?", Content = "This removes current inventory, raw provider records, update candidates and scan-run records. It keeps settings, enabled connectors, schedules, update history, downloaded files, mappings, pins and ignores.", PrimaryButtonText = "Clear scan data", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        isClearing = true; Render(); ClearScanDataResult result = await workflow.ClearScanDataAsync(CancellationToken.None); isClearing = false; if (result.Succeeded) { viewModel.ClearScanData(); LoadSavedInventory(); } ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Scan data cleared" : "Scan data was not cleared", Content = result.Message, CloseButtonText = "Close" }; Render(); await outcome.ShowAsync();
+        isClearing = true; Render(); ClearScanDataResult result;
+        try { result = await DataOperationLease.RunAsync(token => workflow.ClearScanDataAsync(token), CancellationToken.None); if (result.Succeeded) { viewModel.ClearScanData(); LoadSavedInventory(); } }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        finally { isClearing = false; Render(); }
+        ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Scan data cleared" : "Scan data was not cleared", Content = result.Message, CloseButtonText = "Close" }; await outcome.ShowAsync();
     }
 
     private async Task ConfirmAndClearDownloadedFilesAsync(string title)
     {
         ContentDialog dialog = new() { XamlRoot = Content.XamlRoot, Title = title, Content = "This removes inactive PC Steward-owned update payloads and temporary extraction files only. It does not delete active update files, installed applications, scan data, source metadata, update history, or Windows, WinGet, Microsoft Store, or other provider caches.", PrimaryButtonText = "Delete downloaded files", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        isClearing = true; Render(); DownloadCleanupResult result = await downloads.ClearInactiveAsync(CancellationToken.None); isClearing = false; LoadSavedInventory(); ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Downloaded files cleared" : "Downloaded files were only partly cleared", Content = result.Message + (result.Residuals.Count == 0 ? string.Empty : " Remaining items: " + string.Join(", ", result.Residuals.Select(residual => $"{residual.RelativePath} ({residual.Reason})"))), CloseButtonText = "Close" }; Render(); await outcome.ShowAsync();
+        isClearing = true; Render(); DownloadCleanupResult result;
+        try { result = await DataOperationLease.RunAsync(token => downloads.ClearInactiveAsync(token), CancellationToken.None); LoadSavedInventory(); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        finally { isClearing = false; Render(); }
+        ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Downloaded files cleared" : "Downloaded files were only partly cleared", Content = result.Message + (result.Residuals.Count == 0 ? string.Empty : " Remaining items: " + string.Join(", ", result.Residuals.Select(residual => $"{residual.RelativePath} ({residual.Reason})"))), CloseButtonText = "Close" }; await outcome.ShowAsync();
     }
 
     private void RenderProductDetailPage()
@@ -802,16 +893,19 @@ public sealed class MainWindow : Window
         decisions.Children.Add(ignoreUntilEnabled);
         decisions.Children.Add(ignoreUntil);
         StackPanel decisionActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        Button pin = new() { Content = "Pin current version" }; pin.Click += async (_, _) => { await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text, CancellationToken.None); LoadSavedInventory(); Render(); }; decisionActions.Children.Add(pin);
-        Button ignore = new() { Content = "Ignore product" }; ignore.Click += async (_, _) => { await workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null, reason.Text, CancellationToken.None); LoadSavedInventory(); Render(); }; decisionActions.Children.Add(ignore);
-        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null, CanConfirmAsCurrent: true } && viewModel.IsUpdateSourceEnabled)
+        Button pin = new() { Content = "Pin current version" }; pin.Click += async (_, _) => { string decisionReason = reason.Text; try { await DataOperationLease.RunAsync(token => workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, decisionReason, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowUpdateOutcomeAsync("Action unavailable", "Factory reset recovery or another data operation is active."); } }; decisionActions.Children.Add(pin);
+        Button ignore = new() { Content = "Ignore product" }; ignore.Click += async (_, _) => { string decisionReason = reason.Text; DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null; try { await DataOperationLease.RunAsync(token => workflow.IgnoreAsync(row.StableProductKey, ignoredUntil, decisionReason, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowUpdateOutcomeAsync("Action unavailable", "Factory reset recovery or another data operation is active."); } }; decisionActions.Children.Add(ignore);
+        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true } && viewModel.IsUpdateSourceEnabled)
         {
             decisions.Children.Add(PageCopy($"Confirm this only if you recognise {detail.PackageId} from {detail.SourceId} as this installed application. The reversible mapping does not start an update."));
             Button confirmPackage = new() { Content = "Confirm package identity" };
             AutomationProperties.SetName(confirmPackage, $"Confirm {detail.PackageId} is this installed application");
             confirmPackage.Click += async (_, _) =>
             {
-                PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, reason.Text, CancellationToken.None);
+                string decisionReason = reason.Text;
+                PCSteward.Domain.ManualMappingValidation validation;
+                try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, decisionReason, token), CancellationToken.None); }
+                catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
                 outcome.Text = validation.Explanation;
                 if (!validation.IsValid) return;
                 LoadSavedInventory();
@@ -836,7 +930,7 @@ public sealed class MainWindow : Window
         technical.Children.Add(PageCopy($"Source candidates:\n{string.Join("\n", detail?.SourceCandidates ?? [])}"));
         technical.Children.Add(mappingSource);
         technical.Children.Add(mappingPackage);
-        Button map = new() { Content = "Map exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { PCSteward.Domain.ManualMappingValidation validation = await workflow.CreateManualMappingAsync(row.StableProductKey, mappingSource.SelectedItem?.ToString() ?? "winget", string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text, viewModel.IsUpdateSourceEnabled, reason.Text, CancellationToken.None); outcome.Text = validation.Explanation; if (validation.IsValid) { LoadSavedInventory(); detailRow = viewModel.AllRows.SingleOrDefault(candidate => candidate.StableProductKey == row.StableProductKey) ?? row; Render(); } }; technical.Children.Add(map);
+        Button map = new() { Content = "Map exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { string sourceId = mappingSource.SelectedItem?.ToString() ?? "winget"; string packageId = string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text; string decisionReason = reason.Text; try { PCSteward.Domain.ManualMappingValidation validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, sourceId, packageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); outcome.Text = validation.Explanation; if (validation.IsValid) { LoadSavedInventory(); detailRow = viewModel.AllRows.SingleOrDefault(candidate => candidate.StableProductKey == row.StableProductKey) ?? row; Render(); } } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; technical.Children.Add(map);
         technical.Children.Add(PageCopy($"Bounded raw diagnostic records: {detailRaw.Count}."));
         Expander disclosure = new() { Header = "Technical details", Content = technical };
         panel.Children.Add(disclosure);
@@ -847,15 +941,17 @@ public sealed class MainWindow : Window
     {
         detailRow = row;
         detailReturnDestination = destination;
-        detailRaw = await workflow.GetRawDiagnosticsAsync(row.ProductId, CancellationToken.None);
-        detailTimeline = await workflow.GetTimelineAsync(row.StableProductKey, CancellationToken.None);
+        try { detailRaw = await DataOperationLease.RunAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         destination = "detail";
         Render();
     }
 
     private async Task ReviewAndExecuteAsync(InventoryRow row)
     {
-        UpdateReviewPreparation preparation = await updates.BeginReviewAsync(row.StableProductKey, CancellationToken.None);
+        UpdateReviewPreparation preparation;
+        try { preparation = await DataOperationLease.RunAsync(token => updates.BeginReviewAsync(row.StableProductKey, token), CancellationToken.None); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         if (preparation.Review is null)
         {
             await ShowUpdateOutcomeAsync("Update not available", preparation.Message);
@@ -863,6 +959,7 @@ public sealed class MainWindow : Window
         }
 
         PCSteward.Domain.UpdateJobSelection selection = preparation.Review.Selection;
+        const string verification = "\n\nBy choosing Install approved update, you verify that the exact WinGet source, package ID, installed version and target version shown here are the application and update you intend.";
         string elevation = selection.Scope == PCSteward.Domain.UpdateScope.Machine ? "Windows will request UAC only after you confirm this review." : "This is a user-scope update and does not request UAC.";
         string runningWarning = preparation.RunningApplication.AppearsToBeRunning
             ? $"\n\nTarget-specific warning: {selection.PackageId} appears to be running (detected process: {string.Join(", ", preparation.RunningApplication.ProcessNames)}). PC Steward will not close it. Close the application and cancel this review, or explicitly choose Install approved update anyway."
@@ -871,7 +968,7 @@ public sealed class MainWindow : Window
         {
             XamlRoot = Content.XamlRoot,
             Title = "Review approved update",
-            Content = $"Package: {selection.PackageId}\nInstalled version: {selection.InstalledVersion}\nTarget version: {selection.CandidateVersion}\nSource: {selection.Source}\nScope: {selection.Scope}\nArchitecture: {selection.Architecture}{runningWarning}\n\n{elevation}\n\nProvider completion is not marked successful until the controlled post-update inventory verifies the target version.",
+            Content = $"Package: {selection.PackageId}\nInstalled version: {selection.InstalledVersion}\nTarget version: {selection.CandidateVersion}\nSource: {selection.Source}\nScope: {selection.Scope}\nArchitecture: {selection.Architecture}{runningWarning}\n\n{elevation}{verification}\n\nProvider completion is not marked successful until the controlled post-update inventory verifies the target version.",
             PrimaryButtonText = preparation.RunningApplication.AppearsToBeRunning ? "Install approved update anyway" : "Install approved update",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
@@ -881,10 +978,11 @@ public sealed class MainWindow : Window
         isExecuting = true;
         Render();
         ReviewedUpdateExecutionResult result;
-        try { result = await updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, CancellationToken.None); }
+        try { result = await DataOperationLease.RunAsync(token => updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token), CancellationToken.None); }
         catch (Exception) { result = new(false, "PC Steward could not start the reviewed update. No success was recorded.", null); }
-        finally { isExecuting = false; LoadSavedInventory(); Render(); }
+        finally { isExecuting = false; LoadSavedInventory(); }
         await ShowUpdateOutcomeAsync(result.Started ? "Update completed" : "Update not started", result.Message);
+        Render();
     }
 
     private Task<ContentDialogResult> ShowUpdateOutcomeAsync(string title, string message) => new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = message, CloseButtonText = "Close" }.ShowAsync().AsTask();

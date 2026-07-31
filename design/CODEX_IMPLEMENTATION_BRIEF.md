@@ -14,7 +14,7 @@
 6. No update starts without fresh structured evidence, review and confirmation.
 7. No deletion starts without explicit category review; factory reset retains its two-stage design and approved Task 27/28 gate.
 8. Do not implement future Startup, general device Storage, configuration concerns, “unwanted software” or broad cleanup modules until the product specification, threat model, requirements and tests are amended.
-9. Do not introduce an account, telemetry, website/web UI runtime, embedded WebView, web backend, resident tray/service, Figma dependency, font download or third-party icon pack.
+9. Do not introduce an account, telemetry, website/web UI runtime, embedded WebView, web backend, resident tray/service, Figma dependency, font download or third-party icon pack. The 2026-07-30 approved packaging boundary permits unused transitive WinUI/WebView2 runtime support files only; it does not permit an embedded browser feature.
 10. Preserve `PCSteward` as the technical identity. Keep display name/assets centralised.
 11. Keep list/table virtualization and resource budgets measurable.
 12. Do not modify `docs/STATUS.md` or traceability to claim a design acceptance criterion from appearance alone; collect real evidence.

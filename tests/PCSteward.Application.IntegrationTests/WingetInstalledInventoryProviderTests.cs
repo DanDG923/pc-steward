@@ -11,6 +11,7 @@ public sealed class WingetInstalledInventoryProviderTests
     private static readonly string[] ExpectedVersionArguments = ["--version"];
     private static readonly string[] ExpectedSourceListArguments = ["list", "--source", "winget", "--disable-interactivity"];
     private static readonly string[] ExpectedUpdateArguments = ["upgrade", "--source", "winget", "--disable-interactivity"];
+    private static readonly string[] ExpectedOfficialPlusIds = ["Microsoft.VCRedist.2015+.x64", "Microsoft.VCRedist.2015+.x86", "Notepad++.Notepad++"];
     [TestMethod]
     public async Task UsesFixedExecutableReadOnlyArgumentsAndParsesBoundedTableOutput()
     {
@@ -146,6 +147,90 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.AreEqual("Contoso.Widget", result.Records.Single().Id);
     }
     [TestMethod]
+    public void SourceQualifiedInstalledTableTreatsFourthAvailableColumnAsDisplayOnly()
+    {
+        const string output =
+            "Name                                                           Id                                                 Version              Available\n" +
+            "----------------------------------------------------------------------------------------------------------------------------------------------------\n" +
+            "Microsoft Visual Studio Code (User)                            Microsoft.VisualStudioCode                         1.129.0              1.130.0";
+
+        WingetInventoryResult result = WingetInstalledInventoryProvider.ParseTable(output);
+
+        WingetInstalledRecord record = result.Records.Single();
+        Assert.AreEqual("Microsoft.VisualStudioCode", record.Id);
+        Assert.AreEqual("1.129.0", record.Version);
+        Assert.IsNull(record.Source);
+        Assert.HasCount(0, result.Warnings);
+    }
+    [TestMethod]
+    public void InstalledTableAcceptsBlankAvailableCellWithoutLosingExactSource()
+    {
+        const string output =
+            "Name                                    Id                              Version         Available       Source\n" +
+            "--------------------------------------------------------------------------------------------------------\n" +
+            "Current Tool                            Contoso.Current                 2.0                             winget";
+
+        WingetInventoryResult result = WingetInstalledInventoryProvider.ParseTable(output);
+
+        WingetInstalledRecord record = result.Records.Single();
+        Assert.AreEqual("Contoso.Current", record.Id);
+        Assert.AreEqual("winget", record.Source);
+        Assert.HasCount(0, result.Warnings);
+    }
+    [TestMethod]
+    public void OfficialPlusPackageIdsParseButComparatorVersionsRemainNonActionable()
+    {
+        string output = InstalledTableWithAvailable(
+            ("Microsoft Visual C++ 2015-2022 Redistributable (x64)", "Microsoft.VCRedist.2015+.x64", "14.44.35211.0", "", "winget"),
+            ("Microsoft Visual C++ 2015-2022 Redistributable (x86)", "Microsoft.VCRedist.2015+.x86", "14.44.35211.0", "", "winget"),
+            ("Notepad++", "Notepad++.Notepad++", "8.8.2", "8.8.3", "winget"),
+            ("Inexact One", "Contoso.InexactOne", "> 1.8.8", "", "winget"),
+            ("Inexact Two", "Contoso.InexactTwo", "> 3.13.5", "", "winget"),
+            ("Inexact Three", "Contoso.InexactThree", "> 1.8.9", "", "winget"),
+            ("Inexact Four", "Contoso.InexactFour", "> 1.8.9", "", "winget"));
+
+        WingetInventoryResult result = WingetInstalledInventoryProvider.ParseTable(output);
+        WingetAvailableUpdateResult available = WingetUpdateSourceConnector.ParseAvailableTable(
+            "Name                                    Id                              Version         Available       Source\n" +
+            "--------------------------------------------------------------------------------------------------------\n" +
+            "Notepad++                               Notepad++.Notepad++              8.8.2           8.8.3           winget",
+            "v1.29.280",
+            "winget");
+
+        CollectionAssert.AreEquivalent(
+            ExpectedOfficialPlusIds,
+            result.Records.Select(record => record.Id).ToArray());
+        Assert.AreEqual("Notepad++.Notepad++", available.Records.Single().Id);
+        Assert.IsFalse(result.Records.Any(record => record.Id.StartsWith("Contoso.Inexact", StringComparison.Ordinal)));
+        CollectionAssert.Contains(result.Warnings.ToArray(), "winget:inexact-installed-version-skipped");
+        CollectionAssert.DoesNotContain(result.Warnings.ToArray(), "winget:malformed-row");
+    }
+    [TestMethod]
+    public async Task InexactInstalledVersionWarningIsNonfatalAndExactSourceCandidateRemainsLive()
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.29.280", "", false),
+            new(0, InstalledTableWithAvailable(
+                ("Inexact Tool", "Contoso.Inexact", "> 1.8.8", "", "winget"),
+                ("Microsoft Visual Studio Code (User)", "Microsoft.VisualStudioCode", "1.129.0", "1.130.0", "winget")), "", false),
+            new(0,
+                "Name                                                           Id                                                 Version              Available            Source\n" +
+                "---------------------------------------------------------------------------------------------------------------------------------------------------------------------\n" +
+                "Microsoft Visual Studio Code (User)                            Microsoft.VisualStudioCode                         1.129.0              1.130.0              winget",
+                "", false)
+        });
+
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(SourceSnapshotState.Live, snapshot.State);
+        SourcePackageRecord package = snapshot.Packages.Single();
+        Assert.AreEqual("Microsoft.VisualStudioCode", package.PackageId);
+        Assert.AreEqual("1.130.0", package.AvailableVersion);
+        CollectionAssert.Contains(snapshot.Warnings.ToArray(), "winget:inexact-installed-version-skipped");
+        CollectionAssert.DoesNotContain(snapshot.Warnings.ToArray(), "winget:malformed-row");
+    }
+    [TestMethod]
     public void AvailableDisplayTableVariantsRemainUntrustedPresentationEvidence()
     {
         WingetAvailableUpdateResult injected = WingetUpdateSourceConnector.ParseAvailableTable(
@@ -229,6 +314,11 @@ public sealed class WingetInstalledInventoryProviderTests
 
     private static string InstalledTable(params (string Name, string Id, string Version, string Source)[] rows) =>
         FixedTable("Name", "Id", "Version", "Source", rows);
+
+    private static string InstalledTableWithAvailable(params (string Name, string Id, string Version, string Available, string Source)[] rows) =>
+        $"{"Name",-64}{"Id",-51}{"Version",-21}{"Available",-21}Source\n" +
+        new string('-', 168) + "\n" +
+        string.Join("\n", rows.Select(row => $"{row.Name,-64}{row.Id,-51}{row.Version,-21}{row.Available,-21}{row.Source}"));
 
     private static string FixedTable(
         string nameHeader,

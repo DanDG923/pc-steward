@@ -9,7 +9,7 @@ public sealed record InventoryRow(Guid ProductId, string Name, string Publisher,
 {
     public string DisplayLabel => $"{Name}    {Version}    {Status}    {Scope} · {Provider}";
 }
-public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons, IReadOnlyCollection<string> SourceCandidates, bool CanConfirmAsCurrent = false);
+public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons, IReadOnlyCollection<string> SourceCandidates, bool CanConfirmAsCurrent = false, bool CanConfirmPackageIdentity = false);
 
 /// <summary>Presentation-only state for the local inventory journey. It contains no provider commands or trust decisions.</summary>
 public sealed class InventoryExperienceViewModel
@@ -102,7 +102,8 @@ public sealed class InventoryExperienceViewModel
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
         SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(DescribeSource).ToArray();
         UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Local-only — no enabled update source has been checked." : string.Join(" ", SourceFreshnessLabels);
-        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item => new UpdateDetail(item.StableProductKey, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Version ?? "Unknown", item.Mapping?.CandidateVersion, item.SourceId, item.Mapping?.PackageId, item.Mapping?.Confidence.ToString() ?? "None", item.Explanation, item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown", allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel, item.Status == UpdateIntelligenceStatus.VerifiedUpdate ? "A fresh exact match can be reviewed before an update is started." : "This product is not eligible for update execution. Review the evidence and decision options.", item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? [], (item.SourceCandidates ?? []).Select(DescribeCandidate).ToArray(), CanConfirmAsCurrent(item, sources)), StringComparer.Ordinal);
+        string InstalledVersionFor(string stableProductKey) => allRows.FirstOrDefault(row => row.StableProductKey == stableProductKey)?.Version ?? "Unknown";
+        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item => new UpdateDetail(item.StableProductKey, InstalledVersionFor(item.StableProductKey), item.Mapping?.CandidateVersion, item.SourceId, item.Mapping?.PackageId, item.Mapping?.Confidence.ToString() ?? "None", item.Explanation, item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown", allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel, item.Status == UpdateIntelligenceStatus.VerifiedUpdate ? "A fresh exact match can be reviewed before an update is started." : "This product is not eligible for update execution. Review the evidence and decision options.", item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? [], (item.SourceCandidates ?? []).Select(DescribeCandidate).ToArray(), CanConfirmAsCurrent(item, sources), CanConfirmPackageIdentity(item, sources, InstalledVersionFor(item.StableProductKey))), StringComparer.Ordinal);
         IsCheckingUpdates = false;
         ApplyFilters();
     }
@@ -123,6 +124,16 @@ public sealed class InventoryExperienceViewModel
         if (!sources.TryGetValue(sourceId, out SourceSnapshot? source) || source.State is not (SourceSnapshotState.Live or SourceSnapshotState.Cached)) return false;
         SourcePackageRecord? package = source.Packages.FirstOrDefault(candidate => string.Equals(candidate.PackageId, packageId, StringComparison.OrdinalIgnoreCase));
         return package?.InstalledVersion is not null && package.AvailableVersion is not null && string.Equals(package.InstalledVersion, package.AvailableVersion, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanConfirmPackageIdentity(UpdateIntelligenceItem item, Dictionary<string, SourceSnapshot> sources, string installedVersion)
+    {
+        if (item.Status != UpdateIntelligenceStatus.ReviewRequired || item.Mapping is not { Origin: not MappingOrigin.UserConfirmed, SourceId: { } sourceId, PackageId: { } packageId, CandidateVersion: { } candidateVersion }) return false;
+        if (!sources.TryGetValue(sourceId, out SourceSnapshot? source) || source.State is not (SourceSnapshotState.Live or SourceSnapshotState.Cached)) return false;
+        SourcePackageRecord[] exact = source.Packages.Where(candidate => string.Equals(candidate.SourceId, sourceId, StringComparison.OrdinalIgnoreCase) && string.Equals(candidate.PackageId, packageId, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (exact.Length != 1 || !string.Equals(exact[0].InstalledVersion, installedVersion, StringComparison.Ordinal) || !string.Equals(exact[0].AvailableVersion, candidateVersion, StringComparison.Ordinal)) return false;
+        VersionComparisonOutcome outcome = VersionComparison.Compare(new(installedVersion, candidateVersion, false)).Outcome;
+        return outcome == VersionComparisonOutcome.Equal || (source.State == SourceSnapshotState.Live && outcome == VersionComparisonOutcome.Newer);
     }
 
     private static string FriendlyLocalTime(DateTimeOffset? value) => value is null ? "an unknown time" : FriendlyLocalTime(value.Value);

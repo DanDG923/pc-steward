@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Security;
 
 namespace PCSteward.Storage;
 
@@ -14,29 +16,37 @@ public static class FactoryReset
 
     public static bool IsPending(string? stateRoot = null)
     {
-        string root = stateRoot ?? GetStateRoot();
-        return Exists(Path.Combine(root, "reset", MarkerFileName)) || Exists(Path.Combine(root, "reset", TemporaryMarkerFileName));
+        return GetMarkerState(stateRoot) is not FactoryResetMarkerState.None;
+    }
+
+    public static FactoryResetMarkerState GetMarkerState(string? stateRoot = null)
+    {
+        List<FactoryResetResidual> residuals = [];
+        return ReadMarkerState(stateRoot ?? GetStateRoot(), residuals);
     }
 
     /// <summary>Point of no return. No deletion is performed by this method.</summary>
     public static void Arm(string? stateRoot = null)
     {
-        ArmCore(ValidateRoot(stateRoot ?? GetStateRoot()));
+        string root = ValidateRoot(stateRoot ?? GetStateRoot());
+        using Mutex mutex = new(false, DataOperationMutexName);
+        if (!TryAcquire(mutex)) throw new InvalidOperationException("PC Steward still has an active data operation. Wait for it to finish before starting factory reset.");
+        try { ArmCore(root); }
+        finally { mutex.ReleaseMutex(); }
     }
 
     private static void ArmCore(string root)
     {
-        string reset = Path.Combine(root, "reset");
-        Directory.CreateDirectory(reset);
-        string temporary = Path.Combine(reset, TemporaryMarkerFileName);
-        string marker = Path.Combine(reset, MarkerFileName);
-        using (System.IO.FileStream stream = global::System.IO.File.Open(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        try
         {
-            byte[] payload = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
-            stream.Write(payload, 0, payload.Length);
-            stream.Flush(flushToDisk: true);
+            NativeResetControl.CreateResetPending(root);
         }
-        File.Move(temporary, marker, overwrite: false);
+        catch
+        {
+            // A temporary marker is itself recovery authority.  Never remove it through a
+            // path after a failed bounded operation: bootstrap will validate and recover it.
+            throw;
+        }
     }
 
     /// <summary>Runs only when a reset sentinel already exists. Residuals keep the sentinel in place.</summary>
@@ -48,19 +58,30 @@ public static class FactoryReset
         return await CompletePendingCoreAsync(root, removeScheduledTask, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<FactoryResetResult> CompletePendingCoreAsync(string root, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken)
+    private static Task<FactoryResetResult> CompletePendingCoreAsync(string root, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken)
     {
-        if (!IsPending(root)) return new(true, []);
+        if (!IsPending(root)) return Task.FromResult(new FactoryResetResult(true, []));
 
         using Mutex mutex = new(false, DataOperationMutexName);
-        try { mutex.WaitOne(); }
-        catch (AbandonedMutexException) { }
+        if (!TryAcquire(mutex)) return Task.FromResult(new FactoryResetResult(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward process still owns the data-operation lease.")]));
         try
         {
             List<FactoryResetResidual> residuals = [];
+            FactoryResetMarkerState markerState = ReadMarkerState(root, residuals);
+            if (markerState == FactoryResetMarkerState.OnboardingPending) return Task.FromResult(new FactoryResetResult(true, []));
+            if (markerState is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.TransitionPending)) return Task.FromResult(new FactoryResetResult(false, residuals));
+            try
+            {
+                bool transitionCompleted = NativeResetControl.PromoteTemporaryResetMarker(root);
+                if (transitionCompleted) return Task.FromResult(new FactoryResetResult(true, []));
+            }
+            catch (Exception exception) { residuals.Add(new("Reset marker", "ControlStateRecoveryFailed", exception.GetType().Name)); return Task.FromResult(new FactoryResetResult(false, residuals)); }
             if (removeScheduledTask is not null)
             {
-                try { await removeScheduledTask(cancellationToken).ConfigureAwait(false); }
+                // Mutex ownership is thread-affine.  Keep cleanup synchronous while the
+                // bootstrap thread owns it; asynchronous scheduler work may complete on
+                // another thread but does not own this mutex.
+                try { removeScheduledTask(cancellationToken).GetAwaiter().GetResult(); }
                 catch (Exception exception) { residuals.Add(new("Scheduled check", "ScheduleRemovalFailed", exception.Message)); }
             }
             DeleteTree(root, "downloads", residuals);
@@ -69,17 +90,40 @@ public static class FactoryReset
             VerifyAbsent(root, "downloads", residuals);
             VerifyAbsent(root, "logs", residuals);
             foreach (string leaf in new[] { "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal", "pcsteward.db" }) VerifyAbsent(root, leaf, residuals);
-            if (residuals.Count != 0) return new(false, residuals);
+            if (residuals.Count != 0) return Task.FromResult(new FactoryResetResult(false, residuals));
 
-            DeleteLeaf(Path.Combine(root, "reset"), MarkerFileName, residuals);
-            DeleteLeaf(Path.Combine(root, "reset"), TemporaryMarkerFileName, residuals);
-            if (Directory.Exists(Path.Combine(root, "reset")) && !Directory.EnumerateFileSystemEntries(Path.Combine(root, "reset")).Any()) Directory.Delete(Path.Combine(root, "reset"));
-            return new(residuals.Count == 0, residuals);
+            try { NativeResetControl.ReplaceWithOnboardingPending(root); }
+            catch (Exception exception) { residuals.Add(new("Reset marker", "ControlStateWriteFailed", exception.GetType().Name)); }
+            return Task.FromResult(new FactoryResetResult(residuals.Count == 0, residuals));
         }
         finally { mutex.ReleaseMutex(); }
     }
 
     public static Task<FactoryResetResult> CompletePendingAsync(CancellationToken cancellationToken, string? stateRoot = null) => CompletePendingAsync(null, cancellationToken, stateRoot);
+
+    /// <summary>Only the explicit first-run acknowledgement can remove the durable reset authority.</summary>
+    public static FactoryResetResult AcknowledgeOnboarding(string? stateRoot = null)
+    {
+        string root;
+        try { root = ValidateRoot(stateRoot ?? GetStateRoot()); }
+        catch (Exception exception) { return new(false, [new FactoryResetResidual("State root", "UnsafePath", exception.Message)]); }
+        return AcknowledgeOnboardingCore(root);
+    }
+
+    private static FactoryResetResult AcknowledgeOnboardingCore(string root)
+    {
+        using Mutex mutex = new(false, DataOperationMutexName);
+        if (!TryAcquire(mutex)) return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward process still owns the data-operation lease.")]);
+        try
+        {
+            List<FactoryResetResidual> residuals = [];
+            if (ReadMarkerState(root, residuals) is not FactoryResetMarkerState.OnboardingPending) return new(false, residuals);
+            PathSafety.DeleteResult result = NativeResetControl.AcknowledgeAndDelete(root);
+            if (!result.Deleted) residuals.Add(new("Reset marker", result.Reason, MarkerFileName));
+            return new(residuals.Count == 0, residuals);
+        }
+        finally { mutex.ReleaseMutex(); }
+    }
 
     /// <summary>Routine log clear uses the same literal root and non-following primitive as reset.</summary>
     public static Task<FactoryResetResult> ClearLogsAsync(CancellationToken cancellationToken)
@@ -95,8 +139,15 @@ public static class FactoryReset
 
     // Test-only seam. Production callers cannot supply deletion roots; this remains internal and
     // exercises the same non-following primitive under a disposable fixture root.
-    internal static void ArmForTesting(string stateRoot) => ArmCore(ValidateRoot(stateRoot, allowTestRoot: true));
+    internal static void ArmForTesting(string stateRoot)
+    {
+        using Mutex mutex = new(false, DataOperationMutexName);
+        if (!TryAcquire(mutex)) throw new InvalidOperationException("PC Steward still has an active data operation. Wait for it to finish before starting factory reset.");
+        try { ArmCore(ValidateRoot(stateRoot, allowTestRoot: true)); }
+        finally { mutex.ReleaseMutex(); }
+    }
     internal static Task<FactoryResetResult> CompletePendingForTestingAsync(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken) => CompletePendingCoreAsync(ValidateRoot(stateRoot, allowTestRoot: true), removeScheduledTask, cancellationToken);
+    internal static FactoryResetResult AcknowledgeOnboardingForTesting(string stateRoot) => AcknowledgeOnboardingCore(ValidateRoot(stateRoot, allowTestRoot: true));
 
     private static string ValidateRoot(string root, bool allowTestRoot = false)
     {
@@ -104,6 +155,67 @@ public static class FactoryReset
         string candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         if (!allowTestRoot && !string.Equals(expected, candidate, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Factory reset only accepts the compiled PC Steward state root.");
         return PathSafety.EnsureRoot(candidate);
+    }
+
+    private static bool TryAcquire(Mutex mutex)
+    {
+        try { return mutex.WaitOne(0); }
+        catch (AbandonedMutexException) { return true; }
+    }
+
+    private static FactoryResetMarkerState ReadMarkerState(string root, List<FactoryResetResidual> residuals)
+    {
+        try
+        {
+            // A first-ever launch has no application state root yet.  Distinguish that exact
+            // absence from an inaccessible or unsafe existing root; the latter must continue
+            // through the handle-bound reader and fail closed.
+            try { _ = File.GetAttributes(root); }
+            catch (DirectoryNotFoundException) { return FactoryResetMarkerState.None; }
+            catch (FileNotFoundException) { return FactoryResetMarkerState.None; }
+
+            NativeResetControl.ControlSnapshot snapshot = NativeResetControl.Read(root);
+            if (!snapshot.ResetDirectoryExists) return FactoryResetMarkerState.None;
+            if (snapshot.MarkerPayload is null && snapshot.TemporaryPayload is null) return InvalidMarker(residuals, "The reset control directory is empty.");
+            if (snapshot.MarkerPayload is not null && snapshot.TemporaryPayload is not null)
+            {
+                if (IsState(snapshot.MarkerPayload, "ResetPending") && IsState(snapshot.TemporaryPayload, "OnboardingPending")) return FactoryResetMarkerState.TransitionPending;
+                return InvalidMarker(residuals, "Multiple reset control leaves are present.");
+            }
+            string payload = snapshot.MarkerPayload ?? snapshot.TemporaryPayload!;
+            using JsonDocument document = JsonDocument.Parse(payload);
+            JsonElement rootElement = document.RootElement;
+            if (rootElement.ValueKind != JsonValueKind.Object || rootElement.EnumerateObject().Count() != 2 ||
+                !rootElement.TryGetProperty("schemaVersion", out JsonElement version) || version.ValueKind != JsonValueKind.Number || version.GetInt32() != 1 ||
+                !rootElement.TryGetProperty("state", out JsonElement state) || state.ValueKind != JsonValueKind.String || (state.GetString() is not "ResetPending" and not "OnboardingPending") ||
+                rootElement.EnumerateObject().Any(property => property.Name is not "schemaVersion" and not "state"))
+                return InvalidMarker(residuals, "The reset marker is malformed or has an unknown schema.");
+            return state.GetString() == "ResetPending" ? FactoryResetMarkerState.ResetPending : FactoryResetMarkerState.OnboardingPending;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or JsonException or FormatException or InvalidOperationException)
+        {
+            return InvalidMarker(residuals, exception.GetType().Name);
+        }
+    }
+
+    private static FactoryResetMarkerState InvalidMarker(List<FactoryResetResidual> residuals, string detail)
+    {
+        residuals.Add(new FactoryResetResidual("Reset marker", "InvalidMarker", detail));
+        return FactoryResetMarkerState.Invalid;
+    }
+
+    private static bool IsState(string payload, string expected)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(payload);
+            JsonElement root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object && root.EnumerateObject().Count() == 2 &&
+                root.TryGetProperty("schemaVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number && version.GetInt32() == 1 &&
+                root.TryGetProperty("state", out JsonElement state) && state.ValueKind == JsonValueKind.String && state.GetString() == expected &&
+                root.EnumerateObject().All(property => property.Name is "schemaVersion" or "state");
+        }
+        catch (JsonException) { return false; }
     }
 
     private static void DeleteTree(string root, string child, List<FactoryResetResidual> residuals)
@@ -145,3 +257,46 @@ public static class FactoryReset
 
 public sealed record FactoryResetResidual(string Category, string Reason, string Detail);
 public sealed record FactoryResetResult(bool Succeeded, IReadOnlyCollection<FactoryResetResidual> Residuals);
+public enum FactoryResetMarkerState { None, ResetPending, OnboardingPending, TransitionPending, Invalid }
+
+/// <summary>Owns the process-wide reset mutex on a dedicated thread for an asynchronous data operation.</summary>
+public static class DataOperationLease
+{
+    public static void RunSynchronous(Action operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        using Mutex mutex = new(false, FactoryReset.DataOperationMutexName);
+        bool acquired;
+        try { acquired = mutex.WaitOne(0); }
+        catch (AbandonedMutexException) { acquired = true; }
+        if (!acquired) throw new InvalidOperationException("Another PC Steward data operation is still active.");
+        try
+        {
+            if (FactoryReset.GetMarkerState() is not FactoryResetMarkerState.None) throw new InvalidOperationException("Factory reset recovery is pending; PC Steward will not open or change prior state.");
+            operation();
+        }
+        finally { mutex.ReleaseMutex(); }
+    }
+
+    public static Task RunAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken) =>
+        RunAsync(async token => { await operation(token).ConfigureAwait(false); return true; }, cancellationToken);
+
+    public static Task<T> RunAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return Task.Factory.StartNew(() =>
+        {
+            using Mutex mutex = new(false, FactoryReset.DataOperationMutexName);
+            bool acquired;
+            try { acquired = mutex.WaitOne(0); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) throw new InvalidOperationException("Another PC Steward data operation is still active.");
+            try
+            {
+                if (FactoryReset.GetMarkerState() is not FactoryResetMarkerState.None) throw new InvalidOperationException("Factory reset recovery is pending; PC Steward will not open or change prior state.");
+                return operation(cancellationToken).GetAwaiter().GetResult();
+            }
+            finally { mutex.ReleaseMutex(); }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+    }
+}

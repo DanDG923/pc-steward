@@ -4,10 +4,16 @@
     <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
+    <MicrosoftManagementDeployment-Platform>x64</MicrosoftManagementDeployment-Platform>
+    <MicrosoftManagementDeployment-FactoryLinkage>none</MicrosoftManagementDeployment-FactoryLinkage>
     <ApplicationIcon>..\..\design\assets\ico\pc-steward.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.WindowsPackageManager.ComInterop" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.WindowsPackageManager.InProcCom" GeneratePathProperty="true" IncludeAssets="none">
+      <NoWarn>NU1701</NoWarn>
+    </PackageReference>
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
     <ProjectReference Include="../PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
     <ProjectReference Include="../PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
@@ -21,11 +27,26 @@
   <ItemGroup>
     <Content Include="..\..\design\assets\ico\pc-steward.ico" Link="Assets\pc-steward.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\design\assets\png\logo-mark-64.png" Link="Assets\logo-mark-64.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\Microsoft.Management.Deployment.InProc.dll" Link="Microsoft.Management.Deployment.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\Microsoft.Management.Deployment.InProc.dll.manifest" Link="Microsoft.Management.Deployment.dll.manifest" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\WindowsPackageManager.dll" Link="WindowsPackageManager.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="CopyScheduledHostRuntime" AfterTargets="Build;Publish">
+  <Target Name="CopyScheduledHostRuntimeAfterBuild" AfterTargets="Build">
     <ItemGroup>
-      <ScheduledHostRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.*" />
+      <ScheduledHostBuildRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\PCSteward.ScheduledHost.*" Condition="'$(RuntimeIdentifier)' != ''" />
+      <ScheduledHostBuildRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.*" Condition="'$(RuntimeIdentifier)' == ''" />
     </ItemGroup>
-    <Copy SourceFiles="@(ScheduledHostRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\PCSteward.ScheduledHost.dll') And '$(RuntimeIdentifier)' != ''" Text="Required RID-specific PCSteward.ScheduledHost.dll is missing." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.dll') And '$(RuntimeIdentifier)' == ''" Text="Required PCSteward.ScheduledHost.dll is missing." />
+    <Copy SourceFiles="@(ScheduledHostBuildRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyScheduledHostRuntimeAfterPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <ScheduledHostPublishRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\PCSteward.ScheduledHost.*" Condition="'$(RuntimeIdentifier)' != ''" />
+      <ScheduledHostPublishRuntime Include="$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.*" Condition="'$(RuntimeIdentifier)' == ''" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\PCSteward.ScheduledHost.dll') And '$(RuntimeIdentifier)' != ''" Text="Required RID-specific PCSteward.ScheduledHost.dll is missing from publish inputs." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\..\PCSteward.ScheduledHost\bin\$(Configuration)\$(TargetFramework)\PCSteward.ScheduledHost.dll') And '$(RuntimeIdentifier)' == ''" Text="Required PCSteward.ScheduledHost.dll is missing from publish inputs." />
+    <Copy SourceFiles="@(ScheduledHostPublishRuntime)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

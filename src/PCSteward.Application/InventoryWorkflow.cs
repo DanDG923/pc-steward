@@ -28,6 +28,7 @@ public sealed record StructuredUpdateCandidateEvidence(
     string InstalledVersion,
     string CandidateVersion);
 
+/// <summary>Deployment policy for the evidence that may reach an explicit final user review.</summary>
 /// <summary>Compile-time composition policy for update scopes exposed by a deployment.</summary>
 public sealed record UpdateExecutionCapabilities(bool MachineScopeEnabled)
 {

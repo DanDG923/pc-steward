@@ -21,10 +21,28 @@ internal static class Program
         catch { return 1; }
     }
 
-    private static async Task<int> RunAsync()
+    private static Task<int> RunAsync() => Task.Factory.StartNew(RunWithOwnedMutexes, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    // Named Mutex release is thread-affine. This dedicated owner thread waits synchronously for
+    // the asynchronous scan work, then releases both mutexes itself.
+    private static int RunWithOwnedMutexes()
     {
         using Mutex mutex = new(false, ScanMutexName);
-        if (!mutex.WaitOne(0)) return 0;
+        bool scanLeaseHeld;
+        try { scanLeaseHeld = mutex.WaitOne(0); }
+        catch (AbandonedMutexException) { scanLeaseHeld = true; }
+        if (!scanLeaseHeld) return 0;
+        using Mutex dataMutex = new(false, FactoryReset.DataOperationMutexName);
+        bool dataLeaseHeld;
+        try { dataLeaseHeld = dataMutex.WaitOne(0); }
+        catch (AbandonedMutexException) { dataLeaseHeld = true; }
+        if (!dataLeaseHeld) { mutex.ReleaseMutex(); return 0; }
+        try { return RunWithLeasesAsync().GetAwaiter().GetResult(); }
+        finally { dataMutex.ReleaseMutex(); mutex.ReleaseMutex(); }
+    }
+
+    private static async Task<int> RunWithLeasesAsync()
+    {
         try
         {
             // This preflight intentionally occurs before the state directory, SQLite, settings,
@@ -63,6 +81,5 @@ internal static class Program
             return scan.Succeeded ? 0 : 1;
         }
         catch (OperationCanceledException) { return 2; }
-        finally { mutex.ReleaseMutex(); }
     }
 }

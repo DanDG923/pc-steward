@@ -68,6 +68,104 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void StructuredWinGetAuthorityUsesCompositeCatalogForInstalledUpdateCorrelation()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "PCSteward.Provider.WinGet",
+            "WingetStructuredUpdateCandidateAuthority.cs"));
+
+        StringAssert.Contains(source, "CompositeSearchBehavior = CompositeSearchBehavior.RemotePackagesFromAllCatalogs");
+        Assert.IsFalse(source.Contains("CompositeSearchBehavior.LocalCatalogs", StringComparison.Ordinal));
+        StringAssert.Contains(source, "InstalledScope = PackageInstallScope.User");
+        StringAssert.Contains(source, "compositeOptions.Catalogs.Add(reference)");
+        StringAssert.Contains(source, "manager.CreateCompositePackageCatalog(compositeOptions)");
+        StringAssert.Contains(source, "compositeReference.ConnectAsync()");
+        Assert.IsFalse(source.Contains("reference.ConnectAsync()", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void DesktopPublishCarriesTheNativeWinGetStructuredAuthorityRuntime()
+    {
+        string root = FindRepositoryRoot();
+        XDocument project = XDocument.Load(Path.Combine(
+            root,
+            "src",
+            "PCSteward.Desktop",
+            "PCSteward.Desktop.csproj"));
+        XNamespace msbuild = project.Root?.Name.Namespace ?? XNamespace.None;
+
+        string[] directPackages = project
+            .Descendants(msbuild + "PackageReference")
+            .Select(reference => reference.Attribute("Include")?.Value)
+            .Where(include => include is not null)
+            .Cast<string>()
+            .ToArray();
+        string? deploymentPlatform = project
+            .Descendants(msbuild + "MicrosoftManagementDeployment-Platform")
+            .Select(element => element.Value)
+            .SingleOrDefault();
+        XElement? comInteropReference = project
+            .Descendants(msbuild + "PackageReference")
+            .SingleOrDefault(reference =>
+                string.Equals(reference.Attribute("Include")?.Value,
+                    "Microsoft.WindowsPackageManager.ComInterop",
+                    StringComparison.Ordinal));
+        string packagingScript = File.ReadAllText(Path.Combine(
+            root,
+            "scripts",
+            "New-PrivateBetaPackage.ps1"));
+
+        CollectionAssert.Contains(directPackages, "Microsoft.WindowsPackageManager.ComInterop");
+        CollectionAssert.Contains(directPackages, "Microsoft.WindowsPackageManager.InProcCom");
+        Assert.AreEqual("x64", deploymentPlatform);
+        Assert.IsNotNull(comInteropReference);
+        Assert.AreEqual("true", comInteropReference.Attribute("GeneratePathProperty")?.Value);
+        StringAssert.Contains(packagingScript, "Microsoft.Management.Deployment.CsWinRTProjection.dll");
+        StringAssert.Contains(packagingScript, "Microsoft.Management.Deployment.dll");
+        StringAssert.Contains(packagingScript, "Microsoft.Management.Deployment.winmd");
+        StringAssert.Contains(packagingScript, "Microsoft.Management.Deployment.dll.manifest");
+        StringAssert.Contains(packagingScript, "WindowsPackageManager.dll");
+    }
+
+    [TestMethod]
+    public void DesktopStartupCompletesEveryValidPendingResetStateBeforeComposition()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "App.xaml.cs"));
+
+        StringAssert.Contains(source, "markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.TransitionPending");
+        StringAssert.Contains(source, "FactoryReset.CompletePendingAsync");
+        StringAssert.Contains(source, "showPostResetOnboarding = true;");
+        StringAssert.Contains(source, "IsFreshResetStoreAsync");
+        StringAssert.Contains(source, "new DataOperationBusyWindow().Activate();");
+        StringAssert.Contains(source, "Title = \"PC Steward is busy\";");
+    }
+
+    [TestMethod]
+    public void PostResetOnboardingReloadsConfirmedFreshStateBeforeOpeningScan()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        int markerState = source.IndexOf("FactoryResetMarkerState markerState = FactoryReset.GetMarkerState();", StringComparison.Ordinal);
+        int reload = source.IndexOf("markerState != FactoryResetMarkerState.None || !LoadSavedInventory()", StringComparison.Ordinal);
+        int openScan = source.IndexOf("destination = \"scan\"; Render();", StringComparison.Ordinal);
+
+        Assert.IsTrue(markerState >= 0 && reload > markerState && openScan > reload);
+        StringAssert.Contains(source, "catch (InvalidOperationException) { return false; }");
+        StringAssert.Contains(source, "if (startupStateLoadFailed) { RenderStartupStateLoadFailure(); return; }");
+    }
+
+    [TestMethod]
+    public void ScheduledHostTreatsAnAbandonedScanMutexAsAnOwnedLease()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ScheduledHost", "Program.cs"));
+
+        StringAssert.Contains(source, "try { scanLeaseHeld = mutex.WaitOne(0); }");
+        StringAssert.Contains(source, "catch (AbandonedMutexException) { scanLeaseHeld = true; }");
+        StringAssert.Contains(source, "finally { dataMutex.ReleaseMutex(); mutex.ReleaseMutex(); }");
+    }
+
+    [TestMethod]
     public void StandaloneDesktopOmitsElevatedHelperAndComposesUserScopeOnlyUpdates()
     {
         string root = FindRepositoryRoot();
@@ -115,6 +213,31 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "Needs a decision");
         StringAssert.Contains(source, "Confirm package identity");
         StringAssert.Contains(source, "Confirm all current package identities");
+    }
+
+    [TestMethod]
+    public void DetailDecisionControlsAreReadOnTheUiThreadBeforeStartingADataOperationLease()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+
+        Assert.IsFalse(source.Contains("RunAsync(token => workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("RunAsync(token => workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, reason.Text", StringComparison.Ordinal));
+        StringAssert.Contains(source, "string decisionReason = reason.Text;");
+        StringAssert.Contains(source, "DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null;");
+        StringAssert.Contains(source, "string sourceId = mappingSource.SelectedItem?.ToString() ?? \"winget\";");
+    }
+
+    [TestMethod]
+    public void UpdateOutcomeUsesTheExistingXamlRootUntilTheDialogCloses()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        int completionStart = source.IndexOf("finally { isExecuting = false; LoadSavedInventory(); }", StringComparison.Ordinal);
+        int outcome = source.IndexOf("await ShowUpdateOutcomeAsync(result.Started", completionStart, StringComparison.Ordinal);
+        int render = source.IndexOf("Render();", outcome, StringComparison.Ordinal);
+
+        Assert.IsTrue(completionStart >= 0 && outcome > completionStart && render > outcome);
+        Assert.IsFalse(source.Contains("finally { isExecuting = false; LoadSavedInventory(); Render(); }", StringComparison.Ordinal));
     }
 
     [TestMethod]

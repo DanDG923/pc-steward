@@ -47,6 +47,12 @@ Raw results include environment/build IDs, warm-up, every sample, median and p95
 
 This evidence validates the accepted measurement approach only. It is not a product-performance claim: the host has unverified SSD-equivalent storage and no agreed fixed power plan, the online path is a local simulation, and the future application/UI/process tree does not yet exist. Final-application evidence on the recorded baseline remains mandatory for acceptance criteria; a VM is optional.
 
+## Task 90 baseline acceptance — 2026-07-30
+
+The product owner accepted the physical 3XS PC as the ADR-006 final-application baseline with the fixed `3XS-Overclock` power plan. The retained capture records Windows 11 Home build `26200`, AMD Ryzen 7 9800X3D with 16 logical processors, 31.15 GiB RAM and NVMe storage. Results from this host are therefore baseline results rather than exploratory product-owner-PC results, provided each protocol records the same fixed plan and environment identity.
+
+The clean packaged idle observations on this baseline measured 0.4521% total-system CPU / 181,592,064 B peak working set from cold start and 0.1491% / 186,441,728 B after warm-up. These establish the CPU and memory portions only. Early process-attributed I/O and unverified network attribution are retained under the separately approved Task 90 performance exception; the untouched mandatory threshold is not silently redefined.
+
 ## Reconsider when
 
 Baseline variance prevents stable thresholds or the target-user hardware floor changes.

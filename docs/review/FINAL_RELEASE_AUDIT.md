@@ -49,6 +49,38 @@ The green automated suites prove valuable safety controls but do not substitute 
 
 **Finding count:** 10 open — 0 Blocker, 8 High, 2 Medium, 0 Low.
 
+## Task 90 remediation progress (uncommitted)
+
+The following local changes and evidence were gathered under Task 90. They are not an independent review or a release claim; human-owned release gates remain open and the worktree must not be committed until the remediation owner concludes no High/Blocker remains.
+
+| Finding | Safe remediation/evidence | Current disposition |
+|---|---|---|
+| `FRA-01` | `FactoryReset` now takes the named lease before arming or cleanup and uses non-blocking fail-closed acquisition. Both final and temporary marker leaves are schema/state validated before deletion; malformed content leaves state intact and opens blocking recovery. Desktop startup plus scan, source refresh/settings, update/verification, schedule settings and cleanup now run through a dedicated-thread shared lease; ScheduledHost owns its mutexes on a dedicated thread while awaiting scan work. A genuinely asynchronous contention regression passed. | Code remediation is complete locally; the full hostile/crash/second-process supported-host matrix remains unexecuted. **Open High for field verification.** |
+| `FRA-02` | The Windows scheduler adapter now uses the Task Scheduler COM API for exact before/after task existence rather than localized `schtasks` output. On this host the absent exact query returned COM HRESULT `0x80070002`; only a successful COM absence check completes reset. Regression cases cover present/delete/absent, residual presence, and no-op absence. App bootstrap supplies `EnsureAbsentAsync`; a failure retains the marker. | Code remediation is complete locally; a supported-host exact-task removal observation remains required. **Open High for field verification.** |
+| `FRA-03` | Post-reset bootstrap now verifies a newly migrated store has no prior-state rows/default schedule settings and routes directly to a no-auto-scan onboarding view. A fresh-store regression passed. | Code regression fixed; destructive supported-host observation remains required. **Open High.** |
+| `FRA-04/05/06/07` | No signer/channel, third-party update, baseline, or supported-host lifecycle action was fabricated. The package was rebuilt unsigned only for local structural inspection. Idle source inspection found no recurring desktop timer; no speculative resource change was made. | **Open High; human approval and/or field evidence required.** |
+| `FRA-08` | Native About & support now accurately describes local-only scope, no helper/elevation, data/removal, blockers, support and rollback. Release notes remove the obsolete elevation claim; known limitations no longer direct a completed task. | Locally built; package/UI inspection remains required. **Open High.** |
+| `FRA-09` | Rebuilt package reconciles all packaged dependency manifests: 14 unique components, 15 CycloneDX dependency-graph nodes, 31 exact edges, portable relative manifest paths, exact licence metadata, `licence-inventory.json`, and a payload-hashed `THIRD-PARTY-NOTICES.txt`. The integrated validator recomputes all 90 payload and ZIP-entry lengths/hashes, requires runnable managed companions for both executable entrypoints, and rejects missing/extra content. The product owner accepted the mapped MIT, Apache-2.0, WebView2 BSD-style, and Microsoft redistribution terms conditional on shipping those notices; this engineering decision is explicitly not legal advice. | Local package evidence/acceptance is complete; normal signing/channel gates remain independent. **Locally remediated.** |
+| `FRA-10` | A normal supported publish now retains three WebView payload files and declares `Microsoft.Web.WebView2`; no product source instantiates WebView. The product owner revised the native-design boundary to prohibit embedded WebView/browser UI while permitting unused transitive WinUI/WebView2 runtime support files. | Design conflict is resolved; exact packaged launch smoke remains required. **Open Medium for field verification.** |
+
+Cycle-3 local verification on the Task 90 worktree: native `FactoryReset` **12/12 passed**; combined reset/scheduler focused tests **18/18 passed** (scheduler 6); Release build **0 warnings, 0 errors**; full suite **226/226 passed** (55 Domain, 138 Application integration, 13 Architecture, 20 Security). This is a historical intermediate checkpoint; the final Task 90 reconciliation below supersedes its package/test counts and field dispositions.
+
+## Task 90 final reconciliation handoff — 2026-07-31
+
+This section is the remediation handoff, not the fresh Task 31 verdict. It preserves the original audit above while recording how its findings reached a commit-eligible Task 90 disposition.
+
+- Final Release build: **0 warnings, 0 errors**. Full suite: **237/237 passed** (55 Domain, 145 Application integration, 17 Architecture, 20 Security). NuGet advisory query returned zero vulnerable package rows across 17 projects. The final review-found clean-profile defect is fixed: exact root absence is `None`, while unsafe/inaccessible existing state remains fail-closed.
+- `FRA-01–03`: shared data-operation coordination, validated reset marker states, exact language-independent Task Scheduler COM checks, fresh-store verification and no-auto-scan onboarding are implemented with regression coverage. The remaining destructive/crash/second-process/supported-host observations are explicitly omitted only for Task 90 by `PO-EXC-90-RESET-LIFECYCLE-OMISSIONS`.
+- `FRA-04`: no signer or distribution identity was fabricated. `PO-EXC-90-SIGN-LOCAL-ONLY` permits only local engineering completion of Task 90 and prohibits external distribution.
+- `FRA-05`: a production-path current-user update completed for `Microsoft.VisualStudioCode` from 1.129.0 to 1.130.0 using the official WinGet community source. Immutable job/event evidence and independent HKCU installed-state corroboration show success with no observed UAC or helper launch.
+- `FRA-06`: the product owner accepted this physical 3XS host and fixed `3XS-Overclock` power plan. Clean CPU/memory observations are recorded in ADR-006; the remaining recurring-I/O, network-attribution and repetition protocol is omitted only for Task 90 by `PO-EXC-90-PERF-BOUNDARY`.
+- `FRA-07`: supported reset/schedule/replacement/removal/exit omissions are bound to the lifecycle exception above; no omitted case is called Proven.
+- `FRA-08`: the packaged native About/support view accurately states local-first behavior, current-user-only updates, no helper/elevation, data/removal behavior and the external-release boundary. Launch/render/close smoke passed without a residual process.
+- `FRA-09`: the final validator passes 94 payload files, 15 package components, 16 SBOM dependency nodes, 32 edges and shipped notices. Product-owner engineering acceptance covers the identified MIT, Apache-2.0, WebView2 BSD-style and Microsoft redistribution terms subject to shipping those notices.
+- `FRA-10`: the approved design revision prohibits embedded WebView/browser UI while permitting unused transitive WinUI/WebView2 support files. Static composition checks and packaged launch smoke satisfy the Task 90 boundary.
+
+The exact unsigned local-only archive SHA-256 is `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`. Task 90 may be committed after an independent remediation re-review passes. Task 31 must then run fresh under GPT-5.6 Sol / Extra High; until it returns READY, the phase verdict remains **NOT READY** and no release/tag/upload/distribution is authorized.
+
 ## Mandatory MVP acceptance criteria
 
 Only `Proven`, `Failed`, and `Unverified` are used. An approved deferral is not converted to Proven.

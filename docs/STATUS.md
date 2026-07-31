@@ -1,13 +1,13 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — final MVP release remediation required
-**Current task:** Task 31 complete — final release audit NOT READY; Task 90 is next (requires GPT-5.6 Terra / High)
-**Last green tree:** Task 31 reviewed implementation `2ff0cd2` — Release build 0 warnings/errors; full suite 209 passed
+**Current phase:** Phase 4 — Task 90 remediation complete; fresh final audit required
+**Current task:** Task 90 complete; next is Task 31 in a fresh GPT-5.6 Sol / Extra High review
+**Last green tree:** Task 90 candidate (this commit) — Release build 0 warnings/errors; full suite 237 passed
 **Current branch:** `phase/4-beta`
 **Build command:** `pwsh -NoProfile -File .\scripts\Build.ps1`
 **Test command:** `pwsh -NoProfile -File .\scripts\Test.ps1`
 **Performance command:** `dotnet run --project .\tests\PCSteward.Performance\PCSteward.Performance.csproj --configuration Release --no-build`
-**Phase gate:** FAIL — final MVP audit is NOT READY; do not release or repeat Task 31 until Task 90 remediation is committed
+**Phase gate:** FAIL — external release remains NOT READY until a fresh Task 31 audit returns READY
 
 ## Decisions
 
@@ -45,11 +45,11 @@ The final verdict and residual-risk disposition are in [Phase 3 security review]
 
 ## Residual risks and accepted deferrals
 
-The standalone package does not ship or compose the elevated helper; protected-root evidence is historical/future-installed-mode evidence only. The final audit found eight High and two Medium findings: reset coordination/exact-task verification/onboarding, signing/distribution, current user-scope update proof, performance, standalone lifecycle/scheduled exit, in-app limitations/release accuracy, licence/SBOM/manifest quality, and WebView runtime contents. `PO-EXC-29-PERF-01` remains a deferral, not a pass. Provider-disconnect cancellation, same-user temporary-export substitution, imperfect package-ID/process-name correlation, and the un-replayed outcome dialog remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
+The standalone package does not ship or compose the elevated helper; protected-root evidence is historical/future-installed-mode evidence only. Task 90 closes its remediation gate with three product-owner exceptions bound to the local-only archive: missing signer/channel, the remaining performance protocol, and omitted destructive/supported-host lifecycle observations. Those omissions are not promoted to Proven and prohibit an external-release claim. Provider-disconnect cancellation, same-user temporary-export substitution, and imperfect package-ID/process-name correlation remain residual risks. ADR-003 and ADR-011 remain Provisional. `AC-UX-01–09` are Optional under ADR-021.
 
 ## Next task
 
-Task 31 reviewed the complete repository/history and independently reran the critical gates: Release build 0 warnings/errors, full suite 209/209, focused critical matrix 114/114, fresh fixture benchmark, zero known NuGet vulnerabilities, classified secret scan, and exact package/hash inspection. [The final release audit](review/FINAL_RELEASE_AUDIT.md) is **NOT READY**: 43/54 mandatory acceptance criteria are Proven, 4 Failed and 7 Unverified; mandatory NFRs include 1 Failed and 6 Unverified. Run Task 90 next under GPT-5.6 Terra / High, remediate `FRA-01` through `FRA-10`, commit, then stop for a fresh Task 31 Sol / Extra High review. The current Sol / Extra High task must stop before Task 90 because its required model/reasoning settings differ.
+Run Task 31 as a fresh GPT-5.6 Sol / Extra High audit. Task 90 records a successful production-path current-user VS Code update from 1.129.0 to 1.130.0 with no observed UAC/helper, accepted 3XS/`3XS-Overclock` CPU/memory baseline evidence, corrected reset/scheduler/onboarding/clean-profile controls, accurate native About/support content, and a successful exact packaged-app launch/close smoke. Final verification is Release build 0 warnings/errors and 237/237 tests (55 Domain, 145 Application integration, 17 Architecture, 20 Security). The mechanically validated unsigned archive has 94 files, 15 package components, 16 SBOM nodes/32 edges, shipped notices, and SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`. Do not release, tag, publish or distribute it unless the fresh audit returns READY and all exception boundaries are respected.
 
 ## Rules for updating this file
 
