@@ -34,7 +34,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         WindowsCurrentUserScheduledTaskRegistrar scheduleRegistrar = new(Path.Combine(AppContext.BaseDirectory, "PCSteward.ScheduledHost.exe"));
         bool showPostResetOnboarding = false;
         FactoryResetMarkerState markerState = FactoryReset.GetMarkerState(stateDirectory);
-        if (markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.TransitionPending)
+        if (markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)
         {
             FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
             if (!reset.Succeeded)
@@ -49,6 +49,15 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         {
             new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Reset marker", "InvalidMarker", "The reset control state is invalid.")])).Activate();
             return;
+        }
+        if (showPostResetOnboarding)
+        {
+            FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(stateDirectory);
+            if (!onboardingAuthority.Succeeded)
+            {
+                new ResetRecoveryWindow(onboardingAuthority).Activate();
+                return;
+            }
         }
         Directory.CreateDirectory(stateDirectory);
         SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"));

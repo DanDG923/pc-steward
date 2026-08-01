@@ -357,7 +357,9 @@ internal static class NativeResetControl
     private const string ResetDirectory = "reset";
     private const string Marker = "pending.v1.json";
     private const string Temporary = "pending.v1.tmp";
-    private const int MaximumMarkerBytes = 128;
+    // Bounded marker data includes fixed recovery metadata and five fixed category results.
+    // It never holds a path or any deletion authority.
+    private const int MaximumMarkerBytes = 2048;
     private const int FileRenameInformation = 10;
     private const int FileDirectoryInformation = 1;
     private const int StatusNoMoreFiles = unchecked((int)0x80000006);
@@ -366,6 +368,9 @@ internal static class NativeResetControl
     // Test-only cutpoints: the handles are already bound before either callback runs.
     internal static Action? BeforeMarkerDispositionForTesting { get; set; }
     internal static Action? BeforeDirectoryDispositionForTesting { get; set; }
+    internal static Action? BeforeProgressWriteForTesting { get; set; }
+    internal static Action? BeforeFinalOnboardingRootVerificationForTesting { get; set; }
+    internal static Action? BeforeOnboardingControlVerificationForTesting { get; set; }
 
     internal static ControlSnapshot Read(string root)
     {
@@ -378,54 +383,86 @@ internal static class NativeResetControl
 
     internal static void CreateResetPending(string root)
     {
-        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
         using (SafeFileHandle? existing = TryOpenReset(rootHandle))
         {
             if (existing is not null) throw new InvalidOperationException("Reset control state already exists, including an empty crash-state directory.");
         }
         using SafeFileHandle resetHandle = OpenOrCreateReset(rootHandle);
         if (EnumerateExactChildren(resetHandle).Count != 0) throw new InvalidOperationException("Reset control state already exists or contains an unexpected child.");
-        WriteNewLeaf(resetHandle, Temporary, "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
+        WriteNewLeaf(resetHandle, Temporary, FactoryResetMarker.CreatePending().ToPayload());
         RenameLeaf(resetHandle, Temporary, Marker, replace: false);
     }
 
-    internal static void ReplaceWithOnboardingPending(string root)
+    internal static void ReplaceWithOnboardingPending(string root, FactoryResetMarker marker)
+    {
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
+        EnsureOnlyResetControlAtRoot(rootHandle);
+        using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
+        HashSet<string> names = EnumerateExactChildren(resetHandle);
+        if (!names.SetEquals([Marker])) throw new InvalidOperationException("Reset control state is not exactly the expected marker.");
+        if (!FactoryResetMarker.TryParse(ReadLeaf(resetHandle, Marker), out _)) throw new InvalidOperationException("Reset control marker is invalid.");
+        WriteNewLeaf(resetHandle, Temporary, marker.ToPayload());
+        RenameLeaf(resetHandle, Temporary, Marker, replace: true);
+        EnsureExactOnboardingControl(rootHandle, resetHandle);
+    }
+
+    internal static void ReplaceResetProgress(string root, FactoryResetMarker marker)
     {
         using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
         using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
         HashSet<string> names = EnumerateExactChildren(resetHandle);
         if (!names.SetEquals([Marker])) throw new InvalidOperationException("Reset control state is not exactly the expected marker.");
-        _ = ReadLeaf(resetHandle, Marker); // validates leaf type, link count and bounded content access before replacement.
-        WriteNewLeaf(resetHandle, Temporary, "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}");
+        if (!FactoryResetMarker.TryParse(ReadLeaf(resetHandle, Marker), out _)) throw new InvalidOperationException("Reset control marker is invalid.");
+        BeforeProgressWriteForTesting?.Invoke();
+        WriteNewLeaf(resetHandle, Temporary, marker.ToPayload());
         RenameLeaf(resetHandle, Temporary, Marker, replace: true);
+    }
+
+    internal static string ReadCurrentMarker(string root)
+    {
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+        using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
+        HashSet<string> names = EnumerateExactChildren(resetHandle);
+        if (!names.SetEquals([Marker])) throw new InvalidOperationException("Reset control state is not exactly the expected marker.");
+        return ReadLeaf(resetHandle, Marker);
     }
 
     /// <summary>A crash after durable temporary creation is recoverable without dropping authority.</summary>
     /// <returns>True when a previously-written onboarding temporary marker was atomically promoted.</returns>
     internal static bool PromoteTemporaryResetMarker(string root)
     {
-        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root);
+        using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
         using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
         HashSet<string> names = EnumerateExactChildren(resetHandle);
         if (names.SetEquals([Temporary]))
         {
-            _ = ReadLeaf(resetHandle, Temporary);
+            if (!FactoryResetMarker.TryParse(ReadLeaf(resetHandle, Temporary), out FactoryResetMarker temporary)) throw new InvalidOperationException("Reset control temporary marker is invalid.");
             RenameLeaf(resetHandle, Temporary, Marker, replace: false);
-            return false;
+            if (temporary.State != FactoryResetMarkerState.OnboardingPending) return false;
+            BeforeOnboardingControlVerificationForTesting?.Invoke();
+            EnsureExactOnboardingControl(rootHandle, resetHandle);
+            return true;
         }
         if (names.SetEquals([Marker])) return false;
         if (names.SetEquals([Marker, Temporary]))
         {
             string marker = ReadLeaf(resetHandle, Marker);
             string temporary = ReadLeaf(resetHandle, Temporary);
-            if (!IsExactState(marker, "ResetPending") || !IsExactState(temporary, "OnboardingPending")) throw new InvalidOperationException("Reset control state contains an invalid transition combination.");
+            if (!FactoryResetMarker.TryParse(marker, out FactoryResetMarker current) || !FactoryResetMarker.TryParse(temporary, out FactoryResetMarker next) ||
+                !current.SameReset(next) || current.State is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial) ||
+                next.State is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.OnboardingPending))
+                throw new InvalidOperationException("Reset control state contains an invalid transition combination.");
             RenameLeaf(resetHandle, Temporary, Marker, replace: true);
+            if (next.State != FactoryResetMarkerState.OnboardingPending) return false;
+            BeforeOnboardingControlVerificationForTesting?.Invoke();
+            EnsureExactOnboardingControl(rootHandle, resetHandle);
             return true;
         }
         throw new InvalidOperationException("Reset control state is not exactly one recoverable marker.");
     }
 
-    internal static void VerifyOnlyMarker(string root, List<FactoryResetResidual> residuals)
+    internal static void VerifyOnlyResetControl(string root, List<FactoryResetResidual> residuals)
     {
         try
         {
@@ -441,11 +478,53 @@ internal static class NativeResetControl
         }
     }
 
-    internal static PathSafety.DeleteResult AcknowledgeAndDelete(string root)
+    internal static void VerifyOnlyExpectedRootChild(string root, List<FactoryResetResidual> residuals)
     {
         try
         {
             using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
+            EnsureOnlyResetControlAtRoot(rootHandle);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+        {
+            residuals.Add(new FactoryResetResidual("State root", "UnexpectedOwnedObject", exception.GetType().Name));
+        }
+    }
+
+    internal static void VerifyOnlyOnboardingRoot(string root, List<FactoryResetResidual> residuals)
+    {
+        try
+        {
+            using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
+            EnsureOnlyOnboardingRoot(rootHandle);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+        {
+            residuals.Add(new FactoryResetResidual("State root", "UnexpectedOwnedObject", exception.GetType().Name));
+        }
+    }
+
+    internal static void VerifyOnlyOnboardingBootstrapRoot(string root, List<FactoryResetResidual> residuals)
+    {
+        try
+        {
+            using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes);
+            using SafeFileHandle resetHandle = OpenExistingReset(rootHandle);
+            EnsureExactOnboardingControl(rootHandle, resetHandle);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+        {
+            residuals.Add(new FactoryResetResidual("Reset marker", "ControlStateVerificationFailed", exception.GetType().Name));
+        }
+    }
+
+    internal static PathSafety.DeleteResult AcknowledgeAndDelete(string root)
+    {
+        try
+        {
+            using SafeFileHandle rootHandle = NativeDelete.OpenVerifiedRoot(root, NativeDelete.ReadData | NativeDelete.ReadAttributes | NativeDelete.AddSubdirectory);
+            EnsureOnlyOnboardingRoot(rootHandle);
+            FactoryResetMarker? onboardingMarker = null;
             using (SafeFileHandle resetHandle = OpenExistingReset(rootHandle, NativeDelete.DeleteAccess | NativeDelete.ReadData | NativeDelete.ReadAttributes))
             {
                 HashSet<string> names = EnumerateExactChildren(resetHandle);
@@ -454,7 +533,8 @@ internal static class NativeResetControl
                 using (SafeFileHandle markerHandle = NativeDelete.OpenRelativeObject(resetHandle, authority, NativeDelete.DeleteAccess | NativeDelete.ReadData | NativeDelete.ReadAttributes, directory: false))
                 {
                     if (NativeDelete.GetInformation(markerHandle).NumberOfLinks != 1) return new(false, false, "UnsafePath");
-                    if (!IsExactState(ReadLeaf(markerHandle), "OnboardingPending")) return new(false, false, "InvalidMarker");
+                    if (!FactoryResetMarker.TryParse(ReadLeaf(markerHandle), out FactoryResetMarker parsedMarker) || parsedMarker.State != FactoryResetMarkerState.OnboardingPending) return new(false, false, "InvalidMarker");
+                    onboardingMarker = parsedMarker;
                     BeforeMarkerDispositionForTesting?.Invoke();
                     NativeDelete.MarkForDeletion(markerHandle);
                 }
@@ -467,15 +547,36 @@ internal static class NativeResetControl
                 {
                     // The marker is already unlinked.  Retain a durable, valid temporary authority
                     // through the still-bound reset handle before reporting failure.
-                    try { WriteNewLeaf(resetHandle, Temporary, "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}"); }
+                    try
+                    {
+                        if (onboardingMarker is not null) WriteNewLeaf(resetHandle, Temporary, onboardingMarker.ToPayload());
+                    }
                     catch { }
                     throw;
                 }
             }
-            // The root handle is still the same verified file object.  A name reintroduced at
-            // the fixed child position proves a swap and cannot be acknowledged as success.
-            if (EnumerateNames(rootHandle).Contains(ResetDirectory, StringComparer.Ordinal)) return new(false, false, "ControlDirectoryReintroduced");
-            return new(true, false, "Deleted");
+            try
+            {
+                BeforeFinalOnboardingRootVerificationForTesting?.Invoke();
+                // The root handle is still the same verified file object.  No reset control,
+                // unexpected child, reparse point, type collision, or hard-linked SQLite leaf
+                // can be acknowledged as success after the control directory is disposed.
+                EnsureOnlyFreshStoreRoot(rootHandle);
+                return new(true, false, "Deleted");
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+            {
+                try
+                {
+                    if (onboardingMarker is null) return new(false, false, "ControlStateRecoveryFailed");
+                    RestoreOnboardingAuthority(rootHandle, onboardingMarker);
+                    return new(false, false, "FinalRootVerificationFailed");
+                }
+                catch (Exception restoreException) when (restoreException is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+                {
+                    return new(false, false, "ControlStateRecoveryFailed");
+                }
+            }
         }
         catch (FileNotFoundException) { return new(false, true, "Absent"); }
         catch (DirectoryNotFoundException) { return new(false, true, "Absent"); }
@@ -499,18 +600,68 @@ internal static class NativeResetControl
         return names;
     }
 
-    private static bool IsExactState(string payload, string expected)
+    private static void EnsureOnlyResetControlAtRoot(SafeFileHandle root)
     {
-        try
+        HashSet<string> names = EnumerateNames(root).ToHashSet(StringComparer.Ordinal);
+        if (!names.SetEquals([ResetDirectory])) throw new UnexpectedOwnedRootException();
+    }
+
+    private static void EnsureExactOnboardingControl(SafeFileHandle root, SafeFileHandle boundReset)
+    {
+        EnsureOnlyResetControlAtRoot(root);
+        using SafeFileHandle namedReset = OpenExistingReset(root);
+        NativeDelete.ByHandleFileInformation expected = NativeDelete.GetInformation(boundReset);
+        NativeDelete.ByHandleFileInformation current = NativeDelete.GetInformation(namedReset);
+        if (expected.VolumeSerialNumber != current.VolumeSerialNumber || expected.FileIndexHigh != current.FileIndexHigh || expected.FileIndexLow != current.FileIndexLow)
+            throw new SecurityException("The reset control directory was replaced during verification.");
+        HashSet<string> names = EnumerateExactChildren(namedReset);
+        if (!names.SetEquals([Marker]) || !FactoryResetMarker.TryParse(ReadLeaf(namedReset, Marker), out FactoryResetMarker marker) || marker.State != FactoryResetMarkerState.OnboardingPending)
+            throw new InvalidOperationException("Reset control state is not the exact onboarding marker.");
+    }
+
+    private static void EnsureOnlyOnboardingRoot(SafeFileHandle root)
+    {
+        HashSet<string> names = EnumerateNames(root).ToHashSet(StringComparer.Ordinal);
+        string[] allowed = [ResetDirectory, "pcsteward.db", "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal"];
+        if (!names.IsSubsetOf(allowed)) throw new UnexpectedOwnedRootException();
+        ValidateFreshSqliteLeaves(root, names);
+    }
+
+    private static void EnsureOnlyFreshStoreRoot(SafeFileHandle root)
+    {
+        HashSet<string> names = EnumerateNames(root).ToHashSet(StringComparer.Ordinal);
+        string[] allowed = ["pcsteward.db", "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal"];
+        if (!names.IsSubsetOf(allowed)) throw new UnexpectedOwnedRootException();
+        ValidateFreshSqliteLeaves(root, names);
+    }
+
+    private static void ValidateFreshSqliteLeaves(SafeFileHandle root, HashSet<string> names)
+    {
+        foreach (string leafName in new[] { "pcsteward.db", "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal" })
         {
-            using JsonDocument document = JsonDocument.Parse(payload);
-            JsonElement root = document.RootElement;
-            return root.ValueKind == JsonValueKind.Object && root.EnumerateObject().Count() == 2 &&
-                root.TryGetProperty("schemaVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number && version.GetInt32() == 1 &&
-                root.TryGetProperty("state", out JsonElement state) && state.ValueKind == JsonValueKind.String && state.GetString() == expected &&
-                root.EnumerateObject().All(item => item.Name is "schemaVersion" or "state");
+            if (!names.Contains(leafName)) continue;
+            using SafeFileHandle leaf = NativeDelete.OpenRelativeObject(root, leafName, NativeDelete.ReadAttributes, directory: false);
+            if (NativeDelete.GetInformation(leaf).NumberOfLinks != 1) throw new SecurityException("A fresh SQLite leaf has an unsafe link count.");
         }
-        catch (JsonException) { return false; }
+    }
+
+    private static void RestoreOnboardingAuthority(SafeFileHandle root, FactoryResetMarker marker)
+    {
+        using SafeFileHandle? existing = TryOpenReset(root);
+        if (existing is not null)
+        {
+            HashSet<string> names = EnumerateExactChildren(existing);
+            if (names.SetEquals([Marker]) && FactoryResetMarker.TryParse(ReadLeaf(existing, Marker), out FactoryResetMarker current) && current.State == FactoryResetMarkerState.OnboardingPending) return;
+            if (names.Count != 0) throw new InvalidOperationException("A reset control collision prevents recovery authority restoration.");
+            WriteNewLeaf(existing, Temporary, marker.ToPayload());
+            RenameLeaf(existing, Temporary, Marker, replace: false);
+            return;
+        }
+
+        using SafeFileHandle reset = OpenOrCreateReset(root);
+        if (EnumerateExactChildren(reset).Count != 0) throw new InvalidOperationException("A reset control collision prevents recovery authority restoration.");
+        WriteNewLeaf(reset, Temporary, marker.ToPayload());
+        RenameLeaf(reset, Temporary, Marker, replace: false);
     }
 
     private static string ReadLeaf(SafeFileHandle reset, string name)
@@ -601,4 +752,9 @@ internal static class NativeResetControl
     [DllImport("ntdll.dll")] private static extern int NtQueryDirectoryFile(SafeFileHandle file, IntPtr evt, IntPtr apcRoutine, IntPtr apcContext, out IoStatusBlock ioStatus, IntPtr information, uint length, int informationClass, [MarshalAs(UnmanagedType.Bool)] bool returnSingleEntry, IntPtr fileName, [MarshalAs(UnmanagedType.Bool)] bool restartScan);
     private static IOException Error(string message) { int code = Marshal.GetLastWin32Error(); return new IOException(message + " Win32=" + code, unchecked((int)(0x80070000u | (uint)code))); }
     private static string Classify(IOException exception) { int code = exception.HResult & 0xFFFF; return code is 32 or 33 or 67 ? "LockedOrInUse" : "IoError:" + code; }
+}
+
+internal sealed class UnexpectedOwnedRootException : SecurityException
+{
+    internal UnexpectedOwnedRootException() : base("The owned state root contains an unclassified direct child.") { }
 }

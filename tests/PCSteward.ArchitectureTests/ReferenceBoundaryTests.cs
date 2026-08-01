@@ -134,7 +134,7 @@ public sealed class ReferenceBoundaryTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "App.xaml.cs"));
 
-        StringAssert.Contains(source, "markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.TransitionPending");
+        StringAssert.Contains(source, "markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending");
         StringAssert.Contains(source, "FactoryReset.CompletePendingAsync");
         StringAssert.Contains(source, "showPostResetOnboarding = true;");
         StringAssert.Contains(source, "IsFreshResetStoreAsync");
@@ -183,7 +183,16 @@ public sealed class ReferenceBoundaryTests
         string script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "packaging", "Remove-PCSteward.ps1"));
 
         StringAssert.Contains(script, "$taskName = 'PCSteward.ScheduledCheck'");
-        StringAssert.Contains(script, "/Delete /TN $taskName /F");
+        StringAssert.Contains(script, "Schedule.Service");
+        StringAssert.Contains(script, "Get-TaskSchedulerRootFolder");
+        StringAssert.Contains(script, "Find-ExactScheduledTask");
+        StringAssert.Contains(script, "Get-ExactScheduledTask");
+        StringAssert.Contains(script, "Remove-ExactScheduledTask");
+        StringAssert.Contains(script, "DeleteTask");
+        StringAssert.Contains(script, "The exact PC Steward scheduled task still exists after removal.");
+        Assert.IsFalse(script.Contains("TaskSchedulerAdapter", StringComparison.Ordinal));
+        Assert.IsFalse(script.Contains("schtasks", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(script.Contains("/Query", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(script.Contains("Remove-Item", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(script.Contains("DelTree", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(script.Contains("LocalAppData", StringComparison.OrdinalIgnoreCase));

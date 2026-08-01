@@ -2,12 +2,25 @@ using PCSteward.Storage;
 using PCSteward.Persistence.Sqlite;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace PCSteward.Application.IntegrationTests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class FactoryResetTests
 {
+    [TestInitialize]
+    [TestCleanup]
+    public void ResetNativeControlCutpoints()
+    {
+        NativeResetControl.BeforeMarkerDispositionForTesting = null;
+        NativeResetControl.BeforeDirectoryDispositionForTesting = null;
+        NativeResetControl.BeforeProgressWriteForTesting = null;
+        NativeResetControl.BeforeFinalOnboardingRootVerificationForTesting = null;
+        NativeResetControl.BeforeOnboardingControlVerificationForTesting = null;
+    }
+
     [TestMethod]
     public void CleanProfileWithoutStateRootStartsWithoutResetRecovery()
     {
@@ -40,7 +53,7 @@ public sealed class FactoryResetTests
             FactoryResetResult first = await FactoryReset.CompletePendingForTestingAsync(root, _ => { removedSchedules++; return Task.CompletedTask; }, CancellationToken.None);
             FactoryResetResult second = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
 
-            Assert.IsTrue(first.Succeeded);
+            Assert.IsTrue(first.Succeeded, string.Join("; ", first.Residuals.Select(item => item.Reason + ":" + item.Detail)));
             Assert.IsTrue(second.Succeeded);
             Assert.AreEqual(1, removedSchedules);
             Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
@@ -57,6 +70,244 @@ public sealed class FactoryResetTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
             if (Directory.Exists(outside)) Directory.Delete(outside, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public async Task UnclassifiedDirectRootObjectsRemainBlockingWithoutWideningDeletionAuthority()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-unclassified-" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-reset-unclassified-outside-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            Directory.CreateDirectory(outside);
+            await File.WriteAllTextAsync(Path.Combine(root, "undeclared.txt"), "must-remain");
+            await File.WriteAllTextAsync(Path.Combine(outside, "sentinel.txt"), "outside");
+            await CreateJunctionAsync(Path.Combine(root, "undeclared-directory"), outside);
+            FactoryReset.ArmForTesting(root);
+
+            FactoryResetResult partial = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+
+            Assert.IsFalse(partial.Succeeded);
+            Assert.IsTrue(partial.Residuals.Any(item => item.Reason == "UnexpectedOwnedObject"));
+            Assert.AreEqual(FactoryResetMarkerState.Partial, FactoryReset.GetMarkerState(root));
+            Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(root)));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "undeclared.txt")));
+            Assert.IsTrue(Directory.Exists(Path.Combine(root, "undeclared-directory")));
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(Path.Combine(outside, "sentinel.txt")));
+
+            File.Delete(Path.Combine(root, "undeclared.txt"));
+            new DirectoryInfo(Path.Combine(root, "undeclared-directory")).Delete();
+            FactoryResetResult retry = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+            Assert.IsTrue(retry.Succeeded, string.Join("; ", retry.Residuals.Select(item => item.Reason)));
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+        }
+        finally
+        {
+            CleanupFixtureRoot(root, Path.Combine(root, "undeclared-directory"));
+            CleanupFixtureRoot(outside);
+        }
+    }
+
+    [TestMethod]
+    public async Task OnboardingAcknowledgementAllowsOnlyTheFreshSQLiteLeafGroup()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-onboarding-root-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            FactoryResetResult completed = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+            Assert.IsTrue(completed.Succeeded, string.Join("; ", completed.Residuals.Select(item => item.Reason)));
+
+            SqliteDatabase freshDatabase = new(Path.Combine(root, "pcsteward.db"));
+            await freshDatabase.MigrateAsync(CancellationToken.None);
+            Assert.IsTrue(await freshDatabase.IsFreshResetStoreAsync(CancellationToken.None));
+
+            FactoryResetResult acknowledgement = FactoryReset.AcknowledgeOnboardingForTesting(root);
+            Assert.IsTrue(acknowledgement.Succeeded, string.Join("; ", acknowledgement.Residuals.Select(item => item.Reason)));
+            Assert.IsFalse(FactoryReset.IsPending(root));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "pcsteward.db")));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task OnboardingAcknowledgementRejectsUnexpectedRootChildAndRetainsMarker()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-onboarding-unexpected-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None)).Succeeded);
+            SqliteDatabase freshDatabase = new(Path.Combine(root, "pcsteward.db"));
+            await freshDatabase.MigrateAsync(CancellationToken.None);
+            await File.WriteAllTextAsync(Path.Combine(root, "unexpected-after-bootstrap.txt"), "must-block");
+
+            FactoryResetResult blocked = FactoryReset.AcknowledgeOnboardingForTesting(root);
+
+            Assert.IsFalse(blocked.Succeeded);
+            Assert.IsTrue(blocked.Residuals.Any(item => item.Reason == "UnexpectedOwnedObject"));
+            Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(root)));
+            File.Delete(Path.Combine(root, "unexpected-after-bootstrap.txt"));
+            Assert.IsTrue(FactoryReset.AcknowledgeOnboardingForTesting(root).Succeeded);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task FinalAcknowledgementVerificationRestoresOnboardingAuthorityAfterLateRootInjection()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-final-root-race-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None)).Succeeded);
+            SqliteDatabase freshDatabase = new(Path.Combine(root, "pcsteward.db"));
+            await freshDatabase.MigrateAsync(CancellationToken.None);
+            NativeResetControl.BeforeFinalOnboardingRootVerificationForTesting = () => File.WriteAllText(Path.Combine(root, "late-unexpected.txt"), "must-block");
+
+            FactoryResetResult blocked = FactoryReset.AcknowledgeOnboardingForTesting(root);
+
+            Assert.IsFalse(blocked.Succeeded);
+            Assert.IsTrue(blocked.Residuals.Any(item => item.Reason == "FinalRootVerificationFailed"));
+            Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(root)), "A late verification failure must recreate durable onboarding authority.");
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+            NativeResetControl.BeforeFinalOnboardingRootVerificationForTesting = null;
+            File.Delete(Path.Combine(root, "late-unexpected.txt"));
+            Assert.IsTrue(FactoryReset.AcknowledgeOnboardingForTesting(root).Succeeded);
+        }
+        finally
+        {
+            NativeResetControl.BeforeFinalOnboardingRootVerificationForTesting = null;
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task OnboardingAllowlistedLeafNamesRejectDirectoryReparseAndHardLinkCollisions()
+    {
+        string directoryRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-leaf-directory-" + Guid.NewGuid().ToString("N"));
+        string reparseRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-leaf-reparse-" + Guid.NewGuid().ToString("N"));
+        string hardLinkRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-leaf-hardlink-" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-reset-leaf-outside-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(outside);
+            await CompleteToOnboardingAsync(directoryRoot);
+            Directory.CreateDirectory(Path.Combine(directoryRoot, "pcsteward.db"));
+            AssertOnboardingLeafCollision(directoryRoot);
+            Directory.Delete(Path.Combine(directoryRoot, "pcsteward.db"));
+            Assert.IsTrue(FactoryReset.AcknowledgeOnboardingForTesting(directoryRoot).Succeeded);
+
+            await CompleteToOnboardingAsync(reparseRoot);
+            await CreateJunctionAsync(Path.Combine(reparseRoot, "pcsteward.db"), outside);
+            AssertOnboardingLeafCollision(reparseRoot);
+            new DirectoryInfo(Path.Combine(reparseRoot, "pcsteward.db")).Delete();
+            Assert.IsTrue(FactoryReset.AcknowledgeOnboardingForTesting(reparseRoot).Succeeded);
+
+            await CompleteToOnboardingAsync(hardLinkRoot);
+            string outsideFile = Path.Combine(outside, "source.db");
+            await File.WriteAllTextAsync(outsideFile, "outside");
+            await CreateHardLinkAsync(Path.Combine(hardLinkRoot, "pcsteward.db"), outsideFile);
+            AssertOnboardingLeafCollision(hardLinkRoot);
+            File.Delete(Path.Combine(hardLinkRoot, "pcsteward.db"));
+            Assert.IsTrue(FactoryReset.AcknowledgeOnboardingForTesting(hardLinkRoot).Succeeded);
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(outsideFile));
+        }
+        finally
+        {
+            if (Directory.Exists(directoryRoot)) Directory.Delete(directoryRoot, true);
+            CleanupFixtureRoot(reparseRoot, Path.Combine(reparseRoot, "pcsteward.db"));
+            if (Directory.Exists(hardLinkRoot)) Directory.Delete(hardLinkRoot, true);
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task MarkerProgressIsBoundedAndRecordsPartialRetryAttempts()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-progress-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+
+            FactoryResetResult partial = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.FromException(new InvalidOperationException("exact task remains")), CancellationToken.None);
+            Assert.IsFalse(partial.Succeeded);
+            using (JsonDocument partialMarker = JsonDocument.Parse(await File.ReadAllTextAsync(FactoryReset.GetMarkerPath(root))))
+            {
+                JsonElement payload = partialMarker.RootElement;
+                Assert.AreEqual(6, payload.EnumerateObject().Count());
+                Assert.AreEqual("Partial", payload.GetProperty("state").GetString());
+                Assert.AreEqual(1, payload.GetProperty("attempt").GetInt32());
+                Assert.AreEqual("Residual", payload.GetProperty("categories").GetProperty("ScheduledCheck").GetString());
+                Assert.AreEqual("VerifiedAbsent", payload.GetProperty("categories").GetProperty("OwnedRoot").GetString());
+            }
+
+            FactoryResetResult retry = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+            Assert.IsTrue(retry.Succeeded, string.Join("; ", retry.Residuals.Select(item => item.Reason)));
+            using JsonDocument completedMarker = JsonDocument.Parse(await File.ReadAllTextAsync(FactoryReset.GetMarkerPath(root)));
+            Assert.AreEqual("OnboardingPending", completedMarker.RootElement.GetProperty("state").GetString());
+            Assert.AreEqual(2, completedMarker.RootElement.GetProperty("attempt").GetInt32());
+            Assert.AreEqual("VerifiedAbsent", completedMarker.RootElement.GetProperty("categories").GetProperty("ScheduledCheck").GetString());
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task ProgressWriteFailureKeepsTheMarkerAndBlocksOnboardingUntilRetry()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-progress-write-failure-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(Path.Combine(root, "pcsteward.db"), "old");
+            FactoryReset.ArmForTesting(root);
+            NativeResetControl.BeforeProgressWriteForTesting = () => throw new IOException("simulated progress write failure");
+
+            FactoryResetResult failure = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+
+            Assert.IsFalse(failure.Succeeded);
+            Assert.IsTrue(failure.Residuals.Any(item => item.Reason == "ControlStateWriteFailed"));
+            Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(root)));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "pcsteward.db")), "Safe deletion may complete, but the durable marker remains the recovery authority.");
+            Assert.AreNotEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+
+            NativeResetControl.BeforeProgressWriteForTesting = null;
+            FactoryResetResult retry = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+            Assert.IsTrue(retry.Succeeded, string.Join("; ", retry.Residuals.Select(item => item.Reason)));
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+        }
+        finally
+        {
+            NativeResetControl.BeforeProgressWriteForTesting = null;
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RecoveredOnboardingTransitionRechecksTheExactOwnedRootManifest()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-transition-root-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "reset"));
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending", attempt: 1));
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.TemporaryMarkerFileName), CreateMarkerPayload("OnboardingPending", attempt: 1));
+            await File.WriteAllTextAsync(Path.Combine(root, "unclassified.txt"), "must-remain");
+
+            FactoryResetResult result = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.FromException(new InvalidOperationException("cleanup must not replay")), CancellationToken.None);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsTrue(result.Residuals.Any(item => item.Reason == "UnexpectedOwnedObject"));
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "unclassified.txt")));
+            Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(root)));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
     [TestMethod]
@@ -96,6 +347,137 @@ public sealed class FactoryResetTests
             Assert.IsTrue(File.Exists(Path.Combine(root, "pcsteward.db")));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
+    public async Task OutOfRangeMarkerAttemptFailsClosedWithoutDeletingExistingState()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-attempt-bound-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "reset"));
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending", attempt: 100001));
+            await File.WriteAllTextAsync(Path.Combine(root, "pcsteward.db"), "preserved");
+
+            FactoryResetResult result = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsTrue(result.Residuals.Any(item => item.Reason == "InvalidMarker"));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "pcsteward.db")));
+            Assert.IsTrue(FactoryReset.IsPending(root));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task AttemptBoundaryPersistsFinalAttemptAndCapsSubsequentRecoveryAsPartial()
+    {
+        string boundaryRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-attempt-final-" + Guid.NewGuid().ToString("N"));
+        string cappedRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-attempt-capped-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(boundaryRoot, "reset"));
+            await File.WriteAllTextAsync(Path.Combine(boundaryRoot, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending", attempt: 99999));
+            FactoryResetResult finalAttempt = await FactoryReset.CompletePendingForTestingAsync(boundaryRoot, _ => Task.CompletedTask, CancellationToken.None);
+            Assert.IsTrue(finalAttempt.Succeeded, string.Join("; ", finalAttempt.Residuals.Select(item => item.Reason)));
+            using (JsonDocument marker = JsonDocument.Parse(await File.ReadAllTextAsync(FactoryReset.GetMarkerPath(boundaryRoot))))
+                Assert.AreEqual(100000, marker.RootElement.GetProperty("attempt").GetInt32());
+
+            Directory.CreateDirectory(Path.Combine(cappedRoot, "reset"));
+            await File.WriteAllTextAsync(Path.Combine(cappedRoot, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("Partial", attempt: 100000));
+            await File.WriteAllTextAsync(Path.Combine(cappedRoot, "pcsteward.db"), "must-survive");
+            FactoryResetResult capped = await FactoryReset.CompletePendingForTestingAsync(cappedRoot, _ => Task.CompletedTask, CancellationToken.None);
+            FactoryResetResult retry = await FactoryReset.CompletePendingForTestingAsync(cappedRoot, _ => Task.CompletedTask, CancellationToken.None);
+
+            Assert.IsFalse(capped.Succeeded);
+            Assert.IsFalse(retry.Succeeded);
+            Assert.IsTrue(capped.Residuals.Any(item => item.Reason == "AttemptLimitReached"));
+            Assert.IsTrue(retry.Residuals.Any(item => item.Reason == "AttemptLimitReached"));
+            Assert.AreEqual(FactoryResetMarkerState.Partial, FactoryReset.GetMarkerState(cappedRoot));
+            Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(cappedRoot)));
+            Assert.IsTrue(File.Exists(Path.Combine(cappedRoot, "pcsteward.db")));
+        }
+        finally
+        {
+            if (Directory.Exists(boundaryRoot)) Directory.Delete(boundaryRoot, true);
+            if (Directory.Exists(cappedRoot)) Directory.Delete(cappedRoot, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task OnboardingBootstrapRejectsReintroducedDatabaseAndControlFileOrReparse()
+    {
+        string databaseRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-bootstrap-database-" + Guid.NewGuid().ToString("N"));
+        string fileRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-bootstrap-file-" + Guid.NewGuid().ToString("N"));
+        string reparseRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-bootstrap-reparse-" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-reset-bootstrap-outside-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(outside);
+            await File.WriteAllTextAsync(Path.Combine(outside, "sentinel.txt"), "outside");
+
+            await CompleteToOnboardingAsync(databaseRoot);
+            await File.WriteAllTextAsync(Path.Combine(databaseRoot, "pcsteward.db"), "old-state");
+            Assert.IsFalse(FactoryReset.VerifyOnboardingBootstrapForTesting(databaseRoot).Succeeded);
+            Assert.IsTrue(FactoryReset.IsPending(databaseRoot));
+            File.Delete(Path.Combine(databaseRoot, "pcsteward.db"));
+            Assert.IsTrue(FactoryReset.VerifyOnboardingBootstrapForTesting(databaseRoot).Succeeded);
+
+            await CompleteToOnboardingAsync(fileRoot);
+            Directory.Move(Path.Combine(fileRoot, "reset"), Path.Combine(outside, "moved-reset"));
+            await File.WriteAllTextAsync(Path.Combine(fileRoot, "reset"), "file-substitution");
+            Assert.IsFalse(FactoryReset.VerifyOnboardingBootstrapForTesting(fileRoot).Succeeded);
+            Assert.IsTrue(FactoryReset.IsPending(fileRoot));
+
+            await CompleteToOnboardingAsync(reparseRoot);
+            Directory.Move(Path.Combine(reparseRoot, "reset"), Path.Combine(outside, "moved-reset-reparse"));
+            await CreateJunctionAsync(Path.Combine(reparseRoot, "reset"), outside);
+            Assert.IsFalse(FactoryReset.VerifyOnboardingBootstrapForTesting(reparseRoot).Succeeded);
+            Assert.IsTrue(FactoryReset.IsPending(reparseRoot));
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(Path.Combine(outside, "sentinel.txt")));
+            new DirectoryInfo(Path.Combine(reparseRoot, "reset")).Delete();
+        }
+        finally
+        {
+            if (Directory.Exists(databaseRoot)) Directory.Delete(databaseRoot, true);
+            if (Directory.Exists(fileRoot)) Directory.Delete(fileRoot, true);
+            CleanupFixtureRoot(reparseRoot, Path.Combine(reparseRoot, "reset"));
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PromotionControlSwapCutpointRetainsTheBoundOnboardingAuthority()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-promotion-swap-" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-reset-promotion-swap-outside-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "reset"));
+            Directory.CreateDirectory(outside);
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending"));
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.TemporaryMarkerFileName), CreateMarkerPayload("OnboardingPending"));
+            await File.WriteAllTextAsync(Path.Combine(outside, "sentinel.txt"), "outside");
+            bool swapBlocked = false;
+            NativeResetControl.BeforeOnboardingControlVerificationForTesting = () =>
+            {
+                try { Directory.Move(Path.Combine(root, "reset"), Path.Combine(outside, "moved-reset")); }
+                catch (IOException) { swapBlocked = true; }
+            };
+
+            FactoryResetResult result = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.FromException(new InvalidOperationException("cleanup must not replay")), CancellationToken.None);
+
+            Assert.IsTrue(result.Succeeded, string.Join("; ", result.Residuals.Select(item => item.Reason)));
+            Assert.IsTrue(swapBlocked, "The bound reset-control handle must prevent reset-to-file/reparse substitution before onboarding is accepted.");
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(Path.Combine(outside, "sentinel.txt")));
+        }
+        finally
+        {
+            NativeResetControl.BeforeOnboardingControlVerificationForTesting = null;
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+        }
     }
 
     [TestMethod]
@@ -142,10 +524,11 @@ public sealed class FactoryResetTests
         string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-lease-" + Guid.NewGuid().ToString("N"));
         TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? operation = null;
         try
         {
             Directory.CreateDirectory(root);
-            Task operation = DataOperationLease.RunAsync(async _ => { started.SetResult(); await release.Task.ConfigureAwait(false); }, CancellationToken.None);
+            operation = DataOperationLease.RunAsync(async _ => { started.SetResult(); await release.Task.ConfigureAwait(false); }, CancellationToken.None);
             await started.Task;
 
             try { FactoryReset.ArmForTesting(root); Assert.Fail("Reset must fail while an asynchronous data operation owns the lease."); }
@@ -161,7 +544,8 @@ public sealed class FactoryResetTests
         finally
         {
             release.TrySetResult();
-            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            if (operation is not null) await operation;
+            CleanupFixtureRoot(root);
         }
     }
 
@@ -173,7 +557,7 @@ public sealed class FactoryResetTests
         try
         {
             Directory.CreateDirectory(Path.Combine(temporaryRoot, "reset"));
-            await File.WriteAllTextAsync(Path.Combine(temporaryRoot, "reset", FactoryReset.TemporaryMarkerFileName), "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
+            await File.WriteAllTextAsync(Path.Combine(temporaryRoot, "reset", FactoryReset.TemporaryMarkerFileName), CreateMarkerPayload("ResetPending"));
             await File.WriteAllTextAsync(Path.Combine(temporaryRoot, "pcsteward.db"), "old");
             FactoryResetResult recovered = await FactoryReset.CompletePendingForTestingAsync(temporaryRoot, _ => Task.CompletedTask, CancellationToken.None);
             Assert.IsTrue(recovered.Succeeded);
@@ -219,7 +603,7 @@ public sealed class FactoryResetTests
             Directory.Delete(Path.Combine(root, "reset"));
 
             Directory.CreateDirectory(Path.Combine(root, "reset"));
-            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending"));
             Assert.ThrowsExactly<InvalidOperationException>(() => FactoryReset.ArmForTesting(root));
             Assert.IsTrue(File.Exists(Path.Combine(root, "reset", FactoryReset.MarkerFileName)));
 
@@ -235,8 +619,8 @@ public sealed class FactoryResetTests
         }
         finally
         {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-            if (Directory.Exists(outside)) Directory.Delete(outside, true);
+            CleanupFixtureRoot(root, Path.Combine(root, "reset", FactoryReset.MarkerFileName), Path.Combine(root, "reset"));
+            CleanupFixtureRoot(outside);
         }
     }
 
@@ -249,7 +633,7 @@ public sealed class FactoryResetTests
         {
             Directory.CreateDirectory(Path.Combine(root, "reset")); Directory.CreateDirectory(outside);
             string source = Path.Combine(outside, "control.json");
-            await File.WriteAllTextAsync(source, "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
+            await File.WriteAllTextAsync(source, CreateMarkerPayload("ResetPending"));
             await CreateHardLinkAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), source);
             await File.WriteAllTextAsync(Path.Combine(root, "pcsteward.db"), "must-survive");
 
@@ -281,15 +665,15 @@ public sealed class FactoryResetTests
             Assert.IsTrue(FactoryReset.IsPending(emptyRoot));
 
             Directory.CreateDirectory(Path.Combine(transitionRoot, "reset"));
-            await File.WriteAllTextAsync(Path.Combine(transitionRoot, "reset", FactoryReset.MarkerFileName), "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
-            await File.WriteAllTextAsync(Path.Combine(transitionRoot, "reset", FactoryReset.TemporaryMarkerFileName), "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}");
+            await File.WriteAllTextAsync(Path.Combine(transitionRoot, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending"));
+            await File.WriteAllTextAsync(Path.Combine(transitionRoot, "reset", FactoryReset.TemporaryMarkerFileName), CreateMarkerPayload("OnboardingPending"));
             FactoryResetResult transition = await FactoryReset.CompletePendingForTestingAsync(transitionRoot, _ => Task.FromException(new InvalidOperationException("must not replay cleanup")), CancellationToken.None);
             Assert.IsTrue(transition.Succeeded);
             Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(transitionRoot));
             Assert.IsFalse(File.Exists(Path.Combine(transitionRoot, "reset", FactoryReset.TemporaryMarkerFileName)));
 
-            await File.WriteAllTextAsync(Path.Combine(emptyRoot, "reset", FactoryReset.MarkerFileName), "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}");
-            await File.WriteAllTextAsync(Path.Combine(emptyRoot, "reset", FactoryReset.TemporaryMarkerFileName), "{\"schemaVersion\":1,\"state\":\"ResetPending\"}");
+            await File.WriteAllTextAsync(Path.Combine(emptyRoot, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("OnboardingPending"));
+            await File.WriteAllTextAsync(Path.Combine(emptyRoot, "reset", FactoryReset.TemporaryMarkerFileName), CreateMarkerPayload("ResetPending"));
             Assert.AreEqual(FactoryResetMarkerState.Invalid, FactoryReset.GetMarkerState(emptyRoot));
         }
         finally
@@ -378,7 +762,88 @@ public sealed class FactoryResetTests
     private static async Task CreateOnboardingMarkerAsync(string root)
     {
         Directory.CreateDirectory(Path.Combine(root, "reset"));
-        await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), "{\"schemaVersion\":1,\"state\":\"OnboardingPending\"}");
+        await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("OnboardingPending"));
+    }
+
+    private static string CreateMarkerPayload(string state, int attempt = 0, string resetId = "11111111-1111-1111-1111-111111111111")
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            resetId,
+            requestedUtc = "2026-08-01T00:00:00.0000000+00:00",
+            attempt,
+            state,
+            categories = new
+            {
+                ScheduledCheck = "Pending",
+                Downloads = "Pending",
+                Logs = "Pending",
+                Database = "Pending",
+                OwnedRoot = "Pending"
+            }
+        });
+    }
+
+    private static async Task CompleteToOnboardingAsync(string root)
+    {
+        Directory.CreateDirectory(root);
+        FactoryReset.ArmForTesting(root);
+        FactoryResetResult completed = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+        Assert.IsTrue(completed.Succeeded, string.Join("; ", completed.Residuals.Select(item => item.Reason)));
+    }
+
+    private static void AssertOnboardingLeafCollision(string root)
+    {
+        FactoryResetResult blocked = FactoryReset.AcknowledgeOnboardingForTesting(root);
+        Assert.IsFalse(blocked.Succeeded);
+        Assert.IsTrue(blocked.Residuals.Any(item => item.Reason == "UnexpectedOwnedObject"));
+        Assert.IsTrue(File.Exists(FactoryReset.GetMarkerPath(root)));
+    }
+
+    private static void CleanupFixtureRoot(string root, params string[] reparsePaths)
+    {
+        foreach (string reparsePath in reparsePaths.OrderBy(path => path.Count(character =>
+                     character == Path.DirectorySeparatorChar || character == Path.AltDirectorySeparatorChar)))
+        {
+            DeleteReparsePointIfPresent(reparsePath);
+        }
+
+        if (Directory.Exists(root))
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void DeleteReparsePointIfPresent(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return;
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) == 0)
+        {
+            return;
+        }
+
+        if ((attributes & FileAttributes.Directory) != 0)
+        {
+            Directory.Delete(path);
+        }
+        else
+        {
+            File.Delete(path);
+        }
     }
 
     private static SafeFileHandle OpenDirectoryExclusive(string path)

@@ -16,4 +16,4 @@ This private beta has no automatic updater and no installer. After a trusted cha
 
 ## Known limitations
 
-See `KNOWN_LIMITATIONS.md`. In particular, the five-minute idle resource requirement is deferred by `PO-EXC-29-PERF-01`, and ADR-002 packaging lifecycle evidence is still incomplete.
+See `KNOWN_LIMITATIONS.md`. The prior hash-bound Task 90 exceptions do not cover the remediated `A8FD4AF1...4CBCA3FC` archive; mandatory signing/channel, performance, and lifecycle evidence remains incomplete.

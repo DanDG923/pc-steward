@@ -29,4 +29,4 @@
 - [x] Dependency/licence, vulnerability, static-analysis, secret-scan and SBOM evidence are attached.
 - [x] No public upload, tag, push, automatic updater, certificate purchase, helper restoration or machine-scope execution.
 
-Unchecked signing/channel and destructive/supported-host lifecycle items are accepted only for Task 90 under `PO-EXC-90-SIGN-LOCAL-ONLY` and `PO-EXC-90-RESET-LIFECYCLE-OMISSIONS`. They remain mandatory before external distribution; the unsigned local archive is not a release candidate.
+The prior Task 90 exceptions are bound to SHA-256 `20617AEF...72FBF` and do not apply to the remediated archive `A8FD4AF1...4CBCA3FC`. Unchecked signing/channel, performance, and destructive/supported-host lifecycle items remain mandatory; the unsigned local archive is not a release candidate.

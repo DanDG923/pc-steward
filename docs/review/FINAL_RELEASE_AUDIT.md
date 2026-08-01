@@ -174,6 +174,24 @@ These risks do not override open findings or mandatory Unverified criteria:
 - A caller-writable extraction cannot provide installed-binary tamper resistance; signed channel/checksum controls and explicit guidance are still required before external distribution.
 - ADR-003 and ADR-011 remain Provisional and must be revisited if provider authority or cache policy changes.
 
+## Task 90 remediation handoff — 2026-08-01
+
+This is a remediation handoff, not a revised Task 31 verdict. The **NOT READY** verdict and criterion tables above remain authoritative until a fresh independent audit re-grades the new tree.
+
+| Finding | Task 90 disposition | Verification |
+|---|---|---|
+| `FRA-11` | Implementation remediated: exact handle-bound root/control enumeration reports every undeclared child as `UnexpectedOwnedObject`; durable Partial blocks onboarding; pre-migration bootstrap, marker promotion and final acknowledgement revalidate bound authority and restore it after a late race. | Reset 25/25 and hostile boundary 42/1 approved skip pass. Independent Terra / High reviews found and drove additional startup/control-swap corrections, then returned no finding. |
+| `FRA-12` | Implementation remediated: packaged cleanup uses exact Task Scheduler COM query/delete/re-query; only exact `GetTask` file-not-found means absent; setup/query/delete/residual errors fail closed. | Deterministic contract and Architecture 17/17 pass. Independent review found and drove a setup-HRESULT correction, then returned no finding. Packaged/source script SHA-256 matches. |
+| `FRA-13` | Implementation remediated: strict six-field bounded marker includes reset ID, UTC, attempt, fixed state/category/results; progress is atomic per category; `Partial` and exact attempt-cap recovery are explicit and retryable. | Schema/bounds/progress/crash/write-failure/transition/fresh-store and 99,999/100,000 boundary tests are included in reset 25/25; independent final review returned no finding. |
+| `FRA-14` | **Open High — field evidence required.** No final-app 30/20, update-responsiveness, five-minute I/O/network, full scan-tree, or real final-timeout evidence was fabricated. | Fresh fixture 30 local median 1.85 ms / p95 2.03 ms and 20 simulated-online median 15.51 ms / p95 15.96 ms are explicitly non-acceptance evidence. |
+| `FRA-15` | **Open High — destructive/supported-host evidence required.** Automated reset/removal boundaries pass; no owner-state reset, real task mutation, retained-data replacement, reset-then-removal, or final-timeout action was authorized. | Disposable regressions only; prior hash-bound lifecycle exception does not cover the rebuilt archive. |
+| `FRA-16` | **Open High — external authority required.** No signer/channel/recipient/support/rollback identity was created or inferred. | Archive remains unsigned/local-workspace-only; signing status is `Not requested`. |
+| `FRA-17` | Release text remediated. | Known limitations/release notes now retain current blockers, describe the VS Code evidence narrowly, and state that prior exceptions do not cover the rebuilt hash. |
+
+Fixing commit: Task 90 remediation commit (this commit; exact hash in Git history and `docs/STATUS.md`). Integrated verification is Release build 0 warnings/errors; serialized full suite **249/249** (55 Domain, 157 Application integration, 17 Architecture, 20 Security); reset 25/25; cleanup contract Pass; hostile boundary 42 assertions/one approved skip; WinGet boundary 11. The package validator passes 94 files / 49,950,826 bytes, 15 components, 16 SBOM nodes/32 edges, licences/notices and new SHA-256 `A8FD4AF124019E44B23C9F067C49F49A3D61FE8025F6ED9D8AF5E51E4CBCA3FC`.
+
+The prior Task 90 owner exceptions were bound to `20617AEF...72FBF` and do not carry to the rebuilt hash. Task 90 may commit the implementation remediation because its integrated diff has no Blocker/High code finding and all automated gates pass; `FRA-14–16` remain release blockers requiring new authority/evidence.
+
 ## Required sequence
 
-Stop this run before Task 90 because Task 90 requires GPT-5.6 Terra / High. Under that setting, remediate `FRA-11–13` first, using independent agents only for isolated non-overlapping changes as directed by the product owner; integrate and independently re-test in the main thread. Then resolve or obtain fresh evidence for `FRA-14–17`, rebuild/re-hash the candidate, run every targeted and full gate, and commit the remediation only if green. Repeat Task 31 in a fresh GPT-5.6 Sol / Extra High review. Do not release, tag, publish, upload, share, or call the MVP ready before a fresh audit returns READY.
+Stop after Task 90. Repeat Task 31 in a fresh GPT-5.6 Sol / Extra High review of the remediation commit and exact rebuilt hash. Do not release, tag, publish, upload, share, or call the MVP ready before a fresh audit returns READY; a fresh audit cannot mark `FRA-14–16` closed without the missing evidence/authority.

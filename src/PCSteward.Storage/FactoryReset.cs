@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Security;
+using System.Globalization;
 
 namespace PCSteward.Storage;
 
@@ -68,14 +69,44 @@ public static class FactoryReset
         {
             List<FactoryResetResidual> residuals = [];
             FactoryResetMarkerState markerState = ReadMarkerState(root, residuals);
-            if (markerState == FactoryResetMarkerState.OnboardingPending) return Task.FromResult(new FactoryResetResult(true, []));
-            if (markerState is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.TransitionPending)) return Task.FromResult(new FactoryResetResult(false, residuals));
+            if (markerState == FactoryResetMarkerState.OnboardingPending)
+            {
+                // A durable onboarding marker is accepted only while the fixed root remains
+                // exactly the reset control directory.  This keeps a recoverable transition or
+                // hostile same-user marker write from bypassing the manifest verification.
+                NativeResetControl.VerifyOnlyExpectedRootChild(root, residuals);
+                return Task.FromResult(new FactoryResetResult(residuals.Count == 0, residuals));
+            }
+            if (markerState is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)) return Task.FromResult(new FactoryResetResult(false, residuals));
             try
             {
                 bool transitionCompleted = NativeResetControl.PromoteTemporaryResetMarker(root);
-                if (transitionCompleted) return Task.FromResult(new FactoryResetResult(true, []));
+                if (transitionCompleted)
+                {
+                    NativeResetControl.VerifyOnlyExpectedRootChild(root, residuals);
+                    return Task.FromResult(new FactoryResetResult(residuals.Count == 0, residuals));
+                }
             }
-            catch (Exception exception) { residuals.Add(new("Reset marker", "ControlStateRecoveryFailed", exception.GetType().Name)); return Task.FromResult(new FactoryResetResult(false, residuals)); }
+            catch (Exception exception)
+            {
+                residuals.Add(exception is UnexpectedOwnedRootException
+                    ? new FactoryResetResidual("State root", "UnexpectedOwnedObject", exception.GetType().Name)
+                    : new FactoryResetResidual("Reset marker", "ControlStateRecoveryFailed", exception.GetType().Name));
+                return Task.FromResult(new FactoryResetResult(false, residuals));
+            }
+            if (!TryReadCurrentMarker(root, residuals, out FactoryResetMarker marker)) return Task.FromResult(new FactoryResetResult(false, residuals));
+
+            // A durable attempt boundary makes a restart distinguishable from the original arm.
+            // It is written before work starts; a write failure remains blocking and never widens
+            // the manifest, but completed safe deletions may still be retried idempotently.
+            if (!marker.TryBeginAttempt(out marker))
+            {
+                residuals.Add(new("Reset marker", "AttemptLimitReached", "The bounded reset retry limit was reached."));
+                PersistProgress(root, marker, residuals);
+                return Task.FromResult(new FactoryResetResult(false, residuals));
+            }
+            PersistProgress(root, marker, residuals);
+            int categoryStart = residuals.Count;
             if (removeScheduledTask is not null)
             {
                 // Mutex ownership is thread-affine.  Keep cleanup synchronous while the
@@ -84,15 +115,26 @@ public static class FactoryReset
                 try { removeScheduledTask(cancellationToken).GetAwaiter().GetResult(); }
                 catch (Exception exception) { residuals.Add(new("Scheduled check", "ScheduleRemovalFailed", exception.Message)); }
             }
+            marker = RecordCategory(root, marker, FactoryResetCategory.ScheduledCheck, categoryStart, residuals);
+            categoryStart = residuals.Count;
             DeleteTree(root, "downloads", residuals);
-            DeleteTree(root, "logs", residuals);
-            foreach (string leaf in new[] { "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal", "pcsteward.db" }) DeleteLeaf(root, leaf, residuals);
             VerifyAbsent(root, "downloads", residuals);
+            marker = RecordCategory(root, marker, FactoryResetCategory.Downloads, categoryStart, residuals);
+            categoryStart = residuals.Count;
+            DeleteTree(root, "logs", residuals);
             VerifyAbsent(root, "logs", residuals);
+            marker = RecordCategory(root, marker, FactoryResetCategory.Logs, categoryStart, residuals);
+            categoryStart = residuals.Count;
+            foreach (string leaf in new[] { "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal", "pcsteward.db" }) DeleteLeaf(root, leaf, residuals);
             foreach (string leaf in new[] { "pcsteward.db-wal", "pcsteward.db-shm", "pcsteward.db-journal", "pcsteward.db" }) VerifyAbsent(root, leaf, residuals);
+            marker = RecordCategory(root, marker, FactoryResetCategory.Database, categoryStart, residuals);
+            categoryStart = residuals.Count;
+            NativeResetControl.VerifyOnlyResetControl(root, residuals);
+            NativeResetControl.VerifyOnlyExpectedRootChild(root, residuals);
+            marker = RecordCategory(root, marker, FactoryResetCategory.OwnedRoot, categoryStart, residuals);
             if (residuals.Count != 0) return Task.FromResult(new FactoryResetResult(false, residuals));
 
-            try { NativeResetControl.ReplaceWithOnboardingPending(root); }
+            try { NativeResetControl.ReplaceWithOnboardingPending(root, marker.WithState(FactoryResetMarkerState.OnboardingPending)); }
             catch (Exception exception) { residuals.Add(new("Reset marker", "ControlStateWriteFailed", exception.GetType().Name)); }
             return Task.FromResult(new FactoryResetResult(residuals.Count == 0, residuals));
         }
@@ -100,6 +142,15 @@ public static class FactoryReset
     }
 
     public static Task<FactoryResetResult> CompletePendingAsync(CancellationToken cancellationToken, string? stateRoot = null) => CompletePendingAsync(null, cancellationToken, stateRoot);
+
+    /// <summary>Validates the exact durable onboarding authority before a fresh store is created.</summary>
+    public static FactoryResetResult VerifyOnboardingBootstrap(string? stateRoot = null)
+    {
+        string root;
+        try { root = ValidateRoot(stateRoot ?? GetStateRoot()); }
+        catch (Exception exception) { return new(false, [new FactoryResetResidual("State root", "UnsafePath", exception.Message)]); }
+        return VerifyOnboardingBootstrapCore(root);
+    }
 
     /// <summary>Only the explicit first-run acknowledgement can remove the durable reset authority.</summary>
     public static FactoryResetResult AcknowledgeOnboarding(string? stateRoot = null)
@@ -118,11 +169,21 @@ public static class FactoryReset
         {
             List<FactoryResetResidual> residuals = [];
             if (ReadMarkerState(root, residuals) is not FactoryResetMarkerState.OnboardingPending) return new(false, residuals);
+            NativeResetControl.VerifyOnlyOnboardingRoot(root, residuals);
+            if (residuals.Count != 0) return new(false, residuals);
             PathSafety.DeleteResult result = NativeResetControl.AcknowledgeAndDelete(root);
             if (!result.Deleted) residuals.Add(new("Reset marker", result.Reason, MarkerFileName));
             return new(residuals.Count == 0, residuals);
         }
         finally { mutex.ReleaseMutex(); }
+    }
+
+    private static FactoryResetResult VerifyOnboardingBootstrapCore(string root)
+    {
+        List<FactoryResetResidual> residuals = [];
+        if (ReadMarkerState(root, residuals) is not FactoryResetMarkerState.OnboardingPending) return new(false, residuals);
+        NativeResetControl.VerifyOnlyOnboardingBootstrapRoot(root, residuals);
+        return new(residuals.Count == 0, residuals);
     }
 
     /// <summary>Routine log clear uses the same literal root and non-following primitive as reset.</summary>
@@ -148,6 +209,7 @@ public static class FactoryReset
     }
     internal static Task<FactoryResetResult> CompletePendingForTestingAsync(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken) => CompletePendingCoreAsync(ValidateRoot(stateRoot, allowTestRoot: true), removeScheduledTask, cancellationToken);
     internal static FactoryResetResult AcknowledgeOnboardingForTesting(string stateRoot) => AcknowledgeOnboardingCore(ValidateRoot(stateRoot, allowTestRoot: true));
+    internal static FactoryResetResult VerifyOnboardingBootstrapForTesting(string stateRoot) => VerifyOnboardingBootstrapCore(ValidateRoot(stateRoot, allowTestRoot: true));
 
     private static string ValidateRoot(string root, bool allowTestRoot = false)
     {
@@ -179,18 +241,17 @@ public static class FactoryReset
             if (snapshot.MarkerPayload is null && snapshot.TemporaryPayload is null) return InvalidMarker(residuals, "The reset control directory is empty.");
             if (snapshot.MarkerPayload is not null && snapshot.TemporaryPayload is not null)
             {
-                if (IsState(snapshot.MarkerPayload, "ResetPending") && IsState(snapshot.TemporaryPayload, "OnboardingPending")) return FactoryResetMarkerState.TransitionPending;
+                if (FactoryResetMarker.TryParse(snapshot.MarkerPayload, out FactoryResetMarker primaryMarker) &&
+                    FactoryResetMarker.TryParse(snapshot.TemporaryPayload, out FactoryResetMarker temporary) &&
+                    primaryMarker.SameReset(temporary) &&
+                    primaryMarker.State is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial &&
+                    temporary.State is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.OnboardingPending)
+                    return FactoryResetMarkerState.TransitionPending;
                 return InvalidMarker(residuals, "Multiple reset control leaves are present.");
             }
             string payload = snapshot.MarkerPayload ?? snapshot.TemporaryPayload!;
-            using JsonDocument document = JsonDocument.Parse(payload);
-            JsonElement rootElement = document.RootElement;
-            if (rootElement.ValueKind != JsonValueKind.Object || rootElement.EnumerateObject().Count() != 2 ||
-                !rootElement.TryGetProperty("schemaVersion", out JsonElement version) || version.ValueKind != JsonValueKind.Number || version.GetInt32() != 1 ||
-                !rootElement.TryGetProperty("state", out JsonElement state) || state.ValueKind != JsonValueKind.String || (state.GetString() is not "ResetPending" and not "OnboardingPending") ||
-                rootElement.EnumerateObject().Any(property => property.Name is not "schemaVersion" and not "state"))
-                return InvalidMarker(residuals, "The reset marker is malformed or has an unknown schema.");
-            return state.GetString() == "ResetPending" ? FactoryResetMarkerState.ResetPending : FactoryResetMarkerState.OnboardingPending;
+            if (!FactoryResetMarker.TryParse(payload, out FactoryResetMarker marker)) return InvalidMarker(residuals, "The reset marker is malformed or has an unknown schema.");
+            return marker.State;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or JsonException or FormatException or InvalidOperationException)
         {
@@ -204,18 +265,37 @@ public static class FactoryReset
         return FactoryResetMarkerState.Invalid;
     }
 
-    private static bool IsState(string payload, string expected)
+    private static bool TryReadCurrentMarker(string root, List<FactoryResetResidual> residuals, out FactoryResetMarker marker)
     {
+        marker = null!;
         try
         {
-            using JsonDocument document = JsonDocument.Parse(payload);
-            JsonElement root = document.RootElement;
-            return root.ValueKind == JsonValueKind.Object && root.EnumerateObject().Count() == 2 &&
-                root.TryGetProperty("schemaVersion", out JsonElement version) && version.ValueKind == JsonValueKind.Number && version.GetInt32() == 1 &&
-                root.TryGetProperty("state", out JsonElement state) && state.ValueKind == JsonValueKind.String && state.GetString() == expected &&
-                root.EnumerateObject().All(property => property.Name is "schemaVersion" or "state");
+            if (!FactoryResetMarker.TryParse(NativeResetControl.ReadCurrentMarker(root), out marker))
+            {
+                InvalidMarker(residuals, "The reset marker is malformed or has an unknown schema.");
+                return false;
+            }
+            return true;
         }
-        catch (JsonException) { return false; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException or InvalidOperationException)
+        {
+            InvalidMarker(residuals, exception.GetType().Name);
+            return false;
+        }
+    }
+
+    private static FactoryResetMarker RecordCategory(string root, FactoryResetMarker marker, FactoryResetCategory category, int residualCountAtStart, List<FactoryResetResidual> residuals)
+    {
+        FactoryResetCategoryResult result = residuals.Count == residualCountAtStart ? FactoryResetCategoryResult.VerifiedAbsent : FactoryResetCategoryResult.Residual;
+        FactoryResetMarker updated = marker.WithCategoryResult(category, result);
+        PersistProgress(root, updated, residuals);
+        return updated;
+    }
+
+    private static void PersistProgress(string root, FactoryResetMarker marker, List<FactoryResetResidual> residuals)
+    {
+        try { NativeResetControl.ReplaceResetProgress(root, marker.WithState(residuals.Count == 0 ? FactoryResetMarkerState.ResetPending : FactoryResetMarkerState.Partial)); }
+        catch (Exception exception) { residuals.Add(new FactoryResetResidual("Reset marker", "ControlStateWriteFailed", exception.GetType().Name)); }
     }
 
     private static void DeleteTree(string root, string child, List<FactoryResetResidual> residuals)
@@ -257,7 +337,92 @@ public static class FactoryReset
 
 public sealed record FactoryResetResidual(string Category, string Reason, string Detail);
 public sealed record FactoryResetResult(bool Succeeded, IReadOnlyCollection<FactoryResetResidual> Residuals);
-public enum FactoryResetMarkerState { None, ResetPending, OnboardingPending, TransitionPending, Invalid }
+public enum FactoryResetMarkerState { None, ResetPending, Partial, OnboardingPending, TransitionPending, Invalid }
+
+// The marker is deliberately a fixed, bounded recovery record.  It supplies neither a path nor
+// any other deletion authority; every category remains compiled into the reset manifest.
+internal enum FactoryResetCategory { ScheduledCheck, Downloads, Logs, Database, OwnedRoot }
+internal enum FactoryResetCategoryResult { Pending, VerifiedAbsent, Residual }
+
+internal sealed record FactoryResetMarker(
+    Guid ResetId,
+    DateTimeOffset RequestedUtc,
+    int Attempt,
+    FactoryResetMarkerState State,
+    IReadOnlyDictionary<FactoryResetCategory, FactoryResetCategoryResult> Categories)
+{
+    private const int SchemaVersion = 1;
+    private const int MaximumAttempts = 100000;
+
+    internal static FactoryResetMarker CreatePending() => new(
+        Guid.NewGuid(),
+        DateTimeOffset.UtcNow,
+        0,
+        FactoryResetMarkerState.ResetPending,
+        Enum.GetValues<FactoryResetCategory>().ToDictionary(category => category, _ => FactoryResetCategoryResult.Pending));
+
+    internal bool TryBeginAttempt(out FactoryResetMarker next)
+    {
+        if (Attempt >= MaximumAttempts)
+        {
+            next = this with { State = FactoryResetMarkerState.Partial };
+            return false;
+        }
+        next = this with { Attempt = Attempt + 1, State = FactoryResetMarkerState.ResetPending };
+        return true;
+    }
+
+    internal FactoryResetMarker WithState(FactoryResetMarkerState state) => this with { State = state };
+
+    internal FactoryResetMarker WithCategoryResult(FactoryResetCategory category, FactoryResetCategoryResult result)
+    {
+        Dictionary<FactoryResetCategory, FactoryResetCategoryResult> categories = Categories.ToDictionary(pair => pair.Key, pair => pair.Value);
+        categories[category] = result;
+        return this with { Categories = categories };
+    }
+
+    internal bool SameReset(FactoryResetMarker other) => ResetId == other.ResetId && RequestedUtc == other.RequestedUtc;
+
+    internal string ToPayload() => JsonSerializer.Serialize(new MarkerPayload(
+        SchemaVersion,
+        ResetId.ToString("D"),
+        RequestedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+        Attempt,
+        State.ToString(),
+        Enum.GetValues<FactoryResetCategory>().ToDictionary(category => category.ToString(), category => Categories[category].ToString())));
+
+    internal static bool TryParse(string payload, out FactoryResetMarker marker)
+    {
+        marker = null!;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(payload);
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 6 ||
+                !root.TryGetProperty("schemaVersion", out JsonElement version) || version.ValueKind != JsonValueKind.Number || version.GetInt32() != SchemaVersion ||
+                !root.TryGetProperty("resetId", out JsonElement id) || id.ValueKind != JsonValueKind.String || !Guid.TryParseExact(id.GetString(), "D", out Guid resetId) ||
+                !root.TryGetProperty("requestedUtc", out JsonElement requested) || requested.ValueKind != JsonValueKind.String || !DateTimeOffset.TryParseExact(requested.GetString(), "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset requestedUtc) || requestedUtc.Offset != TimeSpan.Zero ||
+                !root.TryGetProperty("attempt", out JsonElement attempt) || attempt.ValueKind != JsonValueKind.Number || !attempt.TryGetInt32(out int attemptCount) || attemptCount < 0 || attemptCount > MaximumAttempts ||
+                !root.TryGetProperty("state", out JsonElement state) || state.ValueKind != JsonValueKind.String || !Enum.TryParse(state.GetString(), false, out FactoryResetMarkerState markerState) || markerState is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.OnboardingPending) ||
+                !root.TryGetProperty("categories", out JsonElement categoriesElement) || categoriesElement.ValueKind != JsonValueKind.Object || categoriesElement.EnumerateObject().Count() != Enum.GetValues<FactoryResetCategory>().Length ||
+                root.EnumerateObject().Any(property => property.Name is not ("schemaVersion" or "resetId" or "requestedUtc" or "attempt" or "state" or "categories"))) return false;
+
+            Dictionary<FactoryResetCategory, FactoryResetCategoryResult> categories = [];
+            foreach (JsonProperty property in categoriesElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.String || !Enum.TryParse(property.Name, false, out FactoryResetCategory category) || !Enum.IsDefined(category) ||
+                    !Enum.TryParse(property.Value.GetString(), false, out FactoryResetCategoryResult result) || !Enum.IsDefined(result) || !categories.TryAdd(category, result)) return false;
+            }
+            if (categories.Count != Enum.GetValues<FactoryResetCategory>().Length || Enum.GetValues<FactoryResetCategory>().Any(category => !categories.ContainsKey(category))) return false;
+            marker = new FactoryResetMarker(resetId, requestedUtc, attemptCount, markerState, categories);
+            return true;
+        }
+        catch (JsonException) { return false; }
+        catch (FormatException) { return false; }
+    }
+
+    private sealed record MarkerPayload(int schemaVersion, string resetId, string requestedUtc, int attempt, string state, IReadOnlyDictionary<string, string> categories);
+}
 
 /// <summary>Owns the process-wide reset mutex on a dedicated thread for an asynchronous data operation.</summary>
 public static class DataOperationLease
