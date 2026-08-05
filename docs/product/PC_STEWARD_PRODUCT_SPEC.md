@@ -101,7 +101,7 @@ The MVP is successful when a user can:
 - see all applications found through the supported inventory mechanisms;
 - distinguish current, outdated, self-managed, unmatched, pinned and ignored items;
 - inspect source provenance and match confidence;
-- update one or more WinGet-supported applications after explicit review;
+- update one or more WinGet- or Chocolatey Community-supported applications after explicit review;
 - see whether each update succeeded, failed, requires a restart or could not be verified;
 - retain history across restarts;
 - export the inventory without creating an account;
@@ -175,6 +175,7 @@ The MVP will not:
 - The PC is running a supported Windows 11 release.
 - The initial build targets x64 hardware.
 - WinGet is installed and available in the signed-in user's context.
+- Chocolatey integration is optional; when enabled, the signed client is installed at its protected machine root.
 - The user can approve UAC when an individual installer requires elevation.
 - An internet connection is available for source refreshes and online update checks.
 - Some applications will remain unmatched; this is an expected state, not a product failure.
@@ -477,7 +478,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 | FR-SRC-04 | Cache source results so previous data remains visible during a temporary outage. | Yes |
 | FR-SRC-05 | Treat source metadata as untrusted and validate field lengths, formats and allowed values. | Yes |
 | FR-SRC-06 | Permit a user-confirmed mapping to an official GitHub Releases repository for read-only version checks. | Desirable MVP |
-| FR-SRC-07 | Add Chocolatey and Scoop connectors when those package managers are present. | Later |
+| FR-SRC-07 | Add the fixed Chocolatey Community connector when its signed client is present; Scoop remains later. | Yes — Task 32 |
 | FR-SRC-08 | Add signed, vendor-specific JSON, XML, RSS or API connectors. | Later |
 | FR-SRC-09 | Search arbitrary websites or download portals. | Never |
 | FR-SRC-10 | Let the user add only connector types supported by the product; no raw command connector. | Yes |
@@ -596,7 +597,7 @@ PC Steward checks **all enabled trusted connectors**, not the unrestricted inter
 | **A — OS/vendor managed** | Microsoft Store or an application's supported self-updater | Detect and report; invoke only through supported provider mechanisms |
 | **B — Curated package manager** | WinGet configured trusted sources | Primary actionable update source in MVP |
 | **C — Verified official project** | User-confirmed official GitHub Releases repository or official vendor feed | Read-only version check in early MVP; direct install later |
-| **D — Community package manager** | Chocolatey or Scoop repositories | Later connector; source and package trust must be visible |
+| **D — Community package manager** | Fixed Chocolatey Community feed | Opt-in machine-scope connector only; client signer, feed URL, package ID, version, source provenance and package-script risk must be visible before review. Scoop remains later. |
 | **E — Arbitrary web source** | Search results, download sites, mirrors, raw executable URL | Prohibited |
 
 ### 10.3 Required source metadata
@@ -653,6 +654,8 @@ When two trusted sources report different latest versions:
 **Update sources**
 
 - WinGet default trusted sources, including Microsoft Store information exposed through WinGet.
+- Optional Chocolatey Community source, only through its signed client at the canonical ProgramData root and only after explicit source disclosure. It uses the fixed `https://community.chocolatey.org/api/v2/` feed; configured custom sources, source credentials, raw scripts, installer paths and package-manager configuration are never imported as PC Steward authority.
+- Chocolatey's local package list does not establish the original feed for an installed package. PC Steward therefore presents every Chocolatey candidate as review-only until the user confirms its exact Community package ID; only that explicit mapping may proceed to the normal immutable-job and elevation review.
 - Optional user-confirmed GitHub Releases mapping for read-only version awareness, provided it does not delay the core build.
 
 **Actions**
@@ -686,7 +689,7 @@ When two trusted sources report different latest versions:
 ### 11.2 Version 0.2–0.4 candidates
 
 - Official GitHub Releases connector with deterministic tag parsing.
-- Chocolatey and Scoop inventory/connectors when installed.
+- Scoop inventory/connectors when installed.
 - Portable application folders selected by the user.
 - Better application classification and self-updater detection.
 - Official vendor feed adapters.
@@ -1560,7 +1563,7 @@ Before implementation begins, the product owner should explicitly approve or ame
 - [ ] Product vision and promise.
 - [ ] Windows 11 x64-only MVP.
 - [ ] Local-only, account-free MVP.
-- [ ] WinGet as the only actionable update provider in the first build.
+- [ ] WinGet and the fixed, explicitly enabled Chocolatey Community source as actionable update providers. Chocolatey actions are machine-scope only, use the protected elevation helper, and retain the same individual review, immutable-job, bounded-output and post-update verification gates.
 - [ ] No drivers, firmware, Windows Update or arbitrary website downloads.
 - [ ] Manual approval before every installation.
 - [ ] Separate install instances rather than over-aggressive deduplication.

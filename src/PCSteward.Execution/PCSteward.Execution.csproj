@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
     <ProjectReference Include="../PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
+    <ProjectReference Include="../PCSteward.Provider.Chocolatey/PCSteward.Provider.Chocolatey.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />

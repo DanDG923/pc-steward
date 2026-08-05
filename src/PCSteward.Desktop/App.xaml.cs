@@ -4,6 +4,7 @@ using PCSteward.Diagnostics;
 using PCSteward.Execution;
 using PCSteward.Persistence.Sqlite;
 using PCSteward.Provider.WinGet;
+using PCSteward.Provider.Chocolatey;
 using PCSteward.Storage;
 using PCSteward.Scheduling.Windows;
 
@@ -70,10 +71,11 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         List<ILocalInventoryProvider> providers = [];
         ILocalInventoryProvider? evidenceDelay = EvidenceDelayInventoryProvider.FromEnvironment();
         if (evidenceDelay is not null) providers.Add(evidenceDelay);
-        providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled)]);
+        providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled), new ChocolateyLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet package sources").IsEnabled)]);
         IReadOnlyCollection<IUpdateSourceConnector> updateSources = [
             new WingetUpdateSourceConnector("winget"),
-            new WingetUpdateSourceConnector("msstore")
+            new WingetUpdateSourceConnector("msstore"),
+            new ChocolateyUpdateSourceConnector()
         ];
         InventoryWorkflow workflow = new(
             database,
@@ -84,12 +86,12 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             database,
             database,
             updateSources,
-            new WingetPostUpdatePackageInventory(),
-            new WingetStructuredUpdateCandidateAuthority(),
+            new CompositePostUpdatePackageInventory([new WingetPostUpdatePackageInventory(), new ChocolateyPostUpdatePackageInventory()]),
+            new CompositeStructuredUpdateCandidateAuthority([new WingetStructuredUpdateCandidateAuthority(), new ChocolateyUpdateSourceConnector()]),
             database,
-            UpdateExecutionCapabilities.UserScopeOnly);
+            UpdateExecutionCapabilities.UserAndMachine);
         DownloadedArtifactCache downloads = new(database);
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()));
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()), new ElevatedUpdateRunner());
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications);
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);

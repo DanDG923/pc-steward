@@ -5,6 +5,7 @@
     <Project Path="src/PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
     <Project Path="src/PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
     <Project Path="src/PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
+    <Project Path="src/PCSteward.Provider.Chocolatey/PCSteward.Provider.Chocolatey.csproj" />
     <Project Path="src/PCSteward.Execution/PCSteward.Execution.csproj" />
     <Project Path="src/PCSteward.Storage/PCSteward.Storage.csproj" />
     <Project Path="src/PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />

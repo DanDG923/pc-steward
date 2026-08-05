@@ -399,7 +399,7 @@ public sealed class WingetUpdateExecutor : IWingetUpdateExecutor
 }
 
 /// <summary>Provider-owned construction for an exact, machine-scope WinGet update operation.</summary>
-public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor
+public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor, IProtectedMachineUpdateExecutor
 {
     private static readonly TimeSpan UpdateTimeout = TimeSpan.FromMinutes(15);
     private readonly IWingetProcess process;
@@ -413,6 +413,12 @@ public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor
         if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
         if (job.Selection.Scope != UpdateScope.Machine) throw new ArgumentException("The elevated provider accepts only machine-scope jobs.", nameof(job));
         return process.RunAsync(BuildUpdateArguments(job), UpdateTimeout, cancellationToken);
+    }
+
+    async Task<ProviderProcessResult> IProtectedMachineUpdateExecutor.ExecuteProtectedAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        WingetProcessResult result = await ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
+        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut, result.OutputLimitExceeded);
     }
 
     public static IReadOnlyList<string> BuildUpdateArguments(ImmutableUpdateJob job)

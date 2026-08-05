@@ -9,8 +9,10 @@ using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
+using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Provider.WinGet;
+using PCSteward.Provider.Chocolatey;
 
 namespace PCSteward.Execution;
 
@@ -469,14 +471,18 @@ public static class ElevatedHelperEntryPoint
     public static Task<int> RunAsync(string[] arguments) =>
         RunAsync(
             arguments,
-            static (job, cancellationToken) =>
-                new WingetMachineUpdateExecutor().ExecuteAsync(job, cancellationToken));
+            static (job, cancellationToken) => job.Selection.Provider switch
+            {
+                UpdateProvider.WinGet => ((IProtectedMachineUpdateExecutor)new WingetMachineUpdateExecutor()).ExecuteProtectedAsync(job, cancellationToken),
+                UpdateProvider.Chocolatey => ((IProtectedMachineUpdateExecutor)new ChocolateyMachineUpdateExecutor()).ExecuteProtectedAsync(job, cancellationToken),
+                _ => throw new InvalidOperationException("Unsupported update provider.")
+            });
 
     internal static Task<int> RunNoOpEvidenceAsync(string[] arguments) =>
         RunAsync(
             arguments,
             static (_, _) => Task.FromResult(
-                new WingetProcessResult(
+                new ProviderProcessResult(
                     0,
                     "approved-no-op-installed-helper-evidence",
                     string.Empty,
@@ -484,7 +490,7 @@ public static class ElevatedHelperEntryPoint
 
     private static async Task<int> RunAsync(
         string[] arguments,
-        Func<ImmutableUpdateJob, CancellationToken, Task<WingetProcessResult>> executeProvider)
+        Func<ImmutableUpdateJob, CancellationToken, Task<ProviderProcessResult>> executeProvider)
     {
         if (!OperatingSystem.IsWindows() ||
             !HelperBootstrap.TryParse(arguments, out HelperBootstrap? bootstrap) ||
@@ -547,7 +553,7 @@ public static class ElevatedHelperEntryPoint
             ElevatedHelperResult result;
             try
             {
-                WingetProcessResult providerResult =
+                ProviderProcessResult providerResult =
                     await executeProvider(job, providerCancellation.Token).ConfigureAwait(false);
                 string output = NonElevatedUpdateRunner.Sanitize(
                     string.Join(' ', providerResult.StandardOutput, providerResult.StandardError));

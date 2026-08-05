@@ -5,8 +5,8 @@ using System.Text.RegularExpressions;
 
 namespace PCSteward.Domain;
 
-public enum UpdateProvider { WinGet }
-public enum UpdateSource { WinGet, MicrosoftStore }
+public enum UpdateProvider { WinGet, Chocolatey }
+public enum UpdateSource { WinGet, MicrosoftStore, ChocolateyCommunity }
 public enum UpdateScope { User, Machine }
 public enum UpdateArchitecture { X64, X86, Arm64, Neutral }
 public enum UpdateChannel { Unknown, Stable, Preview }

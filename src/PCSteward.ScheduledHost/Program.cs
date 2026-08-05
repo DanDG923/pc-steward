@@ -4,6 +4,7 @@ using PCSteward.Diagnostics;
 using PCSteward.Domain;
 using PCSteward.Persistence.Sqlite;
 using PCSteward.Provider.WinGet;
+using PCSteward.Provider.Chocolatey;
 using PCSteward.Storage;
 
 namespace PCSteward.ScheduledHost;
@@ -61,9 +62,9 @@ internal static class Program
             ConnectorState sourceState = await database.GetConnectorStateAsync("WinGet package sources", false, timeout.Token).ConfigureAwait(false);
             bool updateSourcesEnabled = sourceState.Enabled && sourceState.SourceDisclosureApproved;
             InventoryWorkflow workflow = new(database, database, database,
-                [new ScheduledRegistryInventoryProvider(), new ScheduledMsixInventoryProvider(), new WingetLocalInventoryProvider(() => wingetInventory.Enabled && wingetInventory.SourceDisclosureApproved)],
+                [new ScheduledRegistryInventoryProvider(), new ScheduledMsixInventoryProvider(), new WingetLocalInventoryProvider(() => wingetInventory.Enabled && wingetInventory.SourceDisclosureApproved), new ChocolateyLocalInventoryProvider(() => updateSourcesEnabled)],
                 new BoundedScanEventSink(), database, database,
-                [new WingetUpdateSourceConnector("winget"), new WingetUpdateSourceConnector("msstore")]);
+                [new WingetUpdateSourceConnector("winget"), new WingetUpdateSourceConnector("msstore"), new ChocolateyUpdateSourceConnector()]);
 
             ScanResult scan = await workflow.ScanAsync(null, timeout.Token).ConfigureAwait(false);
             bool attention = false;

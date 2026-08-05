@@ -68,7 +68,7 @@ public sealed class ElevatedUpdateRunner
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.CurrentEvidenceMismatch, "current-update-evidence-mismatch");
         }
 
-        if (job.Selection.Provider != UpdateProvider.WinGet)
+        if (job.Selection.Provider is not (UpdateProvider.WinGet or UpdateProvider.Chocolatey))
         {
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.UnsupportedProvider, "unsupported-provider");
         }

@@ -18,6 +18,7 @@
     <ProjectReference Include="../PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
     <ProjectReference Include="../PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
     <ProjectReference Include="../PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
+    <ProjectReference Include="../PCSteward.Provider.Chocolatey/PCSteward.Provider.Chocolatey.csproj" />
     <ProjectReference Include="../PCSteward.Execution/PCSteward.Execution.csproj" />
     <ProjectReference Include="../PCSteward.Storage/PCSteward.Storage.csproj" />
     <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />

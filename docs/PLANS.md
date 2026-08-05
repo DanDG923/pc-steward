@@ -135,3 +135,20 @@ Overall verification result: **Improved**. The implementation findings are remed
 **Expiry:** All exceptions expire on implementation/hash change, another recipient, any distribution channel, or a public/private-distribution/release-ready claim. State-changing host evidence continues to require exact action-time approval.
 
 **Verification:** Independently review the documentation diff for overreach and contradictions; mechanically revalidate the exact archive and confirm no document implies signing, current-hash lifecycle execution, external distribution or public-release readiness.
+
+## Task 32 — Chocolatey trusted-source integration (2026-08-05)
+
+**Authority and scope:** The product owner explicitly requested Chocolatey as an additional app-update source. This promotes `FR-SRC-07` for Chocolatey only; Scoop, arbitrary source URLs, raw commands, Chocolatey installation, and any real application update remain out of scope. Repository edits and deterministic fixture validation are authorized. No host package-manager mutation, application update, signing, publishing, or distribution is authorized.
+
+**Safety contract:** The source is disabled by default and requires the existing source-disclosure consent. It accepts only the fixed Chocolatey Community feed URL and a fixed, trusted `choco.exe` beneath the canonical ProgramData Chocolatey root. It never reads execution arguments, source URLs, credentials, PowerShell, installer paths, or package scripts from the Chocolatey configuration, cache, database, or source response. Discovery parses bounded machine-readable rows as intelligence only. Chocolatey's local list does not reliably identify an installed package's source, so every local Chocolatey row is review-only until the user explicitly confirms the exact Community package mapping. The product owner subsequently approved protected execution only after that mapping: it is machine-scope only, uses the existing protected elevation transport, and accepts only a provider-owned fixed argument vector for one immutable package ID and version. Any unsupported, malformed, stale, non-community, or non-exact evidence remains non-actionable.
+
+**Plan:**
+
+1. Promote the scoped requirement and document the Community-feed trust limitations, explicit consent, and no-host-action boundary.
+2. Add a dedicated provider project with fixed-root signed-client resolution, bounded process handling, deterministic `outdated` parsing, and exact structured candidate authority.
+3. Extend immutable provider/source dispatch for the machine-scope Chocolatey operation without accepting executable paths or command strings.
+4. Compose the disabled Chocolatey connector, structured evidence, post-update re-inventory, and protected machine execution route; retain WinGet/Store behavior unchanged.
+5. Add normal, malformed, oversized, injected, unsigned-client, wrong-source, stale-evidence, and fixed-argument fixture coverage.
+6. Run focused provider/security/application/architecture tests, then Release build and the full suite; update traceability and status with observed results only.
+
+**Rollback:** Revert the eventual Task 32 commit. The earlier Task 31 owner-only exception automatically expires on this implementation change; no revised release or evaluation claim is made until a fresh audit and exact artifact evidence exist.

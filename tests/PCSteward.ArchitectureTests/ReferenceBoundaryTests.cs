@@ -172,14 +172,14 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
-    public void StandaloneDesktopOmitsElevatedHelperAndComposesUserScopeOnlyUpdates()
+    public void DesktopComposesProtectedMachineUpdatesOnlyThroughTheExistingElevatedHelper()
     {
         string root = FindRepositoryRoot();
         string source = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "App.xaml.cs"));
         string project = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "PCSteward.Desktop.csproj"));
 
-        StringAssert.Contains(source, "UpdateExecutionCapabilities.UserScopeOnly");
-        Assert.IsFalse(source.Contains("new ElevatedUpdateRunner", StringComparison.Ordinal));
+        StringAssert.Contains(source, "UpdateExecutionCapabilities.UserAndMachine");
+        StringAssert.Contains(source, "new ElevatedUpdateRunner()");
         Assert.IsFalse(project.Contains("PCSteward.ElevatedHelper", StringComparison.Ordinal));
     }
 

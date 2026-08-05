@@ -10,6 +10,26 @@ public interface IPostUpdatePackageInventory
     Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
 }
 
+/// <summary>Normalized bounded result returned only by a provider-owned protected machine operation.</summary>
+public sealed record ProviderProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut, bool OutputLimitExceeded = false);
+public interface IProtectedMachineUpdateExecutor
+{
+    Task<ProviderProcessResult> ExecuteProtectedAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+}
+
+public sealed class CompositePostUpdatePackageInventory(IEnumerable<IPostUpdatePackageInventory> inventories) : IPostUpdatePackageInventory
+{
+    private readonly IPostUpdatePackageInventory[] inventories = (inventories ?? throw new ArgumentNullException(nameof(inventories))).ToArray();
+    public async Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        foreach (IPostUpdatePackageInventory inventory in inventories)
+        {
+            if (await inventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return true;
+        }
+        return false;
+    }
+}
+
 /// <summary>
 /// Supplies bounded provider-structured candidate evidence. Display-table fields never implement
 /// this authority and therefore cannot become immutable job or provider arguments.
@@ -34,6 +54,21 @@ public sealed record UpdateExecutionCapabilities(bool MachineScopeEnabled)
 {
     public static UpdateExecutionCapabilities UserScopeOnly { get; } = new(false);
     public static UpdateExecutionCapabilities UserAndMachine { get; } = new(true);
+}
+
+/// <summary>Routes fixed-source candidate authorities without allowing display data to become execution authority.</summary>
+public sealed class CompositeStructuredUpdateCandidateAuthority(IEnumerable<IStructuredUpdateCandidateAuthority> authorities) : IStructuredUpdateCandidateAuthority
+{
+    private readonly IStructuredUpdateCandidateAuthority[] authorities = (authorities ?? throw new ArgumentNullException(nameof(authorities))).ToArray();
+    public async Task<StructuredUpdateCandidateEvidence?> ResolveAsync(string sourceId, string packageId, CancellationToken cancellationToken)
+    {
+        foreach (IStructuredUpdateCandidateAuthority authority in authorities)
+        {
+            StructuredUpdateCandidateEvidence? evidence = await authority.ResolveAsync(sourceId, packageId, cancellationToken).ConfigureAwait(false);
+            if (evidence is not null) return evidence;
+        }
+        return null;
+    }
 }
 
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
@@ -341,7 +376,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         UpdateChannel channel = string.Equals(profile.Channel, "preview", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Preview : string.Equals(profile.Channel, "stable", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Stable : UpdateChannel.Unknown;
         try
         {
-            selection = new UpdateJobSelection(profile.StableProductKey, UpdateProvider.WinGet, source, mapping.PackageId, profile.InstalledVersion, candidateVersion, scope, architecture, channel, "winget-com-v1");
+            UpdateProvider provider = source == UpdateSource.ChocolateyCommunity ? UpdateProvider.Chocolatey : UpdateProvider.WinGet;
+            selection = new UpdateJobSelection(profile.StableProductKey, provider, source, mapping.PackageId, profile.InstalledVersion, candidateVersion, scope, architecture, channel, provider == UpdateProvider.Chocolatey ? "chocolatey-fixed-community-v1" : "winget-com-v1");
             message = "Fresh exact source evidence is ready for your review.";
             return true;
         }
@@ -356,6 +392,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     {
         if (string.Equals(sourceId, "winget", StringComparison.OrdinalIgnoreCase)) { source = UpdateSource.WinGet; return true; }
         if (string.Equals(sourceId, "msstore", StringComparison.OrdinalIgnoreCase)) { source = UpdateSource.MicrosoftStore; return true; }
+        if (string.Equals(sourceId, "chocolatey-community", StringComparison.OrdinalIgnoreCase)) { source = UpdateSource.ChocolateyCommunity; return true; }
         source = default; return false;
     }
 

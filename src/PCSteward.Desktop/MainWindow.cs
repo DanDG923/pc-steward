@@ -582,9 +582,9 @@ public sealed class MainWindow : Window
             StackPanel scope = new() { Spacing = 8 };
             scope.Children.Add(new TextBlock { Text = "Choose what PC Steward may check", Style = AppStyle("StewardSectionTitleStyle") });
             scope.Children.Add(new CheckBox { Content = "Windows application inventory (required · read-only)", IsChecked = true, IsEnabled = false });
-            ToggleSwitch winget = new() { Header = "WinGet trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Local only", OnContent = "Enabled after disclosure" };
-            AutomationProperties.SetName(winget, "Enable WinGet trusted sources"); winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn); scope.Children.Add(winget);
-            scope.Children.Add(PageCopy("Enabling WinGet may disclose installed package identifiers to configured sources. Scanning remains read-only and never installs a package."));
+            ToggleSwitch winget = new() { Header = "WinGet and Chocolatey trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Local only", OnContent = "Enabled after disclosure" };
+            AutomationProperties.SetName(winget, "Enable WinGet and Chocolatey trusted sources"); winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn); scope.Children.Add(winget);
+            scope.Children.Add(PageCopy("Enabling these sources may disclose installed package identifiers to WinGet and Chocolatey Community. Scanning remains read-only; an update still needs its own review and confirmation."));
             panel.Children.Add(Card(scope));
         }
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -638,8 +638,8 @@ public sealed class MainWindow : Window
         includeAppx.Checked += async (_, _) => await ChangeConnectorAsync(appx.Name, true);
         includeAppx.Unchecked += async (_, _) => await ChangeConnectorAsync(appx.Name, false);
         sources.Children.Add(includeAppx);
-        ToggleSwitch winget = new() { Header = "WinGet trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Disabled", OnContent = "Enabled after disclosure" };
-        AutomationProperties.SetName(winget, "Enable WinGet trusted sources");
+        ToggleSwitch winget = new() { Header = "WinGet and Chocolatey trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Disabled", OnContent = "Enabled after disclosure" };
+        AutomationProperties.SetName(winget, "Enable WinGet and Chocolatey trusted sources");
         winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);
         sources.Children.Add(winget);
         panel.Children.Add(Card(sources));
@@ -683,8 +683,8 @@ public sealed class MainWindow : Window
             ContentDialog consent = new()
             {
                 XamlRoot = Content.XamlRoot,
-                Title = "Enable WinGet trusted sources?",
-                Content = "WinGet may disclose installed-software identifiers to configured package sources. It supplies installed-inventory and update-source evidence, remains read-only during scans, and never installs or updates software without a separate review and confirmation.",
+                Title = "Enable WinGet and Chocolatey trusted sources?",
+                Content = "WinGet and Chocolatey Community may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update. Scanning remains read-only; an update is machine-scope only and requires separate review, confirmation, and elevation.",
                 PrimaryButtonText = "I approve",
                 CloseButtonText = "Keep local-only",
                 DefaultButton = ContentDialogButton.Close
@@ -712,7 +712,7 @@ public sealed class MainWindow : Window
         ConnectorOption connector = viewModel.Connectors.Single(option => option.Name == connectorName);
         if (connector.RequiresSourceDisclosure && enabled)
         {
-            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "WinGet may disclose installed-software identifiers to configured package sources. It remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only" };
+            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "Package sources may disclose installed-software identifiers. Scanning remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only" };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
             if (!approved) enabled = false;
         }
