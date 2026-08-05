@@ -4,7 +4,7 @@
 
 **Current task:** Task 32 Chocolatey Community source and protected execution
 
-**Reviewed implementation:** Task 32 implementation (fresh independent audit pending)
+**Reviewed implementation:** Task 32 implementation (fresh independent audit passed; live host evidence remains pending)
 
 **Current branch:** `phase/4-beta`
 
@@ -29,9 +29,9 @@ The authoritative boundary is [Task 31 non-public evaluation exceptions](review/
 
 ## Current verification
 
-Task 32 focused Chocolatey fixtures: **5/5**. Release build: 0 warnings/errors. Full automated suite: **258/258** (55 Domain, 165 Application integration, 18 Architecture, 20 Security). The deterministic fixture workload also completed 30 local-inventory runs (median 1.85 ms, p95 2.12 ms) and 20 two-source online-check runs (median 15.54 ms, p95 16.10 ms); it is not final-app/live Chocolatey evidence. A user-initiated WizTree review on the preceding local beta was blocked by the required protected-helper layout before helper launch or provider execution; no application changed. The UI now classifies that `ProductFailed` result as failed rather than completed.
+Task 32 focused Chocolatey fixtures: **6/6**. Release build: 0 warnings/errors. Full automated suite: **260/260** (55 Domain, 166 Application integration, 18 Architecture, 21 Security). The independent re-review passed: the original desktop process rejects a caller-writable/reparse/wrong-signer Chocolatey client before `runas`, while the helper revalidates canonical path, reparse state, WinTrust, exact signer and SHA-256 identity immediately before launch. The deterministic fixture workload also completed 30 local-inventory runs (median 1.85 ms, p95 2.12 ms) and 20 two-source online-check runs (median 15.54 ms, p95 16.10 ms); it is not final-app/live Chocolatey evidence. A user-initiated WizTree review on the preceding local beta was blocked by the required protected-helper layout before helper launch or provider execution; no application changed. The UI now classifies that `ProductFailed` result as failed rather than completed.
 
-The earlier unsigned archive hash `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523` is superseded and not evidence for this working tree. The new unsigned local archive `DBBBEBB86D8EC74892580EF80DBFEEF73DAD99ED78CFAFAB2F33454A4C329A57` mechanically validates 97 payload files / 50,052,988 bytes, 15 components and 16 SBOM nodes / 32 edges. It has not been launched.
+The earlier unsigned archive hashes are superseded and not evidence for this working tree. The new unsigned local archive `1F88E89C15AA5401BC7EB508502F94059C2CD51CDD546834AC185ABF00E35056` mechanically validates 97 payload files / 50,063,593 bytes, 15 components and 16 SBOM nodes / 32 edges. It has not been launched.
 
 ## Authority boundary
 
@@ -39,4 +39,4 @@ One owner-run local beta launch and a user-initiated WizTree review occurred aft
 
 ## Next task
 
-Complete Task 32 automated validation, package a new exact artifact without launching it, then perform a fresh independent audit. Any live Chocolatey discovery/update, elevation, or lifecycle evidence still needs exact action-time approval.
+Any live Chocolatey discovery/update, elevation, or lifecycle evidence still needs exact action-time approval. The automated Task 32 implementation, fresh exact artifact and independent code audit are complete; a new exact-artifact evidence task is required before any release or distribution claim.

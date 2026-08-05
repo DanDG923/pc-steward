@@ -266,6 +266,34 @@ public sealed class ElevatedHelperSecurityTests
     }
 
     [TestMethod]
+    public async Task ChocolateyCallerTrustRejectionHappensBeforeTheElevatedHelperCanLaunch()
+    {
+        int launches = 0;
+        HelperLaunchPaths paths = new("C:\\Program Files\\PC Steward\\PCSteward.Desktop.exe", "C:\\Program Files\\PC Steward\\PCSteward.ElevatedHelper.exe");
+        Process? Launcher(string helperPath, string pipeName, string nonce, out ElevatedHelperResult? failure)
+        {
+            launches++;
+            failure = null;
+            return null;
+        }
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(
+            "chocolatey:chocolatey-community:git", UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity,
+            "git", "2.45.1", "2.46.0", UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Stable,
+            "chocolatey-fixed-community-v1")).Confirm(DateTimeOffset.UtcNow);
+        WindowsElevatedHelperTransport transport = new(
+            () => paths,
+            _ => new(true, string.Empty),
+            Launcher,
+            validateProviderPreLaunchTrust: _ => "chocolatey-client-desktop-trust-rejected");
+
+        ElevatedHelperResult result = await transport.ExecuteAsync(job, CancellationToken.None);
+
+        Assert.AreEqual(ElevatedHelperOutcome.Failed, result.Outcome);
+        Assert.AreEqual("chocolatey-client-desktop-trust-rejected", result.SanitizedOutput);
+        Assert.AreEqual(0, launches);
+    }
+
+    [TestMethod]
     public async Task CurrentCallerWritableUnsignedFixtureFailsTheProductionTrustChecks()
     {
         string root = Path.Combine(Path.GetTempPath(), $"pcsteward-helper-trust-{Guid.NewGuid():N}");

@@ -83,6 +83,25 @@ public sealed class ChocolateyProviderTests
         finally { File.Delete(unsigned); }
     }
 
+    [TestMethod]
+    public void ChocolateyClientTrustRejectsWritableLayoutsWrongSignersAndReplacement()
+    {
+        ChocolateyClientTrustEvidence trusted = new(true, true, true, true, true);
+
+        Assert.IsTrue(MachineTrustedChocolatey.IsChocolateyTrustAccepted(trusted));
+        foreach (ChocolateyClientTrustEvidence rejected in new[]
+        {
+            trusted with { CallerCannotModifyLayout = false },
+            trusted with { ExactSigner = false },
+            trusted with { NoReparseComponents = false }
+        })
+        {
+            Assert.IsFalse(MachineTrustedChocolatey.IsChocolateyTrustAccepted(rejected));
+        }
+        Assert.IsTrue(MachineTrustedChocolatey.DigestsMatch(new byte[32], new byte[32]));
+        Assert.IsFalse(MachineTrustedChocolatey.DigestsMatch(new byte[32], Enumerable.Repeat((byte)1, 32).ToArray()));
+    }
+
     private sealed class RecordingProcess(params ChocolateyProcessResult[] results) : IChocolateyProcess
     {
         private readonly Queue<ChocolateyProcessResult> results = new(results);

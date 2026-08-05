@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Microsoft.Win32.SafeHandles;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Runtime.InteropServices;
@@ -162,6 +163,8 @@ public sealed class ChocolateyMachineUpdateExecutor : IProtectedMachineUpdateExe
         ChocolateyProcessResult result = await ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
         return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut, result.OutputLimitExceeded);
     }
+    /// <summary>Runs in the original non-elevated desktop process before it starts the protected helper.</summary>
+    public static void ValidateDesktopCallerClientTrust() => MachineTrustedChocolatey.ResolveExecutable(requireCallerCannotModifyLayout: true);
     public static IReadOnlyList<string> BuildUpdateArguments(ImmutableUpdateJob job)
     {
         ArgumentNullException.ThrowIfNull(job);
@@ -196,7 +199,9 @@ internal sealed class WindowsChocolateyProcess : IChocolateyProcess
     public async Task<ChocolateyProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        ProcessStartInfo start = new() { FileName = MachineTrustedChocolatey.ResolveExecutable(), UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        ChocolateyClientIdentity executable = MachineTrustedChocolatey.ResolveExecutable();
+        MachineTrustedChocolatey.ValidateUnchanged(executable);
+        ProcessStartInfo start = new() { FileName = executable.Path, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using Process process = new() { StartInfo = start };
         process.Start();
@@ -218,37 +223,120 @@ internal sealed class WindowsChocolateyProcess : IChocolateyProcess
     private sealed record BoundedRead(string Text, bool ExceededLimit);
 }
 
-/// <summary>Accepts only Chocolatey's signed client at the canonical machine root; PATH aliases and reparse points are denied.</summary>
+internal sealed record ChocolateyClientIdentity(string Path, byte[] Digest);
+internal sealed record ChocolateyClientTrustEvidence(bool FixedCanonicalPath, bool NoReparseComponents, bool CallerCannotModifyLayout, bool SignatureTrusted, bool ExactSigner);
+
+/// <summary>Accepts only Chocolatey's signed client at the canonical, protected machine root; PATH aliases and reparse points are denied.</summary>
 internal static class MachineTrustedChocolatey
 {
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
-    internal static string ResolveExecutable()
+    private const string ExpectedSignerSimpleName = "Chocolatey Software, Inc";
+    private static readonly uint[] FileModificationRights = [0x00000002, 0x00000004, 0x00000010, 0x00000100, 0x00010000, 0x00040000, 0x00080000];
+    private static readonly uint[] DirectoryModificationRights = [0x00000002, 0x00000004, 0x00000040, 0x00010000, 0x00040000, 0x00080000];
+    private static readonly uint[] AncestorReplacementRights = [0x00000040, 0x00010000, 0x00040000, 0x00080000];
+
+    internal static ChocolateyClientIdentity ResolveExecutable(bool requireCallerCannotModifyLayout = false)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Chocolatey resolution requires Windows.");
         string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData, Environment.SpecialFolderOption.DoNotVerify);
         if (string.IsNullOrWhiteSpace(programData) || !Path.IsPathFullyQualified(programData)) throw new IOException("The machine ProgramData root is unavailable.");
-        string root = Path.GetFullPath(Path.Combine(programData, "chocolatey")); string executable = Path.Combine(root, "bin", "choco.exe");
+        string root = Path.GetFullPath(Path.Combine(programData, "chocolatey"));
+        string bin = Path.GetFullPath(Path.Combine(root, "bin"));
+        string executable = Path.GetFullPath(Path.Combine(bin, "choco.exe"));
         if (!File.Exists(executable)) throw new IOException("Chocolatey is not installed at the protected machine root.");
-        RejectReparse(root); RejectReparse(Path.Combine(root, "bin")); RejectReparse(executable);
-        if (!IsChocolateyTrusted(executable)) throw new IOException("The Chocolatey client is not signed by Chocolatey Software, Inc.");
-        return executable;
+        bool callerCannotModify = !requireCallerCannotModifyLayout || CallerCannotModifyLayout(root, bin, executable);
+        if (!IsChocolateyTrustAccepted(new(true, HasNoReparseComponents(root, bin, executable), callerCannotModify, IsChocolateyTrusted(executable), HasExpectedSigner(executable))))
+        {
+            throw new IOException("The Chocolatey client is not installed in a trusted protected layout.");
+        }
+        return new(executable, HashFile(executable));
     }
+
+    internal static void ValidateUnchanged(ChocolateyClientIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ChocolateyClientIdentity current = ResolveExecutable();
+        if (!string.Equals(identity.Path, current.Path, StringComparison.OrdinalIgnoreCase) || !DigestsMatch(identity.Digest, current.Digest))
+        {
+            throw new IOException("The trusted Chocolatey executable changed before launch.");
+        }
+    }
+
+    internal static bool IsChocolateyTrustAccepted(ChocolateyClientTrustEvidence evidence) =>
+        evidence.FixedCanonicalPath && evidence.NoReparseComponents && evidence.CallerCannotModifyLayout && evidence.SignatureTrusted && evidence.ExactSigner;
+
+    internal static bool DigestsMatch(byte[] expected, byte[] actual) =>
+        expected is { Length: 32 } && actual is { Length: 32 } && CryptographicOperations.FixedTimeEquals(expected, actual);
+
     internal static bool IsChocolateyTrusted(string path)
     {
         if (!File.Exists(path) || !VerifyTrust(path)) return false;
         try
         {
             #pragma warning disable SYSLIB0057
-            using X509Certificate certificate = X509Certificate.CreateFromSignedFile(path);
+            using X509Certificate2 certificate = new(X509Certificate.CreateFromSignedFile(path));
             #pragma warning restore SYSLIB0057
-            return certificate.Subject.Contains("CN=Chocolatey Software, Inc", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(certificate.GetNameInfo(X509NameType.SimpleName, false), ExpectedSignerSimpleName, StringComparison.Ordinal);
         }
         catch (CryptographicException) { return false; }
         catch (IOException) { return false; }
     }
-    private static void RejectReparse(string path)
+    private static bool HasExpectedSigner(string path)
     {
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw new IOException("A reparse point is not an accepted Chocolatey path.");
+        try
+        {
+            #pragma warning disable SYSLIB0057
+            using X509Certificate2 certificate = new(X509Certificate.CreateFromSignedFile(path));
+            #pragma warning restore SYSLIB0057
+            return string.Equals(certificate.GetNameInfo(X509NameType.SimpleName, false), ExpectedSignerSimpleName, StringComparison.Ordinal);
+        }
+        catch (CryptographicException) { return false; }
+        catch (IOException) { return false; }
+    }
+
+    private static byte[] HashFile(string path)
+    {
+        using FileStream file = File.OpenRead(path);
+        return SHA256.HashData(file);
+    }
+
+    private static bool HasNoReparseComponents(string root, string bin, string executable)
+    {
+        try
+        {
+            return EnumerateAncestors(root).All(directory => Directory.Exists(directory) && (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == 0) &&
+                Directory.Exists(bin) && (File.GetAttributes(bin) & FileAttributes.ReparsePoint) == 0 &&
+                File.Exists(executable) && (File.GetAttributes(executable) & FileAttributes.ReparsePoint) == 0;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
+    }
+
+    private static bool CallerCannotModifyLayout(string root, string bin, string executable)
+    {
+        foreach (string directory in EnumerateAncestors(root))
+        {
+            IEnumerable<uint> rights = string.Equals(Path.GetFullPath(directory), Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase) ? DirectoryModificationRights : AncestorReplacementRights;
+            if (!TryProbeRights(directory, true, rights, out bool canModify) || canModify) return false;
+        }
+        return TryProbeRights(bin, true, DirectoryModificationRights, out bool canModifyBin) && !canModifyBin &&
+            TryProbeRights(executable, false, FileModificationRights, out bool canModifyFile) && !canModifyFile;
+    }
+
+    private static IEnumerable<string> EnumerateAncestors(string root)
+    {
+        for (DirectoryInfo? current = new(Path.GetFullPath(root)); current is not null; current = current.Parent) yield return current.FullName;
+    }
+
+    private static bool TryProbeRights(string path, bool directory, IEnumerable<uint> rights, out bool canModify)
+    {
+        canModify = false;
+        foreach (uint right in rights)
+        {
+            using SafeFileHandle handle = CreateFileForTrustProbe(path, right, 0x00000001 | 0x00000002 | 0x00000004, IntPtr.Zero, 3, 0x00200000u | (directory ? 0x02000000u : 0u), IntPtr.Zero);
+            if (!handle.IsInvalid) { canModify = true; return true; }
+            if (Marshal.GetLastWin32Error() != 5) return false;
+        }
+        return true;
     }
     private static bool VerifyTrust(string path)
     {
@@ -266,4 +354,6 @@ internal static class MachineTrustedChocolatey
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WinTrustFileInfo { public uint Size; public IntPtr FilePath; public IntPtr FileHandle; public IntPtr KnownSubject; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WinTrustData { public uint Size; public IntPtr PolicyCallbackData; public IntPtr SipClientData; public uint UiChoice; public uint RevocationChecks; public uint UnionChoice; public IntPtr FileInfo; public uint StateAction; public IntPtr StateData; public IntPtr UrlReference; public uint ProviderFlags; public uint UiContext; public IntPtr SignatureSettings; }
     [DllImport("wintrust.dll", SetLastError = true)] private static extern int WinVerifyTrust(IntPtr windowHandle, in Guid actionId, ref WinTrustData trustData);
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern SafeFileHandle CreateFileForTrustProbe(string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
 }

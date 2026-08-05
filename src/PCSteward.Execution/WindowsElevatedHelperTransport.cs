@@ -33,12 +33,14 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
     private readonly Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust;
     private readonly ElevatedHelperLauncher launchHelper;
     private readonly Action<HelperLaunchPaths>? afterInitialTrust;
+    private readonly Func<ImmutableUpdateJob, string?> validateProviderPreLaunchTrust;
 
     internal WindowsElevatedHelperTransport() : this(
         InstalledHelperLaunchTrust.ResolveFixedPaths,
         InstalledHelperLaunchTrust.Validate,
         LaunchHelper,
-        null)
+        null,
+        ValidateProviderPreLaunchTrust)
     {
     }
 
@@ -46,7 +48,8 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         InstalledHelperLaunchTrust.ResolveFixedPaths,
         InstalledHelperLaunchTrust.Validate,
         LaunchHelper,
-        afterInitialTrust)
+        afterInitialTrust,
+        ValidateProviderPreLaunchTrust)
     {
     }
 
@@ -54,12 +57,14 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         Func<HelperLaunchPaths?> resolvePaths,
         Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust,
         ElevatedHelperLauncher launchHelper,
-        Action<HelperLaunchPaths>? afterInitialTrust = null)
+        Action<HelperLaunchPaths>? afterInitialTrust = null,
+        Func<ImmutableUpdateJob, string?>? validateProviderPreLaunchTrust = null)
     {
         this.resolvePaths = resolvePaths ?? throw new ArgumentNullException(nameof(resolvePaths));
         this.validatePreLaunchTrust = validatePreLaunchTrust ?? throw new ArgumentNullException(nameof(validatePreLaunchTrust));
         this.launchHelper = launchHelper ?? throw new ArgumentNullException(nameof(launchHelper));
         this.afterInitialTrust = afterInitialTrust;
+        this.validateProviderPreLaunchTrust = validateProviderPreLaunchTrust ?? ValidateProviderPreLaunchTrust;
     }
 
     public async Task<ElevatedHelperResult> ExecuteAsync(
@@ -70,6 +75,11 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         if (!OperatingSystem.IsWindows())
         {
             return Failed("elevated-helper-requires-windows");
+        }
+        string? providerTrustFailure = validateProviderPreLaunchTrust(job);
+        if (providerTrustFailure is not null)
+        {
+            return Failed(providerTrustFailure);
         }
 
         HelperLaunchPaths? paths = resolvePaths();
@@ -206,6 +216,24 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         {
             TryTerminate(helper);
             return Failed("elevated-helper-crashed-or-disconnected");
+        }
+    }
+
+    private static string? ValidateProviderPreLaunchTrust(ImmutableUpdateJob job)
+    {
+        if (job.Selection.Provider != UpdateProvider.Chocolatey)
+        {
+            return null;
+        }
+
+        try
+        {
+            ChocolateyMachineUpdateExecutor.ValidateDesktopCallerClientTrust();
+            return null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException or Win32Exception)
+        {
+            return "chocolatey-client-desktop-trust-rejected";
         }
     }
 
