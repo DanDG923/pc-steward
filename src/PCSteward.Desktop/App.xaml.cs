@@ -98,6 +98,10 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), showPostResetOnboarding, () => FactoryReset.AcknowledgeOnboarding(stateDirectory));
         window.Activate();
         }
+        catch (Exception exception)
+        {
+            new StartupFailureWindow(exception).Activate();
+        }
         finally { bootstrapMutex.ReleaseMutex(); }
     }
 }
@@ -134,6 +138,26 @@ internal sealed class ResetRecoveryWindow : Window
                 new Microsoft.UI.Xaml.Controls.TextBlock { Text = "Factory reset is incomplete", Style = (Microsoft.UI.Xaml.Style)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardPageTitleStyle"] },
                 new Microsoft.UI.Xaml.Controls.TextBlock { Text = "PC Steward did not reopen prior data. Close applications holding the listed items and restart PC Steward to retry." , TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
                 new Microsoft.UI.Xaml.Controls.TextBlock { Text = string.Join("\n", result.Residuals.Select(item => $"{item.Category}: {item.Reason}")), TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap }
+            }
+        };
+    }
+}
+
+internal sealed class StartupFailureWindow : Window
+{
+    public StartupFailureWindow(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        Title = "PC Steward needs attention";
+        Content = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Padding = new Microsoft.UI.Xaml.Thickness(24),
+            Spacing = 12,
+            Children =
+            {
+                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "PC Steward could not finish starting", Style = (Microsoft.UI.Xaml.Style)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardPageTitleStyle"] },
+                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "No scan or update was started. Copy the diagnostic below when reporting this problem.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
+                new Microsoft.UI.Xaml.Controls.TextBlock { Text = $"{exception.GetType().Name}: {exception.Message}", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap }
             }
         };
     }

@@ -38,6 +38,9 @@ public sealed class MainWindow : Window
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
     private bool onboardingAcknowledging;
     private bool startupStateLoadFailed;
+    private ResultsFilter resultsFilter = ResultsFilter.All;
+
+    private enum ResultsFilter { All, Actionable, NeedsDecision, Unmanaged }
 
     public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
@@ -346,12 +349,43 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = "Scan results", Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(PageCopy("Results distinguish verified opportunities, decisions, unmanaged software, and app-owned cleanup. No action starts until you open evidence and confirm it separately."));
         StackPanel filters = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        foreach (string label in new[] { $"All {actionable + decisions + unmanaged}", $"Actionable {actionable}", $"Needs decision {decisions}", $"Unmanaged {unmanaged}" })
+        foreach ((ResultsFilter option, string label) in new[]
         {
-            Button filter = new() { Content = label, IsEnabled = false }; filters.Children.Add(filter);
+            (ResultsFilter.All, $"All {actionable + decisions + unmanaged}"),
+            (ResultsFilter.Actionable, $"Actionable {actionable}"),
+            (ResultsFilter.NeedsDecision, $"Needs decision {decisions}"),
+            (ResultsFilter.Unmanaged, $"Unmanaged {unmanaged}")
+        })
+        {
+            Button filter = new() { Content = label, IsEnabled = resultsFilter != option };
+            AutomationProperties.SetName(filter, $"Show {option} scan results");
+            filter.Click += (_, _) => { resultsFilter = option; Render(); };
+            filters.Children.Add(filter);
         }
         panel.Children.Add(filters);
-        foreach (InventoryRow row in viewModel.AllRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "Unmanaged"))
+        InventoryRow[] currentIdentityCandidates = viewModel.AllRows
+            .Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired.ToString())
+            .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)
+            .ToArray();
+        Button verifyAll = new()
+        {
+            Content = currentIdentityCandidates.Length == 0 ? "Verify all current package identities" : $"Verify all {currentIdentityCandidates.Length} current package identities",
+            IsEnabled = currentIdentityCandidates.Length > 0
+        };
+        AutomationProperties.SetName(verifyAll, "Verify all source-reported current package identities");
+        verifyAll.Click += async (_, _) => await ConfirmCurrentPackageIdentitiesAsync(currentIdentityCandidates);
+        panel.Children.Add(verifyAll);
+        if (currentIdentityCandidates.Length == 0) panel.Children.Add(PageCopy("No source-reported current package identities are available to verify."));
+        InventoryRow[] resultRows = viewModel.AllRows.Where(row => row.Status is "VerifiedUpdate" or "ReviewRequired" or "Unmanaged")
+            .Where(row => resultsFilter switch
+            {
+                ResultsFilter.Actionable => row.Status == "VerifiedUpdate",
+                ResultsFilter.NeedsDecision => row.Status == "ReviewRequired",
+                ResultsFilter.Unmanaged => row.Status == "Unmanaged",
+                _ => true
+            }).ToArray();
+        if (resultRows.Length == 0) panel.Children.Add(PageCopy("No results match this filter."));
+        foreach (InventoryRow row in resultRows)
         {
             StackPanel finding = new() { Spacing = 5 };
             finding.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
@@ -395,25 +429,7 @@ public sealed class MainWindow : Window
             panel.Children.Add(PageCopy($"{currentIdentityCandidates.Length} item{(currentIdentityCandidates.Length == 1 ? string.Empty : "s")} can be confirmed together because the repository reports its installed version is already the available version."));
             Button confirmAll = new() { Content = "Confirm all current package identities" };
             AutomationProperties.SetName(confirmAll, "Confirm all source-reported current package identities");
-            confirmAll.Click += async (_, _) =>
-            {
-                ContentDialog confirmation = new()
-                {
-                    XamlRoot = Content.XamlRoot,
-                    Title = "Confirm current package identities?",
-                    Content = "This records reversible mappings only for the listed items where the approved source reports its installed version equals the available version. It skips newer, unknown, unavailable or conflicting candidates. No update will start.",
-                    PrimaryButtonText = "Confirm mappings",
-                    CloseButtonText = "Cancel",
-                    DefaultButton = ContentDialogButton.Close
-                };
-                if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
-                RepositoryIdentityConfirmation[] confirmations = currentIdentityCandidates
-                    .Select(row => viewModel.UpdateDetails[row.StableProductKey])
-                    .Select(detail => new RepositoryIdentityConfirmation(detail.StableProductKey, detail.SourceId!, detail.PackageId!))
-                    .ToArray();
-                try { RepositoryIdentityConfirmationResult result = await DataOperationLease.RunAsync(token => workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", token), CancellationToken.None); LoadSavedInventory(); await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message); Render(); }
-                catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-            };
+            confirmAll.Click += async (_, _) => await ConfirmCurrentPackageIdentitiesAsync(currentIdentityCandidates);
             panel.Children.Add(confirmAll);
         }
         panel.Children.Add(new TextBlock { Text = "Approved updates", Style = AppStyle("StewardSectionTitleStyle") });
@@ -429,6 +445,26 @@ public sealed class MainWindow : Window
         }
         panel.Children.Add(PageCopy("Sequential and verified: PC Steward rechecks the installed version before recording an update as successful."));
         Content = BuildShell(panel);
+    }
+
+    private async Task ConfirmCurrentPackageIdentitiesAsync(IReadOnlyCollection<InventoryRow> candidates)
+    {
+        ContentDialog confirmation = new()
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Confirm current package identities?",
+            Content = "This records reversible mappings only for the listed items where the approved source reports its installed version equals the available version. It skips newer, unknown, unavailable or conflicting candidates. No update will start.",
+            PrimaryButtonText = "Confirm mappings",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+        RepositoryIdentityConfirmation[] confirmations = candidates
+            .Select(row => viewModel.UpdateDetails[row.StableProductKey])
+            .Select(detail => new RepositoryIdentityConfirmation(detail.StableProductKey, detail.SourceId!, detail.PackageId!))
+            .ToArray();
+        try { RepositoryIdentityConfirmationResult result = await DataOperationLease.RunAsync(token => workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", token), CancellationToken.None); LoadSavedInventory(); await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message); Render(); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
     }
 
     private void RenderStoragePage()
@@ -963,6 +999,11 @@ public sealed class MainWindow : Window
         UpdateReviewPreparation preparation;
         try { preparation = await DataOperationLease.RunAsync(token => updates.BeginReviewAsync(row.StableProductKey, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        catch (Exception)
+        {
+            await ShowUpdateOutcomeAsync("Update not available", "PC Steward could not prepare this update. No update was started.");
+            return;
+        }
         if (preparation.Review is null)
         {
             await ShowUpdateOutcomeAsync("Update not available", preparation.Message);
@@ -992,9 +1033,27 @@ public sealed class MainWindow : Window
         try { result = await DataOperationLease.RunAsync(token => updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token), CancellationToken.None); }
         catch (Exception) { result = new(false, "PC Steward could not start the reviewed update. No success was recorded.", null); }
         finally { isExecuting = false; LoadSavedInventory(); }
-        await ShowUpdateOutcomeAsync(result.Started ? "Update completed" : "Update not started", result.Message);
+        await ShowUpdateOutcomeAsync(GetUpdateOutcomeTitle(result), GetUpdateOutcomeMessage(result));
         Render();
     }
+
+    private static string GetUpdateOutcomeTitle(ReviewedUpdateExecutionResult result) =>
+        result.Batch?.FinalEntries.SingleOrDefault()?.Status switch
+        {
+            PCSteward.Application.UpdateHistoryStatus.Success => "Update completed",
+            PCSteward.Application.UpdateHistoryStatus.RestartRequired => "Restart required",
+            null when !result.Started => "Update not started",
+            _ => "Update failed"
+        };
+
+    private static string GetUpdateOutcomeMessage(ReviewedUpdateExecutionResult result) =>
+        result.Batch?.FinalEntries.SingleOrDefault() is
+        {
+            Status: PCSteward.Application.UpdateHistoryStatus.ProductFailed,
+            Diagnostic: "elevated-helper-fixed-installed-path-invalid"
+        }
+            ? "The update was blocked before it could run. This standalone PC Steward beta is not installed alongside its trusted elevated helper in the protected PC Steward location. No application was changed."
+            : result.Message;
 
     private Task<ContentDialogResult> ShowUpdateOutcomeAsync(string title, string message) => new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = message, CloseButtonText = "Close" }.ShowAsync().AsTask();
 }

@@ -181,7 +181,7 @@ internal sealed class WinGetComStructuredCatalogQuery : IWinGetStructuredCatalog
         CreateCompositePackageCatalogOptions compositeOptions = new()
         {
             CompositeSearchBehavior = CompositeSearchBehavior.RemotePackagesFromAllCatalogs,
-            InstalledScope = PackageInstallScope.User
+            InstalledScope = PackageInstallScope.Any
         };
         compositeOptions.Catalogs.Add(reference);
         PackageCatalogReference compositeReference = manager.CreateCompositePackageCatalog(compositeOptions);

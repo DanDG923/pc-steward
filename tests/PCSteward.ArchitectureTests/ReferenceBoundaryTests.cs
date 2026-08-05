@@ -78,7 +78,7 @@ public sealed class ReferenceBoundaryTests
 
         StringAssert.Contains(source, "CompositeSearchBehavior = CompositeSearchBehavior.RemotePackagesFromAllCatalogs");
         Assert.IsFalse(source.Contains("CompositeSearchBehavior.LocalCatalogs", StringComparison.Ordinal));
-        StringAssert.Contains(source, "InstalledScope = PackageInstallScope.User");
+        StringAssert.Contains(source, "InstalledScope = PackageInstallScope.Any");
         StringAssert.Contains(source, "compositeOptions.Catalogs.Add(reference)");
         StringAssert.Contains(source, "manager.CreateCompositePackageCatalog(compositeOptions)");
         StringAssert.Contains(source, "compositeReference.ConnectAsync()");
@@ -248,11 +248,23 @@ public sealed class ReferenceBoundaryTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
         int completionStart = source.IndexOf("finally { isExecuting = false; LoadSavedInventory(); }", StringComparison.Ordinal);
-        int outcome = source.IndexOf("await ShowUpdateOutcomeAsync(result.Started", completionStart, StringComparison.Ordinal);
+        int outcome = source.IndexOf("await ShowUpdateOutcomeAsync(GetUpdateOutcomeTitle(result), GetUpdateOutcomeMessage(result));", completionStart, StringComparison.Ordinal);
         int render = source.IndexOf("Render();", outcome, StringComparison.Ordinal);
 
         Assert.IsTrue(completionStart >= 0 && outcome > completionStart && render > outcome);
         Assert.IsFalse(source.Contains("finally { isExecuting = false; LoadSavedInventory(); Render(); }", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void DesktopOnlyReportsCompletionAfterExactPostUpdateVerification()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+
+        StringAssert.Contains(source, "PCSteward.Application.UpdateHistoryStatus.Success => \"Update completed\"");
+        StringAssert.Contains(source, "PCSteward.Application.UpdateHistoryStatus.RestartRequired => \"Restart required\"");
+        StringAssert.Contains(source, "_ => \"Update failed\"");
+        StringAssert.Contains(source, "The update was blocked before it could run.");
+        Assert.IsFalse(source.Contains("result.Started ? \"Update completed\" : \"Update not started\"", StringComparison.Ordinal));
     }
 
     [TestMethod]

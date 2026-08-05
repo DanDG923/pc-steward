@@ -193,6 +193,18 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task SourceCachePersistsChocolateyCommunitySnapshots()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync(); DateTimeOffset timestamp = DateTimeOffset.UnixEpoch;
+        SourceSnapshot snapshot = new("chocolatey-community", "v2.4", timestamp, SourceSnapshotState.Live, [new SourcePackageRecord("chocolatey-community", "contoso.widget", "Contoso Widget", null, "1.0.0", "1.1.0", "Machine", "Neutral", null)], []);
+
+        await database.Store.SaveSourceSnapshotAsync(snapshot, CancellationToken.None);
+
+        SourceSnapshot restored = (await database.Store.GetSourceSnapshotAsync("chocolatey-community", CancellationToken.None))!;
+        Assert.AreEqual(SourceSnapshotState.Cached, restored.State); Assert.AreEqual(timestamp, restored.LastSuccessAt); Assert.AreEqual("contoso.widget", restored.Packages.Single().PackageId);
+    }
+
+    [TestMethod]
     public async Task SourceCacheRetentionPrunesOldSnapshotsAndTheirPackageRows()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
