@@ -126,16 +126,27 @@ public sealed class MainWindow : Window
             if (onboardingAcknowledging) return;
             onboardingAcknowledging = true;
             continueButton.IsEnabled = false;
-            FactoryResetResult result = acknowledgeResetOnboarding?.Invoke() ?? new FactoryResetResult(true, []);
-            FactoryResetMarkerState markerState = FactoryReset.GetMarkerState();
-            if (!result.Succeeded && markerState != FactoryResetMarkerState.None)
+            PostResetOnboardingOutcome outcome = PostResetOnboardingFlow.Evaluate(
+                () => acknowledgeResetOnboarding?.Invoke() ?? new FactoryResetResult(true, []),
+                () => FactoryReset.GetMarkerState(),
+                LoadSavedInventory);
+            if (!outcome.AcknowledgementSucceeded)
             {
-                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset still needs attention", Content = string.Join(", ", result.Residuals.Select(item => item.Reason)), CloseButtonText = "Close" }.ShowAsync();
+                string details = string.Join(", ", outcome.AcknowledgementResult.Residuals.Select(item => item.Reason));
+                if (!string.IsNullOrWhiteSpace(details))
+                {
+                    details = $"{details} | marker state: {outcome.MarkerState}";
+                }
+                else
+                {
+                    details = $"Reset marker state: {outcome.MarkerState}";
+                }
+                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset still needs attention", Content = details, CloseButtonText = "Close" }.ShowAsync();
                 onboardingAcknowledging = false;
                 continueButton.IsEnabled = true;
                 return;
             }
-            if (markerState != FactoryResetMarkerState.None || !LoadSavedInventory())
+            if (!outcome.ScanNavigationRequested)
             {
                 await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Fresh state could not be loaded", Content = "PC Steward could not confirm and reload the fresh local state. No scan was started.", CloseButtonText = "Close" }.ShowAsync();
                 onboardingAcknowledging = false;

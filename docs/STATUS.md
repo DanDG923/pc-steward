@@ -1,48 +1,35 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — fresh Task 31 audit complete; release remains NOT READY
+**Current phase:** Phase 4 — Task 90 remediation complete; release remains **NOT READY**
 
-**Current task:** Task 31 complete; next is Task 90 under GPT-5.6 Terra / High
+**Current task:** Task 90 complete; next is a fresh Task 31 under GPT-5.6 Sol / Extra High
 
-**Reviewed tree:** `0f03127dc9378efa4ace1412b960dc7dd87e97bb`
-
-**Audit commit:** Task 31 review commit (this commit)
-
-**Last green tree:** `0f03127dc9378efa4ace1412b960dc7dd87e97bb` — Release build 0 warnings/errors; full suite 249/249
+**Reviewed base:** `c8ed26ac2e8ad26c5ba0493c5dd5dee112126512`
 
 **Current branch:** `phase/4-beta`
 
-**Phase gate:** FAIL — one mandatory criterion Failed, nine Unverified; four High findings remain
+**Phase gate:** FAIL — `FRA-14–16` remain High external/field blockers. A fresh Task 31 must independently reassess the Task 90 candidate.
 
-## Fresh Task 31 outcome
+## Task 90 result
 
-- `FRA-19` High — onboarding acknowledgement can return failure with no marker, but the UI can load saved inventory and continue to Scan. Task 90 must make every failed acknowledgement blocking and add the missing UI regression.
-- `FRA-14` High — exact-current-package final-app/live/idle/process-tree/update-responsiveness/final-timeout evidence is incomplete.
-- `FRA-15` High — exact-current-package launch/update/reset/task/removal/replacement lifecycle observations are incomplete.
-- `FRA-16` High — no approved production signer, channel, recipients, support contact or rollback artifact exists.
-- `FRA-20` Medium — release evidence contradicts itself about whether current-hash native launch smoke passed.
-- `FRA-18` Low — release evidence reports reset 22 while the current focused suite is 25/25.
+- `FRA-19` implementation remediation: **complete pending fresh audit**. A failed post-reset acknowledgement is now blocking even when the marker is `None`; a residual marker after a successful acknowledgement also remains blocking. Two deterministic executable scenarios prove zero saved-inventory loads and no Scan navigation for those cases.
+- `FRA-20` evidence remediation: **complete pending fresh audit**. Every retained historical launch/update exception is labelled with SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`; the current archive has no inherited lifecycle claim.
+- `FRA-18` evidence remediation: **complete pending fresh audit**. Focused factory reset evidence is accurately recorded as 25/25, including pre-migration, control-swap and attempt-cap coverage.
 
-The prior `FRA-11–13` implementation findings and `FRA-17` limitations wording finding are closed for their original scopes. The fresh audit is authoritative: [final release audit](review/FINAL_RELEASE_AUDIT.md).
+## Current safe verification
 
-## Verification snapshot
+Release build: 0 warnings/errors. Serialized component suite: **251/251** (55 Domain, 159 Application integration, 17 Architecture, 20 Security); the App suite and focused reset filter ran in the normal user context because sandbox native temporary-folder handles return `NTSTATUS=C0000022`. Focused reset: **25/25**. Fake-only cleanup contract: Pass. Host-safe hostile boundary: 42 assertions, one local-PC/manual symbolic-link skip. WinGet-focused non-executing checks: 30/30. Fixture performance: 30 local runs, median 1.89 ms / p95 2.07 ms; not final-app acceptance evidence. NuGet advisory query: 17 projects, 0 vulnerable rows. High-confidence tracked-secret scan: 0 matches.
 
-Owner-context reset 25/25; fake-only cleanup contract Pass; full suite 249/249 (55 Domain, 157 Application integration, 17 Architecture, 20 Security); hostile boundary 42 assertions with one local-PC/manual symbolic-link skip; WinGet boundary 11/11; Release build 0 warnings/errors; NuGet advisory query 17 projects / 0 vulnerable rows; independent high-confidence secret scan 0 matches.
+The exact unsigned local archive mechanically validates 94 files / 49,955,522 payload bytes, 15 components, 16 SBOM nodes / 32 edges, licences/notices and SHA-256 `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523`. Validator signing status is `Not requested`; packaged launch smoke is **not performed**.
 
-The exact unsigned local archive mechanically validates 94 files / 49,950,826 payload bytes, 15 components, 16 SBOM nodes / 32 edges, licences/notices and SHA-256 `A8FD4AF124019E44B23C9F067C49F49A3D61FE8025F6ED9D8AF5E51E4CBCA3FC`. Validator signing status is `Not requested`; current-hash packaged launch smoke is not performed.
+## Remaining blockers and authority boundary
 
-Fixture performance retry completed at 30 local median 1.81 ms / p95 2.05 ms and 20 simulated-online median 15.53 ms / p95 16.20 ms. It is not final-app or acceptance evidence. Sandbox-account access/concurrency failures were excluded; the single owner-context rerun is the pass evidence.
+- `FRA-14` — no exact-current-package final-app/live/idle/process-tree/update-responsiveness/final-timeout performance evidence.
+- `FRA-15` — no exact-current-package launch/update/retain-data replacement/task/removal/reset lifecycle evidence.
+- `FRA-16` — no approved production signer, signing service, channel, recipient list, support contact or rollback artifact.
 
-## Authority boundary
-
-No real scheduled task, owner data, installed application, package recipient, signer, trusted channel or external system was changed. The sandbox .NET first-run path reported installing an untrusted sandbox-only HTTPS development certificate; it was not trusted, used for product signing or counted as release evidence.
-
-Repository-only `FRA-19/20/18` remediation may proceed in Task 90. `FRA-14/15` require exact action-time approval before launching the package, measuring the owner host, changing an installed application, creating/removing a real scheduled task, replacing the package or deleting/resetting owner data. `FRA-16` additionally requires product-owner-provided signer/channel/recipient/support/rollback identities; they cannot be inferred.
+No package was launched, no installed application changed, no real scheduled task was created/removed, and no owner data was reset/deleted. Those actions require exact action-time approval. Signer/channel/recipient/support/rollback identities must be supplied by the product owner; they cannot be inferred.
 
 ## Next task
 
-Stop here because Task 90 requires different model/reasoning settings: GPT-5.6 Terra / High. After switching, fix repository findings first, retain all unauthorized field/external gaps as blockers, rebuild/re-hash, run the complete automated gates and return to Task 31 under GPT-5.6 Sol / Extra High.
-
-## Rules for updating this file
-
-Keep it below 120 lines. Record only current state, unresolved blockers, last green commit and next task. Historical detail belongs in Git, ADRs, review reports or failure reports.
+Stop after committing the Task 90 remediation. Run a fresh independent Task 31 under GPT-5.6 Sol / Extra High; it must not promote the product to READY without separately authorized `FRA-14–16` evidence.

@@ -14,9 +14,10 @@
 
 ## Standalone lifecycle evidence
 
-- [x] Extract to a caller-writable test folder and launch without installation or administrator rights.
+- [x] [Historical — SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`] Extracted to a caller-writable test folder and launched without installation or administrator rights.
+- [ ] The extracted package launch/update/lifecycle for `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523` was not run; launch/update/lifecycle observations remain historical only.
 - [ ] Confirm machine-scope update evidence is labelled non-actionable and cannot create a review job or UAC prompt.
-- [x] Exercise one controlled user-scope update fixture through explicit review and exact post-update verification.
+- [x] [Historical — SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`] Exercised one controlled user-scope update fixture through explicit review and exact post-update verification.
 - [ ] Create a scheduled scan, verify exact task name/action and scan-only behavior, then run `Remove-PCSteward.ps1`; prove only `PCSteward.ScheduledCheck` is removed.
 - [ ] Replace the extracted package while retaining `%LocalAppData%\PCSteward`; verify settings/history remain.
 - [ ] Run two-confirmation factory reset, close the app, run task cleanup and delete the extracted folder; verify state, task and binaries are absent.
@@ -29,4 +30,4 @@
 - [x] Dependency/licence, vulnerability, static-analysis, secret-scan and SBOM evidence are attached.
 - [x] No public upload, tag, push, automatic updater, certificate purchase, helper restoration or machine-scope execution.
 
-The prior Task 90 exceptions are bound to SHA-256 `20617AEF...72FBF` and do not apply to the remediated archive `A8FD4AF1...4CBCA3FC`. Unchecked signing/channel, performance, and destructive/supported-host lifecycle items remain mandatory; the unsigned local archive is not a release candidate.
+The prior Task 90 exceptions are bound to SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF` and do not apply to the remediated archive `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523`. Unchecked signing/channel, performance, and destructive/supported-host lifecycle items remain mandatory; the unsigned local archive is not a release candidate.

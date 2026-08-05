@@ -145,14 +145,20 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void PostResetOnboardingReloadsConfirmedFreshStateBeforeOpeningScan()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
-        int markerState = source.IndexOf("FactoryResetMarkerState markerState = FactoryReset.GetMarkerState();", StringComparison.Ordinal);
-        int reload = source.IndexOf("markerState != FactoryResetMarkerState.None || !LoadSavedInventory()", StringComparison.Ordinal);
-        int openScan = source.IndexOf("destination = \"scan\"; Render();", StringComparison.Ordinal);
+        string desktopSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string flowSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Storage", "PostResetOnboardingFlow.cs"));
+        int acknowledgement = desktopSource.IndexOf("PostResetOnboardingFlow.Evaluate(", StringComparison.Ordinal);
+        int failedAcknowledgement = desktopSource.IndexOf("if (!outcome.AcknowledgementSucceeded)", acknowledgement, StringComparison.Ordinal);
+        int reloadOrMarkerFailure = desktopSource.IndexOf("if (!outcome.ScanNavigationRequested)", failedAcknowledgement, StringComparison.Ordinal);
+        int openScan = desktopSource.IndexOf("destination = \"scan\"; Render();", reloadOrMarkerFailure, StringComparison.Ordinal);
 
-        Assert.IsTrue(markerState >= 0 && reload > markerState && openScan > reload);
-        StringAssert.Contains(source, "catch (InvalidOperationException) { return false; }");
-        StringAssert.Contains(source, "if (startupStateLoadFailed) { RenderStartupStateLoadFailure(); return; }");
+        Assert.IsTrue(acknowledgement >= 0 && failedAcknowledgement > acknowledgement && reloadOrMarkerFailure > failedAcknowledgement && openScan > reloadOrMarkerFailure);
+        StringAssert.Contains(flowSource, "if (!acknowledgementResult.Succeeded)");
+        StringAssert.Contains(flowSource, "if (markerStateValue != FactoryResetMarkerState.None)");
+        StringAssert.Contains(flowSource, "return new(loaded, 1, true, markerStateValue, acknowledgementResult);");
+        StringAssert.Contains(desktopSource, "catch (InvalidOperationException) { return false; }");
+        StringAssert.Contains(desktopSource, "if (startupStateLoadFailed) { RenderStartupStateLoadFailure(); return; }");
+        StringAssert.Contains(desktopSource, "string details = string.Join(\", \", outcome.AcknowledgementResult.Residuals.Select(item => item.Reason));");
     }
 
     [TestMethod]

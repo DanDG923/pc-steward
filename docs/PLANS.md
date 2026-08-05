@@ -86,3 +86,42 @@
 Verification: reset 25/25; cleanup contract Pass; Domain 55, Application 157, Architecture 17, Security 20 — **249/249 full suite**; hostile path boundary 42 assertions with one approved manual symbolic-link skip; WinGet boundary 11; Release build 0 warnings/errors. The mechanically validated unsigned local archive has 94 files / 49,950,826 bytes, 15 components, 16 SBOM nodes/32 edges and SHA-256 `A8FD4AF124019E44B23C9F067C49F49A3D61FE8025F6ED9D8AF5E51E4CBCA3FC`.
 
 Overall verification result: **Improved**. The implementation findings are remediated; release readiness remains blocked by `FRA-14–16` pending separately authorized field/external evidence. Rollback remains a revert of the exact Task 90 commit. No machine configuration, real scheduled task, owner data, application version, signer, channel, or external recipient was changed.
+
+## Task 90 re-entry — fresh Task 31 findings (2026-08-05)
+
+**Preflight:** `phase/4-beta` at `c8ed26ac2e8ad26c5ba0493c5dd5dee112126512`; clean worktree; exact local archive SHA-256 `A8FD4AF124019E44B23C9F067C49F49A3D61FE8025F6ED9D8AF5E51E4CBCA3FC`.
+
+**Authority:** The user requested continuation and evidence gathering. That authorizes repository edits and safe automated validation only. It does not authorize launching the package, modifying an installed application, creating/removing a real scheduled task, resetting/deleting owner data, replacing/removing an extracted package, signing, publishing, sharing, or contacting recipients.
+
+### CHG-90-08 — make onboarding acknowledgement failure unconditional (`FRA-19`)
+
+- **Target/current state:** `MainWindow` checks a failed acknowledgement only when `FactoryReset.GetMarkerState()` is non-None. A missing marker can therefore allow a failed acknowledgement to load saved inventory and navigate to Scan.
+- **Edit:** block every `!result.Succeeded` before loading inventory or navigating to Scan; retain marker state for diagnostic wording and the existing successful-acknowledgement marker-absence requirement.
+- **Risk:** a broad change could block valid acknowledgement or hide recovery detail. Preserve success, retry and normal onboarding paths; do not weaken root/control authority.
+- **Verify:** deterministic UI-level regression for failed acknowledgement with marker None; assert no saved-inventory load, Scan navigation or automatic scan. Re-run reset, Architecture/UI, Security and full suites.
+
+### CHG-90-09 — reconcile current-hash lifecycle evidence (`FRA-20`)
+
+- **Target/current state:** release evidence says the `A8FD...` archive inherits no launch claim, but later marks native launch smoke passed; the checklist likewise marks launch complete without an archive identity.
+- **Edit:** bind historical launch/update/lifecycle observations to their exact old hash, mark current-hash launch/lifecycle Unverified, and preserve explicit blockers.
+- **Risk:** wording could accidentally imply current package release readiness. Do not call unexecuted current-hash evidence Passed.
+- **Verify:** compare audit, checklist, release evidence, limitations, About/support wording and package validator output against the exact hash.
+
+### CHG-90-10 — correct focused reset evidence count (`FRA-18`)
+
+- **Target/current state:** release evidence reports 22 focused reset tests while the current isolated filter is 25/25.
+- **Edit:** record 25/25 and the pre-migration, control-swap and attempt-cap coverage.
+- **Risk:** none to runtime authority; evidence must not overstate unexecuted field cases.
+- **Verify:** one serialized focused reset rerun after all other reset testhosts are stopped; reconcile current release documents.
+
+### Mandatory external evidence (`FRA-14–16`)
+
+- **Safe now:** rebuild/validate the exact local archive, rerun owner-context automated suites, fixture benchmarks, hostile boundary, package validator, dependency and secret checks; retain results as non-field evidence where applicable.
+- **Requires exact action-time approval:** final-package launch/close, 30/20 baseline measurements, live update/responsiveness, five-minute host capture, real scheduled-task lifecycle/final-timeout, retain-data replacement, owner-state factory reset/removal, and any external signing/distribution action.
+- **Requires product-owner inputs:** approved signer/signing service, channel, recipients, support contact and rollback artifact. None is inferred from repository access.
+
+**Rollback:** revert only the eventual Task 90 remediation commit; retain the prior local archive until code tests pass. Any future owner-state test must have a separately approved backup/rollback scope before execution.
+
+**Completion gate:** Commit `fix: remediate phase review findings` only after `FRA-19` has no High implementation finding, `FRA-20/18` are reconciled, package/evidence checks are current and all safe automated gates pass. Keep `FRA-14–16` explicitly open unless their separately authorized evidence is actually collected. Stop for a fresh Task 31 under GPT-5.6 Sol / Extra High.
+
+**Execution result:** `FRA-19` is implemented with two deterministic executable scenarios (failed acknowledgement + marker `None`, and successful acknowledgement + residual marker), release build is clean, and safe suites pass 251/251 with reset 25/25. The current local, unsigned archive SHA-256 is `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523` (94 files / 49,955,522 bytes, 15 components, 16 SBOM nodes/32 edges); its validator is non-executing and reports launch smoke not performed. `FRA-14–16` remain open exactly as scoped above.

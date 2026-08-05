@@ -12,6 +12,12 @@
 
 **Date:** 2026-08-05
 
+## Task 90 remediation addendum (not a fresh audit verdict)
+
+Task 90 remediated the repository findings identified here without widening authority. `FRA-19` now uses a non-UI, deterministic post-reset decision that blocks every failed acknowledgement and every successful acknowledgement with a non-None marker before inventory load or Scan navigation. Its two executable scenarios cover failed acknowledgement plus marker `None` and successful acknowledgement plus residual marker. `FRA-20` labels historical lifecycle observations with their complete SHA-256 `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`; `FRA-18` records focused reset evidence accurately as 25/25.
+
+The post-remediation unsigned local archive is SHA-256 `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523` (94 payload files, 49,955,522 bytes, 15 components, 16 SBOM nodes / 32 edges) and mechanically validates. Release build is clean; serialized component tests pass 251/251; reset is 25/25; cleanup, hostile-boundary, WinGet-focused, advisory and high-confidence secret checks pass. This addendum does not revise the audit verdict or close `FRA-14–16`: no current package launch, live/source performance, installed-app update, real task, owner-state lifecycle, signing, channel or distribution action was performed. A fresh Task 31 is required to re-grade all findings.
+
 ## Gate decision
 
 PC Steward is not ready for release or external private-beta distribution. This fresh review found four High, one Medium and one Low open findings. One mandatory acceptance criterion is Failed, nine are Unverified, eight mandatory performance requirements are Unverified, and multiple release-definition gates are Failed.
