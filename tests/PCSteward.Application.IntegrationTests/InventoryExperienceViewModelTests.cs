@@ -162,6 +162,24 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void AdministratorRequirementUsesValidatedSelectionAndRemainsUnknownBeforeReview()
+    {
+        AdministratorRequirementPresentation unknown = AdministratorRequirementPresenter.BeforeReview();
+        UpdateJobSelection machineSelection = new("product:machine", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Machine", "1.0", "1.1", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1");
+        UpdateJobSelection userSelection = new("product:user", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.User", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1");
+        AdministratorRequirementPresentation machine = AdministratorRequirementPresenter.ForSelection(machineSelection);
+        AdministratorRequirementPresentation user = AdministratorRequirementPresenter.ForSelection(userSelection);
+
+        Assert.AreEqual(AdministratorRequirementStatus.Required, machine.Status);
+        StringAssert.Contains(machine.Label, "required");
+        StringAssert.Contains(machine.Explanation, "UAC");
+        Assert.AreEqual(AdministratorRequirementStatus.NotExpected, user.Status);
+        StringAssert.Contains(user.Label, "not expected");
+        Assert.AreEqual(AdministratorRequirementStatus.Unknown, unknown.Status);
+        StringAssert.Contains(unknown.Explanation, "confirm");
+    }
+
+    [TestMethod]
     public void NewerPackageIdentityCanBeConfirmedOnlyFromOneLiveExactSourceRecordBoundToInstalledVersion()
     {
         static InventoryExperienceViewModel CreateViewModel(SourceSnapshot source)
@@ -175,10 +193,93 @@ public sealed class InventoryExperienceViewModelTests
         }
 
         SourcePackageRecord exact = new("winget", "Contoso.Widget", "Widget", "Contoso", "1.0", "1.1", "Unknown", "Unknown", null);
-        Assert.IsTrue(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
-        Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Cached, [exact], ["source:stale"])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
+        UpdateDetail liveDetail = CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact], [])).UpdateDetails["product:widget"];
+        Assert.IsTrue(liveDetail.CanConfirmPackageIdentity);
+        Assert.IsFalse(liveDetail.RequiresFreshSourceEvidence);
+        StringAssert.Contains(liveDetail.ActionState, "confirm this exact package identity");
+        StringAssert.Contains(liveDetail.ActionState, "None starts an update");
+        UpdateDetail cachedDetail = CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Cached, [exact], ["source:stale"])).UpdateDetails["product:widget"];
+        Assert.IsFalse(cachedDetail.CanConfirmPackageIdentity);
+        Assert.IsTrue(cachedDetail.RequiresFreshSourceEvidence);
+        StringAssert.Contains(cachedDetail.ActionState, "refresh source evidence");
+        StringAssert.Contains(cachedDetail.ActionState, "successful live refresh is required");
+        UpdateDetail unavailableDetail = CreateViewModel(new SourceSnapshot("winget", null, null, SourceSnapshotState.Unavailable, [], ["source:offline"])).UpdateDetails["product:widget"];
+        Assert.IsFalse(unavailableDetail.CanConfirmPackageIdentity);
+        Assert.IsTrue(unavailableDetail.RequiresFreshSourceEvidence);
         Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact, exact], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
         Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact with { InstalledVersion = "0.9" }], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
+    }
+
+    [TestMethod]
+    public void AmbiguousCandidatesExposeStructuredChoosePinAndIgnoreActions()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        Guid id = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "registry", "widget", "1.0", "User", "x64", "Contoso")]);
+        SourceCandidateObservation first = new("winget", "Contoso.Widget", "1.1", "Contoso", "User", "x64", "Stable", SourceSnapshotState.Live, DateTimeOffset.UnixEpoch, MappingConfidence.Medium, [MappingReviewReason.AmbiguousPublisher]);
+        SourceCandidateObservation second = new("winget", "Contoso.Widget.Legacy", "1.0", "Contoso", "User", "x64", "Stable", SourceSnapshotState.Live, DateTimeOffset.UnixEpoch, MappingConfidence.Medium, [MappingReviewReason.AmbiguousPublisher]);
+        UpdateIntelligenceItem item = new("product:widget", UpdateIntelligenceStatus.ReviewRequired, null, "More than one package has the same strongest evidence.", SourceCandidates: [first, second]);
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([item], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.ReviewRequired] = 1 }, []));
+
+        UpdateDetail detail = viewModel.UpdateDetails["product:widget"];
+        Assert.HasCount(2, detail.ReviewCandidates);
+        string[] expectedPackageIds = ["Contoso.Widget", "Contoso.Widget.Legacy"];
+        CollectionAssert.AreEquivalent(expectedPackageIds, detail.ReviewCandidates.Select(candidate => candidate.PackageId).ToArray());
+        Assert.IsTrue(detail.ReviewCandidates.All(candidate => candidate.SourceId == "winget"));
+        StringAssert.Contains(detail.ActionState, "choose an exact package identity");
+        StringAssert.Contains(detail.ActionState, "pin the installed version");
+        StringAssert.Contains(detail.ActionState, "ignore the product");
+        StringAssert.Contains(detail.ActionState, "None starts an update");
+    }
+
+    [TestMethod]
+    public void IncomparableVersionRefreshesStaleEvidenceButRemainsNonExecutableWhenLive()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        Guid id = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "msstore", "Contoso.Widget", "2026-R1", "User", "x64", "Contoso")]);
+        PackageMapping mapping = new("msstore", "Contoso.Widget", "2026-R2", MappingConfidence.High, MappingOrigin.Automatic, "Exact package identity; versions cannot be safely ordered.", false, [MappingReviewReason.IncomparableVersion], new VersionComparisonResult(VersionComparisonOutcome.Incomparable, VersionComparisonExplanation.VendorSuffixUnsupported));
+        SourcePackageRecord package = new("msstore", "Contoso.Widget", "Widget", "Contoso", "2026-R1", "2026-R2", "User", "x64", null);
+        SourceSnapshot source = new("msstore", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [package], ["source:stale"]);
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.ReviewRequired, mapping, mapping.EvidenceExplanation, "msstore", source.LastSuccessAt)], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.ReviewRequired] = 1 }, [source]));
+
+        UpdateDetail detail = viewModel.UpdateDetails["product:widget"];
+        Assert.IsFalse(detail.CanConfirmPackageIdentity);
+        Assert.IsTrue(detail.RequiresFreshSourceEvidence);
+        StringAssert.Contains(detail.ActionState, "refresh source evidence");
+        StringAssert.Contains(detail.ActionState, "pin the installed version");
+        StringAssert.Contains(detail.ActionState, "will not guess the version order");
+        StringAssert.Contains(detail.ActionState, "No update starts");
+
+        SourceSnapshot liveSource = source with { State = SourceSnapshotState.Live, Warnings = [] };
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.ReviewRequired, mapping, mapping.EvidenceExplanation, "msstore", liveSource.LastSuccessAt)], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.ReviewRequired] = 1 }, [liveSource]));
+        UpdateDetail liveDetail = viewModel.UpdateDetails["product:widget"];
+        Assert.IsFalse(liveDetail.CanConfirmPackageIdentity);
+        Assert.IsFalse(liveDetail.RequiresFreshSourceEvidence);
+        Assert.IsFalse(liveDetail.ActionState.Contains("refresh source evidence", StringComparison.OrdinalIgnoreCase));
+        StringAssert.Contains(liveDetail.ActionState, "will not guess the version order");
+    }
+
+    [TestMethod]
+    public void LivePackageIdentityWithoutUpdateAvailabilityIsUnavailableAndRetryableNotADecision()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        viewModel.SetConnectorEnabled("WinGet package sources", true);
+        Guid id = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(id, "product:store-app", "Store App")], [new InstallationInstance(Guid.NewGuid(), id, "msstore", "Contoso.StoreApp", "1.0", "User", "x64", "Contoso")]);
+        PackageMapping mapping = new("msstore", "Contoso.StoreApp", null, MappingConfidence.High, MappingOrigin.ProviderSupplied, "The package ID exactly matches the installed provider package ID. Versions cannot be safely ordered.", false, [MappingReviewReason.IncomparableVersion], new VersionComparisonResult(VersionComparisonOutcome.Incomparable, VersionComparisonExplanation.MissingCandidateVersion));
+        SourcePackageRecord package = new("msstore", "Contoso.StoreApp", "Store App", "Contoso", "1.0", null, "User", "x64", null);
+        SourceSnapshot source = new("msstore", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [package], ["winget:update-check-unavailable"]);
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:store-app", UpdateIntelligenceStatus.FailedUnavailable, mapping, "The repository identified the exact package, but it did not establish update availability.", "msstore", source.LastSuccessAt)], new Dictionary<UpdateIntelligenceStatus, int> { [UpdateIntelligenceStatus.FailedUnavailable] = 1 }, [source]));
+
+        UpdateDetail detail = viewModel.UpdateDetails["product:store-app"];
+        Assert.IsFalse(detail.CanConfirmPackageIdentity);
+        Assert.IsTrue(detail.RequiresFreshSourceEvidence);
+        StringAssert.Contains(detail.ActionState, "refresh source evidence");
+        StringAssert.Contains(detail.ActionState, "not a decision for you");
+        StringAssert.Contains(detail.Freshness, "Update availability was not established");
+        Assert.HasCount(1, viewModel.RepositoryManagedRows);
+        Assert.AreEqual(nameof(UpdateIntelligenceStatus.FailedUnavailable), viewModel.RepositoryManagedRows.Single().Status);
     }
 
     [TestMethod]

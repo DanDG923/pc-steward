@@ -1,8 +1,8 @@
 # PC Steward design system
 
-**System name:** Quiet Authority  
-**Status:** Implementation-ready design baseline  
-**Target:** Windows 11 x64, WinUI 3 / Windows App SDK  
+**System name:** Quiet Authority
+**Status:** Implemented production baseline; Task 35 validation boundary is recorded in `../docs/UI_VALIDATION_REPORT.md`
+**Target:** Windows 11 x64, WinUI 3 / Windows App SDK
 **Source of machine-readable values:** `design-tokens.json`
 
 ## 1. Product personality
@@ -167,7 +167,7 @@ Base unit is 4 px; most layout uses an 8 px rhythm.
 - Minimum supported window: 900 × 640 px.
 - Design reference: 1366 × 820 px.
 - Expanded navigation: 232 px.
-- Collapsed navigation: 56 px below 1040 px window width.
+- Compact navigation: 56 px below 900 effective px; expanded navigation resumes at 1100 effective px.
 - Page content max width: 1440 px.
 - Main content has a 720 px practical minimum; tables switch to stacked row cards below that point.
 - A right detail pane is 360–420 px and overlays rather than compresses content below 1180 px.

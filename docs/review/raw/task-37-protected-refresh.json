@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "task": 37,
+  "capturedDate": "2026-08-05",
+  "authorization": {
+    "allowed": [
+      "launch-current-protected-owner-only-installation",
+      "task-34-visible-card-verification",
+      "one-live-online-source-refresh"
+    ],
+    "prohibited": [
+      "install-application",
+      "update-application",
+      "change-schedule",
+      "clear-data",
+      "factory-reset"
+    ]
+  },
+  "protectedDeployment": {
+    "installRoot": "C:\\Program Files\\PC Steward",
+    "validator": "Pass",
+    "validatorLaunchedApplication": false,
+    "desktopSha256": "8AE4E849D276374AE024A54D5DA43FC21DA05EF3064E2430F71099F7E0DDC8D0",
+    "desktopSignatureStatus": "Valid"
+  },
+  "visual": {
+    "application": "Vortex",
+    "administratorLabel": "Administrator requirement unknown",
+    "explanation": "PC Steward will confirm the installation scope during fresh update review. No update or administrator prompt starts from this page.",
+    "screenshot": "../screenshots/task34-administrator-card-protected.png",
+    "screenshotSha256": "332B10DDC8D7FEF0F4D36269FB081061A12DAB8CEC3B03DB24C83B023E2E41C8",
+    "reviewControlInvoked": false
+  },
+  "refresh": {
+    "control": "Refresh connected repositories",
+    "invocationCount": 1,
+    "invokedAtUtc": "2026-08-05T18:19:31.6167713Z",
+    "result": "two-live-one-unavailable-cache-retained",
+    "sources": [
+      {
+        "source": "chocolatey-community",
+        "beforeLastSuccessAt": "2026-08-05T16:03:50.7487704Z",
+        "afterLastSuccessAt": "2026-08-05T18:19:34.4439669Z",
+        "beforePackageCount": 0,
+        "afterPackageCount": 0,
+        "state": "Live"
+      },
+      {
+        "source": "msstore",
+        "beforeLastSuccessAt": "2026-08-05T16:03:50.9210826Z",
+        "afterLastSuccessAt": "2026-08-05T16:03:50.9210826Z",
+        "beforePackageCount": 1,
+        "afterPackageCount": 1,
+        "state": "UnavailableStaleCacheRetained"
+      },
+      {
+        "source": "winget",
+        "beforeLastSuccessAt": "2026-08-05T16:03:52.8170091Z",
+        "afterLastSuccessAt": "2026-08-05T18:19:36.6482819Z",
+        "beforePackageCount": 60,
+        "afterPackageCount": 60,
+        "state": "Live"
+      }
+    ]
+  },
+  "stateComparison": {
+    "updateHistoryCount": { "before": 6, "after": 6 },
+    "approvedJobCount": { "before": 2, "after": 2 },
+    "executionStateCount": { "before": 2, "after": 2 },
+    "scanRunCount": { "before": 21, "after": 21 },
+    "scheduledTaskPresent": { "before": false, "after": false }
+  },
+  "shutdown": {
+    "closeRequestedAtUtc": "2026-08-05T18:23:37.1337876Z",
+    "desktopExited": true,
+    "residualPcStewardProcesses": 0,
+    "residualInstallerOrProviderProcesses": 0
+  }
+}

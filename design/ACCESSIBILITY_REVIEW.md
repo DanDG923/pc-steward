@@ -1,9 +1,9 @@
 # PC Steward accessibility review
 
-**Standard:** WCAG 2.2 Level AA where applicable to a Windows desktop application  
-**Platform guidance:** Windows UI Automation, WinUI accessibility, Windows text scaling, High Contrast and reduced motion  
-**Interactive reference:** the native WinUI prototype in `design/native-prototype/`; the browser-rendered `design/prototype/` archive is superseded and supplies no native accessibility evidence  
-**Design status:** Conforms by specification; implementation conformance must be verified in Task 29 and cannot be claimed from design files alone
+**Standard:** WCAG 2.2 Level AA where applicable to a Windows desktop application
+**Platform guidance:** Windows UI Automation, WinUI accessibility, Windows text scaling, High Contrast and reduced motion
+**Interactive reference:** the production WinUI host in `src/PCSteward.Desktop`; `design/native-prototype/` and the browser archive are historical references only
+**Implementation status:** Task 35 added shared semantics, explicit automation names, themed resources, virtualized structured rows, and real-app UI Automation evidence; full WCAG/assistive-technology conformance is not claimed
 
 ADR-021 classifies the existing `AC-UX-01–09` release criteria as optional best effort. This design nevertheless treats WCAG 2.2 AA as the quality target because the interface handles consequential software updates and data deletion.
 
@@ -23,7 +23,7 @@ The design addresses the major accessibility and accidental-action risks:
 - charts have equivalent lists/tables;
 - screen-reader announcements are bounded.
 
-The primary unresolved risk inherited from the current implementation is end-to-end keyboard verification in the real WinUI app. Prior evidence confirmed names and text entry but did not reliably move focus or activate all controls. The new implementation must test real focus order rather than infer it from AutomationProperties.
+The primary unresolved risk is end-to-end keyboard, Narrator, Windows text-scale, and High Contrast verification in the real WinUI app. Task 35 confirmed named production controls and visually reviewed the current dark-theme layouts, but focus order and assistive-technology behaviour must still be tested rather than inferred from `AutomationProperties`.
 
 ## 2. Colour contrast
 
@@ -334,12 +334,12 @@ Before sign-off:
 
 ## 14. Known limitations and unresolved checks
 
-1. Design artefacts cannot prove WinUI UI Automation behaviour.
-2. Current procedural `MainWindow.cs` needs restructuring before predictable page focus/navigation can be tested.
+1. UI Automation names and hierarchy do not prove complete keyboard or screen-reader journeys.
+2. `MainWindow.cs` now shares presentation components, but route rendering remains procedural and does not yet implement page-title focus transfer or F6 regions.
 3. Prior automation could type in Search but did not prove full Tab/list activation; real interactive testing remains mandatory.
-4. Windows High Contrast chart patterns and custom status templates require platform-specific implementation QA.
+4. Windows High Contrast and 150%/200% text-scale layouts require platform-specific visual QA.
 5. App icon legibility at every Windows package size requires raster export inspection.
-6. The native WinUI design prototype validates hierarchy, native control composition and interaction intent, but its isolated, unpackaged implementation does not prove production UI Automation or accessibility conformance.
+6. The Task 35 screenshots prove current production XAML composition in the active dark theme only; they do not prove Light, High Contrast, reduced motion, Magnifier, or Narrator behaviour.
 
 ### Native prototype verification checklist
 
@@ -358,6 +358,12 @@ Before the authoritative native design prototype is treated as review-ready, ver
 - factory reset required two dialogs plus the exact `RESET` phrase, with the final action disabled beforehand.
 
 These checks are evidence for the native design prototype only. Narrator, production UI Automation, High Contrast, Windows text scaling and real WinUI focus testing remain release gates for `src/PCSteward.Desktop`.
+
+### Task 35 production evidence
+
+Task 35 supersedes the prototype as the implementation reference. The production app was launched against real persisted data without invoking a state-changing action. UI Automation observed the stable navigation and named controls, and five production screens were captured and reviewed. Automated contracts verify status glyph/text pairing, composed accessible application-row names, focus brushes, adaptive navigation, list virtualization, and Default/Light/Dark/HighContrast resource dictionaries. See `../docs/UI_VALIDATION_REPORT.md`.
+
+The following remain open release evidence: keyboard-only journeys, focus restoration, Narrator, Accessibility Insights, 150%/200% text scale, Light and High Contrast visual passes, reduced motion, and Magnifier. The acceptance checklist therefore remains unchecked until those manual checks are executed.
 
 ### Superseded browser-reference record
 

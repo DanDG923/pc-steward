@@ -12,6 +12,8 @@ namespace PCSteward.Desktop;
 
 public partial class App : global::Microsoft.UI.Xaml.Application
 {
+    private Window? activeWindow;
+
     public App()
     {
         InitializeComponent();
@@ -25,7 +27,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         catch (AbandonedMutexException) { bootstrapLeaseHeld = true; }
         if (!bootstrapLeaseHeld)
         {
-            new DataOperationBusyWindow().Activate();
+            ActivateWindow(new DataOperationBusyWindow());
             return;
         }
         try
@@ -40,7 +42,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
             if (!reset.Succeeded)
             {
-                new ResetRecoveryWindow(reset).Activate();
+                ActivateWindow(new ResetRecoveryWindow(reset));
                 return;
             }
             showPostResetOnboarding = true;
@@ -48,7 +50,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         else if (markerState == FactoryResetMarkerState.OnboardingPending) showPostResetOnboarding = true;
         else if (markerState == FactoryResetMarkerState.Invalid)
         {
-            new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Reset marker", "InvalidMarker", "The reset control state is invalid.")])).Activate();
+            ActivateWindow(new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Reset marker", "InvalidMarker", "The reset control state is invalid.")])));
             return;
         }
         if (showPostResetOnboarding)
@@ -56,7 +58,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(stateDirectory);
             if (!onboardingAuthority.Succeeded)
             {
-                new ResetRecoveryWindow(onboardingAuthority).Activate();
+                ActivateWindow(new ResetRecoveryWindow(onboardingAuthority));
                 return;
             }
         }
@@ -65,7 +67,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
         if (showPostResetOnboarding && !database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult())
         {
-            new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Fresh store", "VerificationFailed", "Post-reset defaults or prior state could not be verified.")])).Activate();
+            ActivateWindow(new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Fresh store", "VerificationFailed", "Post-reset defaults or prior state could not be verified.")])));
             return;
         }
         List<ILocalInventoryProvider> providers = [];
@@ -96,13 +98,23 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications);
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);
         MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), showPostResetOnboarding, () => FactoryReset.AcknowledgeOnboarding(stateDirectory));
-        window.Activate();
+        ActivateWindow(window);
         }
         catch (Exception exception)
         {
-            new StartupFailureWindow(exception).Activate();
+            ActivateWindow(new StartupFailureWindow(exception));
         }
         finally { bootstrapMutex.ReleaseMutex(); }
+    }
+
+    private void ActivateWindow(Window window)
+    {
+        activeWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(activeWindow, window)) activeWindow = null;
+        };
+        window.Activate();
     }
 }
 

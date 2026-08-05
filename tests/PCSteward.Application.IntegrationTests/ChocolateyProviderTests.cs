@@ -61,6 +61,10 @@ public sealed class ChocolateyProviderTests
         CollectionAssert.AreEqual(new[] { "upgrade", "git", "--version", "2.46.0", "--source", ChocolateyUpdateSourceConnector.CommunitySourceUrl, "--yes", "--limit-output", "--no-color", "--execution-timeout", "300" }, arguments.ToArray());
         Assert.ThrowsExactly<ArgumentException>(() => ChocolateyMachineUpdateExecutor.BuildUpdateArguments(new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(
             "winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1")).Confirm(DateTimeOffset.UtcNow)));
+        Assert.ThrowsExactly<ArgumentException>(() => new UpdateJobSelection(
+            "chocolatey:chocolatey-community:git", UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity,
+            "git", "2.45.1", "2.46.0", UpdateScope.User, UpdateArchitecture.Neutral, UpdateChannel.Stable,
+            "chocolatey-fixed-community-v1"));
     }
 
     [TestMethod]

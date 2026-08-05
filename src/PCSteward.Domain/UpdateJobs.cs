@@ -38,6 +38,10 @@ public sealed partial class UpdateJobSelection
         InstalledVersion = Validate(Version(), installedVersion, MaximumVersionLength, nameof(installedVersion));
         CandidateVersion = Validate(Version(), candidateVersion, MaximumVersionLength, nameof(candidateVersion));
         Scope = ValidateEnum(scope, nameof(scope));
+        if (Provider == UpdateProvider.Chocolatey && Scope != UpdateScope.Machine)
+        {
+            throw new ArgumentException("Chocolatey updates require machine scope.", nameof(scope));
+        }
         Architecture = ValidateEnum(architecture, nameof(architecture));
         Channel = ValidateEnum(channel, nameof(channel));
         MappingEvidenceVersion = Validate(EvidenceVersion(), mappingEvidenceVersion, MaximumEvidenceVersionLength, nameof(mappingEvidenceVersion));

@@ -58,11 +58,16 @@ public static class UpdateIntelligence
             }
             mapping = UseConfirmedSourceCurrentEvidence(mapping, snapshots);
             SourceSnapshot? source = sourceById.GetValueOrDefault(mapping.SourceId);
+            bool availabilityUnavailable = IsAvailabilityUnavailable(mapping, source);
             UpdateIntelligenceStatus status = mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement) ? UpdateIntelligenceStatus.ReviewRequired
+                : availabilityUnavailable ? UpdateIntelligenceStatus.FailedUnavailable
                 : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
                 : IsVerifiedCurrent(mapping) ? UpdateIntelligenceStatus.Current
                 : UpdateIntelligenceStatus.ReviewRequired;
-            items.Add(new(product.StableProductKey, status, mapping, mapping.EvidenceExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
+            string itemExplanation = availabilityUnavailable
+                ? "The repository identified the exact package, but it did not establish update availability. This is incomplete source evidence, not a decision for you; refresh the source to retry."
+                : mapping.EvidenceExplanation;
+            items.Add(new(product.StableProductKey, status, mapping, itemExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
         }
         Dictionary<UpdateIntelligenceStatus, int> counts = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => items.Count(item => item.Status == status));
         return new(items, counts, snapshots);
@@ -81,6 +86,24 @@ public static class UpdateIntelligence
         mapping.Confidence == MappingConfidence.High &&
         mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal &&
         mapping.ReviewReasons.All(reason => reason == MappingReviewReason.CandidateIsCurrent);
+
+    private static bool IsAvailabilityUnavailable(PackageMapping mapping, SourceSnapshot? source)
+    {
+        if (mapping.Confidence != MappingConfidence.High ||
+            mapping.CandidateVersion is not null ||
+            source?.State is not (SourceSnapshotState.Live or SourceSnapshotState.Cached) ||
+            mapping.ReviewReasons.Count == 0 ||
+            !mapping.ReviewReasons.All(reason => reason == MappingReviewReason.IncomparableVersion))
+        {
+            return false;
+        }
+
+        SourcePackageRecord[] exactPackages = source.Packages
+            .Where(package => string.Equals(package.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(package.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return exactPackages.Length == 1 && exactPackages[0].AvailableVersion is null;
+    }
 
     private static PackageMapping UseConfirmedSourceCurrentEvidence(PackageMapping mapping, IReadOnlyCollection<SourceSnapshot> snapshots)
     {

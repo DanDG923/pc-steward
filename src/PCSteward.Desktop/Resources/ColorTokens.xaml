@@ -23,6 +23,12 @@
             <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="#FFF6DD" />
             <SolidColorBrush x:Key="StewardDangerBrush" Color="#9C261D" />
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#FDEDEC" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelected" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPointerOver" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPressed" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelected" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPointerOver" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPressed" ResourceKey="StewardTextBrush" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="StewardCanvasBrush" Color="#F3F6FA" />
@@ -44,6 +50,12 @@
             <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="#FFF6DD" />
             <SolidColorBrush x:Key="StewardDangerBrush" Color="#9C261D" />
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#FDEDEC" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelected" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPointerOver" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPressed" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelected" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPointerOver" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPressed" ResourceKey="StewardTextBrush" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="StewardCanvasBrush" Color="#0E1522" />
@@ -65,6 +77,12 @@
             <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="#443300" />
             <SolidColorBrush x:Key="StewardDangerBrush" Color="#FF9A91" />
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#4A1E1B" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelected" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPointerOver" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPressed" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelected" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPointerOver" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPressed" ResourceKey="StewardTextBrush" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="StewardCanvasBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -86,6 +104,12 @@
             <SolidColorBrush x:Key="StewardWarningSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="StewardDangerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelected" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPointerOver" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemBackgroundSelectedPressed" ResourceKey="StewardBrandSubtleBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelected" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPointerOver" ResourceKey="StewardTextBrush" />
+            <StaticResource x:Key="NavigationViewItemForegroundSelectedPressed" ResourceKey="StewardTextBrush" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

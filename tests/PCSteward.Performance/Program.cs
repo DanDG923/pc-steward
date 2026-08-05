@@ -28,6 +28,20 @@ internal static class Program
             online.Add(timer.Elapsed.TotalMilliseconds);
         }
         online.Sort(); Console.WriteLine($"Task 18 fixture online-check workload: runs=20 sources=2 medianMs={online[9]:F2} p95Ms={online[18]:F2}. Fixture connectors only; no live WinGet or Store source was contacted.");
+        List<double> inventoryViews = [];
+        for (int run = 0; run < 20; run++)
+        {
+            (CanonicalProduct[] products, InstallationInstance[] instances) = BuildInventoryFixture(2_500);
+            InventoryExperienceViewModel viewModel = new();
+            Stopwatch timer = Stopwatch.StartNew();
+            viewModel.LoadInventory(products, instances, DateTimeOffset.UtcNow);
+            viewModel.SetFilters("Fixture 19", "All statuses", "All publishers", "All sources", "All scopes", "Publisher");
+            timer.Stop();
+            if (viewModel.VisibleRows.Count == 0) return 1;
+            inventoryViews.Add(timer.Elapsed.TotalMilliseconds);
+        }
+        inventoryViews.Sort();
+        Console.WriteLine($"Task 35 large-inventory presentation workload: runs=20 records=2500 medianMs={inventoryViews[9]:F2} p95Ms={inventoryViews[18]:F2}. Application-layer load, search, filter, and sort only; the production WinUI list is structurally virtualized but UI frame timing requires an interactive desktop trace.");
         if (outputPath is not null)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
@@ -39,7 +53,8 @@ internal static class Program
                 Environment.Version.ToString(),
                 samples,
                 online,
-                "Fixture-only harness. It does not represent the WinUI shell, real update sources, five-minute idle activity, or process-tree resource use.");
+                inventoryViews,
+                "Fixture-only harness. Large-inventory samples cover application-layer load, search, filter, and sort; they do not represent WinUI frame timing, real update sources, five-minute idle activity, or process-tree resource use.");
             await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(result, JsonOptions));
             Console.WriteLine($"Raw machine-readable performance result: {outputPath}");
         }
@@ -63,7 +78,21 @@ internal static class Program
         string Runtime,
         IReadOnlyList<double> LocalInventoryMilliseconds,
         IReadOnlyList<double> OnlineCheckMilliseconds,
+        IReadOnlyList<double> InventoryViewMilliseconds,
         string ScopeNote);
+
+    private static (CanonicalProduct[] Products, InstallationInstance[] Instances) BuildInventoryFixture(int count)
+    {
+        CanonicalProduct[] products = new CanonicalProduct[count];
+        InstallationInstance[] instances = new InstallationInstance[count];
+        for (int index = 0; index < count; index++)
+        {
+            Guid productId = Guid.NewGuid();
+            products[index] = new CanonicalProduct(productId, $"fixture:{index}", $"Fixture {index}");
+            instances[index] = new InstallationInstance(Guid.NewGuid(), productId, index % 3 == 0 ? "winget" : "registry", $"Fixture.Package.{index}", $"{index % 12 + 1}.0", index % 2 == 0 ? "Machine" : "User", "x64", index % 5 == 0 ? "Contoso" : "Fabrikam");
+        }
+        return (products, instances);
+    }
     private sealed class FixtureProvider(int count) : ILocalInventoryProvider
     {
         public string Name => "fixture"; public TimeSpan Timeout => TimeSpan.FromSeconds(5);

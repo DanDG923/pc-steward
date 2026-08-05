@@ -138,7 +138,8 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "FactoryReset.CompletePendingAsync");
         StringAssert.Contains(source, "showPostResetOnboarding = true;");
         StringAssert.Contains(source, "IsFreshResetStoreAsync");
-        StringAssert.Contains(source, "new DataOperationBusyWindow().Activate();");
+        StringAssert.Contains(source, "ActivateWindow(new DataOperationBusyWindow());");
+        StringAssert.Contains(source, "private Window? activeWindow;");
         StringAssert.Contains(source, "Title = \"PC Steward is busy\";");
     }
 
@@ -228,6 +229,23 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "Needs a decision");
         StringAssert.Contains(source, "Confirm package identity");
         StringAssert.Contains(source, "Confirm all current package identities");
+    }
+
+    [TestMethod]
+    public void UpdateReviewDisclosesAdministratorRequirementBeforeExecution()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        int detailRequirement = source.IndexOf("AdministratorRequirementPresenter.BeforeReview()", StringComparison.Ordinal);
+        int reviewButton = source.IndexOf("Review and update this verified package.", detailRequirement, StringComparison.Ordinal);
+        int confirmedRequirement = source.IndexOf("AdministratorRequirementPresenter.ForSelection(selection)", reviewButton, StringComparison.Ordinal);
+        int showConfirmation = source.IndexOf("await confirmation.ShowAsync()", confirmedRequirement, StringComparison.Ordinal);
+        int execute = source.IndexOf("updates.ConfirmAndRunAsync", showConfirmation, StringComparison.Ordinal);
+
+        Assert.IsTrue(detailRequirement >= 0 && reviewButton > detailRequirement);
+        Assert.IsTrue(confirmedRequirement > reviewButton && showConfirmation > confirmedRequirement && execute > showConfirmation);
+        StringAssert.Contains(source, "administratorRequirement.Label");
+        StringAssert.Contains(source, "administratorRequirement.Explanation");
+        StringAssert.Contains(source, "AutomationProperties.SetHelpText(review, administratorRequirement.Explanation)");
     }
 
     [TestMethod]

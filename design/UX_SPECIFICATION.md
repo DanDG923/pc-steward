@@ -132,58 +132,40 @@ The shell and copy should reinforce these verbs. “Clean” is not a top-level 
 
 ### 6.1 Primary navigation
 
-Navigation is grouped by user intent:
+The production shell exposes five stable task destinations:
 
-**Home**
+1. Overview
+2. Applications
+3. Updates
+4. Activity
+5. Settings
 
-- Overview
-- Scan
+About & support is a footer utility. Scan, scan results, review actions, repository/current applications, storage, privacy & data, onboarding, and product detail are contextual routes. They remain reachable from the relevant principal page and map selection back to that principal destination; no supported capability is removed.
 
-**Review**
-
-- Applications
-- Updates
-- Startup *(Future)*
-- Storage *(Core app-owned data + Future device analysis)*
-
-**Records**
-
-- Activity
-- Privacy & data
-
-**System**
-
-- Settings
-- About & support
-
-The expanded rail is 232 px. Below 1040 px it collapses to icons with accessible tooltips. Badges show only actionable counts:
-
-- Updates: verified + review-required count.
-- Activity: failed or unresolved result count.
-- No red badge for ordinary unmanaged software.
+The expanded rail is 232 px and the compact rail is 56 px. It enters compact mode below 900 effective px and expands at 1100 effective px. Every item retains a complete automation name when its visible label collapses. Selected items use a leading indicator, themed subtle-brand surface, icon, and text so selection remains legible in light, dark, and High Contrast themes.
 
 ### 6.2 Native navigation destination model
 
 | Page key | Screen |
 |---|---|
 | `Overview` | Current state and next best action |
+| `Applications` | Searchable, filterable installed-application inventory |
+| `Updates` | Verified, review-required, and unavailable update evidence |
+| `Activity` | Local inventory, decision, mapping, and outcome ledger |
+| `Settings` | Sources, schedule, decisions, and local data |
 | `Scan` | Scan configuration or active progress |
 | `ScanResults` | Completed/partial/no-findings results |
-| `FindingDetail` | Finding detail pane/page for the selected finding ID |
 | `ReviewActions` | Cleanup/remediation/update review queue |
-| `Applications` | Installed application inventory |
 | `ProductDetail` | Product and install-instance detail for the selected product ID |
-| `Updates` | Verified and review-required updates |
 | `UpdateReview` | Immutable evidence review for the selected update ID |
-| `StartupFuture` | Future startup review |
-| `Storage` | PC Steward data now; future device analysis |
-| `Activity` | Scan, update, cleanup and decision history |
-| `ActivityDetail` | Result and sanitized diagnostic detail for the selected activity ID |
+| `RepositoryApplications` | Installed applications with concrete approved-source identity |
+| `CurrentApplications` | Installed applications with exact current source evidence |
+| `Storage` | PC Steward-owned scan and downloaded-artifact storage |
 | `PrivacyData` | Local data inventory, export, clear and reset |
-| `Settings` | Sources, schedule, notifications, appearance, retention and decisions |
+| `Onboarding` | Local-first disclosure and first inventory |
 | `AboutSupport` | About, limitations, diagnostics and help |
 
-These are typed native `NavigationView` destinations and page keys. Selection state, detail parameters and the WinUI `Frame` Back stack must preserve the specified navigation and return behaviour.
+These are native `NavigationView` destination keys in the existing WinUI host. Selection state, selected product identity, and contextual return destinations must preserve the specified navigation and return behaviour.
 
 ### 6.3 Overview hierarchy
 

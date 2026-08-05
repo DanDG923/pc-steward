@@ -9,7 +9,11 @@ public sealed record InventoryRow(Guid ProductId, string Name, string Publisher,
 {
     public string DisplayLabel => $"{Name}    {Version}    {Status}    {Scope} · {Provider}";
 }
-public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons, IReadOnlyCollection<string> SourceCandidates, bool CanConfirmAsCurrent = false, bool CanConfirmPackageIdentity = false);
+public sealed record ReviewCandidateChoice(string SourceId, string PackageId, string? CandidateVersion, string? Publisher, string Scope, string Architecture, string? Channel, string Evidence, IReadOnlyCollection<string> ReviewReasons)
+{
+    public string DisplayLabel => $"{SourceId} · {PackageId} · {CandidateVersion ?? "version unavailable"}";
+}
+public sealed record UpdateDetail(string StableProductKey, string InstalledVersion, string? CandidateVersion, string? SourceId, string? PackageId, string Confidence, string Explanation, string Freshness, string Architecture, string? Channel, string ActionState, IReadOnlyCollection<string> ReviewReasons, IReadOnlyCollection<string> SourceCandidates, IReadOnlyCollection<ReviewCandidateChoice> ReviewCandidates, bool CanConfirmAsCurrent = false, bool CanConfirmPackageIdentity = false, bool RequiresFreshSourceEvidence = false);
 
 /// <summary>Presentation-only state for the local inventory journey. It contains no provider commands or trust decisions.</summary>
 public sealed class InventoryExperienceViewModel
@@ -46,7 +50,7 @@ public sealed class InventoryExperienceViewModel
     public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
     /// <summary>Installed products with a concrete package identity from an enabled trusted repository.</summary>
     public IReadOnlyList<InventoryRow> RepositoryManagedRows => !IsUpdateSourceEnabled ? [] : allRows
-        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired)
+        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable)
             && UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail)
             && !string.IsNullOrWhiteSpace(detail.SourceId)
             && !string.IsNullOrWhiteSpace(detail.PackageId))
@@ -103,20 +107,105 @@ public sealed class InventoryExperienceViewModel
         SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(DescribeSource).ToArray();
         UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Local-only — no enabled update source has been checked." : string.Join(" ", SourceFreshnessLabels);
         string InstalledVersionFor(string stableProductKey) => allRows.FirstOrDefault(row => row.StableProductKey == stableProductKey)?.Version ?? "Unknown";
-        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item => new UpdateDetail(item.StableProductKey, InstalledVersionFor(item.StableProductKey), item.Mapping?.CandidateVersion, item.SourceId, item.Mapping?.PackageId, item.Mapping?.Confidence.ToString() ?? "None", item.Explanation, item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel, allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown", allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel, item.Status == UpdateIntelligenceStatus.VerifiedUpdate ? "A fresh exact match can be reviewed before an update is started." : "This product is not eligible for update execution. Review the evidence and decision options.", item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? [], (item.SourceCandidates ?? []).Select(DescribeCandidate).ToArray(), CanConfirmAsCurrent(item, sources), CanConfirmPackageIdentity(item, sources, InstalledVersionFor(item.StableProductKey))), StringComparer.Ordinal);
+        UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item =>
+        {
+            string installedVersion = InstalledVersionFor(item.StableProductKey);
+            ReviewCandidateChoice[] reviewCandidates = (item.SourceCandidates ?? []).Select(CreateReviewCandidate).ToArray();
+            bool canConfirmPackageIdentity = CanConfirmPackageIdentity(item, sources, installedVersion);
+            bool requiresFreshSourceEvidence = !canConfirmPackageIdentity && RequiresFreshSourceEvidence(item, sources);
+            return new UpdateDetail(
+                item.StableProductKey,
+                installedVersion,
+                item.Mapping?.CandidateVersion,
+                item.SourceId,
+                item.Mapping?.PackageId,
+                item.Mapping?.Confidence.ToString() ?? "None",
+                item.Explanation,
+                item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel,
+                allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown",
+                allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel,
+                DescribeAvailableActions(item, reviewCandidates, canConfirmPackageIdentity, requiresFreshSourceEvidence),
+                item.Mapping?.ReviewReasons.Select(reason => reason.ToString()).ToArray() ?? [],
+                reviewCandidates.Select(candidate => candidate.Evidence).ToArray(),
+                reviewCandidates,
+                CanConfirmAsCurrent(item, sources),
+                canConfirmPackageIdentity,
+                requiresFreshSourceEvidence);
+        }, StringComparer.Ordinal);
         IsCheckingUpdates = false;
         ApplyFilters();
     }
 
-    private static string DescribeSource(SourceSnapshot source) => source.State switch
+    private static string DescribeSource(SourceSnapshot source)
     {
-        SourceSnapshotState.Live => $"{source.SourceId}: live result from {FriendlyLocalTime(source.LastSuccessAt)}.",
-        SourceSnapshotState.Cached => $"{source.SourceId}: cached result from {FriendlyLocalTime(source.LastSuccessAt)}; source data may be stale. {string.Join(" ", source.Warnings)}",
-        SourceSnapshotState.Unavailable => $"{source.SourceId}: unavailable; last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : FriendlyLocalTime(source.LastSuccessAt.Value))}. {string.Join(" ", source.Warnings)}",
-        _ => $"{source.SourceId}: local-only; no source check has been run."
-    };
+        string warningDescription = DescribeSourceWarnings(source.Warnings);
+        string warningSuffix = warningDescription.Length == 0 ? string.Empty : $" {warningDescription}";
+        return source.State switch
+        {
+            SourceSnapshotState.Live => $"{source.SourceId}: live result from {FriendlyLocalTime(source.LastSuccessAt)}.{warningSuffix}",
+            SourceSnapshotState.Cached => $"{source.SourceId}: cached result from {FriendlyLocalTime(source.LastSuccessAt)}; source data may be stale.{warningSuffix}",
+            SourceSnapshotState.Unavailable => $"{source.SourceId}: unavailable; last successful refresh {(source.LastSuccessAt is null ? "is unavailable" : FriendlyLocalTime(source.LastSuccessAt.Value))}.{warningSuffix}",
+            _ => $"{source.SourceId}: local-only; no source check has been run.{warningSuffix}"
+        };
+    }
+
+    private static string DescribeSourceWarnings(IEnumerable<string> warnings) => string.Join(" ", warnings
+        .Select(warning => warning switch
+        {
+            "source:stale" => string.Empty,
+            "source:offline" => "The source was offline.",
+            _ when warning.EndsWith(":update-check-unavailable", StringComparison.OrdinalIgnoreCase) => "Update availability was not established.",
+            _ when warning.EndsWith(":source-inventory-fallback", StringComparison.OrdinalIgnoreCase) => "Installed package identity came from fallback inventory.",
+            _ => $"Source warning: {warning.Trim().TrimEnd('.')}."
+        })
+        .Where(description => description.Length > 0)
+        .Distinct(StringComparer.Ordinal));
 
     private static string DescribeCandidate(SourceCandidateObservation candidate) => $"{candidate.SourceId}: {candidate.PackageId} {candidate.CandidateVersion ?? "unknown version"}; {candidate.State.ToString().ToLowerInvariant()} result from {(candidate.LastSuccessAt is null ? "an unknown time" : FriendlyLocalTime(candidate.LastSuccessAt.Value))}; confidence {candidate.Confidence}.";
+
+    private static ReviewCandidateChoice CreateReviewCandidate(SourceCandidateObservation candidate) => new(
+        candidate.SourceId,
+        candidate.PackageId,
+        candidate.CandidateVersion,
+        candidate.Publisher,
+        candidate.Scope,
+        candidate.Architecture,
+        candidate.Channel,
+        DescribeCandidate(candidate),
+        candidate.ReviewReasons.Select(reason => reason.ToString()).ToArray());
+
+    private static string DescribeAvailableActions(UpdateIntelligenceItem item, ReviewCandidateChoice[] candidates, bool canConfirmPackageIdentity, bool requiresFreshSourceEvidence)
+    {
+        if (item.Status == UpdateIntelligenceStatus.VerifiedUpdate) return "A fresh exact match can be reviewed before an update is started.";
+        if (item.Status == UpdateIntelligenceStatus.FailedUnavailable && item.Mapping is not null) return "Available action: refresh source evidence. The repository identified this package but did not establish update availability. This is not a decision for you to make; PC Steward will not guess a version or start an update.";
+        if (item.Status == UpdateIntelligenceStatus.FailedUnavailable) return "Available action: refresh source evidence. No update can be considered until the repository responds with usable evidence, and no update starts.";
+        if (item.Status != UpdateIntelligenceStatus.ReviewRequired) return "No automatic action is available. You can record a reversible pin or ignore decision.";
+        if (canConfirmPackageIdentity) return "Available actions: confirm this exact package identity, pin the installed version, or ignore the product. None starts an update.";
+        if (item.Mapping is null && candidates.Length > 0) return "Available actions: choose an exact package identity, pin the installed version, or ignore the product. None starts an update.";
+        if (item.Mapping?.ReviewReasons.Contains(MappingReviewReason.IncomparableVersion) == true && requiresFreshSourceEvidence) return "Available actions: refresh source evidence, pin the installed version, or ignore the product. PC Steward will not guess the version order even after a refresh. No update starts.";
+        if (item.Mapping?.ReviewReasons.Contains(MappingReviewReason.IncomparableVersion) == true) return "Available actions: pin the installed version or ignore the product. PC Steward will not guess the version order.";
+        if (requiresFreshSourceEvidence) return "Available actions: refresh source evidence, pin the installed version, or ignore the product. A successful live refresh is required before this package identity can be confirmed. No update starts.";
+        return "Available actions: pin the installed version or ignore the product after reviewing the evidence. None starts an update.";
+    }
+
+    private static bool RequiresFreshSourceEvidence(UpdateIntelligenceItem item, Dictionary<string, SourceSnapshot> sources)
+    {
+        if (item.Status is not (UpdateIntelligenceStatus.ReviewRequired or UpdateIntelligenceStatus.FailedUnavailable)) return false;
+        if (item.SourceId is { } sourceId)
+        {
+            if (!sources.TryGetValue(sourceId, out SourceSnapshot? source) || source.State != SourceSnapshotState.Live) return true;
+            if (item.Mapping is not { PackageId: { } packageId, CandidateVersion: null }) return false;
+            SourcePackageRecord[] exactPackages = source.Packages
+                .Where(package => string.Equals(package.SourceId, sourceId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(package.PackageId, packageId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            return exactPackages.Length == 1 && exactPackages[0].AvailableVersion is null;
+        }
+
+        SourceCandidateObservation[] candidates = (item.SourceCandidates ?? []).ToArray();
+        if (candidates.Length > 0) return candidates.All(candidate => candidate.State != SourceSnapshotState.Live);
+        return sources.Count > 0 && sources.Values.All(source => source.State != SourceSnapshotState.Live);
+    }
 
     private static bool CanConfirmAsCurrent(UpdateIntelligenceItem item, Dictionary<string, SourceSnapshot> sources)
     {

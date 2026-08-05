@@ -69,16 +69,20 @@ public sealed class UpdateIntelligenceTests
         Assert.IsTrue(observations.Any(candidate => candidate.SourceId == "msstore" && candidate.CandidateVersion == "1.2.0"));
     }
     [TestMethod]
-    public void RepositoryIdentityWithoutAnAvailableVersionIsReviewRequiredNotCurrent()
+    public void RepositoryIdentityWithoutAnAvailableVersionIsUnavailableNotAUserDecision()
     {
         ProductMatchProfile product = Product("availability-unknown", "Contoso.AvailabilityUnknown", "1.0.0");
         SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.AvailabilityUnknown", "Availability unknown", "Contoso", "1.0.0", null, "Machine", "x64", "Stable")], ["winget:update-check-unavailable"]);
 
-        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source]).Items.Single();
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([product], [source]);
+        UpdateIntelligenceItem item = summary.Items.Single();
 
-        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.FailedUnavailable, item.Status);
         Assert.IsNotNull(item.Mapping);
         Assert.IsFalse(item.Mapping.IsActionable);
+        StringAssert.Contains(item.Explanation, "not a decision for you");
+        Assert.AreEqual(0, summary.Counts[UpdateIntelligenceStatus.ReviewRequired]);
+        Assert.AreEqual(1, summary.Counts[UpdateIntelligenceStatus.FailedUnavailable]);
     }
 
     [TestMethod]
