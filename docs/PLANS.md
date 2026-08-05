@@ -125,3 +125,13 @@ Overall verification result: **Improved**. The implementation findings are remed
 **Completion gate:** Commit `fix: remediate phase review findings` only after `FRA-19` has no High implementation finding, `FRA-20/18` are reconciled, package/evidence checks are current and all safe automated gates pass. Keep `FRA-14–16` explicitly open unless their separately authorized evidence is actually collected. Stop for a fresh Task 31 under GPT-5.6 Sol / Extra High.
 
 **Execution result:** `FRA-19` is implemented with two deterministic executable scenarios (failed acknowledgement + marker `None`, and successful acknowledgement + residual marker), release build is clean, and safe suites pass 251/251 with reset 25/25. The current local, unsigned archive SHA-256 is `16DE2AFB0CBF26BAE167DFABFD7A4FCAE619ABA317BFE97076D4FDD16ADE0523` (94 files / 49,955,522 bytes, 15 components, 16 SBOM nodes/32 edges); its validator is non-executing and reports launch smoke not performed. `FRA-14–16` remain open exactly as scoped above.
+
+## Task 31 — owner-only non-public evaluation exceptions (2026-08-05)
+
+**Decision:** The product owner requested exceptions for `FRA-14–16` because the candidate is not for public release. Apply the narrowest safe interpretation: exact-hash, product-owner-controlled evaluation from the existing local workspace only. Do not authorize an external private beta, distribution, launch, host mutation or destructive lifecycle action.
+
+**Edits:** Add a current-hash exception record; re-grade `FRA-14–16` as accepted exceptions only for owner-only non-public evaluation; keep every omitted observation `Unverified`; update audit, status, checklist, release evidence and traceability without changing technical requirements or numeric thresholds.
+
+**Expiry:** All exceptions expire on implementation/hash change, another recipient, any distribution channel, or a public/private-distribution/release-ready claim. State-changing host evidence continues to require exact action-time approval.
+
+**Verification:** Independently review the documentation diff for overreach and contradictions; mechanically revalidate the exact archive and confirm no document implies signing, current-hash lifecycle execution, external distribution or public-release readiness.
