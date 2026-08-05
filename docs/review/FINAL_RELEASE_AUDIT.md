@@ -2,196 +2,183 @@
 
 **Verdict:** **NOT READY**
 
-**Reviewed implementation:** `632b7afb6fb97aa8597ffe8a66ef6e3599396b3f`
+**Reviewed implementation:** `0f03127dc9378efa4ace1412b960dc7dd87e97bb`
 
-**History reviewed:** `b0a37f78dd412f8b23ed2dc1586068f4e8b95781..632b7afb6fb97aa8597ffe8a66ef6e3599396b3f`
+**Reviewed archive:** `PCSteward-0.1.0-private-beta-win-x64.zip` — SHA-256 `A8FD4AF124019E44B23C9F067C49F49A3D61FE8025F6ED9D8AF5E51E4CBCA3FC`
+
+**History reviewed:** `b0a37f78dd412f8b23ed2dc1586068f4e8b95781..0f03127dc9378efa4ace1412b960dc7dd87e97bb`
 
 **Reviewer model/effort:** GPT-5.6 Sol / Extra High
 
-**Date:** 2026-08-01
+**Date:** 2026-08-05
 
 ## Gate decision
 
-PC Steward is not ready for release or external private-beta distribution. This fresh review found five High, one Medium, and one Low finding. Four mandatory acceptance criteria are Failed, five are Unverified, six mandatory non-functional requirements are Unverified, and multiple release-definition gates are Failed.
+PC Steward is not ready for release or external private-beta distribution. This fresh review found four High, one Medium and one Low open findings. One mandatory acceptance criterion is Failed, nine are Unverified, eight mandatory performance requirements are Unverified, and multiple release-definition gates are Failed.
 
-The decisive implementation failures are independent of the remaining field-evidence gaps:
+Task 90 closed the earlier owned-root enumeration, packaged cleanup, reset-marker and limitations findings. The fresh audit nevertheless found a separate fail-open UI consumer: onboarding acknowledgement can return failure after reset authority has disappeared, but `MainWindow` blocks only when the marker is still present. If saved inventory loads, the UI continues to Scan despite the failed acknowledgement. This contradicts the fail-closed reset authority and prevents Task 31 passing.
 
-- factory reset verifies only its named database/download/log targets, so an unclassified object directly below the owned state root survives while reset reports Success and enters onboarding, contrary to the accepted reset manifest;
-- the packaged removal script treats every failed exact-task query as “absent” and never verifies absence after deletion, so it can report cleanup complete while `PCSteward.ScheduledCheck` remains; and
-- the reset marker omits the accepted reset identity, time, attempt, category results, and per-category progress needed for bounded retry and auditable Partial recovery.
-
-The local archive is mechanically coherent and the automated safety suites are green. Those facts do not replace mandatory final-app performance, destructive/reset, replacement/removal, scheduled-timeout, signing, or distribution-channel evidence. The Task 90 exceptions explicitly do not promote omitted evidence to Proven or authorize a release-ready claim.
+The exact rebuilt archive is mechanically coherent and the owner-context automated suites are green. Those facts do not replace current-hash package launch/update/lifecycle, complete agreed-baseline performance, destructive owner-state reset, scheduled final-timeout, production signing, or distribution-channel evidence. Prior host observations and owner exceptions are bound to older archive hashes and are historical evidence only.
 
 ## Audit scope and fresh verification
 
-- Reviewed the complete product specification; Phase 0–4 requirements; traceability; ADR-001–021; architecture, data-flow, factory-reset, test-strategy, and threat-model documents; the approved native-design package; phase reviews; Task 90 evidence/exceptions/failures; release documents; retained package reports; source composition; and repository history.
-- Inspected all 130 commits from the initial product-spec commit through the candidate, 607 tracked files, and the complete candidate change set: 577 files, 59,604 insertions, and 172 deletions.
-- Release build: **0 warnings, 0 errors**. Full Release suite: **237/237 passed** — Domain 55, Application integration 145, Architecture 17, Security 20.
-- Fresh focused safety matrix: **164/164 passed** — reset/cache/scheduling/update/inventory workflows 87, matching/version/update-job rules 40, Security 20, Architecture 17.
-- Host-safe hostile boundary: **42 assertions passed**, with one approved local-PC/manual symbolic-link case skipped. WinGet production-boundary spike: **11 passed**.
-- Fresh fixture performance: 30 local runs at 1.84 ms median / 2.00 ms p95 and 20 simulated-online runs at 15.51 ms median / 16.07 ms p95. The harness correctly states that it is not final-app, live-source, idle, process-tree, or acceptance evidence.
-- Current NuGet advisory query: **0 known vulnerable direct or transitive packages** across all 17 projects. Release analyzers/build are clean. High-confidence and generic literal tracked-file secret scans found **0 candidate files**.
-- Retained archive validator: **Pass** — 94 payload files / 49,929,973 bytes, 15 package components, 16 SBOM dependency nodes, 32 exact edges, portable hashes, licence inventory, and shipped notices. ZIP SHA-256: `20617AEFCFE42822534060CC7902BECFF5911D5B27C5F2274449A84935272FBF`.
-- Signing status is **Not requested**. The archive remains unsigned, local-owner-only, and prohibited from upload, sharing, tagging, publishing, or external distribution.
-- The worktree was clean before review; only this audit and `docs/STATUS.md` are changed by Task 31.
+- Reviewed the product specification; Phase 0–4 requirements; traceability; ADR-001–021; architecture, data-flow, factory-reset, test-strategy and threat-model documents; approved native design package; phase reviews; release evidence/checklist; retained host evidence; source composition; Task 90 diff; and repository history.
+- Reviewed 132 commits after the initial product-spec commit, 607 tracked files, and the implementation change set: 577 files, 60,632 insertions and 157 deletions.
+- Owner-context Release build: **0 warnings, 0 errors**. Serialized full suite: **249/249 passed** — Domain 55, Application integration 157, Architecture 17, Security 20. Focused factory reset: **25/25 passed**.
+- Fake-only packaged cleanup contract: **Pass**. Host-safe hostile boundary: **42 assertions passed**, with one local-PC/manual symbolic-link case skipped. Non-executing WinGet boundary: **11/11 passed**.
+- Fixture performance retry completed: 30 local runs at 1.81 ms median / 2.05 ms p95 and 20 simulated-online runs at 15.53 ms median / 16.20 ms p95. The first combined invocation exited between phases; the bounded retry passed. Neither run is final-app, live-source, idle, process-tree or acceptance evidence.
+- Current NuGet advisory query: **0 known vulnerable direct or transitive package rows** across 17 projects. Release analyzers/build are clean. Independent high-confidence tracked-secret scan found **0 matches**.
+- Exact archive validator: **Pass** — 94 payload files / 49,950,826 bytes; 15 package components; 16 SBOM nodes / 32 edges; portable hashes, licences and notices; archive 15,419,133 bytes. Signing status is **Not requested** and packaged launch smoke is **Not performed**.
+- Sandbox-account test attempts that overlapped or lacked NT file authority were excluded. After their exact orphaned test chain was stopped, the single owner-context focused and full reruns passed. A sandbox-only .NET first-run message reported an untrusted HTTPS development certificate; it was not used for product signing or release evidence.
+- The tracked worktree was clean before review. Task 31 modifies only this audit and `docs/STATUS.md`.
 
-## Findings
+## Open findings
 
 | ID | Severity | Requirements | File/line | Finding | Exact remediation | Required verification |
 |---|---|---|---|---|---|---|
-| `FRA-11` | High | `FR-DAT-12/15`, `AC-DAT-12/13/15`, ADR-013/019, `TM-16` | `src/PCSteward.Storage/FactoryReset.cs:87–97`; `docs/architecture/FACTORY_RESET_DESIGN.md:64–74,164–172` | Reset deletes and verifies only `downloads`, `logs`, and the four SQLite leaves. It never enumerates the owned root for an unexpected child. An undeclared file/directory can therefore survive, `residuals` remains empty, the marker is replaced with onboarding, and reset reports Success. The accepted manifest explicitly requires an unclassified owned-root object to produce Partial and forbids onboarding while it remains. No regression exercises `UnexpectedOwnedObject`. | Enumerate the verified state-root handle without following reparse points. Permit only the compiled database leaves, `downloads`, `logs`, and the exact reset-control directory in the correct phase. Record every other child as `UnexpectedOwnedObject`; never widen deletion authority, remove the marker, create a fresh store, or enter onboarding while any such residual exists. | Add file, directory, unsafe/reparse, rename/race, and inaccessible unexpected-root cases. Preserve an outside sentinel, prove only compiled objects are deleted, assert Partial plus durable marker/progress, and prove retry reaches onboarding only after exact manifest absence. |
-| `FRA-12` | High | `AC-DAT-18`, ADR-002/020, `TM-14/16`, release definition of done | `packaging/Remove-PCSteward.ps1:12–20`; `scripts/Test-StandaloneTaskCleanup.ps1:12–40`; `tests/PCSteward.ArchitectureTests/ReferenceBoundaryTests.cs:180–190` | The removal script treats every non-zero `schtasks /Query` result as task absence. It queries only before deletion and never proves exact absence afterward, yet always prints cleanup complete. Access denial, tool failure, malformed environment, or a retained task can therefore become false Success. Existing tests cover one positive task/removal/isolation path and static task-name authority only. | Replace exit-code inference with the language-independent exact Task Scheduler COM query used by product scheduling, or otherwise distinguish exact absence from every error. Fail closed on query/delete failure, query again after deletion, and print completion only after exact absence is proven. Keep unrelated-task authority unchanged. | Add absent, present/delete, access-denied/query-failure, delete-failure, task-still-present, malformed-tool, and unrelated-task cases. Run the packaged script on the supported host and capture exact before/after task identity and failure behavior. |
-| `FRA-13` | Medium | `FR-DAT-12–15`, `AC-DAT-12/15`, ADR-013, `TM-16` | `src/PCSteward.Storage/DownloadedArtifactCache.cs:379–400,468–470`; `docs/architecture/FACTORY_RESET_DESIGN.md:54,128–132,146–154` | The durable reset marker contains only `schemaVersion` and `state`. It omits reset ID, requested UTC, attempt count, fixed category/result enums, residual progress, and per-category atomic progress replacement required by the accepted design. Retry is idempotent for compiled targets, but the durable record cannot represent the complete Partial result or distinguish attempts as specified. | Implement the fixed bounded marker schema, validate every field/version/state, atomically replace progress after each category, and retain sanitized fixed-category results on Partial. Do not add paths or deletion authority to the marker. Preserve fail-closed handling of malformed/unknown content and temporary-only crash states. | Add schema/version/enum/bounds tests, per-category failure/progress tests, crash-before/after-replacement cases, repeated-attempt accounting, and recovery assertions showing no normal state opens until the final verified completion. |
-| `FRA-14` | High | `NFR-PERF-01–03/05–07`, `AC-NFR-01/02/06/07/11`, ADR-006 | `docs/review/TASK_90_OWNER_EXCEPTIONS.md:19–27`; `tests/PCSteward.Performance/Program.cs:10–32`; `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md:18–25` | Mandatory final-app performance evidence is materially incomplete. The current exception records no 30-run final-app local series, no 20-run healthy live series, no update-responsiveness observation, no complete scan process-tree measurement, no process-attributed network result, early recurring I/O, and no real scheduled final-timeout exit. Fresh fixture timings cannot establish these gates. | Execute the complete ADR-006 protocol on the approved 3XS/`3XS-Overclock` baseline without changing thresholds: final packaged app, raw 30/20 samples, scan and update responsiveness, five-minute idle CPU/memory/disk/network, full process tree, and every scheduled-exit terminal path. Remediate any measured failure before re-audit. | Retain raw timestamped samples, environment/power-plan/tool versions, source health, p50/p95 calculations, process-tree attribution, cancellation/update interaction, and normal/completion/cancellation/final-timeout exit observations. Every threshold must pass; an exception remains Unverified. |
-| `FRA-15` | High | `AC-DAT-12/13/15/18`, `NFR-PERF-07`, `AC-NFR-11`, ADR-002/009/013/020, release definition of done | `docs/review/TASK_90_OWNER_EXCEPTIONS.md:29–39`; `docs/release/PRIVATE_BETA_CHECKLIST.md:15–24` | Mandatory destructive and supported-host lifecycle observations remain omitted: complete two-confirmation reset proving zero prior state/onboarding, reset with task present/absent and residual marker outcomes, retain-data package replacement, reset-then-package removal, and real scheduled final-timeout exit. The exception expires before any release-ready claim. The new `FRA-11/12` false-success paths also invalidate the assumption that green positive lifecycle evidence is sufficient. | Fix `FRA-11–13`, rebuild and re-hash the package, then execute the complete supported-host lifecycle from a caller-writable extraction: launch, schedule/action/scan-only behavior, replacement with retained state, exact cleanup and folder deletion, reset choices, Partial/retry, and final-timeout behavior. | Record host/operator/UTC, exact artifact hash, actions, task XML/identity, process exits, before/after state and binary hashes, onboarding/zero-prior-state assertions, unrelated-task/outside-sentinel preservation, no helper/UAC, rollback, and zero residual PC Steward process/task/data as applicable. |
-| `FRA-16` | High | Release definition of done, ADR-001/002/008/009, `TM-18` | `docs/review/TASK_90_OWNER_EXCEPTIONS.md:7–17`; `docs/release/PRIVATE_BETA_CHECKLIST.md:13,26–32`; `docs/release/RELEASE_EVIDENCE.md:16–19` | No approved production signer, trusted distribution channel, external recipient list, support contact, or distributable rollback artifact exists. The local-only exception explicitly expires before a release/publication claim. The mechanically valid unsigned archive is engineering evidence, not a release candidate. | Obtain product-owner-approved release identity/channel/support/rollback controls, rebuild after all code fixes, sign the exact payload and required distribution artifacts, bind the checksum to the final archive, and prohibit post-sign mutation. Do not reuse the removed development certificate. | On a clean supported host independently verify chain trust, code-signing EKU, signer identity, timestamp/validity, every payload hash, archive/checksum/channel binding, recipient access, rollback, and support path. Re-run package validation and the full lifecycle on the exact signed hash. |
-| `FRA-17` | Low | `FR-UI-05`, release definition of done | `docs/release/KNOWN_LIMITATIONS.md:6–7`; `docs/review/TASK_90_OWNER_EXCEPTIONS.md:19–27`; `docs/review/FINAL_RELEASE_AUDIT.md` | Release-facing limitations still list controlled current-user update evidence as missing after Task 90 proved a VS Code 1.129.0 → 1.130.0 production-path update, and they name the superseded `PO-EXC-29-PERF-01` rather than the current Task 90 boundary. The wording is conservative but stale. | Reconcile in-app and release-note limitations to the final evidence: retain signing/channel, performance, lifecycle, provider, and package-scope blockers; describe the proven current-user update narrowly; cite the current exception or its replacement. | Compare packaged About/support text, known limitations, release notes, checklist, audit, and final hash. Require consistent scope/status language and no unsupported release, privilege, signing, performance, or lifecycle claim. |
+| `FRA-19` | High | `FR-DAT-12/15`, `AC-DAT-13`, ADR-013/019, `TM-16` | `src/PCSteward.Desktop/MainWindow.cs:129–145`; `src/PCSteward.Storage/DownloadedArtifactCache.cs:523–587` | Onboarding acknowledgement blocks a failed result only while the marker remains. `AcknowledgeAndDelete` can return `Absent` or `ControlStateRecoveryFailed` after control state is absent; a subsequent marker read is then `None`. If saved inventory loads, the UI proceeds to Scan despite `result.Succeeded == false`, converting an authority/recovery failure into continuation. | Treat every failed acknowledgement as blocking. Use marker state only for diagnostics. Continue only after `result.Succeeded`, exact marker absence and successful fresh-state load; never infer success from absent control state. | Inject failed `Absent`, `ControlStateRecoveryFailed` and final-verification outcomes with marker `None`; assert no inventory load, navigation or scan transition. Retain success-path and retry tests, then rerun reset, UI/Architecture, Security and full suites. |
+| `FRA-14` | High | `NFR-PERF-01–08`, `AC-NFR-01/02/06/07/11`, ADR-006 | `docs/review/TASK_90_OWNER_EXCEPTIONS.md:21–27`; `docs/review/PERFORMANCE_AND_ACCESSIBILITY_EVIDENCE.md:18–39` | The exact current archive has no final-app 30-run local series, 20-run healthy live series, current launch/update responsiveness, complete five-minute idle I/O/network, full scan process-tree or real scheduled final-timeout result. Fixture timings and old-hash host samples cannot establish these gates. | Execute the complete unchanged ADR-006 protocol on the approved 3XS / `3XS-Overclock` baseline using the exact rebuilt package and healthy sources. Remediate any measured failure rather than changing thresholds. | Retain raw timestamped samples, environment/power-plan/tool versions, exact hash, source health, every sample and p50/p95, process-tree attribution, update/cancellation interaction, five-minute CPU/memory/disk/network and every scheduled terminal exit. |
+| `FRA-15` | High | `AC-UPD-03/06`, `AC-DAT-12/13/18`, `AC-NFR-08/11`, `NFR-PERF-07`, ADR-002/009/013/020, release definition of done | `docs/release/PRIVATE_BETA_CHECKLIST.md:15–24`; `docs/release/RELEASE_EVIDENCE.md:8,12–13,17` | No supported-host lifecycle is bound to archive `A8FD4AF1...4CBCA3FC`: packaged launch/close, controlled current-user update, retain-data replacement, real task removal, two-confirmation owner-state reset/onboarding, reset-then-package removal and scheduled final-timeout are unverified. Automated disposable-root tests do not prove these owner-state observations. | After `FRA-19` is fixed and the package is rebuilt, execute the complete supported-host lifecycle from a caller-writable extraction under separately approved action-time scope. | Record host/operator/UTC, exact archive and payload hashes, before/after owner state, task XML/identity, process exits, retained-state replacement, zero-prior-state onboarding, unrelated-task/outside-sentinel preservation, no helper/UAC, rollback and zero residual state where applicable. |
+| `FRA-16` | High | Release definition of done, ADR-001/002/008/009, `TM-18` | `docs/release/PRIVATE_BETA_CHECKLIST.md:13,28–32`; `docs/release/RELEASE_EVIDENCE.md:16,19` | No product-owner-approved production signer, signing service, trusted distribution channel, recipient list, support contact or distributable rollback artifact exists. The archive is unsigned engineering evidence, not a release candidate. | Obtain explicit release identity/channel/support/rollback inputs, rebuild after all fixes, sign the exact payload and required distribution artifacts, bind the checksum to the immutable final archive and prohibit post-sign mutation. Do not reuse the removed development certificate. | Independently verify chain trust, code-signing EKU, signer identity, timestamp/validity, every payload hash, archive/checksum/channel binding, recipient access, support and rollback on a clean supported host; repeat package/lifecycle validation on that exact signed hash. |
+| `FRA-20` | Medium | Release definition of done, ADR-002/009, evidence integrity | `docs/release/RELEASE_EVIDENCE.md:8,17`; `docs/release/PRIVATE_BETA_CHECKLIST.md:17`; package validator report | Current release evidence correctly says no launch claim is inherited by `A8FD...`, but later says native launch smoke passed and the checklist marks standalone launch complete without binding either statement to an older hash. The exact validator says launch smoke was not performed. | Bind every retained launch/update/lifecycle observation to its exact archive hash and label it historical. Mark all current-archive launch/lifecycle rows unchecked or Unverified until rerun. | Cross-check audit, checklist, release evidence, limitations, About/support text, package validator and exact hash; require one consistent current-versus-historical scope. |
+| `FRA-18` | Low | Release evidence accuracy | `docs/release/RELEASE_EVIDENCE.md:13`; `tests/PCSteward.Application.IntegrationTests/FactoryResetTests.cs` | Release evidence understates the current focused reset suite as 22 tests; the current owner-context suite is 25/25. | Replace the stale count and include the pre-migration, control-swap and exact attempt-cap cases in the evidence summary. | Rerun the focused filter once without concurrent testhosts and reconcile the observed 25/25 count across current release documents. |
 
-**Finding count:** 7 open — 0 Blocker, 5 High, 1 Medium, 1 Low.
+**Finding count:** 6 open — 0 Blocker, 4 High, 1 Medium, 1 Low.
+
+## Closed prior findings
+
+| ID | Fresh disposition | Independent basis |
+|---|---|---|
+| `FRA-11` | Closed for its original owned-root/control-manifest defect. `FRA-19` tracks the distinct UI consumer failure found in this audit. | Exact root/control enumeration, pre-migration authority checks, late-race restoration and reset 25/25 pass. |
+| `FRA-12` | Closed. | Exact Task Scheduler COM setup/query/delete/re-query fails closed; fake-only contract and Architecture 17/17 pass; packaged/source cleanup hashes match. |
+| `FRA-13` | Closed. | Strict six-field marker, atomic category progress, durable `Partial` and exact 99,999/100,000 attempt behavior pass. |
+| `FRA-17` | Closed for the narrow update/limitations wording originally reported. `FRA-20` tracks the new current-hash launch contradiction. | Known limitations and release notes retain signing, performance and lifecycle blockers and bound prior exceptions to the old archive. |
 
 ## Mandatory MVP acceptance criteria
 
-Only `Proven`, `Failed`, and `Unverified` are used. An approved exception is not converted to Proven.
+Only `Proven`, `Failed` and `Unverified` are used. Historical evidence may support unchanged source behavior, but it is not current-archive host evidence.
 
 | Criterion | Status | Independent basis |
 |---|---|---|
 | `AC-INV-01` | Proven | Registry/MSIX/WinGet discovery and composed inventory coverage pass. |
 | `AC-INV-02` | Proven | Conservative normalization preserves distinct scope/architecture instances. |
-| `AC-INV-03` | Proven | Static and architecture checks find no `Win32_Product` inventory path. |
+| `AC-INV-03` | Proven | No `Win32_Product` inventory path exists. |
 | `AC-INV-04` | Proven | Malformed/incomplete registry records warn or preserve unknowns without scan failure. |
 | `AC-INV-05` | Proven | Disabled/local-only process-attributed evidence emits no connector request. |
 | `AC-INV-06` | Proven | Inventory is standard-user and requests no elevation. |
-| `AC-INV-07` | Proven | UI exposes provider and local/live/cached freshness. |
-| `AC-MAT-01` | Proven | Actionable rows expose source, stable ID, versions, confidence, and explanation. |
-| `AC-MAT-02` | Proven | Low-confidence, unmatched, stale, conflicting, and unavailable evidence remains non-actionable. |
-| `AC-MAT-03` | Proven | Fresh zero-false-positive critical matrix passed. |
+| `AC-INV-07` | Proven | UI/source model exposes provider and local/live/cached freshness. |
+| `AC-MAT-01` | Proven | Actionable rows expose source, stable ID, versions, confidence and explanation. |
+| `AC-MAT-02` | Proven | Low-confidence, unmatched, stale, conflicting and unavailable evidence remains non-actionable. |
+| `AC-MAT-03` | Proven | Zero-false-positive critical fixtures pass. |
 | `AC-MAT-04` | Proven | Architecture/channel/scope and multi-instance conflicts fail closed. |
 | `AC-MAT-05` | Proven | Unsafe or incomparable versions remain Unknown/Review. |
 | `AC-MAT-06` | Proven | Source failure retains visibly stale timestamped last-known-good results. |
-| `AC-MAT-07` | Proven | Trusted exact-ID mappings are persisted, reversible, and tested. |
+| `AC-MAT-07` | Proven | Trusted exact-ID mappings are persisted, reversible and tested. |
 | `AC-UPD-01` | Proven | Immutable explicit review/confirmation is the only runner entry. |
-| `AC-UPD-02` | Proven | Typed execution and negatives reject arbitrary command/path/argument authority. |
-| `AC-UPD-03` | Proven | Task 90 recorded a current-user VS Code update with no observed UAC/helper. |
-| `AC-UPD-04` | Proven | Standalone machine-scope updates are non-actionable and no helper is composed or packaged. |
+| `AC-UPD-02` | Proven | Typed execution rejects arbitrary command/path/argument authority. |
+| `AC-UPD-03` | Unverified | Controlled current-user no-UAC update evidence is bound to an older archive, not `A8FD...`. |
+| `AC-UPD-04` | Proven | Standalone machine scope is non-actionable; helper/UAC code is not composed or packaged. |
 | `AC-UPD-05` | Proven | Denial/cancellation remain distinct from failure and Success. |
-| `AC-UPD-06` | Proven | VS Code 1.129.0 → 1.130.0 was independently corroborated in HKCU after execution. |
-| `AC-UPD-07` | Proven | Non-zero, timeout, overflow, cancellation, and launch failures cannot become Success. |
+| `AC-UPD-06` | Unverified | The verified VS Code update is historical old-hash evidence; no current-archive update was run. |
+| `AC-UPD-07` | Proven | Non-zero, timeout, overflow, cancellation and launch failures cannot become Success. |
 | `AC-UPD-08` | Proven | Success requires exact bounded post-update version evidence. |
 | `AC-UPD-09` | Proven | Batch execution is sequential with independent history. |
 | `AC-UPD-10` | Proven | Cancellation preserves completed/running evidence and stops unstarted work. |
 | `AC-UPD-11` | Proven | Typed, timestamped, sanitized local history is persisted and tested. |
-| `AC-DAT-01` | Proven | SQLite persistence and actual close/relaunch retention are evidenced. |
+| `AC-DAT-01` | Proven | Current SQLite persistence/migration integration tests pass. |
 | `AC-DAT-02` | Proven | CSV/JSON snapshot fidelity and timestamp coverage pass. |
 | `AC-DAT-03` | Proven | Inventory/history and cached-state paths remain usable offline. |
 | `AC-DAT-04` | Proven | Process-attributed enabled/disabled trace recorded zero lost events. |
 | `AC-DAT-05` | Proven | No account/cloud identity capability or dependency exists. |
-| `AC-DAT-06` | Proven | Transactional Clear scan data returns to no-scan state. |
-| `AC-DAT-07` | Proven | Settings/schedule/history/downloads/decisions are preserved and reapplied as required. |
-| `AC-DAT-08` | Proven | Inactive cache cleanup, accounting, and category isolation pass. |
+| `AC-DAT-06` | Proven | Transactional clear-scan-data returns to no-scan state. |
+| `AC-DAT-07` | Proven | Settings/schedule/history/downloads/decisions preservation rules pass. |
+| `AC-DAT-08` | Proven | Inactive cache cleanup, accounting and category isolation pass. |
 | `AC-DAT-09` | Proven | UI exposes recoverable owned bytes and cleanup action. |
-| `AC-DAT-10` | Proven | Fixed app-owned roots and provider-cache exclusion pass static/hostile fixtures. |
+| `AC-DAT-10` | Proven | Fixed app-owned roots and provider-cache exclusion pass hostile fixtures. |
 | `AC-DAT-11` | Proven | Locked owned artifacts produce Partial with retained residual evidence. |
-| `AC-DAT-12` | Failed | An unexpected owned-root child survives while reset reports Success; see `FRA-11`. |
-| `AC-DAT-13` | Failed | Onboarding may appear while unclassified previous owned state remains; see `FRA-11`. |
+| `AC-DAT-12` | Unverified | Current deterministic reset deletion passes, but no current-hash owner-state two-confirmation lifecycle was authorized. |
+| `AC-DAT-13` | Failed | Failed onboarding acknowledgement can still continue when the marker is absent; see `FRA-19`. |
 | `AC-DAT-14` | Proven | Per-user clear/reset requests no elevation. |
-| `AC-DAT-15` | Failed | Reset can claim complete while unclassified state or an exact scheduled task remains; see `FRA-11/12`. |
-| `AC-DAT-16` | Proven | Safe-delete hostile fixtures preserve outside sentinels and reject reparse/path escape. |
+| `AC-DAT-15` | Proven | Active-operation lease and destructive-action exclusion tests pass. |
+| `AC-DAT-16` | Proven | Junction/reparse/path-escape fixtures preserve outside sentinels. |
 | `AC-DAT-17` | Proven | Bounded structured diagnostics and sanitizer fixtures pass. |
-| `AC-DAT-18` | Failed | Packaged cleanup has an untested false-success path; see `FRA-12`. |
-| `AC-NFR-01` | Unverified | No 30-run final-app local inventory series on the approved baseline. |
-| `AC-NFR-02` | Unverified | No 20-run healthy live final-app series. |
-| `AC-NFR-03` | Proven | Keyboard cancellation returned the app to operable cached state in 236 ms. |
-| `AC-NFR-04` | Proven | Active-scan termination retained the previous successful snapshot. |
+| `AC-DAT-18` | Unverified | Exact cleanup contract passes, but no current-hash real task/folder-removal lifecycle exists. |
+| `AC-NFR-01` | Unverified | No 30-run final-app local inventory series for the exact archive. |
+| `AC-NFR-02` | Unverified | No 20-run healthy live final-app series for the exact archive. |
+| `AC-NFR-03` | Proven | Current cancellation/recovery fixtures return to operable cached state. |
+| `AC-NFR-04` | Proven | Active-scan termination retains the previous successful snapshot. |
 | `AC-NFR-05` | Proven | Connector timeout/fault isolation and partial publication pass. |
-| `AC-NFR-06` | Unverified | CPU/memory are within the latest sample, but recurring I/O and network are not passed. |
-| `AC-NFR-07` | Unverified | The complete approved-baseline scan process-tree protocol is absent. |
-| `AC-NFR-08` | Proven | Normal close leaves no PC Steward process after 30 seconds. |
-| `AC-NFR-09` | Proven | One-scan exclusivity and measured connector concurrency pass. |
+| `AC-NFR-06` | Unverified | Complete five-minute CPU/memory/disk/network gate is absent for the exact archive. |
+| `AC-NFR-07` | Unverified | Complete final-package local-scan process-tree protocol is absent. |
+| `AC-NFR-08` | Proven | Process-exit implementation/regressions pass; exact-package launch/close remains a release-lifecycle gap under `FRA-15`. |
+| `AC-NFR-09` | Proven | One-scan exclusivity and connector concurrency pass. |
 | `AC-NFR-10` | Proven | Quota/oldest-inactive/active-artifact protection passes. |
-| `AC-NFR-11` | Unverified | Completion/cancellation are observed; real final-timeout exit is omitted. |
+| `AC-NFR-11` | Unverified | Real current-package scheduled final-timeout exit is absent. |
 
-**Mandatory acceptance count:** 54 — 45 Proven, 4 Failed, 5 Unverified.
+**Mandatory acceptance count:** 54 — 44 Proven, 1 Failed, 9 Unverified.
 
-`AC-UX-01–09` remain Optional — best effort under ADR-021. Current evidence is useful, but no accessibility-conformance claim is made.
+`AC-UX-01–09` remain Optional — best effort under ADR-021. No accessibility-conformance claim is made.
 
 ## Mandatory non-functional requirements
 
 | Requirement | Status | Independent basis |
 |---|---|---|
-| `NFR-PERF-01` | Unverified | No 30-run final-app local inventory on the approved baseline. |
-| `NFR-PERF-02` | Unverified | No 20-run healthy live-source final-app check. |
-| `NFR-PERF-03` | Unverified | Scan responsiveness is proven; final-candidate update responsiveness was not measured. |
-| `NFR-PERF-04` | Proven | Task 90 observed the interactive shell in 548.891 ms on the approved baseline. |
-| `NFR-PERF-05` | Unverified | Latest CPU/memory pass, but recurring I/O and process-attributed network do not. |
-| `NFR-PERF-06` | Unverified | Complete final-candidate scan process-tree limits were not measured. |
-| `NFR-PERF-07` | Unverified | Normal close and scheduled completion/cancellation pass; final-timeout exit is absent. |
-| `NFR-PERF-08` | Proven | Cancellation acknowledgment/recovery and child containment pass. |
+| `NFR-PERF-01` | Unverified | No current-package 30-run final-app local inventory series. |
+| `NFR-PERF-02` | Unverified | No current-package 20-run healthy live-source series. |
+| `NFR-PERF-03` | Unverified | Current-package scan and update responsiveness were not measured. |
+| `NFR-PERF-04` | Unverified | Time-to-interactive evidence is bound to an older archive; startup code changed. |
+| `NFR-PERF-05` | Unverified | Complete five-minute disk/network gate is absent. |
+| `NFR-PERF-06` | Unverified | Complete final-package scan process-tree measurement is absent. |
+| `NFR-PERF-07` | Unverified | Current-package normal/final-timeout scheduled exit matrix is incomplete. |
+| `NFR-PERF-08` | Unverified | Current-package UI acknowledgement/recovery timing was not measured. |
 | `NFR-PERF-09` | Proven | One-scan lease and bounded connector concurrency pass. |
-| `NFR-PERF-10` | Proven | Configurable 2 GB quota and active-artifact exclusion pass. |
+| `NFR-PERF-10` | Proven | Configurable quota and active-artifact exclusion pass. |
 | `NFR-REL-01` | Proven | Connector faults retain other successful results. |
 | `NFR-REL-02` | Proven | Transactional promotion and crash recovery retain last-known-good state. |
 | `NFR-REL-03` | Proven | Interrupted/cancelled batches preserve completed and verification-required states. |
 | `NFR-REL-04` | Proven | Cached results retain timestamp and non-live status. |
 | `NFR-REL-05` | Proven | Malformed/missing registry fixtures are contained. |
-| `NFR-MNT-01` | Proven | Capability-specific provider/connector interfaces isolate failures. |
+| `NFR-MNT-01` | Proven | Capability-specific interfaces isolate failures. |
 | `NFR-MNT-02` | Proven | Matching/version rules have UI-free unit coverage. |
 | `NFR-MNT-03` | Proven | Provider command/parser construction is outside presentation. |
 | `NFR-MNT-04` | Proven | Versioned SQLite migration ownership/recovery evidence exists. |
 | `NFR-MNT-05` | Proven | Security/deployment decisions are recorded in ADR-001–021. |
 | `NFR-OBS-01` | Proven | Scan/update correlation IDs are typed and tested. |
 | `NFR-OBS-02` | Proven | Structured bounded severity events are tested. |
-| `NFR-OBS-03` | Proven | Cancellation, denial, timeout, verification, provider, and product failures remain distinct. |
-| `NFR-OBS-04` | Proven | Bounded sink/log retention controls and tests are present. |
-| `NFR-OBS-05` | Proven | Sanitized diagnostic export and hostile-string fixtures pass. |
+| `NFR-OBS-03` | Proven | Cancellation, denial, timeout, verification, provider and product failures remain distinct. |
+| `NFR-OBS-04` | Proven | Sink/log retention controls and tests are present. |
+| `NFR-OBS-05` | Proven | Sanitized diagnostics and hostile-string fixtures pass. |
 
-**Mandatory NFR count:** 25 — 19 Proven, 0 Failed, 6 Unverified.
+**Mandatory NFR count:** 25 — 17 Proven, 0 Failed, 8 Unverified.
 
 ## Release definition of done
 
 | Release item | Status | Judgment |
 |---|---|---|
-| All mandatory acceptance criteria pass | Failed | Four Failed and five Unverified criteria remain. |
-| Zero-false-positive fixture passes | Proven | Fresh critical matrix passed with no executable false positive. |
-| Threat model reviewed against implemented architecture | Failed | Reset manifest verification and packaged task cleanup contradict `TM-16`/accepted architecture. |
-| Release binaries signed before external distribution | Failed | No approved signer or trusted channel exists; see `FRA-16`. |
-| Critical execution/privilege code has automated tests and manual review | Proven | Security/Architecture suites and current composition review pass for user-scope-only execution. |
-| Dependency, static-analysis, and secret-scanning checks pass | Proven | Clean build/analyzers, zero known NuGet advisories, and zero tracked secret candidates. |
-| Release SBOM generated | Proven | Payload validator reconciles 15 components, 16 nodes, 32 edges, licences, notices, and hashes. |
-| Standalone launch/replacement/task cleanup/package removal/factory reset tested | Failed | Cleanup can report false Success; mandatory reset/replacement/removal cases remain omitted. |
-| Scan and idle acceptance pass on agreed baseline | Failed | Required 30/20, scan-tree, recurring-I/O, and network gates remain Unverified. |
-| Destructive path-safety, locked-file, and partial-reset tests pass | Failed | Safe-delete primitives pass, but unexpected owned-root state bypasses Partial; see `FRA-11`. |
-| Known limitations documented in app and release notes | Failed | Release-facing limitations are stale; see `FRA-17`. |
-| Product owner completed real-PC local-only scan before update execution | Proven | Retained Task 90 host evidence records local-only scans before the controlled update. |
+| All mandatory acceptance criteria pass | Failed | One Failed and nine Unverified criteria remain. |
+| Zero-false-positive fixture passes | Proven | Current critical mapping/version/actionability tests pass. |
+| Threat model reviewed against implemented architecture | Failed | `FRA-19` violates fail-closed reset/onboarding authority. |
+| Release binaries signed before external distribution | Failed | No approved signer or trusted channel exists. |
+| Critical update-execution and privilege code has automated tests and manual review | Proven | Security/Architecture suites and standalone user-scope composition review pass. |
+| Dependency, static-analysis and secret-scanning checks pass | Proven | Clean analyzers/build, zero known advisory rows and zero high-confidence secret matches. |
+| Release SBOM generated | Proven | Validator reconciles 15 components, 16 nodes, 32 edges, licences, notices and hashes. |
+| Standalone launch/replacement/task cleanup/package removal/factory reset tested | Failed | Exact-current-archive lifecycle evidence is missing; see `FRA-15/20`. |
+| Scan and idle acceptance pass on agreed baseline | Failed | Required current-package performance gates remain Unverified; see `FRA-14`. |
+| Destructive path-safety, locked-file and partial-reset tests pass | Failed | Storage fixtures pass, but the untested UI acknowledgement failure can continue; see `FRA-19`. |
+| Known limitations documented in app and release notes | Proven | App and limitations retain signing, lifecycle and performance blockers without readiness claims. |
+| Product owner completed real-PC local-only scan before update execution | Unverified | The retained scan/update sequence is bound to an older archive, not the current package. |
 
 ## Residual risks requiring explicit product-owner acceptance
 
-These risks do not override open findings or mandatory Unverified criteria:
+These risks cannot override open findings or mandatory Failed/Unverified criteria:
 
-- VM execution remains excluded by product-owner direction; supported-host evidence must identify the physical environment and exact final archive.
-- ADR-021 keeps `AC-UX-01–09` Optional — best effort; incomplete Narrator/high-contrast/scaling evidence cannot support an accessibility-conformance claim.
-- Provider-disconnect cancellation, same-user substitution of the name-based temporary WinGet export, imperfect package-ID/process-name correlation, and the historical outcome-dialog crash remain bounded documented risks.
-- The protected installed-helper/UAC evidence is historical/future-installed-mode evidence only. The standalone payload must continue to contain and compose no elevated helper or machine-scope execution.
-- A caller-writable extraction cannot provide installed-binary tamper resistance; signed channel/checksum controls and explicit guidance are still required before external distribution.
+- VM execution remains excluded by product-owner direction; supported-host evidence must identify the exact physical environment, power plan and archive.
+- ADR-021 keeps `AC-UX-01–09` Optional — best effort; incomplete Narrator/high-contrast/scaling evidence cannot support accessibility conformance.
+- Provider-disconnect cancellation, same-user substitution of the name-based temporary WinGet export, imperfect package-ID/process-name correlation and historical outcome-dialog replay remain bounded documented risks.
+- Protected installed-helper/UAC evidence is historical/future-installed-mode evidence only; the standalone payload must continue to compose no elevated helper or machine-scope execution.
+- A caller-writable extraction cannot provide installed-binary tamper resistance; signed channel/checksum controls and explicit guidance remain mandatory before external distribution.
 - ADR-003 and ADR-011 remain Provisional and must be revisited if provider authority or cache policy changes.
-
-## Task 90 remediation handoff — 2026-08-01
-
-This is a remediation handoff, not a revised Task 31 verdict. The **NOT READY** verdict and criterion tables above remain authoritative until a fresh independent audit re-grades the new tree.
-
-| Finding | Task 90 disposition | Verification |
-|---|---|---|
-| `FRA-11` | Implementation remediated: exact handle-bound root/control enumeration reports every undeclared child as `UnexpectedOwnedObject`; durable Partial blocks onboarding; pre-migration bootstrap, marker promotion and final acknowledgement revalidate bound authority and restore it after a late race. | Reset 25/25 and hostile boundary 42/1 approved skip pass. Independent Terra / High reviews found and drove additional startup/control-swap corrections, then returned no finding. |
-| `FRA-12` | Implementation remediated: packaged cleanup uses exact Task Scheduler COM query/delete/re-query; only exact `GetTask` file-not-found means absent; setup/query/delete/residual errors fail closed. | Deterministic contract and Architecture 17/17 pass. Independent review found and drove a setup-HRESULT correction, then returned no finding. Packaged/source script SHA-256 matches. |
-| `FRA-13` | Implementation remediated: strict six-field bounded marker includes reset ID, UTC, attempt, fixed state/category/results; progress is atomic per category; `Partial` and exact attempt-cap recovery are explicit and retryable. | Schema/bounds/progress/crash/write-failure/transition/fresh-store and 99,999/100,000 boundary tests are included in reset 25/25; independent final review returned no finding. |
-| `FRA-14` | **Open High — field evidence required.** No final-app 30/20, update-responsiveness, five-minute I/O/network, full scan-tree, or real final-timeout evidence was fabricated. | Fresh fixture 30 local median 1.85 ms / p95 2.03 ms and 20 simulated-online median 15.51 ms / p95 15.96 ms are explicitly non-acceptance evidence. |
-| `FRA-15` | **Open High — destructive/supported-host evidence required.** Automated reset/removal boundaries pass; no owner-state reset, real task mutation, retained-data replacement, reset-then-removal, or final-timeout action was authorized. | Disposable regressions only; prior hash-bound lifecycle exception does not cover the rebuilt archive. |
-| `FRA-16` | **Open High — external authority required.** No signer/channel/recipient/support/rollback identity was created or inferred. | Archive remains unsigned/local-workspace-only; signing status is `Not requested`. |
-| `FRA-17` | Release text remediated. | Known limitations/release notes now retain current blockers, describe the VS Code evidence narrowly, and state that prior exceptions do not cover the rebuilt hash. |
-
-Fixing commit: Task 90 remediation commit (this commit; exact hash in Git history and `docs/STATUS.md`). Integrated verification is Release build 0 warnings/errors; serialized full suite **249/249** (55 Domain, 157 Application integration, 17 Architecture, 20 Security); reset 25/25; cleanup contract Pass; hostile boundary 42 assertions/one approved skip; WinGet boundary 11. The package validator passes 94 files / 49,950,826 bytes, 15 components, 16 SBOM nodes/32 edges, licences/notices and new SHA-256 `A8FD4AF124019E44B23C9F067C49F49A3D61FE8025F6ED9D8AF5E51E4CBCA3FC`.
-
-The prior Task 90 owner exceptions were bound to `20617AEF...72FBF` and do not carry to the rebuilt hash. Task 90 may commit the implementation remediation because its integrated diff has no Blocker/High code finding and all automated gates pass; `FRA-14–16` remain release blockers requiring new authority/evidence.
 
 ## Required sequence
 
-Stop after Task 90. Repeat Task 31 in a fresh GPT-5.6 Sol / Extra High review of the remediation commit and exact rebuilt hash. Do not release, tag, publish, upload, share, or call the MVP ready before a fresh audit returns READY; a fresh audit cannot mark `FRA-14–16` closed without the missing evidence/authority.
+Task 31 fails. Run Task 90 under GPT-5.6 Terra / High. Remediate `FRA-19`, `FRA-20` and `FRA-18` without widening authority; `FRA-14–16` require separately approved host actions and external signer/channel/support/rollback inputs. Rebuild and re-hash after any code change, then repeat Task 31 under GPT-5.6 Sol / Extra High. Do not release, tag, publish, upload, share or call the MVP ready before a fresh audit returns READY.
