@@ -2,9 +2,9 @@
 
 **Current phase:** Phase 4 — feature-change evidence readiness
 
-**Current task:** Task 39 — owner-only update-capable rollout
+**Current task:** Task 40 — private GitHub prerelease backup
 
-**Reviewed implementation:** Tasks 32–38 evidence retained; Task 39 installs the exact redesigned candidate through the protected owner-only route without changing update approval authority
+**Reviewed implementation:** Tasks 32–39 evidence retained; Task 40 publishes an exact private owner-only source backup without changing the distribution/readiness or update-approval boundaries
 
 **Current branch:** `phase/4-beta`
 
@@ -53,6 +53,8 @@ Task 38 review-required decision actions: **IMPLEMENTATION AND AUTOMATED VALIDAT
 
 Task 39 owner-only update-capable rollout: **PROTECTED INSTALLATION PASS**. Commit `1298d4ae5a747d7ee489c32746f5154049800263` passed the canonical Release build with 0 warnings/errors and the complete normal-host suite **271/271**. Under explicit owner authority, the old ADR-022 deployment passed validation, its user database was copied and integrity checked, and the guarded removal removed only the protected install/state roots and installer-owned temporary certificate. The rebuilt candidate was installed at `%ProgramFiles%\PC Steward`; the new 102-file ledger, protected ACLs, same-signer desktop/helper, required WinUI resources and complete hashes passed both installer validation and the separate read-only validator. The installed desktop DLL exactly matches the local commit build, the database hash remained unchanged, the exact scheduled task remains absent, and no residual PC Steward process remains. The deployment did not launch PC Steward or update an application. It is an owner-only installed candidate with an intentionally 14-day local signer, not a permanent distribution or release-readiness claim. See `docs/review/TASK_39_OWNER_ONLY_UPDATE_CAPABLE_ROLLOUT.md`.
 
+Task 40 private GitHub prerelease: **PASS FOR THE AUTHORIZED PRIVATE OWNER-ONLY COPY**. The clean committed source was pushed to private repository `DanDG923/pc-steward` at `d6d5caaadbd38050dc3c5fd712686c4b98b0b54f`. Published prerelease `v0.1.0-owner-only.1` contains a 3,311,204-byte exact source archive and checksum asset; downloading the remote ZIP produced SHA-256 `AA95ACB4836632CB8B5E51D41548E2647E46BE8456A77E7CBBD0B9C6591E7E91`, matching the local and uploaded checksum. The 721-entry archive contains the protected owner-only installer and no key/certificate file. It is explicitly labelled an owner-only source backup, not a portable signed binary, public/stable release, automatic-update channel, or production-signing/readiness claim. No PC Steward application or update action ran. See `docs/review/TASK_40_PRIVATE_GITHUB_PRERELEASE.md`.
+
 The earlier unsigned archive hashes are superseded and not evidence for this working tree. The new unsigned local archive `1F88E89C15AA5401BC7EB508502F94059C2CD51CDD546834AC185ABF00E35056` mechanically validates 97 payload files / 50,063,593 bytes, 15 components and 16 SBOM nodes / 32 edges. It has not been launched.
 
 ## Authority boundary
@@ -63,10 +65,12 @@ Task 37 used separate exact action-time authority to launch the current protecte
 
 Task 39 used separate exact authority to remove and replace the old protected owner-only installation. That authority covered only the guarded deployment, local temporary signing trust chain, validation, and preservation backup; it did not authorize launching PC Steward, selecting or updating an application, changing a schedule, refreshing a source, clearing data, resetting state, or distributing the candidate.
 
+Task 40 used explicit authority to create a private GitHub repository and upload one owner-only prerelease source backup. The owner separately approved the GitHub `workflow` scope needed to push the existing CI file unchanged. This authority did not permit public visibility, a stable/release-ready claim, another recipient, production signing, an automatic update channel, or any local application/update/data/schedule action.
+
 ## Task 33 boundary
 
 The product owner selected an owner-only temporary-certificate route to enable a protected local installation for one real update test. It is a new, non-distribution deployment decision recorded in `ADR-022`; the standalone beta remains unchanged. The installation workflow may create only a temporary CurrentUser code-signing trust chain and `%ProgramFiles%\PC Steward` test root, and that script must not launch PC Steward or update an application. Launching the installed app and testing WizTree were separate, explicitly authorized owner actions. Any later update still requires fresh candidate evidence and separate exact action-time approval.
 
 ## Next task
 
-The redesigned build is now installed through the owner-only protected route. Its post-fix live rendering and any selected application update remain separate owner actions; no update should be inferred from deployment. The live refresh path previously passed for WinGet and Chocolatey Community, while the corrected Microsoft Store unavailable rendering remains unobserved. Live Chocolatey update execution also remains uncollected. Any release or distribution claim requires fresh exact-artifact evidence and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. No release or distribution claim is permitted.
+The redesigned build is installed through the owner-only protected route and an exact private source backup is available on GitHub. Its post-fix live rendering and any selected application update remain separate owner actions; no update should be inferred from deployment or upload. The live refresh path previously passed for WinGet and Chocolatey Community, while the corrected Microsoft Store unavailable rendering remains unobserved. Live Chocolatey update execution also remains uncollected. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
