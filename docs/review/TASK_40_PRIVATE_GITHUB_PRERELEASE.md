@@ -17,7 +17,7 @@
 | Repository | `DanDG923/pc-steward` |
 | Visibility | `PRIVATE` / `isPrivate: true` |
 | Default branch | `phase/4-beta` |
-| Pushed branch head | `d6d5caaadbd38050dc3c5fd712686c4b98b0b54f` |
+| Release source/tag commit | `d6d5caaadbd38050dc3c5fd712686c4b98b0b54f` |
 | Release | `PC Steward 0.1.0 - owner-only prerelease backup` |
 | Tag | `v0.1.0-owner-only.1` |
 | Release state | Published prerelease; not draft; not stable |
