@@ -67,4 +67,14 @@ public sealed class VersionComparisonTests
         Assert.AreEqual(VersionComparisonOutcome.Incomparable, result.Outcome);
         Assert.AreEqual(expected, result.Explanation);
     }
+
+    [TestMethod]
+    public void OversizedPrereleaseNumberIsIncomparableInsteadOfThrowing()
+    {
+        string oversized = new('9', 256);
+        VersionComparisonResult result = VersionComparison.Compare(new("1.0.0-preview.1", $"1.0.0-preview.{oversized}"));
+
+        Assert.AreEqual(VersionComparisonOutcome.Incomparable, result.Outcome);
+        Assert.AreEqual(VersionComparisonExplanation.MalformedCandidateVersion, result.Explanation);
+    }
 }

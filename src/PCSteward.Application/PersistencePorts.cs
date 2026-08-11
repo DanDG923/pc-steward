@@ -17,6 +17,7 @@ public interface IConnectorSettingsStore
 {
     Task<ConnectorState> GetConnectorStateAsync(string connectorName, bool defaultEnabled, CancellationToken cancellationToken);
     Task SaveConnectorStateAsync(string connectorName, ConnectorState state, CancellationToken cancellationToken);
+    Task SaveConnectorStatesAsync(IReadOnlyDictionary<string, ConnectorState> states, CancellationToken cancellationToken);
 }
 
 public interface IStableDecisionStore

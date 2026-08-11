@@ -252,39 +252,26 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         string? providerVersion = ReadVersion(versionResult);
         WingetProcessResult installedResult = await process.RunAsync(BuildInstalledSourceArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
         WingetInventoryResult installed = ClassifyInstalled(installedResult);
-        bool usedGlobalInventoryFallback = false;
         List<string> warnings = [.. installed.Warnings];
         if (HasFatalWarning(installed.Warnings))
         {
-            WingetProcessResult globalInstalledResult = await process.RunAsync(WingetInstalledInventoryProvider.BuildInstalledListArguments(), Timeout, cancellationToken).ConfigureAwait(false);
-            installed = ClassifyInstalled(globalInstalledResult);
-            if (HasFatalWarning(installed.Warnings)) throw new InvalidOperationException(string.Join(",", installed.Warnings));
-            usedGlobalInventoryFallback = true;
-            warnings = [.. installed.Warnings, "winget:source-inventory-fallback"];
+            throw new InvalidOperationException(string.Join(",", installed.Warnings));
         }
         WingetProcessResult availableResult = await process.RunAsync(BuildAvailableUpdateArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
         WingetAvailableUpdateResult parsed = Classify(availableResult, providerVersion, SourceId);
         bool updateCheckAvailable = true;
         if (HasFatalWarning(parsed.Warnings))
         {
-            updateCheckAvailable = false;
-            warnings.Add("winget:update-check-unavailable");
-            parsed = new WingetAvailableUpdateResult(providerVersion, [], []);
+            throw new InvalidOperationException(string.Join(",", parsed.Warnings));
         }
         Dictionary<string, WingetAvailableUpdateRecord> upgrades = parsed.Records.ToDictionary(record => record.Id, StringComparer.OrdinalIgnoreCase);
         WingetInstalledRecord[] sourceManaged = installed.Records
-            .Where(record => usedGlobalInventoryFallback
-                ? string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase)
-                : record.Source is null || string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase))
+            .Where(record => record.Source is null || string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase))
             .GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() == 1)
             .Select(group => group.Single())
             .OrderBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (usedGlobalInventoryFallback && sourceManaged.Length == 0)
-        {
-            return new(SourceId, providerVersion, null, SourceSnapshotState.Unavailable, [], warnings.Concat(["winget:no-source-labelled-inventory"]).Distinct(StringComparer.Ordinal).ToArray());
-        }
         SourcePackageRecord[] packages = sourceManaged
             .Select(record => upgrades.GetValueOrDefault(record.Id) is WingetAvailableUpdateRecord update
                 ? new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
@@ -302,7 +289,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         if (result.ExitCode != 0) return new([], [$"winget:exit-{result.ExitCode}"]);
         return WingetInstalledInventoryProvider.ParseTable(result.StandardOutput);
     }
-    private static bool HasFatalWarning(IEnumerable<string> warnings) => warnings.Any(warning => warning is "winget:timeout" or "winget:output-too-large" or "winget:unrecognized-output" || warning.StartsWith("winget:exit-", StringComparison.Ordinal));
+    private static bool HasFatalWarning(IEnumerable<string> warnings) => warnings.Any(warning => warning is "winget:timeout" or "winget:output-too-large" or "winget:unrecognized-output" or "winget:malformed-row" or "winget:invalid-update-row" || warning.StartsWith("winget:exit-", StringComparison.Ordinal));
     public static WingetAvailableUpdateResult Classify(WingetProcessResult result, string? providerVersion, string sourceId)
     {
         string expectedSource = CanonicalSource(sourceId);
@@ -529,6 +516,7 @@ internal static class MachineTrustedWinget
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolderOption.DoNotVerify);
         if (string.IsNullOrWhiteSpace(programFiles) || !Path.IsPathFullyQualified(programFiles)) throw new IOException("The machine Program Files root is unavailable.");
         string root = Path.GetFullPath(Path.Combine(programFiles, "WindowsApps"));
+        RejectReparse(root);
         string[] candidates;
         try
         {

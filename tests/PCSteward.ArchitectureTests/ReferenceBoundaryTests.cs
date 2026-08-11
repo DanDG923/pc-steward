@@ -65,6 +65,25 @@ public sealed class ReferenceBoundaryTests
 
         StringAssert.Contains(source, "new WingetStructuredUpdateCandidateAuthority()");
         StringAssert.Contains(source, "new WingetPostUpdatePackageInventory()");
+        Assert.IsFalse(source.Contains("EvidenceDelayInventoryProvider", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ScheduledHostHonoursThePersistedAppxConnectorState()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ScheduledHost", "Program.cs"));
+
+        StringAssert.Contains(source, "Current-user AppX/MSIX catalog");
+        StringAssert.Contains(source, "new ScheduledMsixInventoryProvider(() => appxInventory.Enabled)");
+    }
+
+    [TestMethod]
+    public void UnifiedTrustedSourcesSettingUsesOneAtomicStoreOperation()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+
+        StringAssert.Contains(source, "SaveConnectorStatesAsync");
+        Assert.IsFalse(source.Contains("await workflow.SaveConnectorStateAsync(\"WinGet installed inventory\", enabled, enabled, token); await workflow.SaveConnectorStateAsync(\"WinGet package sources\"", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -213,6 +232,9 @@ public sealed class ReferenceBoundaryTests
 
         StringAssert.Contains(source, "new PackageManager().FindPackagesForUser(string.Empty)");
         StringAssert.Contains(source, "package.Id.PublisherId, \"8wekyb3d8bbwe\"");
+        int rootCheck = source.IndexOf("RejectReparse(root);", StringComparison.Ordinal);
+        int catalogRead = source.IndexOf("new PackageManager().FindPackagesForUser(string.Empty)", StringComparison.Ordinal);
+        Assert.IsTrue(rootCheck >= 0 && rootCheck < catalogRead, "The WindowsApps root must be rejected before package catalog paths are accepted.");
         Assert.IsFalse(source.Contains("Directory.EnumerateDirectories(root", StringComparison.Ordinal));
     }
 

@@ -49,24 +49,18 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.AreEqual("1.1", snapshot.Packages.Single(package => package.PackageId == "Contoso.Update").AvailableVersion);
     }
     [TestMethod]
-    public async Task SourceConnectorFallsBackToSourceLabelledGlobalInventoryWhenScopedQueryFails()
+    public async Task SourceConnectorFailsClosedWithoutAnUnscopedGlobalFallback()
     {
         SequencedProcess process = new(new WingetProcessResult[]
         {
             new(0, "v1.9.0", "", false),
-            new(1, "", "", false),
-            new(0, InstalledTable(("Contoso Widget", "Contoso.Widget", "1.0", "winget")), "", false),
             new(1, "", "", false)
         });
 
-        PCSteward.Domain.SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None));
 
-        Assert.AreEqual(PCSteward.Domain.SourceSnapshotState.Live, snapshot.State);
-        Assert.AreEqual("Contoso.Widget", snapshot.Packages.Single().PackageId);
-        Assert.IsNull(snapshot.Packages.Single().AvailableVersion);
-        CollectionAssert.Contains(snapshot.Warnings.ToArray(), "winget:source-inventory-fallback");
-        CollectionAssert.Contains(snapshot.Warnings.ToArray(), "winget:update-check-unavailable");
-        CollectionAssert.AreEqual(ExpectedArguments, process.Calls[2].ToArray());
+        Assert.HasCount(2, process.Calls);
+        CollectionAssert.AreEqual(ExpectedSourceListArguments, process.Calls[1].ToArray());
     }
     [TestMethod]
     public void MalformedOrWrongSourceUpdateRowsAreExcludedAndUnsupportedSourcesAreRejected()
@@ -116,6 +110,18 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.HasCount(2, result.Instances);
         Assert.IsTrue(result.Instances.All(instance => instance.Scope == "Unknown" && instance.Architecture == "Unknown"));
         Assert.IsTrue(result.RawRecords.All(record => record.Payload.Contains("compatibility=display-only", StringComparison.Ordinal)));
+    }
+    [TestMethod]
+    public async Task MalformedUpdateOutputCannotProduceALiveSnapshot()
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.9.0", "", false),
+            new(0, InstalledTable(("Contoso Widget", "Contoso.Widget", "1.0", "winget")), "", false),
+            new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nBad  bad id!  1.0  2.0  winget", "", false)
+        });
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None));
     }
     [TestMethod]
     public async Task DesktopInventoryReportsAStableLocalWarningWhenTheReadOnlyProcessCannotLaunch()

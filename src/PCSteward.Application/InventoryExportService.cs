@@ -57,5 +57,16 @@ public sealed class InventoryExportService(IInventorySnapshotStore store, TimePr
 
     private static void AppendCsvRow(StringBuilder csv, DateTimeOffset exportedAt, CanonicalProduct product, InstallationInstance? instance) =>
         csv.AppendLine(string.Join(',', new[] { exportedAt.ToString("O", CultureInfo.InvariantCulture), PrivacyWarning, product.DisplayName, product.StableKey, instance?.Provider ?? string.Empty, instance?.ProviderIdentity ?? string.Empty, instance?.Version ?? string.Empty, instance?.Scope ?? string.Empty, instance?.Architecture ?? string.Empty }.Select(Escape)));
-    private static string Escape(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
+    private static string Escape(string value)
+    {
+        string safe = IsSpreadsheetFormula(value) ? "'" + value : value;
+        return $"\"{safe.Replace("\"", "\"\"")}\"";
+    }
+
+    private static bool IsSpreadsheetFormula(string value)
+    {
+        int index = 0;
+        while (index < value.Length && value[index] is ' ' or '\t' or '\r' or '\n') index++;
+        return index < value.Length && value[index] is '=' or '+' or '-' or '@';
+    }
 }

@@ -1,5 +1,6 @@
 using PCSteward.Storage;
 using PCSteward.Persistence.Sqlite;
+using Microsoft.Data.Sqlite;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -30,6 +31,41 @@ public sealed class FactoryResetTests
         Assert.AreEqual(FactoryResetMarkerState.None, FactoryReset.GetMarkerState(root));
         Assert.IsFalse(FactoryReset.IsPending(root));
         Assert.IsFalse(Directory.Exists(root), "Reading reset state must not create first-launch storage.");
+    }
+
+    [TestMethod]
+    public void TestResetSeamRejectsAnArbitraryFilesystemRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "unrelated-root-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            Assert.ThrowsExactly<InvalidOperationException>(() => FactoryReset.ArmForTesting(root));
+        }
+        finally { Directory.Delete(root); }
+    }
+
+    [TestMethod]
+    public async Task ResumedOnboardingAcceptsOnlyAVerifiedFreshSQLiteStore()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-resume-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None)).Succeeded);
+            SqliteDatabase database = new(Path.Combine(root, "pcsteward.db"));
+            await database.MigrateAsync(CancellationToken.None);
+
+            FactoryResetResult resumed = FactoryReset.VerifyOnboardingBootstrapForTesting(root);
+
+            Assert.IsTrue(resumed.Succeeded, string.Join(",", resumed.Residuals.Select(item => item.Reason)));
+            Assert.IsTrue(await database.IsFreshResetStoreAsync(CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -405,7 +441,7 @@ public sealed class FactoryResetTests
     }
 
     [TestMethod]
-    public async Task OnboardingBootstrapRejectsReintroducedDatabaseAndControlFileOrReparse()
+    public async Task OnboardingBootstrapAllowsDatabaseLeavesButRejectsControlFileOrReparse()
     {
         string databaseRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-bootstrap-database-" + Guid.NewGuid().ToString("N"));
         string fileRoot = Path.Combine(Path.GetTempPath(), "pcsteward-reset-bootstrap-file-" + Guid.NewGuid().ToString("N"));
@@ -418,8 +454,10 @@ public sealed class FactoryResetTests
 
             await CompleteToOnboardingAsync(databaseRoot);
             await File.WriteAllTextAsync(Path.Combine(databaseRoot, "pcsteward.db"), "old-state");
-            Assert.IsFalse(FactoryReset.VerifyOnboardingBootstrapForTesting(databaseRoot).Succeeded);
+            Assert.IsTrue(FactoryReset.VerifyOnboardingBootstrapForTesting(databaseRoot).Succeeded);
             Assert.IsTrue(FactoryReset.IsPending(databaseRoot));
+            SqliteDatabase invalidDatabase = new(Path.Combine(databaseRoot, "pcsteward.db"));
+            await Assert.ThrowsExactlyAsync<SqliteException>(() => invalidDatabase.MigrateAsync(CancellationToken.None));
             File.Delete(Path.Combine(databaseRoot, "pcsteward.db"));
             Assert.IsTrue(FactoryReset.VerifyOnboardingBootstrapForTesting(databaseRoot).Succeeded);
 

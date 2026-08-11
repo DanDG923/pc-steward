@@ -174,10 +174,12 @@ internal static partial class ElevatedHelperProtocol
         string nonce = fields["nonce"].GetString()!;
         if (protocol != Version ||
             operation != Operation ||
-            providerText != nameof(UpdateProvider.WinGet) ||
+            !Enum.TryParse(providerText, ignoreCase: false, out UpdateProvider provider) ||
+            !Enum.IsDefined(provider) ||
             scopeText != nameof(UpdateScope.Machine) ||
             !Enum.TryParse(sourceText, ignoreCase: false, out UpdateSource source) ||
             !Enum.IsDefined(source) ||
+            !IsAllowedProviderSource(provider, source) ||
             !FixedEquals(nonce, expectedNonce))
         {
             rejection = "request-authority-not-allowlisted";
@@ -206,7 +208,7 @@ internal static partial class ElevatedHelperProtocol
         {
             UpdateJobSelection selection = new(
                 fields["stableProductKey"].GetString()!,
-                UpdateProvider.WinGet,
+                provider,
                 source,
                 fields["packageId"].GetString()!,
                 fields["installedVersion"].GetString()!,
@@ -288,6 +290,12 @@ internal static partial class ElevatedHelperProtocol
             return false;
         }
     }
+
+    private static bool IsAllowedProviderSource(UpdateProvider provider, UpdateSource source) =>
+        (provider, source) is
+            (UpdateProvider.WinGet, UpdateSource.WinGet) or
+            (UpdateProvider.WinGet, UpdateSource.MicrosoftStore) or
+            (UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity);
 
     private static bool TryString(
         Dictionary<string, JsonElement> fields,

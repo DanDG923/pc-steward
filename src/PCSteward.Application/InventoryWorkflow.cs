@@ -147,6 +147,20 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         await connectorSettings.SaveConnectorStateAsync(connectorName, new ConnectorState(enabled, sourceDisclosureApproved), cancellationToken);
     }
 
+    public async Task SaveConnectorStatesAsync(IReadOnlyDictionary<string, ConnectorState> states, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+        foreach ((string connectorName, ConnectorState state) in states)
+        {
+            if (RequiresSourceDisclosure(connectorName) && state.Enabled && !state.SourceDisclosureApproved)
+            {
+                throw new InvalidOperationException("This connector requires explicit source-disclosure approval.");
+            }
+        }
+
+        await connectorSettings.SaveConnectorStatesAsync(states, cancellationToken).ConfigureAwait(false);
+    }
+
     public Task<ScanResult> ScanAsync(IProgress<ScanProgress>? progress, CancellationToken cancellationToken) => orchestrator.ScanAsync(progress, cancellationToken);
     public Task<ClearScanDataResult> ClearScanDataAsync(CancellationToken cancellationToken) => scanData.ClearScanDataAsync(cancellationToken);
     public Task<InventoryExport> CreateExportAsync(bool json, CancellationToken cancellationToken) => json ? exports.CreateJsonAsync(true, cancellationToken) : exports.CreateCsvAsync(cancellationToken);
@@ -270,6 +284,15 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             .ToArray();
         if (!sourcesEnabled) return new(0, requested.Length, "Enable an approved source and run a source check before confirming package identities.");
         SourceSnapshot[] snapshots = await ReadSourceSnapshotsAsync(true, false, cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = await this.snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await this.snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<DeclaredPackageMapping> mappings = decisions is null
+            ? []
+            : (await decisions.GetManualMappingsAsync(cancellationToken).ConfigureAwait(false))
+                .Select(mapping => new DeclaredPackageMapping(mapping.StableProductKey, mapping.SourceId, mapping.PackageId, MappingOrigin.UserConfirmed))
+                .ToArray();
+        UpdateIntelligenceSummary intelligence = UpdateIntelligence.Assess(CreateProfiles(products, instances), snapshots, mappings);
+        Dictionary<string, UpdateIntelligenceItem> intelligenceByProduct = intelligence.Items.ToDictionary(item => item.StableProductKey, StringComparer.OrdinalIgnoreCase);
         int confirmed = 0;
         int skipped = 0;
         foreach (RepositoryIdentityConfirmation confirmation in requested)
@@ -285,6 +308,12 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
                 continue;
             }
 
+            if (!intelligenceByProduct.TryGetValue(confirmation.StableProductKey, out UpdateIntelligenceItem? item) || HasConflictingSources(item.SourceCandidates))
+            {
+                skipped++;
+                continue;
+            }
+
             ManualMappingValidation validation = await RequiredDecisions().CreateManualMappingAsync(confirmation.StableProductKey, package, snapshots, reason, cancellationToken).ConfigureAwait(false);
             if (validation.IsValid) confirmed++; else skipped++;
         }
@@ -292,6 +321,20 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         return new(confirmed, skipped, confirmed == 0
             ? "No source-reported current package identities were confirmed. Updates were not started."
             : $"Confirmed {confirmed} current repository mapping{(confirmed == 1 ? string.Empty : "s")}. Updates were not started.{(skipped == 0 ? string.Empty : $" Skipped {skipped} item{(skipped == 1 ? string.Empty : "s")}." )}");
+    }
+
+    private static bool HasConflictingSources(IReadOnlyCollection<SourceCandidateObservation>? observations)
+    {
+        SourceCandidateObservation[] candidates = observations?.ToArray() ?? [];
+        if (candidates.Select(candidate => candidate.SourceId).Distinct(StringComparer.OrdinalIgnoreCase).Count() <= 1) return false;
+        return candidates.Select(candidate => new
+        {
+            candidate.CandidateVersion,
+            candidate.Publisher,
+            candidate.Scope,
+            candidate.Architecture,
+            candidate.Channel
+        }).Distinct().Count() > 1;
     }
 
     private async Task<UpdateIntelligenceSummary> AssessUpdateIntelligenceAsync(bool sourcesEnabled, bool online, CancellationToken cancellationToken)

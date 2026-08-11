@@ -36,6 +36,20 @@ public sealed class InventoryExportServiceTests
         Assert.IsFalse(document.RootElement.TryGetProperty("updateHistory", out _));
     }
 
+    [TestMethod]
+    public async Task CsvNeutralizesSpreadsheetFormulaCells()
+    {
+        Guid productId = Guid.NewGuid();
+        SnapshotStore store = new([new CanonicalProduct(productId, "@danger", "=WEBSERVICE(\"https://example.invalid\")")], [new InstallationInstance(Guid.NewGuid(), productId, "registry", "+cmd", "-1", "Machine", "x64")]);
+
+        InventoryExport export = await new InventoryExportService(store, new FixedTimeProvider(DateTimeOffset.UnixEpoch)).CreateCsvAsync(CancellationToken.None);
+
+        StringAssert.Contains(export.Content, "\"'=WEBSERVICE(\"\"https://example.invalid\"\")\"");
+        StringAssert.Contains(export.Content, "\"'@danger\"");
+        StringAssert.Contains(export.Content, "\"'+cmd\"");
+        StringAssert.Contains(export.Content, "\"'-1\"");
+    }
+
     private sealed class SnapshotStore(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances) : IInventorySnapshotStore
     {
         public Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken) => Task.CompletedTask;

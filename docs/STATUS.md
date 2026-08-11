@@ -2,9 +2,9 @@
 
 **Current phase:** Phase 4 — feature-change evidence readiness
 
-**Current task:** Task 40 — private GitHub prerelease backup
+**Current task:** Task 41 — Codex Security findings catalogue and remediation
 
-**Reviewed implementation:** Tasks 32–39 evidence retained; Task 40 publishes an exact private owner-only source backup without changing the distribution/readiness or update-approval boundaries
+**Reviewed implementation:** Tasks 32–40 evidence retained; Task 41 validates 21 imported findings and remediates every confirmed current-code defect without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
@@ -55,6 +55,8 @@ Task 39 owner-only update-capable rollout: **PROTECTED INSTALLATION PASS**. Comm
 
 Task 40 private GitHub prerelease: **PASS FOR THE AUTHORIZED PRIVATE OWNER-ONLY COPY**. The clean committed source was pushed to private repository `DanDG923/pc-steward` at `d6d5caaadbd38050dc3c5fd712686c4b98b0b54f`. Published prerelease `v0.1.0-owner-only.1` contains a 3,311,204-byte exact source archive and checksum asset; downloading the remote ZIP produced SHA-256 `AA95ACB4836632CB8B5E51D41548E2647E46BE8456A77E7CBBD0B9C6591E7E91`, matching the local and uploaded checksum. The 721-entry archive contains the protected owner-only installer and no key/certificate file. It is explicitly labelled an owner-only source backup, not a portable signed binary, public/stable release, automatic-update channel, or production-signing/readiness claim. No PC Steward application or update action ran. See `docs/review/TASK_40_PRIVATE_GITHUB_PRERELEASE.md`.
 
+Task 41 security findings remediation: **IMPLEMENTATION AND AUTOMATED VALIDATION PASS**. All 21 imported Codex Security reports were catalogued against commit `61ff38c6d39339a07005629aa057b68d4eba13f3`: 17 are confirmed security/safety defects, 2 are confirmed non-security product defects, and 2 are not actionable against the current checkout. The remediations fail closed on conflicting or incomplete package evidence, source-scoped WinGet failures, malformed source data, reparse roots, unsafe reset test roots, malformed persisted inventory, registry-entry failures and spreadsheet formulas; they also make paired connector consent transactional, scheduled AppX state authoritative, SQLite foreign keys universal, Chocolatey helper authority exact, reset onboarding resumable and orphan cleanup deepest-first. The focused security set passed **213/213**, the complete suite passed **288/288** (Domain **59/59**, Application **180/180**, Architecture **27/27**, Security **22/22**), and the Release build passed with 0 warnings/errors. The normal-host run was required for the existing handle-bound reset/cache fixtures; the managed sandbox predictably returned `NTSTATUS=C0000022`. No application was launched or updated, no local installation/state/schedule changed, and no GitHub finding was closed or published. See `docs/review/TASK_41_SECURITY_FINDINGS_REMEDIATION.md`.
+
 The earlier unsigned archive hashes are superseded and not evidence for this working tree. The new unsigned local archive `1F88E89C15AA5401BC7EB508502F94059C2CD51CDD546834AC185ABF00E35056` mechanically validates 97 payload files / 50,063,593 bytes, 15 components and 16 SBOM nodes / 32 edges. It has not been launched.
 
 ## Authority boundary
@@ -67,10 +69,12 @@ Task 39 used separate exact authority to remove and replace the old protected ow
 
 Task 40 used explicit authority to create a private GitHub repository and upload one owner-only prerelease source backup. The owner separately approved the GitHub `workflow` scope needed to push the existing CI file unchanged. This authority did not permit public visibility, a stable/release-ready claim, another recipient, production signing, an automatic update channel, or any local application/update/data/schedule action.
 
+Task 41 used workspace-write authority only. It made no external finding-state change, GitHub upload, application launch, update, deployment, schedule change, data clear or reset; those actions remain separately approval-gated.
+
 ## Task 33 boundary
 
 The product owner selected an owner-only temporary-certificate route to enable a protected local installation for one real update test. It is a new, non-distribution deployment decision recorded in `ADR-022`; the standalone beta remains unchanged. The installation workflow may create only a temporary CurrentUser code-signing trust chain and `%ProgramFiles%\PC Steward` test root, and that script must not launch PC Steward or update an application. Launching the installed app and testing WizTree were separate, explicitly authorized owner actions. Any later update still requires fresh candidate evidence and separate exact action-time approval.
 
 ## Next task
 
-The redesigned build is installed through the owner-only protected route and an exact private source backup is available on GitHub. Its post-fix live rendering and any selected application update remain separate owner actions; no update should be inferred from deployment or upload. The live refresh path previously passed for WinGet and Chocolatey Community, while the corrected Microsoft Store unavailable rendering remains unobserved. Live Chocolatey update execution also remains uncollected. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
+The remediated Task 41 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.

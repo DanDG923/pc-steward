@@ -1067,7 +1067,12 @@ public sealed class MainWindow : Window
         }
         try
         {
-            await DataOperationLease.RunAsync(async token => { await workflow.SaveConnectorStateAsync("WinGet installed inventory", enabled, enabled, token); await workflow.SaveConnectorStateAsync("WinGet package sources", enabled, enabled, token); }, CancellationToken.None);
+            await DataOperationLease.RunAsync(token => workflow.SaveConnectorStatesAsync(
+                new Dictionary<string, ConnectorState>
+                {
+                    ["WinGet installed inventory"] = new(enabled, enabled),
+                    ["WinGet package sources"] = new(enabled, enabled)
+                }, token), CancellationToken.None);
             viewModel.SetConnectorEnabled("WinGet installed inventory", enabled);
             viewModel.SetConnectorEnabled("WinGet package sources", enabled);
         }

@@ -78,6 +78,7 @@ public static class UpdateIntelligence
         if (observations.Select(observation => observation.SourceId).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) return false;
         return HasDifferentKnownValues(observations.Select(observation => observation.CandidateVersion))
             || HasDifferentKnownValues(observations.Select(observation => observation.Publisher))
+            || HasDifferentKnownValues(observations.Select(observation => observation.Scope))
             || HasDifferentKnownValues(observations.Select(observation => observation.Architecture))
             || HasDifferentKnownValues(observations.Select(observation => observation.Channel));
     }

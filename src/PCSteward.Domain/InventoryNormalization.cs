@@ -33,5 +33,12 @@ public static class InventoryNormalization
     public static string InstanceFingerprint(RawInstallEvidence evidence) => string.IsNullOrWhiteSpace(evidence.SourceId)
         ? Hash(evidence.Provider, evidence.ProviderIdentity, evidence.Scope, evidence.Architecture, evidence.Channel ?? "", evidence.Version ?? "")
         : Hash(evidence.Provider, evidence.ProviderIdentity, evidence.SourceId, evidence.Scope, evidence.Architecture, evidence.Channel ?? "", evidence.Version ?? "");
-    private static string Hash(params string[] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\u001F", values.Select(value => value.Trim().ToUpperInvariant())))))[..24];
+    private static string Hash(params string[] values)
+    {
+        string[] normalized = values.Select(value => value.Trim().ToUpperInvariant()).ToArray();
+        string encoded = normalized.Any(value => value.Contains('\u001F'))
+            ? "PCSTEWARD-FINGERPRINT-V2\0" + string.Concat(normalized.Select(value => $"{Encoding.UTF8.GetByteCount(value)}:{value}"))
+            : string.Join("\u001F", normalized);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(encoded)))[..24];
+    }
 }

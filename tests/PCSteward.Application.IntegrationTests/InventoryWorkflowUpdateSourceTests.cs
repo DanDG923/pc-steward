@@ -58,6 +58,25 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    public async Task BulkConfirmationRejectsAConflictingCurrentIdentityAcrossSources()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "10.0.10", "Machine", "x64", "Contoso", Channel: "Stable");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
+        SourceSnapshot winget = new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "10.0.10", "10.0.10", "Machine", "x64", "Stable")], []);
+        SourceSnapshot store = new("msstore", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new SourcePackageRecord("msstore", "Contoso.Widget.Store", "Contoso Widget", "Contoso", "10.0.10", "10.0.10", "User", "x64", "Stable")], []);
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(winget), new FakeConnector(store)]);
+
+        await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        RepositoryIdentityConfirmationResult result = await workflow.ConfirmCurrentRepositoryIdentitiesAsync([new(product.StableKey, "winget", "Contoso.Widget")], true, "bulk", CancellationToken.None);
+
+        Assert.AreEqual(0, result.Confirmed);
+        Assert.AreEqual(1, result.Skipped);
+        Assert.HasCount(0, await workflow.GetManualMappingsAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task SamePackageIdFromAnotherSourceAndMultipleInstallTargetsRemainReviewOnly()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
@@ -245,7 +264,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.IsNull(review.Review);
         Assert.HasCount(0, executor.Jobs);
         Assert.IsTrue(process.Calls.All(call => !call.Contains("--id") && !call.Contains("--version", StringComparer.Ordinal) || call.Count == 1));
-        StringAssert.Contains(preparation.Message, "structured candidate-version evidence");
+        StringAssert.Contains(preparation.Message, nameof(MappingReviewReason.MissingScopeEvidence));
 
     }
 
@@ -257,7 +276,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
         await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
-        SourcePackageRecord displayOnly = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Unknown", "Unknown", null);
+        SourcePackageRecord displayOnly = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
         SourceSnapshot snapshot = new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [displayOnly], []);
 
         async Task<UpdateSelectionPreparation> PrepareAsync(StructuredUpdateCandidateEvidence evidence)
@@ -299,7 +318,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(wingetProduct.StableKey, CancellationToken.None);
 
         Assert.IsNull(prepared.Selection);
-        StringAssert.Contains(prepared.Message, "scope is not supported");
+        StringAssert.Contains(prepared.Message, nameof(MappingReviewReason.MissingScopeEvidence));
     }
 
     [TestMethod]

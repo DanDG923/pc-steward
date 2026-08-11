@@ -39,5 +39,16 @@ public sealed class InventoryNormalizationTests
         Assert.HasCount(2, result.Instances);
         Assert.AreNotEqual(result.Instances.ElementAt(0).ProductFingerprint, result.Instances.ElementAt(1).ProductFingerprint);
     }
+    [TestMethod]
+    public void DelimiterBearingIdentityTuplesCannotCollide()
+    {
+        RawInstallEvidence first = Evidence("raw-1", "Machine", "x64", "1.0", "Stable", "Contoso App", "alpha\u001Fbeta");
+        RawInstallEvidence second = first with { RawRecordId = "raw-2", Provider = "registry\u001Falpha", ProviderIdentity = "beta" };
+
+        DeduplicationResult result = InventoryNormalization.NormalizeAndDeduplicate([first, second]);
+
+        Assert.HasCount(2, result.Instances);
+        Assert.AreNotEqual(result.Instances.ElementAt(0).ProductFingerprint, result.Instances.ElementAt(1).ProductFingerprint);
+    }
     private static RawInstallEvidence Evidence(string rawId, string scope, string architecture, string version, string channel, string name, string identity = "Contoso.App") => new("registry", identity, name, "Contoso", version, scope, architecture, channel, "Unknown", rawId);
 }

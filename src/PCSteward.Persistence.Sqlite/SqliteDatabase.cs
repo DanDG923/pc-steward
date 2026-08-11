@@ -13,7 +13,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     public SqliteDatabase(string databasePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
-        connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString();
+        connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false, ForeignKeys = true }.ToString();
     }
 
     public async Task MigrateAsync(CancellationToken cancellationToken)
@@ -97,7 +97,15 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id, stable_key, display_name FROM canonical_products ORDER BY stable_key;";
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) result.Add(new CanonicalProduct(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2)));
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            try
+            {
+                if (!Guid.TryParse(reader.GetString(0), out Guid id) || id == Guid.Empty) continue;
+                result.Add(new CanonicalProduct(id, reader.GetString(1), reader.GetString(2)));
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidCastException or FormatException) { }
+        }
         return result;
     }
 
@@ -107,14 +115,32 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id, product_id, provider, provider_identity, version, scope, architecture, publisher, install_date, install_path, channel, classification, source_id FROM installation_instances ORDER BY provider, provider_identity;";
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) result.Add(new InstallationInstance(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10), reader.GetString(11), reader.IsDBNull(12) ? null : reader.GetString(12)));
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            try
+            {
+                if (!Guid.TryParse(reader.GetString(0), out Guid id) || id == Guid.Empty ||
+                    !Guid.TryParse(reader.GetString(1), out Guid productId) || productId == Guid.Empty) continue;
+                result.Add(new InstallationInstance(id, productId, reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10), reader.GetString(11), reader.IsDBNull(12) ? null : reader.GetString(12)));
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidCastException or FormatException) { }
+        }
         return result;
     }
 
     public async Task<IReadOnlyCollection<RawProviderRecord>> GetRawProviderRecordsAsync(CancellationToken cancellationToken)
     {
         List<RawProviderRecord> result = []; await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id, scan_run_id, provider, record_key, payload FROM raw_provider_records ORDER BY provider, record_key;"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) result.Add(new RawProviderRecord(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            try
+            {
+                if (!Guid.TryParse(reader.GetString(0), out Guid id) || id == Guid.Empty ||
+                    !Guid.TryParse(reader.GetString(1), out Guid scanRunId) || scanRunId == Guid.Empty) continue;
+                result.Add(new RawProviderRecord(id, scanRunId, reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidCastException or FormatException) { }
+        }
         return result;
     }
 
@@ -142,8 +168,24 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
 
     public async Task SaveConnectorStateAsync(string connectorName, ConnectorState state, CancellationToken cancellationToken)
     {
-        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorKey(connectorName)), ("$value", state.Enabled));
-        if (RequiresSourceDisclosure(connectorName)) await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, null, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
+        await SaveConnectorStatesAsync(new Dictionary<string, ConnectorState> { [connectorName] = state }, cancellationToken);
+    }
+
+    public async Task SaveConnectorStatesAsync(IReadOnlyDictionary<string, ConnectorState> states, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+        await using SqliteConnection connection = new(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        foreach ((string connectorName, ConnectorState state) in states)
+        {
+            await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", ConnectorKey(connectorName)), ("$value", state.Enabled));
+            if (RequiresSourceDisclosure(connectorName))
+            {
+                await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
+            }
+        }
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken)

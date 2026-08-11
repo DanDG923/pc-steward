@@ -182,7 +182,7 @@ public static class FactoryReset
     {
         List<FactoryResetResidual> residuals = [];
         if (ReadMarkerState(root, residuals) is not FactoryResetMarkerState.OnboardingPending) return new(false, residuals);
-        NativeResetControl.VerifyOnlyOnboardingBootstrapRoot(root, residuals);
+        NativeResetControl.VerifyOnlyOnboardingRoot(root, residuals);
         return new(residuals.Count == 0, residuals);
     }
 
@@ -215,7 +215,16 @@ public static class FactoryReset
     {
         string expected = Path.TrimEndingDirectorySeparator(Path.GetFullPath(GetStateRoot()));
         string candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
-        if (!allowTestRoot && !string.Equals(expected, candidate, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Factory reset only accepts the compiled PC Steward state root.");
+        if (allowTestRoot)
+        {
+            string testParent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+            string? candidateParent = Path.GetDirectoryName(candidate);
+            string candidateName = Path.GetFileName(candidate);
+            if (!string.Equals(testParent, candidateParent, StringComparison.OrdinalIgnoreCase) ||
+                !candidateName.StartsWith("pcsteward-reset-", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Factory reset tests accept only direct, dedicated PC Steward temporary roots.");
+        }
+        else if (!string.Equals(expected, candidate, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Factory reset only accepts the compiled PC Steward state root.");
         return PathSafety.EnsureRoot(candidate);
     }
 

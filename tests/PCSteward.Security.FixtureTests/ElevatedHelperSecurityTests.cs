@@ -133,6 +133,23 @@ public sealed class ElevatedHelperSecurityTests
     }
 
     [TestMethod]
+    public void ProtocolAcceptsOnlyTheExactChocolateyCommunityProviderSourcePair()
+    {
+        string nonce = ElevatedHelperProtocol.CreateNonce();
+        DateTimeOffset issuedAt = DateTimeOffset.UtcNow;
+        ImmutableUpdateJob chocolatey = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(
+            "chocolatey:chocolatey-community:git", UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity,
+            "git", "2.45.1", "2.46.0", UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Stable,
+            "chocolatey-fixed-community-v1")).Confirm(issuedAt);
+
+        byte[] request = ElevatedHelperProtocol.CreateRequest(chocolatey, nonce, issuedAt);
+
+        Assert.IsTrue(ElevatedHelperProtocol.TryReadRequest(request, nonce, issuedAt, out ImmutableUpdateJob? restored, out string rejection), rejection);
+        Assert.AreEqual(UpdateProvider.Chocolatey, restored!.Selection.Provider);
+        Assert.AreEqual(UpdateSource.ChocolateyCommunity, restored.Selection.Source);
+    }
+
+    [TestMethod]
     public void ResponseIsBoundToJobAndNonceAndSanitized()
     {
         Guid jobId = Guid.NewGuid();

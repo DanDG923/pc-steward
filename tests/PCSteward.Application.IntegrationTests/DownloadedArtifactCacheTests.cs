@@ -102,6 +102,20 @@ public sealed class DownloadedArtifactCacheTests
     }
 
     [TestMethod]
+    public async Task NestedOrphanDirectoriesAreDeletedDeepestFirst()
+    {
+        await using ArtifactFixture fixture = new();
+        string nested = Path.Combine(fixture.Root, "orphan", "nested");
+        Directory.CreateDirectory(nested);
+        await File.WriteAllBytesAsync(Path.Combine(nested, "payload.bin"), [1, 2, 3]);
+
+        DownloadCleanupResult result = await fixture.CreateCache().ClearInactiveAsync(CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded, string.Join(",", result.Residuals.Select(item => item.RelativePath + ":" + item.Reason)));
+        Assert.IsFalse(Directory.Exists(Path.Combine(fixture.Root, "orphan")));
+    }
+
+    [TestMethod]
     public async Task QuotaEvictsTheOldestCrashOrphanBeforeANewerOne()
     {
         await using ArtifactFixture fixture = new();

@@ -72,7 +72,11 @@ public sealed class DownloadedArtifactCache : IDisposable
             Dictionary<string, DownloadedArtifact> ledger = all.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
             HashSet<string> active = all.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             HashSet<string> attempted = [];
-            foreach (FileSystemObject item in initialObjects.OrderBy(item => item.IsDirectory).ThenBy(item => ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? registered) ? registered.CreatedAt.UtcDateTime : item.LastWriteTimeUtc).ThenBy(item => item.RelativePath, StringComparer.Ordinal))
+            foreach (FileSystemObject item in initialObjects
+                .OrderBy(item => item.IsDirectory)
+                .ThenBy(item => item.IsDirectory ? -PathDepth(item.RelativePath) : 0)
+                .ThenBy(item => ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? registered) ? registered.CreatedAt.UtcDateTime : item.LastWriteTimeUtc)
+                .ThenBy(item => item.RelativePath, StringComparer.Ordinal))
             {
                 if (IsActivePath(item.RelativePath, active)) continue;
                 ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? artifact);
@@ -110,6 +114,7 @@ public sealed class DownloadedArtifactCache : IDisposable
     }
 
     private static bool IsActivePath(string relativePath, IReadOnlySet<string> active) => active.Any(path => string.Equals(path, relativePath, StringComparison.OrdinalIgnoreCase) || relativePath.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+    private static int PathDepth(string path) => path.Count(character => character is '\\' or '/') + 1;
 }
 
 internal static class PathSafety

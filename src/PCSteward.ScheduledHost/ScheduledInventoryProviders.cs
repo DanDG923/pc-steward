@@ -28,11 +28,14 @@ internal sealed class ScheduledRegistryInventoryProvider : ILocalInventoryProvid
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }
 
-internal sealed class ScheduledMsixInventoryProvider : ILocalInventoryProvider
+internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILocalInventoryProvider
 {
     public string Name => "Current-user AppX/MSIX catalog";
     public TimeSpan Timeout => TimeSpan.FromSeconds(10);
-    public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.Run(() =>
+    public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken)
+    {
+        if (!isEnabled()) return Task.FromResult(new ProviderScanResult([], [], [], ["msix:disabled"]));
+        return Task.Run(() =>
     {
         List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (Package package in new PackageManager().FindPackagesForUser(string.Empty))
@@ -46,6 +49,7 @@ internal sealed class ScheduledMsixInventoryProvider : ILocalInventoryProvider
             raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "msix", full, $"family={family};publisher={package.Id.PublisherId};classification=Application"));
         }
         return new ProviderScanResult(products, instances, raw, []);
-    }, cancellationToken);
+        }, cancellationToken);
+    }
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }

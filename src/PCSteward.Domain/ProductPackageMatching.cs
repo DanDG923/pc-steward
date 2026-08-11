@@ -36,7 +36,10 @@ public enum MappingReviewReason
     SourceConflict,
     MissingSourceEvidence,
     MultipleInstallationInstanceAmbiguity,
-    SourceDisagreement
+    SourceDisagreement,
+    MissingScopeEvidence,
+    MissingArchitectureEvidence,
+    MissingChannelEvidence
 }
 
 public sealed record ProductMatchProfile(
@@ -254,6 +257,9 @@ public static class ProductPackageMatching
 
     private static void AddCompatibilityReasons(ProductMatchProfile product, PackageMatchCandidate candidate, List<MappingReviewReason> reasons)
     {
+        if (!Known(candidate.Architecture)) reasons.Add(MappingReviewReason.MissingArchitectureEvidence);
+        if (!Known(candidate.Scope)) reasons.Add(MappingReviewReason.MissingScopeEvidence);
+        if (!Known(candidate.Channel)) reasons.Add(MappingReviewReason.MissingChannelEvidence);
         if (Conflicts(product.Architecture, candidate.Architecture)) reasons.Add(MappingReviewReason.ArchitectureConflict);
         if (Conflicts(product.Scope, candidate.Scope)) reasons.Add(MappingReviewReason.ScopeConflict);
         if (Conflicts(product.Channel, candidate.Channel)) reasons.Add(MappingReviewReason.ChannelConflict);

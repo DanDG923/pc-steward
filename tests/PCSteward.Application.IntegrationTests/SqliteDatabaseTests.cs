@@ -9,6 +9,22 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class SqliteDatabaseTests
 {
     [TestMethod]
+    public async Task UnifiedConnectorConsentRoundTripsAsOnePersistedStateChange()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        Dictionary<string, ConnectorState> states = new()
+        {
+            ["WinGet installed inventory"] = new(true, true),
+            ["WinGet package sources"] = new(true, true)
+        };
+
+        await database.Store.SaveConnectorStatesAsync(states, CancellationToken.None);
+
+        Assert.AreEqual(states["WinGet installed inventory"], await database.Store.GetConnectorStateAsync("WinGet installed inventory", false, CancellationToken.None));
+        Assert.AreEqual(states["WinGet package sources"], await database.Store.GetConnectorStateAsync("WinGet package sources", false, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task MigrationAndPromotionPreserveLastKnownGoodSnapshotWhenReplacementFails()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
@@ -213,6 +229,28 @@ public sealed class SqliteDatabaseTests
         await database.Store.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow.AddDays(-30), CancellationToken.None);
 
         Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task MalformedSnapshotIdentifiersAreSkippedInsteadOfCrashingStartupReads()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pcsteward-malformed-{Guid.NewGuid():N}.db");
+        try
+        {
+            SqliteDatabase store = new(path);
+            await store.MigrateAsync(CancellationToken.None);
+            await using (SqliteConnection connection = new($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "INSERT INTO canonical_products(id,stable_key,display_name) VALUES ('not-a-guid','bad','Bad'); INSERT INTO installation_instances(id,product_id,provider,provider_identity,version,scope,architecture,classification) VALUES ('also-bad','not-a-guid','registry','bad','1','User','x64','Unknown');";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            Assert.HasCount(0, await store.GetLastKnownGoodProductsAsync(CancellationToken.None));
+            Assert.HasCount(0, await store.GetLastKnownGoodInstancesAsync(CancellationToken.None));
+        }
+        finally { File.Delete(path); }
     }
 
     [TestMethod]

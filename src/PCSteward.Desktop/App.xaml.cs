@@ -71,8 +71,6 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             return;
         }
         List<ILocalInventoryProvider> providers = [];
-        ILocalInventoryProvider? evidenceDelay = EvidenceDelayInventoryProvider.FromEnvironment();
-        if (evidenceDelay is not null) providers.Add(evidenceDelay);
         providers.AddRange([new RegistryLocalInventoryProvider(), new MsixLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog").IsEnabled), new WingetLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet installed inventory").IsEnabled), new ChocolateyLocalInventoryProvider(() => viewModel.Connectors.Single(connector => connector.Name == "WinGet package sources").IsEnabled)]);
         IReadOnlyCollection<IUpdateSourceConnector> updateSources = [
             new WingetUpdateSourceConnector("winget"),

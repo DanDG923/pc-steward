@@ -19,14 +19,24 @@ public sealed class ProductPackageMatchingTests
     }
 
     [TestMethod]
-    public void UnknownCandidateScopeAndArchitectureDoNotConflictWithConcreteInstalledEvidence()
+    public void UnknownCandidateCompatibilityEvidenceIsReviewOnly()
     {
         ProductPackageMatchResult result = ProductPackageMatching.Resolve(Product(), [Candidate(architecture: "Unknown") with { Scope = "Unknown" }]);
 
         Assert.IsNotNull(result.Mapping);
-        Assert.IsTrue(result.Mapping.IsActionable);
-        CollectionAssert.DoesNotContain(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.ArchitectureConflict);
-        CollectionAssert.DoesNotContain(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.ScopeConflict);
+        Assert.IsFalse(result.Mapping.IsActionable);
+        CollectionAssert.Contains(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.MissingArchitectureEvidence);
+        CollectionAssert.Contains(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.MissingScopeEvidence);
+    }
+
+    [TestMethod]
+    public void UnknownCandidateChannelEvidenceIsReviewOnly()
+    {
+        ProductPackageMatchResult result = ProductPackageMatching.Resolve(Product(), [Candidate(channel: "Unknown")]);
+
+        Assert.IsNotNull(result.Mapping);
+        Assert.IsFalse(result.Mapping.IsActionable);
+        CollectionAssert.Contains(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.MissingChannelEvidence);
     }
 
     [TestMethod]

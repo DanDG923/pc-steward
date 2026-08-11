@@ -144,6 +144,13 @@ public static partial class VersionComparison
             _ => throw new InvalidOperationException("The regular expression permits only recognized prerelease labels.")
         };
 
+        if (prereleaseNumberText.Length != 0 && !uint.TryParse(prereleaseNumberText, NumberStyles.None, CultureInfo.InvariantCulture, out _))
+        {
+            parsed = null!;
+            failure = isInstalledVersion ? VersionComparisonExplanation.MalformedInstalledVersion : VersionComparisonExplanation.MalformedCandidateVersion;
+            return false;
+        }
+
         uint prereleaseNumber = prereleaseNumberText.Length == 0 ? 0 : uint.Parse(prereleaseNumberText, CultureInfo.InvariantCulture);
         parsed = new(components.Select(component => uint.Parse(component, CultureInfo.InvariantCulture)).ToArray(), prereleaseRank, prereleaseNumber);
         failure = VersionComparisonExplanation.NumericDotted;
