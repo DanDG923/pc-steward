@@ -13,6 +13,39 @@ public interface IInventorySnapshotStore
 }
 
 public sealed record ConnectorState(bool Enabled, bool SourceDisclosureApproved);
+
+/// <summary>
+/// The owner-facing trusted-sources control represents these two persisted records as one consent.
+/// Legacy or interrupted asymmetric records therefore have one fail-closed effective state.
+/// </summary>
+public static class TrustedSourceConnectorConsent
+{
+    public const string InstalledInventoryConnector = "WinGet installed inventory";
+    public const string PackageSourcesConnector = "WinGet package sources";
+
+    public static ConnectorState EffectiveState(ConnectorState installedInventory, ConnectorState packageSources) =>
+        new(
+            installedInventory.Enabled && packageSources.Enabled,
+            installedInventory.SourceDisclosureApproved && packageSources.SourceDisclosureApproved);
+
+    public static bool IsEnabled(ConnectorState installedInventory, ConnectorState packageSources)
+    {
+        ConnectorState effective = EffectiveState(installedInventory, packageSources);
+        return effective.Enabled && effective.SourceDisclosureApproved;
+    }
+
+    public static void Normalize(IDictionary<string, ConnectorState> states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+        if (!states.TryGetValue(InstalledInventoryConnector, out ConnectorState? installedInventory) ||
+            !states.TryGetValue(PackageSourcesConnector, out ConnectorState? packageSources)) return;
+
+        ConnectorState effective = EffectiveState(installedInventory, packageSources);
+        states[InstalledInventoryConnector] = effective;
+        states[PackageSourcesConnector] = effective;
+    }
+}
+
 public interface IConnectorSettingsStore
 {
     Task<ConnectorState> GetConnectorStateAsync(string connectorName, bool defaultEnabled, CancellationToken cancellationToken);

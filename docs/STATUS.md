@@ -2,9 +2,9 @@
 
 **Current phase:** Phase 4 — feature-change evidence readiness
 
-**Current task:** Task 41 — Codex Security findings catalogue and remediation
+**Current task:** Task 42 — confirmed findings remediation
 
-**Reviewed implementation:** Tasks 32–40 evidence retained; Task 41 validates 21 imported findings and remediates every confirmed current-code defect without changing distribution authority
+**Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
@@ -57,6 +57,8 @@ Task 40 private GitHub prerelease: **PASS FOR THE AUTHORIZED PRIVATE OWNER-ONLY 
 
 Task 41 security findings remediation: **IMPLEMENTATION AND AUTOMATED VALIDATION PASS**. All 21 imported Codex Security reports were catalogued against commit `61ff38c6d39339a07005629aa057b68d4eba13f3`: 17 are confirmed security/safety defects, 2 are confirmed non-security product defects, and 2 are not actionable against the current checkout. The remediations fail closed on conflicting or incomplete package evidence, source-scoped WinGet failures, malformed source data, reparse roots, unsafe reset test roots, malformed persisted inventory, registry-entry failures and spreadsheet formulas; they also make paired connector consent transactional, scheduled AppX state authoritative, SQLite foreign keys universal, Chocolatey helper authority exact, reset onboarding resumable and orphan cleanup deepest-first. The focused security set passed **213/213**, the complete suite passed **288/288** (Domain **59/59**, Application **180/180**, Architecture **27/27**, Security **22/22**), and the Release build passed with 0 warnings/errors. The normal-host run was required for the existing handle-bound reset/cache fixtures; the managed sandbox predictably returned `NTSTATUS=C0000022`. No application was launched or updated, no local installation/state/schedule changed, and no GitHub finding was closed or published. See `docs/review/TASK_41_SECURITY_FINDINGS_REMEDIATION.md`.
 
+Task 42 confirmed findings remediation: **IMPLEMENTATION AND AUTOMATED VALIDATION PASS**. Follow-up reproduction against commit `032c7dbb0842dff020c5b6746524671a4a1f0a9d` confirmed residual F8 and F10 defects. Legacy asymmetric trusted-source consent is now interpreted through one fail-closed predicate by desktop load, update preparation, and scheduled WinGet/Chocolatey/source-refresh paths; malformed short WinGet update rows now fail before a live snapshot can replace last-good cache. Both regressions failed before the fix. Focused scenarios passed **6/6**, the complete normal-host suite passed **290/290** (Domain **59/59**, Application **181/181**, Architecture **28/28**, Security **22/22**), and the Release build passed with 0 warnings/errors. The managed sandbox reproduced only the documented native-storage restriction. No app/update/deployment/external finding action occurred. See `docs/review/TASK_42_CONFIRMED_FINDINGS_REMEDIATION.md`.
+
 The earlier unsigned archive hashes are superseded and not evidence for this working tree. The new unsigned local archive `1F88E89C15AA5401BC7EB508502F94059C2CD51CDD546834AC185ABF00E35056` mechanically validates 97 payload files / 50,063,593 bytes, 15 components and 16 SBOM nodes / 32 edges. It has not been launched.
 
 ## Authority boundary
@@ -71,10 +73,12 @@ Task 40 used explicit authority to create a private GitHub repository and upload
 
 Task 41 used workspace-write authority only. It made no external finding-state change, GitHub upload, application launch, update, deployment, schedule change, data clear or reset; those actions remain separately approval-gated.
 
+Task 42 used workspace-write authority only. It made no external finding-state change, GitHub upload, application launch, update, deployment, schedule change, data clear or reset; those actions remain separately approval-gated.
+
 ## Task 33 boundary
 
 The product owner selected an owner-only temporary-certificate route to enable a protected local installation for one real update test. It is a new, non-distribution deployment decision recorded in `ADR-022`; the standalone beta remains unchanged. The installation workflow may create only a temporary CurrentUser code-signing trust chain and `%ProgramFiles%\PC Steward` test root, and that script must not launch PC Steward or update an application. Launching the installed app and testing WizTree were separate, explicitly authorized owner actions. Any later update still requires fresh candidate evidence and separate exact action-time approval.
 
 ## Next task
 
-The remediated Task 41 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
+The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.

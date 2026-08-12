@@ -9,6 +9,30 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class InventoryWorkflowUpdateSourceTests
 {
     [TestMethod]
+    public async Task AsymmetricTrustedSourceConsentLoadsFailClosed()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.SaveConnectorStateAsync("WinGet installed inventory", new ConnectorState(false, true), CancellationToken.None);
+        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, []);
+        ConnectorOption[] connectors =
+        [
+            new("WinGet installed inventory", "Local command-line inventory", false, false, true),
+            new("WinGet package sources", "Approved online source metadata", false, false, true)
+        ];
+
+        InventoryDashboard dashboard = await workflow.LoadAsync(connectors, CancellationToken.None);
+
+        Assert.IsFalse(dashboard.Connectors["WinGet installed inventory"].Enabled);
+        Assert.IsFalse(dashboard.Connectors["WinGet package sources"].Enabled);
+        Assert.IsTrue(dashboard.Connectors.Values.All(state => state.SourceDisclosureApproved));
+
+        await EnableTrustedSourcesAsync(database);
+        InventoryDashboard enabled = await workflow.LoadAsync(connectors, CancellationToken.None);
+        Assert.IsTrue(enabled.Connectors.Values.All(state => state.Enabled && state.SourceDisclosureApproved));
+    }
+
+    [TestMethod]
     public async Task ComposedWorkflowUsesApprovedSourceOnlyWhenCheckedAndSupportsExactManualMappings()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
@@ -112,12 +136,15 @@ public sealed class InventoryWorkflowUpdateSourceTests
         using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0")));
 
         UpdateSelectionPreparation withoutConsent = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await database.Store.SaveConnectorStateAsync(TrustedSourceConnectorConsent.PackageSourcesConnector, new ConnectorState(true, true), CancellationToken.None);
         await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
         Assert.IsTrue((await workflow.CreateManualMappingAsync(product.StableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
+        UpdateSelectionPreparation asymmetricConsent = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
 
         Assert.IsNull(withoutConsent.Selection);
+        Assert.IsNull(asymmetricConsent.Selection);
         Assert.IsNotNull(prepared.Selection, prepared.Message);
         Assert.AreEqual("Contoso.Widget", prepared.Selection.PackageId);
         Assert.AreEqual("1.0.0", prepared.Selection.InstalledVersion);
@@ -133,7 +160,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
         InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
         using InventoryWorkflow workflow = new(
             database.Store,
@@ -183,10 +210,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
             [],
             [],
             CancellationToken.None);
-        await database.Store.SaveConnectorStateAsync(
-            "WinGet package sources",
-            new ConnectorState(true, true),
-            CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
         RecordingStructuredCatalogQuery structuredQuery = new(new(
             "winget",
@@ -248,7 +272,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
         InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         DisplayTableProcess process = new();
         using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new WingetUpdateSourceConnector(process, "winget")]);
 
@@ -275,7 +299,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         CanonicalProduct product = new(Guid.NewGuid(), "registry:contoso.widget", "Contoso Widget");
         InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         SourcePackageRecord displayOnly = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
         SourceSnapshot snapshot = new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [displayOnly], []);
 
@@ -313,7 +337,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [wingetProduct, registryProduct], [winget, registry], [], [], CancellationToken.None);
         SourcePackageRecord package = new("winget", "Mozilla.Firefox", "Mozilla Firefox", null, "152.0.6", "153.0.1", "Unknown", "Unknown", null);
         using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Mozilla.Firefox", "152.0.6", "153.0.1")));
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
 
         UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(wingetProduct.StableKey, CancellationToken.None);
 
@@ -353,7 +377,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         CanonicalProduct stale = new(Guid.NewGuid(), "winget:contoso.widget", "Contoso Widget");
         InstallationInstance staleInstance = new(Guid.NewGuid(), stale.Id, "winget", "Contoso.Widget", "1.0.0", "Machine", "x64", "Contoso", SourceId: "winget");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [stale], [staleInstance], [], [], CancellationToken.None);
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
         using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, [new FixedProvider(new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))]);
 
@@ -371,7 +395,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         CanonicalProduct product = new(productId, "ignored", "Contoso Widget");
         InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
         string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "Machine", "x64", "Stable", "Application", "fixture"));
-        await database.Store.SaveConnectorStateAsync("WinGet package sources", new ConnectorState(true, true), CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
         SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
         using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [new SequenceProvider(new ProviderScanResult([product], [installed], [], []), new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0")));
         await inventory.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
@@ -387,6 +411,14 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.HasCount(0, executor.Jobs);
         Assert.IsNull(await database.Store.GetApprovedJobAsync(review.Review!.JobId, CancellationToken.None));
     }
+
+    private static Task EnableTrustedSourcesAsync(TestDatabase database) => database.Store.SaveConnectorStatesAsync(
+        new Dictionary<string, ConnectorState>
+        {
+            [TrustedSourceConnectorConsent.InstalledInventoryConnector] = new(true, true),
+            [TrustedSourceConnectorConsent.PackageSourcesConnector] = new(true, true)
+        },
+        CancellationToken.None);
 
     private sealed class FakeConnector(SourceSnapshot result) : IUpdateSourceConnector
     {

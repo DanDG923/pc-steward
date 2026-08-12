@@ -289,7 +289,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         if (result.ExitCode != 0) return new([], [$"winget:exit-{result.ExitCode}"]);
         return WingetInstalledInventoryProvider.ParseTable(result.StandardOutput);
     }
-    private static bool HasFatalWarning(IEnumerable<string> warnings) => warnings.Any(warning => warning is "winget:timeout" or "winget:output-too-large" or "winget:unrecognized-output" or "winget:malformed-row" or "winget:invalid-update-row" || warning.StartsWith("winget:exit-", StringComparison.Ordinal));
+    private static bool HasFatalWarning(IEnumerable<string> warnings) => warnings.Any(warning => warning is "winget:timeout" or "winget:output-too-large" or "winget:unrecognized-output" or "winget:malformed-row" or "winget:malformed-update-row" or "winget:invalid-update-row" || warning.StartsWith("winget:exit-", StringComparison.Ordinal));
     public static WingetAvailableUpdateResult Classify(WingetProcessResult result, string? providerVersion, string sourceId)
     {
         string expectedSource = CanonicalSource(sourceId);

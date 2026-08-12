@@ -74,8 +74,6 @@ public sealed class CompositeStructuredUpdateCandidateAuthority(IEnumerable<IStr
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 {
-    private const string WingetInventoryConnector = "WinGet installed inventory";
-    private const string WingetSourceConnector = "WinGet package sources";
     private readonly IInventorySnapshotStore snapshots;
     private readonly IScanDataStore scanData;
     private readonly IConnectorSettingsStore connectorSettings;
@@ -133,6 +131,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             if (connector.RequiresSourceDisclosure && !state.SourceDisclosureApproved) state = state with { Enabled = false };
             states.Add(connector.Name, state);
         }
+        TrustedSourceConnectorConsent.Normalize(states);
         return new InventoryDashboard(
             await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false),
             await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false),
@@ -179,8 +178,9 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     public async Task<UpdateSelectionPreparation> PrepareApprovedUpdateSelectionAsync(string stableProductKey, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(stableProductKey)) return new(null, "No installed product was selected.");
-        ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(WingetSourceConnector, false, cancellationToken).ConfigureAwait(false);
-        if (!sourceState.Enabled || !sourceState.SourceDisclosureApproved) return new(null, "Approved update sources are not enabled.");
+        ConnectorState inventoryState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.InstalledInventoryConnector, false, cancellationToken).ConfigureAwait(false);
+        ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.PackageSourcesConnector, false, cancellationToken).ConfigureAwait(false);
+        if (!TrustedSourceConnectorConsent.IsEnabled(inventoryState, sourceState)) return new(null, "Approved update sources are not enabled.");
 
         // A persisted snapshot is never confirmation authority.  Refresh local installed evidence
         // immediately before both review and execution; an unavailable or conflicting provider scan
@@ -456,7 +456,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     }
 
     private static int ProviderPriority(InstallationInstance instance) => instance.Provider.ToLowerInvariant() switch { "winget" => 0, "msix" => 1, "registry" => 2, _ => 3 };
-    private static bool RequiresSourceDisclosure(string connectorName) => connectorName is WingetInventoryConnector or WingetSourceConnector;
+    private static bool RequiresSourceDisclosure(string connectorName) => connectorName is TrustedSourceConnectorConsent.InstalledInventoryConnector or TrustedSourceConnectorConsent.PackageSourcesConnector;
     private UserDecisionService RequiredDecisions() => decisions ?? throw new InvalidOperationException("Stable user decisions are not configured for this workflow.");
     public void Dispose() => orchestrator.Dispose();
 }

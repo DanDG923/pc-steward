@@ -87,6 +87,16 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void ScheduledHostUsesTheUnifiedFailClosedTrustedSourceConsent()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ScheduledHost", "Program.cs"));
+
+        StringAssert.Contains(source, "TrustedSourceConnectorConsent.IsEnabled(wingetInventory, sourceState)");
+        StringAssert.Contains(source, "new WingetLocalInventoryProvider(() => updateSourcesEnabled)");
+        StringAssert.Contains(source, "new ChocolateyLocalInventoryProvider(() => updateSourcesEnabled)");
+    }
+
+    [TestMethod]
     public void StructuredWinGetAuthorityUsesCompositeCatalogForInstalledUpdateCorrelation()
     {
         string source = File.ReadAllText(Path.Combine(

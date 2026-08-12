@@ -22,6 +22,10 @@ All 21 supplied findings were assessed individually against the current checkout
 - The canonical Release build passes with zero warnings and zero errors. Native handle-bound reset/cache tests require the normal Windows host; the managed sandbox reproduces the known `NTSTATUS=C0000022` restriction.
 - No live application, updater, installer, schedule, data clear/reset, deployment, GitHub upload, or finding-state change was invoked.
 
+### Follow-up erratum
+
+Task 42's scan of commit `032c7dbb0842dff020c5b6746524671a4a1f0a9d` found incomplete closure for F8 and F10: atomic writes did not fail closed on legacy asymmetric consent rows, and `winget:malformed-update-row` was absent from the fatal-warning set. The blanket Task 41 closure statement above is historical and is superseded for those two findings by `TASK_42_CONFIRMED_FINDINGS_REMEDIATION.md`. The other three reports in that scan were not actionable against current code.
+
 ## Confirmed remediation queue
 
 | Rank | Ref | Source severity | Finding | Current-code evidence | Remediation and regression proof |

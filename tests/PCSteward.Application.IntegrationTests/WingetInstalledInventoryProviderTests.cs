@@ -112,13 +112,13 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.IsTrue(result.RawRecords.All(record => record.Payload.Contains("compatibility=display-only", StringComparison.Ordinal)));
     }
     [TestMethod]
-    public async Task MalformedUpdateOutputCannotProduceALiveSnapshot()
+    public async Task ShortMalformedUpdateOutputCannotProduceALiveSnapshot()
     {
         SequencedProcess process = new(new WingetProcessResult[]
         {
             new(0, "v1.9.0", "", false),
             new(0, InstalledTable(("Contoso Widget", "Contoso.Widget", "1.0", "winget")), "", false),
-            new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nBad  bad id!  1.0  2.0  winget", "", false)
+            new(0, "Name  Id  Version  Available  Source\n----------------------------------------------\nBad", "", false)
         });
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None));

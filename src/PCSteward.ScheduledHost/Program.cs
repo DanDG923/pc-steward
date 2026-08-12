@@ -58,12 +58,12 @@ internal static class Program
             ScheduledCheckSettings settings = await database.GetScheduledCheckSettingsAsync(timeout.Token).ConfigureAwait(false);
             if (!settings.IsEnabled || settings.Cadence == ScheduleCadence.Manual) return 0;
 
-            ConnectorState wingetInventory = await database.GetConnectorStateAsync("WinGet installed inventory", false, timeout.Token).ConfigureAwait(false);
+            ConnectorState wingetInventory = await database.GetConnectorStateAsync(TrustedSourceConnectorConsent.InstalledInventoryConnector, false, timeout.Token).ConfigureAwait(false);
             ConnectorState appxInventory = await database.GetConnectorStateAsync("Current-user AppX/MSIX catalog", true, timeout.Token).ConfigureAwait(false);
-            ConnectorState sourceState = await database.GetConnectorStateAsync("WinGet package sources", false, timeout.Token).ConfigureAwait(false);
-            bool updateSourcesEnabled = sourceState.Enabled && sourceState.SourceDisclosureApproved;
+            ConnectorState sourceState = await database.GetConnectorStateAsync(TrustedSourceConnectorConsent.PackageSourcesConnector, false, timeout.Token).ConfigureAwait(false);
+            bool updateSourcesEnabled = TrustedSourceConnectorConsent.IsEnabled(wingetInventory, sourceState);
             InventoryWorkflow workflow = new(database, database, database,
-                [new ScheduledRegistryInventoryProvider(), new ScheduledMsixInventoryProvider(() => appxInventory.Enabled), new WingetLocalInventoryProvider(() => wingetInventory.Enabled && wingetInventory.SourceDisclosureApproved), new ChocolateyLocalInventoryProvider(() => updateSourcesEnabled)],
+                [new ScheduledRegistryInventoryProvider(), new ScheduledMsixInventoryProvider(() => appxInventory.Enabled), new WingetLocalInventoryProvider(() => updateSourcesEnabled), new ChocolateyLocalInventoryProvider(() => updateSourcesEnabled)],
                 new BoundedScanEventSink(), database, database,
                 [new WingetUpdateSourceConnector("winget"), new WingetUpdateSourceConnector("msstore"), new ChocolateyUpdateSourceConnector()]);
 
