@@ -13,7 +13,10 @@ public enum MappingOrigin
     Automatic,
     ProviderSupplied,
     UserConfirmed,
-    Imported
+    Imported,
+
+    /// <summary>Exact identity from the personal catalog (ADR-023, FR-CAT-05). Validated like a user-confirmed mapping.</summary>
+    Catalog
 }
 
 public enum MappingReviewReason
@@ -138,7 +141,7 @@ public static class ProductPackageMatching
         HashSet<string> supportedSources = supportedTrustedSources.Select(Canonical).Where(value => value.Length > 0).ToHashSet(StringComparer.Ordinal);
         bool supported = supportedSources.Contains(Canonical(mapping.SourceId));
         bool targetMatches = Equal(mapping.SourceId, candidate.SourceId) && Equal(mapping.PackageId, candidate.PackageId);
-        bool permittedOrigin = mapping.Origin is MappingOrigin.UserConfirmed or MappingOrigin.Imported;
+        bool permittedOrigin = mapping.Origin is MappingOrigin.UserConfirmed or MappingOrigin.Imported or MappingOrigin.Catalog;
         if (supported && candidate.IsTrustedConnector && targetMatches && permittedOrigin)
         {
             return new(true, MappingReviewReason.None, "The mapping targets an exact package ID from a supported trusted connector.");

@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup><ProjectReference Include="../PCSteward.Domain/PCSteward.Domain.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../PCSteward.Domain/PCSteward.Domain.csproj" /><ProjectReference Include="../PCSteward.Catalog/PCSteward.Catalog.csproj" /></ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="PCSteward.Application.IntegrationTests" /></ItemGroup>
 </Project>

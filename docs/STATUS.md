@@ -2,13 +2,48 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 46 — personal catalog: project, validator and tooling (implementation and automated validation pass; Windows CI pending)
+**Current task:** Task 47 — catalog detection in matching, catalog states, app policies and user catalog entries (implementation and Linux validation pass; Windows CI pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Task 47 catalog matching, states and policies
+
+**Catalog detection in matching** (`FR-CAT-05`, `FR-ID-06`, `FR-INS-06`, `AC-V3-02`):
+- `CatalogDetector` (in `PCSteward.Catalog`) checks evidence in order:
+  - provider identity: WinGet only from the `winget` source, Chocolatey registration, or MSIX family;
+  - anchored name plus publisher (Exact);
+  - name only, which is never Exact.
+- `PersonalCatalogMatching` combines per-instance results. Any conflict becomes Ambiguous, with no mapping.
+- Exact matches become declared mappings with the new `MappingOrigin.Catalog`. These pass the same trusted-source, compatibility and newer-version validation as user-confirmed mappings.
+- An installed app keeps its managing provider. A name-and-publisher match uses the preferred provider, or the catalog default (ADR-024).
+- User-confirmed mappings always win over catalog mappings.
+
+**Catalog states** (`FR-CAT-04`): `CatalogAppState` covers NotInstalled, UpToDate, UpdateAvailable, ReviewRequired, InstalledNotManaged, Unavailable, Skipped, Pinned and Ignored. `InventoryWorkflow.GetCatalogOverviewAsync` returns them.
+
+**Per-app policies** (`FR-POL-06`, `FR-PRV-04`, `FR-AUT-01` and `FR-BAT-08` storage):
+- Skip this version adds the new `UpdateIntelligenceStatus.Skipped`; a newer version is offered again. Preferred provider, automatic-updates opt-in and close-app consent are also recorded.
+- They are stored as **stable-decision kinds** rather than a separate `app_policies` table. They therefore inherit the existing semantics: kept by Clear scan data, removed by the mappings/policies clear and factory reset, reversible, and listed with active decisions.
+- Stored values outside the allowlist are ignored.
+
+**User catalog entries** (`FR-CAT-06` storage):
+- Migration 9 adds `user_catalog_entries`. Rows are revalidated on every read through `CatalogValidator.Compose`.
+- Rules: `pcs:user-` prefix, one provider, provider-identity detection only, no reuse of a bundled ID or package, `msstore` refused.
+- Rejected rows are reported and never disable the bundled catalog.
+- Rows are kept by Clear scan data and removed by the mappings/policies clear and factory reset.
+
+**Results (Linux SDK 10.0.112):**
+- Domain **64/64** (5 new), Catalog **96/96** (22 new), Architecture **30/30**.
+- Application integration: the 7 new catalog/workflow/persistence tests and the related decision, SQLite, workflow and view-model suites pass, 63/63.
+- The full Application suite runs 188 tests. The 47 failures on Linux, plus 4 Security failures, all come from Windows-only APIs (`wintrust.dll`, NTFS alternate data streams, named pipes); Windows CI is the gate.
+- The desktop gains only the `Skipped` status label. Its WinUI build runs in CI.
+
+**Payload change:** `PCSteward.Application` now references `PCSteward.Catalog`, so the desktop output gains `PCSteward.Catalog.dll`, which carries the embedded catalog. The protected-install and package scripts discover `PCSteward.*.dll` dynamically and sign it.
+
+**Not wired yet:** the desktop and scheduled host do not pass the bundled catalog to `InventoryWorkflow`. Catalog matching therefore has no effect in the installed app until the UI tasks (51/53) wire it, after the owner has reviewed the starter catalog.
 
 ## Task 46 personal catalog
 
@@ -144,6 +179,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-Task 47 — catalog detection in matching, `AppState` including NotInstalled, app policies and user catalog entries (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
+Task 48 — operation and batch domain, WinGet/Chocolatey install builders, live preflight, agreement capture and install verification; widen the package-ID allowlist for `+` and `_` (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.

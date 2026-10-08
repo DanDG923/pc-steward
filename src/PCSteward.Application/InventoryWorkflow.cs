@@ -1,3 +1,4 @@
+using PCSteward.Catalog;
 using PCSteward.Domain;
 
 namespace PCSteward.Application;
@@ -87,6 +88,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly IAdvancedDataControlStore? advancedData;
     private readonly bool hasCurrentLocalInventoryProviders;
     private readonly UpdateExecutionCapabilities executionCapabilities;
+    private readonly PersonalCatalog? catalog;
+    private readonly IUserCatalogStore? userCatalog;
 
     public InventoryWorkflow(
         IInventorySnapshotStore snapshots,
@@ -100,7 +103,9 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IPostUpdatePackageInventory? postUpdatePackageInventory = null,
         IStructuredUpdateCandidateAuthority? structuredUpdateCandidates = null,
         IAdvancedDataControlStore? advancedData = null,
-        UpdateExecutionCapabilities? executionCapabilities = null)
+        UpdateExecutionCapabilities? executionCapabilities = null,
+        PersonalCatalog? catalog = null,
+        IUserCatalogStore? userCatalog = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -113,6 +118,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         this.structuredUpdateCandidates = structuredUpdateCandidates;
         this.advancedData = advancedData;
         this.executionCapabilities = executionCapabilities ?? UpdateExecutionCapabilities.UserAndMachine;
+        this.catalog = catalog;
+        this.userCatalog = userCatalog;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -286,11 +293,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         SourceSnapshot[] snapshots = await ReadSourceSnapshotsAsync(true, false, cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<CanonicalProduct> products = await this.snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<InstallationInstance> instances = await this.snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
-        IReadOnlyCollection<DeclaredPackageMapping> mappings = decisions is null
-            ? []
-            : (await decisions.GetManualMappingsAsync(cancellationToken).ConfigureAwait(false))
-                .Select(mapping => new DeclaredPackageMapping(mapping.StableProductKey, mapping.SourceId, mapping.PackageId, MappingOrigin.UserConfirmed))
-                .ToArray();
+        IReadOnlyDictionary<string, ProductUpdatePolicy> confirmationPolicies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<DeclaredPackageMapping> mappings = (await DeclaredMappingsAsync(products, instances, confirmationPolicies, cancellationToken).ConfigureAwait(false)).Mappings;
         UpdateIntelligenceSummary intelligence = UpdateIntelligence.Assess(CreateProfiles(products, instances), snapshots, mappings);
         Dictionary<string, UpdateIntelligenceItem> intelligenceByProduct = intelligence.Items.ToDictionary(item => item.StableProductKey, StringComparer.OrdinalIgnoreCase);
         int confirmed = 0;
@@ -342,10 +346,77 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         SourceSnapshot[] sourceSnapshots = await ReadSourceSnapshotsAsync(sourcesEnabled, online, cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
-        IReadOnlyCollection<DeclaredPackageMapping> mappings = decisions is null ? [] : (await decisions.GetManualMappingsAsync(cancellationToken).ConfigureAwait(false)).Select(mapping => new DeclaredPackageMapping(mapping.StableProductKey, mapping.SourceId, mapping.PackageId, MappingOrigin.UserConfirmed)).ToArray();
         IReadOnlyDictionary<string, ProductUpdatePolicy> policies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<DeclaredPackageMapping> mappings = (await DeclaredMappingsAsync(products, instances, policies, cancellationToken).ConfigureAwait(false)).Mappings;
         return UpdateIntelligence.Assess(CreateProfiles(products, instances), sourceSnapshots, mappings, policies);
     }
+
+    /// <summary>
+    /// User-confirmed mappings first; then personal-catalog mappings (ADR-023) for products the user has not
+    /// mapped. Catalog mappings are declared evidence only and still pass trusted-source validation.
+    /// </summary>
+    private async Task<(IReadOnlyCollection<DeclaredPackageMapping> Mappings, PersonalCatalog? Catalog, IReadOnlyList<CatalogProductMatch> Matches, IReadOnlyList<string> RejectedUserEntries)> DeclaredMappingsAsync(
+        IReadOnlyCollection<CanonicalProduct> products,
+        IReadOnlyCollection<InstallationInstance> instances,
+        IReadOnlyDictionary<string, ProductUpdatePolicy> policies,
+        CancellationToken cancellationToken)
+    {
+        DeclaredPackageMapping[] manual = decisions is null
+            ? []
+            : [.. (await decisions.GetManualMappingsAsync(cancellationToken).ConfigureAwait(false)).Select(mapping => new DeclaredPackageMapping(mapping.StableProductKey, mapping.SourceId, mapping.PackageId, MappingOrigin.UserConfirmed))];
+        (PersonalCatalog? composed, IReadOnlyList<string> rejected) = await ComposeCatalogAsync(cancellationToken).ConfigureAwait(false);
+        if (composed is null) return (manual, null, [], rejected);
+        HashSet<string> manuallyMapped = new(manual.Select(mapping => mapping.StableProductKey), StringComparer.Ordinal);
+        IReadOnlyList<CatalogProductMatch> matches = PersonalCatalogMatching.Match(composed, products, instances, policies);
+        DeclaredPackageMapping[] fromCatalog = [.. matches.Where(match => match.Mapping is not null && !manuallyMapped.Contains(match.StableProductKey)).Select(match => match.Mapping!)];
+        return ([.. manual, .. fromCatalog], composed, matches, rejected);
+    }
+
+    private async Task<(PersonalCatalog? Catalog, IReadOnlyList<string> Rejected)> ComposeCatalogAsync(CancellationToken cancellationToken)
+    {
+        if (catalog is null) return (null, []);
+        if (userCatalog is null) return (catalog, []);
+        CatalogCompositionResult composition = CatalogValidator.Compose(catalog, await userCatalog.GetUserCatalogEntriesAsync(cancellationToken).ConfigureAwait(false));
+        return (composition.Catalog, composition.RejectedUserEntries);
+    }
+
+    /// <summary>FR-CAT-04: every catalog entry with its state. Null when no valid catalog is configured.</summary>
+    public async Task<CatalogOverview?> GetCatalogOverviewAsync(bool sourcesEnabled, CancellationToken cancellationToken)
+    {
+        if (catalog is null) return null;
+        SourceSnapshot[] sourceSnapshots = await ReadSourceSnapshotsAsync(sourcesEnabled, false, cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyDictionary<string, ProductUpdatePolicy> policies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
+        (IReadOnlyCollection<DeclaredPackageMapping> mappings, PersonalCatalog? composed, IReadOnlyList<CatalogProductMatch> matches, IReadOnlyList<string> rejected) =
+            await DeclaredMappingsAsync(products, instances, policies, cancellationToken).ConfigureAwait(false);
+        UpdateIntelligenceSummary intelligence = UpdateIntelligence.Assess(CreateProfiles(products, instances), sourceSnapshots, mappings, policies);
+        return new(composed!.CatalogVersion, PersonalCatalogMatching.Status(composed, matches, intelligence), rejected);
+    }
+
+    /// <summary>
+    /// FR-CAT-06 storage: adds a reviewed user catalog entry after the same validation used on every read.
+    /// Live exact resolution happens at install review (Task 48), never here.
+    /// </summary>
+    public async Task<(bool Added, string Message)> AddUserCatalogEntryAsync(UserCatalogEntryRecord entry, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (catalog is null || userCatalog is null) return (false, "The personal catalog is not available.");
+        IReadOnlyCollection<UserCatalogEntryRecord> existing = await userCatalog.GetUserCatalogEntriesAsync(cancellationToken).ConfigureAwait(false);
+        CatalogCompositionResult before = CatalogValidator.Compose(catalog, existing);
+        CatalogCompositionResult after = CatalogValidator.Compose(catalog, [.. existing, entry]);
+        if (after.Catalog.Entries.Count != before.Catalog.Entries.Count + 1) return (false, "The entry was rejected: " + string.Join(", ", after.RejectedUserEntries.Except(before.RejectedUserEntries, StringComparer.Ordinal)));
+        await userCatalog.SaveUserCatalogEntryAsync(entry, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        return (true, "Added to your catalog. Nothing was installed.");
+    }
+
+    public Task<bool> RemoveUserCatalogEntryAsync(string entryId, CancellationToken cancellationToken) =>
+        (userCatalog ?? throw new InvalidOperationException("The personal catalog is not configured.")).DeleteUserCatalogEntryAsync(entryId, cancellationToken);
+
+    public Task SkipVersionAsync(string stableProductKey, string version, string? reason, CancellationToken cancellationToken) => RequiredDecisions().SkipVersionAsync(stableProductKey, version, reason, cancellationToken);
+    public Task SetPreferredProviderAsync(string stableProductKey, string provider, string? reason, CancellationToken cancellationToken) => RequiredDecisions().SetPreferredProviderAsync(stableProductKey, provider, reason, cancellationToken);
+    public Task EnableAutomaticUpdatesAsync(string stableProductKey, string? reason, CancellationToken cancellationToken) => RequiredDecisions().EnableAutomaticUpdatesAsync(stableProductKey, reason, cancellationToken);
+    public Task GrantCloseAppConsentAsync(string stableProductKey, string? reason, CancellationToken cancellationToken) => RequiredDecisions().GrantCloseAppConsentAsync(stableProductKey, reason, cancellationToken);
 
     private async Task<SourceSnapshot[]> ReadSourceSnapshotsAsync(bool sourcesEnabled, bool online, CancellationToken cancellationToken)
     {

@@ -58,7 +58,8 @@ public sealed class CatalogEntry
         bool selfUpdating,
         bool restartLikely,
         CatalogChannel channel,
-        bool automationAllowed)
+        bool automationAllowed,
+        bool isUserAdded = false)
     {
         Id = id;
         Name = name;
@@ -73,6 +74,7 @@ public sealed class CatalogEntry
         RestartLikely = restartLikely;
         Channel = channel;
         AutomationAllowed = automationAllowed;
+        IsUserAdded = isUserAdded;
     }
 
     public string Id { get; }
@@ -90,6 +92,9 @@ public sealed class CatalogEntry
     public bool RestartLikely { get; }
     public CatalogChannel Channel { get; }
     public bool AutomationAllowed { get; }
+
+    /// <summary>True for an entry added through the reviewed Add-from-search flow (FR-CAT-06), not bundled.</summary>
+    public bool IsUserAdded { get; }
     public CatalogProviderIdentity DefaultProvider => Providers.Single(provider => provider.IsDefault);
 }
 

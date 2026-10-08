@@ -276,7 +276,7 @@ The real remaining threat is malware, or any other process running as the owner,
 
 | Table (new) | Deletion class |
 |---|---|
-| `app_policies` (auto-update, skip version, preferred provider, close consent, install preference) | Stable decision store. **Kept** by Clear scan data, removed by Factory reset. |
+| App policies (auto-update, skip version, preferred provider, close consent; install preference later) — **implemented in Task 47 as `stable_decisions` kinds**, not a separate table | Stable decision store. **Kept** by Clear scan data, removed by Factory reset. |
 | `user_catalog_entries` (entries added through reviewed **Add from search**) | Stable decision store. Kept by Clear scan data, removed by Factory reset. |
 | `catalog_state` (catalog id, version, hash, loaded at) | Scan-derived. Rebuilt on start. |
 | `operation_batches`, `operation_batch_items` | Job history class. Kept by Clear scan data, clearable with history, removed by Factory reset. |

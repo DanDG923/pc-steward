@@ -57,14 +57,23 @@ public static class UpdateIntelligence
                 mapping = mapping with { IsActionable = false, ReviewReasons = reasons, EvidenceExplanation = mapping.EvidenceExplanation + " Review required: source candidates disagree." };
             }
             mapping = UseConfirmedSourceCurrentEvidence(mapping, snapshots);
+            bool skipped = mapping.IsActionable && policy.SkippedVersion is not null &&
+                string.Equals(policy.SkippedVersion, mapping.CandidateVersion, StringComparison.OrdinalIgnoreCase);
+            if (skipped)
+            {
+                mapping = mapping with { IsActionable = false };
+            }
             SourceSnapshot? source = sourceById.GetValueOrDefault(mapping.SourceId);
             bool availabilityUnavailable = IsAvailabilityUnavailable(mapping, source);
             UpdateIntelligenceStatus status = mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement) ? UpdateIntelligenceStatus.ReviewRequired
+                : skipped ? UpdateIntelligenceStatus.Skipped
                 : availabilityUnavailable ? UpdateIntelligenceStatus.FailedUnavailable
                 : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
                 : IsVerifiedCurrent(mapping) ? UpdateIntelligenceStatus.Current
                 : UpdateIntelligenceStatus.ReviewRequired;
-            string itemExplanation = availabilityUnavailable
+            string itemExplanation = skipped
+                ? $"You skipped version {mapping.CandidateVersion}. PC Steward will offer the next newer version."
+                : availabilityUnavailable
                 ? "The repository identified the exact package, but it did not establish update availability. This is incomplete source evidence, not a decision for you; refresh the source to retry."
                 : mapping.EvidenceExplanation;
             items.Add(new(product.StableProductKey, status, mapping, itemExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
@@ -108,7 +117,7 @@ public static class UpdateIntelligence
 
     private static PackageMapping UseConfirmedSourceCurrentEvidence(PackageMapping mapping, IReadOnlyCollection<SourceSnapshot> snapshots)
     {
-        if (mapping.Origin != MappingOrigin.UserConfirmed ||
+        if (mapping.Origin is not (MappingOrigin.UserConfirmed or MappingOrigin.Catalog) ||
             !mapping.ReviewReasons.All(reason => reason is MappingReviewReason.CandidateIsOlder or MappingReviewReason.CandidateIsCurrent or MappingReviewReason.IncomparableVersion))
         {
             return mapping;
@@ -131,7 +140,9 @@ public static class UpdateIntelligence
             IsActionable = false,
             ReviewReasons = [],
             VersionComparison = new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted),
-            EvidenceExplanation = "The user confirmed this exact package identity. The source reports that its installed version matches the available version."
+            EvidenceExplanation = mapping.Origin == MappingOrigin.Catalog
+                ? "Your personal catalog identifies this exact package. The source reports that its installed version matches the available version."
+                : "The user confirmed this exact package identity. The source reports that its installed version matches the available version."
         };
     }
 

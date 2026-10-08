@@ -1,11 +1,12 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using PCSteward.Application;
+using PCSteward.Catalog;
 using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCatalogStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -59,6 +60,13 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         {
             await ExecuteAsync(connection, "ALTER TABLE downloaded_artifacts ADD COLUMN sha256 TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN job_id TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'Incomplete'; ALTER TABLE downloaded_artifacts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0; CREATE INDEX ix_downloaded_artifacts_created ON downloaded_artifacts(created_at);", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (8);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 9, cancellationToken))
+        {
+            // v0.3 FR-CAT-06: reviewed user catalog additions. A stable-decision category: kept by Clear scan
+            // data, removed with mappings/policies and by factory reset. Rows are revalidated on every read.
+            await ExecuteAsync(connection, "CREATE TABLE user_catalog_entries (id TEXT PRIMARY KEY, name TEXT NOT NULL, publisher TEXT NOT NULL, category TEXT NOT NULL, provider TEXT NOT NULL, source TEXT NOT NULL, package_id TEXT NOT NULL, scopes TEXT NOT NULL, created_at TEXT NOT NULL);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (9);", cancellationToken, transaction);
         }
         await transaction.CommitAsync(cancellationToken);
     }
@@ -333,7 +341,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
 
     public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Update history", ["update_job_history", "update_job_execution_state"], ["history."], cancellationToken);
 
-    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions"], [], cancellationToken);
+    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions", "user_catalog_entries"], [], cancellationToken);
 
     private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken)
     {
@@ -487,6 +495,39 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     public async Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken)
     {
         List<ManualMapping> result = []; await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id,stable_product_key,source_id,package_id,created_at,reason FROM manual_mappings ORDER BY created_at DESC;"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) result.Add(new ManualMapping(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2), reader.GetString(3), DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(5) ? null : reader.GetString(5))); return result;
+    }
+
+    public async Task<IReadOnlyCollection<UserCatalogEntryRecord>> GetUserCatalogEntriesAsync(CancellationToken cancellationToken)
+    {
+        List<UserCatalogEntryRecord> result = [];
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT id,name,publisher,category,provider,source,package_id,scopes FROM user_catalog_entries ORDER BY created_at, id;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            // Returned as stored; CatalogValidator.Compose decides whether a row is usable.
+            result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
+        }
+
+        return result;
+    }
+
+    public async Task SaveUserCatalogEntryAsync(UserCatalogEntryRecord entry, DateTimeOffset createdAt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await ExecuteAsync(connection, "INSERT INTO user_catalog_entries(id,name,publisher,category,provider,source,package_id,scopes,created_at) VALUES ($id,$name,$publisher,$category,$provider,$source,$package,$scopes,$created);", cancellationToken, null,
+            ("$id", Text(entry.Id)), ("$name", Text(entry.Name)), ("$publisher", Text(entry.Publisher)), ("$category", Text(entry.Category)), ("$provider", Text(entry.Provider)), ("$source", Text(entry.Source)), ("$package", Text(entry.PackageId)), ("$scopes", Text(string.Join(',', entry.Scopes ?? []))), ("$created", createdAt));
+    }
+
+    public async Task<bool> DeleteUserCatalogEntryAsync(string entryId, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        int deleted = await ExecuteCountAsync(connection, "DELETE FROM user_catalog_entries WHERE id = $id;", transaction, cancellationToken, ("$id", Text(entryId)));
+        await transaction.CommitAsync(cancellationToken);
+        return deleted > 0;
     }
 
     public async Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken)
