@@ -1,7 +1,7 @@
 # PC Steward overhaul plan — Patch My PC–style updater on WinGet and Chocolatey
 
 **Task:** 43 — Patch-style overhaul plan
-**Status:** **Proposed — not approved.** This plan changes no requirement, ADR, safety boundary or code. Section 4 lists the spec, `AGENTS.md` and ADR changes that the product owner must approve (Task 44) before any implementation task starts.
+**Status:** **Approved 2026-10-08 (D-007).** The owner accepted changes C-1…C-12 and every recommendation in §14. Task 44 applied them to product specification v0.3 (§27), `AGENTS.md`, ADR-023–025, the ADR-017/018/020 revisions and the threat model. Implementation starts at Task 45.
 **Date:** 2026-10-08
 **Baseline:** commit `52b4313` (Task 42), product specification v0.2, ADR-001–022, 290/290 automated tests.
 **Audience:** **The owner only, on their own PC.** The owner confirmed on 2026-10-08 that PC Steward is personal software (decision D-006). No distribution, other users or public release are planned. The protected owner-only installation (ADR-022) stays the deployment model.
@@ -66,7 +66,7 @@ The left column describes Patch My PC Home Updater behaviour as it is commonly d
 - Clear scan data, Clear downloaded files and Factory reset keep their separate semantics. New state is added to the correct deletion class (§10).
 - Deployment stays the protected owner-only installation under `%ProgramFiles%\PC Steward` with the owner's local signer (ADR-022). Distribution is not pursued (§1.1).
 
-## 4. Changes requiring owner approval (Task 44)
+## 4. Changes approved by the owner (D-007, applied in Task 44)
 
 | # | Current rule | Proposed rule | Affected IDs / documents |
 |---|---|---|---|
@@ -343,7 +343,7 @@ Every task still follows `AGENTS.md` for engineering: smallest coherent change, 
 
 **Dropped for personal use:** separate evidence-readiness and audit tasks, the signed catalog channel, distribution-gate reassessment, generic top-300 catalog curation and the accessibility matrix.
 
-## 12. Proposed requirement families (IDs reserved; wording is finalised in Task 44)
+## 12. Requirement families (final wording in specification v0.3 §27)
 
 | Family | Content | Proposed tier |
 |---|---|---|
@@ -367,7 +367,7 @@ Every task still follows `AGENTS.md` for engineering: smallest coherent change, 
 | Automatic updates break an application | Off by default, per-app opt-in, Skip this version, backoff, history, pause all. Stable channel only. |
 | WinGet licence/agreement acceptance done silently | Agreements shown in the review sheet and recorded per package/version. Automation runs only for packages whose agreement is already recorded. |
 
-## 14. Decisions needed from the owner
+## 14. Owner decisions (all recommendations accepted, D-007)
 
 | ID | Question | Recommendation |
 |---|---|---|

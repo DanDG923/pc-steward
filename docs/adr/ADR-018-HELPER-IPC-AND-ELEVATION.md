@@ -54,3 +54,27 @@ Windows' default volume-root ACL grants Authenticated Users `FILE_ADD_SUBDIRECTO
 ## Reconsider when
 
 Machine-scope execution is restored, the selected Windows APIs cannot prove both endpoint identities across UAC, a future installer cannot provide a fixed non-caller-writable binary root, or security tests expose a replacement/replay/spoofing path. No caller-writable helper or persistent-service fallback is allowed without a new product and threat-model decision.
+
+## 2026-10-08 v0.3 revision — one helper session per approved batch (D-007)
+
+**Related requirements:** `FR-BAT-04/05/06`, `FR-AUT-08/09`, `AC-V3-04/05/09`
+
+The protected owner-only installation (ADR-022) composes this helper. Protocol **v2** replaces the one-job request for batches:
+
+- **Request.** The desktop sends one batch request: protocol version 2, nonce, issued time, batch ID and digest, and up to 50 machine-scope items. Each item uses the v1 field allowlist plus `operation`. Messages are framed per item so each frame stays within a fixed size bound.
+- **Helper behaviour.** The pre-launch, peer-identity and nonce checks are unchanged. The helper:
+  - verifies the batch digest and expiry;
+  - revalidates each item;
+  - rebuilds each provider argv in code;
+  - runs items sequentially;
+  - streams bounded `ItemStarted`/`ItemResult` frames;
+  - accepts `CancelRemaining` only between items;
+  - enforces an overall deadline (the sum of per-item timeouts, hard-capped);
+  - exits.
+
+  A frame cannot add, reorder or replace an item.
+- **Prompts.** One approval means one UAC prompt and one helper process. A second batch starts a new helper.
+- **Other operations.** The helper also accepts two fixed operations for ADR-025: `WriteAutomationPolicy` (a bounded policy document validated against the bundled catalog) and `RemoveAutomation`. They are the only way to change the Stage B store or task.
+- **Stage B host.** The Stage B elevated host is a separate entry point started by Task Scheduler. It is not a reusable endpoint. It accepts no IPC, reads no per-user database, applies the same item validation and provider construction, and exits.
+
+Follow-up tests (Tasks 49, 55, 58): batch substitution, reordering, appending, replay, expiry, oversize frames, cancel races, caller mismatch, policy-document tampering, and Stage B isolation from the per-user database.

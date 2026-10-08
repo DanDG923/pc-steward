@@ -46,3 +46,22 @@ Tasks 21/23/25 test field mutation, tampered database rows, stale mappings, sour
 ## Reconsider when
 
 A provider cannot target the immutable identifiers without display-name or remote-command authority; that provider remains non-actionable until a new ADR proves an equally strict binding.
+
+## 2026-10-08 v0.3 revision — operation kinds and batches (D-007)
+
+**Related requirements:** `FR-INS-01/02/05`, `FR-BAT-04–07`, `FR-UNI-01–03` (optional), `AC-V3-05/06`
+
+- **Operation kinds.** The immutable job generalises to a `PackageOperation` with a kind: `Upgrade` (today's job), `Install`, and optionally `Uninstall`.
+  - Install has no installed version. Its preconditions are no matching installed instance, a unique exact live resolution and a recorded agreement acceptance where one is required.
+  - The canonical text and digest include the kind and the agreement-acceptance hash.
+  - Existing `approved_update_jobs` rows stay readable as `Upgrade` operations.
+- **Batches.** Confirmation creates one `OperationBatch`:
+  - ordered items, with a digest over the canonical text of every item in order;
+  - at most 50 items;
+  - expiry 30 minutes after approval, after which it must be reviewed again;
+  - no additions after approval.
+- **Revalidation and ordering.**
+  - Every item is still revalidated immediately before it starts. A changed invariant skips that item as non-actionable. It is never adapted silently.
+  - User-scope items run first, then machine-scope items in one helper session (ADR-018 revision).
+  - Cancellation prevents the next unstarted item.
+- **Verification.** Install Success needs both the provider's exact listing at the target version and a matching local re-inventory instance. Uninstall Success, if built, needs both to show absence.

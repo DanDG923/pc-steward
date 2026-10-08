@@ -1,18 +1,30 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — feature-change evidence readiness
+**Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 43 — Patch-style overhaul plan (proposed; documents only)
+**Current task:** Task 44 — v0.3 owner decisions and documentation re-baseline (complete; documents only)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
-**Phase gate:** **NOT READY FOR DISTRIBUTION — Task 39 passes only for the exact owner-only protected installation; the Task 31 release exception remains expired**
+**Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
 
-## Task 43 proposed overhaul (not approved)
+## Task 44 v0.3 decisions and re-baseline
 
-[`OVERHAUL_PLAN_PATCH_STYLE.md`](OVERHAUL_PLAN_PATCH_STYLE.md) proposes turning PC Steward into a Patch My PC–style updater for the owner's own PC, using WinGet and the fixed Chocolatey Community feed. It covers a personal catalog seeded from the owner's installed apps (with install support and in-app Add from search), a tick-box Updates checklist with one review sheet, one UAC prompt per immutable batch, and opt-in automatic updates: user-scope first, then unattended admin-level updates from an admin-protected policy store. The owner confirmed personal, owner-only use (D-006), so the plan retires `FRA-14–16` and uses one owner review per phase (C-11, C-12). It changes no requirement, ADR, safety boundary, code or test. Changes C-1…C-12 and open decisions Q-004…Q-009 need explicit owner approval in Task 44 before implementation (Tasks 45–59). Requirement families `FR-CAT/INS/BAT/AUT/PRV/UNI` are reserved, not approved, and are therefore not yet in the traceability matrix.
+The owner accepted every recommendation (D-007). Applied documents:
+
+- **Product specification v0.3:** new §27 (`FR-CAT-01–08`, `FR-INS-01–07`, `FR-BAT-01–08`, `FR-AUT-01–10`, `FR-PRV-01–04`, `FR-POL-06`, optional `FR-UNI-01–03`, `AC-V3-01–12`), plus amended `FR-UPD-01/12`, `FR-SCH-03`, `FR-INV-11`, `FR-ID-06`, principle 8, non-goals, Tier D, §11.1, §13.3, §14.3 and §19.8.
+- **`AGENTS.md`:** safety boundaries and the personal-use process.
+- **ADRs:** new ADR-023 (personal catalog), ADR-024 (provider precedence and Chocolatey setup through WinGet) and ADR-025 (Stage A/B automatic updates); v0.3 revisions to ADR-017 (operation kinds and batches), ADR-018 (one helper session per batch) and ADR-020 (separate automatic-update hosts).
+- **Threat model:** TM-19–24 and an amended TM-14.
+- **Records:** decision-log questions Q-004–Q-009 resolved; v0.3 traceability added.
+
+No code changed. Next is **Task 45**: spikes on WinGet CLI versus COM for install, preflight, agreements and progress; Chocolatey install/search/info output; a helper v2 prototype; and catalog seed and detection precision on the owner inventory.
+
+## Task 43 proposed overhaul (approved by D-007)
+
+[`OVERHAUL_PLAN_PATCH_STYLE.md`](OVERHAUL_PLAN_PATCH_STYLE.md) proposes turning PC Steward into a Patch My PC–style updater for the owner's own PC, using WinGet and the fixed Chocolatey Community feed. It covers a personal catalog seeded from the owner's installed apps (with install support and in-app Add from search), a tick-box Updates checklist with one review sheet, one UAC prompt per immutable batch, and opt-in automatic updates: user-scope first, then unattended admin-level updates from an admin-protected policy store. The owner confirmed personal, owner-only use (D-006), so the plan retires `FRA-14–16` and uses one owner review per phase (C-11, C-12). It changes no requirement, ADR, safety boundary, code or test. The owner approved changes C-1…C-12 and decisions Q-004…Q-009 in Task 44 (D-007). Requirement families `FR-CAT/INS/BAT/AUT/PRV/UNI` are now defined in specification v0.3 §27 and traced. Implementation runs in Tasks 45–59.
 
 **Repository fix (Task 43):** `src/PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj` had never been committed, so every clean clone failed `dotnet restore` (MSB3202). A reconstructed project file (Application reference, centrally versioned `Microsoft.Data.Sqlite`, `InternalsVisibleTo` for the integration tests) is now committed. On Linux with SDK 10.0.112 outside the 10.0.302 `global.json` pin, the full solution restored, the project built with 0 warnings/errors, `SQLitePCLRaw.lib.e_sqlite3` resolved to the pinned 2.1.12, and the Domain **59/59**, Architecture **28/28** and `SqliteDatabaseTests` **19/19** suites passed. The WinUI desktop build and the full Windows suite are left to CI.
 
@@ -87,6 +99,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-Task 44 is the product-owner decision and specification re-baseline for the proposed Patch-style overhaul (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §4 and §14). Until it is approved, the existing MVP boundaries below remain authoritative.
+Task 45 — v0.3 spikes (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
