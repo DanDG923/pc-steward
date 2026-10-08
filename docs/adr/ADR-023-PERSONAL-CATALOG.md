@@ -68,3 +68,25 @@ Task 46 adds hostile catalog fixtures: oversize, duplicate, unknown fields, wron
 ## Reconsider when
 
 The owner wants catalog updates without redeploying, which would need a signed channel and a new ADR, or a provider stops supporting exact live resolution.
+
+## Task 45 evidence
+
+`spikes/patch-style/SPIKE_REPORT.md` §5 measured `RegexOptions.NonBacktracking` construction at about 5.8 ms per pattern: 3.5 s for 600 patterns, which is too slow for startup.
+
+**Amendment, to be applied by Task 46:** compile detection patterns with the interpreted engine and a 50 ms per-match timeout. Before compiling, the validator rejects restricted grammar:
+- quantified groups other than `?`;
+- backreferences;
+- every `(?` construct.
+
+Version tails use bounded character classes.
+
+**Measured with this design:**
+- a 300-entry catalog validated in 12 ms and the detector built in 11 ms;
+- 700 records checked in 63–70 ms;
+- a pathological pattern that bypassed validation timed out at 49.6 ms;
+- all 18 hostile catalog mutations disabled the catalog;
+- 0 false positives on the illustrative detection set.
+
+**Further findings:**
+- The process-name allowlist must accept `+` (`notepad++.exe`).
+- Detection must use the instance publisher from SQLite, because the JSON export has none.

@@ -55,3 +55,17 @@ Golden parser/capability fixtures, locale/malformed-output rejection, source-fai
 ## Reconsider when
 
 The official COM contract or compatible projection disappears; required CLI execution capabilities disappear; parser compatibility breaks; supported Windows baselines change; or clean-environment evidence shows the split route cannot meet source isolation and exact-ID execution requirements.
+
+## Task 45 evidence (v0.3)
+
+`spikes/patch-style/SPIKE_REPORT.md` §2 dumped the shipped `Microsoft.Management.Deployment.winmd`, version 1.10.340. The COM API provides:
+- `InstallPackageAsync` and `UpgradePackageAsync` with structured `InstallProgress`, and typed `InstallResultStatus` (including `PackageAgreementsNotAccepted`);
+- `InstallOptions.PackageVersionId` for exact versions;
+- `CatalogPackageMetadata.Agreements`;
+- `GetApplicableInstaller`, which returns `ElevationRequirement`, `Scope`, `InstallerType` and `Architecture`.
+
+**Recommended amendment, to be applied by Task 48:**
+- COM becomes the preflight and execution route for v0.3 installs and upgrades.
+- The `InstallOptions` members and CLI flags listed in spike §2.2 are forbidden.
+- `elevatesSelf` installers route to the elevated helper.
+- Whether in-process COM works from the elevated helper is still unproven. The structured CLI is the documented fallback.

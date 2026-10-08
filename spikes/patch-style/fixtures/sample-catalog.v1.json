@@ -1,0 +1,674 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "pcs:firefox",
+      "name": "Mozilla Firefox",
+      "publisher": "Mozilla",
+      "category": "Browsers",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Mozilla.Firefox",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "firefox",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Mozilla Firefox( \\((x64|x86|arm64) [a-z]{2,3}(-[A-Z]{2})?\\))?$",
+        "arpPublisher": "^Mozilla$"
+      },
+      "processNames": [
+        "firefox.exe"
+      ]
+    },
+    {
+      "id": "pcs:chrome",
+      "name": "Google Chrome",
+      "publisher": "Google",
+      "category": "Browsers",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Google.Chrome",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "googlechrome",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Google Chrome$",
+        "arpPublisher": "^Google LLC$"
+      },
+      "processNames": [
+        "chrome.exe"
+      ]
+    },
+    {
+      "id": "pcs:brave",
+      "name": "Brave",
+      "publisher": "Brave Software",
+      "category": "Browsers",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Brave.Brave",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "brave",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Brave$",
+        "arpPublisher": "^Brave Software,? Inc\\.?$"
+      },
+      "processNames": [
+        "brave.exe"
+      ]
+    },
+    {
+      "id": "pcs:7zip",
+      "name": "7-Zip",
+      "publisher": "Igor Pavlov",
+      "category": "Compression",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "7zip.7zip",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "7zip",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^7-Zip \\d{1,2}\\.\\d{2}( \\((x64|arm64)\\))?$",
+        "arpPublisher": "^Igor Pavlov$"
+      },
+      "processNames": [
+        "7zFM.exe"
+      ]
+    },
+    {
+      "id": "pcs:notepadplusplus",
+      "name": "Notepad++",
+      "publisher": "Notepad++ Team",
+      "category": "Developer",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Notepad++.Notepad++",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "notepadplusplus",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Notepad\\+\\+( \\((32|64)-bit (x86|x64|ARM64)\\))?$",
+        "arpPublisher": "^Notepad\\+\\+ Team$"
+      },
+      "processNames": [
+        "notepad++.exe"
+      ]
+    },
+    {
+      "id": "pcs:vlc",
+      "name": "VLC media player",
+      "publisher": "VideoLAN",
+      "category": "Media",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "VideoLAN.VLC",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "vlc",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^VLC media player$",
+        "arpPublisher": "^VideoLAN$"
+      },
+      "processNames": [
+        "vlc.exe"
+      ]
+    },
+    {
+      "id": "pcs:vscode",
+      "name": "Visual Studio Code",
+      "publisher": "Microsoft",
+      "category": "Developer",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Microsoft.VisualStudioCode",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "vscode",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Microsoft Visual Studio Code( \\(User\\))?$",
+        "arpPublisher": "^Microsoft Corporation$"
+      },
+      "processNames": [
+        "Code.exe"
+      ]
+    },
+    {
+      "id": "pcs:git",
+      "name": "Git for Windows",
+      "publisher": "The Git Development Community",
+      "category": "Developer",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Git.Git",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "git",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Git$",
+        "arpPublisher": "^The Git Development Community$"
+      },
+      "processNames": [
+        "git-bash.exe"
+      ]
+    },
+    {
+      "id": "pcs:python312",
+      "name": "Python 3.12",
+      "publisher": "Python Software Foundation",
+      "category": "Developer",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Python.Python.3.12",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "python312",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Python 3\\.12\\.\\d{1,2} \\((32|64)-bit\\)$",
+        "arpPublisher": "^Python Software Foundation$"
+      },
+      "processNames": []
+    },
+    {
+      "id": "pcs:discord",
+      "name": "Discord",
+      "publisher": "Discord Inc.",
+      "category": "Communication",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Discord.Discord",
+          "scopes": [
+            "user"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "discord",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Discord$",
+        "arpPublisher": "^Discord Inc\\.$"
+      },
+      "processNames": [
+        "Discord.exe"
+      ],
+      "flags": {
+        "selfUpdating": true,
+        "restartLikely": false,
+        "channel": "Stable",
+        "automationAllowed": false
+      }
+    },
+    {
+      "id": "pcs:steam",
+      "name": "Steam",
+      "publisher": "Valve",
+      "category": "Gaming",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Valve.Steam",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "steam",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Steam$",
+        "arpPublisher": "^Valve Corporation$"
+      },
+      "processNames": [
+        "steam.exe"
+      ],
+      "flags": {
+        "selfUpdating": true,
+        "restartLikely": false,
+        "channel": "Stable",
+        "automationAllowed": false
+      }
+    },
+    {
+      "id": "pcs:zoom",
+      "name": "Zoom Workplace",
+      "publisher": "Zoom",
+      "category": "Communication",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Zoom.Zoom",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "zoom",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Zoom( Workplace)?( \\((32|64)-bit\\))?$",
+        "arpPublisher": "^Zoom (Video Communications|Communications), Inc\\.?$"
+      },
+      "processNames": [
+        "Zoom.exe"
+      ]
+    },
+    {
+      "id": "pcs:spotify",
+      "name": "Spotify",
+      "publisher": "Spotify AB",
+      "category": "Media",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Spotify.Spotify",
+          "scopes": [
+            "user"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "spotify",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Spotify$",
+        "arpPublisher": "^Spotify AB$"
+      },
+      "processNames": [
+        "Spotify.exe"
+      ]
+    },
+    {
+      "id": "pcs:wiztree",
+      "name": "WizTree",
+      "publisher": "Antibody Software",
+      "category": "Utilities",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "AntibodySoftware.WizTree",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "wiztree",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^WizTree v?[0-9.]{1,32}$",
+        "arpPublisher": "^Antibody Software$"
+      },
+      "processNames": [
+        "WizTree64.exe"
+      ]
+    },
+    {
+      "id": "pcs:powertoys",
+      "name": "PowerToys",
+      "publisher": "Microsoft",
+      "category": "Utilities",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Microsoft.PowerToys",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "powertoys",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^PowerToys( \\(Preview\\))?( (x64|arm64))?$",
+        "arpPublisher": "^Microsoft Corporation$"
+      },
+      "processNames": [
+        "PowerToys.exe"
+      ]
+    },
+    {
+      "id": "pcs:obs",
+      "name": "OBS Studio",
+      "publisher": "OBS Project",
+      "category": "Media",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "OBSProject.OBSStudio",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "obs-studio",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^OBS Studio$",
+        "arpPublisher": "^OBS Project$"
+      },
+      "processNames": [
+        "obs64.exe"
+      ]
+    },
+    {
+      "id": "pcs:keepassxc",
+      "name": "KeePassXC",
+      "publisher": "KeePassXC Team",
+      "category": "Security",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "KeePassXCTeam.KeePassXC",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "keepassxc",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^KeePassXC$",
+        "arpPublisher": "^KeePassXC Team$"
+      },
+      "processNames": [
+        "KeePassXC.exe"
+      ]
+    },
+    {
+      "id": "pcs:thunderbird",
+      "name": "Mozilla Thunderbird",
+      "publisher": "Mozilla",
+      "category": "Communication",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Mozilla.Thunderbird",
+          "scopes": [
+            "user",
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "thunderbird",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Mozilla Thunderbird( \\((x64|x86) [a-z]{2,3}(-[A-Z]{2})?\\))?$",
+        "arpPublisher": "^Mozilla$"
+      },
+      "processNames": [
+        "thunderbird.exe"
+      ]
+    },
+    {
+      "id": "pcs:everything",
+      "name": "Everything",
+      "publisher": "voidtools",
+      "category": "Utilities",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "voidtools.Everything",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        },
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "everything",
+          "scopes": [
+            "machine"
+          ],
+          "default": false
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Everything [0-9.]{1,32}( \\(x64\\))?$",
+        "arpPublisher": "^voidtools$"
+      },
+      "processNames": [
+        "Everything.exe"
+      ]
+    },
+    {
+      "id": "pcs:gimp",
+      "name": "GIMP",
+      "publisher": "The GIMP Team",
+      "category": "Imaging",
+      "providers": [
+        {
+          "provider": "chocolatey",
+          "source": "chocolatey-community",
+          "packageId": "gimp",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^GIMP \\d+\\.\\d+\\.\\d+(-\\d+)?$",
+        "arpPublisher": "^The GIMP Team$"
+      },
+      "processNames": [
+        "gimp.exe"
+      ]
+    }
+  ]
+}

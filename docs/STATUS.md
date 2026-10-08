@@ -2,13 +2,34 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 44 — v0.3 owner decisions and documentation re-baseline (complete; documents only)
+**Current task:** Task 45 — v0.3 spikes (complete in the cloud environment; one owner-run read-only probe pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Task 45 v0.3 spikes
+
+`spikes/patch-style/SPIKE_REPORT.md` records the following.
+
+- **WinGet COM API:** the shipped API supports install and upgrade with structured progress, exact `PackageVersionId`, agreement metadata and per-installer `ElevationRequirement`. `elevatesSelf` installers must route to the elevated helper to keep one UAC prompt per batch.
+- **Helper protocol v2 prototype:** rejects all 11 tamper cases plus replay and expiry. The worst-case frame is 1,132 B against the 16 KiB bound.
+- **Catalog prototype:**
+  - All 18 hostile mutations disable the catalog.
+  - `NonBacktracking` is too slow (3.5 s for 600 patterns). It is replaced by the interpreted engine with a restricted grammar and a 50 ms timeout: a 300-entry catalog loads in 12 ms and 700 records are checked in about 65 ms.
+  - The illustrative detection set gave 0 false positives.
+- **Allowlist gaps:** the production package-ID and process-name allowlists reject `+` (`Notepad++.Notepad++`).
+- **Chocolatey setup:** `Chocolatey.Chocolatey` exists in WinGet as a machine-scope MSI that WinGet will not upgrade.
+
+Spike tests: **50/50**. The probe compiles for Windows with 0 warnings.
+
+Linux network policy blocked the Patch My PC, Microsoft Learn, Chocolatey docs and Chocolatey feed sites. Their documentation was read from GitHub sources or search results instead.
+
+**Pending, owner-run and read-only:** `spikes/patch-style/Invoke-PatchStyleProbe.ps1`. It captures `choco search --limit-output` formats, `winget-preflight` data for the sample catalog, and detection counts from the local database. Its output folder is git-ignored.
+
+Next is **Task 46** (catalog), which applies the ADR-023 Task 45 amendment.
 
 ## Task 44 v0.3 decisions and re-baseline
 
@@ -99,6 +120,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-Task 45 — v0.3 spikes (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
+Task 46 — personal catalog (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11; apply the ADR-023 Task 45 amendment). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
