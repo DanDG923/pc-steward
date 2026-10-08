@@ -38,8 +38,8 @@ Accept Option A.
 - **Bundled layer.** `catalog/pcsteward-catalog.v1.json` is an embedded resource in the new `PCSteward.Catalog` project, which validates it on every load:
   - schema version, bounded fields and unique `pcs:` IDs;
   - provider/source/package identity allowlists;
-  - detection patterns that are anchored, at most 128 characters, compiled with `RegexOptions.NonBacktracking` and given a timeout;
-  - bounded process names;
+  - detection patterns that are anchored, at most 128 characters, use a restricted grammar and are compiled with the interpreted engine and a 50 ms per-match timeout. The restricted grammar refuses quantified groups other than `?`, backreferences and every `(?` construct. This is the Task 45 amendment, applied in Task 46: `NonBacktracking` construction cost about 5.8 ms per pattern;
+  - bounded process names (letters, digits, space, `.`, `_`, `+`, `-`, ending `.exe`);
   - flags (`selfUpdating`, `restartLikely`, `channel`, `automationAllowed`).
 
   Any validation failure disables catalog features and reports the reason. Inventory and updates continue.
@@ -48,8 +48,10 @@ Accept Option A.
 - **Mapping evidence.** Catalog detection is deterministic mapping evidence with origin `catalog`. Ambiguous or non-unique detection yields Review required.
 - **Chocolatey confirmation.** A catalog or user-confirmed Chocolatey Community ID, disclosed in the batch review sheet, counts as the explicit Chocolatey mapping confirmation (Q-008).
 - **Tooling.**
-  - `scripts/Catalog-Validate.ps1` runs offline and in CI.
-  - `scripts/Catalog-Seed.ps1` and `scripts/Catalog-VerifyLive.ps1` are owner-run and read-only.
+  - `scripts/Catalog-Validate.ps1` (through `tools/PCSteward.CatalogTool`) runs offline. CI applies the same validator to the bundled file in `PCSteward.Catalog.UnitTests`.
+  - `scripts/Catalog-Seed.ps1` is owner-run and opens the database read-only. It writes a draft for review and never overwrites a file.
+  - Live verification is owner-run and read-only. It is provided by the Task 45 probe (`winget-preflight`) until Task 48 adds it to the catalog tool, reusing the COM preflight authority.
+  - The `msstore` source is refused until a source-agreement review exists (Task 45 §2.5).
 
 ## Consequences
 

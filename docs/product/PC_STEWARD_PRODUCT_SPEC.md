@@ -1626,7 +1626,7 @@ The owner can:
 | ID | Requirement | v0.3 |
 |---|---|---|
 | FR-CAT-01 | Ship a bundled personal catalog as an embedded, schema-versioned resource covered by the owner-signed payload. | Yes |
-| FR-CAT-02 | Validate every catalog entry strictly: schema version, field bounds, unique IDs, and anchored detection patterns evaluated without backtracking and with a timeout. Disable catalog features (fail closed) when the bundled catalog is invalid, while the rest of the app keeps working. | Yes |
+| FR-CAT-02 | Validate every catalog entry strictly: schema version, field bounds, unique IDs, and anchored detection patterns in a restricted grammar (no quantified groups other than `?`, no backreferences, no `(?` constructs) evaluated with a per-match timeout. Disable catalog features (fail closed) when the bundled catalog is invalid, while the rest of the app keeps working. | Yes |
 | FR-CAT-03 | Catalog entries contain only display data, provider/source/package identities, detection rules, process names and flags. They never contain commands, installer switches, scripts, paths or URLs used for execution. | Yes |
 | FR-CAT-04 | Show every catalog entry with one status from §7.2 or §27.3. | Yes |
 | FR-CAT-05 | Use catalog detection as deterministic mapping evidence with origin `catalog`. Ambiguous or non-unique detection yields Review required. | Yes |

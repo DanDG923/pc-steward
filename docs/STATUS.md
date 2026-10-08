@@ -2,13 +2,37 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 45 — v0.3 spikes (complete in the cloud environment; one owner-run read-only probe pending)
+**Current task:** Task 46 — personal catalog: project, validator and tooling (implementation and automated validation pass; Windows CI pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Task 46 personal catalog
+
+**New `PCSteward.Catalog` project** (`FR-CAT-01–03`, `AC-V3-01`, `TM-19`). It has no project or package references, and the architecture tests forbid process, registry, network and file APIs. It contains:
+- an immutable catalog model;
+- a strict fail-closed validator:
+  - size, schema and catalog-version checks;
+  - unknown fields, duplicate JSON properties, comments and trailing commas refused;
+  - unique IDs and provider identities; WinGet/Chocolatey identity, scope and default rules; `msstore` refused;
+  - bounded process names (now accepting `+`);
+  - optional SHA-256 check; every catalog is reported with its SHA-256;
+- restricted-grammar detection patterns: an escape- and character-class-aware scanner, the interpreted engine and a 50 ms timeout. This applies the ADR-023 Task 45 amendment and D-008;
+- the embedded bundled catalog (`catalog/pcsteward-catalog.v1.json`: 20 starter entries, not yet live-verified);
+- a pure seed proposer.
+
+**Owner tooling** (`FR-CAT-07`): `tools/PCSteward.CatalogTool` and `scripts/Catalog-Validate.ps1` / `Catalog-Seed.ps1`. Seeding opens the database read-only and never overwrites a file. Live verification stays with the Task 45 probe until Task 48.
+
+**Results:**
+- `PCSteward.Catalog.UnitTests` **74/74**: 39 hostile-catalog cases, grammar bypass cases (including `^(a*\\?)+$`), timeout backstop, immutability, a 300-entry catalog validated in under 1 s, and the seed proposer.
+- Architecture **30/30** and Domain **59/59**.
+- The tool validated the bundled catalog and produced a valid 4-entry draft from a realistic fake database without changing it.
+- These ran on Linux with SDK 10.0.112, outside the `global.json` pin. The full Windows build and suite run in CI.
+
+**Not changed:** the desktop does not reference the catalog yet (Task 47/53), so the protected-install payload is unchanged.
 
 ## Task 45 v0.3 spikes
 
@@ -120,6 +144,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-Task 46 — personal catalog (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11; apply the ADR-023 Task 45 amendment). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
+Task 47 — catalog detection in matching, `AppState` including NotInstalled, app policies and user catalog entries (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
