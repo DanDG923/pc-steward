@@ -2,13 +2,17 @@
 
 **Current phase:** Phase 4 — feature-change evidence readiness
 
-**Current task:** Task 42 — confirmed findings remediation
+**Current task:** Task 43 — Patch-style overhaul plan (proposed; documents only)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
 **Phase gate:** **NOT READY FOR DISTRIBUTION — Task 39 passes only for the exact owner-only protected installation; the Task 31 release exception remains expired**
+
+## Task 43 proposed overhaul (not approved)
+
+[`OVERHAUL_PLAN_PATCH_STYLE.md`](OVERHAUL_PLAN_PATCH_STYLE.md) proposes turning PC Steward into a Patch My PC–style home updater on WinGet and the fixed Chocolatey Community feed: a signed bundled catalog with install support, a tick-box Updates checklist with one review sheet, one UAC prompt per immutable batch, and opt-in staged automatic updates. It changes no requirement, ADR, safety boundary, code or test. Changes C-1…C-10 to the specification, `AGENTS.md` and ADR-017/018/020 and decisions Q-004…Q-010 need explicit product-owner approval in Task 44 before any implementation task starts. Requirement families `FR-CAT/INS/BAT/AUT/PRV/UNI` are reserved, not approved, and are therefore not yet in the traceability matrix.
 
 ## Task 35 scope and current boundary
 
@@ -80,5 +84,7 @@ Task 42 used workspace-write authority only. It made no external finding-state c
 The product owner selected an owner-only temporary-certificate route to enable a protected local installation for one real update test. It is a new, non-distribution deployment decision recorded in `ADR-022`; the standalone beta remains unchanged. The installation workflow may create only a temporary CurrentUser code-signing trust chain and `%ProgramFiles%\PC Steward` test root, and that script must not launch PC Steward or update an application. Launching the installed app and testing WizTree were separate, explicitly authorized owner actions. Any later update still requires fresh candidate evidence and separate exact action-time approval.
 
 ## Next task
+
+Task 44 is the product-owner decision and specification re-baseline for the proposed Patch-style overhaul (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §4 and §14). Until it is approved, the existing MVP boundaries below remain authoritative.
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
