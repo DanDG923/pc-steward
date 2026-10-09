@@ -557,6 +557,56 @@ public sealed class FactoryResetTests
     }
 
     [TestMethod]
+    public async Task FreshStoreVerificationRejectsMembershipWithoutOtherPriorState()
+    {
+        await using CuratedMembershipTests.MembershipDatabase database = await CuratedMembershipTests.MembershipDatabase.CreateAsync();
+        Assert.IsTrue(await database.Store.IsFreshResetStoreAsync(CancellationToken.None));
+        await database.SeedMembershipAsync("pcs:widget");
+        Assert.IsFalse(await database.Store.IsFreshResetStoreAsync(CancellationToken.None), "Independent membership is retained owner state even when scan and decisions are empty.");
+    }
+
+    [TestMethod]
+    public async Task FactoryResetRemovesMembershipAndRestrictiveOverridesThroughExistingManifest()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-membership-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            string databasePath = Path.Combine(root, "pcsteward.db");
+            SqliteDatabase database = new(databasePath);
+            await database.MigrateAsync(CancellationToken.None);
+            await using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "CREATE TABLE IF NOT EXISTS managed_apps(catalog_entry_id TEXT PRIMARY KEY, added_at TEXT NOT NULL); INSERT INTO managed_apps VALUES ('pcs:widget','2026-10-09T12:00:00.0000000+00:00');";
+                await command.ExecuteNonQueryAsync();
+            }
+            await database.SaveAsync(new PCSteward.Domain.StableDecision(Guid.NewGuid(), "pcs:widget", "CuratedAutomaticUpdatesOff", "Off", DateTimeOffset.UtcNow), CancellationToken.None);
+            FactoryReset.ArmForTesting(root);
+
+            FactoryResetResult reset = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+
+            Assert.IsTrue(reset.Succeeded, string.Join(",", reset.Residuals.Select(item => item.Reason)));
+            Assert.IsFalse(File.Exists(databasePath));
+            SqliteDatabase fresh = new(databasePath);
+            await fresh.MigrateAsync(CancellationToken.None);
+            Assert.IsTrue(await fresh.IsFreshResetStoreAsync(CancellationToken.None));
+            Assert.HasCount(0, await fresh.GetManagedAppsAsync(CancellationToken.None));
+            Assert.HasCount(0, await fresh.GetAllAsync(CancellationToken.None));
+        }
+        finally
+        {
+            // Exact test-owned prefix under Temp, verified before recursive fixture cleanup.
+            string resolvedRoot = Path.GetFullPath(root);
+            string expectedParent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+            Assert.AreEqual(expectedParent, Path.GetDirectoryName(resolvedRoot));
+            StringAssert.StartsWith(Path.GetFileName(resolvedRoot), "pcsteward-reset-membership-");
+            if (Directory.Exists(resolvedRoot)) Directory.Delete(resolvedRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task AsyncDataOperationLeaseBlocksResetUntilTheOperationCompletes()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-lease-" + Guid.NewGuid().ToString("N"));

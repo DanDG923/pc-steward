@@ -321,6 +321,24 @@ public sealed class SqliteDatabaseTests
         Assert.IsTrue((await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None)).Count <= 2);
     }
 
+    [TestMethod]
+    public async Task MappingsAndPoliciesClearIncludesMembershipAndRestrictiveOverrides()
+    {
+        await using CuratedMembershipTests.MembershipDatabase database = await CuratedMembershipTests.MembershipDatabase.CreateAsync();
+        await database.SeedMembershipAsync("pcs:widget");
+        await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), "pcs:widget", "CuratedAutomaticUpdatesOff", "Off", DateTimeOffset.UtcNow), CancellationToken.None);
+        DownloadedArtifact artifact = new(Guid.NewGuid(), "update", "retained.bin", 123, DateTimeOffset.UtcNow);
+        await database.Store.SaveDownloadedArtifactAsync(artifact, CancellationToken.None);
+
+        AdvancedDataClearResult result = await database.Store.ClearMappingsAndPoliciesAsync(CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.HasCount(0, await database.Store.GetAllAsync(CancellationToken.None));
+        Assert.AreEqual(0L, await database.ScalarAsync("SELECT COUNT(*) FROM managed_apps;"), "The disclosed category must include independent membership.");
+        CollectionAssert.AreEqual(new[] { artifact }, (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).ToArray());
+        StringAssert.Contains(result.Message, "membership", "The cleared scope must be explicit to the owner.");
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;

@@ -11,8 +11,8 @@ Local `dotnet --list-sdks` is empty. No local product build/test pass is claimed
 | Task | Deliverable | Status / evidence |
 |---|---|---|
 | 1 | Typed provider health and strict probes | Code/review/CI gates passed at `b96a5485`; [CI 37996153500](https://github.com/DanDG923/pc-steward/actions/runs/37996153500): clean build, 621 passed / 0 failed / 0 skipped. Scoped repair review approved. Minor M1 late trust-exception cancellation-reporting behavior recorded for final triage; native timing and later stale UI retention unverified. |
-| 2 | Reviewed Chocolatey setup and install choices | Candidate `924212bc`: [CI 37999775904](https://github.com/DanDG923/pc-steward/actions/runs/37999775904) clean build, 662 passed / 0 failed / 0 skipped. Independent review requests Important I1 post-clean-scan positive absence and I2 strict query launch trust. Original implementer repairing both; scoped approval and new CI pending. |
-| 3 | Additive membership and removal | Pending |
+| 2 | Reviewed Chocolatey setup and install choices | Code/review/CI gates passed at `54eab743`; [CI 38002369017](https://github.com/DanDG923/pc-steward/actions/runs/38002369017): clean build, 675 passed / 0 failed / 0 skipped. Independent scoped I1/I2 repair review approved with no new findings. Tasks7/12 integration/native limits remain carried. |
+| 3 | Additive membership and removal | Paused for owner PC shutdown at Task 2 base `54eab743`; interrupted inert regression draft preserved in this checkpoint. No READY_RED/report/build/assertion evidence or production release. Resume inspection and compiling regression checkpoint first. |
 | 4 | Curated snapshots and decision association | Pending |
 | 5 | Temporary queue and updates-only selection | Pending |
 | 6 | Live review and atomic confirmation | Pending |

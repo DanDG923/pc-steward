@@ -6,7 +6,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCatalogStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IOperationBatchStore, IAgreementAcceptanceStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCatalogStore, ICuratedMembershipStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IOperationBatchStore, IAgreementAcceptanceStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -78,6 +78,25 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCa
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (10);", cancellationToken, transaction);
         }
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    // Expected-red seams only. Schema v11 and restrictive transactions remain paused for controller authorization.
+    public Task<IReadOnlyList<ManagedAppMembership>> GetManagedAppsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyList<ManagedAppMembership>>([]);
+    }
+
+    public Task AddManagedAppAsync(string catalogEntryId, DateTimeOffset addedAt, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveManagedAppAndDisableAutomaticAsync(string catalogEntryId, IReadOnlyList<string> uniquelyAssociatedPolicyKeys, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
     }
 
     public async Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken)
