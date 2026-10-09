@@ -47,18 +47,36 @@ public sealed class CuratedMembershipTests
     }
 
     [TestMethod]
+    public async Task MigrationFailureRollsBackNewTableAndVersion()
+    {
+        await using MembershipDatabase database = await MembershipDatabase.CreateAsync();
+        await SeedLegacyStateAsync(database);
+        await database.ExecuteAsync("DROP TABLE IF EXISTS managed_apps; DELETE FROM schema_migrations WHERE version > 10; CREATE TRIGGER reject_v11 BEFORE INSERT ON schema_migrations WHEN NEW.version=11 BEGIN SELECT RAISE(ABORT,'fixture migration rejected'); END;");
+        string before = await database.SnapshotRetainedAsync();
+
+        await Assert.ThrowsExactlyAsync<SqliteException>(() => database.Store.MigrateAsync(CancellationToken.None));
+
+        Assert.AreEqual(before, await database.SnapshotRetainedAsync());
+        Assert.AreEqual(10L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(0L, await database.ScalarAsync("SELECT COUNT(*) FROM sqlite_master WHERE name='managed_apps';"));
+        await database.ExecuteAsync("DROP TRIGGER reject_v11;");
+        await database.Store.MigrateAsync(CancellationToken.None);
+        Assert.AreEqual(11L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+    }
+
+    [TestMethod]
     public async Task NoInventoryOrUserCatalogAutoMembership()
     {
         await using MembershipDatabase database = await MembershipDatabase.CreateAsync();
         await SeedLegacyStateAsync(database);
         Evidence evidence = new(database.Store);
-        Evidence fakeExecutor = evidence;
         await database.Store.MigrateAsync(CancellationToken.None);
 
         Assert.HasCount(0, await database.Store.GetManagedAppsAsync(CancellationToken.None));
         Assert.HasCount(0, await Service(database.Store, evidence).GetManagedAppsAsync(CancellationToken.None));
         Assert.HasCount(1, await database.Store.GetUserCatalogEntriesAsync(CancellationToken.None));
         Assert.HasCount(1, await database.Store.GetLastKnownGoodProductsAsync(CancellationToken.None));
+        Assert.AreEqual(0, evidence.CallCount);
     }
 
     [TestMethod]
@@ -355,7 +373,7 @@ public sealed class CuratedMembershipTests
         await database.Store.SaveUserCatalogEntryAsync(new("pcs:user-extra", "Extra", "Publisher", "Utilities", "winget", "winget", "Publisher.Extra", ["user"]), AddedAt, CancellationToken.None);
         UpdateJobSelection selection = new(ProductKey, UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
         ImmutableUpdateJob job = await new UpdateJobApprovalService(database.Store).ConfirmAsync(new(Guid.NewGuid(), Guid.NewGuid(), selection), AddedAt, CancellationToken.None);
-        ApprovedOperationBatch batch = new OperationBatchReview(Guid.NewGuid(), Guid.NewGuid(), [selection with { StableProductKey = "winget:other", PackageId = "Other.Tool" }]).Confirm(AddedAt);
+        ApprovedOperationBatch batch = new OperationBatchReview(Guid.NewGuid(), Guid.NewGuid(), [new UpdateJobSelection("winget:other", UpdateProvider.WinGet, UpdateSource.WinGet, "Other.Tool", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")]).Confirm(AddedAt);
         await database.Store.SaveApprovedBatchAsync(batch, CancellationToken.None);
         await database.Store.RecordAsync(new(Guid.NewGuid(), job.Id, job.CorrelationId, ProductKey, UpdateProvider.WinGet, "Contoso.Widget", "1.0", "1.1", AddedAt, UpdateHistoryStatus.Success, 0, "verified fixture"), CancellationToken.None);
         await database.Store.RecordAgreementAcceptanceAsync(new(Guid.NewGuid(), UpdateSource.WinGet, "Contoso.Widget", "1.1", new string('A', 64), AddedAt), CancellationToken.None);
