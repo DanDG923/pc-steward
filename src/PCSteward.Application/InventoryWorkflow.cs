@@ -91,6 +91,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
     private readonly PersonalCatalog? catalog;
     private readonly IUserCatalogStore? userCatalog;
     private readonly IInstallPreflightAuthority? installPreflight;
+    private readonly IInstallChoiceAuthority? installChoices;
 
     public InventoryWorkflow(
         IInventorySnapshotStore snapshots,
@@ -124,13 +125,17 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
         this.catalog = catalog;
         this.userCatalog = userCatalog;
         this.installPreflight = installPreflight;
+        this.installChoices = installChoices;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
 
     /// <summary>Inert Task 2 test-first seam for CRD-03 / FR-INS-02/04; no discovery or approval yet.</summary>
-    public Task<IReadOnlyList<InstallPreflightResult>> PrepareInstallChoicesAsync(string catalogEntryId, CatalogProviderKind? providerOverride, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
+    public Task<IReadOnlyList<InstallPreflightResult>> PrepareInstallChoicesAsync(string catalogEntryId, CatalogProviderKind? providerOverride, CancellationToken cancellationToken)
+    {
+        _ = installChoices; // Keep the injected instance seam inert until the assertion-red gate.
+        return Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
+    }
 
     public Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearSourceMetadataAsync(cancellationToken);
     public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearUpdateHistoryAsync(cancellationToken);
