@@ -71,7 +71,7 @@ public sealed class WingetProviderHealthProbe : IProviderHealthProbe
         new(CatalogProviderKind.WinGet, presence, trust, state, version, sources, utcNow(), reason);
 
     private static bool ValidVersion(string value) => value.Length is > 0 and <= 128 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
-    private static IReadOnlyList<string> SnapshotSources(IReadOnlyList<string> sources)
+    private static System.Collections.ObjectModel.ReadOnlyCollection<string> SnapshotSources(IReadOnlyList<string> sources)
     {
         if (sources.Count > 64 || sources.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > 256 || value.Any(char.IsControl)))
             throw new IOException("Configured source evidence exceeds its limits.");

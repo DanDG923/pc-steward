@@ -18,6 +18,8 @@
 
 **Candidate validation pending:** production probe/discovery/strict-launch implementation and additional fake-only native discovery, source-input, immutable-snapshot and cancellation fixtures are prepared for Windows CI and independent review. No SDK is installed locally; local tests cannot run, and no candidate pass is claimed. No real provider/client process, network probe, installation, UAC or application/task state change occurred. Last-known timestamp/stale presentation remains a caller presentation responsibility for subsequent UI composition.
 
+**Candidate build blocker:** Windows CI [37994976065](https://github.com/DanDG923/pc-steward/actions/runs/37994976065), candidate `03adbd0325112ecbf7b6477d713bff94bb39cdcb`, job `114038578802`: restore passed; build failed only CA1859 at `WingetProviderHealthProbe.cs(74,42)` for the private `SnapshotSources` return type. Tests were skipped; there is no candidate executable evidence. A minimal repair changes only that private return declaration to `ReadOnlyCollection<string>`, preserving the public report contract and immutable snapshot behavior; repaired Windows CI remains pending.
+
 ## Task 49 safety follow-up — start boundaries (2026-10-09)
 
 **Scope:** `FR-BAT-06/08`, `AC-V3-06/07`; separate draft PR targeting the Task 49 branch.
