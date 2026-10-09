@@ -353,6 +353,38 @@ public sealed class CuratedMembershipTests
         Assert.IsFalse(policies[EntryId].AutomaticUpdates, "A restrictive curated Off dominates a legacy On.");
     }
 
+    [TestMethod]
+    public async Task MalformedStoredMembershipStaysVisibleButWithheld()
+    {
+        await using MembershipDatabase database = await MembershipDatabase.CreateAsync();
+        await database.ExecuteAsync("CREATE TABLE IF NOT EXISTS managed_apps(catalog_entry_id TEXT PRIMARY KEY, added_at TEXT NOT NULL); INSERT INTO managed_apps VALUES ('pcs:widget','invalid timestamp'), ('pcs:unknown','2026-10-09T12:00:00.0000000+00:00'), ('PCS:widget','2026-10-09T12:00:00.0000000+00:00');");
+        IReadOnlyList<CuratedMembershipEntry> rows = await Service(database.Store, new(database.Store)).GetManagedAppsAsync(CancellationToken.None);
+        Assert.HasCount(3, rows, "Malformed and orphaned rows must not disappear from the owner view.");
+        Assert.IsTrue(rows.All(row => !row.IsValidated && row.Entry is null && row.WithheldReason is not null));
+    }
+
+    [TestMethod]
+    public async Task OffRestrictionCannotBeOverriddenByLaterLegacyOnOrExpiry()
+    {
+        await using MembershipDatabase database = await MembershipDatabase.CreateAsync();
+        await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), EntryId, "CuratedAutomaticUpdatesOff", "Off", AddedAt, null, AddedAt.AddDays(-1)), CancellationToken.None);
+        await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), EntryId, "AutomaticUpdates", "On", AddedAt.AddDays(1)), CancellationToken.None);
+        Assert.IsFalse((await new UserDecisionService(database.Store).GetPoliciesAsync(CancellationToken.None))[EntryId].AutomaticUpdates);
+    }
+
+    [TestMethod]
+    public async Task FinalActiveGuardAndCancellationRunAfterInventoryAwait()
+    {
+        RecordingMembershipStore store = new([new(EntryId, AddedAt)]);
+        bool active = false;
+        Evidence evidence = new() { AfterInstancesRead = () => active = true };
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Service(store, evidence, _ => active).RemoveAsync(EntryId, CancellationToken.None));
+        using CancellationTokenSource cancellation = new();
+        Evidence cancelledEvidence = new() { AfterInstancesRead = cancellation.Cancel };
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => Service(store, cancelledEvidence).RemoveAsync(EntryId, cancellation.Token));
+        Assert.AreEqual(0, store.RemovalCalls);
+    }
+
     private static CuratedMembershipService Service(ICuratedMembershipStore store, Evidence evidence, Func<string, bool>? active = null) =>
         new(store, evidence.LoadCatalogAsync, evidence, active ?? (_ => false), () => AddedAt);
     private static CanonicalProduct Product(string key) => new(Guid.NewGuid(), key, "Widget");
@@ -412,6 +444,7 @@ public sealed class CuratedMembershipTests
         public int InventoryMutationCalls { get; private set; }
         public int CallCount { get; private set; }
         public Action? AfterCatalogRead { get; init; }
+        public Action? AfterInstancesRead { get; init; }
         public async Task<PersonalCatalog?> LoadCatalogAsync(CancellationToken cancellationToken)
         {
             CatalogReads++;
@@ -423,7 +456,13 @@ public sealed class CuratedMembershipTests
             return loaded.Catalog is null ? null : CatalogValidator.Compose(loaded.Catalog, users).Catalog;
         }
         public Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken cancellationToken) => database?.GetLastKnownGoodProductsAsync(cancellationToken) ?? Task.FromResult(Products);
-        public Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken cancellationToken) => database?.GetLastKnownGoodInstancesAsync(cancellationToken) ?? Task.FromResult(Instances);
+        public async Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken cancellationToken)
+        {
+            IReadOnlyCollection<InstallationInstance> result = database is null ? Instances : await database.GetLastKnownGoodInstancesAsync(cancellationToken);
+            await Task.Yield();
+            AfterInstancesRead?.Invoke();
+            return result;
+        }
         public Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken)
         {
             InventoryMutationCalls++;
