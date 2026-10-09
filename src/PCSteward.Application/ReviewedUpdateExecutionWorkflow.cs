@@ -122,7 +122,7 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         }
     }
 
-    private static IReadOnlyCollection<string> SnapshotProcessNames(bool failClosed)
+    private static List<string> SnapshotProcessNames(bool failClosed)
     {
         System.Diagnostics.Process[] processes = System.Diagnostics.Process.GetProcesses();
         List<string> names = [];
