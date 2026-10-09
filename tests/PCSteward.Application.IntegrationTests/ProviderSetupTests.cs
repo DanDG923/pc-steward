@@ -130,6 +130,114 @@ public sealed class ProviderSetupTests
         Assert.IsFalse(ChocolateySetupPreparation.IsReservedCatalogEntry("pcs:tool"));
     }
 
+    [TestMethod]
+    [DataRow("disabled")]
+    [DataRow("chocolatey:executable-unavailable")]
+    public async Task SetupMissingOptionalChocolateyRequiresRepeatedPositiveAbsence(string warning)
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        database.Local.Name = "Chocolatey installed inventory";
+        database.Local.Result = new([], [], [], [warning]);
+        ChoiceFixtures.Local registry = new() { Name = "Windows uninstall registry" };
+        ChoiceFixtures.Authority authority = new(ChoiceFixtures.Ready);
+        ChoiceFixtures.Health health = AbsentChocolatey();
+        using InventoryWorkflow workflow = database.Workflow(preflight: authority, providers: [registry, database.Local]);
+        InstallSelectionPreparation prepared = await new ChocolateySetupPreparation(workflow, TrustedWinget(), health, UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None);
+        Assert.IsNotNull(prepared.Selection, prepared.Message);
+        Assert.AreEqual(2, health.Calls, "The ambiguous optional-provider warning requires a repeated positive observation after scan.");
+        Assert.AreEqual(1, registry.Scans);
+        Assert.HasCount(1, authority.Requests);
+        Assert.AreEqual(UpdateArchitecture.X86, prepared.Selection.Architecture);
+        Assert.AreEqual(UpdateScope.Machine, prepared.Selection.Scope);
+    }
+
+    [TestMethod]
+    [DataRow(ProviderPresence.Unknown, ProviderProbeState.Current)]
+    [DataRow(ProviderPresence.Present, ProviderProbeState.Current)]
+    [DataRow(ProviderPresence.Absent, ProviderProbeState.Partial)]
+    public async Task OptionalProviderWarningCannotOverrideChangedOrUncertainPresence(ProviderPresence presence, ProviderProbeState state)
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        database.Local.Name = "Chocolatey installed inventory";
+        database.Local.Result = new([], [], [], ["chocolatey:executable-unavailable"]);
+        ChoiceFixtures.Health health = AbsentChocolatey();
+        database.Local.OnScan = () => health.Report = health.Report with { Presence = presence, State = state };
+        ChoiceFixtures.Authority authority = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: authority);
+        Assert.IsNull((await new ChocolateySetupPreparation(workflow, TrustedWinget(), health, UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None)).Selection);
+        Assert.AreEqual(2, health.Calls);
+        Assert.HasCount(0, authority.Requests);
+    }
+
+    [TestMethod]
+    [DataRow("fixture-local", "chocolatey:executable-unavailable")]
+    [DataRow("Chocolatey installed inventory spoof", "disabled")]
+    [DataRow("Chocolatey installed inventory", "partial")]
+    [DataRow("Chocolatey installed inventory", "chocolatey:executable-access-denied")]
+    [DataRow("Windows uninstall registry", "access-denied")]
+    [DataRow("WinGet installed inventory", "winget:executable-unavailable")]
+    public async Task SetupRejectsOtherWarningsAndSpoofedProviderOrigin(string providerName, string warning)
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        database.Local.Name = providerName;
+        database.Local.Result = new([], [], [], [warning]);
+        ChoiceFixtures.Health health = AbsentChocolatey();
+        ChoiceFixtures.Authority authority = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: authority);
+        Assert.IsNull((await new ChocolateySetupPreparation(workflow, TrustedWinget(), health, UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None)).Selection);
+        Assert.HasCount(0, authority.Requests);
+        Assert.AreEqual(1, health.Calls, "No warning is erased or broadened into positive absence.");
+    }
+
+    [TestMethod]
+    public async Task MissingChocolateyNeverHidesPartialRegistryOrDetectedSetup()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        database.Local.Name = "Chocolatey installed inventory";
+        database.Local.Result = new([], [], [], ["disabled"]);
+        ChoiceFixtures.Local registry = new() { Name = "Windows uninstall registry", Result = new([], [], [], ["partial"]) };
+        ChoiceFixtures.Authority authority = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: authority, providers: [registry, database.Local]);
+        ChocolateySetupPreparation setup = new(workflow, TrustedWinget(), AbsentChocolatey(), UpdateExecutionCapabilities.UserAndMachine);
+        Assert.IsNull((await setup.PrepareAsync(CancellationToken.None)).Selection);
+        registry.Result = ChoiceFixtures.Registry("Chocolatey", "Chocolatey Software");
+        Assert.IsNull((await setup.PrepareAsync(CancellationToken.None)).Selection, "Fresh positive client absence does not override a detected installation.");
+        Assert.HasCount(0, authority.Requests);
+    }
+
+    [TestMethod]
+    public async Task FailedRepeatedHealthAndCancellationAfterScanCannotQuerySetup()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        database.Local.Name = "Chocolatey installed inventory";
+        database.Local.Result = new([], [], [], ["disabled"]);
+        ChoiceFixtures.Health health = AbsentChocolatey();
+        health.Observe = calls => calls == 1 ? health.Report : throw new UnauthorizedAccessException("fixture observation failure");
+        ChoiceFixtures.Authority authority = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: authority);
+        Assert.IsNull((await new ChocolateySetupPreparation(workflow, TrustedWinget(), health, UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None)).Selection);
+        using CancellationTokenSource cancellation = new();
+        database.Local.OnScan = cancellation.Cancel;
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => new ChocolateySetupPreparation(workflow, TrustedWinget(), AbsentChocolatey(), UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(cancellation.Token));
+        Assert.HasCount(0, authority.Requests);
+    }
+
+    [TestMethod]
+    public async Task ValidCatalogCannotReplaceFixedReservedSetupIdentity()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        ChoiceFixtures.Authority authority = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: authority, catalogOverride: ChoiceFixtures.Catalog("Vendor.Other"));
+        Assert.IsNull((await new ChocolateySetupPreparation(workflow, TrustedWinget(), AbsentChocolatey(), UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None)).Selection);
+        Assert.HasCount(0, authority.Requests, "Validated display catalog data cannot redirect the fixed provider setup query.");
+    }
+
     private static ChoiceFixtures.Health TrustedWinget() => new(ChoiceFixtures.Report(CatalogProviderKind.WinGet, ProviderPresence.Present, ProviderTrust.Trusted));
     private static ChoiceFixtures.Health AbsentChocolatey() => new(ChoiceFixtures.Report(CatalogProviderKind.Chocolatey, ProviderPresence.Absent, ProviderTrust.Unknown));
 }

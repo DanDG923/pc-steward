@@ -130,11 +130,22 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
 
-    /// <summary>Inert Task 2 test-first seam for CRD-03 / FR-INS-02/04; no discovery or approval yet.</summary>
-    public Task<IReadOnlyList<InstallPreflightResult>> PrepareInstallChoicesAsync(string catalogEntryId, CatalogProviderKind? providerOverride, CancellationToken cancellationToken)
+    /// <summary>CRD-03 / FR-INS-02/04: discover live choices only after consent and reliable fresh absence.</summary>
+    public async Task<IReadOnlyList<InstallPreflightResult>> PrepareInstallChoicesAsync(string catalogEntryId, CatalogProviderKind? providerOverride, CancellationToken cancellationToken)
     {
-        _ = installChoices; // Keep the injected instance seam inert until the assertion-red gate.
-        return Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (installChoices is null || ChocolateySetupPreparation.IsReservedCatalogEntry(catalogEntryId)) return [];
+        (PersonalCatalog? composed, CatalogEntry? entry, CatalogProviderIdentity? provider, _) = await InstallContextAsync(catalogEntryId, providerOverride, cancellationToken).ConfigureAwait(false);
+        if (entry is null || provider is null || composed is null || !provider.Scopes.Any(scope => scope == CatalogScope.User || executionCapabilities.MachineScopeEnabled)) return [];
+        if (!await HasReliableInstallAbsenceAsync(composed, entry, null, cancellationToken).ConfigureAwait(false)) return [];
+        IReadOnlyList<InstallPreflightResult> choices = await installChoices.PreflightChoicesAsync(entry, provider, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return choices.Where(choice => choice is { IsActionable: true, Selection: { } selection } &&
+            MatchesInstallIdentity(selection, entry, provider) &&
+            (selection.Scope != UpdateScope.Machine || executionCapabilities.MachineScopeEnabled) &&
+            selection.Architecture is UpdateArchitecture.X64 or UpdateArchitecture.X86 or UpdateArchitecture.Neutral &&
+            (provider.Provider != CatalogProviderKind.Chocolatey || selection is { Scope: UpdateScope.Machine, Architecture: UpdateArchitecture.Neutral }))
+            .ToArray();
     }
 
     public Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearSourceMetadataAsync(cancellationToken);
@@ -410,50 +421,83 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
     /// The catalog only names the query; the provider must resolve it live and exactly (AC-V3-02). The default
     /// provider is used unless the user chose another listed provider. Installed apps are never reinstalled here.
     /// </summary>
-    public async Task<InstallSelectionPreparation> PrepareInstallSelectionAsync(string catalogEntryId, CatalogProviderKind? providerOverride, UpdateScope scope, UpdateArchitecture architecture, CancellationToken cancellationToken)
+    public Task<InstallSelectionPreparation> PrepareInstallSelectionAsync(string catalogEntryId, CatalogProviderKind? providerOverride, UpdateScope scope, UpdateArchitecture architecture, CancellationToken cancellationToken) =>
+        PrepareInstallSelectionCoreAsync(catalogEntryId, providerOverride, scope, architecture, null, cancellationToken);
+
+    // Only the fixed setup preparer can supply this live absence check. It is not an ordinary install option.
+    internal Task<InstallSelectionPreparation> PrepareChocolateySetupSelectionAsync(Func<CancellationToken, Task<bool>> confirmChocolateyAbsent, CancellationToken cancellationToken) =>
+        PrepareInstallSelectionCoreAsync(ChocolateySetupPreparation.CatalogEntryId, CatalogProviderKind.WinGet, UpdateScope.Machine, UpdateArchitecture.X86, confirmChocolateyAbsent, cancellationToken);
+
+    private async Task<InstallSelectionPreparation> PrepareInstallSelectionCoreAsync(string catalogEntryId, CatalogProviderKind? providerOverride, UpdateScope scope, UpdateArchitecture architecture, Func<CancellationToken, Task<bool>>? confirmChocolateyAbsent, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (installPreflight is null) return new(null, "Install preflight is not available in this build.");
-        if (string.IsNullOrWhiteSpace(catalogEntryId)) return new(null, "No catalog app was selected.");
+        if (ChocolateySetupPreparation.IsReservedCatalogEntry(catalogEntryId) && confirmChocolateyAbsent is null) return new(null, "Provider setup requires its separate reviewed preparation.");
+        if (scope is not (UpdateScope.User or UpdateScope.Machine) || architecture is not (UpdateArchitecture.X64 or UpdateArchitecture.X86 or UpdateArchitecture.Neutral)) return new(null, "The selected install scope or architecture is not supported on this PC.");
+        (PersonalCatalog? composed, CatalogEntry? entry, CatalogProviderIdentity? provider, string? failure) = await InstallContextAsync(catalogEntryId, providerOverride, cancellationToken).ConfigureAwait(false);
+        if (entry is null || provider is null || composed is null) return new(null, failure ?? "The app is not in the validated catalog.");
+        if (confirmChocolateyAbsent is not null && !ChocolateySetupPreparation.IsFixedSetupEntry(entry)) return new(null, "The reserved provider setup identity is invalid.");
+        if (!provider.Scopes.Contains(scope == UpdateScope.Machine ? CatalogScope.Machine : CatalogScope.User)) return new(null, "The catalog entry does not allow that install scope for this provider.");
+        if (scope == UpdateScope.Machine && !executionCapabilities.MachineScopeEnabled) return new(null, "Machine-scope installs are not available in this deployment.");
+        if (!await HasReliableInstallAbsenceAsync(composed, entry, confirmChocolateyAbsent, cancellationToken).ConfigureAwait(false)) return new(null, "Current installed inventory is incomplete or PC Steward detected this app on the PC. No install can be prepared.");
+
+        bool chocolatey = provider.Provider == CatalogProviderKind.Chocolatey;
+        InstallPreflightRequest request = new(entry.Id, chocolatey ? UpdateProvider.Chocolatey : UpdateProvider.WinGet,
+            chocolatey ? UpdateSource.ChocolateyCommunity : UpdateSource.WinGet, provider.PackageId, scope,
+            chocolatey ? UpdateArchitecture.Neutral : architecture, entry.Channel == CatalogChannel.Preview ? UpdateChannel.Preview : UpdateChannel.Stable);
+        InstallPreflightResult result = await installPreflight.PreflightAsync(request, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (result is { IsActionable: true, Selection: { } selection } && MatchesInstallIdentity(selection, entry, provider) &&
+            selection.Scope == request.Scope && (selection.Architecture == request.Architecture || selection.Architecture == UpdateArchitecture.Neutral) &&
+            (confirmChocolateyAbsent is null || (selection.Architecture == UpdateArchitecture.X86 && selection.PackageId == ChocolateySetupPreparation.PackageId)))
+            return new(result, "Fresh exact provider evidence is ready for your review.");
+        string rejection = result.IsActionable ? "selection-mismatch" : result.Reason;
+        return new(InstallPreflightResult.NotActionable(rejection), $"The provider did not return one exact, compatible, installable package ({rejection}). Nothing can be installed.");
+    }
+
+    private async Task<(PersonalCatalog? Catalog, CatalogEntry? Entry, CatalogProviderIdentity? Provider, string? Failure)> InstallContextAsync(string catalogEntryId, CatalogProviderKind? providerOverride, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(catalogEntryId)) return (null, null, null, "No catalog app was selected.");
         ConnectorState inventoryState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.InstalledInventoryConnector, false, cancellationToken).ConfigureAwait(false);
         ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.PackageSourcesConnector, false, cancellationToken).ConfigureAwait(false);
-        if (!TrustedSourceConnectorConsent.IsEnabled(inventoryState, sourceState)) return new(null, "Approved update sources are not enabled.");
+        if (!TrustedSourceConnectorConsent.IsEnabled(inventoryState, sourceState)) return (null, null, null, "Approved update sources are not enabled.");
 
         (PersonalCatalog? composed, _) = await ComposeCatalogAsync(cancellationToken).ConfigureAwait(false);
         CatalogEntry? entry = composed?.Entries.SingleOrDefault(candidate => string.Equals(candidate.Id, catalogEntryId, StringComparison.Ordinal));
-        if (entry is null) return new(null, "The app is not in the validated catalog.");
+        if (entry is null) return (null, null, null, "The app is not in the validated catalog.");
         CatalogProviderIdentity? provider = providerOverride is null ? entry.DefaultProvider : entry.Providers.FirstOrDefault(candidate => candidate.Provider == providerOverride);
-        if (provider is null) return new(null, "The catalog entry does not list that provider.");
-        if (!provider.Scopes.Contains(scope == UpdateScope.Machine ? CatalogScope.Machine : CatalogScope.User)) return new(null, "The catalog entry does not allow that install scope for this provider.");
-        if (scope == UpdateScope.Machine && !executionCapabilities.MachineScopeEnabled) return new(null, "Machine-scope installs are not available in this deployment.");
+        return provider is null ? (null, null, null, "The catalog entry does not list that provider.") : (composed, entry, provider, null);
+    }
 
-        if (hasCurrentLocalInventoryProviders)
+    private async Task<bool> HasReliableInstallAbsenceAsync(PersonalCatalog composed, CatalogEntry entry, Func<CancellationToken, Task<bool>>? confirmChocolateyAbsent, CancellationToken cancellationToken)
+    {
+        if (!hasCurrentLocalInventoryProviders) return false;
+        ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!currentInventory.Succeeded) return false;
+        if (currentInventory.Warnings.Count != 0)
         {
-            ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
-            if (!currentInventory.Succeeded) return new(null, "Current installed inventory is unavailable. No install can be prepared.");
+            if (confirmChocolateyAbsent is null || !ChocolateySetupPreparation.IsReservedCatalogEntry(entry.Id) ||
+                currentInventory.Warnings.Any(warning => warning is not ("Chocolatey installed inventory:disabled" or "Chocolatey installed inventory:chocolatey:executable-unavailable"))) return false;
+            // These native warning codes are ambiguous. Only a repeated positive observation can distinguish absence.
+            if (!await confirmChocolateyAbsent(cancellationToken).ConfigureAwait(false)) return false;
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         // Any detection, even a weak one, blocks an install: the app may already be here (FR-INS-06).
-        if (PersonalCatalogMatching.Match(composed!, products, instances).Any(match => match.Detection.EntryIds.Contains(entry.Id, StringComparer.Ordinal)))
-        {
-            return new(null, "PC Steward detected this app on the PC. Installed apps are updated, not reinstalled.");
-        }
-
-        bool chocolatey = provider.Provider == CatalogProviderKind.Chocolatey;
-        InstallPreflightRequest request = new(
-            entry.Id,
-            chocolatey ? UpdateProvider.Chocolatey : UpdateProvider.WinGet,
-            provider.Source == CatalogSource.ChocolateyCommunity ? UpdateSource.ChocolateyCommunity : UpdateSource.WinGet,
-            provider.PackageId,
-            scope,
-            chocolatey ? UpdateArchitecture.Neutral : architecture,
-            entry.Channel == CatalogChannel.Preview ? UpdateChannel.Preview : UpdateChannel.Stable);
-        InstallPreflightResult result = await installPreflight.PreflightAsync(request, cancellationToken).ConfigureAwait(false);
-        return result.IsActionable
-            ? new(result, "Fresh exact provider evidence is ready for your review.")
-            : new(result, $"The provider did not return one exact, compatible, installable package ({result.Reason}). Nothing can be installed.");
+        cancellationToken.ThrowIfCancellationRequested();
+        return !PersonalCatalogMatching.Match(composed, products, instances).Any(match => match.Detection.EntryIds.Contains(entry.Id, StringComparer.Ordinal));
     }
+
+    private static bool MatchesInstallIdentity(UpdateJobSelection selection, CatalogEntry entry, CatalogProviderIdentity provider) =>
+        selection.Operation == PackageOperationKind.Install && selection.StableProductKey == entry.Id &&
+        selection.Provider == (provider.Provider == CatalogProviderKind.Chocolatey ? UpdateProvider.Chocolatey : UpdateProvider.WinGet) &&
+        selection.Source == (provider.Source == CatalogSource.ChocolateyCommunity ? UpdateSource.ChocolateyCommunity : UpdateSource.WinGet) &&
+        string.Equals(selection.PackageId, provider.PackageId, StringComparison.OrdinalIgnoreCase) &&
+        selection.Channel == (entry.Channel == CatalogChannel.Preview ? UpdateChannel.Preview : UpdateChannel.Stable) &&
+        provider.Scopes.Contains(selection.Scope == UpdateScope.Machine ? CatalogScope.Machine : CatalogScope.User);
 
     /// <summary>
     /// User-confirmed mappings first; then personal-catalog mappings (ADR-023) for products the user has not

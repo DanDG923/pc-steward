@@ -152,6 +152,89 @@ public sealed class InstallChoiceTests
         Assert.HasCount(0, await new ChocolateyInstallChoiceAuthority(live, health).PreflightChoicesAsync(entry, entry.DefaultProvider, CancellationToken.None));
         Assert.HasCount(0, live.Requests);
     }
+
+    [TestMethod]
+    public async Task ComApplicableNeutralChoiceCanBeRevalidatedAndBuiltWithoutArchitectureAdaptation()
+    {
+        CatalogEntry entry = ChoiceFixtures.Catalog().Entries.Single(item => item.Id == "pcs:tool");
+        ChoiceFixtures.Query query = new();
+        IReadOnlyList<InstallPreflightResult> choices = await new WingetInstallChoiceAuthority(query, TimeSpan.FromSeconds(1)).PreflightChoicesAsync(entry, entry.DefaultProvider, CancellationToken.None);
+        Assert.HasCount(1, choices);
+        UpdateJobSelection selection = choices[0].Selection!;
+        Assert.AreEqual(UpdateArchitecture.Neutral, selection.Architecture);
+        Assert.AreEqual(3, query.Calls);
+        Assert.IsTrue(query.Peak <= 2);
+        ImmutableUpdateJob approved = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), selection).Confirm(DateTimeOffset.UtcNow);
+        InstallPreflightResult fresh = await new WingetInstallPreflightAuthority(query, TimeSpan.FromSeconds(1)).PreflightAsync(InstallPreflightRequest.ForApprovedJob(approved), CancellationToken.None);
+        Assert.IsTrue(approved.Matches(fresh.AsExecutionEvidence()!));
+        CollectionAssert.Contains(WingetInstallExecutor.BuildInstallArguments(approved, fresh.AsExecutionEvidence()!).ToArray(), "neutral");
+    }
+
+    [TestMethod]
+    public async Task NoLocalProvidersCannotTreatSavedEmptyInventoryAsReliableAbsence()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        ChoiceFixtures.Authority preflight = new(ChoiceFixtures.Ready);
+        ChoiceFixtures.Choices choices = new();
+        using InventoryWorkflow workflow = database.Workflow(preflight, choices, providers: []);
+        Assert.HasCount(0, await workflow.PrepareInstallChoicesAsync("pcs:tool", null, CancellationToken.None));
+        Assert.IsNull((await workflow.PrepareInstallSelectionAsync("pcs:tool", null, UpdateScope.Machine, UpdateArchitecture.X64, CancellationToken.None)).Selection);
+        Assert.HasCount(0, choices.Providers);
+        Assert.HasCount(0, preflight.Requests);
+    }
+
+    [TestMethod]
+    public async Task ReservedSetupCannotReachOrdinaryChoiceOrFinalSelection()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        ChoiceFixtures.Authority preflight = new(ChoiceFixtures.Ready);
+        ChoiceFixtures.Choices choices = new();
+        using InventoryWorkflow workflow = database.Workflow(preflight, choices);
+        Assert.HasCount(0, await workflow.PrepareInstallChoicesAsync(ChocolateySetupPreparation.CatalogEntryId, null, CancellationToken.None));
+        Assert.IsNull((await workflow.PrepareInstallSelectionAsync(ChocolateySetupPreparation.CatalogEntryId, null, UpdateScope.Machine, UpdateArchitecture.X86, CancellationToken.None)).Selection);
+        Assert.HasCount(0, preflight.Requests);
+        Assert.HasCount(0, choices.Providers);
+    }
+
+    [TestMethod]
+    public async Task TimedOutComCallsRetainTheTwoQueryBoundUntilTheyExit()
+    {
+        CatalogEntry entry = ChoiceFixtures.Catalog().Entries.Single(item => item.Id == "pcs:tool");
+        ChoiceFixtures.HangingQuery query = new();
+        WingetInstallChoiceAuthority authority = new(query, TimeSpan.FromMilliseconds(500));
+        try
+        {
+            Task<IReadOnlyList<InstallPreflightResult>> first = authority.PreflightChoicesAsync(entry, entry.DefaultProvider, CancellationToken.None);
+            await query.TwoStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.HasCount(0, await first);
+            Assert.HasCount(0, await authority.PreflightChoicesAsync(entry, entry.DefaultProvider, CancellationToken.None));
+            Assert.AreEqual(2, query.Calls, "An abandoned, unresponsive COM query must not free a discovery slot.");
+            Assert.AreEqual(2, query.Peak);
+        }
+        finally
+        {
+            query.Release.TrySetResult();
+            await query.Completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [TestMethod]
+    public async Task OptionalMissingChocolateyWarningDoesNotAuthorizeOrdinaryInstalls()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        database.Local.Name = "Chocolatey installed inventory";
+        database.Local.Result = new([], [], [], ["chocolatey:executable-unavailable"]);
+        ChoiceFixtures.Authority preflight = new(ChoiceFixtures.Ready);
+        ChoiceFixtures.Choices choices = new();
+        using InventoryWorkflow workflow = database.Workflow(preflight, choices);
+        Assert.HasCount(0, await workflow.PrepareInstallChoicesAsync("pcs:tool", null, CancellationToken.None));
+        Assert.IsNull((await workflow.PrepareInstallSelectionAsync("pcs:tool", null, UpdateScope.Machine, UpdateArchitecture.X64, CancellationToken.None)).Selection);
+        Assert.HasCount(0, preflight.Requests);
+        Assert.HasCount(0, choices.Providers);
+    }
 }
 
 /// <summary>Shared fake-only Task 2 fixtures; no provider/client/executor/launcher is composed.</summary>
@@ -170,9 +253,9 @@ internal static class ChoiceFixtures
     ] }
     """;
 
-    public static PersonalCatalog Catalog()
+    public static PersonalCatalog Catalog(string? setupPackageId = null)
     {
-        CatalogLoadResult loaded = CatalogValidator.Validate(Encoding.UTF8.GetBytes(CatalogJson));
+        CatalogLoadResult loaded = CatalogValidator.Validate(Encoding.UTF8.GetBytes(setupPackageId is null ? CatalogJson : CatalogJson.Replace("Chocolatey.Chocolatey", setupPackageId, StringComparison.Ordinal)));
         Assert.IsTrue(loaded.IsLoaded, string.Join(", ", loaded.Errors));
         return loaded.Catalog!;
     }
@@ -235,16 +318,60 @@ internal static class ChoiceFixtures
     {
         public ProviderHealthReport Report { get; set; } = report;
         public int Calls { get; private set; }
-        public Task<ProviderHealthReport> ProbeAsync(CancellationToken cancellationToken) { Calls++; return Task.FromResult(Report); }
+        public Func<int, ProviderHealthReport>? Observe { get; set; }
+        public Task<ProviderHealthReport> ProbeAsync(CancellationToken cancellationToken) { Calls++; return Task.FromResult(Observe?.Invoke(Calls) ?? Report); }
+    }
+
+    internal sealed class Query : IWinGetInstallCatalogQuery
+    {
+        private int active;
+        private int calls;
+        private readonly object sync = new();
+        public int Calls => calls;
+        public int Peak { get; private set; }
+        public async Task<WinGetInstallObservation?> QueryAsync(string packageId, string? expectedVersion, UpdateScope scope, UpdateArchitecture architecture, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref calls);
+            int count = Interlocked.Increment(ref active);
+            lock (sync) Peak = Math.Max(Peak, count);
+            try
+            {
+                await Task.Delay(20, cancellationToken);
+                return new("winget", true, true, true, 1, false, packageId, false, expectedVersion ?? "2.0.0", "winget", null, new(scope, UpdateArchitecture.Neutral, InstallerElevation.Unknown, "Exe"), []);
+            }
+            finally { Interlocked.Decrement(ref active); }
+        }
+    }
+
+    internal sealed class HangingQuery : IWinGetInstallCatalogQuery
+    {
+        private int active;
+        private int calls;
+        private readonly object sync = new();
+        public int Calls => calls;
+        public int Peak { get; private set; }
+        public TaskCompletionSource TwoStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<WinGetInstallObservation?> QueryAsync(string packageId, string? expectedVersion, UpdateScope scope, UpdateArchitecture architecture, CancellationToken cancellationToken)
+        {
+            int call = Interlocked.Increment(ref calls);
+            int count = Interlocked.Increment(ref active);
+            lock (sync) Peak = Math.Max(Peak, count);
+            if (call == 2) TwoStarted.TrySetResult();
+            try { await Release.Task; return null; } // Deliberately models COM ignoring cancellation; never a real provider.
+            finally { if (Interlocked.Decrement(ref active) == 0) Completed.TrySetResult(); }
+        }
     }
 
     internal sealed class Local : ILocalInventoryProvider
     {
-        public string Name => "fixture-local";
+        public string Name { get; set; } = "fixture-local";
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public ProviderScanResult Result { get; set; } = new([], [], [], []);
         public int Scans { get; private set; }
-        public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { Scans++; return Task.FromResult(Result); }
+        public Action? OnScan { get; set; }
+        public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { Scans++; OnScan?.Invoke(); return Task.FromResult(Result); }
     }
 
     internal sealed class Database : IAsyncDisposable
@@ -265,8 +392,8 @@ internal static class ChoiceFixtures
             [TrustedSourceConnectorConsent.InstalledInventoryConnector] = new(true, true),
             [TrustedSourceConnectorConsent.PackageSourcesConnector] = new(true, true)
         }, CancellationToken.None);
-        public InventoryWorkflow Workflow(IInstallPreflightAuthority? preflight = null, IInstallChoiceAuthority? choices = null, UpdateExecutionCapabilities? capabilities = null, bool catalogAvailable = true) =>
-            new(Store, Store, Store, [Local], decisions: Store, executionCapabilities: capabilities, catalog: catalogAvailable ? Catalog() : null, userCatalog: Store, installPreflight: preflight, installChoices: choices);
+        public InventoryWorkflow Workflow(IInstallPreflightAuthority? preflight = null, IInstallChoiceAuthority? choices = null, UpdateExecutionCapabilities? capabilities = null, bool catalogAvailable = true, IReadOnlyCollection<ILocalInventoryProvider>? providers = null, PersonalCatalog? catalogOverride = null) =>
+            new(Store, Store, Store, providers ?? [Local], decisions: Store, executionCapabilities: capabilities, catalog: catalogAvailable ? catalogOverride ?? Catalog() : null, userCatalog: Store, installPreflight: preflight, installChoices: choices);
         public ValueTask DisposeAsync() { SqliteConnection.ClearAllPools(); File.Delete(path); return ValueTask.CompletedTask; }
     }
 }

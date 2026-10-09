@@ -31,7 +31,7 @@ public sealed partial class WingetInstallPreflightAuthority : IInstallPreflightA
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.Provider != UpdateProvider.WinGet || request.Source != UpdateSource.WinGet) return InstallPreflightResult.NotActionable("provider-source-not-supported");
-        if (request.Architecture is not (UpdateArchitecture.X64 or UpdateArchitecture.X86 or UpdateArchitecture.Arm64)) return InstallPreflightResult.NotActionable("architecture-not-supported");
+        if (request.Architecture is not (UpdateArchitecture.X64 or UpdateArchitecture.X86 or UpdateArchitecture.Arm64 or UpdateArchitecture.Neutral)) return InstallPreflightResult.NotActionable("architecture-not-supported");
         if (!PackageId().IsMatch(request.PackageId)) return InstallPreflightResult.NotActionable("package-id-invalid");
         if (request.ExpectedVersion is not null && !Version().IsMatch(request.ExpectedVersion)) return InstallPreflightResult.NotActionable("version-invalid");
         cancellationToken.ThrowIfCancellationRequested();
@@ -92,7 +92,7 @@ public sealed partial class WingetInstallPreflightAuthority : IInstallPreflightA
                 observation.PackageId,
                 observation.Version,
                 request.Scope,
-                request.Architecture,
+                installer.Architecture,
                 UpdateChannel.Stable,
                 EvidenceVersion,
                 agreementHash,
@@ -230,6 +230,7 @@ internal sealed class WinGetComInstallCatalogQuery : IWinGetInstallCatalogQuery
         UpdateArchitecture.X64 => Windows.System.ProcessorArchitecture.X64,
         UpdateArchitecture.X86 => Windows.System.ProcessorArchitecture.X86,
         UpdateArchitecture.Arm64 => Windows.System.ProcessorArchitecture.Arm64,
+        UpdateArchitecture.Neutral => Windows.System.ProcessorArchitecture.Neutral,
         _ => throw new ArgumentOutOfRangeException(nameof(architecture))
     };
 
@@ -297,6 +298,7 @@ public sealed class WingetInstallExecutor
         UpdateArchitecture.X64 => "x64",
         UpdateArchitecture.X86 => "x86",
         UpdateArchitecture.Arm64 => "arm64",
+        UpdateArchitecture.Neutral => "neutral",
         _ => throw new ArgumentOutOfRangeException(nameof(architecture))
     };
 }

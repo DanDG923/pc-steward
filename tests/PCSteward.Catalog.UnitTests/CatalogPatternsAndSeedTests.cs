@@ -26,6 +26,9 @@ public sealed class CatalogPatternsAndSeedTests
         CollectionAssert.AreEqual(new[] { CatalogScope.Machine }, setup.DefaultProvider.Scopes.ToArray());
         Assert.AreEqual(CatalogChannel.Stable, setup.Channel);
         Assert.IsFalse(setup.AutomationAllowed);
+        // Starter suggestions are catalog data, not owner-approved membership; one reserved setup is additional.
+        Assert.AreEqual(20, loaded.Catalog.Entries.Count(entry => entry.Id != setup.Id));
+        Assert.AreEqual(21, loaded.Catalog.Entries.Count);
         CatalogCompositionResult composed = CatalogValidator.Compose(loaded.Catalog, []);
         Assert.IsTrue(composed.Catalog.Entries.Any(entry => entry.Id == setup.Id));
     }

@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 51 - curated manual release (Task 1 code/review/CI gates passed; Task 2 test-first preparation)
+**Current task:** Task 51 - curated manual release (Task 1 code/review/CI gates passed; Task 2 production implementation after compiling expected-red)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
@@ -21,6 +21,12 @@
 **Earlier candidate build blocker (resolved):** Windows CI [37994976065](https://github.com/DanDG923/pc-steward/actions/runs/37994976065), candidate `03adbd0325112ecbf7b6477d713bff94bb39cdcb`, job `114038578802`: restore passed; build failed only CA1859 at `WingetProviderHealthProbe.cs(74,42)` for the private `SnapshotSources` return type. Tests were skipped; that run supplied no candidate executable evidence. A minimal repair changed only the private return declaration to `ReadOnlyCollection<string>`, preserving the public report contract and immutable snapshot behavior.
 
 **Repaired candidate CI:** Windows CI [37995533489](https://github.com/DanDG923/pc-steward/actions/runs/37995533489), `cbf2edc1bb769a5b8ccf6751e90f4ff286135d14`, job `114040473719`: build passed with 0 warnings/errors; Application 329, Catalog 96, Domain 87 and Security 72 passed. Architecture 36 passed / 1 failed / 0 skipped (37 total); total 620 passed / 1 failed / 0 skipped (621 total). The existing resolver-order architecture guard searched the whole source file and matched health discovery's earlier package-catalog read. The unchanged trusted resolver still rejects the canonical WindowsApps root before its catalog read. A narrow guard repair scopes its existing ordering/catalog/no-root-enumeration assertions to that resolver body; that incomplete run was followed by the passing full suite and scoped review recorded above.
+
+## Curated manual Task 2 - setup and live install choices (2026-10-09)
+
+**Requirements:** CRD-03/08; FR-PRV-02/04; FR-INS-02/03. Expected-red checkpoint `81507fe494e8fc11c933c4fa427a8849baf19c90`, [Windows CI 37998087294](https://github.com/DanDG923/pc-steward/actions/runs/37998087294), job `114049127955`: restore/build clean with zero warnings/errors; Architecture 38, Catalog 96, Domain 87, Security 72 and Application 339 passed; exactly one new Catalog reserved-entry assertion and ten new Application behavior assertions failed; total 632 passed / 11 intended failed / 0 skipped. All other baseline/control cases passed. Earlier checkpoint `c2027ed` stopped at three CA1822 scaffold errors and supplied no assertion evidence; inert dependency/signature repair retained the behavior regressions.
+
+Production implementation is in progress after the controller checked every failure. Independent review and green CI are pending. Setup is limited to exact reviewed Machine/X86 WinGet `Chocolatey.Chocolatey`, positive fresh Chocolatey absence, saved consent, trusted current WinGet and machine capability. Warning-bearing local inventory remains unsafe absence unless the reserved setup path independently repeats positive absence for only the exact optional Chocolatey warnings; unrelated or uncertain warning evidence must still refuse. No successful local/focused test pass, real setup/provider action, UAC or installed-app change is claimed.
 
 ## Task 49 safety follow-up — start boundaries (2026-10-09)
 

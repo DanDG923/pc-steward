@@ -11,7 +11,7 @@ Local `dotnet --list-sdks` is empty. No local product build/test pass is claimed
 | Task | Deliverable | Status / evidence |
 |---|---|---|
 | 1 | Typed provider health and strict probes | Code/review/CI gates passed at `b96a5485`; [CI 37996153500](https://github.com/DanDG923/pc-steward/actions/runs/37996153500): clean build, 621 passed / 0 failed / 0 skipped. Scoped repair review approved. Minor M1 late trust-exception cancellation-reporting behavior recorded for final triage; native timing and later stale UI retention unverified. |
-| 2 | Reviewed Chocolatey setup and install choices | Expected-red checkpoint `c2027ed`: CI 37997588078 restored, build stopped on three CA1822 scaffold errors; tests skipped. Inert instance-seam correction prepared; clean build/assertion evidence and production pending. |
+| 2 | Reviewed Chocolatey setup and install choices | Expected-red confirmed at `81507fe4`: [CI 37998087294](https://github.com/DanDG923/pc-steward/actions/runs/37998087294) clean build, 632 passed / 11 intended assertion failures / 0 skipped. Production implementation in progress; independent review and green CI pending. |
 | 3 | Additive membership and removal | Pending |
 | 4 | Curated snapshots and decision association | Pending |
 | 5 | Temporary queue and updates-only selection | Pending |

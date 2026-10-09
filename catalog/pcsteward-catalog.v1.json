@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026.10.08.1",
+  "catalogVersion": "2026.10.09.2",
   "entries": [
     {
       "id": "pcs:firefox",
@@ -670,6 +670,31 @@
       "processNames": [
         "gimp.exe"
       ]
+    },
+    {
+      "id": "pcs:chocolatey-setup",
+      "name": "Chocolatey setup",
+      "publisher": "Chocolatey Software",
+      "category": "Utilities",
+      "providers": [
+        {
+          "provider": "winget",
+          "source": "winget",
+          "packageId": "Chocolatey.Chocolatey",
+          "scopes": [
+            "machine"
+          ],
+          "default": true
+        }
+      ],
+      "detection": {
+        "arpDisplayName": "^Chocolatey( [0-9.]{1,32})?$",
+        "arpPublisher": "^Chocolatey Software(, Inc\\.)?$"
+      },
+      "flags": {
+        "channel": "Stable",
+        "automationAllowed": false
+      }
     }
   ]
 }

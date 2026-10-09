@@ -74,13 +74,21 @@ public interface IInstallChoiceAuthority
     Task<IReadOnlyList<InstallPreflightResult>> PreflightChoicesAsync(CatalogEntry entry, CatalogProviderIdentity provider, CancellationToken cancellationToken);
 }
 
-/// <summary>Inert Task 2 test-first seam; provider routing is implemented after the assertion-red gate.</summary>
+/// <summary>Routes only the catalog-listed provider; an unconfigured provider offers no choices.</summary>
 public sealed class CompositeInstallChoiceAuthority : IInstallChoiceAuthority
 {
-    public CompositeInstallChoiceAuthority(IReadOnlyDictionary<CatalogProviderKind, IInstallChoiceAuthority> authorities) => ArgumentNullException.ThrowIfNull(authorities);
+    private readonly IReadOnlyDictionary<CatalogProviderKind, IInstallChoiceAuthority> authorities;
+    public CompositeInstallChoiceAuthority(IReadOnlyDictionary<CatalogProviderKind, IInstallChoiceAuthority> authorities) => this.authorities = authorities ?? throw new ArgumentNullException(nameof(authorities));
 
-    public Task<IReadOnlyList<InstallPreflightResult>> PreflightChoicesAsync(CatalogEntry entry, CatalogProviderIdentity provider, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
+    public Task<IReadOnlyList<InstallPreflightResult>> PreflightChoicesAsync(CatalogEntry entry, CatalogProviderIdentity provider, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(provider);
+        cancellationToken.ThrowIfCancellationRequested();
+        return entry.Providers.Contains(provider) && authorities.TryGetValue(provider.Provider, out IInstallChoiceAuthority? authority)
+            ? authority.PreflightChoicesAsync(entry, provider, cancellationToken)
+            : Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
+    }
 }
 
 /// <summary>Routes a request to the authority for its provider; an unconfigured provider is not actionable.</summary>

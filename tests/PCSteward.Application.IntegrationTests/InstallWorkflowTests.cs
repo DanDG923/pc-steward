@@ -149,7 +149,8 @@ public sealed class InstallWorkflowTests
 
     private static InventoryWorkflow Workflow(TestDatabase database, IReadOnlyCollection<ProviderScanResult> scans, IInstallPreflightAuthority? authority, UpdateExecutionCapabilities? capabilities = null)
     {
-        ILocalInventoryProvider[] providers = scans.Count == 0 ? [] : [new FixedProvider(new([.. scans.SelectMany(scan => scan.Products)], [.. scans.SelectMany(scan => scan.Instances)], [], []))];
+        // CRD-03: even an empty installed inventory must come from a fresh, complete local observation.
+        ILocalInventoryProvider[] providers = [new FixedProvider(new([.. scans.SelectMany(scan => scan.Products)], [.. scans.SelectMany(scan => scan.Instances)], [], []))];
         return new(database.Store, database.Store, database.Store, providers, decisions: database.Store, executionCapabilities: capabilities, catalog: Catalog(), userCatalog: database.Store, installPreflight: authority);
     }
 

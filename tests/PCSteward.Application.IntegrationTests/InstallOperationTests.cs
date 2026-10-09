@@ -102,6 +102,7 @@ public sealed class InstallOperationTests
         Assert.IsTrue(required.Selection!.RunsElevated);
         Assert.IsFalse(unknownScope.Selection!.RunsElevated);
         Assert.IsTrue(neutral.IsActionable);
+        Assert.AreEqual(UpdateArchitecture.Neutral, neutral.Selection!.Architecture, "Task 2 FR-INS-04: retain live applicable Neutral instead of host architecture.");
         Assert.AreEqual("elevation-prohibited-for-machine-scope", prohibitedMachine.Reason);
     }
 
@@ -110,7 +111,7 @@ public sealed class InstallOperationTests
     {
         WingetInstallPreflightAuthority authority = new(new ThrowingQuery(), TimeSpan.FromSeconds(1));
         Assert.AreEqual("provider-source-not-supported", (await authority.PreflightAsync(WingetRequest() with { Source = UpdateSource.MicrosoftStore }, CancellationToken.None)).Reason);
-        Assert.AreEqual("architecture-not-supported", (await authority.PreflightAsync(WingetRequest() with { Architecture = UpdateArchitecture.Neutral }, CancellationToken.None)).Reason);
+        Assert.AreEqual("architecture-not-supported", (await authority.PreflightAsync(WingetRequest() with { Architecture = (UpdateArchitecture)(-1) }, CancellationToken.None)).Reason);
         Assert.AreEqual("package-id-invalid", (await authority.PreflightAsync(WingetRequest() with { PackageId = "Vendor.App & calc" }, CancellationToken.None)).Reason);
         Assert.AreEqual("version-invalid", (await authority.PreflightAsync(WingetRequest() with { ExpectedVersion = "1.0 --force" }, CancellationToken.None)).Reason);
     }
