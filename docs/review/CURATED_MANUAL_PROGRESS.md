@@ -10,7 +10,7 @@ Local `dotnet --list-sdks` is empty. No local product build/test pass is claimed
 
 | Task | Deliverable | Status / evidence |
 |---|---|---|
-| 1 | Typed provider health and strict probes | Expected-red checkpoint ready: inert compiling probes plus 14 fake-only cases; Windows build/assertion evidence and implementation pending. No behavior is described as complete. |
+| 1 | Typed provider health and strict probes | Expected-red checkpoint at `6e571b9`: inert probes and 14 fake-only cases. [Windows CI run 37993036700](https://github.com/DanDG923/pc-steward/actions/runs/37993036700) restored successfully; build failed one CA1861 analyzer error, so tests were skipped. Test-only correction prepared; assertion-level red and production implementation pending. |
 | 2 | Reviewed Chocolatey setup and install choices | Pending |
 | 3 | Additive membership and removal | Pending |
 | 4 | Curated snapshots and decision association | Pending |

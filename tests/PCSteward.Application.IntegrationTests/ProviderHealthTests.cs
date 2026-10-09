@@ -9,6 +9,7 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class ProviderHealthTests
 {
     private static readonly DateTimeOffset CheckedAt = new(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
+    private static readonly string[] ExpectedChocolateyProbeCalls = ["discover", "validate", "version", "sources"];
 
     [TestMethod]
     public async Task AbsentRequiresPositiveFilesystemEvidence()
@@ -99,7 +100,7 @@ public sealed class ProviderHealthTests
         ProviderHealthReport report = await Chocolatey(fakeClient).ProbeAsync(CancellationToken.None);
         Assert.IsTrue(fakeClient.StrictDiscoveryRequested);
         Assert.IsTrue(fakeClient.StrictRevalidationRequested);
-        CollectionAssert.AreEqual(new[] { "discover", "validate", "version", "sources" }, fakeClient.Calls.ToArray());
+        CollectionAssert.AreEqual(ExpectedChocolateyProbeCalls, fakeClient.Calls.ToArray());
         Assert.AreEqual(ProviderTrust.Trusted, report.Trust);
         Assert.AreEqual("2.6.0", report.Version);
         Assert.AreEqual(ProviderProbeState.Current, report.State);
