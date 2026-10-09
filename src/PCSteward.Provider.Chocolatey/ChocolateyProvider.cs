@@ -225,11 +225,14 @@ internal sealed class WindowsChocolateyProcess : IChocolateyProcess
 }
 
 internal sealed record ChocolateyClientIdentity(string Path, byte[] Digest);
+internal sealed record ChocolateyHealthDiscovery(ProviderPresence Presence, ProviderTrust Trust, ChocolateyClientIdentity? Client);
 internal sealed record ChocolateyClientTrustEvidence(bool FixedCanonicalPath, bool NoReparseComponents, bool CallerCannotModifyLayout, bool SignatureTrusted, bool ExactSigner);
 
 /// <summary>Accepts only Chocolatey's signed client at the canonical, protected machine root; PATH aliases and reparse points are denied.</summary>
 internal static class MachineTrustedChocolatey
 {
+    internal static ProviderPresence ObserveClientPresence(Func<IReadOnlyList<string>> enumerateCanonicalDirectory) => ProviderPresence.Unknown;
+
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
     private const string ExpectedSignerSimpleName = "Chocolatey Software, Inc";
     private static readonly uint[] FileModificationRights = [0x00000002, 0x00000004, 0x00000010, 0x00000100, 0x00010000, 0x00040000, 0x00080000];

@@ -508,8 +508,12 @@ internal sealed class WindowsWingetProcess : IWingetProcess
 
 /// <summary>Resolves only the Microsoft-signed App Installer binary registered by the current user's Windows package catalog.
 /// Current-user aliases, PATH lookup, reparse points, unsigned binaries and unexpected signers are denied.</summary>
+internal sealed record WingetHealthDiscovery(ProviderPresence Presence, ProviderTrust Trust, string? Executable);
+
 internal static class MachineTrustedWinget
 {
+    internal static ProviderPresence ObserveClientPresence(Func<IReadOnlyList<string>> enumerateCanonicalDirectory) => ProviderPresence.Unknown;
+
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
     internal static string ResolveExecutable()
