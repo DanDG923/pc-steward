@@ -328,16 +328,16 @@ public static class WingetExitCodes
 
     public static ProviderExitAssessment Classify(int exitCode) => exitCode switch
     {
-        0 => new(UpdateProviderAttemptStatus.AwaitingVerification, false, "provider-completed; verification-required"),
-        RestartRequiredToFinish or RestartRequiredForInstall or RestartInitiated => new(UpdateProviderAttemptStatus.AwaitingVerification, true, "provider-reported-restart-required; verification-required"),
+        0 => new(UpdateProviderAttemptStatus.AwaitingVerification, false, "provider-completed; verification-required", exitCode),
+        RestartRequiredToFinish or RestartRequiredForInstall or RestartInitiated => new(UpdateProviderAttemptStatus.AwaitingVerification, true, "provider-reported-restart-required; verification-required", exitCode),
         // The installed state is what verification proves; "already installed" is never Success by itself.
-        AlreadyInstalled or PackageAlreadyInstalled => new(UpdateProviderAttemptStatus.AwaitingVerification, false, "provider-reported-already-installed; verification-required"),
-        PackageInUse or FileInUse => new(UpdateProviderAttemptStatus.InstallerFailed, false, "package-or-file-in-use"),
-        PackageAgreementsNotAccepted => new(UpdateProviderAttemptStatus.ProductFailed, false, "package-agreements-not-accepted"),
-        SourceAgreementsNotAccepted => new(UpdateProviderAttemptStatus.SourceFailed, false, "source-agreements-not-accepted"),
-        NoApplicableInstaller or NoApplicableUpdate => new(UpdateProviderAttemptStatus.ProductFailed, false, "no-applicable-installer"),
-        Downgrade => new(UpdateProviderAttemptStatus.ProductFailed, false, "downgrade-refused"),
-        InstallerHashMismatch => new(UpdateProviderAttemptStatus.DownloadFailed, false, "installer-hash-mismatch"),
-        _ => new(UpdateProviderAttemptStatus.InstallerFailed, false, "provider-exit-0x" + exitCode.ToString("X8", System.Globalization.CultureInfo.InvariantCulture))
+        AlreadyInstalled or PackageAlreadyInstalled => new(UpdateProviderAttemptStatus.AwaitingVerification, false, "provider-reported-already-installed; verification-required", exitCode),
+        PackageInUse or FileInUse => new(UpdateProviderAttemptStatus.InstallerFailed, false, "package-or-file-in-use", exitCode),
+        PackageAgreementsNotAccepted => new(UpdateProviderAttemptStatus.ProductFailed, false, "package-agreements-not-accepted", exitCode),
+        SourceAgreementsNotAccepted => new(UpdateProviderAttemptStatus.SourceFailed, false, "source-agreements-not-accepted", exitCode),
+        NoApplicableInstaller or NoApplicableUpdate => new(UpdateProviderAttemptStatus.ProductFailed, false, "no-applicable-installer", exitCode),
+        Downgrade => new(UpdateProviderAttemptStatus.ProductFailed, false, "downgrade-refused", exitCode),
+        InstallerHashMismatch => new(UpdateProviderAttemptStatus.DownloadFailed, false, "installer-hash-mismatch", exitCode),
+        _ => new(UpdateProviderAttemptStatus.InstallerFailed, false, "provider-exit-0x" + exitCode.ToString("X8", System.Globalization.CultureInfo.InvariantCulture), exitCode)
     };
 }

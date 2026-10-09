@@ -20,7 +20,9 @@ public enum UpdateHistoryStatus
     ElevationDenied,
     TimedOut,
     VerificationFailed,
-    ProductFailed
+    ProductFailed,
+    /// <summary>Not attempted: a running app, failed revalidation or expiry (FR-BAT-07, FR-BAT-08).</summary>
+    Skipped
 }
 
 /// <summary>Append-only update history. It contains presentation-safe diagnostics only.</summary>
@@ -61,7 +63,9 @@ public enum UpdateProviderAttemptStatus
     InstallerFailed,
     ElevationDenied,
     TimedOut,
-    ProductFailed
+    ProductFailed,
+    /// <summary>The item was not attempted because revalidation or the running-app policy stopped it.</summary>
+    Skipped
 }
 
 /// <summary>Structured provider evidence; no process authority or command data crosses this boundary.</summary>

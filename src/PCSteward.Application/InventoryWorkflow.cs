@@ -73,7 +73,7 @@ public sealed class CompositeStructuredUpdateCandidateAuthority(IEnumerable<IStr
 }
 
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
-public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
+public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOperationRevalidator
 {
     private readonly IInventorySnapshotStore snapshots;
     private readonly IScanDataStore scanData;
@@ -353,6 +353,24 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyDictionary<string, ProductUpdatePolicy> policies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<DeclaredPackageMapping> mappings = (await DeclaredMappingsAsync(products, instances, policies, cancellationToken).ConfigureAwait(false)).Mappings;
         return UpdateIntelligence.Assess(CreateProfiles(products, instances), sourceSnapshots, mappings, policies);
+    }
+
+    /// <summary>
+    /// Desktop revalidation immediately before an approved operation starts (ADR-017 v0.3). Upgrades repeat the
+    /// full fresh-inventory selection; installs repeat the exact provider preflight. Any change is a mismatch.
+    /// </summary>
+    public async Task<UpdateJobExecutionEvidence?> RevalidateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (job.Selection.Operation == PackageOperationKind.Install)
+        {
+            if (installPreflight is null) return null;
+            InstallPreflightResult result = await installPreflight.PreflightAsync(InstallPreflightRequest.ForApprovedJob(job), cancellationToken).ConfigureAwait(false);
+            return result.AsExecutionEvidence();
+        }
+
+        UpdateSelectionPreparation preparation = await PrepareApprovedUpdateSelectionAsync(job.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
+        return preparation.Selection is null ? null : new(preparation.Selection, true, true);
     }
 
     /// <summary>

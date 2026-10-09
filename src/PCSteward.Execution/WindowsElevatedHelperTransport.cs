@@ -34,6 +34,7 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
     private readonly ElevatedHelperLauncher launchHelper;
     private readonly Action<HelperLaunchPaths>? afterInitialTrust;
     private readonly Func<ImmutableUpdateJob, string?> validateProviderPreLaunchTrust;
+    private readonly ElevatedHelperLauncher launchBatchHelper;
 
     internal WindowsElevatedHelperTransport() : this(
         InstalledHelperLaunchTrust.ResolveFixedPaths,
@@ -58,8 +59,10 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust,
         ElevatedHelperLauncher launchHelper,
         Action<HelperLaunchPaths>? afterInitialTrust = null,
-        Func<ImmutableUpdateJob, string?>? validateProviderPreLaunchTrust = null)
+        Func<ImmutableUpdateJob, string?>? validateProviderPreLaunchTrust = null,
+        ElevatedHelperLauncher? launchBatchHelper = null)
     {
+        this.launchBatchHelper = launchBatchHelper ?? LaunchBatchHelper;
         this.resolvePaths = resolvePaths ?? throw new ArgumentNullException(nameof(resolvePaths));
         this.validatePreLaunchTrust = validatePreLaunchTrust ?? throw new ArgumentNullException(nameof(validatePreLaunchTrust));
         this.launchHelper = launchHelper ?? throw new ArgumentNullException(nameof(launchHelper));
@@ -219,6 +222,197 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         }
     }
 
+    /// <summary>
+    /// ADR-018 protocol v2 (FR-BAT-05): one UAC prompt and one helper process for every elevated item of
+    /// the batch. The pre-launch, peer-identity and nonce checks are those of protocol v1.
+    /// </summary>
+    internal async Task<ElevatedBatchOutcome> ExecuteBatchAsync(
+        ApprovedOperationBatch batch,
+        IReadOnlyDictionary<Guid, string> skipReasons,
+        Action<Guid>? itemStarted,
+        CancellationToken cancelRemaining,
+        CancellationToken abort)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        ArgumentNullException.ThrowIfNull(skipReasons);
+        IReadOnlyList<ImmutableUpdateJob> elevated = batch.ElevatedItems;
+        ElevatedBatchOutcome NotStarted(UpdateProviderAttemptStatus status, string diagnostic) =>
+            new([.. elevated.Select(job => new ElevatedItemOutcome(job.Id, ElevatedItemDisposition.NotStarted, status, false, null, diagnostic))]);
+        if (elevated.Count == 0) return new([]);
+        if (!OperatingSystem.IsWindows()) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-requires-windows");
+        if (!batch.HasValidDigest) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "batch-integrity-check-failed");
+        if (abort.IsCancellationRequested) return NotStarted(UpdateProviderAttemptStatus.Cancelled, "run-aborted-before-start");
+        foreach (ImmutableUpdateJob job in elevated.Where(job => !skipReasons.ContainsKey(job.Id)))
+        {
+            string? providerTrustFailure = validateProviderPreLaunchTrust(job);
+            if (providerTrustFailure is not null) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, providerTrustFailure);
+        }
+
+        HelperLaunchPaths? paths = resolvePaths();
+        if (paths is null) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "fixed-signed-helper-or-desktop-path-unavailable");
+        HelperLaunchTrustResult initialTrust = validatePreLaunchTrust(paths);
+        if (!initialTrust.Trusted) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, initialTrust.Rejection);
+        try
+        {
+            afterInitialTrust?.Invoke(paths);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-prelaunch-evidence-hook-failed");
+        }
+
+        string nonce = ElevatedHelperProtocol.CreateNonce();
+        string pipeName = $"pcsteward-elevated-{Guid.NewGuid():N}";
+        string currentSid = WindowsIdentity.GetCurrent().User?.Value ?? string.Empty;
+        int currentSession = Process.GetCurrentProcess().SessionId;
+        if (currentSid.Length == 0) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "desktop-user-identity-unavailable");
+
+        using NamedPipeServerStream pipe = RestrictedNamedPipe.Create(pipeName, currentSid);
+        HelperLaunchTrustResult finalTrust = validatePreLaunchTrust(paths);
+        if (!finalTrust.Trusted) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, finalTrust.Rejection);
+        using Process? helper = launchBatchHelper(paths.HelperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
+        if (launchFailure is not null)
+        {
+            return launchFailure.Outcome == ElevatedHelperOutcome.UserDenied
+                ? NotStarted(UpdateProviderAttemptStatus.ElevationDenied, "user-declined-elevation")
+                : NotStarted(UpdateProviderAttemptStatus.ProductFailed, launchFailure.SanitizedOutput);
+        }
+        if (helper is null) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-launch-returned-no-process");
+
+        using CancellationTokenSource connectionTimeout = new(ConnectionTimeout);
+        using CancellationTokenSource connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(abort, connectionTimeout.Token);
+        try
+        {
+            Task connection = pipe.WaitForConnectionAsync(connectionCancellation.Token);
+            Task exit = helper.WaitForExitAsync(CancellationToken.None);
+            if (await Task.WhenAny(connection, exit).ConfigureAwait(false) == exit)
+            {
+                connectionCancellation.Cancel();
+                return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-exited-before-connection");
+            }
+            await connection.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or IOException)
+        {
+            TryTerminate(helper);
+            return NotStarted(abort.IsCancellationRequested ? UpdateProviderAttemptStatus.Cancelled : UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-connection-failed");
+        }
+
+        if (!RestrictedNamedPipe.TryGetClientProcessId(pipe, out int clientProcessId) ||
+            clientProcessId != helper.Id ||
+            !WindowsPeerIdentityVerifier.VerifyPeer(clientProcessId, paths.HelperPath, paths.DesktopPath, currentSession, currentSid, out _))
+        {
+            TryTerminate(helper);
+            return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-identity-check-failed");
+        }
+
+        ElevatedBatchOutcome outcome = await ExchangeBatchAsync(pipe, batch, skipReasons, nonce, itemStarted, ElevatedHelperBatchSession.Deadline(elevated.Count) + ExecutionMargin, cancelRemaining, abort).ConfigureAwait(false);
+        using CancellationTokenSource exitTimeout = new(ExitTimeout);
+        try
+        {
+            if (abort.IsCancellationRequested) TryTerminate(helper);
+            await helper.WaitForExitAsync(exitTimeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            TryTerminate(helper);
+        }
+
+        return outcome;
+    }
+
+    private static readonly TimeSpan ExecutionMargin = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// The desktop half of protocol v2 over an authenticated stream: send the request frames, then accept only
+    /// in-order helper frames. Cancel remaining sends one CancelRemaining frame and keeps reading. Any break or
+    /// rejected frame ends the session: the item that may be running needs verification, later items did not start.
+    /// </summary>
+    internal static async Task<ElevatedBatchOutcome> ExchangeBatchAsync(
+        Stream pipe,
+        ApprovedOperationBatch batch,
+        IReadOnlyDictionary<Guid, string> skipReasons,
+        string nonce,
+        Action<Guid>? itemStarted,
+        TimeSpan deadline,
+        CancellationToken cancelRemaining,
+        CancellationToken abort)
+    {
+        ArgumentNullException.ThrowIfNull(pipe);
+        ArgumentNullException.ThrowIfNull(batch);
+        IReadOnlyList<ImmutableUpdateJob> elevated = batch.ElevatedItems;
+        int firstSequence = batch.UnelevatedItems.Count;
+        (int Sequence, Guid JobId)[] expected = [.. elevated.Select((job, index) => (firstSequence + index, job.Id))];
+        HelperBatchResponseReader reader = new(batch.Id, nonce, expected);
+        Dictionary<Guid, ElevatedItemOutcome> results = [];
+        string failure = "elevated-session-ended";
+        using CancellationTokenSource deadlineSource = new(deadline);
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(abort, deadlineSource.Token);
+        try
+        {
+            foreach (byte[] frame in ElevatedHelperProtocolV2.CreateBatchRequest(batch, skipReasons, nonce, DateTimeOffset.UtcNow))
+            {
+                await PipeMessageFraming.WriteAsync(pipe, frame, linked.Token).ConfigureAwait(false);
+            }
+
+            Task cancelSignal = Task.Delay(Timeout.InfiniteTimeSpan, cancelRemaining);
+            bool cancelSent = false;
+            while (!reader.IsComplete)
+            {
+                Task<byte[]> read = PipeMessageFraming.ReadAsync(pipe, linked.Token);
+                while (!cancelSent && !read.IsCompleted)
+                {
+                    if (await Task.WhenAny(read, cancelSignal).ConfigureAwait(false) == cancelSignal)
+                    {
+                        await PipeMessageFraming.WriteAsync(pipe, ElevatedHelperProtocolV2.CreateCancelRemaining(batch.Id, nonce), linked.Token).ConfigureAwait(false);
+                        cancelSent = true;
+                    }
+                }
+
+                byte[] response = await read.ConfigureAwait(false);
+                if (!reader.TryAccept(response, out HelperBatchEvent? helperEvent, out string rejection))
+                {
+                    failure = "elevated-helper-response-rejected: " + rejection;
+                    break;
+                }
+
+                switch (helperEvent)
+                {
+                    case HelperItemStartedEvent started:
+                        itemStarted?.Invoke(started.JobId);
+                        break;
+                    case HelperItemResultEvent result:
+                        results[result.JobId] = new(result.JobId, ElevatedItemDisposition.Reported, result.Status, result.RestartPending, result.ExitCode, result.Diagnostic);
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (abort.IsCancellationRequested)
+        {
+            failure = "run-aborted";
+        }
+        catch (OperationCanceledException)
+        {
+            failure = "elevated-session-deadline-exceeded";
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or ObjectDisposedException or InvalidOperationException)
+        {
+            failure = "elevated-helper-crashed-or-disconnected";
+        }
+
+        List<ElevatedItemOutcome> outcomes = [];
+        for (int index = 0; index < elevated.Count; index++)
+        {
+            Guid jobId = elevated[index].Id;
+            if (results.TryGetValue(jobId, out ElevatedItemOutcome? reported)) outcomes.Add(reported);
+            else if (index == reader.NextIndex && !(skipReasons.ContainsKey(jobId) && !reader.CurrentItemStarted)) outcomes.Add(new(jobId, ElevatedItemDisposition.Interrupted, UpdateProviderAttemptStatus.ProductFailed, false, null, failure));
+            else if (index == reader.NextIndex) outcomes.Add(new(jobId, ElevatedItemDisposition.NotStarted, UpdateProviderAttemptStatus.Skipped, false, null, failure));
+            else outcomes.Add(new(jobId, ElevatedItemDisposition.NotStarted, UpdateProviderAttemptStatus.Cancelled, false, null, "elevated-session-ended-before-start; " + failure));
+        }
+
+        return new(outcomes);
+    }
+
     private static string? ValidateProviderPreLaunchTrust(ImmutableUpdateJob job)
     {
         if (job.Selection.Provider != UpdateProvider.Chocolatey)
@@ -241,6 +435,19 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         string helperPath,
         string pipeName,
         string nonce,
+        out ElevatedHelperResult? failure) => LaunchHelper(helperPath, pipeName, nonce, ElevatedHelperProtocol.Version, out failure);
+
+    private static Process? LaunchBatchHelper(
+        string helperPath,
+        string pipeName,
+        string nonce,
+        out ElevatedHelperResult? failure) => LaunchHelper(helperPath, pipeName, nonce, ElevatedHelperProtocolV2.Version, out failure);
+
+    private static Process? LaunchHelper(
+        string helperPath,
+        string pipeName,
+        string nonce,
+        string protocolVersion,
         out ElevatedHelperResult? failure)
     {
         ProcessStartInfo start = new()
@@ -251,7 +458,7 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         };
         foreach (string argument in new[]
         {
-            "--protocol", ElevatedHelperProtocol.Version,
+            "--protocol", protocolVersion,
             "--desktop-pid", Environment.ProcessId.ToString(CultureInfo.InvariantCulture),
             "--pipe", pipeName,
             "--nonce", nonce
@@ -504,7 +711,9 @@ public static class ElevatedHelperEntryPoint
                 UpdateProvider.WinGet => ((IProtectedMachineUpdateExecutor)new WingetMachineUpdateExecutor()).ExecuteProtectedAsync(job, cancellationToken),
                 UpdateProvider.Chocolatey => ((IProtectedMachineUpdateExecutor)new ChocolateyMachineUpdateExecutor()).ExecuteProtectedAsync(job, cancellationToken),
                 _ => throw new InvalidOperationException("Unsupported update provider.")
-            });
+            },
+            HelperOperationRevalidator.CreateDefault,
+            static () => new HelperOperationExecutor());
 
     internal static Task<int> RunNoOpEvidenceAsync(string[] arguments) =>
         RunAsync(
@@ -514,11 +723,15 @@ public static class ElevatedHelperEntryPoint
                     0,
                     "approved-no-op-installed-helper-evidence",
                     string.Empty,
-                    false)));
+                    false)),
+            null,
+            null);
 
     private static async Task<int> RunAsync(
         string[] arguments,
-        Func<ImmutableUpdateJob, CancellationToken, Task<ProviderProcessResult>> executeProvider)
+        Func<ImmutableUpdateJob, CancellationToken, Task<ProviderProcessResult>> executeProvider,
+        Func<IOperationRevalidator>? createBatchRevalidator,
+        Func<IOperationExecutor>? createBatchExecutor)
     {
         if (!OperatingSystem.IsWindows() ||
             !HelperBootstrap.TryParse(arguments, out HelperBootstrap? bootstrap) ||
@@ -564,6 +777,13 @@ public static class ElevatedHelperEntryPoint
                 out _))
         {
             return 23;
+        }
+
+        if (bootstrap.ProtocolVersion == ElevatedHelperProtocolV2.Version)
+        {
+            // Protocol v2 (ADR-018): one approved batch; the no-op evidence helper accepts protocol v1 only.
+            if (createBatchRevalidator is null || createBatchExecutor is null) return 24;
+            return await ServeBatchAsync(pipe, bootstrap.Nonce, createBatchRevalidator(), createBatchExecutor()).ConfigureAwait(false);
         }
 
         try
@@ -626,6 +846,78 @@ public static class ElevatedHelperEntryPoint
         }
     }
 
+    /// <summary>
+    /// The helper half of protocol v2 over an authenticated stream: accept one strict batch request, run it
+    /// with between-item cancellation, and stream results. A disconnect or any frame other than one valid
+    /// CancelRemaining aborts the running provider. Returns 0, 24 (request rejected) or 25 (aborted).
+    /// </summary>
+    internal static async Task<int> ServeBatchAsync(Stream pipe, string nonce, IOperationRevalidator revalidator, IOperationExecutor executor, Func<DateTimeOffset>? utcNow = null, TimeSpan? requestTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(pipe);
+        HelperBatchRequestReceiver receiver = new(nonce, utcNow);
+        using (CancellationTokenSource timeout = new(requestTimeout ?? TimeSpan.FromSeconds(30)))
+        {
+            try
+            {
+                while (receiver.State is HelperReceiverState.AwaitingHeader or HelperReceiverState.ReceivingItems)
+                {
+                    receiver.Accept(await PipeMessageFraming.ReadAsync(pipe, timeout.Token).ConfigureAwait(false));
+                }
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or OperationCanceledException or ObjectDisposedException)
+            {
+                return 24;
+            }
+        }
+
+        if (receiver.Request is not { } request) return 24;
+        ElevatedHelperBatchSession session = new(request, nonce, revalidator, executor);
+        using CancellationTokenSource abort = new();
+        using CancellationTokenSource stopListening = new();
+        Task listener = ListenForCancelRemainingAsync(pipe, request.BatchId, nonce, session, abort, stopListening.Token);
+        try
+        {
+            await session.RunAsync(frame => PipeMessageFraming.WriteAsync(pipe, frame, CancellationToken.None), abort.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException or InvalidOperationException or InvalidDataException)
+        {
+            await abort.CancelAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            await stopListening.CancelAsync().ConfigureAwait(false);
+            await ObserveMonitorAsync(listener).ConfigureAwait(false);
+        }
+
+        return abort.IsCancellationRequested ? 25 : 0;
+    }
+
+    private static async Task ListenForCancelRemainingAsync(Stream pipe, Guid batchId, string nonce, ElevatedHelperBatchSession session, CancellationTokenSource abort, CancellationToken stop)
+    {
+        Dictionary<string, string[]> allowed = new(StringComparer.Ordinal) { ["CancelRemaining"] = ElevatedHelperProtocolV2.CancelFields };
+        try
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                byte[] frame = await PipeMessageFraming.ReadAsync(pipe, stop).ConfigureAwait(false);
+                if (session.CancelRemainingRequested ||
+                    !ElevatedHelperProtocolV2.TryReadFrame(frame, allowed, out _, out Dictionary<string, System.Text.Json.JsonElement> fields, out _) ||
+                    !ElevatedHelperProtocolV2.TryGuid(fields, "batchId", out Guid frameBatch) || frameBatch != batchId ||
+                    !ElevatedHelperProtocolV2.TryText(fields, "nonce", out string frameNonce) || !ElevatedHelperProtocolV2.FixedEquals(frameNonce, nonce))
+                {
+                    await abort.CancelAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                session.RequestCancelRemaining();
+            }
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or ObjectDisposedException or OperationCanceledException)
+        {
+            if (!stop.IsCancellationRequested) await abort.CancelAsync().ConfigureAwait(false);
+        }
+    }
+
     private static bool IsElevated()
     {
         using WindowsIdentity identity = WindowsIdentity.GetCurrent();
@@ -669,7 +961,7 @@ public static class ElevatedHelperEntryPoint
     }
 }
 
-internal sealed record HelperBootstrap(int DesktopProcessId, string PipeName, string Nonce)
+internal sealed record HelperBootstrap(int DesktopProcessId, string PipeName, string Nonce, string ProtocolVersion = ElevatedHelperProtocol.Version)
 {
     internal static bool TryParse(string[] arguments, out HelperBootstrap? bootstrap)
     {
@@ -690,7 +982,7 @@ internal sealed record HelperBootstrap(int DesktopProcessId, string PipeName, st
         }
 
         if (fields.Count != 4 ||
-            fields["--protocol"] != ElevatedHelperProtocol.Version ||
+            fields["--protocol"] is not (ElevatedHelperProtocol.Version or ElevatedHelperProtocolV2.Version) ||
             !int.TryParse(fields["--desktop-pid"], NumberStyles.None, CultureInfo.InvariantCulture, out int desktopPid) ||
             desktopPid <= 0 ||
             !WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(fields["--pipe"]))
@@ -711,7 +1003,7 @@ internal sealed record HelperBootstrap(int DesktopProcessId, string PipeName, st
             return false;
         }
 
-        bootstrap = new HelperBootstrap(desktopPid, fields["--pipe"], fields["--nonce"]);
+        bootstrap = new HelperBootstrap(desktopPid, fields["--pipe"], fields["--nonce"], fields["--protocol"]);
         return true;
     }
 }

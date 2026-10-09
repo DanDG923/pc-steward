@@ -93,7 +93,41 @@ public sealed class ApprovedOperationBatch
     public IReadOnlyList<ImmutableUpdateJob> ElevatedItems => [.. Items.Where(item => item.Selection.RunsElevated)];
 
     /// <summary>False after expiry, or when the clock reads earlier than the approval (a moved clock fails closed).</summary>
-    public bool IsUsableAt(DateTimeOffset now) => now >= ApprovedAt - ClockSkew && now < ExpiresAt;
+    public bool IsUsableAt(DateTimeOffset now) => IsUsableAt(ApprovedAt, now);
+
+    /// <summary>The same lifetime rule for a party that holds only the approval time (the elevated helper).</summary>
+    public static bool IsUsableAt(DateTimeOffset approvedAt, DateTimeOffset now) => now >= approvedAt - ClockSkew && now < approvedAt + Lifetime;
+
+    /// <summary>
+    /// ADR-018 protocol v2: the helper receives only the elevated tail of the batch, so it cannot recompute
+    /// <see cref="Digest"/>. This digest binds that tail, at its exact batch positions, to the batch ID,
+    /// correlation, approval time and full batch digest. The helper recomputes it from the frames it receives.
+    /// </summary>
+    public string ElevatedDigest => ComputeElevatedDigest(Id, CorrelationId, ApprovedAt, Digest, UnelevatedItems.Count, ElevatedItems);
+
+    public static string ComputeElevatedDigest(Guid batchId, Guid correlationId, DateTimeOffset approvedAt, string batchDigest, int firstSequence, IReadOnlyList<ImmutableUpdateJob> elevatedItems)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(batchDigest);
+        ArgumentNullException.ThrowIfNull(elevatedItems);
+        if (firstSequence is < 0 or > MaximumItems || firstSequence + elevatedItems.Count > MaximumItems) throw new ArgumentOutOfRangeException(nameof(firstSequence));
+        StringBuilder text = new();
+        text.Append("pcsteward-operation-batch-elevated-v1\n")
+            .Append(batchId.ToString("D", CultureInfo.InvariantCulture)).Append('\n')
+            .Append(correlationId.ToString("D", CultureInfo.InvariantCulture)).Append('\n')
+            .Append(approvedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)).Append('\n')
+            .Append(batchDigest).Append('\n')
+            .Append(firstSequence.ToString(CultureInfo.InvariantCulture)).Append('\n')
+            .Append(elevatedItems.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        for (int index = 0; index < elevatedItems.Count; index++)
+        {
+            ImmutableUpdateJob item = elevatedItems[index] ?? throw new ArgumentException("An elevated item is missing.", nameof(elevatedItems));
+            text.Append((firstSequence + index).ToString(CultureInfo.InvariantCulture)).Append(':')
+                .Append(item.Id.ToString("D", CultureInfo.InvariantCulture)).Append(':')
+                .Append(item.Digest).Append('\n');
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
+    }
 
     internal static ApprovedOperationBatch Create(Guid id, Guid correlationId, DateTimeOffset approvedAt, IReadOnlyList<ImmutableUpdateJob> items) =>
         new(id, correlationId, approvedAt, items, null);

@@ -85,7 +85,7 @@ public sealed class CompositeInstallPreflightAuthority(IReadOnlyDictionary<Updat
 /// Provider exit evidence mapped onto the history taxonomy (FR-HIS-03). A completed exit only ever leads to
 /// verification; <see cref="RestartPending"/> records a provider-reported reboot requirement for the verifier.
 /// </summary>
-public sealed record ProviderExitAssessment(UpdateProviderAttemptStatus Status, bool RestartPending, string Diagnostic)
+public sealed record ProviderExitAssessment(UpdateProviderAttemptStatus Status, bool RestartPending, string Diagnostic, int? ExitCode = null)
 {
     public bool AwaitsVerification => Status == UpdateProviderAttemptStatus.AwaitingVerification;
 }

@@ -162,10 +162,10 @@ public static class ChocolateyExitCodes
 
     public static ProviderExitAssessment Classify(int exitCode) => exitCode switch
     {
-        0 => new(UpdateProviderAttemptStatus.AwaitingVerification, false, "provider-completed; verification-required"),
-        1641 or 3010 => new(UpdateProviderAttemptStatus.AwaitingVerification, true, "provider-reported-restart-required; verification-required"),
-        350 => new(UpdateProviderAttemptStatus.InstallerFailed, false, "pending-reboot-detected; nothing-installed"),
-        1604 => new(UpdateProviderAttemptStatus.InstallerFailed, false, "install-suspended"),
-        _ => new(UpdateProviderAttemptStatus.InstallerFailed, false, "provider-exit-" + exitCode.ToString(CultureInfo.InvariantCulture))
+        0 => new(UpdateProviderAttemptStatus.AwaitingVerification, false, "provider-completed; verification-required", exitCode),
+        1641 or 3010 => new(UpdateProviderAttemptStatus.AwaitingVerification, true, "provider-reported-restart-required; verification-required", exitCode),
+        350 => new(UpdateProviderAttemptStatus.InstallerFailed, false, "pending-reboot-detected; nothing-installed", exitCode),
+        1604 => new(UpdateProviderAttemptStatus.InstallerFailed, false, "install-suspended", exitCode),
+        _ => new(UpdateProviderAttemptStatus.InstallerFailed, false, "provider-exit-" + exitCode.ToString(CultureInfo.InvariantCulture), exitCode)
     };
 }

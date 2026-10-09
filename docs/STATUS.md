@@ -2,13 +2,59 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 48 — operation and batch domain and persistence, install preflight and builders, agreement capture and install verification (implementation and Linux validation pass; Windows CI pending)
+**Current task:** Task 49 — batch execution coordinator, helper protocol v2 (one UAC prompt per batch) and the running-app policy (implementation and Linux validation pass; Windows CI pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Task 49 batch execution, helper protocol v2 and running-app policy
+
+**Coordinator** (`FR-BAT-04–07`, `FR-INS-05/07`, `AC-V3-04/06`). `BatchExecutionCoordinator` runs one `ApprovedOperationBatch`:
+- **Before starting:** it refuses a batch that fails its integrity check, has expired, or overlaps another run.
+- **Order:** unelevated items run in the desktop first, then every elevated item in **one** helper session (one UAC prompt).
+- **Before each item:** the running-app policy applies, then revalidation against fresh evidence. A changed invariant becomes the new `Skipped` history status and is never adapted.
+- **After the provider exits:** the item only goes to verification:
+  - verified → Success;
+  - otherwise, with a provider- or inventory-reported restart → Restart required;
+  - otherwise → Inconclusive.
+- **Cancel remaining** is observed only between items. Abort while a provider runs → Verification required.
+- **Crash safety:** elevated items are recorded as Running before UAC, so a desktop crash recovers to Verification required.
+- **No prompt for nothing:** if the desktop pre-check withholds every elevated item, no UAC prompt is raised.
+- **Summary:** `BatchCompletionSummary` separates Succeeded, Restart required, Failed, Not verified and Skipped. It lists retry candidates for a new reviewed batch.
+
+**Helper protocol v2** (`AC-V3-05`, ADR-018 note):
+- The helper receives only the batch's elevated items, bound to the batch by `ApprovedOperationBatch.ElevatedDigest`.
+- Frames are strict, bounded JSON. The helper's one-shot receiver rejects substitution, reordering, appending, truncation, foreign or rebound items, replay, an expired request or batch, oversize frames, unknown or duplicate fields, numeric enum values, unelevated items and forged digests.
+- The helper session revalidates each item against fresh provider evidence, builds the provider operation in code, and applies CancelRemaining between items. The overall deadline is 25 minutes per item, capped at 4 hours.
+- The desktop reader accepts helper frames only in order and bound to the batch and nonce. If the session breaks, only the possibly running item needs verification.
+- The bootstrap accepts protocol `2`, and the transport launches one helper per batch. Protocol v1 is unchanged for the existing single-update path.
+
+**Running apps** (`FR-BAT-08`, `AC-V3-07`): `RunningApplicationPolicy` skips a running app by default.
+- It closes an app only with per-app (`CloseAppConsent`) or per-run consent, gracefully with a 30-second bound.
+- It forces termination only with the second per-run consent. Automation never closes an app.
+- `WindowsRunningApplicationCloser` closes only current-session processes with allowlisted names. For an elevated item, a running app is withheld from the helper as a skip.
+
+**Production pieces:**
+- `DesktopOperationExecutor` runs unelevated WinGet installs and plain user-scope upgrades only.
+- `HelperOperationExecutor` and `HelperOperationRevalidator` do the in-helper revalidation and execution and read no per-user database.
+- `ElevatedBatchExecutor` adapts the transport.
+- `InventoryWorkflow` implements `IOperationRevalidator`: upgrades repeat the full fresh selection, and installs repeat the exact preflight.
+
+**Results (Linux SDK 10.0.112):**
+- Domain **87/87**, Catalog **96/96**, Architecture **34/34**.
+- Security **60/64** (39 new, all passing). Application **248/295** (14 new, all passing).
+- The remaining 51 failures are identical to the HEAD baseline (Windows-only APIs).
+- The in-memory end-to-end exchange tests passed in 5 repeated runs.
+- ElevatedHelper, ScheduledHost, CatalogTool and Performance build cleanly. The WinUI desktop builds in CI.
+
+**Not wired yet / follow-ups:**
+- The desktop still uses the v0.2 single-update flow. The review sheet, progress and summary UI and Select all safe come in Task 52, which also composes the coordinator.
+- Desktop revalidation of an upgrade repeats a full inventory scan per item. That is correct but slow for large batches; Task 52 should measure it.
+- Full-scan versus batch exclusion (`FR-RSC-02`) is enforced by the desktop data-operation lease when the coordinator is composed.
+- Whether in-process WinGet COM works from the elevated helper still needs the owner probe (spike §2.4). If it fails, helper revalidation of WinGet items fails closed (Skipped).
 
 ## Task 48 operations, batches and install building blocks
 
@@ -260,6 +306,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-Task 49 — `BatchExecutionCoordinator`, helper protocol v2 (one UAC prompt per batch) and the running-app policy (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). It consumes `ApprovedOperationBatch`, `InstallPreflightRequest.ForApprovedJob`, the install executors and `ProviderExitAssessment`. Specification v0.3 and `AGENTS.md` are authoritative. Earlier distribution-gate wording below is historical (C-11).
+Task 50 — provider health, and Chocolatey setup through a reviewed WinGet install of `Chocolatey.Chocolatey` (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). It covers absent, untrusted and present client states and adds an architecture test that no bootstrap-script path exists. Specification v0.3 and `AGENTS.md` are authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
