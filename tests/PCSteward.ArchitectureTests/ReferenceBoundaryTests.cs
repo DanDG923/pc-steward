@@ -266,12 +266,20 @@ public sealed class ReferenceBoundaryTests
         string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Provider.WinGet", "WingetInstalledInventoryProvider.cs");
         string source = File.ReadAllText(sourcePath);
 
-        StringAssert.Contains(source, "new PackageManager().FindPackagesForUser(string.Empty)");
+        // Health discovery also reads the package catalog. Scope this execution-trust guard
+        // to the resolver it protects so another read-only method cannot change the ordering.
+        int resolverStart = source.IndexOf("internal static string ResolveExecutable()", StringComparison.Ordinal);
+        Assert.IsTrue(resolverStart >= 0, "The trusted WinGet resolver must exist.");
+        int resolverEnd = source.IndexOf("private static bool IsDesktopAppInstaller", resolverStart, StringComparison.Ordinal);
+        Assert.IsTrue(resolverEnd > resolverStart, "The trusted WinGet resolver body must be bounded.");
+        string resolver = source[resolverStart..resolverEnd];
+
+        StringAssert.Contains(resolver, "new PackageManager().FindPackagesForUser(string.Empty)");
         StringAssert.Contains(source, "package.Id.PublisherId, \"8wekyb3d8bbwe\"");
-        int rootCheck = source.IndexOf("RejectReparse(root);", StringComparison.Ordinal);
-        int catalogRead = source.IndexOf("new PackageManager().FindPackagesForUser(string.Empty)", StringComparison.Ordinal);
+        int rootCheck = resolver.IndexOf("RejectReparse(root);", StringComparison.Ordinal);
+        int catalogRead = resolver.IndexOf("new PackageManager().FindPackagesForUser(string.Empty)", StringComparison.Ordinal);
         Assert.IsTrue(rootCheck >= 0 && rootCheck < catalogRead, "The WindowsApps root must be rejected before package catalog paths are accepted.");
-        Assert.IsFalse(source.Contains("Directory.EnumerateDirectories(root", StringComparison.Ordinal));
+        Assert.IsFalse(resolver.Contains("Directory.EnumerateDirectories(root", StringComparison.Ordinal));
     }
 
     [TestMethod]
