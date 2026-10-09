@@ -9,7 +9,8 @@ public sealed class ChocolateyInstallChoiceAuthority : IInstallChoiceAuthority
 {
     private readonly IInstallPreflightAuthority preflight;
     private readonly IProviderHealthProbe health;
-    public ChocolateyInstallChoiceAuthority() : this(new ChocolateyInstallPreflightAuthority(), new ChocolateyProviderHealthProbe()) { }
+    public ChocolateyInstallChoiceAuthority() : this(ChocolateyInstallPreflightAuthority.CreateStrict(), new ChocolateyProviderHealthProbe()) { }
+    internal ChocolateyInstallChoiceAuthority(IStrictChocolateyQueryClient client, IProviderHealthProbe health) : this(ChocolateyInstallPreflightAuthority.CreateStrict(client), health) { }
     internal ChocolateyInstallChoiceAuthority(IInstallPreflightAuthority preflight, IProviderHealthProbe health)
     {
         this.preflight = preflight ?? throw new ArgumentNullException(nameof(preflight));
@@ -35,4 +36,34 @@ public sealed class ChocolateyInstallChoiceAuthority : IInstallChoiceAuthority
         return result is { IsActionable: true, Selection: { Operation: PackageOperationKind.Install, Provider: UpdateProvider.Chocolatey, Source: UpdateSource.ChocolateyCommunity, Scope: UpdateScope.Machine, Architecture: UpdateArchitecture.Neutral, Channel: UpdateChannel.Stable } selection } &&
             selection.StableProductKey == entry.Id && string.Equals(selection.PackageId, provider.PackageId, StringComparison.OrdinalIgnoreCase) ? [result] : [];
     }
+}
+
+/// <summary>Provider-owned strict read-only launch boundary; no identity comes from display/report/catalog data.</summary>
+internal interface IStrictChocolateyQueryClient
+{
+    ChocolateyClientIdentity Resolve(bool requireCallerCannotModifyLayout);
+    void ValidateUnchanged(ChocolateyClientIdentity client, bool requireCallerCannotModifyLayout);
+    Task<ChocolateyProcessResult> RunAsync(ChocolateyClientIdentity client, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken);
+}
+
+internal sealed class StrictChocolateyQueryProcess(IStrictChocolateyQueryClient client) : IChocolateyProcess
+{
+    private ChocolateyClientIdentity? capturedClient;
+    public Task<ChocolateyProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        capturedClient ??= client.Resolve(requireCallerCannotModifyLayout: true);
+        client.ValidateUnchanged(capturedClient, requireCallerCannotModifyLayout: true);
+        cancellationToken.ThrowIfCancellationRequested();
+        return client.RunAsync(capturedClient, arguments, timeout, cancellationToken);
+    }
+}
+
+internal sealed class WindowsStrictChocolateyQueryClient : IStrictChocolateyQueryClient
+{
+    public ChocolateyClientIdentity Resolve(bool requireCallerCannotModifyLayout) => MachineTrustedChocolatey.ResolveExecutable(requireCallerCannotModifyLayout);
+    public void ValidateUnchanged(ChocolateyClientIdentity client, bool requireCallerCannotModifyLayout) => MachineTrustedChocolatey.ValidateUnchanged(client, requireCallerCannotModifyLayout);
+    // The existing captured-client process branch repeats strict identity/layout validation and cancellation immediately before Process.Start.
+    public Task<ChocolateyProcessResult> RunAsync(ChocolateyClientIdentity client, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) =>
+        new WindowsChocolateyProcess(client).RunAsync(arguments, timeout, cancellationToken);
 }

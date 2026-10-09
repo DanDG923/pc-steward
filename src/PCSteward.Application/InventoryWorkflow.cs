@@ -479,10 +479,10 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
         {
             if (confirmChocolateyAbsent is null || !ChocolateySetupPreparation.IsReservedCatalogEntry(entry.Id) ||
                 currentInventory.Warnings.Any(warning => warning is not ("Chocolatey installed inventory:disabled" or "Chocolatey installed inventory:chocolatey:executable-unavailable"))) return false;
-            // These native warning codes are ambiguous. Only a repeated positive observation can distinguish absence.
-            if (!await confirmChocolateyAbsent(cancellationToken).ConfigureAwait(false)) return false;
-            cancellationToken.ThrowIfCancellationRequested();
         }
+        // Client presence may change during any awaited scan, even a clean scan with no package detection.
+        if (confirmChocolateyAbsent is not null && !await confirmChocolateyAbsent(cancellationToken).ConfigureAwait(false)) return false;
+        cancellationToken.ThrowIfCancellationRequested();
 
         IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);

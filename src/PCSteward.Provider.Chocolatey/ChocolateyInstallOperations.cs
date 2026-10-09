@@ -14,10 +14,23 @@ public sealed class ChocolateyInstallPreflightAuthority : IInstallPreflightAutho
     public const string EvidenceVersion = "chocolatey-fixed-community-v1";
     private const int NoResultsExitCode = 2;
     private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(60);
-    private readonly IChocolateyProcess process;
+    private readonly Func<IChocolateyProcess> createProcess;
 
     public ChocolateyInstallPreflightAuthority() : this(new WindowsChocolateyProcess()) { }
-    internal ChocolateyInstallPreflightAuthority(IChocolateyProcess process) => this.process = process ?? throw new ArgumentNullException(nameof(process));
+    internal ChocolateyInstallPreflightAuthority(IChocolateyProcess process)
+    {
+        ArgumentNullException.ThrowIfNull(process);
+        createProcess = () => process;
+    }
+    private ChocolateyInstallPreflightAuthority(Func<IChocolateyProcess> createProcess) => this.createProcess = createProcess;
+
+    /// <summary>CRD-08: per-preflight strict client capture and strict trust/cancellation before each read-only query launch.</summary>
+    public static ChocolateyInstallPreflightAuthority CreateStrict() => CreateStrict(new WindowsStrictChocolateyQueryClient());
+    internal static ChocolateyInstallPreflightAuthority CreateStrict(IStrictChocolateyQueryClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        return new(() => new StrictChocolateyQueryProcess(client));
+    }
 
     public static IReadOnlyList<string> BuildSearchArguments(string packageId, string? version)
     {
@@ -49,6 +62,7 @@ public sealed class ChocolateyInstallPreflightAuthority : IInstallPreflightAutho
         ChocolateyProcessResult local;
         try
         {
+            IChocolateyProcess process = createProcess();
             search = await process.RunAsync(BuildSearchArguments(request.PackageId, request.ExpectedVersion), QueryTimeout, cancellationToken).ConfigureAwait(false);
             local = await process.RunAsync(BuildLocalListArguments(request.PackageId), QueryTimeout, cancellationToken).ConfigureAwait(false);
         }

@@ -60,7 +60,7 @@ public sealed class ProviderSetupTests
         Assert.AreEqual(ChocolateySetupPreparation.CatalogEntryId, prepared.Selection.StableProductKey);
         Assert.IsTrue(prepared.Selection.RunsElevated);
         Assert.AreEqual(1, winget.Calls);
-        Assert.AreEqual(1, chocolatey.Calls);
+        Assert.AreEqual(2, chocolatey.Calls, "Repeat positive client absence after every awaited setup scan, including a clean scan.");
         Assert.HasCount(1, authority.Requests);
         Assert.HasCount(1, prepared.Preflight!.Agreements);
         Assert.IsNotNull(prepared.Selection.AgreementHash);
@@ -236,6 +236,42 @@ public sealed class ProviderSetupTests
         using InventoryWorkflow workflow = database.Workflow(preflight: authority, catalogOverride: ChoiceFixtures.Catalog("Vendor.Other"));
         Assert.IsNull((await new ChocolateySetupPreparation(workflow, TrustedWinget(), AbsentChocolatey(), UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None)).Selection);
         Assert.HasCount(0, authority.Requests, "Validated display catalog data cannot redirect the fixed provider setup query.");
+    }
+
+    /// <summary>I1: CRD-08 / FR-PRV-03; package absence in a clean scan cannot replace fresh client absence.</summary>
+    [TestMethod]
+    [DataRow(ProviderPresence.Present, ProviderProbeState.Current, false)]
+    [DataRow(ProviderPresence.Unknown, ProviderProbeState.Current, false)]
+    [DataRow(ProviderPresence.Absent, ProviderProbeState.Partial, false)]
+    [DataRow(ProviderPresence.Absent, ProviderProbeState.Current, true)]
+    public async Task CleanSetupScanRepeatsAbsenceBeforeAnyPreflight(ProviderPresence presence, ProviderProbeState state, bool offer)
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        ChoiceFixtures.Health health = AbsentChocolatey();
+        database.Local.OnScan = () => health.Report = health.Report with { Presence = presence, State = state };
+        ChoiceFixtures.Authority preflight = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: preflight);
+        InstallSelectionPreparation prepared = await new ChocolateySetupPreparation(workflow, TrustedWinget(), health, UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None);
+        Assert.AreEqual(offer, prepared.Selection is not null);
+        Assert.AreEqual(1, database.Local.Scans);
+        Assert.AreEqual(2, health.Calls, "The repeated probe follows the awaited clean scan.");
+        Assert.AreEqual(offer ? 1 : 0, preflight.Requests.Count, "Withheld setup cannot reach provider preflight; no executor or launcher is composed.");
+    }
+
+    [TestMethod]
+    public async Task FailedAbsenceObservationAfterCleanSetupScanCannotQuerySetup()
+    {
+        await using ChoiceFixtures.Database database = await ChoiceFixtures.Database.CreateAsync();
+        await database.EnableSourcesAsync();
+        ChoiceFixtures.Health health = AbsentChocolatey();
+        health.Observe = calls => calls == 1 ? health.Report : throw new IOException("fixture client observation failure");
+        ChoiceFixtures.Authority preflight = new(ChoiceFixtures.Ready);
+        using InventoryWorkflow workflow = database.Workflow(preflight: preflight);
+        Assert.IsNull((await new ChocolateySetupPreparation(workflow, TrustedWinget(), health, UpdateExecutionCapabilities.UserAndMachine).PrepareAsync(CancellationToken.None)).Selection);
+        Assert.AreEqual(1, database.Local.Scans);
+        Assert.AreEqual(2, health.Calls);
+        Assert.HasCount(0, preflight.Requests);
     }
 
     private static ChoiceFixtures.Health TrustedWinget() => new(ChoiceFixtures.Report(CatalogProviderKind.WinGet, ProviderPresence.Present, ProviderTrust.Trusted));

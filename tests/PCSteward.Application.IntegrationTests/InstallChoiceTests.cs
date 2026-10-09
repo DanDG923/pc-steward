@@ -235,6 +235,77 @@ public sealed class InstallChoiceTests
         Assert.HasCount(0, preflight.Requests);
         Assert.HasCount(0, choices.Providers);
     }
+
+    /// <summary>I2: CRD-08 / FR-INS-04; strict layout is launch authority, earlier health is not.</summary>
+    [TestMethod]
+    [DataRow("after-health", 0)]
+    [DataRow("after-resolution", 0)]
+    [DataRow("between-queries", 1)]
+    [DataRow("unchanged", 2)]
+    public async Task StrictChocolateyChoiceRejectsLayoutChangeBeforeAffectedQuery(string transition, int expectedLaunches)
+    {
+        CatalogEntry entry = ChoiceFixtures.Catalog().Entries.Single(item => item.Id == "pcs:choco-tool");
+        ChoiceFixtures.StrictQueryClient client = new();
+        ChoiceFixtures.Health health = new(ChoiceFixtures.Report(CatalogProviderKind.Chocolatey, ProviderPresence.Present, ProviderTrust.Trusted));
+        if (transition == "after-health") health.Observe = _ => { client.LayoutTrusted = false; return health.Report; };
+        if (transition == "after-resolution") client.AfterResolve = () => client.LayoutTrusted = false;
+        if (transition == "between-queries") client.AfterSearch = () => client.LayoutTrusted = false;
+        IReadOnlyList<InstallPreflightResult> choices = await new ChocolateyInstallChoiceAuthority(client, health).PreflightChoicesAsync(entry, entry.DefaultProvider, CancellationToken.None);
+        Assert.HasCount(transition == "unchanged" ? 1 : 0, choices);
+        Assert.AreEqual(1, health.Calls);
+        Assert.HasCount(expectedLaunches, client.Launches, "Changed trust must prevent the affected search/local-list launch.");
+        Assert.IsTrue(client.StrictChecks.All(required => required), "Every resolver/validator call requires protected caller-cannot-modify layout.");
+        if (expectedLaunches == 1) CollectionAssert.AreEqual(ChocolateyInstallPreflightAuthority.BuildSearchArguments("fixture-tool", null).ToArray(), client.Launches[0]);
+    }
+
+    [TestMethod]
+    public async Task StrictChocolateyChoiceRevalidatesCapturedIdentityBetweenQueries()
+    {
+        CatalogEntry entry = ChoiceFixtures.Catalog().Entries.Single(item => item.Id == "pcs:choco-tool");
+        ChoiceFixtures.StrictQueryClient client = new();
+        client.AfterSearch = () => client.Current = client.Current with { Digest = new byte[32] };
+        ChoiceFixtures.Health health = new(ChoiceFixtures.Report(CatalogProviderKind.Chocolatey, ProviderPresence.Present, ProviderTrust.Trusted));
+        Assert.HasCount(0, await new ChocolateyInstallChoiceAuthority(client, health).PreflightChoicesAsync(entry, entry.DefaultProvider, CancellationToken.None));
+        Assert.AreEqual(1, client.Resolutions, "The two queries bind one captured identity, rather than silently adopting a replacement.");
+        Assert.AreEqual(2, client.Validations);
+        Assert.HasCount(1, client.Launches);
+    }
+
+    [TestMethod]
+    [DataRow(false, 0)]
+    [DataRow(true, 1)]
+    public async Task StrictChocolateyChoiceChecksCancellationBeforeEachQueryLaunch(bool betweenQueries, int expectedLaunches)
+    {
+        CatalogEntry entry = ChoiceFixtures.Catalog().Entries.Single(item => item.Id == "pcs:choco-tool");
+        using CancellationTokenSource cancellation = new();
+        ChoiceFixtures.StrictQueryClient client = new();
+        if (betweenQueries) client.AfterSearch = cancellation.Cancel; else client.BeforeValidate = cancellation.Cancel;
+        ChoiceFixtures.Health health = new(ChoiceFixtures.Report(CatalogProviderKind.Chocolatey, ProviderPresence.Present, ProviderTrust.Trusted));
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => new ChocolateyInstallChoiceAuthority(client, health).PreflightChoicesAsync(entry, entry.DefaultProvider, cancellation.Token));
+        Assert.HasCount(expectedLaunches, client.Launches);
+    }
+
+    [TestMethod]
+    public async Task StrictChocolateyPreflightSharesCaptureForQueriesAndRenewsItForNewPreparation()
+    {
+        ChoiceFixtures.StrictQueryClient client = new();
+        ChocolateyInstallPreflightAuthority strict = ChocolateyInstallPreflightAuthority.CreateStrict(client);
+        InstallPreflightRequest request = new("pcs:choco-tool", UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "fixture-tool", UpdateScope.Machine, UpdateArchitecture.Neutral);
+        InstallPreflightResult first = await strict.PreflightAsync(request, CancellationToken.None);
+        Assert.IsTrue(first.IsActionable, first.Reason);
+        Assert.AreEqual(1, client.Resolutions);
+        Assert.AreEqual(2, client.Validations);
+        Assert.HasCount(2, client.Launches);
+        CollectionAssert.AreEqual(ChocolateyInstallPreflightAuthority.BuildSearchArguments("fixture-tool", null).ToArray(), client.Launches[0]);
+        CollectionAssert.AreEqual(ChocolateyInstallPreflightAuthority.BuildLocalListArguments("fixture-tool").ToArray(), client.Launches[1]);
+        client.Current = client.Current with { Digest = new byte[32] };
+        InstallPreflightResult second = await strict.PreflightAsync(request, CancellationToken.None);
+        Assert.IsTrue(second.IsActionable, second.Reason);
+        Assert.AreEqual(2, client.Resolutions, "A newly reviewed preparation captures the newly trusted client afresh.");
+        Assert.AreEqual(4, client.Validations);
+        Assert.HasCount(4, client.Launches);
+        Assert.IsTrue(client.StrictChecks.All(required => required));
+    }
 }
 
 /// <summary>Shared fake-only Task 2 fixtures; no provider/client/executor/launcher is composed.</summary>
@@ -372,6 +443,46 @@ internal static class ChoiceFixtures
         public int Scans { get; private set; }
         public Action? OnScan { get; set; }
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { Scans++; OnScan?.Invoke(); return Task.FromResult(Result); }
+    }
+
+    internal sealed class StrictQueryClient : IStrictChocolateyQueryClient
+    {
+        public ChocolateyClientIdentity Current { get; set; } = new(@"C:\ProgramData\chocolatey\bin\choco.exe", Enumerable.Repeat((byte)1, 32).ToArray());
+        public bool LayoutTrusted { get; set; } = true;
+        public int Resolutions { get; private set; }
+        public int Validations { get; private set; }
+        public List<bool> StrictChecks { get; } = [];
+        public List<string[]> Launches { get; } = [];
+        public Action? AfterResolve { get; set; }
+        public Action? BeforeValidate { get; set; }
+        public Action? AfterSearch { get; set; }
+        public ChocolateyClientIdentity Resolve(bool requireCallerCannotModifyLayout)
+        {
+            Resolutions++;
+            StrictChecks.Add(requireCallerCannotModifyLayout);
+            if (requireCallerCannotModifyLayout && !LayoutTrusted) throw new IOException("fixture writable layout");
+            ChocolateyClientIdentity captured = Current;
+            AfterResolve?.Invoke();
+            return captured;
+        }
+        public void ValidateUnchanged(ChocolateyClientIdentity client, bool requireCallerCannotModifyLayout)
+        {
+            Validations++;
+            StrictChecks.Add(requireCallerCannotModifyLayout);
+            BeforeValidate?.Invoke();
+            if ((requireCallerCannotModifyLayout && !LayoutTrusted) || client.Path != Current.Path || !MachineTrustedChocolatey.DigestsMatch(client.Digest, Current.Digest)) throw new IOException("fixture strict trust/identity changed");
+        }
+        public async Task<ChocolateyProcessResult> RunAsync(ChocolateyClientIdentity client, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            Launches.Add(arguments.ToArray()); // Fake query launch port; no process is created.
+            if (arguments[0] == "search")
+            {
+                await Task.Yield();
+                AfterSearch?.Invoke();
+                return new(0, "fixture-tool|2.0.0", string.Empty, false);
+            }
+            return new(0, string.Empty, string.Empty, false);
+        }
     }
 
     internal sealed class Database : IAsyncDisposable

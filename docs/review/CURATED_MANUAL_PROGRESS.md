@@ -11,7 +11,7 @@ Local `dotnet --list-sdks` is empty. No local product build/test pass is claimed
 | Task | Deliverable | Status / evidence |
 |---|---|---|
 | 1 | Typed provider health and strict probes | Code/review/CI gates passed at `b96a5485`; [CI 37996153500](https://github.com/DanDG923/pc-steward/actions/runs/37996153500): clean build, 621 passed / 0 failed / 0 skipped. Scoped repair review approved. Minor M1 late trust-exception cancellation-reporting behavior recorded for final triage; native timing and later stale UI retention unverified. |
-| 2 | Reviewed Chocolatey setup and install choices | Expected-red confirmed at `81507fe4`: [CI 37998087294](https://github.com/DanDG923/pc-steward/actions/runs/37998087294) clean build, 632 passed / 11 intended assertion failures / 0 skipped. Production implementation in progress; independent review and green CI pending. |
+| 2 | Reviewed Chocolatey setup and install choices | Candidate `924212bc`: [CI 37999775904](https://github.com/DanDG923/pc-steward/actions/runs/37999775904) clean build, 662 passed / 0 failed / 0 skipped. Independent review requests Important I1 post-clean-scan positive absence and I2 strict query launch trust. Original implementer repairing both; scoped approval and new CI pending. |
 | 3 | Additive membership and removal | Pending |
 | 4 | Curated snapshots and decision association | Pending |
 | 5 | Temporary queue and updates-only selection | Pending |
@@ -32,4 +32,6 @@ Local `dotnet --list-sdks` is empty. No local product build/test pass is claimed
 - Native PowerShell creates per-plan briefs, review packages and an ignored local ledger; Bash/helper resources are unavailable. Regeneration affects development artifacts only.
 - Initial feature-branch publication was rejected by automatic review under the historical validation-only scope. The same push succeeded after remote ownership/private visibility and current explicit publication approval were verified. No shared development/main branch changed.
 - Direct progress messages to the parent thread were rejected by automatic review because destination authorization was not recognized. No alternate messaging route is used; this progress record and task output remain available.
+- Reserved setup may distinguish only exact optional Chocolatey availability warnings after independent fresh positive absence repeated after the scan; all unknown/partial/other warnings and ordinary paths still refuse. If wrong, remove the exception and rework native inventory/presence composition before making setup actionable.
+- Reserved setup must repeat positive absence after every acceptable successful scan, including clean scans, because client presence is independent of package registration. If wrong, this adds one redundant bounded observation and review/test rework; it provides no OS lock.
 - Windows interactive UI/accessibility/process-resource measurements remain future evidence; fixture CI cannot establish them. No real installed app has been changed.
