@@ -65,3 +65,22 @@ A provider cannot target the immutable identifiers without display-name or remot
   - User-scope items run first, then machine-scope items in one helper session (ADR-018 revision).
   - Cancellation prevents the next unstarted item.
 - **Verification.** Install Success needs both the provider's exact listing at the target version and a matching local re-inventory instance. Uninstall Success, if built, needs both to show absence.
+
+### Task 48 implementation note (2026-10-09)
+
+- **Naming.** The `PackageOperation` is the existing `ImmutableUpdateJob`/`UpdateJobSelection`, kept to avoid churn. `UpdateJobSelection` gains:
+  - `Operation` (`Upgrade` or `Install`);
+  - `AgreementHash`, WinGet only, upper-case SHA-256;
+  - `RunsElevated`, which is true for machine scope and for installers that need or raise elevation.
+
+  An Install has a null `InstalledVersion`, and a Microsoft Store install is refused.
+- **Digest compatibility.** The first ten canonical lines are unchanged, so persisted v0.2 Upgrade digests stay valid. Any v0.3 evidence appends labelled `operation=`, `agreement=` and `elevated=` lines.
+- **Legacy path.** Only `IsPlainUpgrade` jobs may use the v0.2 runners, the upgrade argv builders or helper protocol v1. Everything else waits for the Task 49 batch path.
+- **Batches.** `OperationBatchReview.Confirm` creates `ApprovedOperationBatch`:
+  - 1–50 items, unique by product key and by provider package;
+  - every job bound to the batch correlation and approval time;
+  - unelevated items first, then elevated items;
+  - a digest chaining each index, job ID and job digest;
+  - usable from 15 s before approval until 30 minutes after it.
+- **Persistence.** Migration 10 rebuilds `approved_update_jobs` transactionally (nullable installed version; `operation`, `agreement_hash`, `runs_elevated`). It adds `operation_batches`, `operation_batch_items` and `agreement_acceptances`. Reads recheck membership, order, every job digest and the batch digest.
+- **Agreements.** `OperationBatchApprovalService` refuses to confirm an item whose agreement hash has no recorded acceptance for that package and version. Acceptances are cleared with mappings and policies.

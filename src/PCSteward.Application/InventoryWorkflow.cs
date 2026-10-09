@@ -90,6 +90,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     private readonly UpdateExecutionCapabilities executionCapabilities;
     private readonly PersonalCatalog? catalog;
     private readonly IUserCatalogStore? userCatalog;
+    private readonly IInstallPreflightAuthority? installPreflight;
 
     public InventoryWorkflow(
         IInventorySnapshotStore snapshots,
@@ -105,7 +106,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IAdvancedDataControlStore? advancedData = null,
         UpdateExecutionCapabilities? executionCapabilities = null,
         PersonalCatalog? catalog = null,
-        IUserCatalogStore? userCatalog = null)
+        IUserCatalogStore? userCatalog = null,
+        IInstallPreflightAuthority? installPreflight = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -120,6 +122,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         this.executionCapabilities = executionCapabilities ?? UpdateExecutionCapabilities.UserAndMachine;
         this.catalog = catalog;
         this.userCatalog = userCatalog;
+        this.installPreflight = installPreflight;
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
@@ -237,6 +240,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
+        if (job.Selection.Operation == PackageOperationKind.Install) return await VerifyInstallAsync(job, cancellationToken).ConfigureAwait(false);
         if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
         ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
         if (!scan.Succeeded) return new(false, false);
@@ -349,6 +353,78 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         IReadOnlyDictionary<string, ProductUpdatePolicy> policies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
         IReadOnlyCollection<DeclaredPackageMapping> mappings = (await DeclaredMappingsAsync(products, instances, policies, cancellationToken).ConfigureAwait(false)).Mappings;
         return UpdateIntelligence.Assess(CreateProfiles(products, instances), sourceSnapshots, mappings, policies);
+    }
+
+    /// <summary>
+    /// FR-INS-05: install Success needs two independent authorities. The provider must list the exact package at
+    /// the target version, and a controlled re-inventory must find a product that the catalog detects exactly as
+    /// this entry with concrete local evidence (registry or MSIX). A portable install without local evidence
+    /// therefore stays unverified rather than becoming Success.
+    /// </summary>
+    private async Task<PostUpdateInventoryResult> VerifyInstallAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
+        ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
+        if (!scan.Succeeded) return new(false, false);
+        (PersonalCatalog? composed, _) = await ComposeCatalogAsync(cancellationToken).ConfigureAwait(false);
+        if (composed is null || !composed.Entries.Any(entry => string.Equals(entry.Id, job.Selection.StableProductKey, StringComparison.Ordinal))) return new(false, false);
+        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        HashSet<string> exactKeys = new(PersonalCatalogMatching.Match(composed, products, instances)
+            .Where(match => match.Detection.IsExact && match.Detection.EntryIds.Count == 1 && string.Equals(match.Detection.EntryIds[0], job.Selection.StableProductKey, StringComparison.Ordinal))
+            .Select(match => match.StableProductKey), StringComparer.Ordinal);
+        HashSet<Guid> productIds = [.. products.Where(product => exactKeys.Contains(product.StableKey)).Select(product => product.Id)];
+        return new(instances.Any(instance => productIds.Contains(instance.ProductId) && IsConcreteLocalEvidence(instance)), false);
+    }
+
+    /// <summary>
+    /// FR-INS-01/02/04/06: prepares an Install of a catalog entry that PC Steward does not detect on this PC.
+    /// The catalog only names the query; the provider must resolve it live and exactly (AC-V3-02). The default
+    /// provider is used unless the user chose another listed provider. Installed apps are never reinstalled here.
+    /// </summary>
+    public async Task<InstallSelectionPreparation> PrepareInstallSelectionAsync(string catalogEntryId, CatalogProviderKind? providerOverride, UpdateScope scope, UpdateArchitecture architecture, CancellationToken cancellationToken)
+    {
+        if (installPreflight is null) return new(null, "Install preflight is not available in this build.");
+        if (string.IsNullOrWhiteSpace(catalogEntryId)) return new(null, "No catalog app was selected.");
+        ConnectorState inventoryState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.InstalledInventoryConnector, false, cancellationToken).ConfigureAwait(false);
+        ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.PackageSourcesConnector, false, cancellationToken).ConfigureAwait(false);
+        if (!TrustedSourceConnectorConsent.IsEnabled(inventoryState, sourceState)) return new(null, "Approved update sources are not enabled.");
+
+        (PersonalCatalog? composed, _) = await ComposeCatalogAsync(cancellationToken).ConfigureAwait(false);
+        CatalogEntry? entry = composed?.Entries.SingleOrDefault(candidate => string.Equals(candidate.Id, catalogEntryId, StringComparison.Ordinal));
+        if (entry is null) return new(null, "The app is not in the validated catalog.");
+        CatalogProviderIdentity? provider = providerOverride is null ? entry.DefaultProvider : entry.Providers.FirstOrDefault(candidate => candidate.Provider == providerOverride);
+        if (provider is null) return new(null, "The catalog entry does not list that provider.");
+        if (!provider.Scopes.Contains(scope == UpdateScope.Machine ? CatalogScope.Machine : CatalogScope.User)) return new(null, "The catalog entry does not allow that install scope for this provider.");
+        if (scope == UpdateScope.Machine && !executionCapabilities.MachineScopeEnabled) return new(null, "Machine-scope installs are not available in this deployment.");
+
+        if (hasCurrentLocalInventoryProviders)
+        {
+            ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
+            if (!currentInventory.Succeeded) return new(null, "Current installed inventory is unavailable. No install can be prepared.");
+        }
+
+        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        // Any detection, even a weak one, blocks an install: the app may already be here (FR-INS-06).
+        if (PersonalCatalogMatching.Match(composed!, products, instances).Any(match => match.Detection.EntryIds.Contains(entry.Id, StringComparer.Ordinal)))
+        {
+            return new(null, "PC Steward detected this app on the PC. Installed apps are updated, not reinstalled.");
+        }
+
+        bool chocolatey = provider.Provider == CatalogProviderKind.Chocolatey;
+        InstallPreflightRequest request = new(
+            entry.Id,
+            chocolatey ? UpdateProvider.Chocolatey : UpdateProvider.WinGet,
+            provider.Source == CatalogSource.ChocolateyCommunity ? UpdateSource.ChocolateyCommunity : UpdateSource.WinGet,
+            provider.PackageId,
+            scope,
+            chocolatey ? UpdateArchitecture.Neutral : architecture,
+            entry.Channel == CatalogChannel.Preview ? UpdateChannel.Preview : UpdateChannel.Stable);
+        InstallPreflightResult result = await installPreflight.PreflightAsync(request, cancellationToken).ConfigureAwait(false);
+        return result.IsActionable
+            ? new(result, "Fresh exact provider evidence is ready for your review.")
+            : new(result, $"The provider did not return one exact, compatible, installable package ({result.Reason}). Nothing can be installed.");
     }
 
     /// <summary>

@@ -125,9 +125,11 @@ public static class PersonalCatalogMatching
         return nameOnly.Length > 1 ? new(CatalogDetectionKind.Ambiguous, nameOnly) : CatalogDetectionResult.NoMatch;
     }
 
+    // Persistence stores a missing publisher as an empty string; treat it as missing so a name match stays
+    // NameOnly (review required, and an install blocker) instead of silently becoming "not detected".
     private static CatalogInstalledRecord Record(CanonicalProduct product, InstallationInstance instance) => new(
         product.DisplayName,
-        instance.Publisher,
+        string.IsNullOrWhiteSpace(instance.Publisher) ? null : instance.Publisher,
         instance.Provider,
         instance.ProviderIdentity,
         instance.SourceId,

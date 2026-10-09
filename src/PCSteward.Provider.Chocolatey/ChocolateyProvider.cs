@@ -85,7 +85,7 @@ public sealed partial class ChocolateyLocalInventoryProvider : ILocalInventoryPr
     internal static IEnumerable<string> Lines(string value) => value.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim());
     internal static bool ValidPackageId(string value) => value.Length is > 0 and <= 256 && PackageId().IsMatch(value);
     internal static bool ValidVersion(string value) => value.Length is > 0 and <= 128 && Version().IsMatch(value);
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$", RegexOptions.CultureInvariant)] private static partial Regex PackageId();
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$", RegexOptions.CultureInvariant)] private static partial Regex PackageId();
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$", RegexOptions.CultureInvariant)] private static partial Regex Version();
 }
 
@@ -169,6 +169,7 @@ public sealed class ChocolateyMachineUpdateExecutor : IProtectedMachineUpdateExe
     {
         ArgumentNullException.ThrowIfNull(job);
         if (!job.HasValidDigest) throw new ArgumentException("The update job failed its integrity check.", nameof(job));
+        if (!job.Selection.IsPlainUpgrade) throw new ArgumentException("Only plain upgrade jobs use the upgrade builder.", nameof(job));
         if (job.Selection.Provider != UpdateProvider.Chocolatey || job.Selection.Source != UpdateSource.ChocolateyCommunity) throw new ArgumentException("Only Chocolatey Community jobs are supported.", nameof(job));
         if (job.Selection.Scope != UpdateScope.Machine) throw new ArgumentException("Chocolatey updates require the protected machine-scope helper.", nameof(job));
         return ["upgrade", job.Selection.PackageId, "--version", job.Selection.CandidateVersion, "--source", ChocolateyUpdateSourceConnector.CommunitySourceUrl, "--yes", "--limit-output", "--no-color", "--execution-timeout", "300"];

@@ -2,13 +2,94 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 47 — catalog detection in matching, catalog states, app policies and user catalog entries (implementation and Linux validation pass; Windows CI pending)
+**Current task:** Task 48 — operation and batch domain and persistence, install preflight and builders, agreement capture and install verification (implementation and Linux validation pass; Windows CI pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Task 48 operations, batches and install building blocks
+
+**Package-ID allowlist** (spike §5.5):
+- WinGet IDs may contain `+` and `_`, for example `Notepad++.Notepad++` and `Microsoft.VCRedist.2015+.x64`.
+- Chocolatey (NuGet) IDs accept `_` but never `+`.
+- The domain also now enforces the allowlisted provider/source pairs.
+
+**Operation kinds** (`FR-INS-01`, ADR-017 v0.3):
+- `UpdateJobSelection` gains:
+  - `Operation`, which is `Upgrade` or `Install`;
+  - `AgreementHash`;
+  - `RunsElevated`, which is true for machine scope and for `ElevationRequired`/`ElevatesSelf` installers.
+- An Install has no installed version, and a Microsoft Store install is refused.
+- Persisted v0.2 Upgrade digests are unchanged.
+- Only plain upgrades may use the v0.2 runners, the upgrade argv builders and helper protocol v1. They deny anything else before any process or UAC prompt.
+
+**Batches** (`FR-BAT-04/05`, `AC-V3-05` domain half):
+- `OperationBatchReview` → `ApprovedOperationBatch`:
+  - 1–50 items, unique by product and package;
+  - every job bound to the batch correlation and approval time;
+  - unelevated items first;
+  - a chained digest over index, job ID and job digest;
+  - a 30-minute lifetime.
+- Substitution, reordering, appending, truncation, replay under another ID and clock rollback all fail.
+
+**Persistence:**
+- Migration 10 rebuilds `approved_update_jobs` in one transaction. Pre-v10 rows keep their digest and route.
+- It adds `operation_batches`, `operation_batch_items` and `agreement_acceptances`.
+- Batch reads recheck membership, order and every digest.
+
+**Agreements** (`FR-INS-03`, `TM-22`):
+- `PackageAgreementDigest` is a bounded, length-prefixed SHA-256 (at most 16 agreements of up to 100 000 characters).
+- `OperationBatchApprovalService` will not confirm an item until acceptance of that exact hash, package and version is recorded.
+- Acceptances are cleared with mappings and policies.
+
+**Install preflight** (`FR-INS-02/04`, `AC-V3-02`):
+- **WinGet:** `WingetInstallPreflightAuthority` uses COM (the ADR-003 amendment is applied). It needs:
+  - one exact trusted `winget` match, not installed;
+  - the default or the approved version;
+  - no channel;
+  - an applicable installer for the scope and architecture;
+  - bounded agreements.
+- **Chocolatey:** `ChocolateyInstallPreflightAuthority` runs `search <id> --exact [--version] --approved-only --not-broken` against the fixed feed. It needs exactly one strict `id|version` row and no local registration.
+- On revalidation, a changed version, agreement set or elevation route is not actionable.
+- `InventoryWorkflow.PrepareInstallSelectionAsync`:
+  - requires source consent and a validated catalog entry;
+  - uses the listed provider (the default unless overridden) and an allowed scope;
+  - refuses any detected app, even a name-only match.
+
+**Install argv** (exact snapshots):
+- WinGet: `install --id --exact --version --source winget --scope --architecture --silent --disable-interactivity`, plus `--accept-package-agreements` only behind the recorded hash and matching fresh evidence.
+- Chocolatey: `install <id> --version --source <feed> --yes --limit-output --no-progress --no-color --execution-timeout 300`.
+
+**Exit codes:** WinGet and Chocolatey codes map onto the history taxonomy. Exit 0, restart and "already installed" only ever lead to verification.
+
+**Install verification** (`FR-INS-05`): `ReInventoryAsync` routes Install jobs to two authorities:
+1. the provider's exact listing at the target version;
+2. a re-inventory product that the catalog detects exactly as the entry, with registry or MSIX evidence.
+
+The provider's own list is not local evidence.
+
+**Fix found by the new tests:** persistence stores a missing publisher as `""`, which turned name-only catalog detections into "not detected". `PersonalCatalogMatching` now treats a blank publisher as missing.
+
+**Guards:** `ProviderOperationBoundaryTests` forbids, across all product sources:
+- the spike §2.2 and §3.1 flags, including `--accept-source-agreements`;
+- the dangerous WinGet `InstallOptions` members.
+
+It allows exactly one guarded `--accept-package-agreements`.
+
+**Results (Linux SDK 10.0.112):**
+- Domain **87/87** (23 new), Catalog **96/96**, Architecture **34/34** (4 new).
+- Application **234/281** (93 new, all passing).
+- Security **21/25** (3 new, all passing).
+- The 51 failures are identical to the HEAD baseline: Windows-only APIs (`wintrust.dll`, reparse points, NTFS streams, named pipes, Task Scheduler).
+- ElevatedHelper, ScheduledHost, CatalogTool and Performance build cleanly. The WinUI desktop builds in CI.
+
+**Not wired yet:**
+- The batch coordinator, helper protocol v2 and per-item execution are Task 49.
+- Review-sheet UI is Tasks 51–52.
+- The catalog tool's live verification (ADR-023) can reuse `WingetInstallPreflightAuthority`. It needs the owner's Windows PC and is left for the owner probe.
 
 ## Task 47 catalog matching, states and policies
 
@@ -179,6 +260,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-Task 48 — operation and batch domain, WinGet/Chocolatey install builders, live preflight, agreement capture and install verification; widen the package-ID allowlist for `+` and `_` (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). Specification v0.3 and `AGENTS.md` are now authoritative. Earlier distribution-gate wording below is historical (C-11).
+Task 49 — `BatchExecutionCoordinator`, helper protocol v2 (one UAC prompt per batch) and the running-app policy (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). It consumes `ApprovedOperationBatch`, `InstallPreflightRequest.ForApprovedJob`, the install executors and `ProviderExitAssessment`. Specification v0.3 and `AGENTS.md` are authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.

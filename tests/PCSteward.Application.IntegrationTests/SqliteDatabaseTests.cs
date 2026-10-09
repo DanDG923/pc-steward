@@ -306,7 +306,7 @@ public sealed class SqliteDatabaseTests
         await using TestDatabase database = await TestDatabase.CreateAsync();
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(DateTimeOffset.UtcNow);
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        UpdateHistoryEntry running = new(Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider, job.Selection.PackageId, job.Selection.InstalledVersion, job.Selection.CandidateVersion, now, UpdateHistoryStatus.Running, null, "running");
+        UpdateHistoryEntry running = new(Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider, job.Selection.PackageId, job.Selection.InstalledVersion!, job.Selection.CandidateVersion, now, UpdateHistoryStatus.Running, null, "running");
         await database.Store.RecordAsync(running, CancellationToken.None);
         await database.Store.RecoverInterruptedAsync(CancellationToken.None);
         await database.Store.RecordAsync(running with { EventId = Guid.NewGuid(), OccurredAt = now.AddMinutes(1), Status = UpdateHistoryStatus.Success, ExitCode = 0, Diagnostic = "verified" }, CancellationToken.None);

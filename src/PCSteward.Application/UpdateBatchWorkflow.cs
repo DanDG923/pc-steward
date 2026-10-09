@@ -24,6 +24,7 @@ public enum UpdateHistoryStatus
 }
 
 /// <summary>Append-only update history. It contains presentation-safe diagnostics only.</summary>
+/// <remarks>An Install has no installed version; history records <see cref="NotInstalledVersion"/>.</remarks>
 public sealed record UpdateHistoryEntry(
     Guid EventId,
     Guid JobId,
@@ -36,7 +37,10 @@ public sealed record UpdateHistoryEntry(
     DateTimeOffset OccurredAt,
     UpdateHistoryStatus Status,
     int? ExitCode,
-    string Diagnostic);
+    string Diagnostic)
+{
+    public const string NotInstalledVersion = "not-installed";
+}
 
 public sealed record UpdateHistoryRetention(int MaximumEventsPerJob, DateTimeOffset RemoveVerboseBefore);
 
@@ -205,7 +209,7 @@ public sealed class SequentialUpdateBatchCoordinator(
 
     private UpdateHistoryEntry Entry(ImmutableUpdateJob job, UpdateHistoryStatus status, int? exitCode, string diagnostic) => new(
         Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider,
-        job.Selection.PackageId, job.Selection.InstalledVersion, job.Selection.CandidateVersion, utcNow(), status, exitCode,
+        job.Selection.PackageId, job.Selection.InstalledVersion ?? UpdateHistoryEntry.NotInstalledVersion, job.Selection.CandidateVersion, utcNow(), status, exitCode,
         SanitizedDiagnosticBundle.Sanitize(diagnostic));
 
     private static UpdateHistoryStatus Map(UpdateProviderAttemptStatus status) => status switch
