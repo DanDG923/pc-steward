@@ -242,6 +242,7 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         if (!OperatingSystem.IsWindows()) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "elevated-helper-requires-windows");
         if (!batch.HasValidDigest) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, "batch-integrity-check-failed");
         if (abort.IsCancellationRequested) return NotStarted(UpdateProviderAttemptStatus.Cancelled, "run-aborted-before-start");
+        if (cancelRemaining.IsCancellationRequested) return NotStarted(UpdateProviderAttemptStatus.Cancelled, "cancel-remaining-before-start");
         foreach (ImmutableUpdateJob job in elevated.Where(job => !skipReasons.ContainsKey(job.Id)))
         {
             string? providerTrustFailure = validateProviderPreLaunchTrust(job);
@@ -270,6 +271,9 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         using NamedPipeServerStream pipe = RestrictedNamedPipe.Create(pipeName, currentSid);
         HelperLaunchTrustResult finalTrust = validatePreLaunchTrust(paths);
         if (!finalTrust.Trusted) return NotStarted(UpdateProviderAttemptStatus.ProductFailed, finalTrust.Rejection);
+        // Trust checks must not turn a cancellation into a fresh UAC prompt.
+        if (abort.IsCancellationRequested) return NotStarted(UpdateProviderAttemptStatus.Cancelled, "run-aborted-before-start");
+        if (cancelRemaining.IsCancellationRequested) return NotStarted(UpdateProviderAttemptStatus.Cancelled, "cancel-remaining-before-start");
         using Process? helper = launchBatchHelper(paths.HelperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
         if (launchFailure is not null)
         {
@@ -851,7 +855,7 @@ public static class ElevatedHelperEntryPoint
     /// with between-item cancellation, and stream results. A disconnect or any frame other than one valid
     /// CancelRemaining aborts the running provider. Returns 0, 24 (request rejected) or 25 (aborted).
     /// </summary>
-    internal static async Task<int> ServeBatchAsync(Stream pipe, string nonce, IOperationRevalidator revalidator, IOperationExecutor executor, Func<DateTimeOffset>? utcNow = null, TimeSpan? requestTimeout = null)
+    internal static async Task<int> ServeBatchAsync(Stream pipe, string nonce, IOperationRevalidator revalidator, IOperationExecutor executor, Func<DateTimeOffset>? utcNow = null, TimeSpan? requestTimeout = null, IRunningApplicationDetector? runningApplications = null)
     {
         ArgumentNullException.ThrowIfNull(pipe);
         HelperBatchRequestReceiver receiver = new(nonce, utcNow);
@@ -871,7 +875,7 @@ public static class ElevatedHelperEntryPoint
         }
 
         if (receiver.Request is not { } request) return 24;
-        ElevatedHelperBatchSession session = new(request, nonce, revalidator, executor);
+        ElevatedHelperBatchSession session = new(request, nonce, revalidator, executor, runningApplications: runningApplications);
         using CancellationTokenSource abort = new();
         using CancellationTokenSource stopListening = new();
         Task listener = ListenForCancelRemainingAsync(pipe, request.BatchId, nonce, session, abort, stopListening.Token);
@@ -1384,3 +1388,4 @@ internal static class NativeMethods
         return path.Length != 0 && userSid.Length != 0;
     }
 }
+

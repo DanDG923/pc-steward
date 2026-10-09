@@ -180,7 +180,7 @@ public sealed class BatchExecutionCoordinator
                     continue;
                 }
 
-                await RunUnelevatedAsync(run, job, abort).ConfigureAwait(false);
+                await RunUnelevatedAsync(run, job, cancelRemaining, abort).ConfigureAwait(false);
             }
 
             await RunElevatedAsync(run, batch, cancelRemaining, abort).ConfigureAwait(false);
@@ -193,9 +193,14 @@ public sealed class BatchExecutionCoordinator
         }
     }
 
-    private async Task RunUnelevatedAsync(Run run, ImmutableUpdateJob job, CancellationToken abort)
+    private async Task RunUnelevatedAsync(Run run, ImmutableUpdateJob job, CancellationToken cancelRemaining, CancellationToken abort)
     {
         string? blocked = await ApplyRunningApplicationPolicyAsync(run.Options, job, abort).ConfigureAwait(false);
+        if (cancelRemaining.IsCancellationRequested || abort.IsCancellationRequested)
+        {
+            await run.CancelAsync(job, abort.IsCancellationRequested ? "run-aborted-before-start" : "cancel-remaining-before-start").ConfigureAwait(false);
+            return;
+        }
         if (blocked is not null)
         {
             await run.RecordAsync(job, UpdateHistoryStatus.Skipped, null, blocked).ConfigureAwait(false);
@@ -203,6 +208,11 @@ public sealed class BatchExecutionCoordinator
         }
 
         UpdateJobExecutionEvidence? evidence = await TryRevalidateAsync(job, abort).ConfigureAwait(false);
+        if (cancelRemaining.IsCancellationRequested || abort.IsCancellationRequested)
+        {
+            await run.CancelAsync(job, abort.IsCancellationRequested ? "run-aborted-before-start" : "cancel-remaining-before-start").ConfigureAwait(false);
+            return;
+        }
         if (evidence is null || !job.Matches(evidence))
         {
             await run.RecordAsync(job, UpdateHistoryStatus.Skipped, null, "revalidation-failed; review-again").ConfigureAwait(false);
@@ -210,6 +220,11 @@ public sealed class BatchExecutionCoordinator
         }
 
         await run.RecordAsync(job, UpdateHistoryStatus.Running, null, "provider-execution-started").ConfigureAwait(false);
+        if (cancelRemaining.IsCancellationRequested || abort.IsCancellationRequested)
+        {
+            await run.CancelAsync(job, abort.IsCancellationRequested ? "run-aborted-before-start" : "cancel-remaining-before-start").ConfigureAwait(false);
+            return;
+        }
         ProviderExitAssessment outcome;
         try
         {
@@ -265,6 +280,13 @@ public sealed class BatchExecutionCoordinator
             if (evidence is null || !job.Matches(evidence)) skipReasons[job.Id] = BatchSkipReasons.DesktopRevalidationFailed;
         }
 
+        // The last awaited precheck is still before the UAC boundary.
+        if (cancelRemaining.IsCancellationRequested || abort.IsCancellationRequested)
+        {
+            foreach (ImmutableUpdateJob job in elevated) await run.CancelAsync(job, abort.IsCancellationRequested ? "run-aborted-before-start" : "cancel-remaining-before-start").ConfigureAwait(false);
+            return;
+        }
+
         if (skipReasons.Count == elevated.Count)
         {
             foreach (ImmutableUpdateJob job in elevated) await run.RecordAsync(job, UpdateHistoryStatus.Skipped, null, SkipDiagnostic(skipReasons[job.Id])).ConfigureAwait(false);
@@ -275,6 +297,13 @@ public sealed class BatchExecutionCoordinator
         foreach (ImmutableUpdateJob job in elevated.Where(job => !skipReasons.ContainsKey(job.Id)))
         {
             await run.RecordAsync(job, UpdateHistoryStatus.Running, null, "elevated-session-requested").ConfigureAwait(false);
+        }
+
+        // History persistence can also yield before the executor is called.
+        if (cancelRemaining.IsCancellationRequested || abort.IsCancellationRequested)
+        {
+            foreach (ImmutableUpdateJob job in elevated) await run.CancelAsync(job, abort.IsCancellationRequested ? "run-aborted-before-start" : "cancel-remaining-before-start").ConfigureAwait(false);
+            return;
         }
 
         Dictionary<Guid, ImmutableUpdateJob> byId = elevated.ToDictionary(job => job.Id);
@@ -428,3 +457,4 @@ public sealed class BatchExecutionCoordinator
         }
     }
 }
+

@@ -91,6 +91,67 @@ public sealed class BatchExecutionCoordinatorTests
     }
 
     [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task CancelRemainingDuringLastElevatedPreCheckNeverStartsHelper(int itemCount)
+    {
+        Fixture fixture = new();
+        using CancellationTokenSource cancelRemaining = new();
+        int checks = 0;
+        fixture.Revalidator.Changed = _ =>
+        {
+            if (++checks == itemCount) cancelRemaining.Cancel();
+            return false;
+        };
+        ApprovedOperationBatch batch = Batch(Enumerable.Range(1, itemCount)
+            .Select(index => Upgrade($"winget:m{index}", $"Vendor.M{index}", UpdateScope.Machine)).ToArray());
+
+        BatchRunResult result = await fixture.Coordinator.RunAsync(batch, BatchRunOptions.Default, null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.AreEqual(0, fixture.Elevated.Calls, "FR-BAT-06: cancellation during the last precheck must prevent UAC.");
+        Assert.HasCount(0, fixture.Unelevated.Jobs);
+        Assert.HasCount(itemCount, result.Summary.Skipped);
+        Assert.IsTrue(result.Summary.Skipped.All(entry => entry.Status == UpdateHistoryStatus.Cancelled));
+    }
+
+    [TestMethod]
+    public async Task CancelRemainingDuringUnelevatedRevalidationNeverStartsProvider()
+    {
+        Fixture fixture = new();
+        using CancellationTokenSource cancelRemaining = new();
+        fixture.Revalidator.Changed = _ =>
+        {
+            cancelRemaining.Cancel();
+            return false;
+        };
+
+        BatchRunResult result = await fixture.Coordinator.RunAsync(Batch(Upgrade("winget:a", "Vendor.A", UpdateScope.User)), BatchRunOptions.Default, null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.HasCount(0, fixture.Unelevated.Jobs);
+        Assert.AreEqual(0, fixture.Elevated.Calls);
+        Assert.AreEqual(UpdateHistoryStatus.Cancelled, result.Summary.Skipped.Single().Status);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CancelRemainingDuringRunningHistoryWriteNeverStartsExecutor(bool elevated)
+    {
+        Fixture fixture = new();
+        using CancellationTokenSource cancelRemaining = new();
+        fixture.History.OnRecord = entry =>
+        {
+            if (entry.Status == UpdateHistoryStatus.Running) cancelRemaining.Cancel();
+        };
+
+        BatchRunResult result = await fixture.Coordinator.RunAsync(Batch(Upgrade("winget:a", "Vendor.A", elevated ? UpdateScope.Machine : UpdateScope.User)), BatchRunOptions.Default, null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.HasCount(0, fixture.Unelevated.Jobs);
+        Assert.AreEqual(0, fixture.Elevated.Calls);
+        Assert.AreEqual(UpdateHistoryStatus.Cancelled, result.Summary.Skipped.Single().Status);
+    }
+
+    [TestMethod]
     public async Task AbortDuringAProviderRecoversToVerificationRequired()
     {
         Fixture fixture = new();
@@ -371,7 +432,8 @@ public sealed class BatchExecutionCoordinatorTests
     private sealed class MemoryHistory : IUpdateHistoryStore
     {
         public List<UpdateHistoryEntry> Entries { get; } = [];
-        public Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken) { Entries.Add(entry); return Task.CompletedTask; }
+        public Action<UpdateHistoryEntry>? OnRecord { get; set; }
+        public Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken) { Entries.Add(entry); OnRecord?.Invoke(entry); return Task.CompletedTask; }
         public Task<IReadOnlyCollection<UpdateHistoryEntry>> GetHistoryForProductAsync(string stableProductKey, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<UpdateHistoryEntry>>([.. Entries.Where(entry => entry.StableProductKey == stableProductKey)]);
         public Task RecoverInterruptedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PruneAsync(UpdateHistoryRetention retention, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -398,3 +460,4 @@ public sealed class BatchExecutionCoordinatorTests
         }
     }
 }
+
