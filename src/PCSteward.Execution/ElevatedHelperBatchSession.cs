@@ -17,13 +17,13 @@ internal sealed class ElevatedHelperBatchSession
     private readonly string nonce;
     private readonly IOperationRevalidator revalidator;
     private readonly IOperationExecutor executor;
+    private readonly IRunningApplicationDetector runningApplications;
     private readonly TimeSpan deadline;
     private int cancelRemaining;
 
     internal ElevatedHelperBatchSession(HelperBatchRequest request, string nonce, IOperationRevalidator revalidator, IOperationExecutor executor, TimeSpan? deadline = null, IRunningApplicationDetector? runningApplications = null)
     {
-        // Test seam for the next safety gate; behavior is intentionally unchanged in the regression commit.
-        _ = runningApplications;
+        this.runningApplications = runningApplications ?? new PackageDerivedRunningApplicationDetector(failClosed: true);
         this.request = request ?? throw new ArgumentNullException(nameof(request));
         this.nonce = nonce ?? throw new ArgumentNullException(nameof(nonce));
         this.revalidator = revalidator ?? throw new ArgumentNullException(nameof(revalidator));
@@ -81,10 +81,52 @@ internal sealed class ElevatedHelperBatchSession
                 evidence = null;
             }
 
+            // Revalidation is awaited and can complete after CancelRemaining arrived.
+            if (abort.IsCancellationRequested) return;
+            if (deadlineSource.IsCancellationRequested) stopReason = "batch-deadline-exceeded";
+            else if (CancelRemainingRequested) stopReason = "cancel-remaining-before-start";
+            if (stopReason is not null)
+            {
+                await send(Result(item, UpdateProviderAttemptStatus.Cancelled, null, false, stopReason)).ConfigureAwait(false);
+                continue;
+            }
+
             if (evidence is null || !item.Job.Matches(evidence))
             {
                 string reason = deadlineSource.IsCancellationRequested ? "batch-deadline-exceeded" : "helper-revalidation-failed; review-again";
                 await send(Result(item, UpdateProviderAttemptStatus.Skipped, null, false, reason)).ConfigureAwait(false);
+                continue;
+            }
+
+            // The desktop all-clear predates UAC and all earlier providers. Recheck here, as a read-only
+            // veto: the helper never inherits close consent or closes processes in its elevated context.
+            string? runningApplicationBlock = null;
+            try
+            {
+                if ((await runningApplications.DetectAsync(item.Job.Selection, linked.Token).ConfigureAwait(false)).AppearsToBeRunning)
+                    runningApplicationBlock = "running-application-skipped";
+            }
+            catch (OperationCanceledException) when (abort.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                runningApplicationBlock = "running-application-check-failed";
+            }
+
+            // The process snapshot can also yield. CancelRemaining still applies until ItemStarted.
+            if (abort.IsCancellationRequested) return;
+            if (deadlineSource.IsCancellationRequested) stopReason = "batch-deadline-exceeded";
+            else if (CancelRemainingRequested) stopReason = "cancel-remaining-before-start";
+            if (stopReason is not null)
+            {
+                await send(Result(item, UpdateProviderAttemptStatus.Cancelled, null, false, stopReason)).ConfigureAwait(false);
+                continue;
+            }
+            if (runningApplicationBlock is not null)
+            {
+                await send(Result(item, UpdateProviderAttemptStatus.Skipped, null, false, runningApplicationBlock)).ConfigureAwait(false);
                 continue;
             }
 

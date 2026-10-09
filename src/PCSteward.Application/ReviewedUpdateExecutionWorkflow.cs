@@ -77,11 +77,18 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         "app", "application", "client", "desktop", "installer", "launcher", "setup", "update", "updater"
     };
     private readonly Func<IReadOnlyCollection<string>> processNames;
+    private readonly bool failClosed;
 
-    public PackageDerivedRunningApplicationDetector() : this(SnapshotProcessNames) { }
-    public PackageDerivedRunningApplicationDetector(bool failClosed) : this(SnapshotProcessNames, failClosed) { }
-    internal PackageDerivedRunningApplicationDetector(Func<IReadOnlyCollection<string>> processNames, bool failClosed = false) =>
+    public PackageDerivedRunningApplicationDetector() : this(failClosed: false) { }
+
+    /// <summary>Strict snapshots reject incomplete evidence instead of authorizing an elevated start.</summary>
+    public PackageDerivedRunningApplicationDetector(bool failClosed) : this(() => SnapshotProcessNames(failClosed), failClosed) { }
+
+    internal PackageDerivedRunningApplicationDetector(Func<IReadOnlyCollection<string>> processNames, bool failClosed = false)
+    {
         this.processNames = processNames ?? throw new ArgumentNullException(nameof(processNames));
+        this.failClosed = failClosed;
+    }
 
     public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
     {
@@ -91,7 +98,10 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         AddCandidate(candidates, selection.PackageId);
         string suffix = selection.PackageId.Split('.').Last();
         if (!AmbiguousSuffixes.Contains(suffix)) AddCandidate(candidates, suffix);
-        string[] matches = processNames()
+        IReadOnlyCollection<string> snapshot = processNames();
+        if (failClosed && (snapshot.Count > MaximumProcesses || snapshot.Any(string.IsNullOrEmpty)))
+            throw new InvalidOperationException("The running-application snapshot is incomplete.");
+        string[] matches = snapshot
             .Take(MaximumProcesses)
             .Where(name => candidates.Contains(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -112,22 +122,25 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         }
     }
 
-    private static IReadOnlyCollection<string> SnapshotProcessNames()
+    private static IReadOnlyCollection<string> SnapshotProcessNames(bool failClosed)
     {
         System.Diagnostics.Process[] processes = System.Diagnostics.Process.GetProcesses();
         List<string> names = [];
         try
         {
+            if (failClosed && processes.Length > MaximumProcesses)
+                throw new InvalidOperationException("The running-application snapshot exceeds its bound.");
             foreach (System.Diagnostics.Process process in processes.Take(MaximumProcesses))
             {
                 try
                 {
                     string name = process.ProcessName;
                     if (name.Length is > 0 and <= MaximumProcessNameLength) names.Add(name);
+                    else if (failClosed && name.Length == 0) throw new InvalidOperationException("A process name could not be inspected.");
                 }
-                catch (InvalidOperationException) { }
-                catch (System.ComponentModel.Win32Exception) { }
-                catch (NotSupportedException) { }
+                catch (InvalidOperationException) when (!failClosed) { }
+                catch (System.ComponentModel.Win32Exception) when (!failClosed) { }
+                catch (NotSupportedException) when (!failClosed) { }
             }
         }
         finally

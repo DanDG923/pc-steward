@@ -10,6 +10,19 @@
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
 
+## Task 49 safety follow-up — start boundaries (2026-10-09)
+
+**Scope:** `FR-BAT-06/08`, `AC-V3-06/07`; separate draft PR targeting the Task 49 branch.
+
+- Cancellation is rechecked after the last elevated desktop precheck, after crash-recovery history writes, immediately before the UAC launcher, and after awaited helper revalidation. The same pre-start rule applies to unelevated prevalidation. A provider already started is still allowed to finish.
+- Every elevated item receives a fresh, read-only process check after provider revalidation and before `ItemStarted`. A running app or failed/incomplete snapshot skips the item. Process closing stays in the consent-controlled desktop path; the helper never closes an app.
+- The strict process snapshot rejects truncation or unreadable process evidence. The preexisting desktop warning detector retains its permissive snapshot behavior.
+- Regression fixtures cover an app opened while an earlier provider runs, reopening during UAC or after consented close, failed snapshots, snapshot truncation, last/only elevated prechecks, and cancellation during awaited helper checks/history writes.
+
+**Test-first evidence:** Windows CI [37983462201](https://github.com/DanDG923/pc-steward/actions/runs/37983462201), commit `2835f65`, built with 0 warnings/errors. All 576 existing tests passed; exactly six new cancellation regressions failed at the expected zero-launch assertions before the fix. Windows CI [37984168679](https://github.com/DanDG923/pc-steward/actions/runs/37984168679), commit `21feb6a`, also built with 0 warnings/errors and reproduced all 14 intended failures across the cancellation, running-app and truncation regressions; the remaining 577 tests passed. Final fix validation is pending.
+
+**Limits:** Process matching remains package-derived, as in Task 49. A snapshot is a last-moment guard, not an OS-level lock preventing a process from starting after the snapshot. No real package installer, UAC acceptance, desktop integration, merge, or deployment is part of this follow-up.
+
 ## Task 49 batch execution, helper protocol v2 and running-app policy
 
 **Coordinator** (`FR-BAT-04–07`, `FR-INS-05/07`, `AC-V3-04/06`). `BatchExecutionCoordinator` runs one `ApprovedOperationBatch`:
@@ -309,3 +322,4 @@ The product owner selected an owner-only temporary-certificate route to enable a
 Task 50 — provider health, and Chocolatey setup through a reviewed WinGet install of `Chocolatey.Chocolatey` (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). It covers absent, untrusted and present client states and adds an architecture test that no bootstrap-script path exists. Specification v0.3 and `AGENTS.md` are authoritative. Earlier distribution-gate wording below is historical (C-11).
 
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
+

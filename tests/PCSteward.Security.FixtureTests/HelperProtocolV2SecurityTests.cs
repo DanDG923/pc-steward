@@ -194,7 +194,7 @@ public sealed class HelperProtocolV2SecurityTests
             session!.RequestCancelRemaining();
             return Task.FromResult(new ProviderExitAssessment(UpdateProviderAttemptStatus.AwaitingVerification, true, "ok", 3010));
         });
-        session = new(request, nonce, revalidator, executor);
+        session = new(request, nonce, revalidator, executor, runningApplications: new NotRunningDetector());
         List<HelperBatchEvent> events = await RunSessionAsync(session, request, nonce);
 
         // Item 1 ran to completion although Cancel remaining arrived while it ran; item 2 was withheld by the
@@ -218,7 +218,7 @@ public sealed class HelperProtocolV2SecurityTests
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         DelayedRevalidator revalidator = new(entered, release);
         FakeExecutor executor = new((_, _) => Task.FromResult(new ProviderExitAssessment(UpdateProviderAttemptStatus.AwaitingVerification, false, "ok")));
-        ElevatedHelperBatchSession session = new(request, nonce, revalidator, executor);
+        ElevatedHelperBatchSession session = new(request, nonce, revalidator, executor, runningApplications: new NotRunningDetector());
         Task<List<HelperBatchEvent>> run = RunSessionAsync(session, request, nonce);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         session.RequestCancelRemaining();
@@ -295,7 +295,7 @@ public sealed class HelperProtocolV2SecurityTests
             ? throw new IOException("launch failed")
             : Task.FromResult(new ProviderExitAssessment(UpdateProviderAttemptStatus.Skipped, false, "provider claims skip")));
 
-        List<HelperBatchEvent> events = await RunSessionAsync(new(request, nonce, revalidator, executor), request, nonce);
+        List<HelperBatchEvent> events = await RunSessionAsync(new(request, nonce, revalidator, executor, runningApplications: new NotRunningDetector()), request, nonce);
 
         HelperItemResultEvent[] results = [.. events.OfType<HelperItemResultEvent>()];
         Assert.AreEqual(UpdateProviderAttemptStatus.Skipped, results[0].Status, "Changed evidence is skipped, never adapted.");
@@ -315,7 +315,7 @@ public sealed class HelperProtocolV2SecurityTests
             return new ProviderExitAssessment(UpdateProviderAttemptStatus.AwaitingVerification, false, "never");
         });
 
-        List<HelperBatchEvent> events = await RunSessionAsync(new(request, nonce, new FakeRevalidator(_ => true), executor, TimeSpan.FromMilliseconds(200)), request, nonce);
+        List<HelperBatchEvent> events = await RunSessionAsync(new(request, nonce, new FakeRevalidator(_ => true), executor, TimeSpan.FromMilliseconds(200), new NotRunningDetector()), request, nonce);
 
         HelperItemResultEvent[] results = [.. events.OfType<HelperItemResultEvent>()];
         Assert.AreEqual(UpdateProviderAttemptStatus.TimedOut, results[0].Status);
@@ -395,7 +395,7 @@ public sealed class HelperProtocolV2SecurityTests
     {
         try
         {
-            return await ElevatedHelperEntryPoint.ServeBatchAsync(helper, nonce, new FakeRevalidator(_ => true), executor);
+            return await ElevatedHelperEntryPoint.ServeBatchAsync(helper, nonce, new FakeRevalidator(_ => true), executor, runningApplications: new NotRunningDetector());
         }
         finally
         {
@@ -459,6 +459,12 @@ public sealed class HelperProtocolV2SecurityTests
 
     private static UpdateJobSelection Upgrade(string key, string packageId, UpdateScope scope) =>
         new(key, UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0.0", "1.1.0", scope, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
+
+    private sealed class NotRunningDetector : IRunningApplicationDetector
+    {
+        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) =>
+            Task.FromResult(RunningApplicationDetection.NotDetected);
+    }
 
     private sealed class DelayedDetector(TaskCompletionSource entered, TaskCompletionSource release) : IRunningApplicationDetector
     {

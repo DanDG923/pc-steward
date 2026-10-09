@@ -26,6 +26,17 @@ public sealed class StrictRunningApplicationDetectorTests
         Assert.IsTrue((await detector.DetectAsync(Selection(), CancellationToken.None)).AppearsToBeRunning);
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task StrictSnapshotTreatsKnownLongProcessNamesAsNonmatches(bool targetRunning)
+    {
+        string[] processes = targetRunning ? [new string('x', 65), "Editor"] : [new string('x', 65)];
+        PackageDerivedRunningApplicationDetector detector = new(() => processes, failClosed: true);
+
+        Assert.AreEqual(targetRunning, (await detector.DetectAsync(Selection(), CancellationToken.None)).AppearsToBeRunning);
+    }
+
     private static UpdateJobSelection Selection() =>
         new("winget:editor", UpdateProvider.WinGet, UpdateSource.WinGet, "Vendor.Editor", "1.0.0", "1.1.0", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1");
 }
