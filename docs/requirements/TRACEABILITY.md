@@ -277,3 +277,10 @@ Tasks follow `docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11. Under C-12, each phase cl
 | `AC-V3-12` | `FRA-14–16` retired for personal use | Yes | 44 |
 | `TM-19–24` | v0.3 threat-register additions | Yes | 46–58 |
 
+### Curated manual release — Task 1 health prerequisite (2026-10-09)
+
+| Requirement | Implementation / evidence | Validation status |
+|---|---|---|
+| `CRD-08`, `FR-PRV-01` | `ProviderHealthReport` / `IProviderHealthProbe`; provider-owned WinGet and Chocolatey probes; positive canonical filesystem absence, Unknown failure, strict Chocolatey protected-layout and unchanged-client checks; bounded local configured-source display evidence. `ProviderHealthTests` and `ProviderHealthBoundaryTests`. | Expected-red Windows CI [37993415753](https://github.com/DanDG923/pc-steward/actions/runs/37993415753), `2108285`: build 0 warnings/errors, exactly 13 intended assertion failures; production candidate and additional fixtures await Windows CI and independent review. |
+| `FR-PRV-02-04`, `AC-V3-11` | Health is an evidence-only prerequisite; no setup, source consent, provider preference, automatic switching or bootstrap path added. | Full guidance/setup/preference delivery remains later manual-release task scope; no completion claimed here. |
+

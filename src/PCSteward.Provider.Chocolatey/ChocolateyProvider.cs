@@ -196,15 +196,36 @@ public sealed class ChocolateyPostUpdatePackageInventory : IPostUpdatePackageInv
 
 internal sealed class WindowsChocolateyProcess : IChocolateyProcess
 {
-    private const int MaximumCapturedOutputLength = 1_000_000;
+    private readonly int maximumCapturedOutputLength;
+    private readonly ChocolateyClientIdentity? healthClient;
+    internal WindowsChocolateyProcess() => maximumCapturedOutputLength = 1_000_000;
+    internal WindowsChocolateyProcess(ChocolateyClientIdentity healthClient)
+    {
+        this.healthClient = healthClient ?? throw new ArgumentNullException(nameof(healthClient));
+        maximumCapturedOutputLength = 65_536;
+    }
     public async Task<ChocolateyProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        ChocolateyClientIdentity executable = MachineTrustedChocolatey.ResolveExecutable();
-        MachineTrustedChocolatey.ValidateUnchanged(executable);
+        ChocolateyClientIdentity executable;
+        if (healthClient is null)
+        {
+            executable = MachineTrustedChocolatey.ResolveExecutable();
+            MachineTrustedChocolatey.ValidateUnchanged(executable);
+        }
+        else
+        {
+            executable = healthClient;
+            try { MachineTrustedChocolatey.ValidateUnchanged(executable, requireCallerCannotModifyLayout: true); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                throw new ChocolateyHealthTrustException("Strict provider trust changed before a read-only launch.", exception);
+            }
+        }
         ProcessStartInfo start = new() { FileName = executable.Path, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using Process process = new() { StartInfo = start };
+        if (healthClient is not null) cancellationToken.ThrowIfCancellationRequested();
         process.Start();
         TaskCompletionSource overflow = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<BoundedRead> output = ReadBoundedAsync(process.StandardOutput, overflow); Task<BoundedRead> error = ReadBoundedAsync(process.StandardError, overflow); Task exit = process.WaitForExitAsync(CancellationToken.None);
@@ -214,10 +235,10 @@ internal sealed class WindowsChocolateyProcess : IChocolateyProcess
         if (completed == delay) { Terminate(process); await exit.ConfigureAwait(false); BoundedRead stdout = await output.ConfigureAwait(false); BoundedRead stderr = await error.ConfigureAwait(false); return new(-1, stdout.Text, stderr.Text, true, stdout.ExceededLimit || stderr.ExceededLimit); }
         BoundedRead completedOutput = await output.ConfigureAwait(false); BoundedRead completedError = await error.ConfigureAwait(false); return new(process.ExitCode, completedOutput.Text, completedError.Text, false, completedOutput.ExceededLimit || completedError.ExceededLimit);
     }
-    private static async Task<BoundedRead> ReadBoundedAsync(StreamReader reader, TaskCompletionSource overflow)
+    private async Task<BoundedRead> ReadBoundedAsync(StreamReader reader, TaskCompletionSource overflow)
     {
-        StringBuilder captured = new(Math.Min(MaximumCapturedOutputLength, 4096)); char[] buffer = new char[4096]; bool exceeded = false; int read;
-        while ((read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) != 0) { int available = MaximumCapturedOutputLength - captured.Length; if (available > 0) captured.Append(buffer, 0, Math.Min(available, read)); if (read > available) { exceeded = true; overflow.TrySetResult(); } }
+        StringBuilder captured = new(Math.Min(maximumCapturedOutputLength, 4096)); char[] buffer = new char[4096]; bool exceeded = false; int read;
+        while ((read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) != 0) { int available = maximumCapturedOutputLength - captured.Length; if (available > 0) captured.Append(buffer, 0, Math.Min(available, read)); if (read > available) { exceeded = true; overflow.TrySetResult(); } }
         return new(captured.ToString(), exceeded);
     }
     private static void Terminate(Process process) { if (!process.HasExited) process.Kill(entireProcessTree: true); }
@@ -231,7 +252,86 @@ internal sealed record ChocolateyClientTrustEvidence(bool FixedCanonicalPath, bo
 /// <summary>Accepts only Chocolatey's signed client at the canonical, protected machine root; PATH aliases and reparse points are denied.</summary>
 internal static class MachineTrustedChocolatey
 {
-    internal static ProviderPresence ObserveClientPresence(Func<IReadOnlyList<string>> enumerateCanonicalDirectory) => ProviderPresence.Unknown;
+    private static readonly string[] HealthPathComponents = ["chocolatey", "bin"];
+    internal static ProviderPresence ObserveClientPresence(Func<IReadOnlyList<string>> enumerateCanonicalDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(enumerateCanonicalDirectory);
+        try
+        {
+            IReadOnlyList<string> names = enumerateCanonicalDirectory();
+            ValidateHealthDirectoryNames(names);
+            return names.Contains("choco.exe", StringComparer.OrdinalIgnoreCase) ? ProviderPresence.Present : ProviderPresence.Absent;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return ProviderPresence.Unknown;
+        }
+    }
+
+    internal static ChocolateyHealthDiscovery DiscoverHealth()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Chocolatey health requires Windows.");
+        string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData, Environment.SpecialFolderOption.DoNotVerify);
+        return DiscoverHealth(programData, EnumerateHealthDirectory, File.GetAttributes, ResolveExecutable);
+    }
+
+    internal static ChocolateyHealthDiscovery DiscoverHealth(string programData, Func<string, IReadOnlyList<string>> enumerateDirectory,
+        Func<string, FileAttributes> attributes, Func<bool, ChocolateyClientIdentity> resolveTrustedClient)
+    {
+        if (string.IsNullOrWhiteSpace(programData) || !Path.IsPathFullyQualified(programData)) throw new IOException("The canonical provider root is unavailable.");
+        string root = Path.GetFullPath(programData);
+        foreach (string component in HealthPathComponents)
+        {
+            RejectHealthReparseAncestors(root, attributes);
+            IReadOnlyList<string> names = enumerateDirectory(root);
+            ValidateHealthDirectoryNames(names);
+            if (!names.Contains(component, StringComparer.OrdinalIgnoreCase)) return new(ProviderPresence.Absent, ProviderTrust.Unknown, null);
+            root = Path.Combine(root, component);
+        }
+        RejectHealthReparseAncestors(root, attributes);
+        ProviderPresence presence = ObserveClientPresence(() => enumerateDirectory(root));
+        if (presence != ProviderPresence.Present) return new(presence, ProviderTrust.Unknown, null);
+        try
+        {
+            ChocolateyClientIdentity client = resolveTrustedClient(true);
+            if (client.Digest is not { Length: 32 } || !string.Equals(Path.GetFullPath(client.Path), Path.Combine(root, "choco.exe"), StringComparison.OrdinalIgnoreCase))
+                return new(ProviderPresence.Present, ProviderTrust.Untrusted, null);
+            RejectHealthReparseAncestors(client.Path, attributes);
+            return new(ProviderPresence.Present, ProviderTrust.Trusted, client);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            return new(ProviderPresence.Present, ProviderTrust.Untrusted, null);
+        }
+    }
+
+    private static IReadOnlyList<string> EnumerateHealthDirectory(string directory) => Directory.EnumerateFileSystemEntries(directory)
+        .Select(path => Path.GetFileName(path)).Take(4097).ToArray();
+
+    private static void ValidateHealthDirectoryNames(IReadOnlyList<string> names)
+    {
+        if (names.Count > 4096 || names.Any(name => string.IsNullOrWhiteSpace(name) || name.Length > 256 || name is "." or ".." ||
+            name.Any(char.IsControl) || !string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)))
+            throw new IOException("Canonical directory observation is invalid or exceeds its limits.");
+    }
+
+    internal static void RejectHealthReparseAncestors(string path) => RejectHealthReparseAncestors(path, File.GetAttributes);
+
+    internal static void ValidateProtectedHealthConfiguration(string root, string directory, string file)
+    {
+        RejectHealthReparseAncestors(file);
+        if (!CallerCannotModifyLayout(root, directory, file)) throw new IOException("Configured source input is not in a protected layout.");
+    }
+
+    private static void RejectHealthReparseAncestors(string path, Func<string, FileAttributes> attributes)
+    {
+        string? current = Path.GetFullPath(path);
+        while (current is not null)
+        {
+            if ((attributes(current) & FileAttributes.ReparsePoint) != 0) throw new IOException("Canonical provider paths may not contain reparses.");
+            current = Path.GetDirectoryName(current);
+        }
+    }
 
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
     private const string ExpectedSignerSimpleName = "Chocolatey Software, Inc";
@@ -256,10 +356,10 @@ internal static class MachineTrustedChocolatey
         return new(executable, HashFile(executable));
     }
 
-    internal static void ValidateUnchanged(ChocolateyClientIdentity identity)
+    internal static void ValidateUnchanged(ChocolateyClientIdentity identity, bool requireCallerCannotModifyLayout = false)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        ChocolateyClientIdentity current = ResolveExecutable();
+        ChocolateyClientIdentity current = ResolveExecutable(requireCallerCannotModifyLayout);
         if (!string.Equals(identity.Path, current.Path, StringComparison.OrdinalIgnoreCase) || !DigestsMatch(identity.Digest, current.Digest))
         {
             throw new IOException("The trusted Chocolatey executable changed before launch.");

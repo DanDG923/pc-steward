@@ -448,7 +448,15 @@ public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor, IProtec
 
 internal sealed class WindowsWingetProcess : IWingetProcess
 {
-    private const int MaximumCapturedOutputLength = 1_000_000;
+    private readonly int maximumCapturedOutputLength;
+    private readonly string? healthExecutable;
+
+    internal WindowsWingetProcess() => maximumCapturedOutputLength = 1_000_000;
+    internal WindowsWingetProcess(string healthExecutable)
+    {
+        this.healthExecutable = healthExecutable ?? throw new ArgumentNullException(nameof(healthExecutable));
+        maximumCapturedOutputLength = 65_536;
+    }
 
     public async Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {
@@ -456,6 +464,7 @@ internal sealed class WindowsWingetProcess : IWingetProcess
         ProcessStartInfo start = new() { FileName = ResolveWingetExecutable(), UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using Process process = new() { StartInfo = start };
+        if (healthExecutable is not null) cancellationToken.ThrowIfCancellationRequested();
         process.Start();
         TaskCompletionSource overflow = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<BoundedRead> output = ReadBoundedAsync(process.StandardOutput, overflow);
@@ -481,13 +490,13 @@ internal sealed class WindowsWingetProcess : IWingetProcess
         return new WingetProcessResult(process.ExitCode, completedOutput.Text, completedError.Text, false, completedOutput.ExceededLimit || completedError.ExceededLimit);
     }
 
-    private static async Task<BoundedRead> ReadBoundedAsync(StreamReader reader, TaskCompletionSource overflow)
+    private async Task<BoundedRead> ReadBoundedAsync(StreamReader reader, TaskCompletionSource overflow)
     {
-        StringBuilder captured = new(Math.Min(MaximumCapturedOutputLength, 4096)); char[] buffer = new char[4096]; bool exceededLimit = false;
+        StringBuilder captured = new(Math.Min(maximumCapturedOutputLength, 4096)); char[] buffer = new char[4096]; bool exceededLimit = false;
         int read;
         while ((read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) != 0)
         {
-            int available = MaximumCapturedOutputLength - captured.Length;
+            int available = maximumCapturedOutputLength - captured.Length;
             if (available > 0) captured.Append(buffer, 0, Math.Min(available, read));
             if (read > available)
             {
@@ -500,19 +509,131 @@ internal sealed class WindowsWingetProcess : IWingetProcess
 
     private sealed record BoundedRead(string Text, bool ExceededLimit);
     private static void Terminate(Process process) { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-    private static string ResolveWingetExecutable()
+    private string ResolveWingetExecutable()
     {
-        return MachineTrustedWinget.ResolveExecutable();
+        if (healthExecutable is null) return MachineTrustedWinget.ResolveExecutable();
+        try
+        {
+            string current = MachineTrustedWinget.ResolveExecutable();
+            if (!string.Equals(healthExecutable, current, StringComparison.OrdinalIgnoreCase)) throw new IOException("The provider executable changed.");
+            return current;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new WingetHealthTrustException("Provider trust changed before a read-only launch.", exception);
+        }
     }
 }
 
-/// <summary>Resolves only the Microsoft-signed App Installer binary registered by the current user's Windows package catalog.
-/// Current-user aliases, PATH lookup, reparse points, unsigned binaries and unexpected signers are denied.</summary>
 internal sealed record WingetHealthDiscovery(ProviderPresence Presence, ProviderTrust Trust, string? Executable);
 
+/// <summary>Resolves only the Microsoft-signed App Installer binary registered by the current user's Windows package catalog.
+/// Current-user aliases, PATH lookup, reparse points, unsigned binaries and unexpected signers are denied.</summary>
 internal static class MachineTrustedWinget
 {
-    internal static ProviderPresence ObserveClientPresence(Func<IReadOnlyList<string>> enumerateCanonicalDirectory) => ProviderPresence.Unknown;
+    internal static ProviderPresence ObserveClientPresence(Func<IReadOnlyList<string>> enumerateCanonicalDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(enumerateCanonicalDirectory);
+        try
+        {
+            IReadOnlyList<string> names = enumerateCanonicalDirectory();
+            ValidateHealthDirectoryNames(names);
+            return names.Contains("winget.exe", StringComparer.OrdinalIgnoreCase) ? ProviderPresence.Present : ProviderPresence.Absent;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return ProviderPresence.Unknown;
+        }
+    }
+
+    internal static WingetHealthDiscovery DiscoverHealth()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WinGet health requires Windows.");
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolderOption.DoNotVerify);
+        return DiscoverHealth(programFiles,
+            () =>
+            {
+                Package[] packages = new PackageManager().FindPackagesForUser(string.Empty).Take(4097).ToArray();
+                if (packages.Length > 4096) throw new IOException("Package catalog observation exceeds its limits.");
+                return packages.Where(IsDesktopAppInstaller)
+                    .Select(package => package.InstalledLocation?.Path ?? throw new IOException("The registered location is unavailable.")).Take(65).ToArray();
+            },
+            EnumerateHealthDirectory, File.GetAttributes, ResolveExecutable);
+    }
+
+    // Narrow filesystem/catalog/trust seams; canonical inputs originate only in this provider.
+    internal static WingetHealthDiscovery DiscoverHealth(string programFiles, Func<IReadOnlyList<string>> registeredDirectories,
+        Func<string, IReadOnlyList<string>> enumerateDirectory, Func<string, FileAttributes> attributes, Func<string> resolveTrustedClient)
+    {
+        if (string.IsNullOrWhiteSpace(programFiles) || !Path.IsPathFullyQualified(programFiles)) throw new IOException("The canonical provider root is unavailable.");
+        string root = Path.GetFullPath(Path.Combine(programFiles, "WindowsApps"));
+        IReadOnlyList<string> registered = registeredDirectories();
+        if (registered.Count > 64) throw new IOException("Package catalog observation exceeds its limits.");
+        bool observedClient = false;
+        foreach (string directory in registered)
+        {
+            string full = Path.GetFullPath(directory);
+            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return new(ProviderPresence.Unknown, ProviderTrust.Untrusted, null);
+            RejectHealthReparseAncestors(full, attributes);
+            ProviderPresence observed = ObserveClientPresence(() => enumerateDirectory(full));
+            if (observed == ProviderPresence.Unknown) return new(ProviderPresence.Unknown, ProviderTrust.Unknown, null);
+            observedClient |= observed == ProviderPresence.Present;
+        }
+        if (!observedClient)
+        {
+            // A package-catalog miss alone cannot establish filesystem absence.
+            RejectHealthReparseAncestors(programFiles, attributes);
+            IReadOnlyList<string> children = enumerateDirectory(programFiles);
+            ValidateHealthDirectoryNames(children);
+            if (!children.Contains("WindowsApps", StringComparer.OrdinalIgnoreCase)) return new(ProviderPresence.Absent, ProviderTrust.Unknown, null);
+            RejectHealthReparseAncestors(root, attributes);
+            IReadOnlyList<string> packages = enumerateDirectory(root);
+            ValidateHealthDirectoryNames(packages);
+            foreach (string name in packages.Where(name => name.StartsWith("Microsoft.DesktopAppInstaller_", StringComparison.OrdinalIgnoreCase) && name.EndsWith("_8wekyb3d8bbwe", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (Path.GetFileName(name) != name) throw new IOException("Canonical directory observation is invalid.");
+                string directory = Path.Combine(root, name);
+                RejectHealthReparseAncestors(directory, attributes);
+                ProviderPresence observed = ObserveClientPresence(() => enumerateDirectory(directory));
+                if (observed == ProviderPresence.Unknown) return new(ProviderPresence.Unknown, ProviderTrust.Unknown, null);
+                observedClient |= observed == ProviderPresence.Present;
+            }
+            if (!observedClient) return new(ProviderPresence.Absent, ProviderTrust.Unknown, null);
+        }
+        try
+        {
+            string executable = resolveTrustedClient();
+            if (!Path.GetFullPath(executable).StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return new(ProviderPresence.Present, ProviderTrust.Untrusted, null);
+            RejectHealthReparseAncestors(executable, attributes);
+            return new(ProviderPresence.Present, ProviderTrust.Trusted, executable);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            return new(ProviderPresence.Present, ProviderTrust.Untrusted, null);
+        }
+    }
+
+    private static IReadOnlyList<string> EnumerateHealthDirectory(string directory) => Directory.EnumerateFileSystemEntries(directory)
+        .Select(path => Path.GetFileName(path)).Take(4097).ToArray();
+
+    private static void ValidateHealthDirectoryNames(IReadOnlyList<string> names)
+    {
+        if (names.Count > 4096 || names.Any(name => string.IsNullOrWhiteSpace(name) || name.Length > 256 || name is "." or ".." ||
+            name.Any(char.IsControl) || !string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)))
+            throw new IOException("Canonical directory observation is invalid or exceeds its limits.");
+    }
+
+    private static void RejectHealthReparseAncestors(string path, Func<string, FileAttributes> attributes)
+    {
+        string? current = Path.GetFullPath(path);
+        while (current is not null)
+        {
+            if ((attributes(current) & FileAttributes.ReparsePoint) != 0) throw new IOException("Canonical provider paths may not contain reparses.");
+            current = Path.GetDirectoryName(current);
+        }
+    }
 
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 

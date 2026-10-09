@@ -10,6 +10,12 @@ public sealed class ProviderHealthTests
 {
     private static readonly DateTimeOffset CheckedAt = new(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
     private static readonly string[] ExpectedChocolateyProbeCalls = ["discover", "validate", "version", "sources"];
+    private static readonly string[] ExpectedWingetSources = ["winget", "private source"];
+    private const string ProgramDataRoot = @"C:\ProgramData";
+    private const string ProgramFilesRoot = @"C:\Program Files";
+    private const string RegisteredWingetDirectory = @"C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_fixture_8wekyb3d8bbwe";
+    private const string RegisteredWingetExecutable = RegisteredWingetDirectory + @"\winget.exe";
+    private const string ChocolateyExecutable = ProgramDataRoot + @"\chocolatey\bin\choco.exe";
 
     [TestMethod]
     public async Task AbsentRequiresPositiveFilesystemEvidence()
@@ -153,6 +159,137 @@ public sealed class ProviderHealthTests
         Assert.AreEqual(ProviderProbeState.Partial, report.State);
     }
 
+    [TestMethod]
+    public void NativeChocolateyDiscoveryExplicitlyRequestsStrictTrust()
+    {
+        bool? strict = null;
+        ChocolateyHealthDiscovery discovery = MachineTrustedChocolatey.DiscoverHealth(ProgramDataRoot, ChocolateyDirectory,
+            _ => FileAttributes.Normal, required => { strict = required; return new(ChocolateyExecutable, new byte[32]); });
+        Assert.IsTrue(strict is true);
+        Assert.AreEqual(ProviderPresence.Present, discovery.Presence);
+        Assert.AreEqual(ProviderTrust.Trusted, discovery.Trust);
+    }
+
+    [TestMethod]
+    public void NativeChocolateyMissingRootNeedsAccessibleParentEnumeration()
+    {
+        int trustCalls = 0;
+        ChocolateyHealthDiscovery discovery = MachineTrustedChocolatey.DiscoverHealth(ProgramDataRoot, _ => [],
+            _ => FileAttributes.Normal, _ => { trustCalls++; throw new IOException(); });
+        Assert.AreEqual(ProviderPresence.Absent, discovery.Presence);
+        Assert.AreEqual(ProviderTrust.Unknown, discovery.Trust);
+        Assert.AreEqual(0, trustCalls);
+        Assert.ThrowsExactly<UnauthorizedAccessException>(() => MachineTrustedChocolatey.DiscoverHealth(ProgramDataRoot,
+            _ => throw new UnauthorizedAccessException(), _ => FileAttributes.Normal, _ => throw new IOException()));
+    }
+
+    [TestMethod]
+    public void NativeChocolateyReparseAndTrustFailureCannotBeTrusted()
+    {
+        int trustCalls = 0;
+        Assert.ThrowsExactly<IOException>(() => MachineTrustedChocolatey.DiscoverHealth(ProgramDataRoot, ChocolateyDirectory,
+            _ => FileAttributes.ReparsePoint, _ => { trustCalls++; return new(ChocolateyExecutable, new byte[32]); }));
+        Assert.AreEqual(0, trustCalls);
+        ChocolateyHealthDiscovery failure = MachineTrustedChocolatey.DiscoverHealth(ProgramDataRoot, ChocolateyDirectory,
+            _ => FileAttributes.Normal, _ => throw new IOException("fixture signature/ACL failure"));
+        Assert.AreEqual(ProviderPresence.Present, failure.Presence);
+        Assert.AreEqual(ProviderTrust.Untrusted, failure.Trust);
+        Assert.IsNull(failure.Client);
+    }
+
+    [TestMethod]
+    public void RegisteredWinGetDoesNotRequireWindowsAppsRootEnumeration()
+    {
+        WingetHealthDiscovery discovery = MachineTrustedWinget.DiscoverHealth(ProgramFilesRoot, () => [RegisteredWingetDirectory],
+            directory => directory == RegisteredWingetDirectory ? ["winget.exe"] : throw new UnauthorizedAccessException(),
+            _ => FileAttributes.Normal, () => RegisteredWingetExecutable);
+        Assert.AreEqual(ProviderPresence.Present, discovery.Presence);
+        Assert.AreEqual(ProviderTrust.Trusted, discovery.Trust);
+        Assert.AreEqual(RegisteredWingetExecutable, discovery.Executable);
+    }
+
+    [TestMethod]
+    public void MissingRegisteredWinGetRequiresCanonicalFilesystemEvidence()
+    {
+        int trustCalls = 0;
+        WingetHealthDiscovery absent = MachineTrustedWinget.DiscoverHealth(ProgramFilesRoot, () => [], _ => [],
+            _ => FileAttributes.Normal, () => { trustCalls++; throw new IOException(); });
+        Assert.AreEqual(ProviderPresence.Absent, absent.Presence);
+        Assert.AreEqual(0, trustCalls);
+        Assert.ThrowsExactly<UnauthorizedAccessException>(() => MachineTrustedWinget.DiscoverHealth(ProgramFilesRoot, () => [],
+            _ => throw new UnauthorizedAccessException(), _ => FileAttributes.Normal, () => throw new IOException()));
+    }
+
+    [TestMethod]
+    public void OversizedOrMalformedDirectoryObservationIsUnknown()
+    {
+        Assert.AreEqual(ProviderPresence.Unknown, MachineTrustedWinget.ObserveClientPresence(() => Enumerable.Repeat("entry", 4097).ToArray()));
+        Assert.AreEqual(ProviderPresence.Unknown, MachineTrustedChocolatey.ObserveClientPresence(() => [@"..\choco.exe"]));
+    }
+
+    [TestMethod]
+    public void SourceReadCommandsContainOnlyFixedReadOnlyArguments()
+    {
+        Assert.AreEqual("--version", string.Join(' ', WindowsWingetHealthClient.VersionArguments));
+        Assert.AreEqual("source list --disable-interactivity", string.Join(' ', WindowsWingetHealthClient.SourceArguments));
+        Assert.AreEqual("--version --no-color", string.Join(' ', WindowsChocolateyHealthClient.VersionArguments));
+    }
+
+    [TestMethod]
+    public void WinGetConfiguredSourcesAreBoundedLocalDisplayNames()
+    {
+        WingetProcessResult result = new(0, "Name            Argument\n--------------------------------\nwinget          https://example.invalid/\nprivate source  https://private.invalid/\n", "", false);
+        IReadOnlyList<string> sources = WindowsWingetHealthClient.ParseConfiguredSources(result);
+        CollectionAssert.AreEqual(ExpectedWingetSources, sources.ToArray());
+        Assert.ThrowsExactly<IOException>(() => WindowsWingetHealthClient.ParseConfiguredSources(new(0, "partial", "", false)));
+        Assert.ThrowsExactly<IOException>(() => WindowsWingetHealthClient.ParseConfiguredSources(new(0, new string('x', 65_537), "", false)));
+    }
+
+    [TestMethod]
+    public void ChocolateyConfiguredSourcesRejectExternalEntitiesAndMalformedXml()
+    {
+        using MemoryStream valid = XmlInput("<chocolatey><sources><source id='chocolatey' value='https://example.invalid/' /></sources></chocolatey>");
+        Assert.AreEqual("chocolatey", WindowsChocolateyHealthClient.ParseConfiguredSources(valid).Single());
+        using MemoryStream hostile = XmlInput("<!DOCTYPE chocolatey [<!ENTITY remote SYSTEM 'https://example.invalid/'>]><chocolatey><sources><source id='&remote;' /></sources></chocolatey>");
+        Assert.ThrowsExactly<System.Xml.XmlException>(() => WindowsChocolateyHealthClient.ParseConfiguredSources(hostile));
+        using MemoryStream wrongRoot = XmlInput("<untrusted><sources /></untrusted>");
+        Assert.ThrowsExactly<IOException>(() => WindowsChocolateyHealthClient.ParseConfiguredSources(wrongRoot));
+    }
+
+    [TestMethod]
+    public async Task OversizedSourceEvidenceIsPartialAndSourceSnapshotCannotBeMutated()
+    {
+        WingetClient oversized = new() { Sources = Enumerable.Repeat("entry", 65).ToArray() };
+        ProviderHealthReport partial = await Winget(oversized).ProbeAsync(CancellationToken.None);
+        Assert.AreEqual(ProviderProbeState.Partial, partial.State);
+        Assert.HasCount(0, partial.ConfiguredSources);
+        List<string> input = ["winget"];
+        WingetClient fakeClient = new() { Sources = input };
+        ProviderHealthReport report = await Winget(fakeClient).ProbeAsync(CancellationToken.None);
+        input.Add("later-change");
+        Assert.HasCount(1, report.ConfiguredSources);
+        Assert.IsTrue(((IList<string>)report.ConfiguredSources).IsReadOnly);
+    }
+
+    [TestMethod]
+    public async Task CancellationAfterAwaitStopsRemainingReads()
+    {
+        using CancellationTokenSource cancellation = new();
+        WingetClient fakeClient = new() { OnVersionRead = cancellation.Cancel };
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => Winget(fakeClient).ProbeAsync(cancellation.Token));
+        Assert.AreEqual(1, fakeClient.LaunchCount);
+        Assert.AreEqual(0, fakeClient.SourceReadCount);
+    }
+
+    private static MemoryStream XmlInput(string text) => new(System.Text.Encoding.UTF8.GetBytes(text));
+    private static IReadOnlyList<string> ChocolateyDirectory(string directory) => directory switch
+    {
+        ProgramDataRoot => ["chocolatey"],
+        ProgramDataRoot + @"\chocolatey" => ["bin"],
+        ProgramDataRoot + @"\chocolatey\bin" => ["choco.exe"],
+        _ => throw new IOException("Unexpected fixture path.")
+    };
+
     private static WingetProviderHealthProbe Winget(WingetClient client) => new(client, () => CheckedAt);
     private static ChocolateyProviderHealthProbe Chocolatey(ChocolateyClient client) => new(client, () => CheckedAt);
 
@@ -161,6 +298,7 @@ public sealed class ProviderHealthTests
         public WingetHealthDiscovery Discovery { get; init; } = new(ProviderPresence.Present, ProviderTrust.Trusted, "fixture-only");
         public Exception? DiscoveryFailure { get; init; }
         public Exception? SourceFailure { get; init; }
+        public Action? OnVersionRead { get; init; }
         public WingetProcessResult Version { get; init; } = new(0, "v1.12.0", "", false);
         public IReadOnlyList<string> Sources { get; init; } = ["winget", "msstore"];
         public int LaunchCount { get; private set; }
@@ -169,6 +307,7 @@ public sealed class ProviderHealthTests
         public Task<WingetProcessResult> ReadVersionAsync(string executable, CancellationToken cancellationToken)
         {
             LaunchCount++;
+            OnVersionRead?.Invoke();
             return Task.FromResult(Version);
         }
         public Task<IReadOnlyList<string>> ReadConfiguredSourcesAsync(string executable, CancellationToken cancellationToken)

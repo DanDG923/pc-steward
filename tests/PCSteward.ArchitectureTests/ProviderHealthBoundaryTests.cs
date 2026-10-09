@@ -27,6 +27,19 @@ public sealed class ProviderHealthBoundaryTests
         }
     }
 
+    [TestMethod]
+    public void ChocolateyHealthPinsTheClientAndRevalidatesStrictLayoutBeforeLaunch()
+    {
+        string probe = Read("src", "PCSteward.Provider.Chocolatey", "ChocolateyProviderHealthProbe.cs");
+        StringAssert.Contains(probe, "client.Discover(requireCallerCannotModifyLayout: true)");
+        StringAssert.Contains(probe, "client.ValidateUnchanged(discovery.Client, requireCallerCannotModifyLayout: true)");
+        StringAssert.Contains(probe, "new WindowsChocolateyProcess(client).RunAsync(VersionArguments");
+        string native = Read("src", "PCSteward.Provider.Chocolatey", "ChocolateyProvider.cs");
+        StringAssert.Contains(native, "executable = healthClient;");
+        StringAssert.Contains(native, "MachineTrustedChocolatey.ValidateUnchanged(executable, requireCallerCannotModifyLayout: true)");
+        StringAssert.Contains(native, "ChocolateyClientIdentity current = ResolveExecutable(requireCallerCannotModifyLayout)");
+    }
+
     private static string Read(params string[] components)
     {
         DirectoryInfo? current = new(AppContext.BaseDirectory);

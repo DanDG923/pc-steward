@@ -2,13 +2,21 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 49 — batch execution coordinator, helper protocol v2 (one UAC prompt per batch) and the running-app policy (implementation and Linux validation pass; Windows CI pending)
+**Current task:** Task 51 - curated manual release (Task 1 provider health candidate implemented; Windows CI and independent review pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
-**Current branch:** `phase/4-beta`
+**Current branch:** `feat/curated-manual-release`
 
 **Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Curated manual Task 1 — provider health candidate (2026-10-09)
+
+**Requirements:** CRD-08, FR-PRV-01; prerequisite boundaries for FR-PRV-02-04 and AC-V3-11. Typed health reports grant no execution approval, source consent or reachability authority. Provider-owned probes use canonical, error-aware presence observations; failed observations are Unknown. Chocolatey explicitly requires protected caller-cannot-modify layout and strictly revalidates the captured client immediately before a read-only version launch. Configured sources are bounded local display evidence; no source setup, provider switching or automation is implemented here.
+
+**Test-first evidence:** Windows CI [37993415753](https://github.com/DanDG923/pc-steward/actions/runs/37993415753), checkpoint `2108285`, job `114033167824`: Release build passed with 0 warnings/errors; Architecture 36, Catalog 96, Domain 87, Security 72 passed; Application 305 passed and exactly 13 new provider-health assertion regressions failed (0 skipped). The inaccessible-directory safety control passed. Total 596 passed / 13 failed.
+
+**Candidate validation pending:** production probe/discovery/strict-launch implementation and additional fake-only native discovery, source-input, immutable-snapshot and cancellation fixtures are prepared for Windows CI and independent review. No SDK is installed locally; local tests cannot run, and no candidate pass is claimed. No real provider/client process, network probe, installation, UAC or application/task state change occurred. Last-known timestamp/stale presentation remains a caller presentation responsibility for subsequent UI composition.
 
 ## Task 49 safety follow-up — start boundaries (2026-10-09)
 
