@@ -211,6 +211,59 @@ public sealed class HelperProtocolV2SecurityTests
     }
 
     [TestMethod]
+    public async Task CancelRemainingDuringAwaitedRevalidationNeverStartsProvider()
+    {
+        HelperBatchRequest request = AcceptedRequest(MixedBatch(DateTimeOffset.UtcNow), out string nonce);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        DelayedRevalidator revalidator = new(entered, release);
+        FakeExecutor executor = new((_, _) => Task.FromResult(new ProviderExitAssessment(UpdateProviderAttemptStatus.AwaitingVerification, false, "ok")));
+        ElevatedHelperBatchSession session = new(request, nonce, revalidator, executor);
+        Task<List<HelperBatchEvent>> run = RunSessionAsync(session, request, nonce);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        session.RequestCancelRemaining();
+        release.SetResult();
+        List<HelperBatchEvent> events = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.HasCount(0, executor.Jobs, "AC-V3-06: the revalidation await is still before provider start.");
+        Assert.HasCount(0, events.OfType<HelperItemStartedEvent>().ToArray());
+        Assert.IsTrue(events.OfType<HelperItemResultEvent>().All(result => result.Status == UpdateProviderAttemptStatus.Cancelled));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CancelRemainingBeforeUacNeverInvokesBatchLauncher(bool cancelAtFinalTrustCheck)
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Inconclusive("Requires Windows named-pipe security APIs.");
+        using CancellationTokenSource cancelRemaining = new();
+        int launches = 0;
+        int checks = 0;
+        System.Diagnostics.Process? Launcher(string helperPath, string pipeName, string launchNonce, out ElevatedHelperResult? failure)
+        {
+            launches++;
+            failure = new(ElevatedHelperOutcome.Failed, null, "unexpected-test-launch");
+            return null;
+        }
+        if (!cancelAtFinalTrustCheck) cancelRemaining.Cancel();
+        WindowsElevatedHelperTransport transport = new(
+            () => new("C:\\Program Files\\PC Steward\\PCSteward.Desktop.exe", "C:\\Program Files\\PC Steward\\PCSteward.ElevatedHelper.exe"),
+            _ =>
+            {
+                if (++checks == 2 && cancelAtFinalTrustCheck) cancelRemaining.Cancel();
+                return new(true, string.Empty);
+            },
+            Launcher,
+            validateProviderPreLaunchTrust: _ => null,
+            launchBatchHelper: Launcher);
+
+        ElevatedBatchOutcome result = await transport.ExecuteBatchAsync(MixedBatch(DateTimeOffset.UtcNow), new Dictionary<Guid, string>(), null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.AreEqual(0, launches, "FR-BAT-06: cancel remaining prevents the runas launcher.");
+        Assert.IsTrue(result.Items.All(item => item.Disposition == ElevatedItemDisposition.NotStarted && item.Status == UpdateProviderAttemptStatus.Cancelled));
+    }
+
+    [TestMethod]
     public async Task SessionSkipsChangedEvidenceAndContainsProviderFailures()
     {
         HelperBatchRequest request = AcceptedRequest(MixedBatch(DateTimeOffset.UtcNow), out string nonce);
@@ -384,6 +437,16 @@ public sealed class HelperProtocolV2SecurityTests
     private static UpdateJobSelection Upgrade(string key, string packageId, UpdateScope scope) =>
         new(key, UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0.0", "1.1.0", scope, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
 
+    private sealed class DelayedRevalidator(TaskCompletionSource entered, TaskCompletionSource release) : IOperationRevalidator
+    {
+        public async Task<UpdateJobExecutionEvidence?> RevalidateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return new(job.Selection, true, true);
+        }
+    }
+
     private sealed class FakeRevalidator(Func<ImmutableUpdateJob, bool> unchanged) : IOperationRevalidator
     {
         public List<Guid> Jobs { get; } = [];
@@ -465,3 +528,4 @@ public sealed class HelperProtocolV2SecurityTests
         }
     }
 }
+

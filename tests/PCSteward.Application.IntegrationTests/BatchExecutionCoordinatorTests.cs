@@ -91,6 +91,48 @@ public sealed class BatchExecutionCoordinatorTests
     }
 
     [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task CancelRemainingDuringLastElevatedPreCheckNeverStartsHelper(int itemCount)
+    {
+        Fixture fixture = new();
+        using CancellationTokenSource cancelRemaining = new();
+        int checks = 0;
+        fixture.Revalidator.Changed = _ =>
+        {
+            if (++checks == itemCount) cancelRemaining.Cancel();
+            return false;
+        };
+        ApprovedOperationBatch batch = Batch(Enumerable.Range(1, itemCount)
+            .Select(index => Upgrade($"winget:m{index}", $"Vendor.M{index}", UpdateScope.Machine)).ToArray());
+
+        BatchRunResult result = await fixture.Coordinator.RunAsync(batch, BatchRunOptions.Default, null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.AreEqual(0, fixture.Elevated.Calls, "FR-BAT-06: cancellation during the last precheck must prevent UAC.");
+        Assert.HasCount(0, fixture.Unelevated.Jobs);
+        Assert.HasCount(itemCount, result.Summary.Skipped);
+        Assert.IsTrue(result.Summary.Skipped.All(entry => entry.Status == UpdateHistoryStatus.Cancelled));
+    }
+
+    [TestMethod]
+    public async Task CancelRemainingDuringUnelevatedRevalidationNeverStartsProvider()
+    {
+        Fixture fixture = new();
+        using CancellationTokenSource cancelRemaining = new();
+        fixture.Revalidator.Changed = _ =>
+        {
+            cancelRemaining.Cancel();
+            return false;
+        };
+
+        BatchRunResult result = await fixture.Coordinator.RunAsync(Batch(Upgrade("winget:a", "Vendor.A", UpdateScope.User)), BatchRunOptions.Default, null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.HasCount(0, fixture.Unelevated.Jobs);
+        Assert.AreEqual(0, fixture.Elevated.Calls);
+        Assert.AreEqual(UpdateHistoryStatus.Cancelled, result.Summary.Skipped.Single().Status);
+    }
+
+    [TestMethod]
     public async Task AbortDuringAProviderRecoversToVerificationRequired()
     {
         Fixture fixture = new();
@@ -398,3 +440,4 @@ public sealed class BatchExecutionCoordinatorTests
         }
     }
 }
+
