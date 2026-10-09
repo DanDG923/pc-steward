@@ -79,7 +79,8 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
     private readonly Func<IReadOnlyCollection<string>> processNames;
 
     public PackageDerivedRunningApplicationDetector() : this(SnapshotProcessNames) { }
-    internal PackageDerivedRunningApplicationDetector(Func<IReadOnlyCollection<string>> processNames) =>
+    public PackageDerivedRunningApplicationDetector(bool failClosed) : this(SnapshotProcessNames, failClosed) { }
+    internal PackageDerivedRunningApplicationDetector(Func<IReadOnlyCollection<string>> processNames, bool failClosed = false) =>
         this.processNames = processNames ?? throw new ArgumentNullException(nameof(processNames));
 
     public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
@@ -136,3 +137,4 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         return names;
     }
 }
+

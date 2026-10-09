@@ -20,8 +20,10 @@ internal sealed class ElevatedHelperBatchSession
     private readonly TimeSpan deadline;
     private int cancelRemaining;
 
-    internal ElevatedHelperBatchSession(HelperBatchRequest request, string nonce, IOperationRevalidator revalidator, IOperationExecutor executor, TimeSpan? deadline = null)
+    internal ElevatedHelperBatchSession(HelperBatchRequest request, string nonce, IOperationRevalidator revalidator, IOperationExecutor executor, TimeSpan? deadline = null, IRunningApplicationDetector? runningApplications = null)
     {
+        // Test seam for the next safety gate; behavior is intentionally unchanged in the regression commit.
+        _ = runningApplications;
         this.request = request ?? throw new ArgumentNullException(nameof(request));
         this.nonce = nonce ?? throw new ArgumentNullException(nameof(nonce));
         this.revalidator = revalidator ?? throw new ArgumentNullException(nameof(revalidator));
@@ -123,3 +125,4 @@ internal sealed class ElevatedHelperBatchSession
     private byte[] Result(HelperBatchItem item, UpdateProviderAttemptStatus status, int? exitCode, bool restartPending, string diagnostic) =>
         ElevatedHelperProtocolV2.CreateItemResult(request.BatchId, nonce, item.Sequence, item.Job.Id, status, exitCode, restartPending, diagnostic);
 }
+

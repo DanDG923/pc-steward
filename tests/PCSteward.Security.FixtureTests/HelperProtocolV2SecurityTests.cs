@@ -227,6 +227,7 @@ public sealed class HelperProtocolV2SecurityTests
 
         Assert.HasCount(0, executor.Jobs, "AC-V3-06: the revalidation await is still before provider start.");
         Assert.HasCount(0, events.OfType<HelperItemStartedEvent>().ToArray());
+        Assert.HasCount(request.Items.Count, events.OfType<HelperItemResultEvent>().ToArray());
         Assert.IsTrue(events.OfType<HelperItemResultEvent>().All(result => result.Status == UpdateProviderAttemptStatus.Cancelled));
     }
 
