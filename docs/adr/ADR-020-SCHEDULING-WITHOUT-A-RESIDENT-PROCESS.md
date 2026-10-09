@@ -44,3 +44,16 @@ Task 26 proves task XML/action allowlists, current-user context, consent, daily/
 ## Reconsider when
 
 Supported Windows 11 editions cannot reliably run the current-user task. Any replacement must remain scan-only, non-elevated and non-resident.
+
+## 2026-10-08 v0.3 revision — separate automatic-update hosts (D-007)
+
+**Related requirements:** `FR-SCH-03`, `FR-AUT-03/04/08`, `AC-V3-08/10`
+
+The scan-only `PCSteward.ScheduledHost` and its task stay exactly as decided above: scan-only, standard user, no update verb.
+
+Automatic updates use **separate** tasks and entry points, defined in ADR-025:
+
+- **Stage A:** a current-user task running `PCSteward.AutomaticUpdateHost` with no arguments. It never elevates.
+- **Stage B:** an owner-enabled task with highest privileges, only while the owner is signed in, with no stored password and the fixed installed path. It is created and removed only by the elevated helper.
+
+Both hosts are short-lived and exit after their run. There is no resident process or service. Factory reset removes both tasks, or reports exactly which remains. TM-14 is amended accordingly in the threat model.

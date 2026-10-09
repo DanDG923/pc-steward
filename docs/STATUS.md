@@ -1,14 +1,252 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — feature-change evidence readiness
+**Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 42 — confirmed findings remediation
+**Current task:** Task 49 — batch execution coordinator, helper protocol v2 (one UAC prompt per batch) and the running-app policy (implementation and Linux validation pass; Windows CI pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
 **Current branch:** `phase/4-beta`
 
-**Phase gate:** **NOT READY FOR DISTRIBUTION — Task 39 passes only for the exact owner-only protected installation; the Task 31 release exception remains expired**
+**Phase gate:** Distribution gate `FRA-14–16` retired for personal owner-only use (D-006, C-11). Each v0.3 phase closes with one owner review plus live use (C-12).
+
+## Task 49 safety follow-up — start boundaries (2026-10-09)
+
+**Scope:** `FR-BAT-06/08`, `AC-V3-06/07`; separate draft PR targeting the Task 49 branch.
+
+- Cancellation is rechecked after the last elevated desktop precheck, after crash-recovery history writes, immediately before the UAC launcher, and after awaited helper revalidation. The same pre-start rule applies to unelevated prevalidation. A provider already started is still allowed to finish.
+- Every elevated item receives a fresh, read-only process check after provider revalidation and before `ItemStarted`. A running app or failed/incomplete snapshot skips the item. Process closing stays in the consent-controlled desktop path; the helper never closes an app.
+- The strict process snapshot rejects truncation or unreadable process evidence. The preexisting desktop warning detector retains its permissive snapshot behavior.
+- Regression fixtures cover an app opened while an earlier provider runs, reopening during UAC or after consented close, failed snapshots, snapshot truncation, last/only elevated prechecks, and cancellation during awaited helper checks/history writes.
+
+**Test-first evidence:** Windows CI [37983462201](https://github.com/DanDG923/pc-steward/actions/runs/37983462201), commit `2835f65`, built with 0 warnings/errors. All 576 existing tests passed; exactly six new cancellation regressions failed at the expected zero-launch assertions before the fix. Windows CI [37984168679](https://github.com/DanDG923/pc-steward/actions/runs/37984168679), commit `21feb6a`, also built with 0 warnings/errors and reproduced all 14 intended failures across the cancellation, running-app and truncation regressions; the remaining 577 tests passed. Final fix validation is pending.
+
+**Limits:** Process matching remains package-derived, as in Task 49. A snapshot is a last-moment guard, not an OS-level lock preventing a process from starting after the snapshot. No real package installer, UAC acceptance, desktop integration, merge, or deployment is part of this follow-up.
+
+## Task 49 batch execution, helper protocol v2 and running-app policy
+
+**Coordinator** (`FR-BAT-04–07`, `FR-INS-05/07`, `AC-V3-04/06`). `BatchExecutionCoordinator` runs one `ApprovedOperationBatch`:
+- **Before starting:** it refuses a batch that fails its integrity check, has expired, or overlaps another run.
+- **Order:** unelevated items run in the desktop first, then every elevated item in **one** helper session (one UAC prompt).
+- **Before each item:** the running-app policy applies, then revalidation against fresh evidence. A changed invariant becomes the new `Skipped` history status and is never adapted.
+- **After the provider exits:** the item only goes to verification:
+  - verified → Success;
+  - otherwise, with a provider- or inventory-reported restart → Restart required;
+  - otherwise → Inconclusive.
+- **Cancel remaining** is observed only between items. Abort while a provider runs → Verification required.
+- **Crash safety:** elevated items are recorded as Running before UAC, so a desktop crash recovers to Verification required.
+- **No prompt for nothing:** if the desktop pre-check withholds every elevated item, no UAC prompt is raised.
+- **Summary:** `BatchCompletionSummary` separates Succeeded, Restart required, Failed, Not verified and Skipped. It lists retry candidates for a new reviewed batch.
+
+**Helper protocol v2** (`AC-V3-05`, ADR-018 note):
+- The helper receives only the batch's elevated items, bound to the batch by `ApprovedOperationBatch.ElevatedDigest`.
+- Frames are strict, bounded JSON. The helper's one-shot receiver rejects substitution, reordering, appending, truncation, foreign or rebound items, replay, an expired request or batch, oversize frames, unknown or duplicate fields, numeric enum values, unelevated items and forged digests.
+- The helper session revalidates each item against fresh provider evidence, builds the provider operation in code, and applies CancelRemaining between items. The overall deadline is 25 minutes per item, capped at 4 hours.
+- The desktop reader accepts helper frames only in order and bound to the batch and nonce. If the session breaks, only the possibly running item needs verification.
+- The bootstrap accepts protocol `2`, and the transport launches one helper per batch. Protocol v1 is unchanged for the existing single-update path.
+
+**Running apps** (`FR-BAT-08`, `AC-V3-07`): `RunningApplicationPolicy` skips a running app by default.
+- It closes an app only with per-app (`CloseAppConsent`) or per-run consent, gracefully with a 30-second bound.
+- It forces termination only with the second per-run consent. Automation never closes an app.
+- `WindowsRunningApplicationCloser` closes only current-session processes with allowlisted names. For an elevated item, a running app is withheld from the helper as a skip.
+
+**Production pieces:**
+- `DesktopOperationExecutor` runs unelevated WinGet installs and plain user-scope upgrades only.
+- `HelperOperationExecutor` and `HelperOperationRevalidator` do the in-helper revalidation and execution and read no per-user database.
+- `ElevatedBatchExecutor` adapts the transport.
+- `InventoryWorkflow` implements `IOperationRevalidator`: upgrades repeat the full fresh selection, and installs repeat the exact preflight.
+
+**Results (Linux SDK 10.0.112):**
+- Domain **87/87**, Catalog **96/96**, Architecture **34/34**.
+- Security **60/64** (39 new, all passing). Application **248/295** (14 new, all passing).
+- The remaining 51 failures are identical to the HEAD baseline (Windows-only APIs).
+- The in-memory end-to-end exchange tests passed in 5 repeated runs.
+- ElevatedHelper, ScheduledHost, CatalogTool and Performance build cleanly. The WinUI desktop builds in CI.
+
+**Not wired yet / follow-ups:**
+- The desktop still uses the v0.2 single-update flow. The review sheet, progress and summary UI and Select all safe come in Task 52, which also composes the coordinator.
+- Desktop revalidation of an upgrade repeats a full inventory scan per item. That is correct but slow for large batches; Task 52 should measure it.
+- Full-scan versus batch exclusion (`FR-RSC-02`) is enforced by the desktop data-operation lease when the coordinator is composed.
+- Whether in-process WinGet COM works from the elevated helper still needs the owner probe (spike §2.4). If it fails, helper revalidation of WinGet items fails closed (Skipped).
+
+## Task 48 operations, batches and install building blocks
+
+**Package-ID allowlist** (spike §5.5):
+- WinGet IDs may contain `+` and `_`, for example `Notepad++.Notepad++` and `Microsoft.VCRedist.2015+.x64`.
+- Chocolatey (NuGet) IDs accept `_` but never `+`.
+- The domain also now enforces the allowlisted provider/source pairs.
+
+**Operation kinds** (`FR-INS-01`, ADR-017 v0.3):
+- `UpdateJobSelection` gains:
+  - `Operation`, which is `Upgrade` or `Install`;
+  - `AgreementHash`;
+  - `RunsElevated`, which is true for machine scope and for `ElevationRequired`/`ElevatesSelf` installers.
+- An Install has no installed version, and a Microsoft Store install is refused.
+- Persisted v0.2 Upgrade digests are unchanged.
+- Only plain upgrades may use the v0.2 runners, the upgrade argv builders and helper protocol v1. They deny anything else before any process or UAC prompt.
+
+**Batches** (`FR-BAT-04/05`, `AC-V3-05` domain half):
+- `OperationBatchReview` → `ApprovedOperationBatch`:
+  - 1–50 items, unique by product and package;
+  - every job bound to the batch correlation and approval time;
+  - unelevated items first;
+  - a chained digest over index, job ID and job digest;
+  - a 30-minute lifetime.
+- Substitution, reordering, appending, truncation, replay under another ID and clock rollback all fail.
+
+**Persistence:**
+- Migration 10 rebuilds `approved_update_jobs` in one transaction. Pre-v10 rows keep their digest and route.
+- It adds `operation_batches`, `operation_batch_items` and `agreement_acceptances`.
+- Batch reads recheck membership, order and every digest.
+
+**Agreements** (`FR-INS-03`, `TM-22`):
+- `PackageAgreementDigest` is a bounded, length-prefixed SHA-256 (at most 16 agreements of up to 100 000 characters).
+- `OperationBatchApprovalService` will not confirm an item until acceptance of that exact hash, package and version is recorded.
+- Acceptances are cleared with mappings and policies.
+
+**Install preflight** (`FR-INS-02/04`, `AC-V3-02`):
+- **WinGet:** `WingetInstallPreflightAuthority` uses COM (the ADR-003 amendment is applied). It needs:
+  - one exact trusted `winget` match, not installed;
+  - the default or the approved version;
+  - no channel;
+  - an applicable installer for the scope and architecture;
+  - bounded agreements.
+- **Chocolatey:** `ChocolateyInstallPreflightAuthority` runs `search <id> --exact [--version] --approved-only --not-broken` against the fixed feed. It needs exactly one strict `id|version` row and no local registration.
+- On revalidation, a changed version, agreement set or elevation route is not actionable.
+- `InventoryWorkflow.PrepareInstallSelectionAsync`:
+  - requires source consent and a validated catalog entry;
+  - uses the listed provider (the default unless overridden) and an allowed scope;
+  - refuses any detected app, even a name-only match.
+
+**Install argv** (exact snapshots):
+- WinGet: `install --id --exact --version --source winget --scope --architecture --silent --disable-interactivity`, plus `--accept-package-agreements` only behind the recorded hash and matching fresh evidence.
+- Chocolatey: `install <id> --version --source <feed> --yes --limit-output --no-progress --no-color --execution-timeout 300`.
+
+**Exit codes:** WinGet and Chocolatey codes map onto the history taxonomy. Exit 0, restart and "already installed" only ever lead to verification.
+
+**Install verification** (`FR-INS-05`): `ReInventoryAsync` routes Install jobs to two authorities:
+1. the provider's exact listing at the target version;
+2. a re-inventory product that the catalog detects exactly as the entry, with registry or MSIX evidence.
+
+The provider's own list is not local evidence.
+
+**Fix found by the new tests:** persistence stores a missing publisher as `""`, which turned name-only catalog detections into "not detected". `PersonalCatalogMatching` now treats a blank publisher as missing.
+
+**Guards:** `ProviderOperationBoundaryTests` forbids, across all product sources:
+- the spike §2.2 and §3.1 flags, including `--accept-source-agreements`;
+- the dangerous WinGet `InstallOptions` members.
+
+It allows exactly one guarded `--accept-package-agreements`.
+
+**Results (Linux SDK 10.0.112):**
+- Domain **87/87** (23 new), Catalog **96/96**, Architecture **34/34** (4 new).
+- Application **234/281** (93 new, all passing).
+- Security **21/25** (3 new, all passing).
+- The 51 failures are identical to the HEAD baseline: Windows-only APIs (`wintrust.dll`, reparse points, NTFS streams, named pipes, Task Scheduler).
+- ElevatedHelper, ScheduledHost, CatalogTool and Performance build cleanly. The WinUI desktop builds in CI.
+
+**Not wired yet:**
+- The batch coordinator, helper protocol v2 and per-item execution are Task 49.
+- Review-sheet UI is Tasks 51–52.
+- The catalog tool's live verification (ADR-023) can reuse `WingetInstallPreflightAuthority`. It needs the owner's Windows PC and is left for the owner probe.
+
+## Task 47 catalog matching, states and policies
+
+**Catalog detection in matching** (`FR-CAT-05`, `FR-ID-06`, `FR-INS-06`, `AC-V3-02`):
+- `CatalogDetector` (in `PCSteward.Catalog`) checks evidence in order:
+  - provider identity: WinGet only from the `winget` source, Chocolatey registration, or MSIX family;
+  - anchored name plus publisher (Exact);
+  - name only, which is never Exact.
+- `PersonalCatalogMatching` combines per-instance results. Any conflict becomes Ambiguous, with no mapping.
+- Exact matches become declared mappings with the new `MappingOrigin.Catalog`. These pass the same trusted-source, compatibility and newer-version validation as user-confirmed mappings.
+- An installed app keeps its managing provider. A name-and-publisher match uses the preferred provider, or the catalog default (ADR-024).
+- User-confirmed mappings always win over catalog mappings.
+
+**Catalog states** (`FR-CAT-04`): `CatalogAppState` covers NotInstalled, UpToDate, UpdateAvailable, ReviewRequired, InstalledNotManaged, Unavailable, Skipped, Pinned and Ignored. `InventoryWorkflow.GetCatalogOverviewAsync` returns them.
+
+**Per-app policies** (`FR-POL-06`, `FR-PRV-04`, `FR-AUT-01` and `FR-BAT-08` storage):
+- Skip this version adds the new `UpdateIntelligenceStatus.Skipped`; a newer version is offered again. Preferred provider, automatic-updates opt-in and close-app consent are also recorded.
+- They are stored as **stable-decision kinds** rather than a separate `app_policies` table. They therefore inherit the existing semantics: kept by Clear scan data, removed by the mappings/policies clear and factory reset, reversible, and listed with active decisions.
+- Stored values outside the allowlist are ignored.
+
+**User catalog entries** (`FR-CAT-06` storage):
+- Migration 9 adds `user_catalog_entries`. Rows are revalidated on every read through `CatalogValidator.Compose`.
+- Rules: `pcs:user-` prefix, one provider, provider-identity detection only, no reuse of a bundled ID or package, `msstore` refused.
+- Rejected rows are reported and never disable the bundled catalog.
+- Rows are kept by Clear scan data and removed by the mappings/policies clear and factory reset.
+
+**Results (Linux SDK 10.0.112):**
+- Domain **64/64** (5 new), Catalog **96/96** (22 new), Architecture **30/30**.
+- Application integration: the 7 new catalog/workflow/persistence tests and the related decision, SQLite, workflow and view-model suites pass, 63/63.
+- The full Application suite runs 188 tests. The 47 failures on Linux, plus 4 Security failures, all come from Windows-only APIs (`wintrust.dll`, NTFS alternate data streams, named pipes); Windows CI is the gate.
+- The desktop gains only the `Skipped` status label. Its WinUI build runs in CI.
+
+**Payload change:** `PCSteward.Application` now references `PCSteward.Catalog`, so the desktop output gains `PCSteward.Catalog.dll`, which carries the embedded catalog. The protected-install and package scripts discover `PCSteward.*.dll` dynamically and sign it.
+
+**Not wired yet:** the desktop and scheduled host do not pass the bundled catalog to `InventoryWorkflow`. Catalog matching therefore has no effect in the installed app until the UI tasks (51/53) wire it, after the owner has reviewed the starter catalog.
+
+## Task 46 personal catalog
+
+**New `PCSteward.Catalog` project** (`FR-CAT-01–03`, `AC-V3-01`, `TM-19`). It has no project or package references, and the architecture tests forbid process, registry, network and file APIs. It contains:
+- an immutable catalog model;
+- a strict fail-closed validator:
+  - size, schema and catalog-version checks;
+  - unknown fields, duplicate JSON properties, comments and trailing commas refused;
+  - unique IDs and provider identities; WinGet/Chocolatey identity, scope and default rules; `msstore` refused;
+  - bounded process names (now accepting `+`);
+  - optional SHA-256 check; every catalog is reported with its SHA-256;
+- restricted-grammar detection patterns: an escape- and character-class-aware scanner, the interpreted engine and a 50 ms timeout. This applies the ADR-023 Task 45 amendment and D-008;
+- the embedded bundled catalog (`catalog/pcsteward-catalog.v1.json`: 20 starter entries, not yet live-verified);
+- a pure seed proposer.
+
+**Owner tooling** (`FR-CAT-07`): `tools/PCSteward.CatalogTool` and `scripts/Catalog-Validate.ps1` / `Catalog-Seed.ps1`. Seeding opens the database read-only and never overwrites a file. Live verification stays with the Task 45 probe until Task 48.
+
+**Results:**
+- `PCSteward.Catalog.UnitTests` **74/74**: 39 hostile-catalog cases, grammar bypass cases (including `^(a*\\?)+$`), timeout backstop, immutability, a 300-entry catalog validated in under 1 s, and the seed proposer.
+- Architecture **30/30** and Domain **59/59**.
+- The tool validated the bundled catalog and produced a valid 4-entry draft from a realistic fake database without changing it.
+- These ran on Linux with SDK 10.0.112, outside the `global.json` pin. The full Windows build and suite run in CI.
+
+**Not changed:** the desktop does not reference the catalog yet (Task 47/53), so the protected-install payload is unchanged.
+
+## Task 45 v0.3 spikes
+
+`spikes/patch-style/SPIKE_REPORT.md` records the following.
+
+- **WinGet COM API:** the shipped API supports install and upgrade with structured progress, exact `PackageVersionId`, agreement metadata and per-installer `ElevationRequirement`. `elevatesSelf` installers must route to the elevated helper to keep one UAC prompt per batch.
+- **Helper protocol v2 prototype:** rejects all 11 tamper cases plus replay and expiry. The worst-case frame is 1,132 B against the 16 KiB bound.
+- **Catalog prototype:**
+  - All 18 hostile mutations disable the catalog.
+  - `NonBacktracking` is too slow (3.5 s for 600 patterns). It is replaced by the interpreted engine with a restricted grammar and a 50 ms timeout: a 300-entry catalog loads in 12 ms and 700 records are checked in about 65 ms.
+  - The illustrative detection set gave 0 false positives.
+- **Allowlist gaps:** the production package-ID and process-name allowlists reject `+` (`Notepad++.Notepad++`).
+- **Chocolatey setup:** `Chocolatey.Chocolatey` exists in WinGet as a machine-scope MSI that WinGet will not upgrade.
+
+Spike tests: **50/50**. The probe compiles for Windows with 0 warnings.
+
+Linux network policy blocked the Patch My PC, Microsoft Learn, Chocolatey docs and Chocolatey feed sites. Their documentation was read from GitHub sources or search results instead.
+
+**Pending, owner-run and read-only:** `spikes/patch-style/Invoke-PatchStyleProbe.ps1`. It captures `choco search --limit-output` formats, `winget-preflight` data for the sample catalog, and detection counts from the local database. Its output folder is git-ignored.
+
+Next is **Task 46** (catalog), which applies the ADR-023 Task 45 amendment.
+
+## Task 44 v0.3 decisions and re-baseline
+
+The owner accepted every recommendation (D-007). Applied documents:
+
+- **Product specification v0.3:** new §27 (`FR-CAT-01–08`, `FR-INS-01–07`, `FR-BAT-01–08`, `FR-AUT-01–10`, `FR-PRV-01–04`, `FR-POL-06`, optional `FR-UNI-01–03`, `AC-V3-01–12`), plus amended `FR-UPD-01/12`, `FR-SCH-03`, `FR-INV-11`, `FR-ID-06`, principle 8, non-goals, Tier D, §11.1, §13.3, §14.3 and §19.8.
+- **`AGENTS.md`:** safety boundaries and the personal-use process.
+- **ADRs:** new ADR-023 (personal catalog), ADR-024 (provider precedence and Chocolatey setup through WinGet) and ADR-025 (Stage A/B automatic updates); v0.3 revisions to ADR-017 (operation kinds and batches), ADR-018 (one helper session per batch) and ADR-020 (separate automatic-update hosts).
+- **Threat model:** TM-19–24 and an amended TM-14.
+- **Records:** decision-log questions Q-004–Q-009 resolved; v0.3 traceability added.
+
+No code changed. Next is **Task 45**: spikes on WinGet CLI versus COM for install, preflight, agreements and progress; Chocolatey install/search/info output; a helper v2 prototype; and catalog seed and detection precision on the owner inventory.
+
+## Task 43 proposed overhaul (approved by D-007)
+
+[`OVERHAUL_PLAN_PATCH_STYLE.md`](OVERHAUL_PLAN_PATCH_STYLE.md) proposes turning PC Steward into a Patch My PC–style updater for the owner's own PC, using WinGet and the fixed Chocolatey Community feed. It covers a personal catalog seeded from the owner's installed apps (with install support and in-app Add from search), a tick-box Updates checklist with one review sheet, one UAC prompt per immutable batch, and opt-in automatic updates: user-scope first, then unattended admin-level updates from an admin-protected policy store. The owner confirmed personal, owner-only use (D-006), so the plan retires `FRA-14–16` and uses one owner review per phase (C-11, C-12). It changes no requirement, ADR, safety boundary, code or test. The owner approved changes C-1…C-12 and decisions Q-004…Q-009 in Task 44 (D-007). Requirement families `FR-CAT/INS/BAT/AUT/PRV/UNI` are now defined in specification v0.3 §27 and traced. Implementation runs in Tasks 45–59.
+
+**Repository fix (Task 43):** `src/PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj` had never been committed, so every clean clone failed `dotnet restore` (MSB3202). A reconstructed project file (Application reference, centrally versioned `Microsoft.Data.Sqlite`, `InternalsVisibleTo` for the integration tests) is now committed. On Linux with SDK 10.0.112 outside the 10.0.302 `global.json` pin, the full solution restored, the project built with 0 warnings/errors, `SQLitePCLRaw.lib.e_sqlite3` resolved to the pinned 2.1.12, and the Domain **59/59**, Architecture **28/28** and `SqliteDatabaseTests` **19/19** suites passed. The WinUI desktop build and the full Windows suite are left to CI.
 
 ## Task 35 scope and current boundary
 
@@ -81,4 +319,7 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
+Task 50 — provider health, and Chocolatey setup through a reviewed WinGet install of `Chocolatey.Chocolatey` (`docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11). It covers absent, untrusted and present client states and adds an architecture test that no bootstrap-script path exists. Specification v0.3 and `AGENTS.md` are authoritative. Earlier distribution-gate wording below is historical (C-11).
+
 The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
+

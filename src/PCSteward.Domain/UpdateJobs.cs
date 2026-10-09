@@ -12,13 +12,18 @@ public enum UpdateArchitecture { X64, X86, Arm64, Neutral }
 public enum UpdateChannel { Unknown, Stable, Preview }
 public enum UpdateJobReviewState { AwaitingConfirmation }
 
+/// <summary>ADR-017 v0.3: the immutable job is a package operation of one kind. Uninstall is optional and not built.</summary>
+public enum PackageOperationKind { Upgrade, Install }
+
 /// <summary>Validated evidence selected for review. It contains data only, never process authority.</summary>
 public sealed partial class UpdateJobSelection
 {
     private const int MaximumStableKeyLength = 256;
     private const int MaximumVersionLength = 128;
     private const int MaximumEvidenceVersionLength = 128;
+    private const string NoInstalledVersion = "-";
 
+    /// <summary>An Upgrade of an installed product. Machine scope runs elevated; user scope does not.</summary>
     public UpdateJobSelection(
         string stableProductKey,
         UpdateProvider provider,
@@ -29,47 +34,153 @@ public sealed partial class UpdateJobSelection
         UpdateScope scope,
         UpdateArchitecture architecture,
         UpdateChannel channel,
-        string mappingEvidenceVersion)
+        string mappingEvidenceVersion,
+        string? agreementHash = null)
+        : this(PackageOperationKind.Upgrade, stableProductKey, provider, source, packageId, installedVersion, candidateVersion, scope, architecture, channel, mappingEvidenceVersion, agreementHash, scope == UpdateScope.Machine)
     {
+    }
+
+    private UpdateJobSelection(
+        PackageOperationKind operation,
+        string stableProductKey,
+        UpdateProvider provider,
+        UpdateSource source,
+        string packageId,
+        string? installedVersion,
+        string candidateVersion,
+        UpdateScope scope,
+        UpdateArchitecture architecture,
+        UpdateChannel channel,
+        string mappingEvidenceVersion,
+        string? agreementHash,
+        bool runsElevated)
+    {
+        Operation = ValidateEnum(operation, nameof(operation));
         StableProductKey = Validate(StableKey(), stableProductKey, MaximumStableKeyLength, nameof(stableProductKey));
         Provider = ValidateEnum(provider, nameof(provider));
         Source = ValidateEnum(source, nameof(source));
+        if (!IsAllowedProviderSource(Provider, Source))
+        {
+            throw new ArgumentException("The provider and source are not an allowlisted pair.", nameof(source));
+        }
         PackageId = Validate(PackageIdentifier(), packageId, 256, nameof(packageId));
-        InstalledVersion = Validate(Version(), installedVersion, MaximumVersionLength, nameof(installedVersion));
+        if (Provider == UpdateProvider.Chocolatey && PackageId.Contains('+', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The value is outside the allowlisted format.", nameof(packageId));
+        }
+        // FR-INS-01 / ADR-017: an Install has no installed version; an Upgrade always has one.
+        InstalledVersion = Operation == PackageOperationKind.Install
+            ? installedVersion is null ? null : throw new ArgumentException("An install operation has no installed version.", nameof(installedVersion))
+            : Validate(Version(), installedVersion!, MaximumVersionLength, nameof(installedVersion));
         CandidateVersion = Validate(Version(), candidateVersion, MaximumVersionLength, nameof(candidateVersion));
         Scope = ValidateEnum(scope, nameof(scope));
         if (Provider == UpdateProvider.Chocolatey && Scope != UpdateScope.Machine)
         {
             throw new ArgumentException("Chocolatey updates require machine scope.", nameof(scope));
         }
+        if (Operation == PackageOperationKind.Install && Source == UpdateSource.MicrosoftStore)
+        {
+            // Spike §2.5: msstore installs wait for a separate source-agreement review.
+            throw new ArgumentException("Microsoft Store installs are not supported.", nameof(source));
+        }
         Architecture = ValidateEnum(architecture, nameof(architecture));
         Channel = ValidateEnum(channel, nameof(channel));
         MappingEvidenceVersion = Validate(EvidenceVersion(), mappingEvidenceVersion, MaximumEvidenceVersionLength, nameof(mappingEvidenceVersion));
+        if (agreementHash is not null && (Provider != UpdateProvider.WinGet || !AgreementHashPattern().IsMatch(agreementHash)))
+        {
+            throw new ArgumentException("The agreement hash is invalid for this provider.", nameof(agreementHash));
+        }
+        AgreementHash = agreementHash;
+        if (Scope == UpdateScope.Machine && !runsElevated)
+        {
+            throw new ArgumentException("A machine-scope operation always runs elevated.", nameof(runsElevated));
+        }
+        RunsElevated = runsElevated;
     }
 
+    /// <summary>
+    /// FR-INS-01/02: an Install of a not-installed catalog entry after live exact resolution.
+    /// <paramref name="installerElevates"/> routes a user-scope installer that needs or raises elevation
+    /// (ElevationRequired or ElevatesSelf) to the elevated helper, so a batch keeps one UAC prompt (FR-BAT-05).
+    /// </summary>
+    public static UpdateJobSelection ForInstall(
+        string catalogEntryKey,
+        UpdateProvider provider,
+        UpdateSource source,
+        string packageId,
+        string targetVersion,
+        UpdateScope scope,
+        UpdateArchitecture architecture,
+        UpdateChannel channel,
+        string mappingEvidenceVersion,
+        string? agreementHash,
+        bool installerElevates) =>
+        new(PackageOperationKind.Install, catalogEntryKey, provider, source, packageId, null, targetVersion, scope, architecture, channel, mappingEvidenceVersion, agreementHash, scope == UpdateScope.Machine || installerElevates);
+
+    /// <summary>Rebuilds persisted or transported evidence. Every field is revalidated; the digest check follows.</summary>
+    public static UpdateJobSelection Restore(
+        PackageOperationKind operation,
+        string stableProductKey,
+        UpdateProvider provider,
+        UpdateSource source,
+        string packageId,
+        string? installedVersion,
+        string candidateVersion,
+        UpdateScope scope,
+        UpdateArchitecture architecture,
+        UpdateChannel channel,
+        string mappingEvidenceVersion,
+        string? agreementHash,
+        bool runsElevated) =>
+        new(operation, stableProductKey, provider, source, packageId, installedVersion, candidateVersion, scope, architecture, channel, mappingEvidenceVersion, agreementHash, runsElevated);
+
+    public PackageOperationKind Operation { get; }
     public string StableProductKey { get; }
     public UpdateProvider Provider { get; }
     public UpdateSource Source { get; }
     public string PackageId { get; }
-    public string InstalledVersion { get; }
+    /// <summary>Null only for <see cref="PackageOperationKind.Install"/>.</summary>
+    public string? InstalledVersion { get; }
     public string CandidateVersion { get; }
     public UpdateScope Scope { get; }
     public UpdateArchitecture Architecture { get; }
     public UpdateChannel Channel { get; }
     public string MappingEvidenceVersion { get; }
+    /// <summary>SHA-256 of the WinGet agreements the user was shown and accepted (FR-INS-03), or null when none apply.</summary>
+    public string? AgreementHash { get; }
+    /// <summary>True when the operation must run in the elevated helper session (FR-BAT-05).</summary>
+    public bool RunsElevated { get; }
 
-    internal string CanonicalText =>
-        string.Join('\n',
-            StableProductKey,
-            Provider.ToString(),
-            Source.ToString(),
-            PackageId,
-            InstalledVersion,
-            CandidateVersion,
-            Scope.ToString(),
-            Architecture.ToString(),
-            Channel.ToString(),
-            MappingEvidenceVersion);
+    /// <summary>
+    /// A v0.2-shaped Upgrade: no agreement hash and the scope-derived route. Only these may use the v0.2
+    /// single-job runners and helper protocol v1; every other operation needs the Task 49 batch path.
+    /// </summary>
+    public bool IsPlainUpgrade => Operation == PackageOperationKind.Upgrade && AgreementHash is null && RunsElevated == (Scope == UpdateScope.Machine);
+
+    /// <summary>
+    /// The first ten lines are the original v0.2 canonical text, so persisted Upgrade jobs keep their digest.
+    /// Any v0.3 evidence (kind, agreement hash, a non-default route) appends fixed, labelled lines.
+    /// </summary>
+    internal string CanonicalText
+    {
+        get
+        {
+            string core = string.Join('\n',
+                StableProductKey,
+                Provider.ToString(),
+                Source.ToString(),
+                PackageId,
+                InstalledVersion ?? NoInstalledVersion,
+                CandidateVersion,
+                Scope.ToString(),
+                Architecture.ToString(),
+                Channel.ToString(),
+                MappingEvidenceVersion);
+            return !IsPlainUpgrade
+                ? string.Join('\n', core, "operation=" + Operation, "agreement=" + (AgreementHash ?? NoInstalledVersion), "elevated=" + (RunsElevated ? "true" : "false"))
+                : core;
+        }
+    }
 
     public bool EqualsEvidence(UpdateJobSelection other) =>
         other is not null &&
@@ -90,10 +201,17 @@ public sealed partial class UpdateJobSelection
     private static T ValidateEnum<T>(T value, string parameterName) where T : struct, Enum =>
         Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(parameterName);
 
+    private static bool IsAllowedProviderSource(UpdateProvider provider, UpdateSource source) =>
+        (provider, source) is
+            (UpdateProvider.WinGet, UpdateSource.WinGet) or
+            (UpdateProvider.WinGet, UpdateSource.MicrosoftStore) or
+            (UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity);
+
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$", RegexOptions.CultureInvariant)]
     private static partial Regex StableKey();
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$", RegexOptions.CultureInvariant)]
+    // WinGet IDs may contain + and _ (for example Notepad++.Notepad++); Chocolatey (NuGet) IDs never contain +.
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+_-]{0,255}$", RegexOptions.CultureInvariant)]
     private static partial Regex PackageIdentifier();
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$", RegexOptions.CultureInvariant)]
@@ -101,6 +219,9 @@ public sealed partial class UpdateJobSelection
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", RegexOptions.CultureInvariant)]
     private static partial Regex EvidenceVersion();
+
+    [GeneratedRegex("^[0-9A-F]{64}$", RegexOptions.CultureInvariant)]
+    private static partial Regex AgreementHashPattern();
 }
 
 /// <summary>A displayed selection that cannot be executed until explicit confirmation creates an approved job.</summary>

@@ -26,7 +26,8 @@ public enum UpdateExecutionDenial
     IntegrityCheckFailed,
     CurrentEvidenceMismatch,
     UnsupportedProvider,
-    UnsupportedScope
+    UnsupportedScope,
+    UnsupportedOperation
 }
 
 public sealed record UpdateExecutionResult(
@@ -36,7 +37,7 @@ public sealed record UpdateExecutionResult(
     DateTimeOffset EndedAt,
     UpdateProvider Provider,
     string PackageId,
-    string InstalledVersion,
+    string? InstalledVersion,
     string TargetVersion,
     int? ExitCode,
     UpdateExecutionStatus Status,
@@ -78,6 +79,11 @@ public sealed partial class NonElevatedUpdateRunner
         if (!job.Matches(currentEvidence))
         {
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.CurrentEvidenceMismatch, "current-update-evidence-mismatch");
+        }
+
+        if (!job.Selection.IsPlainUpgrade)
+        {
+            return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.UnsupportedOperation, "operation-requires-reviewed-batch");
         }
 
         if (job.Selection.Provider != UpdateProvider.WinGet)

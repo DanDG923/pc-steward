@@ -54,3 +54,50 @@ Windows' default volume-root ACL grants Authenticated Users `FILE_ADD_SUBDIRECTO
 ## Reconsider when
 
 Machine-scope execution is restored, the selected Windows APIs cannot prove both endpoint identities across UAC, a future installer cannot provide a fixed non-caller-writable binary root, or security tests expose a replacement/replay/spoofing path. No caller-writable helper or persistent-service fallback is allowed without a new product and threat-model decision.
+
+## 2026-10-08 v0.3 revision — one helper session per approved batch (D-007)
+
+**Related requirements:** `FR-BAT-04/05/06`, `FR-AUT-08/09`, `AC-V3-04/05/09`
+
+The protected owner-only installation (ADR-022) composes this helper. Protocol **v2** replaces the one-job request for batches:
+
+- **Request.** The desktop sends one batch request: protocol version 2, nonce, issued time, batch ID and digest, and up to 50 machine-scope items. Each item uses the v1 field allowlist plus `operation`. Messages are framed per item so each frame stays within a fixed size bound.
+- **Helper behaviour.** The pre-launch, peer-identity and nonce checks are unchanged. The helper:
+  - verifies the batch digest and expiry;
+  - revalidates each item;
+  - rebuilds each provider argv in code;
+  - runs items sequentially;
+  - streams bounded `ItemStarted`/`ItemResult` frames;
+  - accepts `CancelRemaining` only between items;
+  - enforces an overall deadline (the sum of per-item timeouts, hard-capped);
+  - exits.
+
+  A frame cannot add, reorder or replace an item.
+- **Prompts.** One approval means one UAC prompt and one helper process. A second batch starts a new helper.
+- **Other operations.** The helper also accepts two fixed operations for ADR-025: `WriteAutomationPolicy` (a bounded policy document validated against the bundled catalog) and `RemoveAutomation`. They are the only way to change the Stage B store or task.
+- **Stage B host.** The Stage B elevated host is a separate entry point started by Task Scheduler. It is not a reusable endpoint. It accepts no IPC, reads no per-user database, applies the same item validation and provider construction, and exits.
+
+Follow-up tests (Tasks 49, 55, 58): batch substitution, reordering, appending, replay, expiry, oversize frames, cancel races, caller mismatch, policy-document tampering, and Stage B isolation from the per-user database.
+
+### Task 49 implementation note (2026-10-09)
+
+- **Elevated tail only.** The helper receives only the batch's elevated items, so it cannot recompute the full batch digest. `ApprovedOperationBatch.ElevatedDigest` binds those items to the batch. It covers each item's batch position, job ID and job digest, plus the batch ID, correlation, approval time and full batch digest. Elevated items are machine-scope operations plus installers that need or raise elevation (Task 48 `RunsElevated`). The v1 field allowlist is extended with `operation`, `agreementHash`, `runsElevated`, `jobDigest` and `skipReason`.
+- **Frames.** `ElevatedHelperProtocolV2` defines the frames: `BatchHeader`, `BatchItem` × N and `BatchEnd` from the desktop; `CancelRemaining` afterwards; `ItemStarted`, `ItemResult` and `BatchComplete` from the helper. Every frame is a strict JSON object of at most 16 KiB with an exact field set and protocol `2`.
+- **Helper receiver.** `HelperBatchRequestReceiver` is one-shot. It rejects the whole batch for any of these:
+  - a wrong nonce, or an expired request (2 minutes) or batch (30 minutes);
+  - a non-contiguous sequence, or an appended or truncated item;
+  - a foreign or rebound item, or a duplicate item;
+  - an unelevated item;
+  - a failed job digest or elevated digest;
+  - unknown or duplicate fields, numeric enum values, or an unknown skip reason.
+- **Skip reasons.** `skipReason` (`running-application` or `desktop-revalidation-failed`) can only withhold an item.
+- **Helper session.** `ElevatedHelperBatchSession` handles each item in turn:
+  - honours a desktop skip;
+  - revalidates the item against fresh structured provider evidence (the install preflight, or the structured candidate authority for upgrades);
+  - runs the provider operation built in code.
+
+  It applies CancelRemaining before the next unstarted item. The overall deadline is 25 minutes per item, capped at 4 hours. A disconnect, or any frame other than one valid CancelRemaining, aborts the running provider.
+- **Desktop reader.** `HelperBatchResponseReader` accepts helper frames only in order and bound to the batch and nonce. A started item may end only with a provider outcome. An unstarted one may end only as Skipped or Cancelled.
+- **Broken session.** If the session breaks, the item that may be running is Interrupted, which the coordinator records as Verification required. Later items did not start.
+- **Prompts.** `WindowsElevatedHelperTransport.ExecuteBatchAsync` launches one helper with `--protocol 2` after the unchanged pre-launch, peer and nonce checks. Protocol v1 remains for the existing single-update path. The no-op evidence helper refuses v2.
+- **Tests.** The tamper, replay, expiry, oversize, cancel-race, interruption and caller-mismatch cases run in `HelperProtocolV2SecurityTests`. That includes a full desktop↔helper exchange over an in-memory duplex stream. The `WriteAutomationPolicy`, `RemoveAutomation` and Stage B items remain with Tasks 55 and 58.

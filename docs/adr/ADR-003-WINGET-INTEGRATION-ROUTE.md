@@ -3,7 +3,7 @@
 **Status:** Provisional
 **Date:** 2026-07-28
 **Decision owners:** Product owner and implementation reviewer
-**Related requirements:** `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03`
+**Related requirements:** `FR-INV-05`, `FR-SRC-01–05`, `FR-UPD-02–04`, `NFR-MNT-03`; v0.3 amendment: `FR-INS-01–04`, `TM-22`
 **Related open decision:** `OD-03`
 
 ## Context
@@ -55,3 +55,24 @@ Golden parser/capability fixtures, locale/malformed-output rejection, source-fai
 ## Reconsider when
 
 The official COM contract or compatible projection disappears; required CLI execution capabilities disappear; parser compatibility breaks; supported Windows baselines change; or clean-environment evidence shows the split route cannot meet source isolation and exact-ID execution requirements.
+
+## Task 45 evidence (v0.3)
+
+`spikes/patch-style/SPIKE_REPORT.md` §2 dumped the shipped `Microsoft.Management.Deployment.winmd`, version 1.10.340. The COM API provides:
+- `InstallPackageAsync` and `UpgradePackageAsync` with structured `InstallProgress`, and typed `InstallResultStatus` (including `PackageAgreementsNotAccepted`);
+- `InstallOptions.PackageVersionId` for exact versions;
+- `CatalogPackageMetadata.Agreements`;
+- `GetApplicableInstaller`, which returns `ElevationRequirement`, `Scope`, `InstallerType` and `Architecture`.
+
+**Amendment (applied by Task 48, 2026-10-09):**
+- **Preflight: COM.** `WingetInstallPreflightAuthority` resolves installs through the in-process COM engine. It requires:
+  - one exact `Id` match in the trusted predefined `winget` catalog, with no installed instance;
+  - the default (or, on revalidation, the exact approved) version from the `winget` source, with no channel;
+  - an applicable installer under a strict scope filter and the requested architecture;
+  - bounded agreements, hashed into the job (`TM-22`).
+
+  The COM query sets only `PackageInstallScope`, `PackageInstallMode` and `AllowedArchitectures`.
+- **Execution: structured CLI for now.** Install execution uses `winget install --id <id> --exact --version <v> --source winget --scope <s> --architecture <a> --silent --disable-interactivity`. `--accept-package-agreements` is added only when the job carries an accepted agreement hash and fresh preflight evidence matches the job. COM execution (`InstallPackageAsync` with `PackageVersionId`) replaces the CLI only after the elevated-COM evidence in spike §2.4 exists; Task 49 or the owner probe decides.
+- **Forbidden.** The `InstallOptions` members and CLI flags in spike §2.2, plus `AcceptSourceAgreements` and `LogOutputPath`, are forbidden. `ProviderOperationBoundaryTests` enforces this across all product sources.
+- **Routing.** `ElevationRequired` and `ElevatesSelf` installers route to the elevated session (`UpdateJobSelection.RunsElevated`). `ElevationProhibited` with machine scope is not actionable.
+- **Display output** never becomes authority. The existing upgrade path is unchanged.

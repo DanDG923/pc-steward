@@ -17,6 +17,7 @@ public sealed record StewardStatus(string Label, string Glyph, string Tone)
         nameof(PCSteward.Domain.UpdateIntelligenceStatus.Pinned) => new("Version pinned", "\uE718", "neutral"),
         nameof(PCSteward.Domain.UpdateIntelligenceStatus.Ignored) => new("Ignored by you", "\uE74D", "neutral"),
         nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable) => new("Update evidence unavailable", "\uEA39", "blocked"),
+        nameof(PCSteward.Domain.UpdateIntelligenceStatus.Skipped) => new("Version skipped", "\uE893", "neutral"),
         "Installed" => new("Installed · source not checked", "\uE946", "neutral"),
         _ => new("Status unavailable", "\uE783", "neutral")
     };

@@ -23,6 +23,32 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void CatalogIsDataOnlyWithoutReferencesOrSideEffects()
+    {
+        string root = FindRepositoryRoot();
+        XDocument project = XDocument.Load(Path.Combine(root, "src", "PCSteward.Catalog", "PCSteward.Catalog.csproj"));
+        Assert.IsFalse(project.Descendants("ProjectReference").Any(), "ADR-023: the catalog has no project references.");
+        Assert.IsFalse(project.Descendants("PackageReference").Any(), "ADR-023: the catalog has no package references.");
+        foreach (string file in Directory.GetFiles(Path.Combine(root, "src", "PCSteward.Catalog"), "*.cs"))
+        {
+            string source = File.ReadAllText(file);
+            foreach (string forbidden in new[] { "System.Diagnostics.Process", "Process.Start", "Microsoft.Win32", "Registry", "HttpClient", "WebRequest", "File.", "Directory.", "Environment.GetEnvironmentVariable" })
+            {
+                Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal), $"{Path.GetFileName(file)} uses {forbidden}");
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ProductProjectsDoNotReferenceOwnerCatalogTooling()
+    {
+        foreach (string project in Directory.GetFiles(Path.Combine(FindRepositoryRoot(), "src"), "*.csproj", SearchOption.AllDirectories))
+        {
+            Assert.IsFalse(File.ReadAllText(project).Contains("CatalogTool", StringComparison.Ordinal), project);
+        }
+    }
+
+    [TestMethod]
     public void ElevatedHelperDoesNotReferenceForbiddenCapabilities()
     {
         string projectPath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ElevatedHelper", "PCSteward.ElevatedHelper.csproj");

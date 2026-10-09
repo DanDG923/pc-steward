@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Task 45 spike prototype. Not part of PCSteward.slnx and never shipped. -->
+  <ItemGroup><InternalsVisibleTo Include="PatchStyle.Prototype.Tests" /></ItemGroup>
+</Project>

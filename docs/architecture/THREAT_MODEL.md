@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** Accepted Phase 0 baseline; Tasks 02–04 evidence recorded; review again at Tasks 15, 20, 25 and 31
+**Status:** Accepted Phase 0 baseline; Tasks 02–04 evidence recorded; review again at Tasks 15, 20, 25 and 31; v0.3 additions TM-19–TM-24 accepted 2026-10-08 (D-007), review again at Task 58
 **Protected assets:** correct package-to-product identity, user approval, standard/elevated execution boundary, app-owned and non-owned files, inventory/history privacy, last-known-good state, source provenance and release evidence.
 
 ## Security objectives
@@ -33,11 +33,17 @@ Consider a compromised source response, malicious/corrupt local records, a stand
 | TM-11 | Resource exhaustion from records, output, processes, concurrency, logs or cache | Size/count/output limits, timeouts, concurrency caps, one-scan lease, retention/quota, process-tree measurement | Tasks 04, 12, 24, 29 |
 | TM-12 | Provider exit 0 or restart ambiguity becomes false Success | Preserve exit, targeted rescan, expected-version comparison, separate Inconclusive/Restart required | Tasks 23, 25 |
 | TM-13 | Source/package substitution between review and execution | Immutable reviewed IDs/version/source, freshness policy, revalidation at execution, provider identity | Tasks 21, 23 |
-| TM-14 | Scheduled task becomes unattended installer or persistence | Scan-only entry point, fixed task definition, standard user, no update verb, overlap guard, exit test | Task 26 |
+| TM-14 | Scheduled task becomes unattended installer or persistence | Scan-only entry point, fixed task definition, standard user, no update verb, overlap guard, exit test. v0.3: automatic updates use separate opt-in Stage A/B tasks and hosts (ADR-020 revision, ADR-025, TM-20). | Tasks 26, 54, 55 |
 | TM-15 | Cleanup deletes active artifacts or provider caches | Ownership ledger, active lease, fixed category, provider-cache exclusion, accurate residual report | Task 24 |
 | TM-16 | Factory reset partly completes but claims fresh state | Fixed reset manifest, double confirmation, active-work lockout, marker/transaction design, desktop bootstrap before SQLite, scheduled-host sentinel preflight and blocking partial-reset window | Tasks 03, 27, 28 |
 | TM-17 | Malformed inventory/source data corrupts UI/database | Bounded DTOs, encoding handling, transactional writes, per-adapter warnings | Tasks 08–12, 18 |
 | TM-18 | Dependency/build compromise | Lock files, minimal dependencies, static/dependency/secret scans, SBOM, signed release | Tasks 06, 30, 31 |
+| TM-19 | Tampered, malicious or pathological catalog entry (bundled or user-added) becomes execution authority or hangs detection | Signed bundled payload, strict schema/bounds, no command/switch/path/URL fields, non-backtracking patterns with timeout, live exact resolution before approval, fail-closed catalog disable (ADR-023) | Tasks 46, 47, 53, 58 |
+| TM-20 | User-writable per-user database or file drives an unattended elevated install | Stage B reads only the admin-ACL'd `%ProgramData%` policy store, the bundled catalog and live provider evidence; policy written only by the helper after UAC; pause marker restrict-only (ADR-025) | Tasks 55, 58 |
+| TM-21 | Batch helper abuse: item substitution, reordering, appending, replay, expiry, oversize frame, cancel race | Batch digest, per-item revalidation, item/duration caps, nonce, one helper session per approval, no additions after approval (ADR-017/018 v0.3 revisions) | Tasks 49, 58 |
+| TM-22 | Licence/agreement accepted without the user seeing it | Agreements shown in the review sheet and recorded per package and version; automation only where already recorded (`FR-INS-03`) | Tasks 48, 52 |
+| TM-23 | Chocolatey setup or adoption runs a raw script or silently switches an app's installer | WinGet `Chocolatey.Chocolatey` install only, trusted-client checks after setup, adoption only as an explicit labelled Install, no provider switch by automation (ADR-024) | Tasks 50, 58 |
+| TM-24 | Automation closes or force-terminates a running app, or updates during use | Eligibility requires the app not running; automation never closes apps; manual close needs consent, and force needs a second per-run consent (`FR-BAT-08`) | Tasks 49, 54, 58 |
 
 ## Privilege-boundary protocol constraints
 

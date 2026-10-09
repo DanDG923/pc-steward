@@ -1,11 +1,12 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using PCSteward.Application;
+using PCSteward.Catalog;
 using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
+public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCatalogStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IOperationBatchStore, IAgreementAcceptanceStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -59,6 +60,22 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         {
             await ExecuteAsync(connection, "ALTER TABLE downloaded_artifacts ADD COLUMN sha256 TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN job_id TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'Incomplete'; ALTER TABLE downloaded_artifacts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0; CREATE INDEX ix_downloaded_artifacts_created ON downloaded_artifacts(created_at);", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (8);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 9, cancellationToken))
+        {
+            // v0.3 FR-CAT-06: reviewed user catalog additions. A stable-decision category: kept by Clear scan
+            // data, removed with mappings/policies and by factory reset. Rows are revalidated on every read.
+            await ExecuteAsync(connection, "CREATE TABLE user_catalog_entries (id TEXT PRIMARY KEY, name TEXT NOT NULL, publisher TEXT NOT NULL, category TEXT NOT NULL, provider TEXT NOT NULL, source TEXT NOT NULL, package_id TEXT NOT NULL, scopes TEXT NOT NULL, created_at TEXT NOT NULL);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (9);", cancellationToken, transaction);
+        }
+        if (await MigrationRequiredAsync(connection, transaction, 10, cancellationToken))
+        {
+            // v0.3 ADR-017: operation kind, agreement hash and route. Existing rows stay Upgrade jobs with a
+            // scope-derived route (runs_elevated NULL), so their v0.2 digests remain valid. An Install has no
+            // installed version, so the column becomes nullable through a transactional table rebuild.
+            await ExecuteAsync(connection, "CREATE TABLE approved_update_jobs_v10 (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, stable_product_key TEXT NOT NULL, provider TEXT NOT NULL, source_id TEXT NOT NULL, package_id TEXT NOT NULL, installed_version TEXT, candidate_version TEXT NOT NULL, scope TEXT NOT NULL, architecture TEXT NOT NULL, channel TEXT NOT NULL, mapping_evidence_version TEXT NOT NULL, approved_at TEXT NOT NULL, digest TEXT NOT NULL, operation TEXT NOT NULL DEFAULT 'Upgrade', agreement_hash TEXT, runs_elevated INTEGER); INSERT INTO approved_update_jobs_v10(id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest) SELECT id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest FROM approved_update_jobs; DROP TABLE approved_update_jobs; ALTER TABLE approved_update_jobs_v10 RENAME TO approved_update_jobs;", cancellationToken, transaction);
+            await ExecuteAsync(connection, "CREATE TABLE operation_batches (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, approved_at TEXT NOT NULL, item_count INTEGER NOT NULL, digest TEXT NOT NULL); CREATE TABLE operation_batch_items (batch_id TEXT NOT NULL, sequence INTEGER NOT NULL, job_id TEXT NOT NULL UNIQUE, PRIMARY KEY(batch_id, sequence), FOREIGN KEY(batch_id) REFERENCES operation_batches(id) ON DELETE CASCADE); CREATE TABLE agreement_acceptances (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, package_id TEXT NOT NULL, version TEXT NOT NULL, agreement_hash TEXT NOT NULL, accepted_at TEXT NOT NULL); CREATE INDEX ix_agreement_acceptances_package ON agreement_acceptances(source_id, package_id, version);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (10);", cancellationToken, transaction);
         }
         await transaction.CommitAsync(cancellationToken);
     }
@@ -221,7 +238,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM app_metadata);";
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM operation_batches) + (SELECT COUNT(*) FROM operation_batch_items) + (SELECT COUNT(*) FROM agreement_acceptances) + (SELECT COUNT(*) FROM user_catalog_entries) + (SELECT COUNT(*) FROM app_metadata);";
         long count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
         return count == 0 && (await GetScheduledCheckSettingsAsync(cancellationToken)).Equals(ScheduledCheckSettings.Manual);
     }
@@ -333,7 +350,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
 
     public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Update history", ["update_job_history", "update_job_execution_state"], ["history."], cancellationToken);
 
-    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions"], [], cancellationToken);
+    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions", "user_catalog_entries", "agreement_acceptances"], [], cancellationToken);
 
     private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken)
     {
@@ -352,16 +369,121 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         }
     }
 
+    private const string JobColumns = "id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest,operation,agreement_hash,runs_elevated";
+
     public async Task SaveApprovedJobAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
         if (!job.HasValidDigest) throw new InvalidOperationException("The update job failed its integrity check.");
-        UpdateJobSelection selection = job.Selection;
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        await ExecuteAsync(connection,
-            "INSERT INTO approved_update_jobs(id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest) VALUES ($id,$correlation,$stable,$provider,$source,$package,$installed,$candidate,$scope,$architecture,$channel,$mapping,$approved,$digest);",
+        await InsertJobAsync(connection, null, job, cancellationToken);
+    }
+
+    public async Task<ImmutableUpdateJob?> GetApprovedJobAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        if (jobId == Guid.Empty) throw new ArgumentException("A job ID is required.", nameof(jobId));
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        return await ReadJobAsync(connection, null, jobId, cancellationToken);
+    }
+
+    /// <summary>FR-BAT-04: the batch, its ordered membership and every job are written in one transaction.</summary>
+    public async Task SaveApprovedBatchAsync(ApprovedOperationBatch batch, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (!batch.HasValidDigest) throw new InvalidOperationException("The operation batch failed its integrity check.");
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "INSERT INTO operation_batches(id,correlation_id,approved_at,item_count,digest) VALUES ($id,$correlation,$approved,$count,$digest);", cancellationToken, transaction,
+            ("$id", batch.Id), ("$correlation", batch.CorrelationId), ("$approved", batch.ApprovedAt), ("$count", batch.Items.Count), ("$digest", batch.Digest));
+        for (int sequence = 0; sequence < batch.Items.Count; sequence++)
+        {
+            await InsertJobAsync(connection, transaction, batch.Items[sequence], cancellationToken);
+            await ExecuteAsync(connection, "INSERT INTO operation_batch_items(batch_id,sequence,job_id) VALUES ($batch,$sequence,$job);", cancellationToken, transaction,
+                ("$batch", batch.Id), ("$sequence", sequence), ("$job", batch.Items[sequence].Id));
+        }
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>Rows are untrusted: membership, order, every job digest and the batch digest are rechecked.</summary>
+    public async Task<ApprovedOperationBatch?> GetApprovedBatchAsync(Guid batchId, CancellationToken cancellationToken)
+    {
+        if (batchId == Guid.Empty) throw new ArgumentException("A batch ID is required.", nameof(batchId));
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        string correlation, approved, digest; long count;
+        await using (SqliteCommand command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT correlation_id,approved_at,item_count,digest FROM operation_batches WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", batchId.ToString("D", CultureInfo.InvariantCulture));
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) return null;
+            correlation = reader.GetString(0); approved = reader.GetString(1); count = reader.GetInt64(2); digest = reader.GetString(3);
+        }
+
+        List<Guid> jobIds = [];
+        await using (SqliteCommand command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT sequence,job_id FROM operation_batch_items WHERE batch_id = $id ORDER BY sequence;";
+            command.Parameters.AddWithValue("$id", batchId.ToString("D", CultureInfo.InvariantCulture));
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (reader.GetInt64(0) != jobIds.Count || !Guid.TryParseExact(reader.GetString(1), "D", out Guid jobId)) throw new InvalidOperationException("The persisted operation batch is invalid or has been modified.");
+                jobIds.Add(jobId);
+            }
+        }
+
+        try
+        {
+            if (count != jobIds.Count) throw new InvalidOperationException("The persisted operation batch membership changed.");
+            List<ImmutableUpdateJob> jobs = [];
+            foreach (Guid jobId in jobIds) jobs.Add(await ReadJobAsync(connection, transaction, jobId, cancellationToken) ?? throw new InvalidOperationException("A batch job is missing."));
+            return ApprovedOperationBatch.Restore(
+                batchId,
+                Guid.ParseExact(correlation, "D"),
+                DateTimeOffset.Parse(approved, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                jobs,
+                digest);
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException)
+        {
+            throw new InvalidOperationException("The persisted operation batch is invalid or has been modified.", exception);
+        }
+    }
+
+    public async Task RecordAgreementAcceptanceAsync(AgreementAcceptance acceptance, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(acceptance);
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await ExecuteAsync(connection, "INSERT INTO agreement_acceptances(id,source_id,package_id,version,agreement_hash,accepted_at) VALUES ($id,$source,$package,$version,$hash,$accepted);", cancellationToken, null,
+            ("$id", acceptance.Id), ("$source", acceptance.Source), ("$package", acceptance.PackageId), ("$version", acceptance.Version), ("$hash", acceptance.AgreementHash), ("$accepted", acceptance.AcceptedAt));
+    }
+
+    public async Task<bool> HasAgreementAcceptanceAsync(UpdateSource source, string packageId, string version, string agreementHash, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agreementHash);
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        // Package IDs compare case-insensitively like the providers; version and hash compare exactly.
+        command.CommandText = "SELECT COUNT(*) FROM agreement_acceptances WHERE source_id = $source AND package_id = $package COLLATE NOCASE AND version = $version AND agreement_hash = $hash;";
+        command.Parameters.AddWithValue("$source", source.ToString());
+        command.Parameters.AddWithValue("$package", packageId);
+        command.Parameters.AddWithValue("$version", version);
+        command.Parameters.AddWithValue("$hash", agreementHash);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) > 0;
+    }
+
+    private static Task InsertJobAsync(SqliteConnection connection, SqliteTransaction? transaction, ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        UpdateJobSelection selection = job.Selection;
+        return ExecuteAsync(connection,
+            $"INSERT INTO approved_update_jobs({JobColumns}) VALUES ($id,$correlation,$stable,$provider,$source,$package,$installed,$candidate,$scope,$architecture,$channel,$mapping,$approved,$digest,$operation,$agreement,$elevated);",
             cancellationToken,
-            null,
+            transaction,
             ("$id", job.Id),
             ("$correlation", job.CorrelationId),
             ("$stable", selection.StableProductKey),
@@ -375,43 +497,55 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
             ("$channel", selection.Channel),
             ("$mapping", selection.MappingEvidenceVersion),
             ("$approved", job.ApprovedAt),
-            ("$digest", job.Digest));
+            ("$digest", job.Digest),
+            ("$operation", selection.Operation),
+            ("$agreement", selection.AgreementHash),
+            ("$elevated", selection.RunsElevated ? 1 : 0));
     }
 
-    public async Task<ImmutableUpdateJob?> GetApprovedJobAsync(Guid jobId, CancellationToken cancellationToken)
+    private static async Task<ImmutableUpdateJob?> ReadJobAsync(SqliteConnection connection, SqliteTransaction? transaction, Guid jobId, CancellationToken cancellationToken)
     {
-        if (jobId == Guid.Empty) throw new ArgumentException("A job ID is required.", nameof(jobId));
-        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT id,correlation_id,stable_product_key,provider,source_id,package_id,installed_version,candidate_version,scope,architecture,channel,mapping_evidence_version,approved_at,digest FROM approved_update_jobs WHERE id = $id;";
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT {JobColumns} FROM approved_update_jobs WHERE id = $id;";
         command.Parameters.AddWithValue("$id", jobId.ToString("D", CultureInfo.InvariantCulture));
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)) return null;
         try
         {
-            UpdateJobSelection selection = new(
+            UpdateScope scope = ParseDefined<UpdateScope>(reader.GetString(8));
+            UpdateJobSelection selection = UpdateJobSelection.Restore(
+                ParseDefined<PackageOperationKind>(reader.GetString(14)),
                 reader.GetString(2),
-                Enum.Parse<UpdateProvider>(reader.GetString(3), ignoreCase: false),
-                Enum.Parse<UpdateSource>(reader.GetString(4), ignoreCase: false),
+                ParseDefined<UpdateProvider>(reader.GetString(3)),
+                ParseDefined<UpdateSource>(reader.GetString(4)),
                 reader.GetString(5),
-                reader.GetString(6),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
                 reader.GetString(7),
-                Enum.Parse<UpdateScope>(reader.GetString(8), ignoreCase: false),
-                Enum.Parse<UpdateArchitecture>(reader.GetString(9), ignoreCase: false),
-                Enum.Parse<UpdateChannel>(reader.GetString(10), ignoreCase: false),
-                reader.GetString(11));
+                scope,
+                ParseDefined<UpdateArchitecture>(reader.GetString(9)),
+                ParseDefined<UpdateChannel>(reader.GetString(10)),
+                reader.GetString(11),
+                reader.IsDBNull(15) ? null : reader.GetString(15),
+                // Pre-v10 rows have no stored route; theirs is the scope-derived v0.2 route.
+                reader.IsDBNull(16) ? scope == UpdateScope.Machine : reader.GetInt64(16) switch { 0 => false, 1 => true, _ => throw new FormatException("Invalid route.") });
             return ImmutableUpdateJob.Restore(
-                Guid.Parse(reader.GetString(0)),
-                Guid.Parse(reader.GetString(1)),
+                Guid.ParseExact(reader.GetString(0), "D"),
+                Guid.ParseExact(reader.GetString(1), "D"),
                 selection,
                 DateTimeOffset.Parse(reader.GetString(12), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
                 reader.GetString(13));
         }
-        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException)
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException or InvalidCastException)
         {
             throw new InvalidOperationException("The persisted update job is invalid or has been modified.", exception);
         }
     }
+
+    private static T ParseDefined<T>(string value) where T : struct, Enum =>
+        Enum.TryParse(value, ignoreCase: false, out T parsed) && Enum.IsDefined(parsed) && !int.TryParse(value, out _)
+            ? parsed
+            : throw new FormatException("The stored value is not a defined name.");
 
     public async Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken)
     {
@@ -487,6 +621,39 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     public async Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken)
     {
         List<ManualMapping> result = []; await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand command = connection.CreateCommand(); command.CommandText = "SELECT id,stable_product_key,source_id,package_id,created_at,reason FROM manual_mappings ORDER BY created_at DESC;"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) result.Add(new ManualMapping(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2), reader.GetString(3), DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(5) ? null : reader.GetString(5))); return result;
+    }
+
+    public async Task<IReadOnlyCollection<UserCatalogEntryRecord>> GetUserCatalogEntriesAsync(CancellationToken cancellationToken)
+    {
+        List<UserCatalogEntryRecord> result = [];
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT id,name,publisher,category,provider,source,package_id,scopes FROM user_catalog_entries ORDER BY created_at, id;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            // Returned as stored; CatalogValidator.Compose decides whether a row is usable.
+            result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
+        }
+
+        return result;
+    }
+
+    public async Task SaveUserCatalogEntryAsync(UserCatalogEntryRecord entry, DateTimeOffset createdAt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await ExecuteAsync(connection, "INSERT INTO user_catalog_entries(id,name,publisher,category,provider,source,package_id,scopes,created_at) VALUES ($id,$name,$publisher,$category,$provider,$source,$package,$scopes,$created);", cancellationToken, null,
+            ("$id", Text(entry.Id)), ("$name", Text(entry.Name)), ("$publisher", Text(entry.Publisher)), ("$category", Text(entry.Category)), ("$provider", Text(entry.Provider)), ("$source", Text(entry.Source)), ("$package", Text(entry.PackageId)), ("$scopes", Text(string.Join(',', entry.Scopes ?? []))), ("$created", createdAt));
+    }
+
+    public async Task<bool> DeleteUserCatalogEntryAsync(string entryId, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        int deleted = await ExecuteCountAsync(connection, "DELETE FROM user_catalog_entries WHERE id = $id;", transaction, cancellationToken, ("$id", Text(entryId)));
+        await transaction.CommitAsync(cancellationToken);
+        return deleted > 0;
     }
 
     public async Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken)

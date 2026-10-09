@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PCSteward.Domain/PCSteward.Domain.csproj" />
+    <Project Path="src/PCSteward.Catalog/PCSteward.Catalog.csproj" />
     <Project Path="src/PCSteward.Application/PCSteward.Application.csproj" />
     <Project Path="src/PCSteward.Persistence.Sqlite/PCSteward.Persistence.Sqlite.csproj" />
     <Project Path="src/PCSteward.Inventory.Windows/PCSteward.Inventory.Windows.csproj" />
@@ -16,9 +17,13 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PCSteward.Domain.UnitTests/PCSteward.Domain.UnitTests.csproj" />
+    <Project Path="tests/PCSteward.Catalog.UnitTests/PCSteward.Catalog.UnitTests.csproj" />
     <Project Path="tests/PCSteward.Application.IntegrationTests/PCSteward.Application.IntegrationTests.csproj" />
     <Project Path="tests/PCSteward.ArchitectureTests/PCSteward.ArchitectureTests.csproj" />
     <Project Path="tests/PCSteward.Security.FixtureTests/PCSteward.Security.FixtureTests.csproj" />
     <Project Path="tests/PCSteward.Performance/PCSteward.Performance.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/PCSteward.CatalogTool/PCSteward.CatalogTool.csproj" />
   </Folder>
 </Solution>

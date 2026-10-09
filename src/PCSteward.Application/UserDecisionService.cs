@@ -1,11 +1,17 @@
+using System.Text.RegularExpressions;
 using PCSteward.Domain;
 
 namespace PCSteward.Application;
 
 /// <summary>Applies durable user choices without weakening package matching or creating update execution authority.</summary>
-public sealed class UserDecisionService
+public sealed partial class UserDecisionService
 {
     private const int MaximumReasonLength = 512;
+    internal const string SkipVersionKind = "SkipVersion";
+    internal const string PreferredProviderKind = "PreferredProvider";
+    internal const string AutomaticUpdatesKind = "AutomaticUpdates";
+    internal const string CloseAppConsentKind = "CloseAppConsent";
+    private static readonly string[] PreferredProviders = ["winget", "chocolatey"];
     private readonly IUserDecisionStore store;
 
     public UserDecisionService(IUserDecisionStore store) => this.store = store;
@@ -34,6 +40,28 @@ public sealed class UserDecisionService
         return SaveDecisionAsync(stableProductKey, "Ignore", until is null ? "Indefinitely" : until.Value.ToString("O"), reason, until, cancellationToken);
     }
 
+    /// <summary>FR-POL-06: hide one available version; a newer version is offered again.</summary>
+    public Task SkipVersionAsync(string stableProductKey, string version, string? reason, CancellationToken cancellationToken)
+    {
+        if (!IsVersion(version)) throw new ArgumentException("The version is outside the allowlisted format.", nameof(version));
+        return SaveDecisionAsync(stableProductKey, SkipVersionKind, version.Trim(), reason, null, cancellationToken);
+    }
+
+    /// <summary>FR-PRV-04 / ADR-024: preferred provider for catalog name-and-publisher matches and new installs.</summary>
+    public Task SetPreferredProviderAsync(string stableProductKey, string provider, string? reason, CancellationToken cancellationToken)
+    {
+        if (!PreferredProviders.Contains(provider, StringComparer.Ordinal)) throw new ArgumentException("Only winget or chocolatey may be preferred.", nameof(provider));
+        return SaveDecisionAsync(stableProductKey, PreferredProviderKind, provider, reason, null, cancellationToken);
+    }
+
+    /// <summary>FR-AUT-01: per-app opt-in. Turning it off reverses the decision. Eligibility is decided later (FR-AUT-02).</summary>
+    public Task EnableAutomaticUpdatesAsync(string stableProductKey, string? reason, CancellationToken cancellationToken) =>
+        SaveDecisionAsync(stableProductKey, AutomaticUpdatesKind, "On", reason, null, cancellationToken);
+
+    /// <summary>FR-BAT-08: per-app consent to close the app gracefully before a manual update. Never used by automation.</summary>
+    public Task GrantCloseAppConsentAsync(string stableProductKey, string? reason, CancellationToken cancellationToken) =>
+        SaveDecisionAsync(stableProductKey, CloseAppConsentKind, "Graceful", reason, null, cancellationToken);
+
     public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => store.DeleteAsync(decisionId, cancellationToken);
     public Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken) => store.DeleteManualMappingAsync(mappingId, cancellationToken);
     public async Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken)
@@ -59,7 +87,12 @@ public sealed class UserDecisionService
         {
             StableDecision? pin = group.Where(decision => decision.Kind is "PinCurrentVersion" or "PinSourcePackage").OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
             StableDecision? ignore = group.Where(decision => decision.Kind == "Ignore" && (decision.ExpiresAt is null || decision.ExpiresAt > now)).OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
-            policies[group.Key] = new(pin is not null, ignore is not null, pin is null ? null : $"The product is pinned to {pin.Value} by a recorded user decision.", ignore?.ExpiresAt);
+            // Stored rows are untrusted: values outside the allowlist are ignored and can never widen behaviour.
+            string? skipped = Latest(group, SkipVersionKind, IsVersion)?.Value.Trim();
+            string? preferred = Latest(group, PreferredProviderKind, value => PreferredProviders.Contains(value, StringComparer.Ordinal))?.Value;
+            bool automatic = Latest(group, AutomaticUpdatesKind, value => value == "On") is not null;
+            bool closeConsent = Latest(group, CloseAppConsentKind, value => value == "Graceful") is not null;
+            policies[group.Key] = new(pin is not null, ignore is not null, pin is null ? null : $"The product is pinned to {pin.Value} by a recorded user decision.", ignore?.ExpiresAt, skipped, preferred, automatic, closeConsent);
         }
         return policies;
     }
@@ -69,6 +102,14 @@ public sealed class UserDecisionService
         ArgumentException.ThrowIfNullOrWhiteSpace(stableProductKey); ArgumentException.ThrowIfNullOrWhiteSpace(value);
         return store.SaveAsync(new StableDecision(Guid.NewGuid(), stableProductKey, kind, value, DateTimeOffset.UtcNow, BoundedReason(reason), expiresAt), cancellationToken);
     }
+
+    private static StableDecision? Latest(IEnumerable<StableDecision> decisions, string kind, Func<string, bool> valid) =>
+        decisions.Where(decision => decision.Kind == kind && decision.Value is not null && valid(decision.Value)).OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
+
+    private static bool IsVersion(string? value) => value is not null && VersionPattern().IsMatch(value.Trim());
+
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$", RegexOptions.CultureInvariant)]
+    private static partial Regex VersionPattern();
 
     private static string? BoundedReason(string? reason) => string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, MaximumReasonLength)];
     private static bool Same(string left, string right) => string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);

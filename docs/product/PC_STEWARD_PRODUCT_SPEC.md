@@ -1,10 +1,10 @@
 # PC Steward — Product Specification
 
 **Document type:** Product requirements and MVP specification  
-**Status:** Draft for planning and implementation handoff  
-**Version:** 0.2  
-**Date:** 27 July 2026  
-**Revision:** Adds explicit MVP resource-efficiency budgets and separate scan-data, downloaded-file and factory-reset controls.  
+**Status:** Approved for personal owner-only use (v0.3, D-006/D-007)  
+**Version:** 0.3  
+**Date:** 8 October 2026  
+**Revision:** v0.3 adds the personal Patch-style updater (§27): personal catalog and installs, one-review batches with one UAC prompt, opt-in automatic updates, provider setup, and personal-use release scope. v0.2 added explicit MVP resource-efficiency budgets and separate scan-data, downloaded-file and factory-reset controls.  
 **Working product name:** PC Steward  
 **Primary owner:** Product owner / individual developer  
 
@@ -25,6 +25,8 @@ PC Steward is a local-first Windows desktop application that:
 The product is intended to solve a common Windows maintenance problem: no single update mechanism has complete coverage, while existing tools often show only the packages they already know how to manage. PC Steward's defining promise is therefore:
 
 > **Every discoverable installed application is accounted for, even when it cannot yet be updated automatically.**
+
+**Version 0.3** (§27) turns PC Steward into a personal, Patch My PC–style updater for the owner's own PC. It can also install apps from a personal catalog, update everything selected after one review with one UAC prompt, and run opt-in automatic updates. WinGet and the fixed Chocolatey Community feed remain the only installers. Where §1–§26 conflict with §27, §27 applies.
 
 The product must not claim to search or trust the entire public internet. “All available open sources” means all update connectors that the user has enabled and that meet the product's source-trust policy. Arbitrary search-engine results, download portals, mirrors and unknown executable links are out of scope.
 
@@ -54,7 +56,7 @@ PC Steward is not a registry cleaner, “PC optimiser,” antivirus product, dri
 5. **No arbitrary web installers:** the application never chooses an executable merely because its name resembles an installed product.
 6. **Explain every decision:** the user can see installed version, candidate version, source, confidence and planned action.
 7. **Honest failure handling:** an update is successful only after post-installation verification.
-8. **User control:** automatic installation is disabled in the MVP and no application is closed without clear consent.
+8. **User control:** automatic installation is off by default and happens only for apps the user has opted in, when the deterministic eligibility rules in §27 are met. No application is closed without clear consent.
 9. **Resource respectful:** PC Steward has no permanently running service, uses bounded concurrency, remains cancellable and meets measurable CPU, memory, disk and scan-time budgets.
 10. **Data is removable:** scan results, app-owned downloaded update files and the complete local application state can be deleted through separate, clearly labelled controls.
 
@@ -125,7 +127,7 @@ The MVP will not:
 - discover every portable executable on every disk;
 - alter game files, mods or Microsoft Flight Simulator content;
 - silently close running applications;
-- silently install updates;
+- silently install updates, except through per-app opt-in automatic-update rules (§27, `FR-AUT`);
 - promise rollback for installers that do not provide one; or
 - support enterprise policy enforcement, remote execution or central reporting.
 
@@ -176,7 +178,7 @@ The MVP will not:
 - The initial build targets x64 hardware.
 - WinGet is installed and available in the signed-in user's context.
 - Chocolatey integration is optional; when enabled, the signed client is installed at its protected machine root.
-- The user can approve UAC when an individual installer requires elevation.
+- The user can approve UAC when an approved batch requires elevation: one prompt per batch (`FR-BAT-05`).
 - An internet connection is available for source refreshes and online update checks.
 - Some applications will remain unmatched; this is an expected state, not a product failure.
 
@@ -383,13 +385,13 @@ The failure remains visible until resolved or dismissed; it is never silently co
 **Journey**
 
 1. PC Steward performs a standard-user scan using the current user's context.
-2. It does not install anything.
+2. The scan-only host does not install anything. Opt-in automatic updates run in the separate automatic-update host (`FR-AUT-03/08`).
 3. If attention is required, it raises a Windows notification showing the number of verified and review-required updates.
 4. Opening the notification launches the dashboard.
 
 **Outcome**
 
-Scheduled checks provide awareness without unattended changes.
+Scheduled checks provide awareness. Unattended changes happen only through the separate, opt-in automatic-update rules in §27.
 
 ### UJ-10 — Export or clear selected local data
 
@@ -451,7 +453,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 | FR-INV-08 | Capture name, version, publisher, install scope, architecture, source provider, install date and path where safely available. | Yes |
 | FR-INV-09 | Classify runtimes, redistributables, drivers, system components and applications separately where evidence allows. | Partial |
 | FR-INV-10 | Discover applications in user-selected portable folders. | Later |
-| FR-INV-11 | Inventory Chocolatey, Scoop, npm, pip, PowerShell and .NET global tools. | Later |
+| FR-INV-11 | Inventory Chocolatey, Scoop, npm, pip, PowerShell and .NET global tools. | Partial — Chocolatey Yes (Task 32); others Later |
 | FR-INV-12 | Detect self-updater services or scheduled tasks. | Later |
 
 ### 9.3 Identity resolution and matching
@@ -463,7 +465,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 | FR-ID-03 | Compute a deterministic confidence level and explanation for each mapping. | Yes |
 | FR-ID-04 | Prevent low-confidence candidates from becoming executable update actions. | Yes |
 | FR-ID-05 | Allow a user to create, review and delete a manual mapping to a trusted connector package. | Yes |
-| FR-ID-06 | Preserve mapping origin: automatic, provider-supplied, user-confirmed or imported. | Yes |
+| FR-ID-06 | Preserve mapping origin: automatic, provider-supplied, catalog, user-confirmed or imported. | Yes |
 | FR-ID-07 | Detect channel conflicts such as Stable versus Beta where source metadata permits. | Partial |
 | FR-ID-08 | Compare existing and candidate publisher/signing identities for direct-download connectors. | Later |
 | FR-ID-09 | Use AI only to explain or rank possible matches; never to authorize execution. | Later/optional |
@@ -509,7 +511,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 
 | ID | Requirement | MVP |
 |---|---|---|
-| FR-UPD-01 | Require explicit selection and confirmation before every update or batch. | Yes |
+| FR-UPD-01 | Require explicit selection and confirmation before every manual update or batch. An automatic update requires a prior per-app opt-in (`FR-AUT-01`). | Yes |
 | FR-UPD-02 | Execute only provider-defined, structured operations against an immutable package ID. | Yes |
 | FR-UPD-03 | Never execute a command string retrieved from the local database or remote metadata. | Yes |
 | FR-UPD-04 | Request elevation only when the provider determines it is needed. | Yes |
@@ -520,7 +522,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 | FR-UPD-09 | Report success only when the expected version is detected or the provider supplies a reliable restart-pending result. | Yes |
 | FR-UPD-10 | Run MVP batch updates sequentially. | Yes |
 | FR-UPD-11 | Allow cancellation before the next queued update begins. | Yes |
-| FR-UPD-12 | Support unattended automatic update rules. | Later |
+| FR-UPD-12 | Support unattended automatic update rules. | Yes — v0.3 (`FR-AUT-01–10`) |
 | FR-UPD-13 | Download and execute installers directly from official vendor or GitHub sources. | Later, after signature/hash controls |
 
 ### 9.8 Pinning, ignoring and manual decisions
@@ -532,6 +534,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 | FR-POL-03 | Record an optional reason for pinning, ignoring or manually mapping. | Yes |
 | FR-POL-04 | Show all active decisions in one settings view. | Yes |
 | FR-POL-05 | Make all decisions reversible. | Yes |
+| FR-POL-06 | Skip a specific available version. The app returns to attention when a newer version appears. | Yes — v0.3 |
 
 ### 9.9 History, logs and diagnostics
 
@@ -550,7 +553,7 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 |---|---|---|
 | FR-SCH-01 | Allow an optional daily, weekly or manual-only scan schedule. | Yes |
 | FR-SCH-02 | Use Windows Task Scheduler rather than an always-running service. | Yes |
-| FR-SCH-03 | Scheduled scans may check but must not install updates in the MVP. | Yes |
+| FR-SCH-03 | Scheduled scans may check but must not install updates. Installation runs only in the separate automatic-update host under `FR-AUT`. | Yes |
 | FR-SCH-04 | Show a Windows notification only when attention is required or a scan fails repeatedly. | Yes |
 | FR-SCH-05 | Allow the schedule and notifications to be disabled independently. | Yes |
 
@@ -597,7 +600,7 @@ PC Steward checks **all enabled trusted connectors**, not the unrestricted inter
 | **A — OS/vendor managed** | Microsoft Store or an application's supported self-updater | Detect and report; invoke only through supported provider mechanisms |
 | **B — Curated package manager** | WinGet configured trusted sources | Primary actionable update source in MVP |
 | **C — Verified official project** | User-confirmed official GitHub Releases repository or official vendor feed | Read-only version check in early MVP; direct install later |
-| **D — Community package manager** | Fixed Chocolatey Community feed | Opt-in machine-scope connector only; client signer, feed URL, package ID, version, source provenance and package-script risk must be visible before review. Scoop remains later. |
+| **D — Community package manager** | Fixed Chocolatey Community feed | Opt-in machine-scope connector only; client signer, feed URL, package ID, version, source provenance and package-script risk must be visible before review. From v0.3, a personal-catalog Community package ID shown with this disclosure in the batch review sheet counts as the user's confirmation (D-007). Scoop remains later. |
 | **E — Arbitrary web source** | Search results, download sites, mirrors, raw executable URL | Prohibited |
 
 ### 10.3 Required source metadata
@@ -655,7 +658,7 @@ When two trusted sources report different latest versions:
 
 - WinGet default trusted sources, including Microsoft Store information exposed through WinGet.
 - Optional Chocolatey Community source, only through its signed client at the canonical ProgramData root and only after explicit source disclosure. It uses the fixed `https://community.chocolatey.org/api/v2/` feed; configured custom sources, source credentials, raw scripts, installer paths and package-manager configuration are never imported as PC Steward authority.
-- Chocolatey's local package list does not establish the original feed for an installed package. PC Steward therefore presents every Chocolatey candidate as review-only until the user confirms its exact Community package ID; only that explicit mapping may proceed to the normal immutable-job and elevation review.
+- Chocolatey's local package list does not establish the original feed for an installed package. PC Steward therefore presents every Chocolatey candidate as review-only until the user confirms its exact Community package ID; only that explicit mapping may proceed to the normal immutable-job and elevation review. From v0.3, a personal-catalog entry or a reviewed **Add from search** confirmation counts as that explicit mapping (`FR-CAT-05/06`).
 - Optional user-confirmed GitHub Releases mapping for read-only version awareness, provided it does not delay the core build.
 
 **Actions**
@@ -663,7 +666,7 @@ When two trusted sources report different latest versions:
 - Manual scan with progress and cancellation.
 - Optional scheduled check through Task Scheduler.
 - Review one or more verified updates.
-- User-approved sequential updates through WinGet.
+- User-approved sequential updates through WinGet and, from Task 32, the fixed Chocolatey Community feed.
 - Pin, ignore, retry and manually map to a trusted package.
 - Post-update verification.
 - Inventory and history export.
@@ -681,7 +684,7 @@ When two trusted sources report different latest versions:
 **Safety**
 
 - No direct arbitrary installer download.
-- No unattended installation.
+- No unattended installation, except v0.3 opt-in automatic-update rules (§27, `FR-AUT`).
 - No driver, firmware or OS update management.
 - No continuously elevated process.
 - Destructive cleanup may operate only on allowlisted PC Steward-owned paths and data stores.
@@ -967,7 +970,7 @@ The MVP requires **no PC Steward account**.
 If an elevated helper is needed, it must:
 
 - be a separately signed binary;
-- start only for a user-approved operation;
+- start only for a user-approved operation batch, or for a user-approved change to the Stage B automation policy (§27);
 - exit when the operation completes;
 - accept only a small, versioned set of structured commands;
 - validate caller identity and session;
@@ -978,7 +981,7 @@ If an elevated helper is needed, it must:
 - write sanitized results to a controlled channel; and
 - never read executable commands from SQLite or remote metadata.
 
-No always-elevated tray process or service is permitted in the MVP.
+No always-elevated tray process or service is permitted. The v0.3 Stage B automatic-update task (`FR-AUT-08`) starts a short-lived elevated host that exits when its run ends. It is not a service and takes no instructions from the per-user database.
 
 ### 13.4 Future cloud permissions
 
@@ -1038,6 +1041,8 @@ The MVP build must support:
 3. Private distribution during development, with Microsoft Store distribution considered after the security and update model is stable.
 
 The standalone package must omit the elevated helper. Machine-scope candidates may be displayed for awareness but must be non-actionable before job creation. The packaging choice and any future elevation-capable deployment must be recorded in architecture decisions.
+
+**v0.3 personal scope (D-006):** PC Steward is personal software for the owner's PC. Distribution signing, channels, recipients and public release are not pursued. The owner-only protected installation (ADR-022) is the deployment model.
 
 ### 14.4 Deployment requirements
 
@@ -1384,6 +1389,8 @@ The MVP is ready for private beta only when:
 - known limitations are documented in the application and release notes; and
 - the product owner has completed a real-PC scan in local-only mode before enabling update execution.
 
+**v0.3 personal scope:** the distribution-oriented items above (signing for external distribution, release notes and the `FRA-14–16` release gate) are retired (C-11). Acceptance for v0.3 is defined in §27.9.
+
 ---
 
 ## 20. Product metrics
@@ -1517,6 +1524,10 @@ These decisions are intentionally left for focused design or prototype work. The
 
 **Exit condition:** all resource, cleanup, reset, security and release acceptance criteria pass.
 
+### Phases 5–11 — v0.3 personal Patch-style updater
+
+See `docs/OVERHAUL_PLAN_PATCH_STYLE.md` §11, Tasks 44–59.
+
 ## 24. Codex handoff requirements
 
 When this specification is moved into a repository, Codex should be instructed to:
@@ -1565,9 +1576,9 @@ Before implementation begins, the product owner should explicitly approve or ame
 - [ ] Local-only, account-free MVP.
 - [ ] WinGet and the fixed, explicitly enabled Chocolatey Community source as actionable update providers. Chocolatey actions are machine-scope only, use the protected elevation helper, and retain the same individual review, immutable-job, bounded-output and post-update verification gates.
 - [ ] No drivers, firmware, Windows Update or arbitrary website downloads.
-- [ ] Manual approval before every installation.
+- [x] Manual approval before every manual installation; automatic installation only through per-app opt-in rules (v0.3, D-007).
 - [ ] Separate install instances rather than over-aggressive deduplication.
-- [ ] Optional weekly scheduled checks with no scheduled installation.
+- [x] Optional scheduled checks. Scheduled installation runs only in the separate opt-in automatic-update host (v0.3, D-007).
 - [ ] Data fields and retention defaults.
 - [ ] Security and privacy requirements.
 - [x] Bounded CPU, memory, disk, concurrency and scan-time requirements are mandatory for the MVP.
@@ -1578,3 +1589,164 @@ Before implementation begins, the product owner should explicitly approve or ame
 - [ ] Open decisions to be resolved by architecture spikes.
 
 Once approved, changes to security boundaries, source trust, update execution, authentication or cloud use should update this specification and receive a new version number.
+
+---
+
+## 27. Version 0.3 — personal Patch-style updater
+
+### 27.1 Scope and authority
+
+The owner approved this section on 8 October 2026 (D-006, D-007). It applies to one owner on one Windows 11 x64 PC. Where §1–§26 conflict with this section, this section applies. Design detail is in `docs/OVERHAUL_PLAN_PATCH_STYLE.md`, ADR-017/018/020 (v0.3 revisions) and ADR-023–025. Requirement IDs below are stable.
+
+Unchanged boundaries: WinGet and the fixed Chocolatey Community feed are the only installers. There is no direct download, raw URL, mirror or arbitrary website search. Providers build structured arguments in code. Approved operations are immutable and revalidated before execution. Success requires verification. There is no resident elevated service, no `Win32_Product`, and no driver, firmware, Windows Update or optimisation work.
+
+### 27.2 v0.3 user outcomes
+
+The owner can:
+
+- see a personal catalog of apps, each marked Not installed, Up to date, Update available or Review required;
+- tick apps and install or update all of them after one review, with at most one UAC prompt per batch;
+- add an app to the catalog from a reviewed WinGet or Chocolatey Community search result;
+- skip a specific version, pin, ignore, set a preferred provider and allow PC Steward to close an app before updating;
+- opt apps into automatic updates: first user-scope apps (Stage A), later admin-scope apps (Stage B); and
+- set up Chocolatey through WinGet when it is missing.
+
+### 27.3 Additional statuses
+
+| Status | Meaning | Action permitted |
+|---|---|---|
+| **Not installed** | A catalog entry has no matching install instance. | Tick to install |
+| **Installed, not managed** | A catalog entry is detected, but no provider manages the install. | Review. An explicit, labelled Install may adopt it. |
+| **Skipped (this version)** | The user skipped the currently available version. | None until a newer version appears |
+
+### 27.4 Requirements
+
+#### Personal catalog
+
+| ID | Requirement | v0.3 |
+|---|---|---|
+| FR-CAT-01 | Ship a bundled personal catalog as an embedded, schema-versioned resource covered by the owner-signed payload. | Yes |
+| FR-CAT-02 | Validate every catalog entry strictly: schema version, field bounds, unique IDs, and anchored detection patterns in a restricted grammar (no quantified groups other than `?`, no backreferences, no `(?` constructs) evaluated with a per-match timeout. Disable catalog features (fail closed) when the bundled catalog is invalid, while the rest of the app keeps working. | Yes |
+| FR-CAT-03 | Catalog entries contain only display data, provider/source/package identities, detection rules, process names and flags. They never contain commands, installer switches, scripts, paths or URLs used for execution. | Yes |
+| FR-CAT-04 | Show every catalog entry with one status from §7.2 or §27.3. | Yes |
+| FR-CAT-05 | Use catalog detection as deterministic mapping evidence with origin `catalog`. Ambiguous or non-unique detection yields Review required. | Yes |
+| FR-CAT-06 | Let the user add an app from a WinGet or fixed Chocolatey Community search result after reviewing its exact ID, publisher and source. Store it as a removable user catalog entry. | Yes |
+| FR-CAT-07 | Provide owner-run catalog seeding, offline validation (also run in CI) and read-only live-verification tooling. | Yes |
+| FR-CAT-08 | Display the bundled catalog version and the number of user additions. | Yes |
+
+#### Install
+
+| ID | Requirement | v0.3 |
+|---|---|---|
+| FR-INS-01 | Install a not-installed catalog entry through its provider as an immutable Install operation. | Yes |
+| FR-INS-02 | Before approval, resolve each install live with an exact package ID and version. Results that are non-unique, missing, low-confidence, or incompatible in scope or architecture are not actionable. | Yes |
+| FR-INS-03 | Show WinGet package agreements or licences, where present, in the review sheet and record acceptance per package and version. Never accept an agreement the user has not been shown. | Yes |
+| FR-INS-04 | Let the user choose scope and architecture where the provider supports more than one. Chocolatey installs are machine scope only. | Yes |
+| FR-INS-05 | Report install Success only when the provider lists the package at the target version **and** a local re-inventory finds a matching instance. | Yes |
+| FR-INS-06 | For new installs, use the catalog's default provider (WinGet preferred) unless the user overrides it. Never switch an installed app's provider automatically. Moving an app to Chocolatey is an explicit, labelled Install. | Yes |
+| FR-INS-07 | Installs obey the same single-active-operation rule as updates (`FR-RSC-02`). | Yes |
+
+#### One-review batches
+
+| ID | Requirement | v0.3 |
+|---|---|---|
+| FR-BAT-01 | The Updates view lists outdated apps with a checkbox, installed and available versions, provider, scope and an admin indicator. Review-required items offer **Resolve** instead of a checkbox. | Yes |
+| FR-BAT-02 | **Select all safe** selects only actionable items: exact identity, live evidence, compatible, strictly newer, and not pinned, skipped or ignored. | Yes |
+| FR-BAT-03 | One review sheet lists every operation with provider, source, package ID, version, scope and architecture. It groups operations by whether admin approval is needed and shows the Chocolatey disclosure and running-app warnings. | Yes |
+| FR-BAT-04 | Confirmation creates one immutable, digest-protected batch. A batch holds at most 50 items, expires 30 minutes after approval, and accepts no additions after approval. | Yes |
+| FR-BAT-05 | Run user-scope items without elevation, then all machine-scope items in one elevated-helper session with one UAC prompt. The helper revalidates each item and exits at the end. | Yes |
+| FR-BAT-06 | Show per-item progress. **Cancel remaining** takes effect between items. | Yes |
+| FR-BAT-07 | The completion summary separates Succeeded, Restart required, Failed, Not verified and Skipped. It offers **Retry failed** (as a new reviewed batch) and **Delete downloaded files**. | Yes |
+| FR-BAT-08 | Close a running app only with per-app or per-run consent, gracefully and with a bounded wait. Forced termination needs a second, per-run consent and is never used by automation. | Yes |
+
+#### Automatic updates
+
+| ID | Requirement | v0.3 |
+|---|---|---|
+| FR-AUT-01 | Automatic updates are off by default and are enabled per app. Bulk enabling is allowed as an explicit user action. | Yes |
+| FR-AUT-02 | Eligibility is a pure, deterministic predicate. All of these must hold: the app is opted in; it has a catalog-backed or user-confirmed Exact mapping; the channel is Stable; scope and architecture match; live evidence shows a strictly newer version; the app is not pinned, skipped or ignored; the catalog's `automationAllowed` flag is not false; any required agreement is already recorded; the same target version has not failed in the last two attempts; and the app is not running (otherwise the update is deferred). | Yes |
+| FR-AUT-03 | **Stage A:** a separate current-user scheduled task runs a capability-minimal automatic-update host for user-scope WinGet items only, without elevation. | Yes |
+| FR-AUT-04 | Honour an optional maintenance window. Skip runs on battery or a metered connection. Cap the number of items per run. | Yes |
+| FR-AUT-05 | Provide **Pause all automatic updates** in Home and Settings. | Yes |
+| FR-AUT-06 | Eligible machine-scope items not covered by Stage B produce one notification. It opens Updates with those items pre-selected for one review and one UAC prompt. | Yes |
+| FR-AUT-07 | Automatic runs record the same history and verification as manual runs and appear in Activity. | Yes |
+| FR-AUT-08 | **Stage B:** an owner-enabled scheduled task runs an elevated automatic-update host with highest privileges, only while the owner is signed in, storing no password. The host exits when the run ends. | Yes, after about two weeks of clean Stage A use |
+| FR-AUT-09 | Stage B policy lives only in an administrator-only ACL'd store under `%ProgramData%\PC Steward`, written by the elevated helper after UAC. The per-user database is never authority for an elevated run. A user-side pause marker can only make it more restrictive. | Yes (Stage B) |
+| FR-AUT-10 | Chocolatey items are eligible only in Stage B and only with their own per-app opt-in. | Yes (Stage B) |
+
+#### Providers
+
+| ID | Requirement | v0.3 |
+|---|---|---|
+| FR-PRV-01 | Show provider health: WinGet presence, version and sources; Chocolatey presence and the trusted-client check result. | Yes |
+| FR-PRV-02 | When WinGet is absent, link to Microsoft Store App Installer. PC Steward does not install WinGet itself. | Yes |
+| FR-PRV-03 | Set up Chocolatey only through a reviewed, machine-scope WinGet install of `Chocolatey.Chocolatey`. Never run the Chocolatey PowerShell bootstrap script. | Yes |
+| FR-PRV-04 | Let the user set a preferred provider per app. When providers disagree, show both and exclude the app from automation until a preference is set. | Yes |
+
+#### Uninstall (optional)
+
+| ID | Requirement | v0.3 |
+|---|---|---|
+| FR-UNI-01 | User-initiated uninstall of a provider-managed package through its provider, inside a reviewed batch | Optional |
+| FR-UNI-02 | Never uninstall automatically or as part of automation. | Optional (rule binding if built) |
+| FR-UNI-03 | Report uninstall Success only when the provider and inventory both show the package absent. | Optional |
+
+### 27.5 Additional user journeys
+
+- **UJ-12 — Install apps from my catalog.** Open Catalog → tick Not installed apps → review sheet (provider, version, scope, agreements) → confirm → progress → verified result.
+- **UJ-13 — Update everything safe.** Open Updates → **Select all safe** → review sheet → one confirmation and at most one UAC prompt → per-item progress → completion summary with **Retry failed**.
+- **UJ-14 — Automatic updates.** Opt an app in → the scheduled run applies eligible updates → results appear in Activity. Admin-scope items either wait for one-click approval or, once Stage B is enabled, run unattended.
+- **UJ-15 — Add an app from search.** Search WinGet or Chocolatey Community → review the exact ID, publisher and source → add to My catalog → install or opt into automatic updates.
+
+### 27.6 Additional permissions
+
+| Operation | Required context |
+|---|---|
+| Install or update user-scope apps in a batch | Standard user |
+| Install or update machine-scope apps in a batch | One UAC prompt per approved batch |
+| Stage A automatic updates | Standard user, current-user scheduled task |
+| Enable, change or disable Stage B policy | UAC via the one-shot elevated helper |
+| Stage B automatic run | Elevated scheduled task (highest privileges) while the owner is signed in. No stored password. |
+| Pause automatic updates | Standard user |
+| Factory reset including Stage B task and store | Standard user for per-user state; UAC for the Stage B task and store, with an accurate partial result if UAC is declined |
+
+### 27.7 Additional data
+
+| Data | Lifecycle category |
+|---|---|
+| App policies (automatic updates, skip version, preferred provider, close consent, install preference) | Stable decisions. Kept by Clear scan data. |
+| User catalog entries | Stable decisions. Kept by Clear scan data. |
+| Catalog state (id, version, hash) | Scan-derived. Rebuilt at start. |
+| Operation batches and items, agreement acceptances, automation runs | Update history |
+| Stage B policy store (`%ProgramData%\PC Steward`) | Outside SQLite. Removed by factory reset through the helper. |
+
+Factory reset (`FR-DAT-12`) also removes the Stage A and Stage B scheduled tasks.
+
+### 27.8 Additional threats
+
+| Threat | Required controls |
+|---|---|
+| Tampered or malicious catalog entry | Bundled in the signed payload, strict validation, no command fields, live exact resolution before approval |
+| User-writable database used to obtain unattended admin installs | Stage B reads only the admin-protected store and the bundled catalog, re-derives every item live, applies the same eligibility predicate, and treats the pause marker as restrict-only |
+| Batch helper abuse (substitution, reordering, appending, replay, expiry) | Batch digest, per-item revalidation, item and duration caps, nonce, one session per approval |
+| Silent agreement acceptance | Agreements shown and recorded per package and version. Automation runs only where an agreement is already recorded. |
+| Chocolatey package scripts run as administrator | Disclosure in every review, fixed feed, trusted client, exact IDs. Excluded from Stage A. Separate opt-in in Stage B. |
+
+### 27.9 v0.3 acceptance (personal)
+
+Each phase ends with one owner review and live use on the protected owner-only installation (C-12). Automated hostile-input tests remain mandatory. The v0.3 acceptance criteria are:
+
+| ID | Criterion |
+|---|---|
+| AC-V3-01 | A malformed, oversized, duplicated, wrong-hash or pathological-pattern catalog disables catalog features without affecting inventory or updates. |
+| AC-V3-02 | No catalog or search-derived item becomes actionable without a unique, exact, live provider resolution. |
+| AC-V3-03 | One WinGet install and one Chocolatey install each reach verified Success on the owner's PC. |
+| AC-V3-04 | A mixed batch of user-scope and machine-scope items completes with exactly one UAC prompt and per-item results. |
+| AC-V3-05 | Substituted, reordered, appended, replayed or expired batch requests are rejected by the helper. |
+| AC-V3-06 | **Cancel remaining** stops before the next item. An interrupted run recovers to Verification required, not Success. |
+| AC-V3-07 | A running app is skipped by default and closed only with consent. Automation never closes or force-terminates an app. |
+| AC-V3-08 | A Stage A run updates an opted-in user-scope app with verification and never elevates. |
+| AC-V3-09 | The Stage B host ignores per-user database content and acts only on the admin-protected policy and live evidence. |
+| AC-V3-10 | Factory reset removes all v0.3 state and both scheduled tasks, or reports exactly what remains. |
+| AC-V3-11 | "Set up Chocolatey" uses only the WinGet `Chocolatey.Chocolatey` package. No bootstrap-script path exists. |
+| AC-V3-12 | The `FRA-14–16` release gate is retired for personal use (C-11). No distribution claim is made. |

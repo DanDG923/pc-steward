@@ -50,7 +50,7 @@ public sealed class InventoryExperienceViewModel
     public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
     /// <summary>Installed products with a concrete package identity from an enabled trusted repository.</summary>
     public IReadOnlyList<InventoryRow> RepositoryManagedRows => !IsUpdateSourceEnabled ? [] : allRows
-        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable)
+        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable) or nameof(UpdateIntelligenceStatus.Skipped)
             && UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail)
             && !string.IsNullOrWhiteSpace(detail.SourceId)
             && !string.IsNullOrWhiteSpace(detail.PackageId))

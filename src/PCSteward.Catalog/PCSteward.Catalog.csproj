@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ADR-023: data-only personal catalog. No project references, no process, registry, network or file-write capability. -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../catalog/pcsteward-catalog.v1.json" LogicalName="PCSteward.Catalog.pcsteward-catalog.v1.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PCSteward.Catalog.UnitTests" />
+  </ItemGroup>
+</Project>

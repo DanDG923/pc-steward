@@ -1,0 +1,261 @@
+{
+  "note": "Illustrative ARP/provider records written for Task 45 from commonly observed Windows uninstall-entry names. Not owner data; real names vary by version and locale.",
+  "records": [
+    {
+      "displayName": "Mozilla Firefox (x64 en-GB)",
+      "publisher": "Mozilla",
+      "provider": "winget",
+      "providerIdentity": "Mozilla.Firefox",
+      "expectedEntry": "pcs:firefox",
+      "note": "winget-correlated"
+    },
+    {
+      "displayName": "Notepad++ (64-bit x64)",
+      "publisher": "Notepad++ Team",
+      "provider": "winget",
+      "providerIdentity": "Notepad++.Notepad++",
+      "expectedEntry": "pcs:notepadplusplus",
+      "note": "winget-correlated, '+' in ID"
+    },
+    {
+      "displayName": "7zip",
+      "publisher": "",
+      "provider": "chocolatey",
+      "providerIdentity": "7zip",
+      "expectedEntry": "pcs:7zip",
+      "note": "chocolatey-registered"
+    },
+    {
+      "displayName": "Mozilla Firefox (x64 en-US)",
+      "publisher": "Mozilla",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:firefox",
+      "note": ""
+    },
+    {
+      "displayName": "Google Chrome",
+      "publisher": "Google LLC",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:chrome",
+      "note": ""
+    },
+    {
+      "displayName": "7-Zip 24.09 (x64)",
+      "publisher": "Igor Pavlov",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:7zip",
+      "note": ""
+    },
+    {
+      "displayName": "VLC media player",
+      "publisher": "VideoLAN",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:vlc",
+      "note": ""
+    },
+    {
+      "displayName": "Microsoft Visual Studio Code (User)",
+      "publisher": "Microsoft Corporation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:vscode",
+      "note": "user-scope install"
+    },
+    {
+      "displayName": "Microsoft Visual Studio Code",
+      "publisher": "Microsoft Corporation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:vscode",
+      "note": "machine-scope install"
+    },
+    {
+      "displayName": "Git",
+      "publisher": "The Git Development Community",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:git",
+      "note": ""
+    },
+    {
+      "displayName": "Python 3.12.7 (64-bit)",
+      "publisher": "Python Software Foundation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:python312",
+      "note": ""
+    },
+    {
+      "displayName": "Zoom Workplace (64-bit)",
+      "publisher": "Zoom Video Communications, Inc.",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:zoom",
+      "note": ""
+    },
+    {
+      "displayName": "WizTree v4.32",
+      "publisher": "Antibody Software",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:wiztree",
+      "note": ""
+    },
+    {
+      "displayName": "PowerToys (Preview) x64",
+      "publisher": "Microsoft Corporation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:powertoys",
+      "note": "stable release keeps 'Preview' in its ARP name"
+    },
+    {
+      "displayName": "Mozilla Thunderbird (x64 en-GB)",
+      "publisher": "Mozilla",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:thunderbird",
+      "note": ""
+    },
+    {
+      "displayName": "Everything 1.4.1.1026 (x64)",
+      "publisher": "voidtools",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:everything",
+      "note": ""
+    },
+    {
+      "displayName": "GIMP 3.0.4-1",
+      "publisher": "The GIMP Team",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:gimp",
+      "note": "catalog entry with Chocolatey only"
+    },
+    {
+      "displayName": "Mozilla Firefox ESR (x64 en-US)",
+      "publisher": "Mozilla",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different channel/product"
+    },
+    {
+      "displayName": "Mozilla Maintenance Service",
+      "publisher": "Mozilla",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "helper component"
+    },
+    {
+      "displayName": "Google Chrome Beta",
+      "publisher": "Google LLC",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different channel"
+    },
+    {
+      "displayName": "Microsoft Visual Studio Code Insiders (User)",
+      "publisher": "Microsoft Corporation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different channel"
+    },
+    {
+      "displayName": "Python 3.13.1 (64-bit)",
+      "publisher": "Python Software Foundation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different minor line"
+    },
+    {
+      "displayName": "Python Launcher",
+      "publisher": "Python Software Foundation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "component"
+    },
+    {
+      "displayName": "Git LFS version 3.5.1",
+      "publisher": "GitHub, Inc.",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different product"
+    },
+    {
+      "displayName": "GitHub Desktop",
+      "publisher": "GitHub, Inc.",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different product"
+    },
+    {
+      "displayName": "Discord PTB",
+      "publisher": "Discord Inc.",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "different channel"
+    },
+    {
+      "displayName": "Zoom Outlook Plugin",
+      "publisher": "Zoom Video Communications, Inc.",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "plugin"
+    },
+    {
+      "displayName": "Steamworks Common Redistributables",
+      "publisher": "Valve Corporation",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "component"
+    },
+    {
+      "displayName": "Brave",
+      "publisher": "Unrelated Publisher Ltd",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "same name, wrong publisher"
+    },
+    {
+      "displayName": "Notepad3",
+      "publisher": "Rizonesoft",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "similar name"
+    },
+    {
+      "displayName": "7-Zip ZS 24.09 (x64)",
+      "publisher": "Igor Pavlov / Tino Reichardt",
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": null,
+      "note": "fork"
+    },
+    {
+      "displayName": "VLC media player",
+      "publisher": null,
+      "provider": "registry",
+      "providerIdentity": null,
+      "expectedEntry": "pcs:vlc",
+      "note": "publisher missing: detected but not Exact"
+    }
+  ]
+}

@@ -52,6 +52,7 @@ internal static partial class ElevatedHelperProtocol
     {
         ArgumentNullException.ThrowIfNull(job);
         ValidateNonce(nonce, nameof(nonce));
+        if (!job.Selection.IsPlainUpgrade) throw new ArgumentException("Protocol v1 carries only plain upgrade jobs.", nameof(job));
         Dictionary<string, object?> fields = new(StringComparer.Ordinal)
         {
             ["protocolVersion"] = Version,

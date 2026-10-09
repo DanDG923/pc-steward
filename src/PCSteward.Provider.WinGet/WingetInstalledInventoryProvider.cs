@@ -224,7 +224,7 @@ public sealed partial class WingetInstalledInventoryProvider
     private static bool ValidSource(string value) => value is "winget" or "msstore";
     [GeneratedRegex(@"\S+")]
     private static partial Regex HeaderColumns();
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+_-]{0,255}$")]
     private static partial Regex PackageId();
     [GeneratedRegex(@"^[<>]=?\s+[A-Za-z0-9][A-Za-z0-9._+-]{0,252}$")]
     private static partial Regex InexactInstalledVersion();
@@ -328,7 +328,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     private static bool Version(string value) => Valid(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
     private static int TableSeparator(string[] lines) => Enumerable.Range(0, lines.Length).FirstOrDefault(index => lines[index].Length >= 3 && lines[index].All(character => character is '-' or ' ' or '\t'), -1);
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+_-]{0,255}$")]
     private static partial Regex PackageId();
 }
 
@@ -353,6 +353,7 @@ public sealed class WingetUpdateExecutor : IWingetUpdateExecutor
     {
         ArgumentNullException.ThrowIfNull(job);
         if (!job.HasValidDigest) throw new ArgumentException("The update job failed its integrity check.", nameof(job));
+        if (!job.Selection.IsPlainUpgrade) throw new ArgumentException("Only plain upgrade jobs use the upgrade builder.", nameof(job));
         if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
         if (job.Selection.Scope != UpdateScope.User) throw new ArgumentException("Only user-scope operations may run without elevation.", nameof(job));
         return
@@ -412,6 +413,7 @@ public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor, IProtec
     {
         ArgumentNullException.ThrowIfNull(job);
         if (!job.HasValidDigest) throw new ArgumentException("The update job failed its integrity check.", nameof(job));
+        if (!job.Selection.IsPlainUpgrade) throw new ArgumentException("Only plain upgrade jobs use the upgrade builder.", nameof(job));
         if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
         if (job.Selection.Scope != UpdateScope.Machine) throw new ArgumentException("Only machine-scope operations may run through the elevated helper.", nameof(job));
         return
