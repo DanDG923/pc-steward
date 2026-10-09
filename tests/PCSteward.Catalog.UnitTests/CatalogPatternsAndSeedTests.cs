@@ -11,6 +11,25 @@ public sealed class CatalogPatternsAndSeedTests
 {
     private static readonly DateOnly SeedDate = new(2026, 10, 8);
 
+    /// <summary>Task 2 CRD-08 / FR-PRV-03: reserved setup remains catalog data for composed verification.</summary>
+    [TestMethod]
+    public void BundledCatalogRetainsReservedExactMachineStableNonAutomaticSetup()
+    {
+        CatalogLoadResult loaded = BundledCatalog.Load();
+        Assert.IsTrue(loaded.IsLoaded, string.Join(", ", loaded.Errors));
+        CatalogEntry? setup = loaded.Catalog!.Entries.SingleOrDefault(entry => entry.Id == "pcs:chocolatey-setup");
+        Assert.IsNotNull(setup, "The reserved setup identity must survive catalog composition and verification.");
+        Assert.AreEqual(1, setup.Providers.Count);
+        Assert.AreEqual(CatalogProviderKind.WinGet, setup.DefaultProvider.Provider);
+        Assert.AreEqual(CatalogSource.WinGet, setup.DefaultProvider.Source);
+        Assert.AreEqual("Chocolatey.Chocolatey", setup.DefaultProvider.PackageId);
+        CollectionAssert.AreEqual(new[] { CatalogScope.Machine }, setup.DefaultProvider.Scopes.ToArray());
+        Assert.AreEqual(CatalogChannel.Stable, setup.Channel);
+        Assert.IsFalse(setup.AutomationAllowed);
+        CatalogCompositionResult composed = CatalogValidator.Compose(loaded.Catalog, []);
+        Assert.IsTrue(composed.Catalog.Entries.Any(entry => entry.Id == setup.Id));
+    }
+
     [TestMethod]
     [DataRow("^(a+)+$")]
     [DataRow("^(a|aa)*$")]

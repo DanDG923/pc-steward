@@ -1,3 +1,4 @@
+using PCSteward.Catalog;
 using PCSteward.Domain;
 
 namespace PCSteward.Application;
@@ -65,6 +66,21 @@ public sealed record InstallSelectionPreparation(InstallPreflightResult? Preflig
 public interface IInstallPreflightAuthority
 {
     Task<InstallPreflightResult> PreflightAsync(InstallPreflightRequest request, CancellationToken cancellationToken);
+}
+
+/// <summary>CRD-03 / FR-INS-04: provider-owned, live applicable choices, never approval.</summary>
+public interface IInstallChoiceAuthority
+{
+    Task<IReadOnlyList<InstallPreflightResult>> PreflightChoicesAsync(CatalogEntry entry, CatalogProviderIdentity provider, CancellationToken cancellationToken);
+}
+
+/// <summary>Inert Task 2 test-first seam; provider routing is implemented after the assertion-red gate.</summary>
+public sealed class CompositeInstallChoiceAuthority : IInstallChoiceAuthority
+{
+    public CompositeInstallChoiceAuthority(IReadOnlyDictionary<CatalogProviderKind, IInstallChoiceAuthority> authorities) => ArgumentNullException.ThrowIfNull(authorities);
+
+    public Task<IReadOnlyList<InstallPreflightResult>> PreflightChoicesAsync(CatalogEntry entry, CatalogProviderIdentity provider, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
 }
 
 /// <summary>Routes a request to the authority for its provider; an unconfigured provider is not actionable.</summary>

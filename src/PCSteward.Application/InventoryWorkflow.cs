@@ -107,7 +107,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
         UpdateExecutionCapabilities? executionCapabilities = null,
         PersonalCatalog? catalog = null,
         IUserCatalogStore? userCatalog = null,
-        IInstallPreflightAuthority? installPreflight = null)
+        IInstallPreflightAuthority? installPreflight = null,
+        IInstallChoiceAuthority? installChoices = null)
     {
         if ((sourceCache is null) != (updateSourceConnectors is null)) throw new ArgumentException("Source cache and connectors must be configured together.");
         this.snapshots = snapshots; this.scanData = scanData; this.connectorSettings = connectorSettings;
@@ -126,6 +127,10 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory, IOper
     }
 
     public TimeSpan SourceCacheRetention => updateSources?.CacheRetention ?? TimeSpan.FromDays(30);
+
+    /// <summary>Inert Task 2 test-first seam for CRD-03 / FR-INS-02/04; no discovery or approval yet.</summary>
+    public Task<IReadOnlyList<InstallPreflightResult>> PrepareInstallChoicesAsync(string catalogEntryId, CatalogProviderKind? providerOverride, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InstallPreflightResult>>([]);
 
     public Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearSourceMetadataAsync(cancellationToken);
     public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => (advancedData ?? throw new InvalidOperationException("Advanced data controls are not configured.")).ClearUpdateHistoryAsync(cancellationToken);

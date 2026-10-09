@@ -29,6 +29,18 @@ public sealed partial class ProviderOperationBoundaryTests
         "AllowUpgradeToUnknownVersion", "AcceptSourceAgreements", "LogOutputPath"
     ];
 
+    /// <summary>Task 2 CRD-08 / FR-PRV-02/03: setup has no script bootstrap or WinGet repair path.</summary>
+    [TestMethod]
+    public void ProductSourcesContainNoChocolateyBootstrapOrWinGetRepair()
+    {
+        string[] forbidden = ["community.chocolatey.org/install.ps1", "chocolatey.org/install.ps1", "Invoke-Expression", "DownloadString(", "Add-AppxPackage"];
+        foreach ((string file, string source) in ProductSources())
+        {
+            foreach (string token in forbidden) Assert.IsFalse(source.Contains(token, StringComparison.OrdinalIgnoreCase), $"{file} contains prohibited bootstrap/repair token {token}.");
+        }
+        Assert.IsTrue(forbidden.Any(token => "Invoke-Expression bootstrap".Contains(token, StringComparison.OrdinalIgnoreCase)), "The guard must catch a prohibited bootstrap.");
+    }
+
     [TestMethod]
     public void ProductSourcesContainNoForbiddenProviderFlags()
     {

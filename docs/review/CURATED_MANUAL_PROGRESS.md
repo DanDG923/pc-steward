@@ -10,8 +10,8 @@ Local `dotnet --list-sdks` is empty. No local product build/test pass is claimed
 
 | Task | Deliverable | Status / evidence |
 |---|---|---|
-| 1 | Typed provider health and strict probes | Expected-red proven at `2108285`: [Windows CI 37993415753](https://github.com/DanDG923/pc-steward/actions/runs/37993415753) restored and built with 0 warnings/errors; 596 tests passed, 13 intended health assertions failed, 0 skipped. Production candidate `03adbd0` implemented. [CI 37994976065](https://github.com/DanDG923/pc-steward/actions/runs/37994976065) restored, then failed CA1859 with tests skipped. Independent review: no unsafe launch/authority leak; analyzer repair required, one minor cancellation-reporting issue recorded for final triage. Repair `cbf2edc` [CI 37995533489](https://github.com/DanDG923/pc-steward/actions/runs/37995533489) built cleanly; 620 passed, 1 existing architecture source guard failed, 0 skipped. All 329 Application tests passed. Resolver/guard inspection, corrected CI and scoped review pending. |
-| 2 | Reviewed Chocolatey setup and install choices | Pending |
+| 1 | Typed provider health and strict probes | Code/review/CI gates passed at `b96a5485`; [CI 37996153500](https://github.com/DanDG923/pc-steward/actions/runs/37996153500): clean build, 621 passed / 0 failed / 0 skipped. Scoped repair review approved. Minor M1 late trust-exception cancellation-reporting behavior recorded for final triage; native timing and later stale UI retention unverified. |
+| 2 | Reviewed Chocolatey setup and install choices | Test-first preparation in progress |
 | 3 | Additive membership and removal | Pending |
 | 4 | Curated snapshots and decision association | Pending |
 | 5 | Temporary queue and updates-only selection | Pending |
