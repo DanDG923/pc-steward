@@ -232,6 +232,28 @@ public sealed class HelperProtocolV2SecurityTests
     }
 
     [TestMethod]
+    public async Task CancelRemainingDuringFreshProcessCheckNeverStartsProvider()
+    {
+        HelperBatchRequest request = AcceptedRequest(MixedBatch(DateTimeOffset.UtcNow), out string nonce);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        DelayedDetector detector = new(entered, release);
+        FakeExecutor executor = new((_, _) => Task.FromResult(new ProviderExitAssessment(UpdateProviderAttemptStatus.AwaitingVerification, false, "ok")));
+        ElevatedHelperBatchSession session = new(request, nonce, new FakeRevalidator(_ => true), executor, runningApplications: detector);
+        Task<List<HelperBatchEvent>> run = RunSessionAsync(session, request, nonce);
+        // Before the gate exists the session completes without inspecting processes.
+        await Task.WhenAny(entered.Task, run).WaitAsync(TimeSpan.FromSeconds(10));
+        session.RequestCancelRemaining();
+        release.SetResult();
+        List<HelperBatchEvent> events = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.HasCount(0, executor.Jobs, "The awaited process check is still before provider start.");
+        Assert.HasCount(0, events.OfType<HelperItemStartedEvent>().ToArray());
+        Assert.HasCount(request.Items.Count, events.OfType<HelperItemResultEvent>().ToArray());
+        Assert.IsTrue(events.OfType<HelperItemResultEvent>().All(result => result.Status == UpdateProviderAttemptStatus.Cancelled));
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task CancelRemainingBeforeUacNeverInvokesBatchLauncher(bool cancelAtFinalTrustCheck)
@@ -437,6 +459,16 @@ public sealed class HelperProtocolV2SecurityTests
 
     private static UpdateJobSelection Upgrade(string key, string packageId, UpdateScope scope) =>
         new(key, UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0.0", "1.1.0", scope, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
+
+    private sealed class DelayedDetector(TaskCompletionSource entered, TaskCompletionSource release) : IRunningApplicationDetector
+    {
+        public async Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return RunningApplicationDetection.NotDetected;
+        }
+    }
 
     private sealed class DelayedRevalidator(TaskCompletionSource entered, TaskCompletionSource release) : IOperationRevalidator
     {

@@ -133,6 +133,25 @@ public sealed class BatchExecutionCoordinatorTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CancelRemainingDuringRunningHistoryWriteNeverStartsExecutor(bool elevated)
+    {
+        Fixture fixture = new();
+        using CancellationTokenSource cancelRemaining = new();
+        fixture.History.OnRecord = entry =>
+        {
+            if (entry.Status == UpdateHistoryStatus.Running) cancelRemaining.Cancel();
+        };
+
+        BatchRunResult result = await fixture.Coordinator.RunAsync(Batch(Upgrade("winget:a", "Vendor.A", elevated ? UpdateScope.Machine : UpdateScope.User)), BatchRunOptions.Default, null, cancelRemaining.Token, CancellationToken.None);
+
+        Assert.HasCount(0, fixture.Unelevated.Jobs);
+        Assert.AreEqual(0, fixture.Elevated.Calls);
+        Assert.AreEqual(UpdateHistoryStatus.Cancelled, result.Summary.Skipped.Single().Status);
+    }
+
+    [TestMethod]
     public async Task AbortDuringAProviderRecoversToVerificationRequired()
     {
         Fixture fixture = new();
@@ -413,7 +432,8 @@ public sealed class BatchExecutionCoordinatorTests
     private sealed class MemoryHistory : IUpdateHistoryStore
     {
         public List<UpdateHistoryEntry> Entries { get; } = [];
-        public Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken) { Entries.Add(entry); return Task.CompletedTask; }
+        public Action<UpdateHistoryEntry>? OnRecord { get; set; }
+        public Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken) { Entries.Add(entry); OnRecord?.Invoke(entry); return Task.CompletedTask; }
         public Task<IReadOnlyCollection<UpdateHistoryEntry>> GetHistoryForProductAsync(string stableProductKey, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<UpdateHistoryEntry>>([.. Entries.Where(entry => entry.StableProductKey == stableProductKey)]);
         public Task RecoverInterruptedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PruneAsync(UpdateHistoryRetention retention, CancellationToken cancellationToken) => Task.CompletedTask;
