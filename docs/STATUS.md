@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 5 — v0.3 re-baseline (personal Patch-style updater)
 
-**Current task:** Task 51 - curated manual release (Tasks 1-2 code/review/CI passed; Task 3 code/CI passed, independent review pending)
+**Current task:** Task 51 - curated manual release (Tasks 1-2 code/review/CI passed; Task 3 review I1/M1 repair complete, re-review pending)
 
 **Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
 
@@ -30,7 +30,13 @@ Production candidate `924212bca2578297c04ffc30c2d0e4a3736273fd`, [Windows CI 379
 
 ## Curated manual Task 3 - additive membership and restrictive removal (2026-10-18)
 
-**Requirements:** CRD-01/04/11; FR-CAT-04/06; FR-AUT-01; FR-RSC-01-05. Expected-red checkpoint `817cb57`, [Windows CI 38004192067](https://github.com/DanDG923/pc-steward/actions/runs/38004192067): clean build; Domain 87, Catalog 97, Security 72 passed; exactly 22 intended assertion failures (Architecture 1 of 39, Application 21 of 408), with no compile or fixture errors. Production `5e36d0c` adds additive schema v11 `managed_apps` and `ICuratedMembershipStore` on SQLite (membership plus a `CuratedAutomaticUpdatesOff` marker in one transaction; exact-key On reversal on removal). It also adds `CuratedMembershipService`, which revalidates the catalog freshly on every call, applies an active-work guard and after-await cancellation, and keeps malformed or orphan rows visible but withheld. Off dominance is added to `UserDecisionService`, Clear mappings and policies now covers and discloses membership, and the fresh-reset check counts the table. Test fixture repair `12310e1` compares retained downloads by identity. Final [Windows CI 39079096574](https://github.com/DanDG923/pc-steward/actions/runs/39079096574): canonical restore/build/test, 0 warnings/errors; Architecture 39, Catalog 97, Domain 87, Security 72, Application 408 = 703 passed / 0 failed / 0 skipped. Independent review is pending. No local SDK run, real provider action, UAC or owner-data change. Report: [task-3-report.md](review/checkpoints/2026-10-09-curated-manual/task-3-report.md).
+**Requirements:** CRD-01/04/11; FR-CAT-04/06; FR-AUT-01; FR-RSC-01-05. Expected-red checkpoint `817cb57`, [Windows CI 38004192067](https://github.com/DanDG923/pc-steward/actions/runs/38004192067): clean build; Domain 87, Catalog 97, Security 72 passed; exactly 22 intended assertion failures (Architecture 1 of 39, Application 21 of 408), with no compile or fixture errors. Production `5e36d0c` adds additive schema v11 `managed_apps` and `ICuratedMembershipStore` on SQLite (membership plus a `CuratedAutomaticUpdatesOff` marker in one transaction; exact-key On reversal on removal). It also adds `CuratedMembershipService`, which revalidates the catalog freshly on every call, applies an active-work guard and after-await cancellation, and keeps malformed or orphan rows visible but withheld. Off dominance is added to `UserDecisionService`, Clear mappings and policies now covers and discloses membership, and the fresh-reset check counts the table. Test fixture repair `12310e1` compares retained downloads by identity. Final [Windows CI 39079096574](https://github.com/DanDG923/pc-steward/actions/runs/39079096574): canonical restore/build/test, 0 warnings/errors; Architecture 39, Catalog 97, Domain 87, Security 72, Application 408 = 703 passed / 0 failed / 0 skipped. No local SDK run, real provider action, UAC or owner-data change. Report: [task-3-report.md](review/checkpoints/2026-10-09-curated-manual/task-3-report.md).
+
+**Review and repair:** the independent review requested changes: 0 Critical / 1 Important / 1 Minor ([task-3-review.md](review/checkpoints/2026-10-09-curated-manual/task-3-review.md)).
+- I1: removal accepted name/publisher detection as an association and could delete another package's On row.
+- M1: the download-preservation assertion had been narrowed.
+
+Regression `111b448` failed exactly one assertion in [Windows CI 39080035075](https://github.com/DanDG923/pc-steward/actions/runs/39080035075) (703 passed / 1 failed). Fix `bf99db1` requires ProviderIdentity evidence for this entry on every instance of a uniquely keyed product. M1 now compares complete before/after artifact records. [Windows CI 39080312565](https://github.com/DanDG923/pc-steward/actions/runs/39080312565): 0 warnings/errors; Architecture 39, Catalog 97, Domain 87, Security 72, Application 409 = 704 passed / 0 failed / 0 skipped. **Repair complete; scoped re-review pending.** Report: [task-3-repair-report.md](review/checkpoints/2026-10-09-curated-manual/task-3-repair-report.md).
 
 ## Task 49 safety follow-up — start boundaries (2026-10-09)
 
