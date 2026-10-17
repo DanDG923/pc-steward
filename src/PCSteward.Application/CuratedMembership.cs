@@ -1,11 +1,29 @@
 using PCSteward.Catalog;
+using PCSteward.Domain;
 
 namespace PCSteward.Application;
 
-/// <summary>CRD-01: durable membership only; neither installation nor automatic execution authority.</summary>
+/// <summary>
+/// CRD-01: durable membership only; neither installation nor automatic execution authority. A stored timestamp that
+/// cannot be parsed is surfaced as <see cref="DateTimeOffset.MinValue"/> so the row stays visible but withheld.
+/// </summary>
 public sealed record ManagedAppMembership(string CatalogEntryId, DateTimeOffset AddedAt);
 
-/// <summary>Restrictive transactional persistence. Use the validated service boundary for catalog-facing mutations.</summary>
+/// <summary>
+/// CRD-04 / FR-AUT-01: the restrictive stable-decision marker keyed to a catalog-entry ID. Any stored marker, whatever
+/// its timestamp or expiry, forces automatic updates Off for that exact key. It never enables anything.
+/// </summary>
+public static class CuratedAutomaticUpdateRestriction
+{
+    public const string Kind = "CuratedAutomaticUpdatesOff";
+    public const string Value = "Off";
+}
+
+/// <summary>
+/// Restrictive transactional persistence. Adding records the Off marker in the same transaction; removing deletes the
+/// membership, records the Off marker and deletes active automatic-update On rows for the exact supplied keys only.
+/// Callers outside the validated <see cref="CuratedMembershipService"/> must not treat stored rows as validated.
+/// </summary>
 public interface ICuratedMembershipStore
 {
     Task<IReadOnlyList<ManagedAppMembership>> GetManagedAppsAsync(CancellationToken cancellationToken);
@@ -26,6 +44,8 @@ public sealed record CuratedMembershipEntry(ManagedAppMembership Membership, Cat
 /// </summary>
 public sealed class CuratedMembershipService
 {
+    private const string WithheldReason = "Membership is malformed, reserved or absent from the current validated catalog. Management actions are withheld.";
+
     private readonly (ICuratedMembershipStore Store, Func<CancellationToken, Task<PersonalCatalog?>> Catalog,
         IInventorySnapshotStore Inventory, Func<string, bool> Active, Func<DateTimeOffset> Clock) dependencies;
 
@@ -39,26 +59,75 @@ public sealed class CuratedMembershipService
         dependencies = (store, getComposedCatalogAsync, inventory, isInActiveWork, utcNow ?? (() => DateTimeOffset.UtcNow));
     }
 
-    // Expected-red checkpoint: dependencies compile, but membership validation/mutation is deliberately inert.
+    /// <summary>
+    /// The read entry point for later read models (Task 4). Every stored row is returned; only rows that exactly name a
+    /// manageable entry of a freshly validated catalog carry an <see cref="CuratedMembershipEntry.Entry"/>. Orphaned,
+    /// malformed, reserved and rejected-user rows stay visible with a withheld reason.
+    /// </summary>
     public async Task<IReadOnlyList<CuratedMembershipEntry>> GetManagedAppsAsync(CancellationToken cancellationToken)
     {
-        _ = await dependencies.Catalog(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyList<ManagedAppMembership> rows = await dependencies.Store.GetManagedAppsAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        return rows.Select(row => new CuratedMembershipEntry(row, null, "Membership validation is not implemented.")).ToArray();
+        PersonalCatalog? catalog = await dependencies.Catalog(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return rows.Select(row =>
+        {
+            CatalogEntry? entry = row.AddedAt == DateTimeOffset.MinValue ? null : FindManageableEntry(catalog, row.CatalogEntryId);
+            return new CuratedMembershipEntry(row, entry, entry is null ? WithheldReason : null);
+        }).ToArray();
     }
 
-    public Task AddAsync(string catalogEntryId, CancellationToken cancellationToken) => ObserveAsync(catalogEntryId, cancellationToken);
-    public Task RemoveAsync(string catalogEntryId, CancellationToken cancellationToken) => ObserveAsync(catalogEntryId, cancellationToken);
+    /// <summary>Adds management only. It never installs, and the new membership defaults automatic updates Off.</summary>
+    public async Task AddAsync(string catalogEntryId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(catalogEntryId);
+        _ = await ValidateMutationAsync(catalogEntryId, cancellationToken).ConfigureAwait(false);
+        DateTimeOffset addedAt = dependencies.Clock();
+        EnsureInactive(catalogEntryId, cancellationToken);
+        // Last check precedes the write. No check follows the committed write: reporting cancellation after a
+        // commit would misstate persisted state.
+        await dependencies.Store.AddManagedAppAsync(catalogEntryId, addedAt, cancellationToken).ConfigureAwait(false);
+    }
 
-    private async Task ObserveAsync(string catalogEntryId, CancellationToken cancellationToken)
+    /// <summary>Removes management only. It never uninstalls and never deletes history, pins, skips or ignores.</summary>
+    public async Task RemoveAsync(string catalogEntryId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(catalogEntryId);
+        PersonalCatalog catalog = await ValidateMutationAsync(catalogEntryId, cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = await dependencies.Inventory.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyCollection<InstallationInstance> instances = await dependencies.Inventory.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        // Only exact, unconflicted current associations can restrict legacy product policies. Names and caller-supplied
+        // keys cannot.
+        string[] policyKeys = PersonalCatalogMatching.Match(catalog, products, instances)
+            .GroupBy(match => match.StableProductKey, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1 && group.Single().Detection.IsExact &&
+                group.Single().Detection.EntryIds.SequenceEqual([catalogEntryId], StringComparer.Ordinal))
+            .Select(group => group.Key).ToArray();
+        EnsureInactive(catalogEntryId, cancellationToken);
+        await dependencies.Store.RemoveManagedAppAndDisableAutomaticAsync(catalogEntryId, policyKeys, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<PersonalCatalog> ValidateMutationAsync(string catalogEntryId, CancellationToken cancellationToken)
+    {
+        EnsureInactive(catalogEntryId, cancellationToken);
+        PersonalCatalog? catalog = await dependencies.Catalog(cancellationToken).ConfigureAwait(false);
+        EnsureInactive(catalogEntryId, cancellationToken);
+        if (catalog is null || FindManageableEntry(catalog, catalogEntryId) is null)
+            throw new InvalidOperationException("Membership requires an exact manageable entry in the current validated catalog.");
+        return catalog;
+    }
+
+    private void EnsureInactive(string catalogEntryId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _ = await dependencies.Catalog(cancellationToken).ConfigureAwait(false);
-        _ = await dependencies.Inventory.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
-        _ = await dependencies.Inventory.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
-        _ = dependencies.Active(catalogEntryId);
-        _ = dependencies.Clock();
-        cancellationToken.ThrowIfCancellationRequested();
+        if (dependencies.Active(catalogEntryId)) throw new InvalidOperationException("Membership cannot change while this app participates in active work.");
     }
+
+    // The provider-setup entry is reserved for reviewed setup and is never a managed app.
+    private static CatalogEntry? FindManageableEntry(PersonalCatalog? catalog, string catalogEntryId) =>
+        string.Equals(catalogEntryId, ChocolateySetupPreparation.CatalogEntryId, StringComparison.Ordinal) ? null :
+        catalog?.Entries.SingleOrDefault(entry => string.Equals(entry.Id, catalogEntryId, StringComparison.Ordinal));
 }

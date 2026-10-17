@@ -90,7 +90,9 @@ public sealed partial class UserDecisionService
             // Stored rows are untrusted: values outside the allowlist are ignored and can never widen behaviour.
             string? skipped = Latest(group, SkipVersionKind, IsVersion)?.Value.Trim();
             string? preferred = Latest(group, PreferredProviderKind, value => PreferredProviders.Contains(value, StringComparer.Ordinal))?.Value;
-            bool automatic = Latest(group, AutomaticUpdatesKind, value => value == "On") is not null;
+            // CRD-04: a curated Off marker dominates any legacy On for its exact key, regardless of timestamp or expiry.
+            bool restricted = group.Any(decision => decision.Kind == CuratedAutomaticUpdateRestriction.Kind && decision.Value == CuratedAutomaticUpdateRestriction.Value);
+            bool automatic = !restricted && Latest(group, AutomaticUpdatesKind, value => value == "On") is not null;
             bool closeConsent = Latest(group, CloseAppConsentKind, value => value == "Graceful") is not null;
             policies[group.Key] = new(pin is not null, ignore is not null, pin is null ? null : $"The product is pinned to {pin.Value} by a recorded user decision.", ignore?.ExpiresAt, skipped, preferred, automatic, closeConsent);
         }

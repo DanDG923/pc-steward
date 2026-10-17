@@ -77,26 +77,84 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCa
             await ExecuteAsync(connection, "CREATE TABLE operation_batches (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, approved_at TEXT NOT NULL, item_count INTEGER NOT NULL, digest TEXT NOT NULL); CREATE TABLE operation_batch_items (batch_id TEXT NOT NULL, sequence INTEGER NOT NULL, job_id TEXT NOT NULL UNIQUE, PRIMARY KEY(batch_id, sequence), FOREIGN KEY(batch_id) REFERENCES operation_batches(id) ON DELETE CASCADE); CREATE TABLE agreement_acceptances (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, package_id TEXT NOT NULL, version TEXT NOT NULL, agreement_hash TEXT NOT NULL, accepted_at TEXT NOT NULL); CREATE INDEX ix_agreement_acceptances_package ON agreement_acceptances(source_id, package_id, version);", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (10);", cancellationToken, transaction);
         }
+        if (await MigrationRequiredAsync(connection, transaction, 11, cancellationToken))
+        {
+            // Curated redesign CRD-01/11: additive, empty membership. No foreign key to disposable scan/product rows, and
+            // nothing is inferred from catalog inclusion, detection or legacy opt-ins. A stable-decision category: kept
+            // by Clear scan data, removed with mappings/policies and by factory reset.
+            await ExecuteAsync(connection, "CREATE TABLE managed_apps (catalog_entry_id TEXT PRIMARY KEY, added_at TEXT NOT NULL);", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (11);", cancellationToken, transaction);
+        }
         await transaction.CommitAsync(cancellationToken);
     }
 
-    // Expected-red seams only. Schema v11 and restrictive transactions remain paused for controller authorization.
-    public Task<IReadOnlyList<ManagedAppMembership>> GetManagedAppsAsync(CancellationToken cancellationToken)
+    /// <summary>Raw stored rows, including malformed ones. Only <see cref="CuratedMembershipService"/> validates them.</summary>
+    public async Task<IReadOnlyList<ManagedAppMembership>> GetManagedAppsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<IReadOnlyList<ManagedAppMembership>>([]);
+        List<ManagedAppMembership> rows = [];
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT catalog_entry_id, added_at FROM managed_apps ORDER BY catalog_entry_id;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            // Stored rows are untrusted: tampered types or values are kept visible rather than throwing or disappearing.
+            string id = reader.IsDBNull(0) ? string.Empty : Convert.ToString(reader.GetValue(0), CultureInfo.InvariantCulture) ?? string.Empty;
+            string? added = reader.IsDBNull(1) ? null : Convert.ToString(reader.GetValue(1), CultureInfo.InvariantCulture);
+            rows.Add(new(id, DateTimeOffset.TryParse(added, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : DateTimeOffset.MinValue));
+        }
+        return rows;
     }
 
-    public Task AddManagedAppAsync(string catalogEntryId, DateTimeOffset addedAt, CancellationToken cancellationToken)
+    public async Task AddManagedAppAsync(string catalogEntryId, DateTimeOffset addedAt, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        await AddManagedAppInTransactionAsync(connection, transaction, catalogEntryId, addedAt, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
-    public Task RemoveManagedAppAndDisableAutomaticAsync(string catalogEntryId, IReadOnlyList<string> uniquelyAssociatedPolicyKeys, CancellationToken cancellationToken)
+    public async Task RemoveManagedAppAndDisableAutomaticAsync(string catalogEntryId, IReadOnlyList<string> uniquelyAssociatedPolicyKeys, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
+        string id = MembershipId(catalogEntryId);
+        ArgumentNullException.ThrowIfNull(uniquelyAssociatedPolicyKeys);
+        string[] keys = [.. uniquelyAssociatedPolicyKeys.Where(key => !string.IsNullOrWhiteSpace(key)).Append(id).Distinct(StringComparer.Ordinal)];
+        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        await ExecuteAsync(connection, "DELETE FROM managed_apps WHERE catalog_entry_id = $id;", cancellationToken, transaction, ("$id", id));
+        // Reverse only active automatic-update opt-ins for the exact keys. Pins, skips, ignores, other products,
+        // history, jobs and inventory are untouched.
+        foreach (string key in keys) await ExecuteAsync(connection, "DELETE FROM stable_decisions WHERE stable_product_key = $key AND kind = 'AutomaticUpdates' AND value = 'On';", cancellationToken, transaction, ("$key", key));
+        await EnsureAutomaticRestrictionAsync(connection, transaction, id, DateTimeOffset.UtcNow, "Removed from managed apps; automatic updates are Off.", cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Membership plus its Off marker inside a caller-owned transaction, so a later confirmed operation batch can persist
+    /// its batch and new memberships atomically (Task 6). Re-adding keeps the original row and never duplicates the marker.
+    /// </summary>
+    private static async Task AddManagedAppInTransactionAsync(SqliteConnection connection, SqliteTransaction transaction, string catalogEntryId, DateTimeOffset addedAt, CancellationToken cancellationToken)
+    {
+        string id = MembershipId(catalogEntryId);
+        await ExecuteAsync(connection, "INSERT OR IGNORE INTO managed_apps(catalog_entry_id, added_at) VALUES ($id, $added);", cancellationToken, transaction, ("$id", id), ("$added", addedAt));
+        // New management never inherits a legacy opt-in: legacy rows are preserved, and the marker dominates them.
+        await EnsureAutomaticRestrictionAsync(connection, transaction, id, addedAt, "Added to managed apps; automatic updates default Off.", cancellationToken);
+    }
+
+    private static Task EnsureAutomaticRestrictionAsync(SqliteConnection connection, SqliteTransaction transaction, string catalogEntryId, DateTimeOffset createdAt, string reason, CancellationToken cancellationToken) =>
+        ExecuteAsync(connection, "INSERT INTO stable_decisions(id,stable_product_key,kind,value,created_at,reason,expires_at) SELECT $decision,$key,$kind,$value,$created,$reason,NULL WHERE NOT EXISTS (SELECT 1 FROM stable_decisions WHERE stable_product_key = $key AND kind = $kind AND value = $value);", cancellationToken, transaction,
+            ("$decision", Guid.NewGuid()), ("$key", catalogEntryId), ("$kind", CuratedAutomaticUpdateRestriction.Kind), ("$value", CuratedAutomaticUpdateRestriction.Value), ("$created", createdAt), ("$reason", reason));
+
+    // Catalog IDs compare ordinally and are stored exactly; anything a stable-decision key could not hold is refused.
+    private static string MembershipId(string catalogEntryId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(catalogEntryId);
+        if (catalogEntryId.Length > MaxTextLength || !string.Equals(catalogEntryId, catalogEntryId.Trim(), StringComparison.Ordinal))
+            throw new ArgumentException("A membership must name an exact catalog entry ID.", nameof(catalogEntryId));
+        return catalogEntryId;
     }
 
     public async Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken cancellationToken)
@@ -257,7 +315,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCa
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM operation_batches) + (SELECT COUNT(*) FROM operation_batch_items) + (SELECT COUNT(*) FROM agreement_acceptances) + (SELECT COUNT(*) FROM user_catalog_entries) + (SELECT COUNT(*) FROM app_metadata);";
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM operation_batches) + (SELECT COUNT(*) FROM operation_batch_items) + (SELECT COUNT(*) FROM agreement_acceptances) + (SELECT COUNT(*) FROM user_catalog_entries) + (SELECT COUNT(*) FROM managed_apps) + (SELECT COUNT(*) FROM app_metadata);";
         long count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
         return count == 0 && (await GetScheduledCheckSettingsAsync(cancellationToken)).Equals(ScheduledCheckSettings.Manual);
     }
@@ -369,9 +427,11 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCa
 
     public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Update history", ["update_job_history", "update_job_execution_state"], ["history."], cancellationToken);
 
-    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions", "user_catalog_entries", "agreement_acceptances"], [], cancellationToken);
+    // FR-RSC-01-05: managed app membership and its automatic-update restrictions belong to this disclosed category.
+    public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions", "user_catalog_entries", "agreement_acceptances", "managed_apps"], [], cancellationToken,
+        " The category includes managed app membership and automatic-update restrictions.");
 
-    private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken)
+    private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken, string scopeNote = "")
     {
         try
         {
@@ -380,7 +440,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IUserCa
             foreach (string table in tables) deleted += await ExecuteCountAsync(connection, $"DELETE FROM {table};", transaction, cancellationToken);
             foreach (string prefix in metadataPrefixes) deleted += await ExecuteCountAsync(connection, "DELETE FROM app_metadata WHERE key LIKE $prefix;", transaction, cancellationToken, ("$prefix", prefix + "%"));
             await transaction.CommitAsync(cancellationToken);
-            return new(category, true, deleted, deleted == 0 ? $"No {category.ToLowerInvariant()} was stored." : $"{category} was cleared.");
+            return new(category, true, deleted, (deleted == 0 ? $"No {category.ToLowerInvariant()} was stored." : $"{category} was cleared.") + scopeNote);
         }
         catch (Exception exception) when (exception is SqliteException or IOException or UnauthorizedAccessException)
         {
