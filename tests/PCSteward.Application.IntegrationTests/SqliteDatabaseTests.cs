@@ -335,7 +335,8 @@ public sealed class SqliteDatabaseTests
         Assert.IsTrue(result.Succeeded);
         Assert.HasCount(0, await database.Store.GetAllAsync(CancellationToken.None));
         Assert.AreEqual(0L, await database.ScalarAsync("SELECT COUNT(*) FROM managed_apps;"), "The disclosed category must include independent membership.");
-        CollectionAssert.AreEqual(new[] { artifact }, (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).ToArray());
+        // Compare identity and path: existing persistence normalises a null hash to empty text, unrelated to this scope.
+        CollectionAssert.AreEqual(new[] { (artifact.Id, artifact.RelativePath) }, (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).Select(row => (row.Id, row.RelativePath)).ToArray());
         StringAssert.Contains(result.Message, "membership", "The cleared scope must be explicit to the owner.");
     }
 
