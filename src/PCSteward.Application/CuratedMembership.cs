@@ -99,15 +99,42 @@ public sealed class CuratedMembershipService
         cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyCollection<InstallationInstance> instances = await dependencies.Inventory.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        // Only exact, unconflicted current associations can restrict legacy product policies. Names and caller-supplied
-        // keys cannot.
-        string[] policyKeys = PersonalCatalogMatching.Match(catalog, products, instances)
-            .GroupBy(match => match.StableProductKey, StringComparer.Ordinal)
-            .Where(group => group.Count() == 1 && group.Single().Detection.IsExact &&
-                group.Single().Detection.EntryIds.SequenceEqual([catalogEntryId], StringComparer.Ordinal))
-            .Select(group => group.Key).ToArray();
+        string[] policyKeys = UniquelyAssociatedPolicyKeys(catalog, products, instances, catalogEntryId);
         EnsureInactive(catalogEntryId, cancellationToken);
         await dependencies.Store.RemoveManagedAppAndDisableAutomaticAsync(catalogEntryId, policyKeys, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// CRD-04 / FR-AUT-01: policy mutation needs identity evidence on every instance of a uniquely keyed product. Each
+    /// instance must detect as <see cref="CatalogDetectionKind.ProviderIdentity"/> naming only this entry. Name and
+    /// publisher evidence, which catalog detection may still treat as Exact, and any contradictory provider identity
+    /// disqualify the product. Caller-supplied keys are never accepted.
+    /// </summary>
+    private static string[] UniquelyAssociatedPolicyKeys(PersonalCatalog catalog, IReadOnlyCollection<CanonicalProduct> products,
+        IReadOnlyCollection<InstallationInstance> instances, string catalogEntryId)
+    {
+        CatalogDetector detector = new(catalog);
+        ILookup<Guid, InstallationInstance> byProduct = instances.ToLookup(instance => instance.ProductId);
+        List<string> keys = [];
+        foreach (IGrouping<string, CanonicalProduct> group in products.GroupBy(product => product.StableKey, StringComparer.Ordinal))
+        {
+            CanonicalProduct[] sameKey = [.. group];
+            if (sameKey.Length != 1) continue;
+            CanonicalProduct product = sameKey[0];
+            InstallationInstance[] own = [.. byProduct[product.Id]];
+            bool associated = own.Length != 0 && own.All(instance =>
+            {
+                CatalogDetectionResult detection = detector.Detect(new(product.DisplayName,
+                    string.IsNullOrWhiteSpace(instance.Publisher) ? null : instance.Publisher,
+                    instance.Provider, instance.ProviderIdentity, instance.SourceId,
+                    string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase) ? product.StableKey : null));
+                return detection.Kind == CatalogDetectionKind.ProviderIdentity &&
+                    detection.EntryIds.SequenceEqual([catalogEntryId], StringComparer.Ordinal);
+            });
+            if (associated) keys.Add(group.Key);
+        }
+
+        return [.. keys];
     }
 
     private async Task<PersonalCatalog> ValidateMutationAsync(string catalogEntryId, CancellationToken cancellationToken)
