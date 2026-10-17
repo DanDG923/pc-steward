@@ -211,6 +211,34 @@ public sealed class CuratedMembershipTests
     }
 
     [TestMethod]
+    public async Task RemovalKeepsSameNameAndPublisherDifferentPackageOptIns()
+    {
+        // Task 3 review I1 (CRD-04, FR-AUT-01): name/publisher evidence is not identity evidence for policy mutation,
+        // and a product whose instances name a contradictory package identity is not uniquely associated.
+        await using MembershipDatabase database = await MembershipDatabase.CreateAsync();
+        await database.SeedMembershipAsync(EntryId);
+        const string CopyKey = "winget:widget-copy";
+        const string MixedKey = "winget:widget-mixed";
+        CanonicalProduct exact = Product(ProductKey);
+        CanonicalProduct copy = Product(CopyKey);
+        CanonicalProduct mixed = Product(MixedKey);
+        await database.Store.PromoteAsync([exact, copy, mixed], [
+            Instance(exact) with { Publisher = "Contoso" },
+            Instance(copy) with { ProviderIdentity = "Contoso.Widget.Copy", Publisher = "Contoso" },
+            Instance(mixed) with { Publisher = "Contoso" },
+            Instance(mixed) with { Id = Guid.NewGuid(), ProviderIdentity = "Contoso.Widget.Copy", Publisher = "Contoso" }], CancellationToken.None);
+        foreach (string key in new[] { ProductKey, CopyKey, MixedKey })
+            await database.Store.SaveAsync(Decision(key, "AutomaticUpdates", "On"), CancellationToken.None);
+
+        await Service(database.Store, new(database.Store)).RemoveAsync(EntryId, CancellationToken.None);
+
+        IReadOnlyCollection<StableDecision> rows = await database.Store.GetAllAsync(CancellationToken.None);
+        Assert.IsFalse(rows.Any(row => row.StableProductKey == ProductKey && row.Kind == "AutomaticUpdates" && row.Value == "On"), "The identity-associated product's opt-in is reversed.");
+        Assert.IsTrue(rows.Any(row => row.StableProductKey == CopyKey && row.Kind == "AutomaticUpdates" && row.Value == "On"), "A different package with the same name and publisher keeps its opt-in.");
+        Assert.IsTrue(rows.Any(row => row.StableProductKey == MixedKey && row.Kind == "AutomaticUpdates" && row.Value == "On"), "A product with a contradictory package identity keeps its opt-in.");
+    }
+
+    [TestMethod]
     public async Task RemovalReversesOnlyExactAutomaticOnRows()
     {
         await using MembershipDatabase database = await MembershipDatabase.CreateAsync();

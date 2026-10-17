@@ -329,14 +329,17 @@ public sealed class SqliteDatabaseTests
         await database.Store.SaveAsync(new StableDecision(Guid.NewGuid(), "pcs:widget", "CuratedAutomaticUpdatesOff", "Off", DateTimeOffset.UtcNow), CancellationToken.None);
         DownloadedArtifact artifact = new(Guid.NewGuid(), "update", "retained.bin", 123, DateTimeOffset.UtcNow);
         await database.Store.SaveDownloadedArtifactAsync(artifact, CancellationToken.None);
+        // Compare complete persisted records: existing persistence normalises a null hash to empty text on save.
+        DownloadedArtifact[] retained = [.. await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)];
+        Assert.HasCount(1, retained);
+        Assert.AreEqual(artifact.Id, retained[0].Id);
 
         AdvancedDataClearResult result = await database.Store.ClearMappingsAndPoliciesAsync(CancellationToken.None);
 
         Assert.IsTrue(result.Succeeded);
         Assert.HasCount(0, await database.Store.GetAllAsync(CancellationToken.None));
         Assert.AreEqual(0L, await database.ScalarAsync("SELECT COUNT(*) FROM managed_apps;"), "The disclosed category must include independent membership.");
-        // Compare identity and path: existing persistence normalises a null hash to empty text, unrelated to this scope.
-        CollectionAssert.AreEqual(new[] { (artifact.Id, artifact.RelativePath) }, (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).Select(row => (row.Id, row.RelativePath)).ToArray());
+        CollectionAssert.AreEqual(retained, (await database.Store.GetDownloadedArtifactsAsync(CancellationToken.None)).ToArray());
         StringAssert.Contains(result.Message, "membership", "The cleared scope must be explicit to the owner.");
     }
 
