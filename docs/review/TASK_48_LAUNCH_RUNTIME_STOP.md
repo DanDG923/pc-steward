@@ -1,0 +1,54 @@
+# Task 48 — Approved launch stopped at .NET runtime prerequisite
+
+**Subsequent resolution:** After the owner installed .NET, consultation/prerequisite checks completed and a fresh explicit one-run approval was given. The unchanged app then reached the expected Overview and closed normally, native exit 0 in 22.826 seconds; copied fresh-store and final deployment checks pass. [Task 48 completion](TASK_48_COMPLETION.md) is current. The first failed attempt and the approval-pending proposal below are preserved as history; they did not authorize an automatic retry.
+
+Date: 2026-10-29. Requirements: `FR-DAT-12–15`, `AC-DAT-18`, `FRA-14–16`.
+
+**Task 48 remains incomplete.** The pinned deployment still validates, but the approved single launch did not reach the overview. No automatic retry, forced termination, agent-installed runtime or app data creation occurred.
+
+The owner replied **“Approved”** to [the bounded launch plan](TASK_48_RESPONSIVE_LAUNCH_PLAN.md). Fresh preflight passed: non-elevated installing owner; exact desktop EXE/ledger; strict `Pass / pinned-unsigned-v1`; absent data root; no PCSteward processes. A read-only copied-database harness using the pinned installed SQLite library compiled and successfully queried isolated `:memory:` SQLite `3.53.3`; it created no product database.
+
+## Actual attempt and preservation
+
+| Check | Actual evidence |
+|---|---|
+| Invocation | Exactly one direct installed `PCSteward.Desktop.exe`, no arguments, installed working directory, non-elevated; PID **22080** |
+| Timing | `2026-10-29T19:22:59.1319715Z` to `19:23:07.5178931Z`; **8,385 ms** |
+| Native exit | **2147516566 / `0x80008096` / signed -2147450730**; .NET host **FrameworkMissingFailure**, before managed app execution; process exited itself |
+| Window/process samples | Sixteen samples: no initial window, then responsive **`PCSteward.Desktop.exe`** prerequisite-titled window; no expected **PC Steward** overview. `Responding=true` is not product responsiveness proof |
+| UI inventory after exit | No PC Steward window; existing Chrome window on the .NET 10 Desktop Runtime 10.0.14 x64 download page. No transient-dialog screenshot captured; no browser/security prompt automated |
+| Normal close | No overview observation/close signal; `CloseMainWindow()` never called; no normal-close success claimed |
+| Data/process preservation | `%LOCALAPPDATA%\PCSteward` still **absent**, zero PCSteward processes; no database/sidecars to copy or integrity-check |
+| Installed validator | Post-failure strict validator **exit 0 / Pass / pinned-unsigned-v1**. Its `launched=false` describes validator behavior, not historical absence of the attempted launch |
+
+Ignored evidence: `artifacts/task-48-launch-result/{attempt,running,process-result,observation-error,runtime-and-preservation-after-failure}.json`. Original observer: `artifacts/task-48-deployment/Invoke-ApprovedLaunchObservation.ps1`. Failed evidence is retained without overwrite. No app screenshot was captured before its prerequisite process exited.
+
+## Owner-installed runtime and proposed next step
+
+The owner then said **“It required .NET installed which is now done.”** A read-only check now lists **Microsoft.NETCore.App 10.0.14** and **Microsoft.WindowsDesktop.App 10.0.14** under `C:\Program Files\dotnet\shared`, alongside 8.0.33. The agent installed nothing and changed no DOTNET_ROOT/PATH/registry/policy. The pinned app runtimeconfig requests `Microsoft.NETCore.App 10.0.0` / `net10.0`. The local development SDK also has 10.0.11/10.0.14 runtimes, but that did not establish discoverability for the original direct apphost launch. The post-failure list alone cannot establish global install timing; the owner's statement supplies that sequence.
+
+**Consultation correction:** `Microsoft.NETCore.App` is the actual .NET framework requirement; WinUI 3 does not require the WPF/WinForms `Microsoft.WindowsDesktop.App` framework. The owner's Desktop Runtime installation supplied the needed core runtime as well. The helper/scheduled-host runtimeconfigs also request NETCore.App; neither has been launched. The [official .NET host error-code reference](https://github.com/dotnet/runtime/blob/main/docs/design/features/host-error-codes.md) confirms that `0x80008096` means the configured framework could not be resolved. The transient window was consistent with that host prerequisite dialog. Owner interaction with its download link is the likely explanation for Chrome's runtime page; the click itself was not captured or automated. The 8,385 ms measures the attempted process lifetime, not product startup or UI rendering.
+
+Fresh directory timestamps corroborate the owner's account: `Microsoft.NETCore.App\10.0.14` was created at **19:23:24.5694375Z**, Desktop.App at **19:23:25.8387144Z**, after the process exited at **19:23:07.5178931Z**. These are mutable filesystem timestamps, not tamper-proof installation evidence.
+
+Ledger remains **`E29ACFECE08CF8E53658C257939FF40BE5D974076C9EF987A7DA94644C135A20`**; signed desktop EXE remains **`5B4BEC38BD02904021139B6EE6B22719706FB2FC8DECD9402144AD403706B6A2`**. Data is still absent after owner runtime installation. No rebuild/republish/re-sign is proposed for the host prerequisite. The [completed Opus 5.5 consultation](<t3-thread://v2/3aa39081-bc20-4540-91c1-09a75cb81a1a/thread:delegated-task:command%3Amcp%3A1b0fb618-c943-4a64-9fe5-e9a2f1a78156%3Adelegate-task%3Atask48-opus55-launch-runtime-diagnosis-20261029>) agrees with this diagnosis and a fresh unchanged launch, subject to recording external prerequisites and their trust boundary. The parent accepts its wording corrections and independently captured the checks below; no reviewer approval is treated as host authority.
+
+## Completed prerequisite checks and remaining bootstrap uncertainty
+
+`artifacts/task-48-deployment/Capture-RuntimePrerequisites.ps1` captured `artifacts/task-48-launch-result/runtime-prerequisite-preflight.json`, SHA-256 **`17B37696654F27DB2F804031A8E37C72E133D5EB7939D5D53D27DEC5E87D4040`**:
+
+- Global x64 registered `InstallLocation` is `C:\Program Files\dotnet\`; `host\fxr\10.0.14` and NETCore.App 10.0.14 are present. The apphost's machine type is AMD64 **0x8664**. The unchanged 10.0.0 request uses default roll-forward; listed 10.0.14 satisfies that framework line. Actual app/bootstrap execution is still the next live test.
+- No configured `DOTNET_*` environment-variable names were found in Process/User/Machine scopes. No environment values were changed.
+- `hostfxr.dll`, `hostpolicy.dll`, `coreclr.dll` have **Valid Microsoft signatures**, with raw hashes in the snapshot. Owner/DACL checks on six runtime directory/file objects found effective mutating allows only for SYSTEM, Administrators or TrustedInstaller. This is a targeted prerequisite check, not a complete audit of every runtime file/ancestor or the whole OS.
+- **Trust boundary:** global .NET and Windows App Runtime are Microsoft/OS-managed executable dependencies **outside the pinned 102-file app ledger**. App bytes/strict app validator passing does not authenticate the entire execution environment. Current external runtime identities/signatures/ACLs are recorded separately.
+- Current-user `Microsoft.WindowsAppRuntime.1.8` **8000.994.2142.0 x64**, status **Ok**, is installed (x86 also present). The package list includes Main.1.5/Main.2/Singleton; **no Main.1.8 or DDLM.1.8 entry was confirmed**. The OS reports **10.0.26300.0**. No package was added/registered/changed.
+
+The project uses Windows App SDK **1.8.250907003** with `WindowsPackageType=None`. The actual NuGet Foundation **1.8.250906002** targets enable the bootstrap initializer; its local `MddBootstrapAutoInitializer.cs` defaults to **OnNoMatch_ShowUI** and exits on initialization failure. DeploymentManager auto-initialization defaults apply to `WindowsPackageType=MSIX`, not this None project. No bootstrap/DeploymentManager API was invoked during these checks.
+
+The parent examined [Microsoft's current bootstrap source](https://github.com/microsoft/WindowsAppSDK/blob/main/dev/WindowsAppRuntime_BootstrapDLL/MddBootstrap.cpp): for target SDK >=1.7 with supported native Windows APIs, it adds the framework dependency directly; the fallback branch creates the DDLM. This provides a plausible reason missing DDLM entries need not block this newer OS, but current-main source is **not proof of the exact installed 1.8 bootstrap's branch or successful startup**. The parent therefore does not turn missing Main/DDLM entries into a proven failure, nor call runtime/bootstrap integration passed. Historical July Overview evidence was not re-established as this machine's current state and is not used to waive a gate. This resolves the consultation conservatively: record the framework and uncertainty, run only after exact approval, and stop on a bootstrap dialog. No pre-emptive runtime installation, rebuild or environment redirection is justified.
+
+**Prepared proposal, not executed:** one new launch under [the same target/effects/60-second/normal-close/copy-only database plan](TASK_48_RESPONSIVE_LAUNCH_PLAN.md), with the newly confirmed global .NET 10 prerequisite. Separate observer `artifacts/task-48-deployment/Invoke-LaunchAfterOwnerRuntimeInstall.ps1`, SHA-256 **`36E7266125C69A49D53A0F33721602DB640561B94F2009CDFB68B4A15422C0BA`**, writes only new evidence under `artifacts/task-48-launch-after-runtime-result`. Its only difference from the original observer is that evidence destination. Installed bytes are unchanged. Fresh approval is required because the preceding approval expressly allowed one attempt without retry; no second launch is inferred from the runtime update alone.
+
+**Approval scope for that one new attempt:** non-elevated same owner, exact unchanged installed executable/working directory/no arguments, new external runtime state above, first-run local database/download-folder creation, at most 60 seconds including normal close, retained copied-database integrity/fresh-state checks only after normal exit. If a **Windows App Runtime bootstrap/prerequisite dialog** appears, it is a **failed stop**: no Download/Install/Yes action, no package/registry/environment change, no forced termination or retry. The observer stops waiting for an overview at 45 seconds; a process blocked on such a dialog may remain running and must be reported for explicit reconciliation. A normal PC Steward overview permits only the approved normal close. All original scan/source/update/schedule/reset/cleanup/distribution exclusions remain.
+
+No product/source/deployment-script edit, build, signing, redeployment, provider operation, scan, source refresh, schedule mutation, reset, cleanup, release or Task 49 follows. Existing build **0 warnings/errors** and **291/291** tests remain historical code-gate evidence, not launch success. No commit or Git identity/configuration change.

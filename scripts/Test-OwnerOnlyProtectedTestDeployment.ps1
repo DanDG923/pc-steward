@@ -1,7 +1,8 @@
 [CmdletBinding()]
-param()
+param([switch]$RequirePinnedPayload,[switch]$AllowLegacyPayload)
 
 $ErrorActionPreference = 'Stop'
+if ($RequirePinnedPayload -and $AllowLegacyPayload) { throw 'Choose the pinned profile or explicit legacy validation, not both.' }
 function Get-DeploymentFiles([string]$Path) { @(Get-ChildItem -LiteralPath $Path -File -Recurse | Sort-Object FullName | ForEach-Object { [ordered]@{ path = $_.FullName.Substring($Path.Length + 1); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } }) }
 function Assert-ExactDacl([string]$Path) {
     $expected = @{ 'S-1-5-18' = [Security.AccessControl.FileSystemRights]::FullControl; 'S-1-5-32-544' = [Security.AccessControl.FileSystemRights]::FullControl; 'S-1-5-32-545' = ([Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [Security.AccessControl.FileSystemRights]::Synchronize) }
@@ -31,4 +32,7 @@ foreach ($path in @($stateRoot) + @(Get-ChildItem -LiteralPath $stateRoot -Force
 $desktopSignature = Get-AuthenticodeSignature -LiteralPath $desktop; $helperSignature = Get-AuthenticodeSignature -LiteralPath $helper
 if ($desktopSignature.Status -ne 'Valid' -or $helperSignature.Status -ne 'Valid' -or $desktopSignature.SignerCertificate.Thumbprint -ne $state.certificateThumbprint -or $helperSignature.SignerCertificate.Thumbprint -ne $state.certificateThumbprint) { throw 'Desktop/helper signing validation failed.' }
 if (((Get-DeploymentFiles $installRoot | ConvertTo-Json -Depth 4 -Compress) -ne (@($state.files) | ConvertTo-Json -Depth 4 -Compress))) { throw 'The protected deployment file manifest does not match.' }
-[pscustomobject]@{ deployment = 'owner-only-protected-test'; installRoot = $installRoot; certificateThumbprint = $state.certificateThumbprint; validation = 'Pass'; launched = $false; applicationUpdates = 0 } | ConvertTo-Json
+. (Join-Path $PSScriptRoot 'OwnerOnlyPayloadIntegrity.ps1')
+$origin = Assert-OwnerOnlyPayloadProvenance -InstallRoot $installRoot -StateRoot $stateRoot -State $state
+Assert-OwnerOnlyPayloadProfile -Origin $origin -AllowLegacyPayload:$AllowLegacyPayload
+[pscustomobject]@{ deployment = 'owner-only-protected-test'; installRoot = $installRoot; certificateThumbprint = $state.certificateThumbprint; validation = 'Pass'; payloadOrigin = $origin; candidateManifestSha256 = $state.candidateManifestSha256; launched = $false; applicationUpdates = 0 } | ConvertTo-Json

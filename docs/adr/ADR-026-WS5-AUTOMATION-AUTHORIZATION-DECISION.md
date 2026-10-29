@@ -1,8 +1,10 @@
 # ADR-026 — WS5 durable automation authorization decision
 
-**Status:** Proposed
+**Status:** Accepted — Option C (Defer)
 
 **Date:** 2026-10-29
+
+**Owner acceptance:** 2026-10-29 — **“Accept the corrected ADRs and final choices”** explicitly accepts Option C (Defer) following both Opus 5.5 reviews and the disclosed final corrections. FR-UPD-12 stays Later; per-run approval and scan-only scheduling remain. No durable unattended authorization, signed-out/S4U/password task or implementation is approved.
 
 **Decision owners:** Product owner, implementation reviewer and security reviewer
 
@@ -28,11 +30,13 @@ Preserve review, least privilege, revocation, bounded resource use and honest in
 | B — Reject WS5 | Keep per-run review and scan-only scheduling as the intended product direction; owner must record rejection in the roadmap/spec decision process. | Smallest security surface; permanently gives up this convenience unless reopened. |
 | C — Defer WS5 | Keep existing behavior and Later status; revisit only with a concrete safe authorization and capability proposal. | Recommended while operation/security work and the controls below remain unproven. |
 
-## Proposed decision
+## Accepted decision
 
-**Recommend C — Defer. Owner decision: Pending.** The author has not accepted, rejected or deferred WS5 on the owner's behalf. Accepting this ADR with the recommendation would record deferral, not enable automation. Choosing A requires a revised concrete design and explicit acceptance of its requirement/ADR amendments before implementation. Choosing B requires a recorded owner rejection. No answer is inferred from starting Task 45 or accepting the general roadmap.
+**Owner decision: C — Defer, Accepted.** The owner explicitly accepted deferral in Task 47; it is not inferred from starting Task 45 or the general roadmap. This records deferral and does not enable automation. Reopening A requires a revised concrete design and explicit acceptance of its requirement/ADR amendments before implementation; choosing B would require a new recorded owner rejection.
 
-Under the recommendation, `FR-UPD-01` still requires per-run approval; `FR-UPD-12` remains Later; `FR-SCH-03` and ADR-020 remain scan-only. Do not add execution references, helper access, a new execution scheduler, resident coordinator, credential, task registration or code in this documentation task. Existing manual updates remain independently available.
+Under accepted C (Defer), `FR-UPD-01` still requires per-run approval; `FR-UPD-12` remains Later; `FR-SCH-03` and ADR-020 remain scan-only. Do not add execution references, helper access, a new execution scheduler, resident coordinator, credential, task registration or code in this documentation task. Existing manual updates remain independently available.
+
+Option A is a request to reopen design, not an adoptable implementation contract in this ADR. This record can presently accept C (Defer) or B (Reject); adopting automation needs a revised concrete owner-accepted design first. No signed-out, S4U or password-based task is promoted, including if later user-scope automation is reconsidered.
 
 ## Required contract if adoption is reconsidered
 

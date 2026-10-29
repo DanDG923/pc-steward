@@ -2,6 +2,8 @@
 
 Use the settings shown for each task and start a fresh chat for every numbered task. See `CODEX_BUILD_PLAYBOOK.md` for branch transitions and gates.
 
+For the separately gated PC Steward 2.0 Tasks 48–72, use the individual linked prompts in [the 2.0 prompt index](prompts/INDEX.md#pc-steward-20--task-47-planning-package) with their phase briefs/shared contract. Their current model settings and action gates supersede historical MVP settings only for those new tasks. Task 47 planning documents do not authorize executing them.
+
 ## Task 00 — Environment and repository audit
 
 **Model:** GPT-5.6 Luna  

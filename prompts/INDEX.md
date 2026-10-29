@@ -44,6 +44,38 @@ Open a fresh Codex chat for every numbered task. Keep the same chat only while c
 | 30A | Prepare final release-audit evidence | GPT-5.6 Terra / High | `phase/4-beta` | [`30A_PREPARE_FINAL_RELEASE_AUDIT_EVIDENCE.md`](30A_PREPARE_FINAL_RELEASE_AUDIT_EVIDENCE.md) |
 | 31 | Final release audit | GPT-5.6 Sol / Extra High | `phase/4-beta` | [`31_FINAL_RELEASE_AUDIT.md`](31_FINAL_RELEASE_AUDIT.md) |
 
+## PC Steward 2.0 — Task 47 planning package
+
+**Finalized Task 47 package:** applicable ADR-023–026, numerical catalogue/warning/lifecycle defaults and final review/gate/deadline choices are owner-Accepted after both requested Opus 5.5 reviews and disclosed follow-ups. Start with [Phase A2](../docs/requirements/V2_PHASE_A2.md) and the [shared execution/evidence contract](../docs/requirements/V2_TASK_CONTRACT.md). These prompts do not start future work or authorize host actions. Existing rows above retain historical model settings; 2.0 settings below follow the accepted delta.
+
+| Task | Outcome | Model / reasoning | Phase | Prompt |
+|---|---|---|---|---|
+| 48 | Owner-only redeploy | GPT-6.1 Sol / High | B | [Task 48](48_OWNER_ONLY_REDEPLOY.md) |
+| 49 | Truthful update progress | GPT-6.1 Sol / High | C | [Task 49](49_TRUTHFUL_UPDATE_PROGRESS.md) |
+| 50 | Enforceable reviewed installer mode | GPT-6.1 Sol / High | C | [Task 50](50_REVIEWED_INSTALLER_MODE.md) |
+| 51 | Reliable restart outcomes | GPT-6.1 Sol / High | C | [Task 51](51_RELIABLE_RESTART_OUTCOMES.md) |
+| 52 | Frozen reviewed update batches | GPT-6.1 Sol / High | C | [Task 52](52_FROZEN_UPDATE_BATCHES.md) |
+| 53 | Updater evidence readiness | GPT-6.1 Terra / High | C | [Task 53](53_UPDATER_EVIDENCE_READINESS.md) |
+| 54 | Updater review gate | GPT-6.1 Sol / Extra High | C | [Task 54](54_UPDATER_REVIEW_GATE.md) |
+| 55 | Bounded catalogue and favourites | GPT-6.1 Sol / High | D | [Task 55](55_BOUNDED_CATALOGUE_SEARCH.md) |
+| 56 | Distinct reviewed install jobs | GPT-6.1 Sol / High | D | [Task 56](56_DISTINCT_INSTALL_JOBS.md) |
+| 57 | Install evidence readiness | GPT-6.1 Terra / High | D | [Task 57](57_INSTALL_EVIDENCE_READINESS.md) |
+| 58 | Install security review gate | GPT-6.1 Sol / Extra High | D | [Task 58](58_INSTALL_SECURITY_REVIEW_GATE.md) |
+| 59 | One approved live install | GPT-6.1 Sol / High | D | [Task 59](59_APPROVED_LIVE_INSTALL.md) |
+| 60 | Instance-bound manual uninstall | GPT-6.1 Sol / High | E | [Task 60](60_INSTANCE_BOUND_UNINSTALL.md) |
+| 61 | Uninstall evidence readiness | GPT-6.1 Terra / High | E | [Task 61](61_UNINSTALL_EVIDENCE_READINESS.md) |
+| 62 | Uninstall security review gate | GPT-6.1 Sol / Extra High | E | [Task 62](62_UNINSTALL_SECURITY_REVIEW_GATE.md) |
+| 63 | One approved live uninstall | GPT-6.1 Sol / High | E | [Task 63](63_APPROVED_LIVE_UNINSTALL.md) |
+| 64 | Bounded local diagnostic timeline | GPT-6.1 Sol / High | F | [Task 64](64_BOUNDED_DIAGNOSTIC_TIMELINE.md) |
+| 65 | Diagnostic evidence readiness | GPT-6.1 Terra / High | F | [Task 65](65_DIAGNOSTIC_EVIDENCE_READINESS.md) |
+| 66 | Diagnostic review gate | GPT-6.1 Sol / Extra High | F | [Task 66](66_DIAGNOSTIC_REVIEW_GATE.md) |
+| 67 | Advisory AI privacy path with mocks | GPT-6.1 Sol / High | G | [Task 67](67_ADVISORY_AI_WITH_MOCKS.md) |
+| 68 | Transactional budget and reconciliation | GPT-6.1 Sol / High | G | [Task 68](68_TRANSACTIONAL_AI_BUDGET.md) |
+| 69 | AI privacy and cost evidence readiness | GPT-6.1 Terra / High | G | [Task 69](69_AI_EVIDENCE_READINESS.md) |
+| 70 | AI security, privacy and cost review gate | GPT-6.1 Sol / Extra High | G | [Task 70](70_AI_SECURITY_PRIVACY_COST_GATE.md) |
+| 71 | One preview-approved live explanation | GPT-6.1 Sol / High | G | [Task 71](71_APPROVED_LIVE_AI_EXPLANATION.md) |
+| 72 | Deferred-item decisions only | GPT-6.1 Sol / High | H | [Task 72](72_DEFERRED_ITEM_DECISIONS.md) |
+
 ## Conditional prompts
 
 - Optional GitHub read-only scope: [`18B_OPTIONAL_OFFICIAL_GITHUB_RELEASES_READ_ONLY_CONNECTOR.md`](optional/18B_OPTIONAL_OFFICIAL_GITHUB_RELEASES_READ_ONLY_CONNECTOR.md)
