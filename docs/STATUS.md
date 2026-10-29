@@ -1,14 +1,20 @@
 # PC Steward build status
 
-**Current phase:** Phase 4 — feature-change evidence readiness
+**Current phase:** PC Steward 2.0 Phase A1 — scope reconciliation; existing Phase 4 distribution gate retained
 
-**Current task:** Task 42 — confirmed findings remediation
+**Current task:** Task 43 — PC Steward 2.0 scope reconciliation (documentation complete; awaiting owner review)
 
-**Reviewed implementation:** Tasks 32–41 evidence retained; Task 42 closes the two confirmed residual findings without changing distribution authority
+**Reviewed implementation:** Task 42 at `52b43130130b25a850f43f1fe478d112c3ce9cb7`; Task 43 changes documentation only and does not refresh implementation or deployment evidence
 
-**Current branch:** `phase/4-beta`
+**Current branch:** `phase/5-v2-planning` (from the Task 42 `phase/4-beta` head)
 
 **Phase gate:** **NOT READY FOR DISTRIBUTION — Task 39 passes only for the exact owner-only protected installation; the Task 31 release exception remains expired**
+
+## Task 43 scope and current boundary
+
+The owner-selected agreed v2 roadmap was absent from the repository and has been copied unchanged from the adjacent proposal into `docs/product/PC_STEWARD_2_ROADMAP.md`, committed as `2f0494b53db2d42a45a4070c4f388ad8fb6fa5a6`. [Task 43 delta reconciliation](product/PC_STEWARD_2_DELTA.md) maps all WS1–WS7 and Deferred items to existing requirements, decisions and code, audits all eight WS2 checklist items, and proposes requirement deltas, required ADR work, tasks 44–72, three live-test package candidates and D1–D5/additional owner questions. Proposed IDs and amendments are not yet authoritative; the product specification and ADRs are unchanged.
+
+Static source inspection confirms existing status/policy/history/batch/warning foundations. Confirmed WS2 follow-ups are truthful execution-phase progress, provider-supported immutable installer-mode choice, production restart-evidence propagation, and the desktop multi-select/Update All review/results/cancellation path. Running-app coverage and “skip” semantics remain owner questions. Task 42's recorded 290/290 and build result remain historical, not rerun Task 43 evidence. The user expressly exempted builds/tests for this documentation-only task. No production code, app launch, deployment, update, source refresh, package-manager query/run, schedule, data, certificate, paid-call or external-publication action occurred. All existing owner-only/distribution and exact action-time approval boundaries remain effective.
 
 ## Task 35 scope and current boundary
 
@@ -81,4 +87,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-The remediated Task 42 source is validated locally but is not deployed, published, or reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, or selected application update is a separate owner-authorized task. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
+**Owner review of Task 43:** accept, correct or defer the proposed delta and explicitly answer D1–D5 in `docs/product/PC_STEWARD_2_DELTA.md`. Do not begin follow-on specification edits, ADR drafting, phase briefs, numbered prompts or implementation until that review is accepted. The roadmap's independent WS1 redeploy remains possible only as a separately authorized host task; this documentation task grants no such authority.
+
+The remediated Task 42 implementation remains undeployed and is not reflected in the protected owner-only installation or private prerelease. Any protected replacement, GitHub publication, finding closure, live rendering, source refresh, selected application update/install/uninstall or paid AI call needs separate owner authority. A public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority, and independent review for the applicable `FRA-14–16` boundaries. The owner has placed Task 35's optional manual accessibility matrix out of scope. The private backup does not close the distribution gate.
