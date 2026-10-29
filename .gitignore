@@ -17,6 +17,8 @@ BenchmarkDotNet.Artifacts/
 *.db-wal
 *.sqlite
 *.sqlite3
+# This source project directory is not a SQLite database file.
+!/src/PCSteward.Persistence.Sqlite/
 .local/
 tmp/
 temp/
