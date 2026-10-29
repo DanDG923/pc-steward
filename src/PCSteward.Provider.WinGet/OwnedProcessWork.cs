@@ -8,11 +8,13 @@ internal sealed record OwnedProcessTeardown(bool DirectProcessExitObserved, bool
     bool PipeEofObserved, bool KillFailed, Task OwnedCompletion);
 internal sealed record OwnedProcessReadResult(int ExitCode, string StandardOutput, string StandardError,
     bool TimedOut, bool Cancelled, bool OutputLimitExceeded, bool OutputIncomplete, OwnedProcessTeardown Teardown);
+internal delegate ValueTask<int> OwnedProcessRead(StreamReader reader, Memory<char> buffer, CancellationToken cancellationToken);
 
 internal static class OwnedProcessWork
 {
     internal static async Task<OwnedProcessReadResult> RunStartedAsync(Process process, TimeSpan timeout,
-        CancellationToken cancellationToken, TimeSpan? teardownBudget = null, Func<Process, bool>? terminate = null)
+        CancellationToken cancellationToken, TimeSpan? teardownBudget = null, Func<Process, bool>? terminate = null,
+        OwnedProcessRead? readOperation = null)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -28,9 +30,10 @@ internal static class OwnedProcessWork
             static state => ((TaskCompletionSource)state!).TrySetResult(), callerCancelled);
         OutputCapture stdout = new();
         OutputCapture stderr = new();
+        OwnedProcessRead read = readOperation ?? ReadFromStream;
         Task exit = ObserveExitAsync(process);
-        Task output = stdout.ReadAsync(process.StandardOutput, overflow, readFailure, readersCancellation.Token);
-        Task error = stderr.ReadAsync(process.StandardError, overflow, readFailure, readersCancellation.Token);
+        Task output = stdout.ReadAsync(process.StandardOutput, overflow, readFailure, read, readersCancellation.Token);
+        Task error = stderr.ReadAsync(process.StandardError, overflow, readFailure, read, readersCancellation.Token);
         Task timer = Task.Delay(timeout, timerCancellation.Token);
         Task first = await Task.WhenAny(exit, timer, callerCancelled.Task, overflow.Task, readFailure.Task).ConfigureAwait(false);
         bool cancelled = cancellationToken.IsCancellationRequested;
@@ -110,6 +113,9 @@ internal static class OwnedProcessWork
     private static async Task ObserveExitAsync(Process process) =>
         await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
+    private static ValueTask<int> ReadFromStream(StreamReader reader, Memory<char> buffer, CancellationToken cancellationToken) =>
+        reader.ReadAsync(buffer, cancellationToken);
+
     private static async Task FinishOwnershipAsync(Process process, CancellationTokenSource readersCancellation,
         CancellationTokenSource timerCancellation, Task exit, params Task[] work)
     {
@@ -155,13 +161,13 @@ internal static class OwnedProcessWork
         internal OutputSnapshot Snapshot() { lock (sync) return new(captured.ToString(), eof, exceeded, failed); }
 
         internal async Task ReadAsync(StreamReader reader, TaskCompletionSource overflow,
-            TaskCompletionSource failure, CancellationToken ownedToken)
+            TaskCompletionSource failure, OwnedProcessRead readOperation, CancellationToken ownedToken)
         {
             char[] buffer = new char[4096];
             try
             {
                 int read;
-                while ((read = await reader.ReadAsync(buffer.AsMemory(), ownedToken).ConfigureAwait(false)) != 0)
+                while ((read = await readOperation(reader, buffer.AsMemory(), ownedToken).ConfigureAwait(false)) != 0)
                 {
                     lock (sync)
                     {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Pipes;
+using PCSteward.Application;
 using PCSteward.ProcessFixture;
 using PCSteward.Provider.WinGet;
 
@@ -119,17 +120,21 @@ public sealed class RedirectedProcessPipeEvidenceTests
     public async Task InheritedWriterUsesOneBudgetAndDoesNotClaimDescendantExit()
     {
         await using OwnedFixture fixture = await OwnedFixture.StartAsync();
+        ReadCancellationMeasurement measurement = new();
         Stopwatch elapsed = Stopwatch.StartNew();
         OwnedProcessReadResult result = await OwnedProcessWork.RunStartedAsync(fixture.TransferParentOwnership(),
-            TimeSpan.FromSeconds(30), CancellationToken.None, TimeSpan.FromMilliseconds(600)).WaitAsync(TimeSpan.FromSeconds(3));
+            TimeSpan.FromSeconds(30), CancellationToken.None, TimeSpan.FromMilliseconds(600),
+            readOperation: measurement.ReadAsync).WaitAsync(TimeSpan.FromSeconds(3));
         Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(2));
         Assert.AreEqual(0, result.ExitCode);
         Assert.IsTrue(result.OutputIncomplete);
         Assert.IsTrue(result.Teardown.DirectProcessExitObserved);
-        Assert.IsTrue(result.Teardown.OwnedIoCompleted);
+        // A snapshot can be incomplete; the root below must still observe actual read completion.
         Assert.IsFalse(result.Teardown.PipeEofObserved);
         Assert.IsFalse(fixture.Holder.HasExited, "Read completion must not invent descendant termination.");
         await result.Teardown.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.IsFalse(fixture.Holder.HasExited, "Owned cancellation completion must be observed before the writer exits.");
+        measurement.Log(TestContext, result.Teardown.OwnedIoCompleted);
     }
 
     [TestMethod]
@@ -138,25 +143,99 @@ public sealed class RedirectedProcessPipeEvidenceTests
         await using OwnedFixture fixture = await OwnedFixture.StartAsync(directHolder: true);
         Process process = fixture.TransferParentOwnership();
         StreamReader reader = process.StandardOutput;
+        ReadCancellationMeasurement measurement = new();
         using CancellationTokenSource caller = new();
         Task<OwnedProcessReadResult> run = OwnedProcessWork.RunStartedAsync(process,
             TimeSpan.FromSeconds(30), caller.Token, TimeSpan.FromMilliseconds(600),
-            _ => throw new System.ComponentModel.Win32Exception(5));
+            _ => throw new System.ComponentModel.Win32Exception(5), readOperation: measurement.ReadAsync);
         await fixture.WriteByteAsync(false);
         caller.Cancel();
         OwnedProcessReadResult result = await run.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.IsTrue(result.Teardown.KillFailed);
         Assert.IsFalse(result.Teardown.DirectProcessExitObserved);
-        Assert.IsTrue(result.Teardown.OwnedIoCompleted);
+        Assert.IsTrue(result.OutputIncomplete);
         Assert.IsFalse(result.Teardown.OwnedCompletion.IsCompleted);
         Assert.IsFalse(process.HasExited, "The Process cannot be disposed while its owned exit wait is outstanding.");
         Assert.IsTrue(reader.BaseStream.CanRead, "Resources remain owned until the complete ownership root settles.");
+        await measurement.ReadsTerminal.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.IsFalse(fixture.Holder.HasExited, "Observe cancelled reads while their direct process is still alive.");
+        Assert.IsFalse(result.Teardown.OwnedCompletion.IsCompleted, "Reader completion alone cannot release the pending process exit.");
+        measurement.Log(TestContext, result.Teardown.OwnedIoCompleted);
         await fixture.StopAndObserveAsync();
         await result.Teardown.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(2));
         bool disposed;
         try { disposed = !reader.BaseStream.CanRead; }
         catch (ObjectDisposedException) { disposed = true; }
         Assert.IsTrue(disposed);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DelayedReadersRemainOwnedPastOneTeardownBudget(bool killFails)
+    {
+        await using OwnedFixture fixture = await OwnedFixture.StartAsync(directHolder: killFails);
+        Process process = fixture.TransferParentOwnership();
+        StreamReader reader = process.StandardOutput;
+        TaskCompletionSource<int> releaseReads = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource readsStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int starts = 0;
+        CancellationToken readerToken = default;
+        async ValueTask<int> DelayedRead(StreamReader stream, Memory<char> buffer, CancellationToken token)
+        {
+            readerToken = token;
+            if (Interlocked.Increment(ref starts) == 2) readsStarted.TrySetResult();
+            // Model an owned OS read whose cancellation has not completed by the deadline.
+            await releaseReads.Task;
+            throw new OperationCanceledException(token);
+        }
+        using CancellationTokenSource caller = new();
+        UpdateExecutionLifetime lifetime = new();
+        Stopwatch elapsed = Stopwatch.StartNew();
+        Task<OwnedProcessReadResult> run = OwnedProcessWork.RunStartedAsync(process,
+            TimeSpan.FromSeconds(30), caller.Token, TimeSpan.FromMilliseconds(600),
+            terminate: killFails ? _ => throw new System.ComponentModel.Win32Exception(5) : null,
+            readOperation: DelayedRead);
+        OwnedProcessReadResult? result = null;
+        try
+        {
+            await readsStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            if (killFails) caller.Cancel();
+            result = await run.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(2), "Both reads and exit share one teardown-attempt budget.");
+            Assert.IsTrue(readerToken.IsCancellationRequested, "Reader cancellation is requested before the bounded attempt returns.");
+            Assert.IsFalse(result.Teardown.OwnedIoCompleted);
+            Assert.IsFalse(result.Teardown.PipeEofObserved);
+            Assert.IsTrue(result.OutputIncomplete);
+            Assert.AreEqual(!killFails, result.Teardown.DirectProcessExitObserved);
+            Assert.AreEqual(killFails, result.Teardown.KillFailed);
+            Assert.IsFalse(result.Teardown.OwnedCompletion.IsCompleted);
+            Assert.IsTrue(reader.BaseStream.CanRead, "Incomplete reads keep their resources owned.");
+            using (UpdateExecutionLease? admission = lifetime.TryAcquire())
+            {
+                Assert.IsNotNull(admission);
+                admission.TrackCompletion(result.Teardown.OwnedCompletion);
+            }
+            using UpdateExecutionLease? conflicting = lifetime.TryAcquire();
+            Assert.IsNull(conflicting, "A bounded return cannot release incomplete owned reads.");
+            releaseReads.TrySetResult(0);
+            if (killFails) await fixture.StopAndObserveAsync();
+            await result.Teardown.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(2));
+            if (!killFails) Assert.IsFalse(fixture.Holder.HasExited, "Observed owned completion cannot claim an external writer exited.");
+        }
+        finally
+        {
+            releaseReads.TrySetResult(0);
+            await fixture.StopAndObserveAsync();
+            result ??= await run.WaitAsync(TimeSpan.FromSeconds(3));
+            await result.Teardown.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        using UpdateExecutionLease? resumed = lifetime.TryAcquire();
+        Assert.IsNotNull(resumed);
+        bool disposed;
+        try { disposed = !reader.BaseStream.CanRead; }
+        catch (ObjectDisposedException) { disposed = true; }
+        Assert.IsTrue(disposed, "Resources dispose only after the owned root is observed complete.");
     }
 
     [TestMethod]
@@ -184,6 +263,57 @@ public sealed class RedirectedProcessPipeEvidenceTests
         Assert.IsFalse(result.TimedOut);
         Assert.IsFalse(result.Cancelled);
         await result.Teardown.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    private sealed class ReadCancellationMeasurement
+    {
+        private readonly TaskCompletionSource readsTerminal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long cancellationObserved;
+        private long lastReadCompleted;
+        private int terminalReads;
+        private int cancelledReads;
+        internal Task ReadsTerminal => readsTerminal.Task;
+
+        internal async ValueTask<int> ReadAsync(StreamReader reader, Memory<char> buffer, CancellationToken token)
+        {
+            using CancellationTokenRegistration registration = token.Register(() =>
+                Interlocked.CompareExchange(ref cancellationObserved, Stopwatch.GetTimestamp(), 0));
+            int count = -1;
+            bool cancelled = false;
+            try { count = await reader.ReadAsync(buffer, token); return count; }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { cancelled = true; throw; }
+            finally
+            {
+                if (token.IsCancellationRequested && (cancelled || count == 0))
+                {
+                    RecordLatestCompletion();
+                    if (cancelled) Interlocked.Increment(ref cancelledReads);
+                    if (Interlocked.Increment(ref terminalReads) == 2) readsTerminal.TrySetResult();
+                }
+            }
+        }
+
+        private void RecordLatestCompletion()
+        {
+            long completed = Stopwatch.GetTimestamp();
+            long previous = Volatile.Read(ref lastReadCompleted);
+            while (completed > previous)
+            {
+                long observed = Interlocked.CompareExchange(ref lastReadCompleted, completed, previous);
+                if (observed == previous) return;
+                previous = observed;
+            }
+        }
+
+        internal void Log(TestContext context, bool snapshotIoCompleted)
+        {
+            long start = Volatile.Read(ref cancellationObserved);
+            long end = Volatile.Read(ref lastReadCompleted);
+            string elapsed = start != 0 && end != 0
+                ? ((end - start) * 1000d / Stopwatch.Frequency).ToString("F3", CultureInfo.InvariantCulture)
+                : "unavailable";
+            context.WriteLine($"Owned native reads: runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; snapshot IO completed={snapshotIoCompleted}; terminal reads={terminalReads}; cancelled reads={cancelledReads}; cancellation-callback-to-last-read completion ms={elapsed}. Callback scheduling is included; a negative delta means the observation callback followed read completion. Writer was still alive when completion was observed.");
+        }
     }
 
     private sealed class OwnedFixture : IAsyncDisposable
