@@ -50,10 +50,17 @@
 
 - Keep output concise. Do not reproduce large source files or long command logs in chat.
 - Put durable findings in repository Markdown files; final chat output is at most 12 lines.
-- Do not spawn subagents or use parallel worktrees unless the task prompt explicitly permits it.
+- Do not spawn subagents or use parallel worktrees unless the task prompt explicitly permits it, except for the standing Opus consultation authority below.
 - Do not browse or enable network access unless required by the task. Prefer official primary documentation.
 - Do not install packages merely to make a preferred design work; document the requirement and request approval.
-- If blocked after two materially different attempts, stop. Write `docs/failures/<task-id>.md` with commands, exact errors, changed files, and the smallest suspected cause.
+- If blocked after two materially different attempts, stop repeated implementation attempts, write `docs/failures/<task-id>.md` with commands, exact errors, changed files, and the smallest suspected cause, then follow the Opus consultation rule before a final blocked handoff.
+
+## When an agent gets stuck
+
+- Any agent that gets stuck on an implementation problem, unexplained failure, capability gap or conflicting instructions must consult **Opus 5.5** in an open, back-and-forth dialogue before declaring the task blocked. This is standing owner authorization for that consultation, including a cross-provider delegate; it is the exception to the delegation restriction above and in task prompts. It does not authorize worktrees or unrelated delegation.
+- Share the scoped objective, requirement IDs, relevant source/ADR evidence, attempted approaches and exact failures. Work through proposed solutions together: question assumptions, raise objections, inspect evidence and return validation results to Opus. A one-shot review or untested suggestion does not complete the consultation. Continue until there is an evidence-backed solution within the approved scope, or both agents identify the concrete unresolved blocker and smallest owner decision or missing capability.
+- Implement and validate an agreed solution within existing task authority. Record the dialogue's key reasoning, agreed approach, commands/results and remaining limits in the task report or failure record. Consultation cannot accept ADRs for the owner, waive safety/review gates or grant host-action, publication or spending authority.
+- If Opus 5.5 is unavailable, record the tool/model failure and report that specific consultation blocker; use another model only with owner approval. Preserve the current task and safe independent work while resolving the blocker.
 
 ## Standard completion report
 
