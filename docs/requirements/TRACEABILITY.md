@@ -1,5 +1,7 @@
 # MVP requirement traceability
 
+**Consultation escalation update (2026-10-29):** Owner-requested `AGENTS.md` amendment adds both Fable 5.1 and ChatGPT Astra 6 to the joint dialogue when the main agent and Opus 5.5 remain unable to solve a problem. Evidence exchange, validation and retained approval boundaries apply to every participant. Engineering workflow only; no product requirement or Task 49 acceptance result changes.
+
 **Project workflow update (2026-10-29):** Owner-requested `AGENTS.md` rule requires iterative Opus 5.5 consultation when any agent gets stuck, with recorded evidence/validation and existing safety/owner gates preserved. This is an engineering instruction, not a product requirement amendment or acceptance result; Task 49 remains incomplete.
 
 **Task 49 — entry assessment (2026-10-29):** `FR-UPD-14`, retained `FR-UPD-01–11`, `FR-UI-01–07`, `NFR-OBS-01–05`: [capability assessment](../review/TASK_49_ENTRY_ASSESSMENT.md) confirms accepted planning but records unproven ADR-025 independent new-protocol machine Update evidence/mode enforcement. Task 49 is started/incomplete, superseding unstarted wording below; no feature criterion closes. Baseline `fbf1835`: helper/runner 21/21, Release zero warnings/errors, full 293/293 pass. No production/test/protocol/deployment change; Task 50 and distribution gates remain unchanged.
