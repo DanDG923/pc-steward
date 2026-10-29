@@ -1,6 +1,6 @@
 # Task 49 — truthful update progress: entry assessment
 
-**Superseded interpretation:** [Subsequent design dialogue](TASK_49_DESIGN_DIALOGUE.md) establishes that the new-protocol requirement is conditional on changed payload semantics. Desktop-local observed progress can preserve protocol 1 and does not require the stronger new-protocol Update capability. The categorical protocol blocker below is historical, not the current Task 49 conclusion. Progress/teardown implementation remains incomplete; the dialogue record separates agreed corrections and measured evidence from proposals.
+**Superseded interpretation:** [Subsequent design dialogue](TASK_49_DESIGN_DIALOGUE.md) establishes that the new-protocol requirement is conditional on changed payload semantics. Desktop-local observed progress can preserve protocol 1 and does not require the stronger new-protocol Update capability. The categorical protocol blocker below is historical, not the current Task 49 conclusion. The subsequent [completed local implementation](TASK_49_IMPLEMENTATION.md) and [scoped independent review](TASK_49_INDEPENDENT_REVIEW.md) supersede this initial assessment; the original dated findings below remain historical evidence.
 
 Date: 2026-10-29. Source baseline: `fbf1835589946d5bcf67de2df9fedd154fddbd78`; initially clean working tree.
 

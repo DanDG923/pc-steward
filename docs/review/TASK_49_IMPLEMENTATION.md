@@ -1,6 +1,6 @@
-# Task 49 — truthful progress implementation candidate
+# Task 49 — truthful progress implementation
 
-Date: 2026-10-29. This report covers the local implementation candidate following ownership checkpoint `607271d`. It does not pass Task 53/54, deploy a replacement helper, or start Task 50. Independent candidate review is pending.
+Date: 2026-10-29. This report covers the local implementation candidate following ownership checkpoint `607271d`. Local implementation and the scoped independent integration review are complete at source commit `cfeb0ef21f436c3a1152b3cb6fecd04222b60c42`. This does not pass Task 53/54, deploy a replacement helper, or start Task 50. The final documentation-only commit records completion without changing reviewed source/test identities.
 
 ## Result and requirement evidence
 
@@ -52,6 +52,16 @@ Measured component evidence: at most two stored frames per mailbox, each legal c
 - Helper protocol/authentication/authorization/arguments stay unchanged; shared code lifecycle and artifact hashes change. Helper-local residual teardown evidence never travels over protocol 1. New helpers/manifests require separate redeployment authority.
 - Safety hold covers incomplete owned work through this executor instance in the desktop process. It proves neither orphaned/external installer termination nor cross-process/restart conflict prevention. Existing interrupted-history recovery/verification remains; Task 52's stronger admission/recovery design is not claimed here.
 - Q3 bounds name inspection, retained names and candidate derivation; `Process.GetProcesses()` still materializes a native array before inspection. Counts and warning disclosures explicitly preserve that limit; it is not a bounded-native-enumeration capability claim.
-- Task 53 evidence readiness, Task 54 independent phase gate and public distribution/signing gates remain open independently. This candidate's independent integration review is still pending.
+- Task 53 evidence readiness, Task 54 independent phase gate and public distribution/signing gates remain open independently. The [independent integration review](TASK_49_INDEPENDENT_REVIEW.md) passed with no concrete findings and 117/117 independently executed focused checks, zero skipped.
 
 The owner-required subagent escalation routing is recorded in AGENTS.md. No worker reported an unresolved design blocker; shared compilation interference was resolved in the owning file. Main remains responsible for council dialogue if a concrete blocker appears. Opus remains involved throughout any Fable/Astra escalation.
+
+## Completion verification
+
+The fresh Sol High Fast reviewer inspected the cumulative `fbf1835` to `cfeb0ef` diff, production call chains and all 35 changed source/test blob identities. The report raises no Blocker/High/Medium finding; its optional successful authenticated-transport fixture strengthening is retained as future evidence, not an implementation gate failure. Existing exact trust/write ordering was independently source-reviewed; no live peer/UAC capability is inferred.
+
+Main read the review, verified HEAD and all 35 source/test Git blob identities independently, confirmed no tracked drift, and rechecked that the protocol codec and canonical scripts are unchanged. The retained canonical logs show Release zero warnings/errors and 407/407 tests. No source/test changed after that full pass; final closure changes documentation only, so the full suite was not repeated merely for redundancy. The independent report itself is committed unchanged.
+
+Opus 5.5, Fable 5.1 and Astra 6 all acknowledged the returned validation for `cfeb0ef`, with Opus retained throughout the dialogue. They reported no new contradiction or owner decision; their acknowledgments explicitly are not independent source reviews. The separate fresh Sol review provides that integration evidence. The council's disputed overflow/teardown problem is resolved within the documented local scope, with external/restart/host limits retained.
+
+Task 49 is complete for its local implementation, focused/build/full checks, truthful UI contract and protocol compatibility exit. Task 50 remains unstarted and requires its own instruction. Preserve the existing Task 48 installed artifacts, data, signer and evidence; no push, deployment, signing, install/update, app launch or cleanup is authorized by this completion record.
