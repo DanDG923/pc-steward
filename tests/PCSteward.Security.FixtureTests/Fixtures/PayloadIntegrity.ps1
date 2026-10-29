@@ -1,5 +1,8 @@
 param([Parameter(Mandatory)][string]$RepositoryRoot)
 $ErrorActionPreference = 'Stop'
+# The .NET-launched Windows PowerShell child can inherit another host's module paths.
+# Bind hash/utility functions to this host instead of relying on module auto-loading.
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -Force
 $helper = Join-Path $RepositoryRoot 'scripts\OwnerOnlyPayloadIntegrity.ps1'
 if (Test-Path -LiteralPath $helper) { . $helper }
 $waitHelper = Join-Path $RepositoryRoot 'scripts\Wait-OwnerOnlyDeploymentProcess.ps1'

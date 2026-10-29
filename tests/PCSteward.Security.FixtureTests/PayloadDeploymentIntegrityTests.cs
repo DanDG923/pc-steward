@@ -32,7 +32,9 @@ public sealed class PayloadDeploymentIntegrityTests
     }
 
     [TestMethod]
-    public async Task PinnedPayloadRejectsDriftEscapesAndUnapprovedSigningChanges()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PinnedPayloadRejectsDriftEscapesAndUnapprovedSigningChanges(bool missingHashFunction)
     {
         string root = FindRoot();
         string script = Path.Combine(root, "tests", "PCSteward.Security.FixtureTests", "Fixtures", "PayloadIntegrity.ps1");
@@ -44,7 +46,15 @@ public sealed class PayloadDeploymentIntegrityTests
             RedirectStandardError = true,
             WorkingDirectory = root
         };
-        foreach (string argument in new[] { "-NoProfile", "-File", script, "-RepositoryRoot", root }) start.ArgumentList.Add(argument);
+        using TemporaryHostState hostState = new();
+        if (missingHashFunction)
+        {
+            foreach (string argument in new[] { "-NoProfile", "-File", hostState.Bootstrap, script, root }) start.ArgumentList.Add(argument);
+        }
+        else
+        {
+            foreach (string argument in new[] { "-NoProfile", "-File", script, "-RepositoryRoot", root }) start.ArgumentList.Add(argument);
+        }
         using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start isolated payload fixtures.");
         Task<string> output = process.StandardOutput.ReadToEndAsync();
         Task<string> error = process.StandardError.ReadToEndAsync();
@@ -53,6 +63,26 @@ public sealed class PayloadDeploymentIntegrityTests
         catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
         Assert.AreEqual(0, process.ExitCode, $"Payload fixture failure:\n{await output}\n{await error}");
         StringAssert.Contains(await output, "PASS: payload integrity fixtures");
+    }
+
+    private sealed class TemporaryHostState : IDisposable
+    {
+        private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("pc-steward-psmodules-");
+        public string Path => directory.FullName;
+        public string Bootstrap => System.IO.Path.Combine(Path, "bootstrap.ps1");
+
+        public TemporaryHostState()
+        {
+            // Reproduce the CI boundary: Utility cmdlets exist but its hash function is missing.
+            File.WriteAllText(Bootstrap,
+                "$ErrorActionPreference = 'Stop'\n" +
+                "foreach ($module in @('Utility','Management','Security')) { Import-Module (Join-Path $PSHOME ('Modules\\Microsoft.PowerShell.' + $module + '\\Microsoft.PowerShell.' + $module + '.psd1')) -Force }\n" +
+                "Remove-Item Function:\\Get-FileHash\n" +
+                "$global:PSModuleAutoLoadingPreference = 'None'\n" +
+                "& $args[0] -RepositoryRoot $args[1]\nexit $LASTEXITCODE\n");
+        }
+
+        public void Dispose() => directory.Delete(recursive: true);
     }
 
     private static string FindRoot()

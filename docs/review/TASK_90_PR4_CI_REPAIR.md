@@ -1,6 +1,33 @@
 # Task 90 — PR #4 CI fixture repair
 
-## Failure and cause
+## Follow-up: missing Utility function after standard-user logon
+
+Current PR head `d15729f9708f3ce1ba9ef365a15dcbdc1846b298` successfully launched
+the full suite as the standard CI user. The [next failed job](https://github.com/DanDG923/pc-steward/actions/runs/40948161842/job/123708884018)
+passed 291 tests but failed the payload fixture at line 48 because `Get-FileHash`
+was unavailable. There are no submitted reviews or inline review threads on PR #4
+at this check; this failed fixture is the actionable finding.
+
+The fixture assumed Windows PowerShell's Utility functions would auto-load.
+It now explicitly imports that host's built-in Utility manifest using `$PSHOME`
+and `-Force` before loading the integrity helper. Cross-host module paths inherited
+from PowerShell 7 are a suspected trigger; the exact hosted module selection has
+not been captured. No production guard, launcher, workflow or product source changed.
+
+The new data row starts a fresh Windows PowerShell child with the Utility hash
+function removed and auto-loading disabled. Before the fix, it reproduced CI's
+same `Get-FileHash` CommandNotFoundException at line 48; after the fix both the
+ordinary and missing-function rows complete all 85 payload assertions.
+Temporary bootstrap files are removed by the fixture's disposer.
+
+Fresh local gates: focused **3/3**, Release build **0 warnings/errors**, full
+suite **293/293** (architecture 28, domain 59, security 25, integration 181),
+zero failures/skips. Local commands use Windows PowerShell and the existing
+SDK 10.0.403 as documented below. No local account/ACL/certificate/installed-app
+or schedule action occurred in this follow-up. A fresh hosted rerun still requires
+an approved push; the following original-repair record is historical.
+
+## Original failure and cause
 
 PR https://github.com/DanDG923/pc-steward/pull/4 at `e99bc8a2b4821d87dfd2da44277f97c408777063`.
 Failed job: https://github.com/DanDG923/pc-steward/actions/runs/40946794070/job/123704170570.

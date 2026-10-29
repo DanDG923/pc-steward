@@ -1,5 +1,7 @@
 # PC Steward build status
 
+**Task 90 — PR #4 follow-up:** Hosted standard-user logon is confirmed at `d15729f`; the next failure was unavailable `Get-FileHash`. The fixture now explicitly imports its Windows PowerShell Utility module. Missing-function regression failed before the fix and passes after it; focused 3/3, Release zero warnings/errors, full 293/293 pass. [Evidence](review/TASK_90_PR4_CI_REPAIR.md) supersedes the earlier pending-logon state below. `TM-04`/`TM-06` guards remain unchanged; hosted rerun awaits approved push. No Task 49/distribution gate change.
+
 **Task 90 — PR #4 CI repair (2026-10-29):** [Failure and evidence](review/TASK_90_PR4_CI_REPAIR.md). CI now runs fixtures/full tests as a temporary standard user because the hosted administrator token correctly triggered protected-compilation guards. Production guards remain intact (`TM-04`, `TM-06`, ADR-022). Local 85 assertions, focused 2/2, Release zero warnings/errors and full 292/292 pass. Hosted logon/rerun awaits approved push; no Task 49 or distribution gate change.
 
 **Git maintenance (2026-10-29):** [Commit/push repair and fresh verification](review/GIT_PUSH_REPAIR.md) records repository-local authorship repair, 85 focused assertions, Release build 0 warnings/errors and full 291/291 tests. Use the existing T3 `pc-steward` project for Git controls; the outer `PC Steward` project points at a separate repository with no remote. No product or distribution gate changes.
