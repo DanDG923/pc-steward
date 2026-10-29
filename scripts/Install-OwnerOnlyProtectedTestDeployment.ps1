@@ -1,9 +1,15 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][switch]$Install, [switch]$CreateOwnerOnlyCertificate, [string]$CertificateThumbprint)
+param(
+    [Parameter(Mandatory)][switch]$Install,
+    [string]$CandidateRoot,
+    [string]$CandidateManifestPath,
+    [string]$CandidateManifestSha256,
+    [switch]$CreateOwnerOnlyCertificate,
+    [string]$CertificateThumbprint
+)
 
 $ErrorActionPreference = 'Stop'
 $schema = 'pc-steward-owner-only-protected-test-v6'
-function Require-Success([int]$ExitCode, [string]$Operation) { if ($ExitCode -ne 0) { throw "$Operation failed with exit code $ExitCode." } }
 function Enter-OwnerOnlyMutex() {
     $mutex = [Threading.Mutex]::new($false, 'Global\PCSteward.OwnerOnlyTestDeployment.v1')
     try { if (!$mutex.WaitOne(0)) { $mutex.Dispose(); throw 'Another owner-only protected deployment or recovery is already running.' } }
@@ -58,14 +64,14 @@ function Assert-PendingCertificateAbsent([string]$Subject) {
 }
 function Write-PendingLedger([object]$CertificateState, [string]$StatePath, [string]$InstallRoot, [string]$InstallerSid) {
     $thumbprint = if ($CertificateState.Certificate) { $CertificateState.Certificate.Thumbprint } else { $null }
-    [ordered]@{ schema = $schema; installRoot = $InstallRoot; installerSid = $InstallerSid; certificateThumbprint = $thumbprint; certificateSubject = $CertificateState.Subject; ownedCertificateStores = @($CertificateState.OwnedStores); completed = $false; rollbackRequired = $false; pendingCertificate = ($null -eq $CertificateState.Certificate) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $StatePath -Encoding utf8
+    Write-OwnerOnlyProtectedJson -Path $StatePath -Value ([ordered]@{ schema = $schema; installRoot = $InstallRoot; installerSid = $InstallerSid; certificateThumbprint = $thumbprint; certificateSubject = $CertificateState.Subject; ownedCertificateStores = @($CertificateState.OwnedStores); completed = $false; rollbackRequired = $false; pendingCertificate = ($null -eq $CertificateState.Certificate) })
     Set-OwnerOnlyAcl (Split-Path -Parent $StatePath)
 }
 function New-OwnerOnlyCertificate([ref]$State, [string]$StatePath, [string]$InstallRoot, [string]$InstallerSid) {
     $subject = "CN=PC Steward Owner-Only Test $(New-Guid)"
     $State.Value = [pscustomobject]@{ Certificate = $null; Subject = $subject; OwnedStores = [Collections.Generic.List[string]]@('My') }
     Write-PendingLedger -CertificateState $State.Value -StatePath $StatePath -InstallRoot $InstallRoot -InstallerSid $InstallerSid
-    $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(14)
+    $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(14)
     $State.Value.Certificate = $certificate
     Write-PendingLedger -CertificateState $State.Value -StatePath $StatePath -InstallRoot $InstallRoot -InstallerSid $InstallerSid
     foreach ($storeName in @('Root', 'TrustedPublisher')) {
@@ -102,9 +108,11 @@ function Assert-TrustedDeployment([string]$InstallRoot, [string]$StateRoot, [str
 }
 
 if (!$Install) { throw 'Installation is state-changing. Re-run with the explicit -Install switch.' }
+if (!$CandidateRoot -or !$CandidateManifestPath -or !$CandidateManifestSha256) { throw 'Specify the exact approved CandidateRoot, CandidateManifestPath and CandidateManifestSha256. Installer-time compilation is not supported.' }
+if ($CertificateThumbprint -or !$CreateOwnerOnlyCertificate) { throw 'The pinned route requires a fresh owner-only certificate; reused CertificateThumbprint is not supported.' }
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this owner-only deployment script from an elevated PowerShell session.' }
-$root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'OwnerOnlyPayloadIntegrity.ps1')
 $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $installRoot = Join-Path $programFiles 'PC Steward'
 $stateRoot = Join-Path $programFiles 'PC Steward OwnerOnlyTest State'
@@ -115,45 +123,60 @@ $deploymentMutex = Enter-OwnerOnlyMutex
 try {
     if (Test-Path -LiteralPath $installRoot) { throw "Refusing to replace an existing protected deployment: $installRoot" }
     if (Test-Path -LiteralPath $stateRoot) { throw "Refusing to reuse owner-only deployment state: $stateRoot" }
+    $candidate = Read-OwnerOnlyCandidateManifest -Path $CandidateManifestPath -ExpectedSha256 $CandidateManifestSha256
+    [PCSteward.Deployment.PayloadIntegrity]::AssertTree($CandidateRoot,$candidate.Files)
     $certificateState = $null; $ownsInstallRoot = $false; $ownsStateRoot = $false
     try {
     New-Item -ItemType Directory -Path $stateRoot -ErrorAction Stop | Out-Null; $ownsStateRoot = $true; Set-OwnerOnlyAcl $stateRoot
     New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null; Set-OwnerOnlyAcl $staging
     if ((Get-Item -LiteralPath $staging).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Protected staging is a reparse point.' }
-    if ($CertificateThumbprint) { $certificate = Get-Item -LiteralPath (Join-Path 'Cert:\CurrentUser\My' $CertificateThumbprint); if (!$certificate.HasPrivateKey) { throw 'The requested certificate has no private key.' }; $certificateState = [pscustomobject]@{ Certificate = $certificate; Subject = $certificate.Subject; OwnedStores = [Collections.Generic.List[string]]@() } }
-    else { if (!$CreateOwnerOnlyCertificate) { throw 'Specify -CreateOwnerOnlyCertificate or -CertificateThumbprint.' }; New-OwnerOnlyCertificate ([ref]$certificateState) -StatePath $statePath -InstallRoot $installRoot -InstallerSid $installerSid }
+    $payloadStaging = Join-Path $staging 'payload'
+    New-Item -ItemType Directory -Path $payloadStaging -ErrorAction Stop | Out-Null; Set-OwnerOnlyAcl $payloadStaging
+    [PCSteward.Deployment.PayloadIntegrity]::CopyTreeProtected($CandidateRoot,$payloadStaging,$candidate.Files)
+    Set-OwnerOnlyAcl $stateRoot
+    [PCSteward.Deployment.PayloadIntegrity]::AssertTree($payloadStaging,$candidate.Files)
+    $executableImages = @(foreach ($leaf in @('PCSteward.Desktop.exe','PCSteward.ElevatedHelper.exe')) {
+        $path = Join-Path $payloadStaging $leaf
+        if ((Get-AuthenticodeSignature -LiteralPath $path).Status -ne 'NotSigned') { throw "Candidate executable must be unsigned: $leaf" }
+        $image = [PCSteward.Deployment.PayloadIntegrity]::GetUnsignedImage($path)
+        [ordered]@{ path=$leaf; bytes=$image.bytes; originalChecksum=[long]$image.originalChecksum }
+    })
+    $protectedManifest = Join-Path $stateRoot 'candidate-manifest.json'
+    [PCSteward.Deployment.PayloadIntegrity]::WriteProtectedFile($protectedManifest,$candidate.Raw)
+    Set-OwnerOnlyAcl $stateRoot
+    $null = Read-OwnerOnlyCandidateManifest -Path $protectedManifest -ExpectedSha256 $candidate.Sha256
+    # No certificate-store mutation or signing until the protected payload is exact.
+    New-OwnerOnlyCertificate ([ref]$certificateState) -StatePath $statePath -InstallRoot $installRoot -InstallerSid $installerSid
     $certificate = $certificateState.Certificate; if ($certificate.NotAfter -le (Get-Date)) { throw 'The code-signing certificate is expired.' }
     Write-PendingLedger -CertificateState $certificateState -StatePath $statePath -InstallRoot $installRoot -InstallerSid $installerSid
-    $desktopProject = Join-Path $root 'src\PCSteward.Desktop\PCSteward.Desktop.csproj'; $helperProject = Join-Path $root 'src\PCSteward.ElevatedHelper\PCSteward.ElevatedHelper.csproj'
-    $desktopStaging = Join-Path $staging 'desktop'; $helperStaging = Join-Path $staging 'helper'; $winuiBuildStaging = Join-Path $staging 'winui-build'
-    New-Item -ItemType Directory -Path $desktopStaging -ErrorAction Stop | Out-Null; Set-OwnerOnlyAcl $desktopStaging
-    New-Item -ItemType Directory -Path $helperStaging -ErrorAction Stop | Out-Null; Set-OwnerOnlyAcl $helperStaging
-    New-Item -ItemType Directory -Path $winuiBuildStaging -ErrorAction Stop | Out-Null; Set-OwnerOnlyAcl $winuiBuildStaging
-    dotnet build $desktopProject --configuration Release --runtime win-x64 --output $winuiBuildStaging; Require-Success $LASTEXITCODE 'Desktop WinUI resource build'
-    dotnet publish $desktopProject --configuration Release --runtime win-x64 --self-contained false --output $desktopStaging; Require-Success $LASTEXITCODE 'Desktop publish'
-    dotnet publish $helperProject --configuration Release --runtime win-x64 --self-contained false --output $helperStaging; Require-Success $LASTEXITCODE 'Elevated helper publish'
-    foreach ($resourceLeaf in @('App.xbf', 'PCSteward.Desktop.pri')) {
-        $resourcePath = Join-Path $winuiBuildStaging $resourceLeaf
-        if (!(Test-Path -LiteralPath $resourcePath -PathType Leaf)) { throw "Desktop WinUI resource build is missing: $resourceLeaf" }
-        Copy-Item -LiteralPath $resourcePath -Destination $desktopStaging
+    $verifiedSignedFiles = [Collections.Generic.Dictionary[string,PCSteward.Deployment.PayloadFile]]::new([StringComparer]::Ordinal)
+    foreach ($image in $executableImages) {
+        $path = Join-Path $payloadStaging $image.path
+        $signature = Set-AuthenticodeSignature -FilePath $path -Certificate $certificate -HashAlgorithm SHA256
+        if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Could not sign $($image.path) with the owner-only certificate." }
+        $original = @($candidate.Files | Where-Object { $_.path -ceq $image.path })[0]
+        $verifiedSignedFiles.Add($image.path,(Test-OwnerOnlySignedExecutable -Path $path -Identity ([PCSteward.Deployment.ImageIdentity]::new($original.bytes,$original.sha256,[uint32]$image.originalChecksum)) -ExpectedThumbprint $certificate.Thumbprint))
     }
-    $compiledResources = Join-Path $winuiBuildStaging 'Resources'
-    if (!(Test-Path -LiteralPath $compiledResources -PathType Container)) { throw 'Desktop WinUI resource build is missing the compiled Resources directory.' }
-    Copy-Item -LiteralPath $compiledResources -Destination $desktopStaging -Recurse
-    foreach ($leaf in @('PCSteward.Desktop.exe', 'App.xbf', 'PCSteward.Desktop.pri')) { if (!(Test-Path -LiteralPath (Join-Path $desktopStaging $leaf))) { throw "Desktop publish is missing required WinUI payload: $leaf" } }
-    if (@(Get-ChildItem -LiteralPath $desktopStaging -Filter '*.xbf' -File -Recurse).Count -eq 0) { throw 'Desktop publish is missing WinUI XBF resources.' }
-    if (!(Test-Path -LiteralPath (Join-Path $helperStaging 'PCSteward.ElevatedHelper.exe'))) { throw 'Elevated helper publish is missing its executable.' }
+    $signedPayload = [Collections.Generic.List[PCSteward.Deployment.PayloadFile]]::new()
+    foreach ($file in $candidate.Files) {
+        if ($file.path -cin @('PCSteward.Desktop.exe','PCSteward.ElevatedHelper.exe')) {
+            $signedPayload.Add($verifiedSignedFiles[$file.path])
+        } else { $signedPayload.Add($file) }
+    }
+    [PCSteward.Deployment.PayloadIntegrity]::AssertTree($payloadStaging,$signedPayload.ToArray())
+    # The complete signing/identity/trust profile passes in protected staging before install.
     New-Item -ItemType Directory -Path $installRoot -ErrorAction Stop | Out-Null; $ownsInstallRoot = $true
-    Get-ChildItem -LiteralPath $desktopStaging -Force | Copy-Item -Destination $installRoot -Recurse -Force
-    Get-ChildItem -LiteralPath $helperStaging -Force | Copy-Item -Destination $installRoot -Recurse -Force
-    foreach ($leaf in @('PCSteward.Desktop.exe', 'PCSteward.ElevatedHelper.exe', 'App.xbf', 'PCSteward.Desktop.pri')) { if (!(Test-Path -LiteralPath (Join-Path $installRoot $leaf))) { throw "Protected deployment is missing required payload: $leaf" } }
-    foreach ($leaf in @('PCSteward.Desktop.exe', 'PCSteward.ElevatedHelper.exe')) { $signature = Set-AuthenticodeSignature -FilePath (Join-Path $installRoot $leaf) -Certificate $certificate; if (!$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Could not sign $leaf with the owner-only certificate." } }
     Set-OwnerOnlyAcl $installRoot
-    $files = Get-DeploymentFiles $installRoot
-    [ordered]@{ schema = $schema; installRoot = $installRoot; installerSid = $installerSid; certificateThumbprint = $certificate.Thumbprint; certificateSubject = $certificate.Subject; ownedCertificateStores = @($certificateState.OwnedStores); createdAtUtc = [DateTimeOffset]::UtcNow.ToString('O'); completed = $true; files = $files } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $statePath -Encoding utf8
+    [PCSteward.Deployment.PayloadIntegrity]::CopyTreeProtected($payloadStaging,$installRoot,$signedPayload.ToArray())
+    Set-OwnerOnlyAcl $installRoot
+    Remove-Item -LiteralPath $staging -Recurse -Force
+    $files = @($signedPayload.ToArray() | Sort-Object path | ForEach-Object { [ordered]@{path=$_.path;sha256=$_.sha256} })
+    $completedState = [ordered]@{ schema = $schema; installRoot = $installRoot; installerSid = $installerSid; certificateThumbprint = $certificate.Thumbprint; certificateSubject = $certificate.Subject; ownedCertificateStores = @($certificateState.OwnedStores); createdAtUtc = [DateTimeOffset]::UtcNow.ToString('O'); completed = $true; files = $files; payloadOrigin = 'pinned-unsigned-v1'; candidateManifestSha256 = $candidate.Sha256; executableImages = $executableImages }
+    Write-OwnerOnlyProtectedJson -Path $statePath -Value $completedState
     Set-OwnerOnlyAcl $stateRoot
     Assert-TrustedDeployment -InstallRoot $installRoot -StateRoot $stateRoot -ExpectedThumbprint $certificate.Thumbprint -ExpectedFiles $files
-    Remove-Item -LiteralPath $staging -Recurse -Force
+    $origin = Assert-OwnerOnlyPayloadProvenance -InstallRoot $installRoot -StateRoot $stateRoot -State (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json)
+    if ($origin -cne 'pinned-unsigned-v1') { throw 'New deployment lacks required pinned-payload provenance.' }
     [pscustomobject]@{ deployment = 'owner-only-protected-test'; installRoot = $installRoot; certificateThumbprint = $certificate.Thumbprint; validation = 'Pass'; launched = $false; applicationUpdates = 0 } | ConvertTo-Json
 }
 catch {
@@ -174,7 +197,7 @@ catch {
     }
     if ($rollbackFailures.Count -gt 0) {
         if ($ownsStateRoot -and (Test-Path -LiteralPath $stateRoot)) {
-            [ordered]@{ schema = $schema; installRoot = $installRoot; installerSid = $installerSid; certificateThumbprint = if ($certificateState -and $certificateState.Certificate) { $certificateState.Certificate.Thumbprint } else { $null }; certificateSubject = if ($certificateState) { $certificateState.Subject } else { $null }; ownedCertificateStores = if ($certificateState) { @($certificateState.OwnedStores) } else { @() }; completed = $false; rollbackRequired = $true; rollbackFailures = @($rollbackFailures); originalFailure = $originalFailure } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding utf8
+            Write-OwnerOnlyProtectedJson -Path $statePath -Value ([ordered]@{ schema = $schema; installRoot = $installRoot; installerSid = $installerSid; certificateThumbprint = if ($certificateState -and $certificateState.Certificate) { $certificateState.Certificate.Thumbprint } else { $null }; certificateSubject = if ($certificateState) { $certificateState.Subject } else { $null }; ownedCertificateStores = if ($certificateState) { @($certificateState.OwnedStores) } else { @() }; completed = $false; rollbackRequired = $true; rollbackFailures = @($rollbackFailures); originalFailure = $originalFailure })
             Set-OwnerOnlyAcl $stateRoot
         }
         throw "Owner-only deployment failed: $originalFailure. Rollback is incomplete: $($rollbackFailures -join '; ')"

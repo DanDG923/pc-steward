@@ -2,6 +2,8 @@
 
 This is the exact execution order for turning the approved PC Steward specification into a reviewable MVP while controlling Codex context and model usage.
 
+The separate PC Steward 2.0 sequence is defined by [Phase A2](docs/requirements/V2_PHASE_A2.md), [Tasks 48–72](prompts/INDEX.md#pc-steward-20--task-47-planning-package) and the [shared contract](docs/requirements/V2_TASK_CONTRACT.md). Preserve the existing MVP/distribution gates and owner-only deployment boundaries. Future prompts require their own instruction, accepted applicable decisions and evidence; no branch/merge/delegation/host-action permission follows from this playbook.
+
 ## 1. Initial repository setup
 
 Extract this pack into a new Windows folder, open PowerShell in that folder, and run:

@@ -19,3 +19,11 @@ The script creates a collision-failing, non-reparse staging directory beneath an
 - A real update still requires a fresh in-app candidate, visible review and a separate exact action-time approval for one named package/version.
 - This route is owner-only test infrastructure, not an installer, updater, distribution channel, signing service or release artefact.
 - The temporary certificate and protected root must be removed with the dedicated removal script after test completion.
+
+## Accepted Task 48 amendment — pinned unsigned payload
+
+**Status: Accepted on 2026-10-29 by “I also accept the changes”.** This supersedes installer-time compilation in the historical decision above after implementation/tests/review; it supplies no new host-action authority. The first Task 48 installation passed protection checks but failed the exact candidate desktop DLL/PDB comparison. Opus and parent metadata/PDB checks identified differing CsWinRT-generated code and shared user-writable build intermediates. No launch/retry/cleanup followed.
+
+The [concrete amendment proposal](../review/TASK_48_PINNED_PAYLOAD_FIX_PROPOSAL.md) recommends replacing installer-time compilation with consumption of the separately reviewed unsigned payload and approved manifest hash: copy to protected staging, verify the exact complete payload before any signing, preserve non-signed byte identity, prove signed-executable image identity and retain provenance in the protected ledger/independent validator. Existing fixed roots, elevation/SID/mutex, certificate journal and separately approved removal/recovery remain. No runtime updater capability changes.
+
+Local implementation/fixtures and fresh independent review must precede any revised exact removal/redeploy approval. No host action or launch follows from design acceptance. The historical installed v6 build retains only its originally validated protection evidence.
