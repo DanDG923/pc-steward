@@ -1,5 +1,7 @@
 # PC Steward build status
 
+**Task 90 — PR #5 repair reviewed; push/hosted CI pending:** Fix **74c40cc** has [fresh scoped review](review/TASK_90_PR5_CI_REPAIR_REVIEW.md) **PASS/no findings**, independent **16/16**, zero skipped. Local Release zero warnings/errors/full **415/415** remain verified on unchanged source; main rechecked all 36 source/test identities. [Evidence/next action](review/TASK_90_PR5_CI_REPAIR.md): remote PR head remains6e26191, so the new CI repair awaits explicit push approval under AGENTS.md and a new hosted run. The ownership code finding is already fixed remotely in7bde99b; GitHub thread state is unchanged. No hosted pass or Task50/deployment action claimed.
+
 **Task 90 — PR #5 CI repair candidate; review/hosted rerun pending:** Live PR head **6e26191** already contains the valid ownership fix **7bde99b**. [CI diagnosis/repair](review/TASK_90_PR5_CI_REPAIR.md) addresses the actual failing pair of reader snapshot assertions: accepted unfinished I/O stays owned, deadlines remain unchanged, and deterministic delayed-read cases prove resources/admission remain held. Main/Opus agree; native measurement records are local only. Focused 12/12; Release zero warnings/errors; full **415/415**, zero skipped. Fresh scoped review and new hosted CI remain pending; no push or GitHub thread mutation. Task 50 unstarted.
 
 **Task 90 — COMPLETE; Task 49 machine-ownership finding addressed locally:** Fix **7bde99b** waits for provider-owned completion before protected scalar projection and normal helper exit. [Repair/evidence](review/TASK_90_TASK_49_MACHINE_OWNERSHIP.md), [fresh independent repair review](review/TASK_90_TASK_49_MACHINE_OWNERSHIP_REVIEW.md): no concrete findings, independent **40/40**; canonical Release **zero warnings/errors**, full **413/413**, zero skipped. Main rechecked all **36 source/test identities** without drift. Task 49 local completion is restored; earlier complete/reopened/candidate entries below are historical. Forced termination/external installers/restart and actual host/readiness/distribution gates remain separate. No push or GitHub resolution; Task 50 remains unstarted.
@@ -38,7 +40,7 @@
 
 **Current phase:** PC Steward 2.0 Phase C — Task 49 local implementation complete after Task 90 repair; Task 50 unstarted; owner-only installed and distribution gates unchanged.
 
-**Current task:** Task 90 — PR #5 CI test-contract repair; local full 415/415 and Opus agreement, fresh scoped review/hosted rerun pending. Existing machine ownership fix 7bde99b is already on PR head 6e26191. Task 50 remains unstarted.
+**Current task:** Task 90 — PR #5 CI repair 74c40cc locally reviewed (PASS/16 checks), full 415/415; explicit push approval/new hosted CI pending. Task 50 remains unstarted.
 
 **Reviewed implementation:** Task 42 at `52b43130130b25a850f43f1fe478d112c3ce9cb7`, plus restored SQLite project and SDK 10.0.403 pin; accepted/reviewed Task 48 pinned-payload deployment repair. Release 0 warnings/errors, full 291/291 tests; installed desktop DLL/PDB now match approved candidate. No 2.0 feature implementation
 
