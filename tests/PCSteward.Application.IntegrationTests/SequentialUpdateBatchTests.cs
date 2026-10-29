@@ -9,6 +9,47 @@ public sealed class SequentialUpdateBatchTests
     private static readonly string[] ExpectedDetectedProcessNames = ["firefox"];
 
     [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    public async Task UnresolvedOwnedCompletionRefusesTheNextUpdateBeforeAnyQueuedRow()
+    {
+        TaskCompletionSource pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        InMemoryHistory history = new();
+        LifetimeExecutor executor = new(pending.Task);
+        SequentialUpdateBatchCoordinator coordinator = new(executor, new ThrowingInventory(), history, new RunningDetector(false));
+        ImmutableUpdateJob first = Job("Contoso.Uncertain", "1.1.0");
+        ImmutableUpdateJob second = Job("Contoso.Blocked", "1.1.0");
+        UpdateBatchResult initial = await coordinator.RunAsync([Item(first)], CancellationToken.None);
+        Assert.AreEqual(UpdateHistoryStatus.VerificationRequired, initial.FinalEntries.Single().Status);
+
+        UpdateBatchResult blocked = await coordinator.RunAsync([Item(second)], CancellationToken.None);
+        Assert.IsTrue(blocked.AdmissionRefused);
+        Assert.HasCount(1, executor.Jobs);
+        Assert.IsFalse(history.Entries.Any(entry => entry.JobId == second.Id && entry.Status == UpdateHistoryStatus.Queued));
+        pending.SetResult();
+        UpdateBatchResult resumed = await coordinator.RunAsync([Item(Job("Contoso.Next", "1.1.0"))], CancellationToken.None);
+        Assert.IsFalse(resumed.AdmissionRefused);
+        Assert.HasCount(2, executor.Jobs);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    public async Task DispatchFailureDoesNotRecordAnObservedProviderStart()
+    {
+        InMemoryHistory history = new();
+        ImmutableUpdateJob job = Job("Contoso.NeverStarted", "1.1.0");
+        SequentialUpdateBatchCoordinator coordinator = new(
+            new FailingAttemptExecutor(UpdateProviderAttemptStatus.ProductFailed),
+            new ThrowingInventory(), history, new RunningDetector(false));
+
+        UpdateBatchResult result = await coordinator.RunAsync([Item(job)], CancellationToken.None);
+
+        Assert.AreEqual(UpdateHistoryStatus.ProductFailed, result.FinalEntries.Single().Status);
+        Assert.IsTrue(history.Entries.Any(entry => entry.Status == UpdateHistoryStatus.Running));
+        Assert.IsFalse(history.Entries.Any(entry => entry.Diagnostic == "provider-execution-started"),
+            "FR-UPD-14: dispatch intent cannot claim an observed provider start, especially when dispatch fails.");
+    }
+
+    [TestMethod]
     public async Task VerificationIsTheOnlyPathToSuccessAndBatchRemainsSequential()
     {
         InMemoryHistory history = new();
@@ -145,6 +186,17 @@ public sealed class SequentialUpdateBatchTests
     {
         public List<Guid> Jobs { get; } = [];
         public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) { Jobs.Add(job.Id); afterExecution?.Invoke(); return Task.FromResult(new UpdateProviderAttempt(UpdateProviderAttemptStatus.AwaitingVerification, 0, "provider-completed")); }
+    }
+    private sealed class LifetimeExecutor(Task completion) : IApprovedUpdateExecutor
+    {
+        public UpdateExecutionLifetime ExecutionLifetime { get; } = new();
+        internal List<Guid> Jobs { get; } = [];
+        public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken)
+        {
+            Jobs.Add(job.Id);
+            return Task.FromResult(new UpdateProviderAttempt(UpdateProviderAttemptStatus.Cancelled, null,
+                "synthetic-possible-invocation", completion));
+        }
     }
     private sealed class FailingAttemptExecutor(UpdateProviderAttemptStatus status) : IApprovedUpdateExecutor { public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) => Task.FromResult(new UpdateProviderAttempt(status, 9, "provider-negative-result")); }
     private sealed class Inventory(Dictionary<Guid, PostUpdateInventoryResult> results) : IPostUpdateInventory { public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(results[job.Id]); }

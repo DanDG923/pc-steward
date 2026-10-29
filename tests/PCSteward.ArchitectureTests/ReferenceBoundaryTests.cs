@@ -297,12 +297,19 @@ public sealed class ReferenceBoundaryTests
     public void UpdateOutcomeUsesTheExistingXamlRootUntilTheDialogCloses()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
-        int completionStart = source.IndexOf("finally { isExecuting = false; LoadSavedInventory(); }", StringComparison.Ordinal);
+        int reviewStart = source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal);
+        Assert.IsTrue(reviewStart >= 0);
+        int completionStart = source.IndexOf("finally {", reviewStart, StringComparison.Ordinal);
+        Assert.IsTrue(completionStart >= 0);
         int outcome = source.IndexOf("await ShowUpdateOutcomeAsync(GetUpdateOutcomeTitle(result), GetUpdateOutcomeMessage(result));", completionStart, StringComparison.Ordinal);
+        Assert.IsTrue(outcome > completionStart);
         int render = source.IndexOf("Render();", outcome, StringComparison.Ordinal);
 
-        Assert.IsTrue(completionStart >= 0 && outcome > completionStart && render > outcome);
-        Assert.IsFalse(source.Contains("finally { isExecuting = false; LoadSavedInventory(); Render(); }", StringComparison.Ordinal));
+        Assert.IsTrue(render > outcome);
+        string completion = source[completionStart..outcome];
+        StringAssert.Contains(completion, "isExecuting = false;");
+        StringAssert.Contains(completion, "LoadSavedInventory();");
+        Assert.IsFalse(completion.Contains("Render();", StringComparison.Ordinal), "Preserve the existing XamlRoot until the outcome dialog closes.");
     }
 
     [TestMethod]

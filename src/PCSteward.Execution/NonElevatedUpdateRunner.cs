@@ -17,7 +17,8 @@ public enum UpdateExecutionStatus
     ProductFailed,
     HelperFailed,
     ProviderFailed,
-    AwaitingVerification
+    AwaitingVerification,
+    VerificationRequired
 }
 
 public enum UpdateExecutionDenial
@@ -41,7 +42,8 @@ public sealed record UpdateExecutionResult(
     int? ExitCode,
     UpdateExecutionStatus Status,
     UpdateExecutionDenial Denial,
-    string SanitizedOutput);
+    string SanitizedOutput,
+    Task? OwnedCompletion = null);
 
 /// <summary>Runs only a confirmed user-scope job. Exit zero remains awaiting verification, never Success.</summary>
 public sealed partial class NonElevatedUpdateRunner
@@ -64,7 +66,8 @@ public sealed partial class NonElevatedUpdateRunner
     public async Task<UpdateExecutionResult> RunAsync(
         ImmutableUpdateJob job,
         UpdateJobExecutionEvidence currentEvidence,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        UpdateItemProgress? progress = null)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(currentEvidence);
@@ -95,27 +98,37 @@ public sealed partial class NonElevatedUpdateRunner
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.UnsupportedScope, "unsupported-scope");
         }
 
-        Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.started", "Provider execution started.");
+        if (cancellationToken.IsCancellationRequested)
+            return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "operation-cancelled");
+
+        Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.dispatch-requested", "Provider execution requested.");
         try
         {
-            WingetProcessResult providerResult = await winget.ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
+            WingetProcessResult providerResult = await winget.ExecuteAsync(job, progress, cancellationToken).ConfigureAwait(false);
             string output = Sanitize(string.Join(' ', providerResult.StandardOutput, providerResult.StandardError));
             if (providerResult.OutputLimitExceeded)
             {
-                return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.OutputLimitExceeded, UpdateExecutionDenial.None, output);
+                return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.OutputLimitExceeded, UpdateExecutionDenial.None, output, providerResult.OwnedCompletion);
             }
 
             if (providerResult.TimedOut)
             {
-                return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.TimedOut, UpdateExecutionDenial.None, output);
+                return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.TimedOut, UpdateExecutionDenial.None, output, providerResult.OwnedCompletion);
             }
 
+            if (providerResult.Cancelled)
+                return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None,
+                    $"operation-cancelled; {output}", providerResult.OwnedCompletion);
+            if (providerResult.OutputIncomplete || providerResult.ExecutionUncertain)
+                return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.VerificationRequired, UpdateExecutionDenial.None,
+                    $"provider-result-incomplete; verification-required; {output}", providerResult.OwnedCompletion);
+
             UpdateExecutionStatus status = providerResult.ExitCode == 0 ? UpdateExecutionStatus.AwaitingVerification : UpdateExecutionStatus.ProviderFailed;
-            return Complete(job, startedAt, providerResult.ExitCode, status, UpdateExecutionDenial.None, output);
+            return Complete(job, startedAt, providerResult.ExitCode, status, UpdateExecutionDenial.None, output, providerResult.OwnedCompletion);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "user-cancelled");
+            return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "operation-cancelled");
         }
         catch (Exception exception) when (exception is Win32Exception or IOException or UnauthorizedAccessException)
         {
@@ -129,7 +142,8 @@ public sealed partial class NonElevatedUpdateRunner
         int? exitCode,
         UpdateExecutionStatus status,
         UpdateExecutionDenial denial,
-        string diagnostic)
+        string diagnostic,
+        Task? ownedCompletion = null)
     {
         DateTimeOffset endedAt = utcNow();
         string sanitized = Sanitize(diagnostic);
@@ -152,7 +166,8 @@ public sealed partial class NonElevatedUpdateRunner
             exitCode,
             status,
             denial,
-            sanitized);
+            sanitized,
+            ownedCompletion);
     }
 
     private void Write(ImmutableUpdateJob job, DateTimeOffset occurredAt, UpdateExecutionEventSeverity severity, string eventId, string message) =>

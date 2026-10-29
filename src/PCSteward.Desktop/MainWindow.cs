@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Dispatching;
 using System.Globalization;
 using PCSteward.Application;
 using PCSteward.Storage;
@@ -43,12 +44,23 @@ public sealed class MainWindow : Window
     private Border? operationBand;
     private TextBlock? operationStatusText;
     private TextBlock? scanPageStatusText;
+    private readonly DispatcherQueueTimer updateProgressTimer;
+    private Windows.Foundation.TypedEventHandler<DispatcherQueueTimer, object>? updateProgressTick;
+    private UpdateProgressMailbox? updateProgressMailbox;
+    private UpdateProgressPresentation? updateProgressPresentation;
+    private TextBlock? updateProgressTarget;
+    private long updateProgressEpoch;
+    private bool windowClosed;
+    private string updateProgressLabel = "Preparing reviewed update";
 
     private enum ResultsFilter { All, Actionable, NeedsDecision, Unavailable, Unmanaged }
 
     public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
         this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration; this.acknowledgeResetOnboarding = acknowledgeResetOnboarding;
+        updateProgressTimer = DispatcherQueue.CreateTimer();
+        updateProgressTimer.Interval = TimeSpan.FromMilliseconds(250);
+        Closed += (_, _) => { windowClosed = true; StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
@@ -130,7 +142,7 @@ public sealed class MainWindow : Window
             : viewModel.IsCheckingUpdates
                 ? "Refreshing approved package-source evidence"
                 : isExecuting
-                    ? "Running the approved update and verifying the installed result"
+                    ? updateProgressLabel
                     : isClearing || downloads.IsCleaning
                         ? "Completing the requested PC Steward data cleanup"
                         : "Ready · no background coordinator is running";
@@ -806,6 +818,9 @@ public sealed class MainWindow : Window
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         operationStatusText = new TextBlock { Text = CurrentOperationLabel, Foreground = StewardVisuals.Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        TextBlock progressLabel = operationStatusText;
+        progressLabel.Loaded += (_, _) => { if (ReferenceEquals(operationStatusText, progressLabel) && isExecuting) StartUpdateProgressPolling(); };
+        progressLabel.Unloaded += (_, _) => { if (ReferenceEquals(updateProgressTarget, progressLabel)) StopUpdateProgressPolling(); };
         operation.Children.Add(operationStatusText);
         ProgressBar progress = new() { IsIndeterminate = true, VerticalAlignment = VerticalAlignment.Center, Height = 4 };
         AutomationProperties.SetName(progress, "Current PC Steward operation progress");
@@ -1416,22 +1431,55 @@ public sealed class MainWindow : Window
         Render();
     }
 
+    private void StartUpdateProgressPolling()
+    {
+        StopUpdateProgressPolling();
+        if (windowClosed || !isExecuting || updateProgressMailbox is null || updateProgressPresentation is null || updateProgressPresentation.IsFinal || updateProgressPresentation.IsUnavailable) return;
+        updateProgressTarget = operationStatusText;
+        long epoch = updateProgressEpoch;
+        UpdateProgressMailbox mailbox = updateProgressMailbox;
+        UpdateProgressPresentation presentation = updateProgressPresentation;
+        updateProgressTick = (_, _) => PollUpdateProgress(epoch, mailbox, presentation);
+        updateProgressTimer.Tick += updateProgressTick;
+        updateProgressTimer.Start();
+    }
+
+    private void PollUpdateProgress(long epoch, UpdateProgressMailbox mailbox, UpdateProgressPresentation presentation)
+    {
+        if (windowClosed || !isExecuting || epoch != updateProgressEpoch || !ReferenceEquals(mailbox, updateProgressMailbox) || !ReferenceEquals(updateProgressTarget, operationStatusText)) return;
+        if (mailbox.HasDegraded) presentation.MarkUnavailable();
+        if (mailbox.TryTake(out UpdateProgressFrame? frame) && frame is not null) presentation.Consume(frame);
+        updateProgressLabel = presentation.Label;
+        RefreshOperationVisuals();
+        if (presentation.IsFinal || presentation.IsUnavailable) StopUpdateProgressPolling();
+    }
+
+    private void StopUpdateProgressPolling()
+    {
+        ++updateProgressEpoch;
+        updateProgressTimer.Stop();
+        if (updateProgressTick is not null) updateProgressTimer.Tick -= updateProgressTick;
+        updateProgressTick = null;
+        updateProgressTarget = null;
+    }
+
     private async Task ReviewAndExecuteAsync(InventoryRow row)
     {
+        if (HasActiveOperation || windowClosed) return;
         UpdateReviewPreparation preparation;
         try { preparation = await DataOperationLease.RunAsync(token => updates.BeginReviewAsync(row.StableProductKey, token), CancellationToken.None); }
-        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        catch (InvalidOperationException) { if (!windowClosed) await ShowDataOperationUnavailableAsync(); return; }
         catch (Exception)
         {
-            await ShowUpdateOutcomeAsync("Update not available", "PC Steward could not prepare this update. No update was started.");
+            if (!windowClosed) await ShowUpdateOutcomeAsync("Update not available", "PC Steward could not prepare this update. No update was started.");
             return;
         }
+        if (windowClosed) return;
         if (preparation.Review is null)
         {
             await ShowUpdateOutcomeAsync("Update not available", preparation.Message);
             return;
         }
-
         PCSteward.Domain.UpdateJobSelection selection = preparation.Review.Selection;
         const string verification = "\n\nBy choosing Install approved update, you verify that the exact WinGet source, package ID, installed version and target version shown here are the application and update you intend.";
         PCSteward.Application.AdministratorRequirementPresentation administratorRequirement =
@@ -1439,6 +1487,7 @@ public sealed class MainWindow : Window
         string runningWarning = preparation.RunningApplication.AppearsToBeRunning
             ? $"\n\nTarget-specific warning: {selection.PackageId} appears to be running (detected process: {string.Join(", ", preparation.RunningApplication.ProcessNames)}). PC Steward will not close it. Close the application and cancel this review, or explicitly choose Install approved update anyway."
             : $"\n\nNo bounded package-derived process match was detected for {selection.PackageId}. Close the target application first if you know it is running; PC Steward will not close applications.";
+        runningWarning += "\n\n" + preparation.RunningApplication.CoverageDisclosure;
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
@@ -1448,16 +1497,26 @@ public sealed class MainWindow : Window
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary || windowClosed) return;
 
         isExecuting = true;
-        Render();
+        updateProgressMailbox = preparation.Progress;
+        updateProgressPresentation = new(preparation.Review.JobId, preparation.Review.CorrelationId, selection.Scope);
+        updateProgressLabel = preparation.Progress is null ? "Progress unavailable" : "Revalidating reviewed update";
         ReviewedUpdateExecutionResult result;
-        try { result = await DataOperationLease.RunAsync(token => updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token), CancellationToken.None); }
-        catch (Exception) { result = new(false, "PC Steward could not start the reviewed update. No success was recorded.", null); }
-        finally { isExecuting = false; LoadSavedInventory(); }
+        try
+        {
+            Render();
+            StartUpdateProgressPolling();
+            result = await DataOperationLease.RunAsync(token => updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token, preparation.Progress), CancellationToken.None);
+        }
+        catch (Exception) { result = new(true, "The reviewed update did not produce a recorded outcome. Execution or verification may have been interrupted. No verified success was recorded; refresh inventory before deciding what to do next.", null); }
+        finally { StopUpdateProgressPolling(); isExecuting = false; updateProgressMailbox = null; updateProgressPresentation = null; if (!windowClosed) LoadSavedInventory(); }
+        if (windowClosed) return;
+        // The retained terminal may still be rate-limited. The recorded batch is authoritative;
+        // do not fabricate a progress frame or sequence to bypass consumer validation.
         await ShowUpdateOutcomeAsync(GetUpdateOutcomeTitle(result), GetUpdateOutcomeMessage(result));
-        Render();
+        if (!windowClosed) Render();
     }
 
     private static string GetUpdateOutcomeTitle(ReviewedUpdateExecutionResult result) =>
@@ -1466,6 +1525,7 @@ public sealed class MainWindow : Window
             PCSteward.Application.UpdateHistoryStatus.Success => "Update completed",
             PCSteward.Application.UpdateHistoryStatus.RestartRequired => "Restart required",
             null when !result.Started => "Update not started",
+            null => "Outcome unavailable",
             _ => "Update failed"
         };
 

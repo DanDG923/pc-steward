@@ -11,7 +11,8 @@ public interface IPostUpdatePackageInventory
 }
 
 /// <summary>Normalized bounded result returned only by a provider-owned protected machine operation.</summary>
-public sealed record ProviderProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut, bool OutputLimitExceeded = false);
+public sealed record ProviderProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut,
+    bool OutputLimitExceeded = false, bool Cancelled = false, bool OutputIncomplete = false, bool ExecutionUncertain = false);
 public interface IProtectedMachineUpdateExecutor
 {
     Task<ProviderProcessResult> ExecuteProtectedAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);

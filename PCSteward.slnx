@@ -15,6 +15,7 @@
     <Project Path="src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PCSteward.ProcessFixture/PCSteward.ProcessFixture.csproj" />
     <Project Path="tests/PCSteward.Domain.UnitTests/PCSteward.Domain.UnitTests.csproj" />
     <Project Path="tests/PCSteward.Application.IntegrationTests/PCSteward.Application.IntegrationTests.csproj" />
     <Project Path="tests/PCSteward.ArchitectureTests/PCSteward.ArchitectureTests.csproj" />
