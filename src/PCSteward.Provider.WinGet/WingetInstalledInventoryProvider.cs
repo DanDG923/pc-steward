@@ -422,6 +422,10 @@ public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor, IProtec
     async Task<ProviderProcessResult> IProtectedMachineUpdateExecutor.ExecuteProtectedAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         WingetProcessResult result = await ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
+        // The scalar result intentionally carries no Task. Keep the one-shot helper alive until
+        // its provider-owned work is observed; caller cancellation must not abandon that ownership.
+        if (result.OwnedCompletion is { } ownedCompletion)
+            await ownedCompletion.ConfigureAwait(false);
         return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut,
             result.OutputLimitExceeded, result.Cancelled, result.OutputIncomplete, result.ExecutionUncertain);
     }

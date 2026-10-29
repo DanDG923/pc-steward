@@ -1,5 +1,7 @@
 # PC Steward build status
 
+**Task 90 — Task 49 machine-ownership repair candidate; fresh review pending:** The owner's GitHub Codex review correctly found unfinished provider-owned work discarded by the protected WinGet projection. This reopens the Task 49 completion below: it is an owned-work defect, not merely external-installer uncertainty. [Repair/evidence](review/TASK_90_TASK_49_MACHINE_OWNERSHIP.md) now awaits that completion before scalar projection/normal helper exit, without caller cancellation or a wire Task. Behavioral red 4 failed/2 passed; focused green 40/40; Release zero warnings/errors; full **413/413**, zero skipped. Fresh independent repair review is pending. No push, real helper/provider/app/UAC/deployment action; Task 50 remains unstarted.
+
 **Task 49 — COMPLETE (local implementation and scoped integration review):** [Completion/evidence](review/TASK_49_IMPLEMENTATION.md), [fresh independent review](review/TASK_49_INDEPENDENT_REVIEW.md). Reviewed source **cfeb0ef**, all **35 source/test identities** independently rechecked without drift. Release **zero warnings/errors**, full **407/407**, zero skipped; independent focused **117/117**, no concrete findings. Opus/Fable/Astra acknowledged validation with no new contradiction; acknowledgments are separate from independent review. Task 50 remains unstarted. Actual provider/UAC/WinUI/deployment evidence and Tasks 53/54/distribution gates remain open. This supersedes pending/incomplete Task 49 wording below.
 
 **Task 49 — integrated implementation candidate; review pending:** [Current implementation and evidence](review/TASK_49_IMPLEMENTATION.md) supersedes the remaining-implementation wording below. Review-bound local progress now reaches runners/Desktop; truthful indeterminate phases, per-item capacity cancellation, durable terminal ordering, cancellation/native-work holds, Q3 coverage and protocol-1 golden/adversarial fixtures pass. Release zero warnings/errors; full **407/407**, zero skipped. Independent candidate review is pending. No real provider/app/UAC/deployment action; Task 50 and Tasks 53/54/host/distribution gates remain unstarted/open as applicable.
@@ -30,9 +32,9 @@
 
 **Git maintenance (2026-10-29):** [Commit/push repair and fresh verification](review/GIT_PUSH_REPAIR.md) records repository-local authorship repair, 85 focused assertions, Release build 0 warnings/errors and full 291/291 tests. Use the existing T3 `pc-steward` project for Git controls; the outer `PC Steward` project points at a separate repository with no remote. No product or distribution gate changes.
 
-**Current phase:** PC Steward 2.0 Phase C — Task 49 local implementation complete; Task 50 unstarted; Phase B Task 48 remains complete within its exact owner-only scope; no distribution gate closure
+**Current phase:** PC Steward 2.0 Phase C — Task 49 review remediation (Task 90) in progress; Task 50 unstarted; owner-only installed and distribution gates unchanged.
 
-**Current task:** Task 49 — COMPLETE: local implementation, 407/407 full tests and fresh independent scoped integration review (117/117, no findings). Task 50 awaits its own instruction. Existing Task 48 evidence covers only its exact installed artifact.
+**Current task:** Task 90 — repair Task 49 protected machine-provider ownership loss; implementation/focused/full checks pass, fresh independent repair review pending. Task 49 completion is reopened for this finding; Task 50 is unstarted.
 
 **Reviewed implementation:** Task 42 at `52b43130130b25a850f43f1fe478d112c3ce9cb7`, plus restored SQLite project and SDK 10.0.403 pin; accepted/reviewed Task 48 pinned-payload deployment repair. Release 0 warnings/errors, full 291/291 tests; installed desktop DLL/PDB now match approved candidate. No 2.0 feature implementation
 
@@ -235,6 +237,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-**Current handoff — Task 49 complete:** Stop at Task 49. Task 50 has not started and requires its own instruction and entry gates. Preserve Task 48 installation/data/signer/evidence; no deployment/cleanup authority is implied. Task 53 readiness, Task 54 independent phase review and actual host evidence remain separate. Q4 route/fixture evidence still blocks affected removal routes before Task 60.
+**Current handoff — Task 90 repair review pending:** Finish the fresh independent review of the Task 49 machine-ownership repair before restoring completion. Preserve Task 48 installation/data/signer/evidence. Task 50 and later readiness/host/distribution gates remain separate and unstarted/open as applicable.
 
 The Task 48 protected installation matches the approved candidate and its later separately approved launch passed after the owner supplied the .NET prerequisite. The private prerelease represents an earlier build. Any further host action beyond this completed task, installation/replacement/removal, publication, finding closure, source refresh, app update/install/uninstall or paid AI call needs its own authority. Public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority and independent review for `FRA-14–16`. Task 35's optional manual accessibility matrix remains out of scope. The private backup does not close distribution gates.

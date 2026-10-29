@@ -1,4 +1,6 @@
-# Task 49 — truthful progress implementation
+#
+**Post-completion correction (2026-10-29):** GitHub Codex review identified a real protected machine-provider ownership loss missed by the completion/review below. Task 49 completion is reopened for [Task 90 remediation](TASK_90_TASK_49_MACHINE_OWNERSHIP.md). The correction awaits pending provider ownership before scalar projection/normal helper exit; local checks pass, fresh independent repair review is pending. Earlier completion claims are historical for this finding.
+ Task 49 — truthful progress implementation
 
 Date: 2026-10-29. This report covers the local implementation candidate following ownership checkpoint `607271d`. Local implementation and the scoped independent integration review are complete at source commit `cfeb0ef21f436c3a1152b3cb6fecd04222b60c42`. This does not pass Task 53/54, deploy a replacement helper, or start Task 50. The final documentation-only commit records completion without changing reviewed source/test identities.
 

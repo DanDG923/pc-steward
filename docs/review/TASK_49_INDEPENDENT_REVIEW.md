@@ -58,3 +58,7 @@ Task 50/52/53/54 and distribution/host gates retain their own scope and authorit
 ## Exit identity check
 
 After writing this report, HEAD was rechecked against the candidate, all 35 changed source/test blob identities were rechecked, tracked files remained unchanged, and status contained only this untracked review report. `git diff --check` remained clean. These checks establish review source identity, not installed artifact identity.
+
+## Post-review correction — GitHub finding supersedes this PASS for machine ownership
+
+The owner supplied a valid Codex review finding after this report: the protected WinGet scalar projection discarded pending provider-owned completion, allowing normal helper exit and admission release too early. Residual limit item 1 above incorrectly treated that owned-work loss as only a disclosed limit; it must be repaired. This report's original PASS missed the defect and is not acceptance of it. See [Task 90 repair and regression evidence](TASK_90_TASK_49_MACHINE_OWNERSHIP.md). Fresh independent repair review and fixing commit identity are recorded there after verification; no original source-review result is rewritten as if the defect had been found here.

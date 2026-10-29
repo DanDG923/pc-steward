@@ -1,3 +1,13 @@
+# Task 90 — Task 49 machine-provider owned-work remediation
+
+Current remediation (2026-10-29), baseline d28d69d / source cfeb0ef. The user supplied a GitHub Codex review finding: the protected machine result projection drops the unfinished WinGet OwnedCompletion task, allowing normal helper exit and desktop admission release before provider-owned work finishes. This is a High owned-work safety defect, not merely the external/orphaned-installer limit recorded earlier. Task 49 completion is reopened until the fix and fresh independent review pass. Requirements: FR-UPD-14; retained FR-UPD-03/09, NFR-OBS-01–05.
+
+1. Add deterministic synthetic regressions through the actual protected WinGet executor, plus helper-exit/lifetime composition; verify pending ownership and later caller cancellation cannot release normal helper completion/admission. Record behavioral red.
+2. Await and observe the existing owned-completion root inside the protected provider operation before projecting scalar ProviderProcessResult. Await without the operation cancellation token; no timeout-and-abandon, no Task wire field, new protocol, execution authority, provider arguments or deadline change.
+3. Test absent/completed/faulted/cancelled ownership and normal release only after completion. Run narrow fixtures and protocol regressions, canonical build/full suite, inspect diff, commit, then obtain a fresh Sol High Fast independent repair review.
+4. Update failure/repair evidence, STATUS and TRACEABILITY; preserve prior reports as historical. No GitHub posting/push, real provider/helper/app/UAC/deployment, worktree or live-data action. If genuinely stuck, main owns the existing Opus/Fable/Astra council protocol with Opus retained.
+
+The earlier unrelated remediation plan follows unchanged as historical context.
 # Task 90 final-audit remediation plan
 
 **Mode/context:** APPLY then VERIFY / PERSONAL-PC repository workspace
