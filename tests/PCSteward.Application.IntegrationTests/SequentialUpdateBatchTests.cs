@@ -9,6 +9,24 @@ public sealed class SequentialUpdateBatchTests
     private static readonly string[] ExpectedDetectedProcessNames = ["firefox"];
 
     [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    public async Task DispatchFailureDoesNotRecordAnObservedProviderStart()
+    {
+        InMemoryHistory history = new();
+        ImmutableUpdateJob job = Job("Contoso.NeverStarted", "1.1.0");
+        SequentialUpdateBatchCoordinator coordinator = new(
+            new FailingAttemptExecutor(UpdateProviderAttemptStatus.ProductFailed),
+            new ThrowingInventory(), history, new RunningDetector(false));
+
+        UpdateBatchResult result = await coordinator.RunAsync([Item(job)], CancellationToken.None);
+
+        Assert.AreEqual(UpdateHistoryStatus.ProductFailed, result.FinalEntries.Single().Status);
+        Assert.IsTrue(history.Entries.Any(entry => entry.Status == UpdateHistoryStatus.Running));
+        Assert.IsFalse(history.Entries.Any(entry => entry.Diagnostic == "provider-execution-started"),
+            "FR-UPD-14: dispatch intent cannot claim an observed provider start, especially when dispatch fails.");
+    }
+
+    [TestMethod]
     public async Task VerificationIsTheOnlyPathToSuccessAndBatchRemainsSequential()
     {
         InMemoryHistory history = new();

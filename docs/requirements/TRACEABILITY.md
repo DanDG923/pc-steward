@@ -1,5 +1,7 @@
 # MVP requirement traceability
 
+**Task 49 — first implementation correction:** `FR-UPD-14` / retained `FR-UPD-01–11`, `FR-UI-01–07`, `NFR-OBS-01–05`: [dialogue and evidence](../review/TASK_49_DESIGN_DIALOGUE.md) supersedes the categorical new-protocol blocker. Existing protocol 1 can carry unchanged execution while desktop-local milestones remain explicitly indeterminate. A failed-dispatch regression exposed a premature observed-start diagnostic; corrected new Running entries describe dispatch request only. Focused 14/14, Release zero warnings/errors, full 294/294 pass. No schema/old-history/protocol change; Task 49 remains incomplete for telemetry/UI/Q3/teardown, and no review/host/distribution gate closes.
+
 **Consultation participation clarification (2026-10-29):** Owner instruction keeps Opus 5.5 involved alongside the main agent, Fable 5.1 and ChatGPT Astra 6 throughout escalation, including replies to findings and validation results. `AGENTS.md` is the workflow authority. No product requirement or Task 49 gate is closed.
 
 **Consultation escalation update (2026-10-29):** Owner-requested `AGENTS.md` amendment adds both Fable 5.1 and ChatGPT Astra 6 to the joint dialogue when the main agent and Opus 5.5 remain unable to solve a problem. Evidence exchange, validation and retained approval boundaries apply to every participant. Engineering workflow only; no product requirement or Task 49 acceptance result changes.

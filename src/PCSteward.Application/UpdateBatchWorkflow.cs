@@ -147,7 +147,7 @@ public sealed class SequentialUpdateBatchCoordinator(
             }
 
             await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Queued, null, "reviewed-job-queued"), recorded, cancellationToken).ConfigureAwait(false);
-            await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Running, null, "provider-execution-started"), recorded, cancellationToken).ConfigureAwait(false);
+            await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Running, null, "approved-execution-requested"), recorded, cancellationToken).ConfigureAwait(false);
             UpdateProviderAttempt attempt;
             try
             {
