@@ -5,7 +5,8 @@ namespace PCSteward.Application;
 /// <summary>Fresh, typed evidence prepared by inventory before an update can be reviewed.</summary>
 public sealed record UpdateSelectionPreparation(UpdateJobSelection? Selection, string Message);
 
-public sealed record UpdateReviewPreparation(UpdateJobReview? Review, string Message, RunningApplicationDetection RunningApplication);
+public sealed record UpdateReviewPreparation(UpdateJobReview? Review, string Message, RunningApplicationDetection RunningApplication,
+    UpdateProgressMailbox? Progress = null);
 
 public sealed record ReviewedUpdateExecutionResult(bool Started, string Message, UpdateBatchResult? Batch);
 
@@ -30,7 +31,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         if (preparation.Selection is null) return new(null, preparation.Message, RunningApplicationDetection.NotDetected);
         UpdateJobReview review = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection);
         RunningApplicationDetection running = await runningApplications.DetectAsync(review.Selection, cancellationToken).ConfigureAwait(false);
-        return new(review, preparation.Message, running);
+        return new(review, preparation.Message, running,
+            new UpdateProgressMailbox(review.JobId, review.CorrelationId, review.Selection.Scope));
     }
 
     public async Task<ReviewedUpdateExecutionResult> ConfirmAndRunAsync(UpdateJobReview review, bool runningApplicationWarningAcknowledged, CancellationToken cancellationToken)
@@ -52,6 +54,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         UpdateBatchResult batch = await coordinator.RunAsync(
             [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged)],
             cancellationToken).ConfigureAwait(false);
+        if (batch.AdmissionRefused)
+            return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);
         if (batch.AcknowledgementRequired is { AppearsToBeRunning: true } lateRunning)
         {
             return new(

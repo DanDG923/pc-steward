@@ -118,105 +118,103 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         {
             return Failed(finalTrust.Rejection);
         }
-        using Process? helper = launchHelper(paths.HelperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
-        if (launchFailure is not null)
-        {
-            return launchFailure;
-        }
+        Process? helper = launchHelper(paths.HelperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
         if (helper is null)
         {
-            return Failed("elevated-helper-launch-returned-no-process");
+            return launchFailure ?? Failed("elevated-helper-launch-returned-no-process");
         }
-
-        using CancellationTokenSource connectionTimeout = new(ConnectionTimeout);
-        using CancellationTokenSource connectionCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, connectionTimeout.Token);
+        HelperProcessWork owned = new(helper);
+        ElevatedHelperResult Retain(ElevatedHelperResult result) => result with { OwnedCompletion = owned.OwnedCompletion };
         try
         {
-            Task connection = pipe.WaitForConnectionAsync(connectionCancellation.Token);
-            Task exit = helper.WaitForExitAsync(CancellationToken.None);
-            Task first = await Task.WhenAny(connection, exit).ConfigureAwait(false);
-            if (first == exit)
-            {
-                connectionCancellation.Cancel();
-                return Failed("elevated-helper-exited-before-connection");
-            }
-            await connection.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            TryTerminate(helper);
-            return new ElevatedHelperResult(ElevatedHelperOutcome.Cancelled, null, "user-cancelled");
-        }
-        catch (OperationCanceledException)
-        {
-            TryTerminate(helper);
-            return new ElevatedHelperResult(ElevatedHelperOutcome.TimedOut, null, "elevated-helper-connection-timed-out");
-        }
-        catch (IOException)
-        {
-            TryTerminate(helper);
-            return Failed("elevated-helper-connection-failed");
-        }
-
-        if (!RestrictedNamedPipe.TryGetClientProcessId(pipe, out int clientProcessId) ||
-            clientProcessId != helper.Id ||
-            !WindowsPeerIdentityVerifier.VerifyPeer(
-                clientProcessId,
-                paths.HelperPath,
-                paths.DesktopPath,
-                currentSession,
-                currentSid,
-                out _))
-        {
-            TryTerminate(helper);
-            return Failed("elevated-helper-identity-check-failed");
-        }
-
-        try
-        {
-            byte[] request = ElevatedHelperProtocol.CreateRequest(job, nonce, DateTimeOffset.UtcNow);
-            await PipeMessageFraming.WriteAsync(pipe, request, cancellationToken).ConfigureAwait(false);
-
-            using CancellationTokenSource executionTimeout = new(ExecutionTimeout);
-            using CancellationTokenSource executionCancellation =
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, executionTimeout.Token);
-            byte[] response = await PipeMessageFraming.ReadAsync(pipe, executionCancellation.Token).ConfigureAwait(false);
-            if (!ElevatedHelperProtocol.TryReadResponse(response, job.Id, nonce, out ElevatedHelperResult result, out _))
+            if (launchFailure is not null)
             {
                 TryTerminate(helper);
-                return Failed("elevated-helper-response-rejected");
+                return Retain(launchFailure);
             }
-
-            using CancellationTokenSource exitTimeout = new(ExitTimeout);
+            using CancellationTokenSource connectionTimeout = new(ConnectionTimeout);
+            using CancellationTokenSource connectionCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, connectionTimeout.Token);
             try
             {
-                await helper.WaitForExitAsync(exitTimeout.Token).ConfigureAwait(false);
+                Task connection = pipe.WaitForConnectionAsync(connectionCancellation.Token);
+                Task first = await Task.WhenAny(connection, owned.ExitObserved).ConfigureAwait(false);
+                if (first == owned.ExitObserved)
+                {
+                    await connectionCancellation.CancelAsync().ConfigureAwait(false);
+                    try { await connection.ConfigureAwait(false); }
+                    catch (Exception exception) when (exception is OperationCanceledException or IOException) { }
+                    TryTerminate(helper);
+                    return Retain(Failed(owned.ExitObserved.IsCompletedSuccessfully
+                        ? "elevated-helper-exited-before-connection" : "elevated-helper-exit-observation-failed"));
+                }
+                await connection.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                TryTerminate(helper);
+                return Retain(new(ElevatedHelperOutcome.Cancelled, null, "operation-cancelled"));
             }
             catch (OperationCanceledException)
             {
                 TryTerminate(helper);
-                return Failed("elevated-helper-did-not-exit");
+                return Retain(new(ElevatedHelperOutcome.TimedOut, null, "elevated-helper-connection-timed-out"));
             }
-            return result;
+            catch (IOException)
+            {
+                TryTerminate(helper);
+                return Retain(Failed("elevated-helper-connection-failed"));
+            }
+
+            if (!RestrictedNamedPipe.TryGetClientProcessId(pipe, out int clientProcessId) ||
+                clientProcessId != helper.Id ||
+                !WindowsPeerIdentityVerifier.VerifyPeer(clientProcessId, paths.HelperPath, paths.DesktopPath,
+                    currentSession, currentSid, out _))
+            {
+                TryTerminate(helper);
+                return Retain(Failed("elevated-helper-identity-check-failed"));
+            }
+            try
+            {
+                byte[] request = ElevatedHelperProtocol.CreateRequest(job, nonce, DateTimeOffset.UtcNow);
+                await PipeMessageFraming.WriteAsync(pipe, request, connectionCancellation.Token).ConfigureAwait(false);
+                using CancellationTokenSource executionTimeout = new(ExecutionTimeout);
+                using CancellationTokenSource executionCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, executionTimeout.Token);
+                byte[] response = await PipeMessageFraming.ReadAsync(pipe, executionCancellation.Token).ConfigureAwait(false);
+                if (!ElevatedHelperProtocol.TryReadResponse(response, job.Id, nonce, out ElevatedHelperResult result, out _))
+                {
+                    TryTerminate(helper);
+                    return Retain(Failed("elevated-helper-response-rejected"));
+                }
+                using CancellationTokenSource exitTimeout = new(ExitTimeout);
+                try { await owned.ExitObserved.WaitAsync(exitTimeout.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException)
+                {
+                    TryTerminate(helper);
+                    return Retain(Failed("elevated-helper-did-not-exit"));
+                }
+                return Retain(result);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                pipe.Dispose();
+                TryTerminate(helper);
+                return Retain(new(ElevatedHelperOutcome.Cancelled, null, "operation-cancelled"));
+            }
+            catch (OperationCanceledException)
+            {
+                pipe.Dispose();
+                TryTerminate(helper);
+                return Retain(new(ElevatedHelperOutcome.TimedOut, null, "elevated-helper-timed-out"));
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException or Win32Exception)
+            {
+                TryTerminate(helper);
+                return Retain(Failed("elevated-helper-crashed-or-disconnected"));
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            pipe.Dispose();
-            TryTerminate(helper);
-            return new ElevatedHelperResult(ElevatedHelperOutcome.Cancelled, null, "user-cancelled");
-        }
-        catch (OperationCanceledException)
-        {
-            pipe.Dispose();
-            TryTerminate(helper);
-            return new ElevatedHelperResult(ElevatedHelperOutcome.TimedOut, null, "elevated-helper-timed-out");
-        }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            TryTerminate(helper);
-            return Failed("elevated-helper-crashed-or-disconnected");
-        }
+        finally { owned.SealTransport(); }
     }
 
     private static string? ValidateProviderPreLaunchTrust(ImmutableUpdateJob job)
@@ -585,10 +583,17 @@ public static class ElevatedHelperEntryPoint
                     await executeProvider(job, providerCancellation.Token).ConfigureAwait(false);
                 string output = NonElevatedUpdateRunner.Sanitize(
                     string.Join(' ', providerResult.StandardOutput, providerResult.StandardError));
+                if (providerResult.OutputIncomplete || providerResult.ExecutionUncertain)
+                    output = NonElevatedUpdateRunner.Sanitize($"provider-result-incomplete; verification-required; {output}");
+                if (providerResult.Cancelled)
+                    output = NonElevatedUpdateRunner.Sanitize($"operation-cancelled; {output}");
                 ElevatedHelperOutcome outcome = providerResult switch
                 {
                     { OutputLimitExceeded: true } => ElevatedHelperOutcome.OutputLimitExceeded,
                     { TimedOut: true } => ElevatedHelperOutcome.TimedOut,
+                    { Cancelled: true } => ElevatedHelperOutcome.Cancelled,
+                    { OutputIncomplete: true } => ElevatedHelperOutcome.Failed,
+                    { ExecutionUncertain: true } => ElevatedHelperOutcome.Failed,
                     { ExitCode: 0 } => ElevatedHelperOutcome.Completed,
                     _ => ElevatedHelperOutcome.ProviderFailed
                 };

@@ -13,8 +13,15 @@ using Windows.Management.Deployment;
 
 namespace PCSteward.Provider.WinGet;
 
-public sealed record WingetProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut, bool OutputLimitExceeded = false);
-internal interface IWingetProcess { Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken); }
+public sealed record WingetProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut,
+    bool OutputLimitExceeded = false, bool Cancelled = false, bool OutputIncomplete = false, Task? OwnedCompletion = null,
+    bool ExecutionUncertain = false);
+internal interface IWingetProcess
+{
+    Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken);
+    Task<WingetProcessResult> RunUpgradeAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) =>
+        RunAsync(arguments, timeout, cancellationToken);
+}
 public interface IWingetUpdateExecutor { Task<WingetProcessResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken); }
 public sealed record WingetInstalledRecord(string Name, string Id, string Version, string? Source);
 public sealed record WingetInventoryResult(IReadOnlyCollection<WingetInstalledRecord> Records, IReadOnlyCollection<string> Warnings);
@@ -346,7 +353,7 @@ public sealed class WingetUpdateExecutor : IWingetUpdateExecutor
         ArgumentNullException.ThrowIfNull(job);
         if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
         if (job.Selection.Scope != UpdateScope.User) throw new ArgumentException("The non-elevated provider accepts only user-scope jobs.", nameof(job));
-        return process.RunAsync(BuildUpdateArguments(job), UpdateTimeout, cancellationToken);
+        return process.RunUpgradeAsync(BuildUpdateArguments(job), UpdateTimeout, cancellationToken);
     }
 
     public static IReadOnlyList<string> BuildUpdateArguments(ImmutableUpdateJob job)
@@ -399,13 +406,14 @@ public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor, IProtec
         ArgumentNullException.ThrowIfNull(job);
         if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
         if (job.Selection.Scope != UpdateScope.Machine) throw new ArgumentException("The elevated provider accepts only machine-scope jobs.", nameof(job));
-        return process.RunAsync(BuildUpdateArguments(job), UpdateTimeout, cancellationToken);
+        return process.RunUpgradeAsync(BuildUpdateArguments(job), UpdateTimeout, cancellationToken);
     }
 
     async Task<ProviderProcessResult> IProtectedMachineUpdateExecutor.ExecuteProtectedAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {
         WingetProcessResult result = await ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
-        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut, result.OutputLimitExceeded);
+        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut,
+            result.OutputLimitExceeded, result.Cancelled, result.OutputIncomplete, result.ExecutionUncertain);
     }
 
     public static IReadOnlyList<string> BuildUpdateArguments(ImmutableUpdateJob job)
@@ -447,6 +455,22 @@ public sealed class WingetMachineUpdateExecutor : IWingetUpdateExecutor, IProtec
 internal sealed class WindowsWingetProcess : IWingetProcess
 {
     private const int MaximumCapturedOutputLength = 1_000_000;
+
+    public async Task<WingetProcessResult> RunUpgradeAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        cancellationToken.ThrowIfCancellationRequested();
+        ProcessStartInfo start = new() { FileName = ResolveWingetExecutable(), UseShellExecute = false,
+            RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        foreach (string argument in arguments) start.ArgumentList.Add(argument);
+        Process process = new() { StartInfo = start };
+        try { cancellationToken.ThrowIfCancellationRequested(); process.Start(); }
+        catch { process.Dispose(); throw; }
+        OwnedProcessReadResult result = await OwnedProcessWork.RunStartedAsync(process, timeout, cancellationToken).ConfigureAwait(false);
+        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut,
+            result.OutputLimitExceeded, result.Cancelled, result.OutputIncomplete, result.Teardown.OwnedCompletion,
+            !result.Teardown.DirectProcessExitObserved || !result.Teardown.OwnedIoCompleted);
+    }
 
     public async Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {

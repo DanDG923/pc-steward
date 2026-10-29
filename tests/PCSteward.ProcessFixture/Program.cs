@@ -27,6 +27,7 @@ internal static class Program
                 if (command[0] == (byte)'q') return 0;
                 if (command[0] == (byte)'w') { Console.Out.Write('x'); Console.Out.Flush(); }
                 else if (command[0] == (byte)'e') { Console.Error.Write('x'); Console.Error.Flush(); }
+                else if (command[0] == (byte)'b') { Console.Out.Write(new string('x', 1_000_001)); Console.Out.Flush(); }
                 else return 22;
                 await control.WriteAsync(command, lifetime.Token).ConfigureAwait(false);
             }

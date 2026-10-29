@@ -10,7 +10,7 @@ public sealed class Task49PipeEvidenceTests
 
     [TestMethod]
     [TestCategory("FR-UPD-14")]
-    public async Task AnonymousPipeReaderOwnershipIsObservedAfterCancellationAndWriterClosure()
+    public async Task CharacterizeAnonymousPipeCancellationAndObserveCompletionAfterWriterClosure()
     {
         using AnonymousPipeServerStream writer = new(PipeDirection.Out, HandleInheritability.Inheritable);
         using AnonymousPipeClientStream pipe = new(PipeDirection.In, writer.ClientSafePipeHandle);
@@ -38,6 +38,6 @@ public sealed class Task49PipeEvidenceTests
         }
 
         Assert.IsTrue(read.IsCompleted, "The reader must be observed terminal before fixture teardown.");
-        TestContext.WriteLine($"Anonymous pipe runtime evidence: IsAsync={pipe.IsAsync}; completed before writer close={completedBeforeWriterClose}; final status={read.Status}. This does not prove process exit or release while an external writer stays alive.");
+        TestContext.WriteLine($"Anonymous pipe characterization: runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; IsAsync={pipe.IsAsync}; completed before writer close={completedBeforeWriterClose}; final status={read.Status}. The observed cancellation outcome is characterization only; the asserted completion is after writer closure. Redirected-process cancellation has separate prerequisite assertions.");
     }
 }

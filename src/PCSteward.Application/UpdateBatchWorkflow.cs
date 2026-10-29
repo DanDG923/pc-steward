@@ -57,14 +57,17 @@ public enum UpdateProviderAttemptStatus
     InstallerFailed,
     ElevationDenied,
     TimedOut,
-    ProductFailed
+    ProductFailed,
+    VerificationRequired
 }
 
 /// <summary>Structured provider evidence; no process authority or command data crosses this boundary.</summary>
-public sealed record UpdateProviderAttempt(UpdateProviderAttemptStatus Status, int? ExitCode, string SanitizedDiagnostic);
+public sealed record UpdateProviderAttempt(UpdateProviderAttemptStatus Status, int? ExitCode, string SanitizedDiagnostic,
+    Task? OwnedCompletion = null);
 
 public interface IApprovedUpdateExecutor
 {
+    UpdateExecutionLifetime? ExecutionLifetime => null;
     Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken);
 }
 
@@ -91,7 +94,8 @@ public sealed record UpdateBatchItem(
     bool RunningApplicationWarningAcknowledged = false);
 public sealed record UpdateBatchResult(
     IReadOnlyCollection<UpdateHistoryEntry> Entries,
-    RunningApplicationDetection? AcknowledgementRequired = null)
+    RunningApplicationDetection? AcknowledgementRequired = null,
+    bool AdmissionRefused = false)
 {
     public IReadOnlyCollection<UpdateHistoryEntry> FinalEntries => Entries
         .Where(entry => entry.Status is not UpdateHistoryStatus.Queued and not UpdateHistoryStatus.Running and not UpdateHistoryStatus.RunningApplicationWarning)
@@ -136,6 +140,16 @@ public sealed class SequentialUpdateBatchCoordinator(
                 break;
             }
 
+            UpdateExecutionLifetime? lifetime = executor.ExecutionLifetime;
+            using UpdateExecutionLease? admission = lifetime?.TryAcquire();
+            if (lifetime is not null && admission is null)
+            {
+                for (int blocked = index; blocked < items.Count; blocked++)
+                    await RecordAsync(Entry(items.ElementAt(blocked).Job, UpdateHistoryStatus.ProductFailed, null,
+                        "not-started-update-execution-busy-or-owned-work-unresolved"), recorded, CancellationToken.None).ConfigureAwait(false);
+                return new(recorded, AdmissionRefused: true);
+            }
+
             RunningApplicationDetection running = await runningApplications.DetectAsync(item.Job.Selection, cancellationToken).ConfigureAwait(false);
             if (running.AppearsToBeRunning)
             {
@@ -162,6 +176,7 @@ public sealed class SequentialUpdateBatchCoordinator(
                 attempt = new(UpdateProviderAttemptStatus.ProductFailed, null, "product-could-not-start-approved-update");
             }
 
+            admission?.TrackCompletion(attempt.OwnedCompletion ?? Task.CompletedTask);
             if (attempt.Status != UpdateProviderAttemptStatus.AwaitingVerification)
             {
                 UpdateHistoryStatus finalStatus = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? UpdateHistoryStatus.VerificationRequired : Map(attempt.Status);
@@ -211,6 +226,7 @@ public sealed class SequentialUpdateBatchCoordinator(
     private static UpdateHistoryStatus Map(UpdateProviderAttemptStatus status) => status switch
     {
         UpdateProviderAttemptStatus.Cancelled => UpdateHistoryStatus.Cancelled,
+        UpdateProviderAttemptStatus.VerificationRequired => UpdateHistoryStatus.VerificationRequired,
         UpdateProviderAttemptStatus.SourceFailed => UpdateHistoryStatus.SourceFailed,
         UpdateProviderAttemptStatus.DownloadFailed => UpdateHistoryStatus.DownloadFailed,
         UpdateProviderAttemptStatus.InstallerFailed => UpdateHistoryStatus.InstallerFailed,

@@ -8,6 +8,7 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
 {
     private readonly NonElevatedUpdateRunner nonElevated;
     private readonly ElevatedUpdateRunner? elevated;
+    public UpdateExecutionLifetime ExecutionLifetime { get; } = new();
 
     public ApprovedUpdateExecutor(NonElevatedUpdateRunner nonElevated)
         : this(nonElevated, null)
@@ -31,12 +32,13 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
         UpdateExecutionResult result = job.Selection.Scope == UpdateScope.Machine
             ? await elevated!.RunAsync(job, currentEvidence, cancellationToken).ConfigureAwait(false)
             : await nonElevated.RunAsync(job, currentEvidence, cancellationToken).ConfigureAwait(false);
-        return new(Map(result.Status), result.ExitCode, result.SanitizedOutput);
+        return new(Map(result.Status), result.ExitCode, result.SanitizedOutput, result.OwnedCompletion);
     }
 
     private static UpdateProviderAttemptStatus Map(UpdateExecutionStatus status) => status switch
     {
         UpdateExecutionStatus.AwaitingVerification => UpdateProviderAttemptStatus.AwaitingVerification,
+        UpdateExecutionStatus.VerificationRequired => UpdateProviderAttemptStatus.VerificationRequired,
         UpdateExecutionStatus.Cancelled => UpdateProviderAttemptStatus.Cancelled,
         UpdateExecutionStatus.ElevationDenied => UpdateProviderAttemptStatus.ElevationDenied,
         UpdateExecutionStatus.TimedOut => UpdateProviderAttemptStatus.TimedOut,

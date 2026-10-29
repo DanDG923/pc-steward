@@ -8,6 +8,60 @@ namespace PCSteward.Security.FixtureTests;
 [TestClass]
 public sealed class UpdateRunnerSecurityTests
 {
+    [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    [DataRow(UpdateScope.User)]
+    [DataRow(UpdateScope.Machine)]
+    public async Task CompiledUpgradeExecutorsSelectOwnedUpdateHandlingInsteadOfInventoryHandling(UpdateScope scope)
+    {
+        UpgradeOnlyProcess process = new();
+        IWingetUpdateExecutor executor = scope == UpdateScope.User
+            ? new WingetUpdateExecutor(process) : new WingetMachineUpdateExecutor(process);
+        WingetProcessResult result = await executor.ExecuteAsync(ApprovedJob(scope), CancellationToken.None);
+        Assert.AreEqual(1, process.UpgradeCalls);
+        Assert.AreEqual(0, result.ExitCode);
+        Assert.AreEqual("upgrade", process.Arguments[0]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    [DataRow(false, true, false, UpdateExecutionStatus.VerificationRequired)]
+    [DataRow(true, false, false, UpdateExecutionStatus.Cancelled)]
+    [DataRow(false, false, true, UpdateExecutionStatus.VerificationRequired)]
+    public async Task IncompleteOrCancelledOutputNeverBecomesZeroExitSuccessAndRetainsOwnership(
+        bool cancelled, bool incomplete, bool uncertain, UpdateExecutionStatus expected)
+    {
+        TaskCompletionSource owned = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        WingetProcessResult raw = new(0, "partial token=secret", string.Empty, false,
+            Cancelled: cancelled, OutputIncomplete: incomplete, OwnedCompletion: owned.Task, ExecutionUncertain: uncertain);
+        ImmutableUpdateJob job = ApprovedJob();
+        NonElevatedUpdateRunner runner = new(new WingetUpdateExecutor(new RecordingProcess(raw)));
+        UpdateExecutionResult result = await runner.RunAsync(job, FreshEvidence(job), CancellationToken.None);
+        Assert.AreEqual(expected, result.Status);
+        Assert.AreSame(owned.Task, result.OwnedCompletion);
+        Assert.IsFalse(result.SanitizedOutput.Contains("secret", StringComparison.Ordinal));
+        IApprovedUpdateExecutor executor = new ApprovedUpdateExecutor(runner);
+        Assert.IsNotNull(executor.ExecutionLifetime);
+        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, FreshEvidence(job), CancellationToken.None);
+        Assert.AreSame(owned.Task, attempt.OwnedCompletion);
+        Assert.AreEqual(cancelled ? UpdateProviderAttemptStatus.Cancelled : UpdateProviderAttemptStatus.VerificationRequired, attempt.Status);
+        owned.SetResult();
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    public async Task AlreadyCancelledUserUpdateNeverInvokesTheProvider()
+    {
+        RecordingProcess process = new(new(0, string.Empty, string.Empty, false));
+        NonElevatedUpdateRunner runner = new(new WingetUpdateExecutor(process));
+        ImmutableUpdateJob job = ApprovedJob();
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        UpdateExecutionResult result = await runner.RunAsync(job, FreshEvidence(job), cancellation.Token);
+        Assert.AreEqual(UpdateExecutionStatus.Cancelled, result.Status);
+        Assert.HasCount(0, process.Arguments);
+    }
+
     private static readonly string[] ExpectedArguments =
     [
         "upgrade", "--id", "Contoso.Widget", "--version", "1.1.0", "--source", "winget",
@@ -149,6 +203,19 @@ public sealed class UpdateRunnerSecurityTests
             Arguments.Add(arguments);
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(result);
+        }
+    }
+    private sealed class UpgradeOnlyProcess : IWingetProcess
+    {
+        internal int UpgradeCalls { get; private set; }
+        internal IReadOnlyList<string> Arguments { get; private set; } = [];
+        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("An approved upgrade must not use inventory process handling.");
+        public Task<WingetProcessResult> RunUpgradeAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            UpgradeCalls++;
+            Arguments = arguments;
+            return Task.FromResult(new WingetProcessResult(0, string.Empty, string.Empty, false));
         }
     }
 

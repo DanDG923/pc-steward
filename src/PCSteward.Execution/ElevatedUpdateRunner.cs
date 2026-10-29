@@ -17,7 +17,8 @@ internal enum ElevatedHelperOutcome
 internal sealed record ElevatedHelperResult(
     ElevatedHelperOutcome Outcome,
     int? ExitCode,
-    string SanitizedOutput);
+    string SanitizedOutput,
+    Task? OwnedCompletion = null);
 
 internal interface IElevatedHelperTransport
 {
@@ -83,7 +84,7 @@ public sealed class ElevatedUpdateRunner
             return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "user-cancelled");
         }
 
-        Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.elevation-requested", "Elevation requested at provider execution.");
+        Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.elevation-preparing", "Preparing protected helper validation.");
         ElevatedHelperResult helperResult;
         try
         {
@@ -115,7 +116,7 @@ public sealed class ElevatedUpdateRunner
         string diagnostic = string.IsNullOrWhiteSpace(helperResult.SanitizedOutput)
             ? fallback
             : helperResult.SanitizedOutput;
-        return Complete(job, startedAt, helperResult.ExitCode, status, UpdateExecutionDenial.None, diagnostic);
+        return Complete(job, startedAt, helperResult.ExitCode, status, UpdateExecutionDenial.None, diagnostic, helperResult.OwnedCompletion);
     }
 
     private UpdateExecutionResult Complete(
@@ -124,7 +125,8 @@ public sealed class ElevatedUpdateRunner
         int? exitCode,
         UpdateExecutionStatus status,
         UpdateExecutionDenial denial,
-        string diagnostic)
+        string diagnostic,
+        Task? ownedCompletion = null)
     {
         DateTimeOffset endedAt = utcNow();
         string sanitized = NonElevatedUpdateRunner.Sanitize(diagnostic);
@@ -147,7 +149,8 @@ public sealed class ElevatedUpdateRunner
             exitCode,
             status,
             denial,
-            sanitized);
+            sanitized,
+            ownedCompletion);
     }
 
     private void Write(

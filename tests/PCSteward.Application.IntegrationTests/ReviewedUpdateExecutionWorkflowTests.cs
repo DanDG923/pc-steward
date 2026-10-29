@@ -7,6 +7,27 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class ReviewedUpdateExecutionWorkflowTests
 {
     [TestMethod]
+    [TestCategory("FR-UPD-14")]
+    public async Task ReviewSuppliesAStableMailboxBeforeApprovalOrExecution()
+    {
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        ReviewedUpdateExecutionWorkflow workflow = CreateWorkflow(
+            (_, _) => Task.FromResult(new UpdateSelectionPreparation(Selection(), "fresh")), store, executor);
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync("winget:contoso.widget", CancellationToken.None);
+
+        Assert.IsNotNull(preparation.Review);
+        Assert.IsNotNull(preparation.Progress);
+        Assert.HasCount(0, store.Jobs);
+        Assert.HasCount(0, executor.Jobs);
+        Assert.AreEqual(UpdateProgressOfferResult.Accepted, preparation.Progress.Offer(
+            preparation.Review.JobId, preparation.Review.CorrelationId, UpdateProgressPhase.Queued));
+        Assert.IsTrue(preparation.Progress.TryTake(out UpdateProgressFrame? frame));
+        Assert.AreEqual(preparation.Review.JobId, frame!.JobId);
+        Assert.AreEqual(preparation.Review.CorrelationId, frame.CorrelationId);
+    }
+
+    [TestMethod]
     public async Task ChangedEvidenceAfterReviewDoesNotCreateAJobOrRunTheProvider()
     {
         int calls = 0;
