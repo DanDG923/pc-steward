@@ -1,5 +1,7 @@
 # PC Steward build status
 
+**Task90 / PR #5 — COMPLETE; hosted CI verified:** Approved commits74c40cc+ffcf47b are pushed; PR head **ffcf47b** passed [hosted run40970089353](https://github.com/DanDG923/pc-steward/actions/runs/40970089353) with Release **zero warnings/errors**, standard-user full **415/415**, zero skipped. [Final evidence](review/TASK_90_PR5_CI_REPAIR.md) records merge/base identity, fresh local review16/16/no findings, original fixed finding now resolved on GitHub, and unavailable hosted latency data (cause remains inference). No merge/deployment or Task50 action. Results-only closure documentation remains local so the verified PR head is unchanged. Earlier pending entries below are historical.
+
 **Task 90 — PR #5 repair reviewed; push/hosted CI pending:** Fix **74c40cc** has [fresh scoped review](review/TASK_90_PR5_CI_REPAIR_REVIEW.md) **PASS/no findings**, independent **16/16**, zero skipped. Local Release zero warnings/errors/full **415/415** remain verified on unchanged source; main rechecked all 36 source/test identities. [Evidence/next action](review/TASK_90_PR5_CI_REPAIR.md): remote PR head remains6e26191, so the new CI repair awaits explicit push approval under AGENTS.md and a new hosted run. The ownership code finding is already fixed remotely in7bde99b; GitHub thread state is unchanged. No hosted pass or Task50/deployment action claimed.
 
 **Task 90 — PR #5 CI repair candidate; review/hosted rerun pending:** Live PR head **6e26191** already contains the valid ownership fix **7bde99b**. [CI diagnosis/repair](review/TASK_90_PR5_CI_REPAIR.md) addresses the actual failing pair of reader snapshot assertions: accepted unfinished I/O stays owned, deadlines remain unchanged, and deterministic delayed-read cases prove resources/admission remain held. Main/Opus agree; native measurement records are local only. Focused 12/12; Release zero warnings/errors; full **415/415**, zero skipped. Fresh scoped review and new hosted CI remain pending; no push or GitHub thread mutation. Task 50 unstarted.
@@ -40,7 +42,7 @@
 
 **Current phase:** PC Steward 2.0 Phase C — Task 49 local implementation complete after Task 90 repair; Task 50 unstarted; owner-only installed and distribution gates unchanged.
 
-**Current task:** Task 90 — PR #5 CI repair 74c40cc locally reviewed (PASS/16 checks), full 415/415; explicit push approval/new hosted CI pending. Task 50 remains unstarted.
+**Current task:** Task90 / PR #5 repair COMPLETE: ownership finding fixed/resolved; hosted CI on ffcf47b passes415/415/zero-warning Release. Task49 local completion restored. Task50 unstarted; no merge/deployment authorized or performed.
 
 **Reviewed implementation:** Task 42 at `52b43130130b25a850f43f1fe478d112c3ce9cb7`, plus restored SQLite project and SDK 10.0.403 pin; accepted/reviewed Task 48 pinned-payload deployment repair. Release 0 warnings/errors, full 291/291 tests; installed desktop DLL/PDB now match approved candidate. No 2.0 feature implementation
 
@@ -243,6 +245,6 @@ The product owner selected an owner-only temporary-certificate route to enable a
 
 ## Next task
 
-**Current handoff — PR #5 repair candidate:** Finish scoped review and the authorized branch/hosted-CI steps for the reader evidence correction. Preserve Task 48 installation/data/signer/evidence. No later task or host/deployment action starts automatically.
+**Current handoff — PR #5 code/CI repair complete:** PR head ffcf47b is green and the original finding thread is resolved. Owner decides any merge; Task50 requires its own instruction. Preserve installed Task48 artifacts/data/signer/evidence. Results-only final documentation is committed locally, not additionally pushed.
 
 The Task 48 protected installation matches the approved candidate and its later separately approved launch passed after the owner supplied the .NET prerequisite. The private prerelease represents an earlier build. Any further host action beyond this completed task, installation/replacement/removal, publication, finding closure, source refresh, app update/install/uninstall or paid AI call needs its own authority. Public/stable release or another recipient still requires fresh exact-artifact evidence, production signing/channel authority and independent review for `FRA-14–16`. Task 35's optional manual accessibility matrix remains out of scope. The private backup does not close distribution gates.
