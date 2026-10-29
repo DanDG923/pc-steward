@@ -1,14 +1,16 @@
 # PC Steward build status
 
+**Task 49 — started; implementation incomplete (2026-10-29):** [Entry/capability assessment](review/TASK_49_ENTRY_ASSESSMENT.md) confirms accepted A2/Phase C/Q1/Q3 planning. The mandatory new helper protocol also requires ADR-025 independent Update evidence/mode enforcement, which the current protocol-1 helper does not implement. Resolve the documented prerequisite/explicit-unavailable-route design before production edits; no progress feature or new-protocol route is claimed. Baseline `fbf1835`: focused helper/runner 21/21, Release zero warnings/errors, full 293/293 pass. Only assessment/status/traceability changed; Task 50 remains unstarted and installed/deployment/distribution gates unchanged. This supersedes Task 49-unstarted handoff wording below.
+
 **Task 90 — PR #4 follow-up:** Hosted standard-user logon is confirmed at `d15729f`; the next failure was unavailable `Get-FileHash`. The fixture now explicitly imports its Windows PowerShell Utility module. Missing-function regression failed before the fix and passes after it; focused 3/3, Release zero warnings/errors, full 293/293 pass. [Evidence](review/TASK_90_PR4_CI_REPAIR.md) supersedes the earlier pending-logon state below. `TM-04`/`TM-06` guards remain unchanged; hosted rerun awaits approved push. No Task 49/distribution gate change.
 
 **Task 90 — PR #4 CI repair (2026-10-29):** [Failure and evidence](review/TASK_90_PR4_CI_REPAIR.md). CI now runs fixtures/full tests as a temporary standard user because the hosted administrator token correctly triggered protected-compilation guards. Production guards remain intact (`TM-04`, `TM-06`, ADR-022). Local 85 assertions, focused 2/2, Release zero warnings/errors and full 292/292 pass. Hosted logon/rerun awaits approved push; no Task 49 or distribution gate change.
 
 **Git maintenance (2026-10-29):** [Commit/push repair and fresh verification](review/GIT_PUSH_REPAIR.md) records repository-local authorship repair, 85 focused assertions, Release build 0 warnings/errors and full 291/291 tests. Use the existing T3 `pc-steward` project for Git controls; the outer `PC Steward` project points at a separate repository with no remote. No product or distribution gate changes.
 
-**Current phase:** PC Steward 2.0 Phase B — Task 48 complete for exact owner-only redeployment and separately approved responsive launch; no distribution gate closure
+**Current phase:** PC Steward 2.0 Phase C — Task 49 entry/capability assessment; Phase B Task 48 remains complete within owner-only scope; no distribution gate closure
 
-**Current task:** Task 48 — COMPLETE: pinned deployment Pass; approved fresh launch reached Overview and closed normally in 22.826 s/native exit 0; copied fresh database integrity/hash/schema checks pass; Task 49 unstarted
+**Current task:** Task 49 — STARTED / INCOMPLETE: planning accepted; new-protocol machine Update capability unproven; see entry assessment. Task 48 completion evidence remains applicable to its exact installation only.
 
 **Reviewed implementation:** Task 42 at `52b43130130b25a850f43f1fe478d112c3ce9cb7`, plus restored SQLite project and SDK 10.0.403 pin; accepted/reviewed Task 48 pinned-payload deployment repair. Release 0 warnings/errors, full 291/291 tests; installed desktop DLL/PDB now match approved candidate. No 2.0 feature implementation
 
