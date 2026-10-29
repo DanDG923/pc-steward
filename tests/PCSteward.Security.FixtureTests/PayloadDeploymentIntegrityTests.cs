@@ -6,6 +6,32 @@ namespace PCSteward.Security.FixtureTests;
 public sealed class PayloadDeploymentIntegrityTests
 {
     [TestMethod]
+    public async Task CiLauncherRefusesAccountCreationOutsideHostedRunner()
+    {
+        // TM-04/TM-06: CI account/ACL setup must never run on a developer machine.
+        string root = FindRoot();
+        ProcessStartInfo start = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"))
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = root
+        };
+        start.Environment.Remove("GITHUB_ACTIONS");
+        start.Environment.Remove("RUNNER_ENVIRONMENT");
+        foreach (string argument in new[] { "-NoProfile", "-File", Path.Combine(root, "scripts", "Test-CI.ps1") }) start.ArgumentList.Add(argument);
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start CI launcher guard fixture.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(deadline.Token); }
+        catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
+        Assert.AreNotEqual(0, process.ExitCode, await output);
+        StringAssert.Contains(await error, "this launcher requires an administrator on a GitHub-hosted runner");
+    }
+
+    [TestMethod]
     public async Task PinnedPayloadRejectsDriftEscapesAndUnapprovedSigningChanges()
     {
         string root = FindRoot();
