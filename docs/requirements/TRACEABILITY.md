@@ -1,5 +1,7 @@
 # MVP requirement traceability
 
+**Consultation participation clarification (2026-10-29):** Owner instruction keeps Opus 5.5 involved alongside the main agent, Fable 5.1 and ChatGPT Astra 6 throughout escalation, including replies to findings and validation results. `AGENTS.md` is the workflow authority. No product requirement or Task 49 gate is closed.
+
 **Consultation escalation update (2026-10-29):** Owner-requested `AGENTS.md` amendment adds both Fable 5.1 and ChatGPT Astra 6 to the joint dialogue when the main agent and Opus 5.5 remain unable to solve a problem. Evidence exchange, validation and retained approval boundaries apply to every participant. Engineering workflow only; no product requirement or Task 49 acceptance result changes.
 
 **Project workflow update (2026-10-29):** Owner-requested `AGENTS.md` rule requires iterative Opus 5.5 consultation when any agent gets stuck, with recorded evidence/validation and existing safety/owner gates preserved. This is an engineering instruction, not a product requirement amendment or acceptance result; Task 49 remains incomplete.
