@@ -41,10 +41,17 @@ Unchanged canonical `scripts/Build.ps1` and `scripts/Test.ps1` run under the sam
 
 ## Review and completion state
 
-Fresh independent Sol High Fast repair review is pending. The finding must not be marked closed from tests alone. Fixing source commit and final verification will be attached after the green repair is committed and reviewed. Task 50 remains unstarted; host/readiness/distribution gates stay open.
+The fix is committed at **7bde99bb7da5cc8b40a8abfc04c06fc158a30f9a**. The [fresh independent Sol High Fast repair review](TASK_90_TASK_49_MACHINE_OWNERSHIP_REVIEW.md) passes with no concrete findings and 40/40 independent synthetic checks, zero skipped. The finding is addressed locally and Task 90 remediation is complete. GitHub was not posted to or resolved; Task 50 remains unstarted and host/readiness/distribution gates stay open.
 
 ### Canonical verification of repair candidate
 
 Unchanged `scripts/Build.ps1`: exit 0, Release zero warnings/errors. `%TEMP%\pc-steward-task90-machine-ownership-build.log`.
 Unchanged `scripts/Test.ps1`: exit 0, **413/413**, zero skipped (59 Domain, 250 Application, 30 Architecture, 74 Security). `%TEMP%\pc-steward-task90-machine-ownership-test.log`.
 `git diff --check` passes. The production diff is exactly the four-line awaited-ownership guard/comment inside the protected WinGet projection; six synthetic cases add the regression evidence. No protocol or canonical script changes. Fresh independent review remains pending at candidate commit time.
+### Independent repair review and closure
+
+Fresh reviewer verified base `d28d69d7b8035a2f2f4340d779c46174cd8db035` → fixed source `7bde99bb7da5cc8b40a8abfc04c06fc158a30f9a`, including actual provider-root construction, protected projection, awaited helper execution/response ordering, disconnect behavior and desktop admission. No dependency cycle or ordinary cancellation bypass was found. No further fix requested for this finding; independent **40/40**, zero skipped.
+
+Main read that report, independently rechecked all **36** cumulative Task 49 source/test blob identities against the fixed commit, verified no tracked drift and unchanged protocol/canonical scripts, and retained the canonical **413/413**/zero-warning build results. Closure changes documentation only; the full suite is not repeated without a source/test change. The fresh review report is committed unchanged.
+
+Task 49 local completion is restored with this repair. Its guarantee here is controlled response/normal helper exit retaining unfinished provider-owned work. Existing forced termination by Desktop/OS/another actor, external installers and restart/cross-process barriers remain outside this correction; no blanket termination/quiescence proof is claimed. No independent phase/deployment/host/distribution gate is closed. No push or GitHub finding-state mutation occurred.

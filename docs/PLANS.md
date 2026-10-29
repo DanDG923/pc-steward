@@ -10,6 +10,8 @@ Current remediation (2026-10-29), baseline d28d69d / source cfeb0ef. The user su
 The earlier unrelated remediation plan follows unchanged as historical context.
 # Task 90 final-audit remediation plan
 
+**Completed (2026-10-29):** fix 7bde99b; behavioral red reproduced, focused 40/40, canonical full 413/413/zero-warning Release, fresh independent repair review 40/40/no findings. [Final evidence](review/TASK_90_TASK_49_MACHINE_OWNERSHIP.md). All four remediation steps below are complete; no next task starts automatically.
+
 **Mode/context:** APPLY then VERIFY / PERSONAL-PC repository workspace
 
 **Approval:** Product owner explicitly approved remediation and independent Terra / High agents on 2026-08-01.
