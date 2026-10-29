@@ -1,12 +1,14 @@
 # PC Steward — Product Specification
 
-**Document type:** Product requirements and MVP specification  
-**Status:** Draft for planning and implementation handoff  
-**Version:** 0.2  
-**Date:** 27 July 2026  
-**Revision:** Adds explicit MVP resource-efficiency budgets and separate scan-data, downloaded-file and factory-reset controls.  
+**Document type:** Product requirements, MVP baseline and accepted PC Steward 2.0 deltas
+**Status:** Accepted 2.0 requirement deltas; architecture and implementation remain gated
+**Version:** 0.3
+**Date:** 29 October 2026
+**Revision:** Task 44 promotes the owner-accepted Task 43 deltas and D1–D5 into requirements; adds distinct manual install/uninstall scope, diagnostic lifecycle and optional AI privacy/budget amendments.
 **Working product name:** PC Steward  
 **Primary owner:** Product owner / individual developer  
+
+**Scope interpretation:** Existing MVP requirement IDs, wording and markers remain the baseline. Sections 9.13–9.18 and 11.5 specify the accepted 2.0 additions; “Yes — 2.0” means required in that scope, not implemented or accepted in a deployed artifact. The [Task 43 delta](PC_STEWARD_2_DELTA.md) records the accepted planning basis. [Task 44's amendment record](../review/TASK_44_ACCEPTED_REQUIREMENTS.md) identifies the exact amendments and remaining gates. No ADR is accepted or superseded by this specification revision, and no host action or paid call is authorized.
 
 ---
 
@@ -47,10 +49,10 @@ PC Steward is not a registry cleaner, “PC optimiser,” antivirus product, dri
 
 ### 2.3 Core product principles
 
-1. **Local first:** inventory and history remain on the PC unless the user explicitly exports them.
+1. **Local first:** inventory and history remain on the PC unless the user explicitly exports them or approves the exact minimal, redacted evidence for the optional AI explanation in sections 9.17 and 16.2. No upload occurs by default.
 2. **Evidence before automation:** an update must have a traceable source, product match and confidence level.
 3. **Account for unknowns:** unmatched software is visible rather than silently omitted.
-4. **Least privilege:** scanning and review run without administrator rights; elevation is requested only for a specific update that needs it.
+4. **Least privilege:** scanning and review run without administrator rights; elevation is requested only for a specific reviewed operation that needs it. The accepted 2.0 install/uninstall operations require their own approved contracts before implementation; existing update authority does not authorize them.
 5. **No arbitrary web installers:** the application never chooses an executable merely because its name resembles an installed product.
 6. **Explain every decision:** the user can see installed version, candidate version, source, confidence and planned action.
 7. **Honest failure handling:** an update is successful only after post-installation verification.
@@ -128,6 +130,8 @@ The MVP will not:
 - silently install updates;
 - promise rollback for installers that do not provide one; or
 - support enterprise policy enforcement, remote execution or central reporting.
+
+**Accepted 2.0 clarification:** A manually confirmed installation or removal of one freshly resolved instance is specified separately in sections 9.14–9.15 and 11.5. It does not permit automatic/bulk uninstall, unattended installation, Windows Update execution or leftover cleanup. WS5 produces an automation ADR decision only; `FR-UPD-12` remains Later, `FR-UPD-01` still requires per-run confirmation, and `FR-SCH-03` remains scan-only. ADR-017/020 remain effective without an automation exception.
 
 ---
 
@@ -584,6 +588,77 @@ PC Steward remains installed, but its local state is equivalent to a fresh insta
 | FR-RSC-04 | Run scheduled scans through Task Scheduler without an always-running process, at lower priority where supported, and exit after completion, cancellation or timeout. | Yes |
 | FR-RSC-05 | Record scan duration and provider timings locally for performance diagnosis without collecting unrelated application-usage telemetry. | Yes |
 
+### 9.13 Updater gap closure — accepted 2.0 additions
+
+Complete only the confirmed WS2 gaps. G3 (reliable provider restart evidence) and G4 (reviewed multi-select/Update All with cancellation and per-item partial outcomes) implement existing `FR-UPD-09–11`, `FR-UI-01–07` and `AC-UPD-01–11`; they receive no duplicate IDs. A batch reviews a frozen set, freshly revalidates every item, explains excluded/stale rows and preserves earlier results. A target detected at review or appearing before provider start requires the existing warning/acknowledgement. Q2/Q3 remain open: no new skip-version policy, broader major/minor pin support, universal process detector or forced-closure feature is implied.
+
+| ID | Accepted requirement and acceptance criteria | 2.0 scope |
+|---|---|---|
+| FR-UPD-14 | Review, queued/preparing, provider-observable execution phases, verification and final result are distinguishable; unavailable provider detail is explicitly indeterminate. A running-app warning offers cancel/close-manually/explicit continuation without a target kill. Mixed outcomes and cancellation retain per-item history; UI tests cover absence of fake download percentages or completion. | Yes — 2.0; gated |
+| FR-UPD-15 | Where a provider can enforce it, review offers a typed silent/interactive mode whose value is immutable and revalidated by both runner and helper. Unsupported combinations are disabled/explained. Mode cannot inject arbitrary switches or bypass exact ID/version/scope/signature controls. Cancellation/timeout and unexpected interaction have honest outcomes. | Yes — 2.0; gated |
+
+### 9.14 Catalogue installation — accepted 2.0 additions
+
+Catalogue installation is a distinct manually reviewed operation through approved WinGet catalogues, not an upgrade of a fictitious installed product. Store information remains available under `FR-SRC-02`; Store installation and Chocolatey catalogue installation are outside this scope. Search metadata never supplies executable authority. D1 selects tags only, with no curated category map.
+
+| ID | Accepted requirement and acceptance criteria | 2.0 scope |
+|---|---|---|
+| FR-CAT-01 | Search only enabled, explicitly consented approved WinGet catalogues through COM; bound result count, field lengths, timeout and cancellation. Results show name, publisher, exact ID, version, source and known scope/architecture; absent fields are unavailable. Store information cannot expose Install. | Yes — 2.0; gated |
+| FR-CAT-02 | Icons/categories/sizes are unavailable when unsupported; tags are explicitly labelled tags and do not imply authoritative categories. No curated category map is implemented (D1). | Yes — 2.0; gated |
+| FR-CAT-03 | Fresh inventory establishes not-installed status and resolves existing-instance ambiguity before approval. Review binds an explicit install operation, exact source/ID/version/scope/architecture; unknown or unenforceable scope and changed evidence block. Existing installations are not silently repaired/upgraded. | Yes — 2.0; gated |
+| FR-CAT-04 | User installs execute unelevated. Machine installs require fresh scope-bound confirmation and the protected one-shot helper independently validates the install operation and fresh identity evidence; update/install substitution and replay fail closed. No arbitrary executable, URL or flags enter the job. | Yes — 2.0; gated |
+| FR-CAT-05 | Install queue is sequential; each selected item has independent reviewed evidence and verified post-inventory installed state. Provider exit alone is not success. Cancellation prevents the next item; failures, ambiguous verification and partial outcomes remain visible without an atomic rollback promise. | Yes — 2.0; gated |
+| FR-CAT-06 | Favourites are local and reversible; recently installed entries derive from verified PC Steward install outcomes rather than catalogue clicks or pre-existing apps. Retention/reset/clear ownership is documented and tested before persistence is added. | Yes — 2.0; gated |
+
+### 9.15 Manual uninstall — accepted 2.0 additions
+
+Removal requires a separate operation contract and one exact installed instance. A route without enforceable instance/user/scope targeting or complete exclusion evidence stays blocked or deferred (Q4). Existing update jobs, catalogue IDs, registry uninstall strings and inventory visibility are not removal authority.
+
+| ID | Accepted requirement and acceptance criteria | 2.0 scope |
+|---|---|---|
+| FR-UNI-01 | One review binds one freshly resolved provider identity, installed instance, scope, architecture and applicable user; duplicate/unknown/changed instances block even if catalogue ID is exact. | Yes — 2.0; gated |
+| FR-UNI-02 | Only a provider-enforceable instance-bound WinGet operation or current-user MSIX registration removal is eligible. All-user/provisioned MSIX, frameworks, dependencies and protected/system packages are excluded. Arbitrary registry uninstall strings and leftover cleanup are rejected. Unknown safety/instance proof means no action. | Yes — 2.0; gated |
+| FR-UNI-03 | Target-in-use warning and explicit confirmation precede removal; no forced closure. Any required elevation uses a separately approved uninstall discriminator and independently validated one-shot helper; it cannot be requested by a scan or reused for other operations. | Yes — 2.0; gated |
+| FR-UNI-04 | Re-inventory checks the selected instance's absence while preserving other instances. Report removed, still present, reliably restart pending or unknown; cancellation/interruption is never claimed as removal without verification. No universal rollback or deletion of user documents is promised. | Yes — 2.0; gated |
+
+### 9.16 Diagnostic timeline — accepted 2.0 additions
+
+Collection is read-only, consented and unelevated. Scope is bounded System/Application Event Log evidence (for example Kernel-Power 41, EventLog 6008, BugCheck 1001 and WER application faults), Reliability records, Windows Update history and PC Steward operation history. Host access and coverage are unproven until separately approved checks; missing/denied sources remain visible. D4 fixes content retention, while collection limits/fields and correlation rules remain Q1/Q6 gates.
+
+| ID | Accepted requirement and acceptance criteria | 2.0 scope |
+|---|---|---|
+| FR-DIA-01 | After explicit collection consent, bounded unelevated readers collect the approved System/Application events, Reliability records and Windows Update history plus PC Steward operation history. Each unavailable, unsupported or denied source is identified; no scan requests elevation. | Yes — 2.0; gated |
+| FR-DIA-02 | A repeatable deterministic timeline labels nearby changes as “occurred near”, never inferred causes. Kernel-Power 41 is labelled evidence of unexpected shutdown only. Tests include unrelated nearby changes, missing records and conflicting timestamps. | Yes — 2.0; gated |
+| FR-DIA-03 | Diagnostic snapshots default to 30 days' local retention (D4). Before implementation, owner-approved collection policy also defines lookback, maximum count/bytes and minimum stored fields. Collection stops/truncates visibly at bounds, stores only that schema, redacts before persistence and handles hostile event text as data. | Yes — 2.0; gated |
+| FR-DIA-04 | Clear scan data deletes collected diagnostic snapshots while preserving update-job history. Factory reset deletes all app-owned diagnostic state. Tests prove idempotence, locked/residual reporting and preservation of Windows Event Log/Reliability/Update records and exported files. | Yes — 2.0; gated |
+| FR-DIA-05 | A requested diagnostic export previews the bounded minimum fields with redaction and sensitivity warning; export/cancel behavior and deletion/preservation scope match the owner-approved policy. No raw dump/full-log export is introduced through this feature. | Yes — 2.0; gated |
+
+### 9.17 Optional AI explanation — accepted 2.0 additions
+
+D2 selects OpenAI first for failed-update and diagnostic-timeline explanation. This feature is separate from `FR-ID-09`, which retains its Later/optional match-explanation meaning. No chat, AI mapping, release-note summary or second-provider implementation is promoted. Core inventory, updates, history and manual workflows remain usable with AI disabled or without a key.
+
+| ID | Accepted requirement and acceptance criteria | 2.0 scope |
+|---|---|---|
+| FR-AI-01 | OpenAI is the first provider (D2), explaining a failed update or the diagnostic timeline after provider-specific opt-in. A provider abstraction and official SDK support configurable model IDs and current implementation-time pricing; no second provider, chat or release-note summary feature is shipped. | Yes — 2.0; gated |
+| FR-AI-02 | Each call displays an editable preview of exactly the evidence that will leave the machine and requires approval of that payload. Usernames, profile paths, serials, device IDs, emails and tokens are redacted; no dumps or full logs are sent. UI discloses residual secret risk. Tests capture mock transport payload equality after edits/redaction. | Yes — 2.0; gated |
+| FR-AI-03 | Current-user DPAPI or Credential Manager protects credentials; no plaintext config, export, backup or logging path includes them. Disconnect and Factory reset remove them and accurately report residual failure. Keys are never required for core use. | Yes — 2.0; gated |
+| FR-AI-04 | Only approved provider TLS endpoints receive calls; credentials do not follow redirects to another origin. Tokens, retries, concurrency, request sizes and timeouts have explicit reviewed bounds; cancellation/crash/timeout enter the cost reconciliation policy rather than releasing uncertain spend. | Yes — 2.0; gated |
+| FR-AI-05 | Logs, events and release notes are untrusted prompt data. Mock hostile inputs cannot grant tools, run commands or alter deterministic eligibility; output is advisory, clearly uncertain where evidence is insufficient, and has no system-changing tool capability. | Yes — 2.0; gated |
+| FR-AI-06 | Missing key, refusal, timeout, provider outage or exhausted budget leaves inventory/update/history/manual operations usable. Tests use mocks; a live call requires separate exact owner authority, with a $1 total cap for the first live test (D5). Saved redacted explanations have 30-day local retention; submitted prompts are not saved (D4). Minimal spending/usage records and unresolved reservations are retained separately as needed for accounting, without prompt/response content. No conversational history feature is inferred. | Yes — 2.0; gated |
+
+### 9.18 AI spending controls — accepted 2.0 additions
+
+D5 fixes an app-only USD $200 monthly ceiling and $0.25 per-request cap; the first separately approved live test also has a $1 total cap. A provider credit benefit or reported balance never supplies additional app authority. Monthly boundary/time zone, pricing version, retry accounting and reconciliation details remain Q7 and must be accepted before implementation.
+
+| ID | Accepted requirement and acceptance criteria | 2.0 scope |
+|---|---|---|
+| FR-BUD-01 | The owner-selected limits are USD $200/month and $0.25/request for PC Steward, independently of provider credit grants. Before sending, missing/unknown pricing, invalid budget or insufficient available balance blocks a paid call; UI states provider billing is authoritative and the ledger covers only PC Steward spending, not all account usage. The first live test also has its separate $1 total cap. | Yes — 2.0; gated |
+| FR-BUD-02 | Persist a conservative worst-case reservation transactionally before a request, within both caps, including bounded retries/output. Concurrent requests and crash/restart cannot double-spend the available balance; fixtures cover the commit/send and send/result crash windows. | Yes — 2.0; gated |
+| FR-BUD-03 | Reconcile against provider-reported usage; preserve any reservation with uncertain billing until reconciled. An unavailable usage report/timeout never automatically restores its spend allowance. Monthly rollover, currency/pricing version and duplicate usage reports are covered under the accepted budget ADR. No promotional-credit amount is assumed. | Yes — 2.0; gated |
+| FR-BUD-04 | No path purchases credits, enables automatic recharge or treats presumed promotional credits as extra budget. Mock exhaustion stops calls and offers only owner-controlled settings/account guidance. | Never |
+
+The stated acceptance criteria require fixtures and applicable live evidence in their future implementation tasks. Task 44 records requirements only. Numeric bounds not fixed by D4/D5, favourite/operation-history lifecycle, credential adapter selection and uninstall feasibility remain explicit design gates in section 11.5; no arbitrary defaults are supplied here.
+
 ## 10. Trusted-source policy
 
 ### 10.1 Product rule
@@ -720,6 +795,26 @@ When two trusted sources report different latest versions:
 - AI-assisted automatic package mapping.
 
 These features must not be added merely because they are technically possible; each requires an updated threat model and explicit product approval.
+
+### 11.5 Accepted PC Steward 2.0 scope and gates — Task 44
+
+The owner accepted the Task 43 delta and D1–D5 on 29 October 2026. This revision makes those requirement deltas authoritative without claiming implementation, accepted future ADRs, current host access or deployed behavior. The preceding version milestones describe the baseline and candidate backlog; only the exact additions below are promoted. “Improved restart detection” remains a later candidate beyond WS2's confirmed reliable-provider-evidence propagation gap.
+
+| Workstream | Accepted scope | Required gate before implementation or live evidence |
+|---|---|---|
+| WS1 | Existing owner-only protected redeployment; no new product requirement. | Separately approved exact artifact, database backup/integrity, validator/hash preservation and approved responsive launch under ADR-022. Independent of A2; no distribution claim or closure of `FRA-14–16`. |
+| WS2 | Confirmed G1–G4: honest progress, enforceable immutable installer mode, reliable restart evidence propagation, reviewed Update All/multi-select and partial/cancel outcomes. | Applicable ADR-017/018 changes, bounded phase/task contract, focused fixtures, build/full suite and phase review. Preserve existing policy/status/history controls; Q2/Q3 are not new features. |
+| WS3 | Enabled/consented WinGet COM search, tags-only metadata, distinct reviewed install, local favourites and verified recent installs (`FR-CAT-01–06`). | Task 45 proposed install/job/helper ADRs and necessary ADR-003/015/017/018/022 amendments accepted by the owner, Q1 search bounds, Q5 lifecycle, implementation/security gate and separately approved live install. |
+| WS4 | One manually confirmed, freshly resolved instance through a supported WinGet or current-user MSIX route (`FR-UNI-01–04`). | Task 45 proposed uninstall/job/helper decisions accepted by the owner, Q4 enforceable targeting/exclusion evidence and viable host test, Q5 history lifecycle, implementation/security gate and separate live removal approval. Unsupported routes stay blocked/deferred. |
+| WS5 | Draft and decide a user-scope WinGet allowlist automation ADR: accept, reject or defer. | Task 45 decides durable consent/integrity, exact source/ID/optional version ceiling, freshness, revocation, windows, bounded retries/back-off, notifications, installer limits and possible ScheduledHost changes. Decision only; implementation and any specification/ADR exception need later separate approval. ScheduledHost stays scan-only. |
+| WS6 | Bounded read-only timeline, deterministic nearby-change labels, consent/redaction/export and app-owned lifecycle (`FR-DIA-01–05`). D4: 30-day local snapshot retention. | Task 46 diagnostic ADR and relevant lifecycle/redaction/persistence amendments accepted by the owner; Q1 source/schema/lookback/count/bytes/export limits, Q6 time/correlation rules and separately approved host access checks. No scan elevation or deletion of OS records. |
+| WS7 | OpenAI-first advisory failure/timeline explanation, exact edited-payload approval, current-user protected credentials and transactional app-only spending (`FR-AI-01–06`, `FR-BUD-01–04`). D4: 30-day saved redacted explanations, no saved submitted prompts. D5: USD $200/month, $0.25/request; first live test $1 total. | Task 46 AI/privacy/credential and budget ADRs accepted by the owner, Q1 transport bounds, Q7 accounting semantics, Q8 DPAPI/Credential Manager selection and exact deletion design. Mocked security/privacy/cost gate precedes separate provider/model/payload/cost approval for any live call. |
+
+Task 47 writes bounded phase briefs and numbered prompts only after applicable ADR acceptance. The [accepted roadmap](PC_STEWARD_2_ROADMAP.md) §4.2 deferred list remains Later in full; §4.3 prohibitions remain Never. No category map, Store installation, additional actionable provider, unattended/signed-out/machine-scope automation, generic/browser/Recycle Bin/leftover cleanup, startup control, health score, dump analysis, AI commands or Windows reset is promoted. Existing Chocolatey update scope remains unchanged; it is not catalogue install authority.
+
+D3 selects `7zip.7zip` solely as the later controlled test candidate. Fresh absence/instance/version/architecture/enforceable scope and installer-effect review remain mandatory. A relied-on installation is not disposable, package selection is not install/uninstall approval, and every live action needs separate exact authority. Use unit/fixture/fake-provider/failure-injection evidence and isolated app-owned fixture roots; the owner excludes VM/Sandbox/Hyper-V testing for this roadmap. A destructive route without a viable host test stays deferred. Windows and performance claims require actual Windows evidence and ADR-006 measurements.
+
+Q5 must settle favourite/recent-install and install/uninstall-history retention, clear/reset ownership and scan-reference integrity before new persistence exists. This revision does not choose their schema or silently inherit update-history retention. Q9 remains exact-artifact redeployment authority. Q10's requirement wording is recorded here; future operation/security ADR acceptance and the WS5 decision remain separate. The historical decisions and full question wording remain in the [Task 43 delta](PC_STEWARD_2_DELTA.md) §7.
 
 ---
 
@@ -895,7 +990,7 @@ Stores schedule, notification, retention, enabled sources, export defaults, firs
 
 ### 12.3 Data minimisation
 
-PC Steward must not intentionally collect or store:
+PC Steward must not intentionally collect or store the following, except for the narrow optional provider-credential amendment below:
 
 - passwords, tokens or browser cookies;
 - software licence keys or product keys;
@@ -906,6 +1001,8 @@ PC Steward must not intentionally collect or store:
 - arbitrary registry hives;
 - precise usage telemetry for third-party applications; or
 - cloud identifiers in the MVP.
+
+**Accepted 2.0 credential/privacy amendment:** An explicitly connected OpenAI provider may use one current-user credential protected by DPAPI or Credential Manager (`FR-AI-03`; adapter selection is Q8). This exception does not permit collection of unrelated passwords, tokens, licence keys, browser data, cloud identifiers or environment dumps. Credentials never enter config, exports, backups, logs, diagnostic snapshots or saved explanations; disconnect and Factory reset delete them with accurate residual reporting. Diagnostics redact before persistence, AI uses the exact approved redacted payload, and submitted prompts are not saved. This defines the permitted design only; accepted ADRs and implementation gates remain prerequisites.
 
 ### 12.4 Retention defaults
 
@@ -919,6 +1016,10 @@ PC Steward must not intentionally collect or store:
 | PC Steward-owned downloaded update files after verified success | Seven days or the configurable 2 GB soft cap, whichever causes cleanup first; immediately removable by the user |
 | Failed or incomplete app-owned download files | 24 hours by default unless retained for an active retry |
 | Failed diagnostic bundle | Created only when the user requests it |
+| 2.0 collected diagnostic snapshots | 30 days locally (D4), or earlier **Clear scan data** / Factory reset |
+| 2.0 saved redacted AI explanations | 30 days locally (D4), or earlier Factory reset; further content-clearing behavior requires the accepted lifecycle design |
+| 2.0 submitted AI prompts | Not saved (D4); no conversational history feature |
+| 2.0 minimal spending/usage records and unresolved reservations | Separate from prompt/response content; retain as needed for accounting/reconciliation under the accepted budget ADR (Q7), not automatically expired at 30 days |
 
 The download-cache soft cap excludes a file currently needed by an active update. Reaching the cap triggers oldest-first cleanup of inactive app-owned files and must never delete installed applications, provider-owned caches or rollback data outside PC Steward's directory.
 
@@ -928,11 +1029,13 @@ Retention values must be configurable where practical.
 
 | Control | Deletes | Preserves | Result |
 |---|---|---|---|
-| **Clear scan data** | Current inventory, scan-derived raw provider records, update candidates, scan runs/summaries and provider timing records | Global settings, connector configuration, schedule, update-job history, app-owned downloaded files and stable user decisions/mappings | Dashboard returns to a no-scan state; a later scan repopulates inventory and reapplies matching user decisions |
+| **Clear scan data** | Current inventory, scan-derived raw provider records, update candidates, scan runs/summaries, provider timing records and 2.0 collected diagnostic snapshots | Global settings, connector configuration, schedule, update-job history, app-owned downloaded files and stable user decisions/mappings | Dashboard returns to a no-scan state; a later scan repopulates inventory and reapplies matching user decisions |
 | **Clear downloaded files** | Inactive update payloads and temporary extraction files in the PC Steward-owned download-cache root | Installed software, source metadata, scan data, update history, settings and provider-owned caches | Cache size is recalculated and any locked/failed item is reported |
-| **Factory reset PC Steward** | Database, scan data, source metadata, logs, update history, downloaded files, user decisions, settings, consent records and current-user scheduled task | Installed third-party applications and PC Steward binaries | Next launch behaves as a first launch with a new empty store |
+| **Factory reset PC Steward** | Database, scan data, source metadata, logs, update history, downloaded files, user decisions, settings, consent records, current-user scheduled task and all new app-owned diagnostic/AI state, spending records/reservations and protected provider credentials | Installed third-party applications, PC Steward binaries, Windows Event Log/Reliability/Windows Update records and user exports | Next launch behaves as a first launch with a new empty store; residual state/credential failures block a complete-reset claim |
 
 Factory reset is an application-state reset, not an uninstaller and not a Windows restore operation.
+
+These 2.0 additions clarify `FR-DAT-06–07/12–15` and `AC-DAT-06–07/12–16` without changing their existing preservation guarantees. None of these controls deletes OS records, third-party caches, installed applications, leftovers or user exports. A compiled credential-adapter deletion operation targets only PC Steward's exact credential identity; it does not create arbitrary file/store deletion authority. Q5 governs new operation-history/favourites categories and Q8 governs the credential adapter before implementation.
 
 ## 13. Authentication and permissions
 
@@ -942,7 +1045,7 @@ The MVP requires **no PC Steward account**.
 
 - The signed-in Windows session is the local user identity.
 - Each Windows profile has a separate application database and settings.
-- There is no password, OAuth flow, email address or cloud token.
+- Core workflows require no password, OAuth flow, email address or cloud token. The optional 2.0 AI provider credential is the sole protected-credential exception described in sections 9.17 and 12.3; it is not a PC Steward account or cloud sign-in requirement.
 - There is no remote-access listener.
 
 ### 13.2 Permission model
@@ -961,6 +1064,11 @@ The MVP requires **no PC Steward account**.
 | Clear PC Steward-owned downloaded files | Standard user |
 | Factory-reset PC Steward and remove its current-user scheduled task | Standard user |
 | Delete other selected local PC Steward data | Standard user |
+| 2.0 catalogue install | User scope unelevated; machine scope only through the approved distinct install contract and protected one-shot helper |
+| 2.0 manual uninstall | Applicable user/instance-bound supported route; any elevation requires the approved distinct uninstall contract |
+| 2.0 diagnostic collection or AI explanation | Standard user; denied diagnostic access never triggers elevation; AI credentials remain current-user only |
+
+The added rows are gated design requirements, not capabilities granted to the current helper. Scans, scheduled checks and AI output cannot create execution authority.
 
 ### 13.3 Elevated helper requirements
 
@@ -979,6 +1087,8 @@ If an elevated helper is needed, it must:
 - never read executable commands from SQLite or remote metadata.
 
 No always-elevated tray process or service is permitted in the MVP.
+
+**Accepted 2.0 operation amendment:** Install and uninstall need separate typed operation discriminators, fresh exact evidence and user approvals, independent runner/helper revalidation, replay/substitution rejection and operation-specific verification. Neither may be encoded as an update or supplied as a general command. ADR-017/018 and the current helper remain update-only until the owner accepts Task 45's applicable operation/security amendments and their later implementation is separately authorized. ADR-022's protected deployment/signing boundary remains effective.
 
 ### 13.4 Future cloud permissions
 
@@ -1106,7 +1216,7 @@ For later direct-download connectors:
 ### 15.4 Development security requirements
 
 - Enable nullable reference types and strict compiler warnings.
-- Keep secrets out of source control; the MVP should not require any.
+- Keep secrets out of source control. Core workflows require none; optional 2.0 provider credentials are protected only through the reviewed current-user adapter and never enter config, exports, backups or logs.
 - Pin dependencies through lock files where supported.
 - Generate a software bill of materials for release builds.
 - Run dependency and static analysis in CI.
@@ -1124,6 +1234,7 @@ For later direct-download connectors:
 - **Clear scan data** must use a database transaction and leave the app in either the previous valid state or a valid no-scan state.
 - Factory reset must use a deterministic reset manifest and verify on the next launch that no previous database, cache, schedule or settings were reloaded.
 - Locked files or schedule-removal failures must be reported accurately and may be queued for deletion on restart; the UI must not claim a complete reset until verification succeeds.
+- For 2.0, extend the deterministic lifecycle manifest and tests to diagnostic snapshots, saved redacted explanations, minimal spending state and the exact protected provider credential. Verify idempotence, locked/residual reporting and no old-state reload. Retain the existing canonical-root/reparse controls; credential deletion uses the compiled exact adapter identity, never a metadata-supplied target. No OS record, provider cache, uninstall leftover or user export becomes a deletion target.
 
 ## 16. Privacy requirements
 
@@ -1135,7 +1246,8 @@ PC Steward is local-first and does not require telemetry to function.
 
 - No inventory, path, publisher, version or update history is uploaded by default.
 - No account is required.
-- Network requests are limited to enabled update connectors and the product's own update check when enabled.
+- Network requests are limited to enabled update connectors, the product's own update check when enabled, and the narrow optional 2.0 AI exception: an explicitly connected provider's approved TLS endpoint may receive only the exact edited/redacted failure or timeline evidence approved for that call. Source consent is not AI consent. No credential forwarding across origins, dump/full-log upload, general cloud synchronization or remote-action authority follows.
+- AI remains off without provider opt-in, a protected key, valid known pricing, sufficient reserved budget and exact payload approval. Preview/redaction cannot guarantee every secret is removed, and the UI must say so. Model output is advisory untrusted text with no system-changing tools or influence on deterministic eligibility.
 - The UI must show which connectors are enabled and when each was last contacted.
 - Optional analytics, if ever added, must be off by default during private beta and separately consented.
 - Crash reports must be user-initiated or explicitly opted in and sanitized.
@@ -1334,6 +1446,8 @@ Acceptance testing must use:
 | AC-DAT-16 | Cleanup tests prove that a junction, symbolic link or crafted metadata value cannot cause deletion outside the allowlisted PC Steward data roots. |
 | AC-DAT-17 | Default logs contain no credentials, licence keys, browser data or document contents. |
 | AC-DAT-18 | Removing the standalone package deletes the extracted binaries and exact current-user scheduled task. Per-user data is retained by default; running **Factory reset PC Steward** before package removal provides the explicit remove-data choice. |
+
+**Accepted 2.0 acceptance amendments:** `AC-DAT-04` retains the baseline connector/update-endpoint check and gains a separate opt-in AI matrix: AI-disabled, unconsented, unapproved-payload, unknown-price and exhausted-budget cases make no AI request; an approved call contacts only the approved TLS provider endpoint with exactly the edited/redacted payload; cross-origin redirects never receive credentials. This is a required future test, not Task 44 network-inspection evidence. `AC-DAT-06–07/12–16` additionally exercise collected-snapshot deletion, preserved update history, app-owned AI/credential reset, residual failures and OS-record/export preservation as specified in sections 9.16–9.17 and 12.5. Their original baseline criteria remain unchanged above. New favourites and install/uninstall history require Q5's accepted lifecycle before persistence tests are defined.
 
 ### 19.6 UX and accessibility acceptance
 
@@ -1559,6 +1673,8 @@ These references inform platform and capability assumptions; the product's safet
 ## 26. Approval checklist
 
 Before implementation begins, the product owner should explicitly approve or amend:
+
+This is the historical MVP checklist. Task 44 records acceptance of the 2.0 requirement deltas and D1–D5 in section 11.5 only; unchecked historical items and future ADR/security/live-action gates are not automatically signed off by this revision.
 
 - [ ] Product vision and promise.
 - [ ] Windows 11 x64-only MVP.

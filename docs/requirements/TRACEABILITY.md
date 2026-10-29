@@ -4,6 +4,67 @@ This matrix maps every mandatory, partial-MVP, and desirable-MVP item to at leas
 
 Every independent phase/design/release gate is preceded by a Terra/High evidence-readiness task (`14A`, `19A`, `24A`, `26A`, or `30A`). Its committed readiness report maps mandatory criteria to reproducible sanitized evidence, a recorded product-owner exception, or a blocking next action; a missing/stale report is itself unproven gate evidence.
 
+## PC Steward 2.0 accepted deltas — Task 44
+
+**Requirement authority, not implementation evidence.** Task 44 promotes only the owner-accepted Task 43 deltas and D1–D5 into [specification v0.3](../product/PC_STEWARD_PRODUCT_SPEC.md), sections 9.13–9.18 and 11.5. Existing MVP rows below retain their IDs, wording and markers. The [amendment record](../review/TASK_44_ACCEPTED_REQUIREMENTS.md) records scope, checks and remaining gates. Task 43 entries are historical completion-time evidence; their proposal-only wording does not override this promotion.
+
+| ID | Accepted requirement summary (full acceptance in specification) | 2.0 scope | Documentation / planned implementation and evidence tasks |
+|---|---|---|---|
+| `FR-UPD-14` | Truthful observable progress, running-app warning and per-item final/cancel outcomes. Spec §9.13. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 49, 53–54 pending |
+| `FR-UPD-15` | Enforceable typed silent/interactive mode frozen in review and revalidated by runner/helper. Spec §9.13. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 50, 53–54 pending |
+| `FR-CAT-01` | Bounded consented WinGet COM catalogue search with honest metadata; no Store install. Spec §9.14. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 55, 57–59 pending |
+| `FR-CAT-02` | Tags only; unsupported icons/categories/sizes unavailable; no curated map (D1). Spec §9.14. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 55, 57–58 pending |
+| `FR-CAT-03` | Fresh not-installed proof and exact source/ID/version/scope/architecture install review. Spec §9.14. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 56–59 pending |
+| `FR-CAT-04` | Distinct install operation, unelevated user route and independently validated protected machine route. Spec §9.14. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 56–59 pending |
+| `FR-CAT-05` | Sequential reviewed install queue, cancellation, partial outcomes and verified installed state. Spec §9.14. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 56–59 pending |
+| `FR-CAT-06` | Local reversible favourites and verified recent installs; Q5 lifecycle before persistence. Spec §9.14. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 55–59 pending |
+| `FR-UNI-01` | One freshly resolved provider/instance/scope/architecture/user binding; ambiguity blocks. Spec §9.15. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 60–63 pending |
+| `FR-UNI-02` | Enforceable WinGet/current-user MSIX routes only; exclusion proof, no registry commands or leftovers. Spec §9.15. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 60–63 pending |
+| `FR-UNI-03` | In-use warning, manual confirmation and distinct independently validated uninstall elevation. Spec §9.15. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 60–63 pending |
+| `FR-UNI-04` | Selected-instance absence verification, other-instance preservation and honest restart/unknown outcomes. Spec §9.15. | Yes — 2.0; gated | 44 requirements; 45 ADRs; 47 briefs/prompts; 60–63 pending |
+| `FR-DIA-01` | Consented bounded unelevated OS/own-operation readers with visible denied/missing sources. Spec §9.16. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 64–66 pending |
+| `FR-DIA-02` | Deterministic nearby-change timeline; no causal claim from Kernel-Power 41. Spec §9.16. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 64–66 pending |
+| `FR-DIA-03` | 30-day local snapshots (D4); Q1 limits/fields and redaction before persistence. Spec §9.16. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 64–66 pending |
+| `FR-DIA-04` | Scan clear removes snapshots, preserves update history; reset preserves OS records/exports. Spec §9.16. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 64–66 pending |
+| `FR-DIA-05` | Requested minimal bounded redacted diagnostic export with preview and sensitivity warning. Spec §9.16. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 64–66 pending |
+| `FR-AI-01` | OpenAI first, official SDK/provider abstraction, configurable model/pricing; advisory explanation only. Spec §9.17. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 67, 69–71 pending |
+| `FR-AI-02` | Exact editable payload approval/redaction and residual-secret warning; no dumps/full logs. Spec §9.17. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 67, 69–71 pending |
+| `FR-AI-03` | Current-user protected key, excluded from config/export/backup/logs; disconnect/reset deletion. Spec §9.17. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 67, 69–71 pending |
+| `FR-AI-04` | Approved TLS endpoints, no cross-origin credential forwarding, bounded transport and uncertain-spend handling. Spec §9.17. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 67–71 pending |
+| `FR-AI-05` | Hostile text remains untrusted; no tools, commands or AI-derived action eligibility. Spec §9.17. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 67, 69–71 pending |
+| `FR-AI-06` | Keyless core; mocks; separate live approval/$1 cap; 30-day explanations and no saved prompts. Spec §9.17. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 67–71 pending |
+| `FR-BUD-01` | USD $200/month and $0.25/request app caps plus $1 first-live-test cap; unknown pricing blocks. Spec §9.18. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 68–71 pending |
+| `FR-BUD-02` | Transactional conservative pre-send reservation; concurrency, retries and crash-window safety. Spec §9.18. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 68–71 pending |
+| `FR-BUD-03` | Provider-usage reconciliation; uncertain reservations retained; accepted rollover/currency semantics. Spec §9.18. | Yes — 2.0; gated | 44 requirements; 46 ADRs; 47 briefs/prompts; 68–71 pending |
+| `FR-BUD-04` | Never purchase credits, enable recharge or assume promotional credits increase app budget. Spec §9.18. | Never | 44 requirements; 46 ADRs; 47 briefs/prompts; 68–71 pending |
+
+All 27 new IDs are specified only; no implementing source, passing feature test or live result is claimed for them. Task numbers are the accepted delta outline and do not start those tasks. Future ADRs require owner acceptance; each host install/uninstall/paid call requires separate exact action-time approval.
+
+| Retained IDs / boundary | Accepted clarification and planned evidence |
+|---|---|
+| `FR-UPD-01–11`, `AC-UPD-01–11`, `FR-UI-01–07`, `FR-HIS-01–06` | Existing update semantics remain. G3 reliable restart propagation (51) and G4 frozen reviewed multi-select/Update All, sequential partial results and cancel-before-next (52) complete existing criteria; no duplicate IDs. Existing running-app warning also applies if a target appears before execution. Q2/Q3 remain open; no new skip/version-pin/process-control feature. |
+| `FR-POL-01–05`, `FR-SRC-02/07–10`, `FR-ID-09` | Preserve Partial/Yes/Later/Never markers and meanings. Tags only (D1); Store information only; constrained Chocolatey update scope unchanged. AI diagnostic explanation does not promote AI matching. |
+| `FR-UPD-12`, `FR-SCH-01–05`, `FR-RSC-04` | WS5 is Task 45 ADR decision only; automation remains Later. Durable allowlist/source/version-ceiling consent, integrity, freshness, revocation, windows/back-off/notifications and installer limits require a decision; no per-run confirmation exception or ScheduledHost execution is introduced. |
+| `FR-DAT-06–07/12–15`, `AC-DAT-06–07/12–16` | Add collected-snapshot deletion to scan clear while preserving update history, and all app-owned diagnostic/AI/credential categories to reset. Original criteria remain. Task 46 lifecycle/manifest decisions and future 64/67/68 tests must prove fixed roots/credential identity, idempotence, honest residuals and OS-record/export preservation. Q5 new history/favourites lifecycle remains a gate. |
+| `AC-DAT-04`, spec §§2.3/12.3/13.1/16.2 | Narrow optional AI egress/credential amendment: existing AI-off network check plus exact edited/redacted-payload approval to the approved TLS provider only; no cross-origin credentials. Task 46 ADRs, 67–70 mock/security matrix and separately approved 71 live evidence are pending. No default upload, account requirement or general cloud authority. |
+
+**Owner decisions recorded:** D1 tags only; D2 OpenAI first; D3 `7zip.7zip` as a candidate only; D4 30-day local snapshots/saved redacted explanations, no saved submitted prompts, separate minimal accounting/reservations; D5 USD $200/month, $0.25/request and a separate $1 total first-live-test cap. No live credit balance is assumed. The full deferred list remains Later; prohibitions and owner-only/distribution gates remain effective.
+
+**Remaining gates:** Q1 collection/search/transport bounds; Q2 skip semantics; Q3 running-app coverage; Q4 enforceable uninstall/exclusions and viable host fixture; Q5 favourites/operation-history lifecycle; Q6 correlation/time rules; Q7 accounting/rollover/pricing/reconciliation; Q8 credential adapter/deletion; Q9 exact redeployment authority. Q10 requirement wording is recorded; owner acceptance of the Proposed Task 45 ADRs and the WS5 choice remain pending. Task 46 diagnostic/AI/budget ADRs also depends on its unresolved design choices. Tasks 44/45 validation passes after owner-authorized project restoration on SDK 10.0.403 (Release build 0 warnings/errors; full suite 290/290); owner authorization of the established identity resolves committing without persistent Git configuration changes. Tasks 44/45 are committed locally; drafting/build recovery is not 2.0 feature implementation evidence.
+
+### Task 45 Proposed decision coverage
+
+These links add design proposals only. They do not change any requirement row or effective ADR status. The author has accepted no ADR; Task 45 began against Task 44's working-tree requirements, and the subsequent authorized build recovery closes required validation without accepting the designs.
+
+| Proposal | Requirement coverage | Decision and evidence boundary |
+|---|---|---|
+| [ADR-023](../adr/ADR-023-CATALOGUE-INSTALL-OPERATIONS.md) | `FR-CAT-01–06`, source consent, operation history and data lifecycle | Bounded COM discovery separated from install authority; exact reviewed version/scope/architecture, fresh complete absence, independent helper, sequential verified results; proposed favourites/recent/history ownership. Q1/Q5 acceptance and provider/host evidence pending. |
+| [ADR-024](../adr/ADR-024-INSTANCE-BOUND-MANUAL-UNINSTALL.md) | `FR-UNI-01–04`, operation history and data lifecycle | One enforceable instance, complete exclusions, separate manual confirmation, other-instance-preserving verification. WinGet/current-user MSIX route feasibility remains Q4; unsupported routes stay blocked/deferred. |
+| [ADR-025](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md) | `FR-UPD-01–11/14–15`, `AC-UPD-01–11`, `FR-CAT-03–06`, `FR-UNI-01–04`, `FR-UI-01–07`, `FR-HIS-01–06`, `TM-03–04/07/13` | Closed typed variants, strict protocol compatibility, independently revalidated helper evidence, immutable mode, truthful progress/restart, frozen update batch and no crash replay. Records proposed ADR-003/015/017/018/022 amendments only; current updates unchanged. Q1/Q2/Q3/Q4/Q5 and security/host gates remain. |
+| [ADR-026](../adr/ADR-026-WS5-AUTOMATION-AUTHORIZATION-DECISION.md) | `FR-UPD-01/12`, `FR-SCH-01–05`, `FR-RSC-04`, `NFR-PERF-07`, `AC-NFR-11`, `FR-DAT-12–15` | Recommend Defer; owner accept/reject/defer choice pending. Documents durable grant integrity, source/ID/ceiling, freshness/revocation/reset, windows/back-off/notifications and installer limits required for reconsideration. Later/per-run/scan-only rules unchanged. |
+
+The [Task 45 record](../review/TASK_45_PROPOSED_OPERATION_ADRS.md) contains scope, owner choices and static checks. [Project recovery](../review/TASK_45_PROJECT_RESTORE.md) supports `NFR-MNT-01–04`, `NFR-REL-02` and `AC-DAT-01`: exact project restoration, source-directory ignore exception, 18/18 restored projects, SQLite 19/19, Architecture 28/28, Release build 0 warnings/errors and full suite 290/290. The [failure record](../failures/task-45.md) records both validation and commit identity blockers as resolved by owner-authorized recovery and per-command authorship. The owner's removal of SDK 10.0.303 is verified; older runtime 10.0.11 remains, and no deployed application is claimed patched. Existing-suite passes do not implement or accept new 2.0 capabilities. Task 46 owns diagnostic/AI/budget ADRs; Task 47 waits for applicable owner ADR acceptance and resolved inputs.
+
 ## Phase 0 evidence links
 
 | Task | Requirement IDs informed | Evidence |
