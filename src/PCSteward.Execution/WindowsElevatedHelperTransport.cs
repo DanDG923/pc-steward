@@ -1,4 +1,4 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -67,8 +67,12 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         this.validateProviderPreLaunchTrust = validateProviderPreLaunchTrust ?? ValidateProviderPreLaunchTrust;
     }
 
+    public Task<ElevatedHelperResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
+        ExecuteAsync(job, null, cancellationToken);
+
     public async Task<ElevatedHelperResult> ExecuteAsync(
         ImmutableUpdateJob job,
+        UpdateItemProgress? progress,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
@@ -118,6 +122,8 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
         {
             return Failed(finalTrust.Rejection);
         }
+        if (cancellationToken.IsCancellationRequested) return new(ElevatedHelperOutcome.Cancelled, null, "operation-cancelled");
+        progress?.ElevationRequested();
         Process? helper = launchHelper(paths.HelperPath, pipeName, nonce, out ElevatedHelperResult? launchFailure);
         if (helper is null)
         {
@@ -178,6 +184,7 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
             {
                 byte[] request = ElevatedHelperProtocol.CreateRequest(job, nonce, DateTimeOffset.UtcNow);
                 await PipeMessageFraming.WriteAsync(pipe, request, connectionCancellation.Token).ConfigureAwait(false);
+                progress?.HandedToHelper();
                 using CancellationTokenSource executionTimeout = new(ExecutionTimeout);
                 using CancellationTokenSource executionCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, executionTimeout.Token);

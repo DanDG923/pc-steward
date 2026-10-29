@@ -93,7 +93,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         DownloadedArtifactCache downloads = new(database);
         ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()), new ElevatedUpdateRunner());
         PackageDerivedRunningApplicationDetector runningApplications = new();
-        SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications);
+        SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications,
+            events: new BoundedUpdateExecutionEventSink());
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);
         MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), showPostResetOnboarding, () => FactoryReset.AcknowledgeOnboarding(stateDirectory));
         ActivateWindow(window);

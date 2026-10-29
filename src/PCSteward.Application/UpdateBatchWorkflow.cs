@@ -69,6 +69,8 @@ public interface IApprovedUpdateExecutor
 {
     UpdateExecutionLifetime? ExecutionLifetime => null;
     Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken);
+    Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence,
+        UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteAsync(job, currentEvidence, cancellationToken);
 }
 
 public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending);
@@ -78,20 +80,11 @@ public interface IPostUpdateInventory
     Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
 }
 
-public sealed record RunningApplicationDetection(bool AppearsToBeRunning, IReadOnlyCollection<string> ProcessNames)
-{
-    public static RunningApplicationDetection NotDetected { get; } = new(false, []);
-}
-
-public interface IRunningApplicationDetector
-{
-    Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken);
-}
-
 public sealed record UpdateBatchItem(
     ImmutableUpdateJob Job,
     UpdateJobExecutionEvidence CurrentEvidence,
-    bool RunningApplicationWarningAcknowledged = false);
+    bool RunningApplicationWarningAcknowledged = false,
+    UpdateProgressMailbox? Progress = null);
 public sealed record UpdateBatchResult(
     IReadOnlyCollection<UpdateHistoryEntry> Entries,
     RunningApplicationDetection? AcknowledgementRequired = null,
@@ -111,111 +104,215 @@ public sealed class SequentialUpdateBatchCoordinator(
     IPostUpdateInventory inventory,
     IUpdateHistoryStore history,
     IRunningApplicationDetector runningApplications,
-    Func<DateTimeOffset>? utcNow = null)
+    Func<DateTimeOffset>? utcNow = null,
+    IUpdateExecutionEventSink? events = null)
 {
     private readonly IApprovedUpdateExecutor executor = executor ?? throw new ArgumentNullException(nameof(executor));
     private readonly IPostUpdateInventory inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
     private readonly IUpdateHistoryStore history = history ?? throw new ArgumentNullException(nameof(history));
     private readonly IRunningApplicationDetector runningApplications = runningApplications ?? throw new ArgumentNullException(nameof(runningApplications));
     private readonly Func<DateTimeOffset> utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+    private readonly IUpdateExecutionEventSink events = events ?? NullUpdateExecutionEventSink.Instance;
 
     public async Task<UpdateBatchResult> RunAsync(IReadOnlyCollection<UpdateBatchItem> items, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(items);
         if (items.Any(item => item.Job is null || item.CurrentEvidence is null)) throw new ArgumentException("Each batch item needs immutable job and current evidence.", nameof(items));
         if (items.Select(item => item.Job.Id).Distinct().Count() != items.Count) throw new ArgumentException("A batch cannot contain the same job twice.", nameof(items));
-
-        await history.RecoverInterruptedAsync(CancellationToken.None).ConfigureAwait(false);
+        if (items.Any(item => item.Progress is not null && !item.Progress.Matches(item.Job)))
+            throw new ArgumentException("Progress must match the immutable job and correlation.", nameof(items));
         List<UpdateHistoryEntry> recorded = [];
-        for (int index = 0; index < items.Count; index++)
+        bool batchFaulted = false;
+        bool recovered = false;
+        try
         {
-            UpdateBatchItem item = items.ElementAt(index);
-            if (cancellationToken.IsCancellationRequested)
+            foreach (UpdateBatchItem item in items)
             {
-                for (int cancelled = index; cancelled < items.Count; cancelled++)
+                if (batchFaulted || cancellationToken.IsCancellationRequested)
                 {
-                    UpdateHistoryEntry entry = Entry(items.ElementAt(cancelled).Job, UpdateHistoryStatus.Cancelled, null, "user-cancelled-before-start");
-                    await RecordAsync(entry, recorded, CancellationToken.None).ConfigureAwait(false);
+                    await RecordFinalAsync(item, UpdateHistoryStatus.Cancelled, null,
+                        batchFaulted ? "not-started-after-progress-capacity-fault" : "user-cancelled-before-start", recorded).ConfigureAwait(false);
+                    continue;
                 }
-                break;
-            }
-
-            UpdateExecutionLifetime? lifetime = executor.ExecutionLifetime;
-            using UpdateExecutionLease? admission = lifetime?.TryAcquire();
-            if (lifetime is not null && admission is null)
-            {
-                for (int blocked = index; blocked < items.Count; blocked++)
-                    await RecordAsync(Entry(items.ElementAt(blocked).Job, UpdateHistoryStatus.ProductFailed, null,
-                        "not-started-update-execution-busy-or-owned-work-unresolved"), recorded, CancellationToken.None).ConfigureAwait(false);
-                return new(recorded, AdmissionRefused: true);
-            }
-
-            RunningApplicationDetection running = await runningApplications.DetectAsync(item.Job.Selection, cancellationToken).ConfigureAwait(false);
-            if (running.AppearsToBeRunning)
-            {
-                await RecordAsync(Entry(item.Job, UpdateHistoryStatus.RunningApplicationWarning, null, "target-application-appears-to-be-running; no-close-action-requested"), recorded, cancellationToken).ConfigureAwait(false);
-                if (!item.RunningApplicationWarningAcknowledged)
+                UpdateExecutionLifetime? lifetime = executor.ExecutionLifetime;
+                using UpdateExecutionLease? admission = lifetime?.TryAcquire();
+                if (lifetime is not null && admission is null)
                 {
-                    return new(recorded, running);
+                    foreach (UpdateBatchItem blocked in items.SkipWhile(candidate => !ReferenceEquals(candidate, item)))
+                        await RecordFinalAsync(blocked, UpdateHistoryStatus.ProductFailed, null,
+                            "not-started-update-execution-busy-or-owned-work-unresolved", recorded).ConfigureAwait(false);
+                    return new(recorded, AdmissionRefused: true);
+                }
+                if (!recovered)
+                {
+                    await history.RecoverInterruptedAsync(CancellationToken.None).ConfigureAwait(false);
+                    recovered = true;
+                }
+                UpdateProgressCancellation cancellation = new(item.Progress, cancellationToken);
+                Task ownedCompletion = Task.CompletedTask;
+                UpdateItemProgress progress = new(item.Job, item.Progress);
+                try
+                {
+                    item.Progress?.Offer(item.Job.Id, item.Job.CorrelationId, UpdateProgressPhase.Queued);
+                    item.Progress?.Offer(item.Job.Id, item.Job.CorrelationId, UpdateProgressPhase.Preparing);
+                    try
+                    {
+                        RunningApplicationDetection running = await runningApplications.DetectAsync(item.Job.Selection, cancellation.Token).ConfigureAwait(false);
+                        if (running.AppearsToBeRunning)
+                        {
+                            await RecordAsync(Entry(item.Job, UpdateHistoryStatus.RunningApplicationWarning, null,
+                                "target-application-appears-to-be-running; no-close-action-requested"), recorded, cancellation.Token).ConfigureAwait(false);
+                            if (!item.RunningApplicationWarningAcknowledged)
+                            {
+                                item.Progress?.Complete(null, UpdateProgressCompletion.AcknowledgementRequired);
+                                return new(recorded, running);
+                            }
+                        }
+                        await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Queued, null, "reviewed-job-queued"), recorded, cancellation.Token).ConfigureAwait(false);
+                        await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Running, null, "approved-execution-requested"), recorded, cancellation.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellation.Token.IsCancellationRequested)
+                    {
+                        item.Progress?.StopOffers();
+                        batchFaulted = cancellation.CapacityFaulted;
+                        await RecordFinalAsync(item, UpdateHistoryStatus.Cancelled, null,
+                            batchFaulted ? "progress-capacity-fault; not-started" : "user-cancelled-before-start", recorded).ConfigureAwait(false);
+                        continue;
+                    }
+                    if (cancellation.CapacityFaulted)
+                    {
+                        batchFaulted = true;
+                        await RecordFinalAsync(item, UpdateHistoryStatus.Cancelled, null, "progress-capacity-fault; not-started", recorded).ConfigureAwait(false);
+                        continue;
+                    }
+                    UpdateProviderAttempt attempt;
+                    try
+                    {
+                        cancellation.Token.ThrowIfCancellationRequested();
+                        attempt = await executor.ExecuteAsync(item.Job, item.CurrentEvidence, progress, cancellation.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellation.Token.IsCancellationRequested)
+                    {
+                        attempt = new(UpdateProviderAttemptStatus.Cancelled, null, "operation-cancelled");
+                    }
+                    catch (Exception)
+                    {
+                        attempt = progress.InvocationPossible
+                            ? new(UpdateProviderAttemptStatus.VerificationRequired, null, "execution-interrupted-after-possible-start; verification-required")
+                            : new(UpdateProviderAttemptStatus.ProductFailed, null, "product-could-not-start-approved-update");
+                    }
+                    ownedCompletion = attempt.OwnedCompletion ?? Task.CompletedTask;
+                    UpdateHistoryStatus status;
+                    string diagnostic;
+                    if (attempt.Status != UpdateProviderAttemptStatus.AwaitingVerification)
+                    {
+                        status = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? UpdateHistoryStatus.VerificationRequired : Map(attempt.Status);
+                        diagnostic = attempt.Status == UpdateProviderAttemptStatus.Cancelled
+                            ? "provider-start-state-interrupted; verification-required" : attempt.SanitizedDiagnostic;
+                        if (attempt.Status == UpdateProviderAttemptStatus.ProductFailed && progress.InvocationPossible)
+                        {
+                            status = UpdateHistoryStatus.VerificationRequired;
+                            diagnostic = $"execution-interrupted-after-possible-start; verification-required; {diagnostic}";
+                        }
+                    }
+                    else
+                    {
+                        // Inventory owns durable work too: await it; never abandon it behind a timeout wrapper.
+                        if (progress.InvocationPossible)
+                            item.Progress?.Offer(item.Job.Id, item.Job.CorrelationId, UpdateProgressPhase.Verifying);
+                        try
+                        {
+                            PostUpdateInventoryResult verification = await inventory.ReInventoryAsync(item.Job, cancellation.Token).ConfigureAwait(false);
+                            status = verification.ExpectedVersionDetected ? UpdateHistoryStatus.Success
+                                : verification.RestartPending ? UpdateHistoryStatus.RestartRequired : UpdateHistoryStatus.Inconclusive;
+                            diagnostic = status switch
+                            {
+                                UpdateHistoryStatus.Success => "target-version-verified-by-post-update-inventory",
+                                UpdateHistoryStatus.RestartRequired => "provider-reported-reliable-restart-pending-state",
+                                _ => "provider-succeeded-but-target-version-was-not-detected"
+                            };
+                        }
+                        catch (OperationCanceledException) when (cancellation.Token.IsCancellationRequested)
+                        {
+                            status = UpdateHistoryStatus.VerificationRequired;
+                            diagnostic = "verification-interrupted-after-provider-completed";
+                        }
+                        catch (Exception)
+                        {
+                            status = UpdateHistoryStatus.VerificationFailed;
+                            diagnostic = "post-update-inventory-verification-failed";
+                        }
+                    }
+                    // Close admissions atomically before choosing the recorded outcome; late producers cannot cancel a committed result.
+                    item.Progress?.StopOffers();
+                    batchFaulted = cancellation.CapacityFaulted;
+                    if (batchFaulted)
+                    {
+                        status = progress.InvocationPossible ? UpdateHistoryStatus.VerificationRequired : UpdateHistoryStatus.Cancelled;
+                        diagnostic = progress.InvocationPossible
+                            ? "progress-capacity-fault; verification-required" : "progress-capacity-fault; not-started";
+                    }
+                    await RecordFinalAsync(item, status, attempt.ExitCode, diagnostic, recorded).ConfigureAwait(false);
+                }
+                finally
+                {
+                    item.Progress?.StopOffers();
+                    Task cancellationCompletion = cancellation.FinishAsync();
+                    if (!cancellation.CapacityFaulted) await cancellationCompletion.ConfigureAwait(false);
+                    Task combined = cancellationCompletion.IsCompletedSuccessfully ? ownedCompletion : Task.WhenAll(ownedCompletion, cancellationCompletion);
+                    if (admission is not null) admission.TrackCompletion(combined);
+                    else await combined.ConfigureAwait(false);
                 }
             }
-
-            await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Queued, null, "reviewed-job-queued"), recorded, cancellationToken).ConfigureAwait(false);
-            await RecordAsync(Entry(item.Job, UpdateHistoryStatus.Running, null, "approved-execution-requested"), recorded, cancellationToken).ConfigureAwait(false);
-            UpdateProviderAttempt attempt;
-            try
+            return new(recorded);
+        }
+        finally
+        {
+            foreach (UpdateBatchItem item in items)
             {
-                attempt = await executor.ExecuteAsync(item.Job, item.CurrentEvidence, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                attempt = new(UpdateProviderAttemptStatus.Cancelled, null, "user-cancelled");
-            }
-            catch (Exception)
-            {
-                attempt = new(UpdateProviderAttemptStatus.ProductFailed, null, "product-could-not-start-approved-update");
-            }
-
-            admission?.TrackCompletion(attempt.OwnedCompletion ?? Task.CompletedTask);
-            if (attempt.Status != UpdateProviderAttemptStatus.AwaitingVerification)
-            {
-                UpdateHistoryStatus finalStatus = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? UpdateHistoryStatus.VerificationRequired : Map(attempt.Status);
-                string diagnostic = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? "provider-start-state-interrupted; verification-required" : attempt.SanitizedDiagnostic;
-                await RecordAsync(Entry(item.Job, finalStatus, attempt.ExitCode, diagnostic), recorded, CancellationToken.None).ConfigureAwait(false);
-                continue;
-            }
-
-            try
-            {
-                PostUpdateInventoryResult verification = await inventory.ReInventoryAsync(item.Job, cancellationToken).ConfigureAwait(false);
-                UpdateHistoryStatus status = verification.ExpectedVersionDetected
-                    ? UpdateHistoryStatus.Success
-                    : verification.RestartPending ? UpdateHistoryStatus.RestartRequired : UpdateHistoryStatus.Inconclusive;
-                string diagnostic = status switch
+                item.Progress?.Complete(null, UpdateProgressCompletion.RecordingFailed);
+                item.Progress?.SealProducer();
+                if (item.Progress is { } mailbox)
                 {
-                    UpdateHistoryStatus.Success => "target-version-verified-by-post-update-inventory",
-                    UpdateHistoryStatus.RestartRequired => "provider-reported-reliable-restart-pending-state",
-                    _ => "provider-succeeded-but-target-version-was-not-detected"
-                };
-                await RecordAsync(Entry(item.Job, status, attempt.ExitCode, diagnostic), recorded, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                await RecordAsync(Entry(item.Job, UpdateHistoryStatus.VerificationRequired, attempt.ExitCode, "verification-interrupted-after-provider-completed"), recorded, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                await RecordAsync(Entry(item.Job, UpdateHistoryStatus.VerificationFailed, attempt.ExitCode, "post-update-inventory-verification-failed"), recorded, CancellationToken.None).ConfigureAwait(false);
+                    UpdateProgressCounters counters = mailbox.Counters;
+                    if (mailbox.HasDegraded || counters.ForeignRejected > 0)
+                    {
+                        WriteEvent(new(item.Job.Id, item.Job.CorrelationId, utcNow(), UpdateExecutionEventSeverity.Warning,
+                            mailbox.CapacityFault.IsCompleted ? "update.progress-capacity-fault" : "update.progress-rejected",
+                            item.Job.Selection.Provider, item.Job.Selection.PackageId, item.Job.Selection.CandidateVersion,
+                            $"Local progress attempts={counters.Attempts}; invalid={counters.InvalidRejected}; foreign={counters.ForeignRejected}; coalesced={counters.Coalesced}."));
+                    }
+                }
             }
         }
-
-        return new(recorded);
     }
 
+    private async Task RecordFinalAsync(UpdateBatchItem item, UpdateHistoryStatus status, int? exitCode, string diagnostic,
+        List<UpdateHistoryEntry> recorded)
+    {
+        item.Progress?.StopOffers();
+        await RecordAsync(Entry(item.Job, status, exitCode, diagnostic), recorded, CancellationToken.None).ConfigureAwait(false);
+        item.Progress?.Complete(status, UpdateProgressCompletion.Recorded);
+    }
     private async Task RecordAsync(UpdateHistoryEntry entry, List<UpdateHistoryEntry> entries, CancellationToken cancellationToken)
     {
         await history.RecordAsync(entry, cancellationToken).ConfigureAwait(false);
         entries.Add(entry);
+        UpdateExecutionEventSeverity severity = entry.Status switch
+        {
+            UpdateHistoryStatus.Queued or UpdateHistoryStatus.Running or UpdateHistoryStatus.Success => UpdateExecutionEventSeverity.Information,
+            UpdateHistoryStatus.RunningApplicationWarning or UpdateHistoryStatus.VerificationRequired or UpdateHistoryStatus.RestartRequired or
+                UpdateHistoryStatus.Inconclusive or UpdateHistoryStatus.Cancelled or UpdateHistoryStatus.ElevationDenied => UpdateExecutionEventSeverity.Warning,
+            _ => UpdateExecutionEventSeverity.Error
+        };
+        WriteEvent(new(entry.JobId, entry.CorrelationId, entry.OccurredAt, severity, $"update.{entry.Status.ToString().ToLowerInvariant()}",
+            entry.Provider, entry.PackageId, entry.TargetVersion, entry.Diagnostic));
+    }
+
+    private void WriteEvent(UpdateExecutionEvent updateEvent)
+    {
+        try { events.Write(updateEvent); }
+        catch (Exception) { /* Diagnostic sink failure cannot replace a recorded outcome. */ }
     }
 
     private UpdateHistoryEntry Entry(ImmutableUpdateJob job, UpdateHistoryStatus status, int? exitCode, string diagnostic) => new(

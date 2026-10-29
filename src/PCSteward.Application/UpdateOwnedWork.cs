@@ -6,6 +6,7 @@ public sealed class UpdateExecutionLifetime
     private object? active;
     private Task? pending;
     private Task? observer;
+    internal Task OwnedCompletion { get { lock (sync) return pending ?? Task.CompletedTask; } }
 
     public UpdateExecutionLease? TryAcquire()
     {

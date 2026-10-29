@@ -66,7 +66,8 @@ public sealed partial class NonElevatedUpdateRunner
     public async Task<UpdateExecutionResult> RunAsync(
         ImmutableUpdateJob job,
         UpdateJobExecutionEvidence currentEvidence,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        UpdateItemProgress? progress = null)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(currentEvidence);
@@ -103,7 +104,7 @@ public sealed partial class NonElevatedUpdateRunner
         Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.dispatch-requested", "Provider execution requested.");
         try
         {
-            WingetProcessResult providerResult = await winget.ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
+            WingetProcessResult providerResult = await winget.ExecuteAsync(job, progress, cancellationToken).ConfigureAwait(false);
             string output = Sanitize(string.Join(' ', providerResult.StandardOutput, providerResult.StandardError));
             if (providerResult.OutputLimitExceeded)
             {

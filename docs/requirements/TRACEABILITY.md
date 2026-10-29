@@ -381,3 +381,7 @@ The [Task 45 record](../review/TASK_45_PROPOSED_OPERATION_ADRS.md) contains scop
 ## Repository maintenance note (2026-10-29)
 
 [Git repair verification](../review/GIT_PUSH_REPAIR.md) records fresh validation before publishing the pending planning/Task 48 snapshot. No new product requirement is introduced; existing requirement mappings above remain authoritative.
+
+
+**Task 49 — integrated candidate:** FR-UPD-14; retained FR-UPD-01–11, FR-UI-01–07 and NFR-OBS-01–05 map to [implementation/evidence](../review/TASK_49_IMPLEMENTATION.md): review-bound local milestones, opaque indeterminate UI, Q1 cancellation/quotas/terminal ordering, retained owned-work admission, Q3 disclosed coverage and unchanged protocol-1 golden/schema fixtures. Release zero warnings/errors; 407/407, zero skipped. Candidate review pending; no privileged-host/redeployment/Task 53/54/distribution gate is closed.
+Task 49 workflow clarification (2026-10-29): AGENTS.md applies the same main-owned Opus/Fable/Astra council protocol to stuck subagents; Opus remains involved through escalation. See docs/review/TASK_49_DESIGN_DIALOGUE.md. No product requirement or gate is newly satisfied by this instruction change.

@@ -1,5 +1,9 @@
 # PC Steward build status
 
+**Task 49 — integrated implementation candidate; review pending:** [Current implementation and evidence](review/TASK_49_IMPLEMENTATION.md) supersedes the remaining-implementation wording below. Review-bound local progress now reaches runners/Desktop; truthful indeterminate phases, per-item capacity cancellation, durable terminal ordering, cancellation/native-work holds, Q3 coverage and protocol-1 golden/adversarial fixtures pass. Release zero warnings/errors; full **407/407**, zero skipped. Independent candidate review is pending. No real provider/app/UAC/deployment action; Task 50 and Tasks 53/54/host/distribution gates remain unstarted/open as applicable.
+
+**Task 49 subagent consultation routing (2026-10-29):** Owner clarification added to AGENTS.md: a stuck worker sends evidence to main, which owns the same Opus council and Fable/Astra escalation, keeps Opus involved and returns validation to the dialogue. Running Sol High Fast workers are notified. This changes workflow only; implementation and final gates remain open.
+
 **Task 49 — ownership/admission integrated; progress/UI still open:** [Ownership checkpoint](review/TASK_49_DESIGN_DIALOGUE.md) records bounded upgrade-reader ownership, partial output/EOF distinctions, retained pending work, atomic local update admission, and helper-process disposal deferred until observed exit plus transport completion. Zero-exit incomplete/uncertain results require verification; pre-cancelled user jobs never invoke the provider. Behavioral red/green fixtures pass; Release zero warnings/errors, full 335/335, zero skipped. Protocol 1 fields/authorization/arguments remain unchanged; lifecycle/artifact behavior changes are disclosed. No real provider/app/UAC/deployment action. The owner now authorizes Sol High Fast implementation agents for separate remaining file scopes; main retains safety-critical integration and final verification.
 
 **Task 49 — redirected-process prerequisite proven locally:** [Real-process evidence](review/TASK_49_DESIGN_DIALOGUE.md) uses a synthetic parent/grandchild retaining stdout/stderr after parent exit. Both pending FileStream reads cancel before writer closure; fresh reads receive the holder's next byte (no hidden competing-read consumption). Disposal alone leaves reads pending after two seconds until holder exit. Focused 4/4, Release zero warnings/errors, full 313/313 pass, zero skipped. A package-free test fixture project and local-cache-only restore support these tests. Production process ownership/cancellation, coordinator/runner/Desktop progress, Q3 and final Task 49 evidence remain open; no real provider/app/deployment action occurred.
@@ -26,7 +30,7 @@
 
 **Current phase:** PC Steward 2.0 Phase C — Task 49 implementation in progress; Phase B Task 48 remains complete within owner-only scope; no distribution gate closure
 
-**Current task:** Task 49 — IN PROGRESS: mailbox and upgrade/helper ownership/local admission implemented; remaining progress integration, UI, Q3 and final compatibility evidence. Task 48 completion evidence remains applicable to its exact installation only.
+**Current task:** Task 49 — implementation candidate integrated and locally verified (407/407); independent candidate review pending. Task 48 evidence remains applicable only to its exact installation. Task 50 has not started.
 
 **Reviewed implementation:** Task 42 at `52b43130130b25a850f43f1fe478d112c3ce9cb7`, plus restored SQLite project and SDK 10.0.403 pin; accepted/reviewed Task 48 pinned-payload deployment repair. Release 0 warnings/errors, full 291/291 tests; installed desktop DLL/PDB now match approved candidate. No 2.0 feature implementation
 

@@ -1,4 +1,4 @@
-﻿using PCSteward.Application;
+using PCSteward.Application;
 using PCSteward.Domain;
 
 namespace PCSteward.Execution;
@@ -23,6 +23,8 @@ internal sealed record ElevatedHelperResult(
 internal interface IElevatedHelperTransport
 {
     Task<ElevatedHelperResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+    Task<ElevatedHelperResult> ExecuteAsync(ImmutableUpdateJob job, UpdateItemProgress? progress, CancellationToken cancellationToken) =>
+        ExecuteAsync(job, cancellationToken);
 }
 
 /// <summary>
@@ -53,7 +55,8 @@ public sealed class ElevatedUpdateRunner
     public async Task<UpdateExecutionResult> RunAsync(
         ImmutableUpdateJob job,
         UpdateJobExecutionEvidence currentEvidence,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        UpdateItemProgress? progress = null)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(currentEvidence);
@@ -81,18 +84,18 @@ public sealed class ElevatedUpdateRunner
 
         if (cancellationToken.IsCancellationRequested)
         {
-            return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "user-cancelled");
+            return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "operation-cancelled");
         }
 
         Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.elevation-preparing", "Preparing protected helper validation.");
         ElevatedHelperResult helperResult;
         try
         {
-            helperResult = await transport.ExecuteAsync(job, cancellationToken).ConfigureAwait(false);
+            helperResult = await transport.ExecuteAsync(job, progress, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            helperResult = new ElevatedHelperResult(ElevatedHelperOutcome.Cancelled, null, "user-cancelled");
+            helperResult = new ElevatedHelperResult(ElevatedHelperOutcome.Cancelled, null, "operation-cancelled");
         }
 
         (UpdateExecutionStatus status, string fallback) = helperResult.Outcome switch
@@ -104,7 +107,7 @@ public sealed class ElevatedUpdateRunner
             ElevatedHelperOutcome.UserDenied =>
                 (UpdateExecutionStatus.ElevationDenied, "user-declined-elevation"),
             ElevatedHelperOutcome.Cancelled =>
-                (UpdateExecutionStatus.Cancelled, "user-cancelled"),
+                (UpdateExecutionStatus.Cancelled, "operation-cancelled"),
             ElevatedHelperOutcome.TimedOut =>
                 (UpdateExecutionStatus.TimedOut, "elevated-helper-timed-out"),
             ElevatedHelperOutcome.OutputLimitExceeded =>

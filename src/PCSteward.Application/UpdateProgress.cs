@@ -28,6 +28,7 @@ public sealed class UpdateProgressMailbox
     private UpdateProgressFrame? retainedTerminal;
     private bool terminalPending;
     private bool closed;
+    private bool offersClosed;
     private bool faulted;
     private bool emitted;
     private long lastEmission;
@@ -49,14 +50,17 @@ public sealed class UpdateProgressMailbox
     }
 
     internal UpdateProgressCounters Counters { get { lock (sync) return new(attempts, foreignRejected, invalidRejected, coalesced); } }
+    public bool HasDegraded { get { lock (sync) return faulted || invalidRejected > 0; } }
     internal Task CapacityFault => capacityFault.Task;
+    internal bool Matches(ImmutableUpdateJob job) => Matches(job.Id, job.CorrelationId, job.Selection.Scope);
+    internal bool Matches(Guid job, Guid correlation, UpdateScope route) => job == jobId && correlation == correlationId && route == scope;
     internal UpdateProgressFrame? RetainedTerminal { get { lock (sync) return retainedTerminal; } }
 
     internal UpdateProgressOfferResult Offer(Guid jobId, Guid correlationId, UpdateProgressPhase phase)
     {
         lock (sync)
         {
-            if (closed) return UpdateProgressOfferResult.Closed;
+            if (closed || offersClosed) return UpdateProgressOfferResult.Closed;
             if (jobId != this.jobId || correlationId != this.correlationId)
             {
                 foreignRejected = IncrementSaturated(foreignRejected);
@@ -105,6 +109,7 @@ public sealed class UpdateProgressMailbox
 
     /// <summary>Ends production without erasing a retained terminal or invoking consumer code.</summary>
     internal void SealProducer() { lock (sync) closed = true; }
+    internal void StopOffers() { lock (sync) offersClosed = true; }
 
     public bool TryTake(out UpdateProgressFrame? frame)
     {
@@ -151,6 +156,61 @@ public sealed class UpdateProgressMailbox
     }
 
     private static int IncrementSaturated(int value) => value == int.MaxValue ? value : value + 1;
+}
+
+/// <summary>Job-bound local observations only; carries no execution authority or consumer callbacks.</summary>
+public sealed class UpdateItemProgress
+{
+    private readonly ImmutableUpdateJob job;
+    private readonly UpdateProgressMailbox? mailbox;
+    private int invocationPossible;
+
+    internal UpdateItemProgress(ImmutableUpdateJob job, UpdateProgressMailbox? mailbox)
+    {
+        this.job = job;
+        if (mailbox is not null && !mailbox.Matches(job)) throw new ArgumentException("Progress identity does not match the approved job.", nameof(mailbox));
+        this.mailbox = mailbox;
+    }
+
+    internal bool InvocationPossible => Volatile.Read(ref invocationPossible) != 0;
+    public void ElevationRequested() => Observe(UpdateProgressPhase.ElevationRequested);
+    public void HandedToHelper() => Observe(UpdateProgressPhase.HandedToHelper);
+    public void ProcessStarted() => Observe(UpdateProgressPhase.ProcessStarted);
+
+    private void Observe(UpdateProgressPhase phase)
+    {
+        if (phase is UpdateProgressPhase.ElevationRequested or UpdateProgressPhase.ProcessStarted)
+            Interlocked.Exchange(ref invocationPossible, 1);
+        mailbox?.Offer(job.Id, job.CorrelationId, phase);
+    }
+}
+
+internal sealed class UpdateProgressCancellation
+{
+    private readonly CancellationTokenSource item;
+    private readonly TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Task monitor;
+    private readonly UpdateProgressMailbox? mailbox;
+    internal UpdateProgressCancellation(UpdateProgressMailbox? mailbox, CancellationToken caller)
+    {
+        this.mailbox = mailbox;
+        item = CancellationTokenSource.CreateLinkedTokenSource(caller);
+        monitor = MonitorAsync();
+    }
+    internal CancellationToken Token => item.Token;
+    internal bool CapacityFaulted => mailbox?.CapacityFault.IsCompleted == true;
+    private async Task MonitorAsync()
+    {
+        if (mailbox is null) return;
+        await Task.WhenAny(mailbox.CapacityFault, finished.Task).ConfigureAwait(false);
+        if (CapacityFaulted) await item.CancelAsync().ConfigureAwait(false);
+    }
+    internal async Task FinishAsync()
+    {
+        finished.TrySetResult();
+        try { await monitor.ConfigureAwait(false); }
+        finally { item.Dispose(); }
+    }
 }
 
 internal sealed class UpdateProgressQuota

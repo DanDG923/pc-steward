@@ -21,7 +21,14 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
         this.elevated = elevated;
     }
 
-    public async Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken)
+    public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(job, currentEvidence, null, cancellationToken);
+
+    public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence,
+        UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteCoreAsync(job, currentEvidence, progress, cancellationToken);
+
+    private async Task<UpdateProviderAttempt> ExecuteCoreAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence,
+        UpdateItemProgress? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(currentEvidence);
@@ -30,8 +37,8 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
             return new(UpdateProviderAttemptStatus.ProductFailed, null, "standalone-package-machine-scope-disabled");
         }
         UpdateExecutionResult result = job.Selection.Scope == UpdateScope.Machine
-            ? await elevated!.RunAsync(job, currentEvidence, cancellationToken).ConfigureAwait(false)
-            : await nonElevated.RunAsync(job, currentEvidence, cancellationToken).ConfigureAwait(false);
+            ? await elevated!.RunAsync(job, currentEvidence, cancellationToken, progress).ConfigureAwait(false)
+            : await nonElevated.RunAsync(job, currentEvidence, cancellationToken, progress).ConfigureAwait(false);
         return new(Map(result.Status), result.ExitCode, result.SanitizedOutput, result.OwnedCompletion);
     }
 
