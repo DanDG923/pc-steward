@@ -1,3 +1,13 @@
+# Fresh mapping review and isolated wire correction
+
+The fresh review of `857c29a` / mapping-V1 SHA256 `EE935BA20F8081C191C6594393EB6F622FF35EA4AE7D214AF0EAE671E6B5E684` was CONDITIONAL. [Revision 2](TASK_50_PROVIDER_MAPPING_V2.md) records F1–F9 and the joint settlement reconciliation. Main independently verified the pinned `--require-checksums` option mapping (blob `8b1c916c65ef0aeb6e49e565b2279297d018f38d`). CLI execution remains in Task 50; COM execution adoption is deferred to its owning tasks. Registry-view architecture alone is insufficient; new user qualification must disclose lost EXE/MSI coverage.
+
+Implemented only the internal passive `ReviewedUpdateWireCodec`: deterministic UTF-8 JSON and whole-frame re-encoding, literal Base64 plus signs, seven-fraction UTC-Z, bounded payload/ASCII diagnostics, strict correlations and facts-only responses. Unknown invocation is distinct from not-started. Aggregate settlement includes preflight; contradictions reject. No helper verdict or task is serialized. Framing returns untrusted bytes, never operation admission, approval, permit or Final. The active protocol-1 constant/callers and provider routes are unchanged.
+
+Focused fixtures were written first and failed compilation because the new seam did not exist (`pc-steward-task50-wire-red.log`). After implementation, explicit-type analyzer errors were corrected; focused 13/13 passed (`pc-steward-task50-wire-green.log`). Tests include 288 invocation/exit/fact combinations, maximum raw payload, quotes/backslashes/non-BMP and invalid-surrogate diagnostics, alternate escaping/order/time/Base64, unknown/duplicate/verdict fields, wrong correlation, contradictory settlement and oversized/malformed frames. Release build passed with zero warnings/errors (`pc-steward-task50-wire-build.log`). Full-suite result is recorded in STATUS after completion.
+
+The codec does not close schema-3 typed architecture, actual client/registration/cache qualification, common-gate caller conversion, runner/helper/provider/UI composition or Task 50. No host/native provider action, UAC, deployment or installed application update occurred.
+
 # Task 50 — Reviewed installer mode entry assessment
 
 Date: 2026-10-30. Status: **Mode data, canonical identity/codec, passive operation-store migration and secured-gate prerequisites implemented; claims and execution integration in progress. Not a Task 50 completion or review pass.** Earlier no-production-edit statements describe the entry checkpoint.

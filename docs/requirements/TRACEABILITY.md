@@ -1,3 +1,7 @@
+# Task 50 — isolated canonical wire prerequisite
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [revision-2 mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) and [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) record fresh-review corrections, deterministic frame parsing, bounded ASCII diagnostics, exact correlation and contradictory/unknown invocation/settlement handling. Focused 13/13, Release clean, full 603/603. No endpoint consumes the new passive codec; schema-3 and native profile/runner/helper/common-gate/UI integration remain prerequisites. `AC-UPD-01–11` and Task 50 exit are not closed.
+
 # MVP requirement traceability
 
 **Task 50 — native observation handoff:** `FR-UPD-15`, retained `FR-UPD-01/08/09`, `TM-03–04/07/13`: [entry record](../review/TASK_50_ENTRY_ASSESSMENT.md) demonstrates immutable direct scan-to-review/verification data instead of re-reading writable display rows. Meaningful storage-substitution negatives cover changed reviewed installed version and fabricated verified target version; focused25/25, Release clean, full590/590. [Proposed mapping revision1](../review/TASK_50_PROVIDER_MAPPING_V1.md) awaits fresh review; no provider/profile/helper/AC-UPD closure inferred.
