@@ -14,6 +14,8 @@ WS3 adds bounded consented COM discovery, honest metadata/tags/favourites and di
 
 | Task | Deliverable | Prompt |
 |---|---|---|
+| 54A | WinGet COM projection refresh spike (**Proposed 2026-10-30, not owner-accepted**; see [proposal](../review/V2_DEPENDENCY_SERVICING_PROPOSAL.md)) | [Task 54A](../../prompts/54A_WINGET_COM_PROJECTION_SPIKE.md) |
+| 54B | Adopt the refreshed WinGet COM projection (**Proposed**; only if 54A recommends adoption and the ADR-003 amendment is accepted) | [Task 54B](../../prompts/54B_ADOPT_WINGET_COM_PROJECTION.md) |
 | 55 | Bounded catalogue and favourites | [Task 55](../../prompts/55_BOUNDED_CATALOGUE_SEARCH.md) |
 | 56 | Distinct reviewed install jobs | [Task 56](../../prompts/56_DISTINCT_INSTALL_JOBS.md) |
 | 57 | Install evidence readiness | [Task 57](../../prompts/57_INSTALL_EVIDENCE_READINESS.md) |

@@ -18,6 +18,7 @@ WS2 closes G1 truthful progress, G2 enforceable reviewed mode, G3 reliable resta
 | 50 | Enforceable reviewed installer mode | [Task 50](../../prompts/50_REVIEWED_INSTALLER_MODE.md) |
 | 51 | Reliable restart outcomes | [Task 51](../../prompts/51_RELIABLE_RESTART_OUTCOMES.md) |
 | 52 | Frozen reviewed update batches | [Task 52](../../prompts/52_FROZEN_UPDATE_BATCHES.md) |
+| 53A | Dependency servicing before updater evidence (**Proposed 2026-10-30, not owner-accepted**; see [proposal](../review/V2_DEPENDENCY_SERVICING_PROPOSAL.md)) | [Task 53A](../../prompts/53A_DEPENDENCY_SERVICING.md) |
 | 53 | Updater evidence readiness | [Task 53](../../prompts/53_UPDATER_EVIDENCE_READINESS.md) |
 | 54 | Updater review gate | [Task 54](../../prompts/54_UPDATER_REVIEW_GATE.md) |
 
