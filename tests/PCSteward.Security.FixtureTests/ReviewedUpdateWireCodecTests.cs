@@ -85,7 +85,7 @@ public sealed class ReviewedUpdateWireCodecTests
             bool direct = (flags & 1) != 0, io = (flags & 2) != 0, eof = (flags & 4) != 0;
             bool termination = (flags & 8) != 0, aggregate = (flags & 16) != 0;
             UpdateWireFacts facts = new(invocation, exit, direct, io, eof, termination, aggregate, false, false, false);
-            bool expected = (exit is null || direct) &&
+            bool expected = (exit.HasValue == direct) &&
                 (invocation == UpdateWireInvocation.Started || (exit is null && !direct && !io && !eof)) &&
                 (!aggregate || (!termination && invocation != UpdateWireInvocation.Unknown &&
                     (invocation == UpdateWireInvocation.NotStarted || (direct && io && eof))));
@@ -97,6 +97,48 @@ public sealed class ReviewedUpdateWireCodecTests
             Assert.AreEqual(!aggregate, read.Facts.RequiresUncertainty);
         }
         Assert.IsFalse(new UpdateWireFacts((UpdateWireInvocation)99, null, false, false, false, false, false, false, false, false).IsConsistent);
+    }
+
+    [TestMethod]
+    public void DiagnosticCleanupIsStableAtTheTruncationBoundary()
+    {
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), new string('a', 2047) + " b");
+        Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out FramedUpdateResponse? read));
+        Assert.AreEqual(new string('a', 2047), read!.Diagnostic);
+        CollectionAssert.AreEqual(frame, ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, read.Facts, read.Diagnostic));
+    }
+
+    [TestMethod]
+    [DataRow("\u00e9password=hunter2")]
+    [DataRow("\uD800password=hunter2")]
+    [DataRow("\U0001F600token=hunter2")]
+    public void AsciiConversionCannotExposeASensitiveValueThatHadNoUnicodeWordBoundary(string diagnostic)
+    {
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), diagnostic);
+        Assert.DoesNotContain("hunter2", Encoding.UTF8.GetString(frame));
+        Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out FramedUpdateResponse? read));
+        StringAssert.Contains(read!.Diagnostic, "[redacted]");
+        CollectionAssert.AreEqual(frame, ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, read.Facts, read.Diagnostic));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void LoneSurrogatePropertyNamesAreRejectedByBothTryParsersWithoutThrowing(bool response)
+    {
+        byte[] malformed = Encoding.ASCII.GetBytes("{\"\\uD800\":1}");
+        if (response) Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(malformed, Job, Digest, Nonce, out _));
+        else Assert.IsFalse(ReviewedUpdateWireCodec.TryReadRequest(malformed, out _));
+    }
+
+    [TestMethod]
+    public void CancellationTimeoutAndOutputLimitObservationsSurviveTheWire()
+    {
+        UpdateWireFacts facts = Settled() with { Cancelled = true, TimedOut = true, OutputLimitExceeded = true };
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, facts, "native observations");
+        Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out FramedUpdateResponse? read));
+        Assert.AreEqual(facts, read!.Facts);
+        Assert.IsTrue(read.Facts.Cancelled && read.Facts.TimedOut && read.Facts.OutputLimitExceeded);
     }
 
     [TestMethod]

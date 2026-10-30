@@ -17,7 +17,7 @@ internal sealed record UpdateWireFacts(UpdateWireInvocation Invocation, int? Exi
     bool Cancelled, bool TimedOut, bool OutputLimitExceeded)
 {
     internal bool IsConsistent => Enum.IsDefined(Invocation) &&
-        (ExitCode is null || DirectProcessExitObserved) &&
+        (ExitCode.HasValue == DirectProcessExitObserved) &&
         (Invocation == UpdateWireInvocation.Started ||
             (ExitCode is null && !DirectProcessExitObserved && !OwnedIoCompleted && !PipeEofObserved)) &&
         (!AggregateSettlementConfirmed || (!AggregateTerminationFailed && Invocation != UpdateWireInvocation.Unknown &&
@@ -185,7 +185,7 @@ internal static class ReviewedUpdateWireCodec
                 if (!expected.Contains(property.Name, StringComparer.Ordinal) || !fields.TryAdd(property.Name, property.Value.Clone())) return false;
             return fields.Count == expected.Length;
         }
-        catch (JsonException) { return false; }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException) { return false; }
     }
 
     private static string String(Dictionary<string, JsonElement> fields, string key) =>
@@ -198,12 +198,19 @@ internal static class ReviewedUpdateWireCodec
         ? stream.ToArray() : throw new ArgumentException("Frame exceeds the fixed message ceiling.");
     private static string AsciiDiagnostic(string value)
     {
-        StringBuilder result = new(MaximumDiagnosticBytes);
-        foreach (Rune rune in SanitizedDiagnosticBundle.Sanitize(value).EnumerateRunes())
+        // Convert before redaction: replacing a Unicode letter may create a sensitive-value word boundary.
+        StringBuilder ascii = new(value.Length);
+        foreach (Rune rune in value.EnumerateRunes())
         {
-            if (result.Length == MaximumDiagnosticBytes) break;
-            result.Append(rune.Value is >= 32 and <= 126 ? (char)rune.Value : '?');
+            ascii.Append(rune.Value is >= 32 and <= 126 ? (char)rune.Value : Rune.IsWhiteSpace(rune) ? ' ' : '?');
         }
-        return result.ToString();
+        string canonical = CanonicalDiagnostic(ascii.ToString());
+        return CanonicalDiagnostic(canonical) == canonical ? canonical : "[diagnostic unavailable]";
+    }
+
+    private static string CanonicalDiagnostic(string ascii)
+    {
+        string safe = SanitizedDiagnosticBundle.Sanitize(ascii);
+        return safe[..Math.Min(safe.Length, MaximumDiagnosticBytes)].TrimEnd();
     }
 }

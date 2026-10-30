@@ -9,7 +9,7 @@ The independent review of HEAD `857c29a` and revision-1 SHA256 `EE935BA20F8081C1
 | Finding | Required correction |
 |---|---|
 | F1 | Explicit UTF-8 JSON encoder/order; seven-fraction UTC `Z` request time; canonical Base64 and uppercase hashes; whole-frame byte equality on decode/re-encode. Reject alternate escaping, ordering, whitespace, numbers-as-strings and duplicate fields. |
-| F2 | Sanitize diagnostics before converting each Unicode scalar to printable ASCII; maximum 2,048 ASCII characters/bytes before JSON escaping. Worst-case quotes/backslashes expand to at most 4,096 encoded bytes. Keep the 16-KiB frame ceiling. |
+| F2 | Convert each Unicode scalar to printable ASCII before redaction, sanitize, cap at 2,048 ASCII characters/bytes and TrimEnd; require normalization to be stable on a second pass or use a fixed safe placeholder. Worst-case quotes/backslashes expand to at most 4,096 encoded bytes. Keep the 16-KiB frame ceiling. |
 | F3 | Facts-only correlated response; invocation is `NotStarted`, `Started` or `Unknown`. Separate upgrade exit/I/O/EOF observations from aggregate settlement, including preflight work. No helper claim-state or verified-success verdict. See truth table below. |
 | F4 | Introduce explicit `Observed(architecture)` / `ProviderScriptSelected`, schema 3 and new route IDs together before eligibility. Do not reinterpret schema-2 Neutral. Existing schema-2 rows remain passive data. |
 | F5 | Observe effective `ChecksumFiles=true` and append fixed `--require-checksums`, alongside ignore-remembered and fail-on-not-installed. Packages lacking required checksums may fail after claim; this is not verified update success. |
@@ -34,7 +34,7 @@ The council reconciled the reviewer's await-before-response wording: never await
 | Unknown | true | — | Reject contradiction |
 | Any | true with termination failure or missing required started observations | — | Reject contradiction |
 
-Exit code implies observed direct exit. A settled negative result is possible; settlement does not mean update success. Invalid/lost/uncorrelated responses retain the claim barrier and never permit retry. The desktop claim is not cleared by a response. Helper aggregate evidence is trusted only from the authenticated protected helper and still requires desktop-observed helper settlement. Preflight uncertainty prevents upgrade invocation. A response must not encode `Final`, `Uncertain`, a success Boolean or a restored approval.
+Exit code and observed direct exit must be present together. A settled negative result is possible; settlement does not mean update success. Invalid/lost/uncorrelated responses retain the claim barrier and never permit retry. The desktop claim is not cleared by a response. Helper aggregate evidence is trusted only from the authenticated protected helper and still requires desktop-observed helper settlement. Preflight uncertainty prevents upgrade invocation. A response must not encode `Final`, `Uncertain`, a success Boolean or a restored approval.
 
 ## Immediate isolated implementation seam
 

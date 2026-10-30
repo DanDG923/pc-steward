@@ -50,6 +50,11 @@ public sealed partial class ReviewedUpdateOperation
     public Guid JobId { get; }
     public Guid CorrelationId { get; }
     public DateTimeOffset ReviewedAt { get; }
+    /// <summary>
+    /// Frozen data, not native proof. For EncodingVersion 2, Architecture contains only the historical,
+    /// unqualified label: its Observed binding has no observation meaning. Check HasCurrentSchema before
+    /// using the architecture contract; even current-schema data requires independent native evidence.
+    /// </summary>
     public ReviewedUpdateSelection Selection { get; }
     public int EncodingVersion { get; }
     public bool HasCurrentSchema => EncodingVersion == SchemaVersion;

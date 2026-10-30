@@ -1,4 +1,8 @@
-# Task 50 — typed architecture/schema checkpoint
+# Task 50 — prerequisite review remediation checkpoint
+
+The fresh review at `1421439` was CONDITIONAL: schema3/migration12 accepted as isolated prerequisites; codec R1/R2 required correction. [Remediation](review/TASK_90_TASK_50_WIRE_REMEDIATION.md) reproduces diagnostic redaction/round-trip and malformed-property exceptions, fixes them, tightens exit-code facts, covers true cancellation/timeout/output flags and documents legacy architecture semantics. Focused20/20; Release zero warnings/errors; full **627/627**, zero skipped. Logs `%TEMP%\pc-steward-task50-review-codec-{red,green,build,test}.log`. Fresh independent recheck remains pending. Active endpoint is still protocol1; native client/source/cache qualification, all-caller gate and execution/UI composition remain open. No host action or Task50 completion.
+
+## Earlier typed architecture/schema checkpoint
 
 The reviewed operation now uses schema 3, explicit Observed/ProviderScriptSelected architecture, V3 route IDs and a Domain-owned 4-KiB payload bound shared by the passive wire codec. Migration 12 preserves old bytes and unresolved barriers; schema-2 data cannot regain a draft, confirmation or claim, including route substitution with a recomputed digest. Fresh evidence and claim CAS use the new binding. Initial transition fixtures failed 12/52 against schema 2, then focused Domain62/App94 passed; final Release build is clean and full **620/620**, zero skipped, including the final two admission negatives. See [mapping/evidence](review/TASK_50_PROVIDER_MAPPING_V2.md). Active protocol-1 callers, provider/native eligibility and common-gate/UI integration remain unchanged/unimplemented; Task 50 is incomplete. Effective Chocolatey cache and actual COM/CLI implementation identity remain qualification conditions, not host-proven facts.
 

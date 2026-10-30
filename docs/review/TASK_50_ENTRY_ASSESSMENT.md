@@ -1,4 +1,10 @@
-# Typed architecture/schema transition
+# Conditional prerequisite review corrections
+
+The fresh review of `857c29a..1421439` accepted the schema3/migration12 slice, but found diagnostic cleanup instability/sensitive-value disclosure and an uncaught malformed-property exception in the passive codec. Main reproduced both rather than relying on the review's unexecuted scenarios. [R1–R5 ledger](TASK_90_TASK_50_WIRE_REMEDIATION.md) records the smallest fixes and limits: ASCII before redaction, stable capped/trimmed normalization with safe fallback, expected malformed-name exception rejection, tested true flags, paired direct-exit/code observations and explicit historical-architecture API documentation. No active endpoint changed.
+
+Initial focused red4/19 includes the exit-rule tightening and the three defect scenarios; malformed-name request/response cases were then split. Focused final20/20; canonical Release zero warnings/errors; full627/627, zero skipped. Logs `%TEMP%\pc-steward-task50-review-codec-{red,green,build,test}.log`. Independent recheck remains pending; native qualification and production integration remain open. No deployment/update/provider/COM/host action occurred.
+
+## Earlier typed architecture/schema transition
 
 Implemented the revision-2 producer/consumer contract: `ReviewedUpdateArchitecture` closed shape and `ReviewedUpdateSelection`, operation schema3/25 lines, V3 route IDs, typed fresh dispatch evidence, schema3-only confirmation/claim CAS, and migration12 preserving old passive bytes and unresolved barriers. No script-selected Neutral payload label is exposed. Legacy digest remains comparison data. The Domain-owned 4,096-byte payload cap is shared by the wire codec, and construction rejects exceeding it. Schema2 restoration preserves exact bytes/digest without creating current approval, including a substituted V3 route and recomputed hash.
 

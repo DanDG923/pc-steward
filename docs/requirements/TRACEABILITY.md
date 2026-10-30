@@ -1,4 +1,8 @@
-# Task 50 — typed architecture/schema prerequisite
+# Task 50 — conditional prerequisite review remediation
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [R1–R5 remediation](../review/TASK_90_TASK_50_WIRE_REMEDIATION.md) covers diagnostic confidentiality/idempotence, exception-safe rejection of malformed JSON names, true result flags, exit-code/observation consistency and historical-data semantics. Synthetic red reproduced the defects; focused20/20, Release clean, full627/627. Conditional independent review still needs its fresh recheck; no native or full `AC-UPD-01–11`/Task50 acceptance follows.
+
+## Earlier typed architecture/schema prerequisite
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [mapping contract](../review/TASK_50_PROVIDER_MAPPING_V2.md) records explicit architecture through canonical review, separately fresh evidence, draft generation and claim CAS. Schema-2 data is passive-only; migration rollback and unresolved-claim preservation are covered. Initial red 12/52; focused Domain62/App94; final Release zero warnings/errors, full620/620. These are prerequisite fixtures, not native qualification, provider enforcement, history UI or `AC-UPD-01–11`/Task 50 exit evidence.
 
