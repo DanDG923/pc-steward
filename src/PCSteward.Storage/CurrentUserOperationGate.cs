@@ -3,6 +3,7 @@ using System.Security.Principal;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using PCSteward.Application;
 
 namespace PCSteward.Storage;
 
@@ -10,7 +11,7 @@ internal static class OperationGateSecurity
 {
     private const int FullMutexAccess = 0x001F0001;
 
-    internal static string NameFor(SecurityIdentifier user) => $"Global\\PCSteward.DataOperation.v2.{user.Value}";
+    internal static string NameFor(SecurityIdentifier user) => OperationGateContract.NamePrefix + user.Value;
 
     internal static RawSecurityDescriptor DescriptorFor(SecurityIdentifier user) =>
         new($"O:{user.Value}G:{user.Value}D:P(A;;0x001F0001;;;{user.Value})");
@@ -41,6 +42,7 @@ public sealed class CurrentUserOperationGate : IDisposable
     }
 
     internal string Name { get; }
+    internal string UserSid => user.Value;
 
     public static CurrentUserOperationGate Open() => OpenCore(null);
 
@@ -184,16 +186,18 @@ public sealed class OperationGateOwnership : IDisposable
     internal OperationGateOwnership(CurrentUserOperationGate gate, bool recoveryRequired)
     {
         this.gate = gate;
-        RecoveryRequired = recoveryRequired;
+        Context = new(gate.UserSid, gate.Name, recoveryRequired);
     }
 
-    public bool RecoveryRequired { get; }
+    public OperationOwnership Context { get; }
+    public bool RecoveryRequired => Context.RecoveryRequired;
 
     public void Dispose()
     {
         if (Environment.CurrentManagedThreadId != ownerThread)
             throw new InvalidOperationException("Operation ownership must be released by its acquiring thread.");
         if (released) return;
+        Context.Release();
         gate.Release();
         released = true;
     }

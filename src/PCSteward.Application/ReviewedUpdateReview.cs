@@ -1,0 +1,108 @@
+using PCSteward.Domain;
+
+namespace PCSteward.Application;
+
+public sealed class ReviewedUpdateReview
+{
+    private readonly object sync = new();
+    private readonly ReviewedUpdateOperation operation;
+    private readonly ReviewedUpdateLifetime lifetime;
+    private bool confirmed;
+
+    public ReviewedUpdateReview(ReviewedUpdateOperation operation, TimeProvider? clock = null, CancellationToken cancellationToken = default)
+    {
+        this.operation = operation ?? throw new ArgumentNullException(nameof(operation));
+        lifetime = new(operation.ReviewedAt, clock ?? TimeProvider.System, cancellationToken);
+    }
+
+    public LiveApprovedUpdate Confirm()
+    {
+        lock (sync)
+        {
+            if (confirmed || !lifetime.IsCurrent || !HasSupportedMode(operation))
+                throw new InvalidOperationException("Review is expired, cancelled, already confirmed or its mode/route is unavailable.");
+            confirmed = true;
+            return new(operation, lifetime);
+        }
+    }
+
+    internal static bool HasSupportedMode(ReviewedUpdateOperation operation) =>
+        operation.RouteContract == UpdateRouteContract.WinGetUserExactV2 &&
+        UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode;
+}
+
+/// <summary>Explicit process-local confirmation. It is not a persisted job or a dispatch permit.</summary>
+public sealed class LiveApprovedUpdate
+{
+    private readonly object sync = new();
+    private readonly ReviewedUpdateLifetime lifetime;
+    private bool claimAttempted;
+
+    internal LiveApprovedUpdate(ReviewedUpdateOperation operation, ReviewedUpdateLifetime lifetime)
+    {
+        Operation = operation;
+        this.lifetime = lifetime;
+    }
+
+    public ReviewedUpdateOperation Operation { get; }
+    public bool IsCurrent => lifetime.IsCurrent;
+
+    internal bool TryConsumeClaimAttempt(ReviewedUpdateOperation original, OperationOwnership ownership)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(ownership);
+        lock (sync)
+        {
+            if (claimAttempted || !ReferenceEquals(original, Operation) || !IsCurrent ||
+                !ownership.CanDispatchFor(Operation) || !ReviewedUpdateReview.HasSupportedMode(Operation)) return false;
+            claimAttempted = true;
+            return true;
+        }
+    }
+}
+
+internal sealed class ReviewedUpdateLifetime
+{
+    private static readonly TimeSpan MaximumReviewAge = TimeSpan.FromMinutes(30);
+    private readonly object sync = new();
+    private readonly DateTimeOffset reviewedAt;
+    private readonly TimeProvider clock;
+    private readonly CancellationToken cancellationToken;
+    private readonly long started;
+    private readonly TimeSpan initialAge;
+    private DateTimeOffset lastUtc;
+    private long lastTimestamp;
+    private bool invalid;
+
+    internal ReviewedUpdateLifetime(DateTimeOffset reviewedAt, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        this.reviewedAt = reviewedAt;
+        this.clock = clock;
+        this.cancellationToken = cancellationToken;
+        started = clock.GetTimestamp();
+        lastTimestamp = started;
+        lastUtc = clock.GetUtcNow();
+        initialAge = lastUtc - reviewedAt;
+        invalid = initialAge < TimeSpan.Zero || initialAge > MaximumReviewAge;
+    }
+
+    internal bool IsCurrent
+    {
+        get
+        {
+            lock (sync)
+            {
+                if (invalid || cancellationToken.IsCancellationRequested) return false;
+                DateTimeOffset now = clock.GetUtcNow();
+                long timestamp = clock.GetTimestamp();
+                TimeSpan monotonicAge = initialAge + clock.GetElapsedTime(started, timestamp);
+                TimeSpan utcAge = now - reviewedAt;
+                invalid = now < lastUtc || timestamp < lastTimestamp || monotonicAge < TimeSpan.Zero ||
+                    utcAge < TimeSpan.Zero || monotonicAge > MaximumReviewAge || utcAge > MaximumReviewAge;
+                lastUtc = now;
+                lastTimestamp = timestamp;
+                return !invalid;
+            }
+        }
+    }
+}

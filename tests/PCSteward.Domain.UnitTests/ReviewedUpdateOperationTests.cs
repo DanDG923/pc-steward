@@ -1,5 +1,6 @@
 using System.Text;
 using System.Security.Cryptography;
+using System.Globalization;
 using PCSteward.Domain;
 
 namespace PCSteward.Domain.UnitTests;
@@ -166,6 +167,22 @@ public sealed class ReviewedUpdateOperationTests
         ReviewedUpdateOperation substituted = Operation("mode");
         Assert.IsTrue(ReviewedUpdateOperation.TryRestore(substituted.GetCanonicalBytes(), substituted.Digest, out ReviewedUpdateOperation? restored));
         Assert.IsFalse(review.HasSameIdentity(restored));
+    }
+
+    [TestMethod]
+    public void MaximumConstructibleIdentityLeavesHeadroomBelowTheParserFrameBound()
+    {
+        string sid = "S-1-281474976710655-" + string.Join('-', Enumerable.Repeat(uint.MaxValue.ToString(CultureInfo.InvariantCulture), 15));
+        Assert.AreEqual(184, sid.Length);
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(new string('s', 256),
+            UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, new string('p', 256), "v" + new string('+', 127),
+            "t" + new string('+', 127), UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Unknown, new string('e', 128)))
+            .Confirm(ReviewedAt);
+        ReviewedUpdateOperation operation = new(job, sid, new string('i', 256), new string('c', 256), new string('e', 256), ReviewedAt,
+            UpdateRouteContract.ChocolateyMachineRegistrationV2, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled));
+        byte[] bytes = operation.GetCanonicalBytes();
+        Assert.IsTrue(bytes.Length <= 4096, "Current bounded canonical fields must leave envelope headroom; final protocol framing still needs its own test.");
+        Assert.IsTrue(ReviewedUpdateOperation.TryRestore(bytes, operation.Digest, out _));
     }
 
     private static bool RestoreWithRecomputedDigest(byte[] bytes) =>
