@@ -1,4 +1,8 @@
-# Task 50 — prerequisite review remediation checkpoint
+# Task 50 — CLI source observation checkpoint
+
+Pinned source confirms that a custom source can shadow `winget`. The new internal guard uses one fixed read-only export command, exact bounded seven-field validation and retained preflight ownership; substitution, malformed/oversize output, native failures and cancellation refuse. Focused **34/34**, Release zero warnings/errors, full **661/661**, zero skipped. [Mapping and source call-chain evidence](review/TASK_50_PROVIDER_MAPPING_V2.md); logs `%TEMP%\pc-steward-task50-cli-source-{red,green,build,test}.log`. No production caller is connected. This observation does not establish immutable source state or active COM/CLI implementation identity; native qualification and common-gate/claim/runner/helper/UI integration remain open. Task50 remains incomplete; no host action.
+
+## Earlier prerequisite review remediation checkpoint
 
 The fresh review at `1421439` was CONDITIONAL: schema3/migration12 accepted as isolated prerequisites; codec R1/R2 required correction. [Remediation](review/TASK_90_TASK_50_WIRE_REMEDIATION.md) reproduces diagnostic redaction/round-trip and malformed-property exceptions, fixes them, tightens exit-code facts, covers true cancellation/timeout/output flags and documents legacy architecture semantics. Focused20/20; Release zero warnings/errors; full **627/627**, zero skipped. Logs `%TEMP%\pc-steward-task50-review-codec-{red,green,build,test}.log`. Fresh independent recheck remains pending. Active endpoint is still protocol1; native client/source/cache qualification, all-caller gate and execution/UI composition remain open. No host action or Task50 completion.
 

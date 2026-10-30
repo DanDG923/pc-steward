@@ -1,4 +1,8 @@
-# Task 50 — conditional prerequisite review remediation
+# Task 50 — bounded CLI source observation
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/13`: [mapping evidence](../review/TASK_50_PROVIDER_MAPPING_V2.md) traces export and execution to the same pinned effective-source lookup and records structured endpoint/identity checks rather than name-only trust. Fixed arguments, byte/depth bounds, source substitution/ambiguity, cancellation and retained unsettled roots are covered by34 focused fixtures. Release clean/full661/661. The isolated guard has no production caller and grants no execution authority; source-change race, native provenance and remaining `AC-UPD-01–11`/Task50 integration evidence remain open.
+
+## Earlier conditional prerequisite review remediation
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [R1–R5 remediation](../review/TASK_90_TASK_50_WIRE_REMEDIATION.md) covers diagnostic confidentiality/idempotence, exception-safe rejection of malformed JSON names, true result flags, exit-code/observation consistency and historical-data semantics. Synthetic red reproduced the defects; focused20/20, Release clean, full627/627. Conditional independent review still needs its fresh recheck; no native or full `AC-UPD-01–11`/Task50 acceptance follows.
 

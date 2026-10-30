@@ -1,4 +1,12 @@
-# Conditional prerequisite review corrections
+# CLI effective-source observation prerequisite
+
+Main independently confirmed the user-source tombstone/replacement mechanism and source-export format from pinned WinGet source, then traced export and upgrade through the same SourceList priority/lookup. [Revision2](TASK_50_PROVIDER_MAPPING_V2.md) records exact blobs/call sites and the producer/consumer signatures before implementation. `WingetCliSourceGuard` now performs one fixed bounded read-only export through the injected client, rejects source/type/endpoint/identifier/trust substitution and malformed/ambiguous/unbounded output, and returns the captured native root even on refusal. It neither waits again nor turns completed/cancelled wrapper state into positive native settlement. Expired/pre-cancelled requests do not launch; cancellation after return cannot qualify. No production caller is connected.
+
+Fixtures were written first and failed to compile because the new seam was absent; an analyzer also identified a repeated literal test array, replaced with a static expected golden. Final focused34/34; canonical Release zero warnings/errors; full661/661, zero skipped. Logs `%TEMP%\pc-steward-task50-cli-source-{red,green,build,test}.log`. The suite covers a noncompleting/faulted/cancelled/missing native root, all execution-failure flags, UTF8 and character bounds, strict JSON types and duplicates, extra records, invalid surrogate names, exact command and deadline cap, plus cancellation boundaries.
+
+The joint dialogue supports this as a bounded observation, not native identity or immutable-source enforcement. External source changes between check and invocation, actual implementation provenance and final route eligibility remain explicit integration conditions. No owner decision, native inventory/COM/provider action or deployment was inferred. The codec remediation at eea1c83 still requires its independent recheck; Task50 is not complete.
+
+## Earlier conditional prerequisite review corrections
 
 The fresh review of `857c29a..1421439` accepted the schema3/migration12 slice, but found diagnostic cleanup instability/sensitive-value disclosure and an uncaught malformed-property exception in the passive codec. Main reproduced both rather than relying on the review's unexecuted scenarios. [R1–R5 ledger](TASK_90_TASK_50_WIRE_REMEDIATION.md) records the smallest fixes and limits: ASCII before redaction, stable capped/trimmed normalization with safe fallback, expected malformed-name exception rejection, tested true flags, paired direct-exit/code observations and explicit historical-architecture API documentation. No active endpoint changed.
 
