@@ -1,4 +1,8 @@
-# Task 50 — isolated canonical wire prerequisite
+# Task 50 — typed architecture/schema prerequisite
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [mapping contract](../review/TASK_50_PROVIDER_MAPPING_V2.md) records explicit architecture through canonical review, separately fresh evidence, draft generation and claim CAS. Schema-2 data is passive-only; migration rollback and unresolved-claim preservation are covered. Initial red 12/52; focused Domain62/App94; final Release zero warnings/errors, full620/620. These are prerequisite fixtures, not native qualification, provider enforcement, history UI or `AC-UPD-01–11`/Task 50 exit evidence.
+
+## Earlier isolated canonical wire prerequisite
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [revision-2 mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) and [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) record fresh-review corrections, deterministic frame parsing, bounded ASCII diagnostics, exact correlation and contradictory/unknown invocation/settlement handling. Focused 13/13, Release clean, full 603/603. No endpoint consumes the new passive codec; schema-3 and native profile/runner/helper/common-gate/UI integration remain prerequisites. `AC-UPD-01–11` and Task 50 exit are not closed.
 

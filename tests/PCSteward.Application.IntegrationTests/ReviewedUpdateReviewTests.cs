@@ -107,6 +107,9 @@ public sealed class ReviewedUpdateReviewTests
     [DataRow("route")]
     [DataRow("store")]
     [DataRow("machine")]
+    [DataRow("neutral")]
+    [DataRow("legacy-route")]
+    [DataRow("script")]
     public void UnsupportedModeRouteOrSourceCannotMintLiveConfirmation(string change)
     {
         Assert.ThrowsExactly<InvalidOperationException>(() => new ReviewedUpdateReview(Draft(Operation(change)), new ManualClock()).Confirm());
@@ -130,11 +133,12 @@ public sealed class ReviewedUpdateReviewTests
     {
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("winget:contoso.widget",
             UpdateProvider.WinGet, change == "store" ? UpdateSource.MicrosoftStore : UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1",
-            change == "machine" ? UpdateScope.Machine : UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(FrozenAt);
+            change == "machine" ? UpdateScope.Machine : UpdateScope.User, change is "neutral" or "script" ? UpdateArchitecture.Neutral : UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(FrozenAt);
         return new(job, User, "native:123", "context:123", "evidence:123", FrozenAt.AddSeconds(-1),
-            change == "route" ? UpdateRouteContract.ChocolateyMachineRegistrationV2 : UpdateRouteContract.WinGetUserExactV2,
+            change == "route" ? UpdateRouteContract.ChocolateyMachineRegistrationV3 : change == "legacy-route" ? UpdateRouteContract.WinGetUserExactV2 : UpdateRouteContract.WinGetUserExactV3,
             change == "downgrade" ? ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled)
-                : ReviewedInstallerMode.Selected(change == "interactive" ? InstallerMode.Interactive : InstallerMode.Silent));
+                : ReviewedInstallerMode.Selected(change == "interactive" ? InstallerMode.Interactive : InstallerMode.Silent),
+            change == "script" ? ReviewedUpdateArchitecture.ProviderScriptSelected() : null);
     }
 
     private sealed class ManualClock : TimeProvider

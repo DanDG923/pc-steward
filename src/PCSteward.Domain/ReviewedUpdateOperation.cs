@@ -5,19 +5,24 @@ using System.Text.RegularExpressions;
 
 namespace PCSteward.Domain;
 
-public enum UpdateRouteContract { WinGetUserExactV2, ChocolateyMachineRegistrationV2 }
+public enum UpdateRouteContract { WinGetUserExactV2, ChocolateyMachineRegistrationV2, WinGetUserExactV3, ChocolateyMachineRegistrationV3 }
 
 /// <summary>Canonical reviewed data; neither a digest nor a restored identity grants execution consent.</summary>
 public sealed partial class ReviewedUpdateOperation
 {
-    public const int SchemaVersion = 2;
-    public const int MaximumCanonicalBytes = 16 * 1024;
-    private const string CanonicalSchema = "pc-steward-reviewed-update:2";
+    public const int SchemaVersion = 3;
+    public const int MaximumCanonicalBytes = 4096;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public ReviewedUpdateOperation(ImmutableUpdateJob job, string requestingUserSid, string nativeInstanceId,
         string installationContextId, string evidenceId, DateTimeOffset evidenceObservedAt,
-        UpdateRouteContract routeContract, ReviewedInstallerMode mode)
+        UpdateRouteContract routeContract, ReviewedInstallerMode mode, ReviewedUpdateArchitecture? architecture = null)
+        : this(job, requestingUserSid, nativeInstanceId, installationContextId, evidenceId, evidenceObservedAt,
+            routeContract, mode, architecture, SchemaVersion) { }
+
+    private ReviewedUpdateOperation(ImmutableUpdateJob job, string requestingUserSid, string nativeInstanceId,
+        string installationContextId, string evidenceId, DateTimeOffset evidenceObservedAt,
+        UpdateRouteContract routeContract, ReviewedInstallerMode mode, ReviewedUpdateArchitecture? architecture, int encodingVersion)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(mode);
@@ -27,7 +32,9 @@ public sealed partial class ReviewedUpdateOperation
         JobId = job.Id;
         CorrelationId = job.CorrelationId;
         ReviewedAt = job.ApprovedAt.ToUniversalTime();
-        Selection = job.Selection;
+        Selection = new(job.Selection, architecture ?? ReviewedUpdateArchitecture.Observed(job.Selection.Architecture));
+        EncodingVersion = encodingVersion;
+        LegacyJobDigest = job.Digest;
         RequestingUserSid = ValidateSid(requestingUserSid);
         NativeInstanceId = ValidateIdentity(nativeInstanceId, nameof(nativeInstanceId));
         InstallationContextId = ValidateIdentity(installationContextId, nameof(installationContextId));
@@ -35,13 +42,19 @@ public sealed partial class ReviewedUpdateOperation
         EvidenceObservedAt = evidenceObservedAt.ToUniversalTime();
         RouteContract = routeContract;
         Mode = mode;
-        Digest = Convert.ToHexString(SHA256.HashData(GetCanonicalBytes()));
+        byte[] canonical = GetCanonicalBytes();
+        if (canonical.Length > MaximumCanonicalBytes) throw new ArgumentException("Reviewed operation exceeds its canonical payload bound.");
+        Digest = Convert.ToHexString(SHA256.HashData(canonical));
     }
 
     public Guid JobId { get; }
     public Guid CorrelationId { get; }
     public DateTimeOffset ReviewedAt { get; }
-    public UpdateJobSelection Selection { get; }
+    public ReviewedUpdateSelection Selection { get; }
+    public int EncodingVersion { get; }
+    public bool HasCurrentSchema => EncodingVersion == SchemaVersion;
+    /// <summary>Legacy comparison hash only; it never changes typed architecture semantics or grants approval.</summary>
+    public string LegacyJobDigest { get; }
     public string RequestingUserSid { get; }
     public string NativeInstanceId { get; }
     public string InstallationContextId { get; }
@@ -62,22 +75,32 @@ public sealed partial class ReviewedUpdateOperation
             if (Convert.ToHexString(expectedHash) != expectedDigest ||
                 !CryptographicOperations.FixedTimeEquals(SHA256.HashData(canonical), expectedHash)) return false;
             string[] fields = StrictUtf8.GetString(canonical).Split('\n');
-            if (fields.Length != 24 || fields[0] != CanonicalSchema || fields[1] != "Update") return false;
+            int version = fields.Length == 24 && fields[0] == "pc-steward-reviewed-update:2" ? 2 :
+                fields.Length == 25 && fields[0] == "pc-steward-reviewed-update:3" ? 3 : 0;
+            if (version == 0 || fields[1] != "Update") return false;
+            int shift = version == 3 ? 1 : 0;
             ReviewedInstallerMode mode;
-            InstallerModeBinding binding = ParseEnum<InstallerModeBinding>(fields[21]);
-            if (binding == InstallerModeBinding.Selected && fields[23] == "None")
-                mode = ReviewedInstallerMode.Selected(ParseEnum<InstallerMode>(fields[22]));
-            else if (binding == InstallerModeBinding.NotControllable && fields[22] == "None")
-                mode = ReviewedInstallerMode.NotControllable(ParseEnum<UncontrolledInstallerModeReason>(fields[23]));
+            InstallerModeBinding binding = ParseEnum<InstallerModeBinding>(fields[21 + shift]);
+            if (binding == InstallerModeBinding.Selected && fields[23 + shift] == "None")
+                mode = ReviewedInstallerMode.Selected(ParseEnum<InstallerMode>(fields[22 + shift]));
+            else if (binding == InstallerModeBinding.NotControllable && fields[22 + shift] == "None")
+                mode = ReviewedInstallerMode.NotControllable(ParseEnum<UncontrolledInstallerModeReason>(fields[23 + shift]));
             else return false;
 
+            ReviewedUpdateArchitecture architecture;
+            if (version == 2) architecture = ReviewedUpdateArchitecture.Observed(ParseEnum<UpdateArchitecture>(fields[13]));
+            else if (fields[13] == nameof(ReviewedArchitectureBinding.Observed))
+                architecture = ReviewedUpdateArchitecture.Observed(ParseEnum<UpdateArchitecture>(fields[14]));
+            else if (fields[13] == nameof(ReviewedArchitectureBinding.ProviderScriptSelected) && fields[14] == "None")
+                architecture = ReviewedUpdateArchitecture.ProviderScriptSelected();
+            else return false;
             UpdateJobSelection selection = new(fields[6], ParseEnum<UpdateProvider>(fields[7]), ParseEnum<UpdateSource>(fields[8]),
-                fields[9], fields[10], fields[11], ParseEnum<UpdateScope>(fields[12]), ParseEnum<UpdateArchitecture>(fields[13]),
-                ParseEnum<UpdateChannel>(fields[14]), fields[15]);
+                fields[9], fields[10], fields[11], ParseEnum<UpdateScope>(fields[12]), architecture.Value ?? UpdateArchitecture.Neutral,
+                ParseEnum<UpdateChannel>(fields[14 + shift]), fields[15 + shift]);
             // This temporary legacy-shaped object supplies validated data; it is never returned as approval.
             ImmutableUpdateJob data = new UpdateJobReview(ParseGuid(fields[2]), ParseGuid(fields[3]), selection).Confirm(ParseTime(fields[5]));
-            ReviewedUpdateOperation restored = new(data, fields[4], fields[16], fields[17], fields[18], ParseTime(fields[19]),
-                ParseEnum<UpdateRouteContract>(fields[20]), mode);
+            ReviewedUpdateOperation restored = new(data, fields[4], fields[16 + shift], fields[17 + shift], fields[18 + shift], ParseTime(fields[19 + shift]),
+                ParseEnum<UpdateRouteContract>(fields[20 + shift]), mode, architecture, version);
             if (!canonical.SequenceEqual(restored.GetCanonicalBytes())) return false;
             operation = restored;
             return true;
@@ -87,13 +110,13 @@ public sealed partial class ReviewedUpdateOperation
 
     /// <summary>Returns a fresh canonical payload. Caller mutation never changes this operation.</summary>
     public byte[] GetCanonicalBytes() => Encoding.UTF8.GetBytes(string.Join('\n',
-        CanonicalSchema,
+        "pc-steward-reviewed-update:" + EncodingVersion.ToString(CultureInfo.InvariantCulture),
         "Update",
         JobId.ToString("D", CultureInfo.InvariantCulture),
         CorrelationId.ToString("D", CultureInfo.InvariantCulture),
         RequestingUserSid,
         ReviewedAt.ToString("O", CultureInfo.InvariantCulture),
-        Selection.CanonicalText,
+        EncodingVersion == 2 ? Selection.LegacyDigestData.CanonicalText : Selection.CanonicalText,
         NativeInstanceId,
         InstallationContextId,
         EvidenceId,

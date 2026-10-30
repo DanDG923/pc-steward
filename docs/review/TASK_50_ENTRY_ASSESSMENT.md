@@ -1,4 +1,12 @@
-# Fresh mapping review and isolated wire correction
+# Typed architecture/schema transition
+
+Implemented the revision-2 producer/consumer contract: `ReviewedUpdateArchitecture` closed shape and `ReviewedUpdateSelection`, operation schema3/25 lines, V3 route IDs, typed fresh dispatch evidence, schema3-only confirmation/claim CAS, and migration12 preserving old passive bytes and unresolved barriers. No script-selected Neutral payload label is exposed. Legacy digest remains comparison data. The Domain-owned 4,096-byte payload cap is shared by the wire codec, and construction rejects exceeding it. Schema2 restoration preserves exact bytes/digest without creating current approval, including a substituted V3 route and recomputed hash.
+
+The first transition run produced 12 expected failures out of 52 (`pc-steward-task50-architecture-red.log`). Domain62 and App94 focused checks then passed; historical schema-count fixtures were updated to the new migration and future-version marker. Final added negatives cover script-selected user confirmation and legacy encoding with a current route. Final `scripts/Build.ps1` (Windows PowerShell, process-only DOTNET_ROOT/PATH) passed with zero warnings/errors; `scripts/Test.ps1` passed **620/620**, zero skipped (`pc-steward-task50-architecture-{build,test}.log`). An analyzer rejected an always-true constant-equality assertion; it was removed because the production constant now directly aliases Domain's bound. No host/provider invocation or endpoint change occurred.
+
+The joint council accepted these as isolated prerequisites. Scope remains open for native AppInstaller implementation identity/capability, Chocolatey input/registration/cache evidence, complete common-gate/runner/helper/provider/UI integration and independent acceptance. No Task50 completion or deployment approval follows.
+
+## Earlier fresh mapping review and isolated wire correction
 
 The fresh review of `857c29a` / mapping-V1 SHA256 `EE935BA20F8081C191C6594393EB6F622FF35EA4AE7D214AF0EAE671E6B5E684` was CONDITIONAL. [Revision 2](TASK_50_PROVIDER_MAPPING_V2.md) records F1–F9 and the joint settlement reconciliation. Main independently verified the pinned `--require-checksums` option mapping (blob `8b1c916c65ef0aeb6e49e565b2279297d018f38d`). CLI execution remains in Task 50; COM execution adoption is deferred to its owning tasks. Registry-view architecture alone is insufficient; new user qualification must disclose lost EXE/MSI coverage.
 

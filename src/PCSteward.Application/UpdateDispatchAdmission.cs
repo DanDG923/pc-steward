@@ -7,7 +7,7 @@ namespace PCSteward.Application;
 /// <summary>Dispatch-time observation from trusted preparation, separate from the frozen review. Data alone grants no authority.</summary>
 public sealed class FreshUpdateDispatchEvidence
 {
-    public FreshUpdateDispatchEvidence(UpdateJobSelection selection, string requestingUserSid, string nativeInstanceId,
+    public FreshUpdateDispatchEvidence(ReviewedUpdateSelection selection, string requestingUserSid, string nativeInstanceId,
         string installationContextId, string evidenceId, DateTimeOffset observedAt, UpdateRouteContract route,
         ReviewedInstallerMode mode, bool actionable, bool sourceIsFresh)
     {
@@ -24,7 +24,7 @@ public sealed class FreshUpdateDispatchEvidence
         SourceIsFresh = sourceIsFresh;
     }
 
-    public UpdateJobSelection Selection { get; }
+    public ReviewedUpdateSelection Selection { get; }
     public string RequestingUserSid { get; }
     public string NativeInstanceId { get; }
     public string InstallationContextId { get; }
@@ -42,9 +42,9 @@ public sealed class FreshUpdateDispatchEvidence
         InstallationContextId == operation.InstallationContextId && Selection.EqualsEvidence(operation.Selection) &&
         Route == operation.RouteContract && Mode == operation.Mode && ReviewedUpdateReview.HasSupportedMode(operation);
 
-    public byte[] GetCanonicalBytes() => Encoding.UTF8.GetBytes(string.Join('\n', "pc-steward-dispatch-evidence:1",
+    public byte[] GetCanonicalBytes() => Encoding.UTF8.GetBytes(string.Join('\n', "pc-steward-dispatch-evidence:2",
         Selection.StableProductKey, Selection.Provider.ToString(), Selection.Source.ToString(), Selection.PackageId,
-        Selection.InstalledVersion, Selection.CandidateVersion, Selection.Scope.ToString(), Selection.Architecture.ToString(),
+        Selection.InstalledVersion, Selection.CandidateVersion, Selection.Scope.ToString(), Selection.Architecture.Binding.ToString(), Selection.Architecture.Value?.ToString() ?? "None",
         Selection.Channel.ToString(), Selection.MappingEvidenceVersion, RequestingUserSid, NativeInstanceId, InstallationContextId, EvidenceId,
         ObservedAt.ToString("O", CultureInfo.InvariantCulture), Route.ToString(), Mode.Binding.ToString(),
         Mode.Mode?.ToString() ?? "None", Mode.Reason?.ToString() ?? "None", Actionable ? "True" : "False", SourceIsFresh ? "True" : "False"));

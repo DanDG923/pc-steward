@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using PCSteward.Application;
+using PCSteward.Domain;
 
 namespace PCSteward.Execution;
 
@@ -52,7 +53,7 @@ internal sealed record FramedUpdateResponse(UpdateWireFacts Facts, string Diagno
 internal static class ReviewedUpdateWireCodec
 {
     internal const int MaximumFrameBytes = 16 * 1024;
-    internal const int MaximumPayloadBytes = 4096;
+    internal const int MaximumPayloadBytes = ReviewedUpdateOperation.MaximumCanonicalBytes;
     internal const int MaximumDiagnosticBytes = 2048;
     private const string UtcFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private static readonly JsonWriterOptions WriterOptions = new()

@@ -18,7 +18,7 @@ public sealed class ReviewedUpdateOperationTests
         ReviewedUpdateOperation second = Operation(evidenceAt: ReviewedAt.AddSeconds(-1).ToOffset(TimeSpan.FromHours(2)));
         Assert.AreEqual(first.Digest, second.Digest);
         Assert.IsTrue(first.HasSameIdentity(second));
-        StringAssert.StartsWith(Encoding.UTF8.GetString(first.GetCanonicalBytes()), "pc-steward-reviewed-update:2\nUpdate\n");
+        StringAssert.StartsWith(Encoding.UTF8.GetString(first.GetCanonicalBytes()), "pc-steward-reviewed-update:3\nUpdate\n");
         Assert.AreEqual(64, first.Digest.Length);
     }
 
@@ -85,7 +85,7 @@ public sealed class ReviewedUpdateOperationTests
     {
         Assert.ThrowsExactly<ArgumentException>(() => new ReviewedUpdateOperation(Job(), "S-1-5-21-11-22-33-1001",
             field == "instance" ? value : "native:123", field == "context" ? value : "context:123",
-            field == "evidence" ? value : "evidence:123", ReviewedAt.AddSeconds(-1), UpdateRouteContract.WinGetUserExactV2,
+            field == "evidence" ? value : "evidence:123", ReviewedAt.AddSeconds(-1), UpdateRouteContract.WinGetUserExactV3,
             ReviewedInstallerMode.Selected(InstallerMode.Silent)));
     }
 
@@ -103,11 +103,11 @@ public sealed class ReviewedUpdateOperationTests
     public void EvidenceIdentityLengthHasAnExactBoundary()
     {
         ReviewedUpdateOperation operation = new(Job(), "S-1-5-21-11-22-33-1001", new string('a', 256),
-            "context:123", "evidence:123", ReviewedAt, UpdateRouteContract.WinGetUserExactV2,
+            "context:123", "evidence:123", ReviewedAt, UpdateRouteContract.WinGetUserExactV3,
             ReviewedInstallerMode.Selected(InstallerMode.Silent));
         Assert.AreEqual(256, operation.NativeInstanceId.Length);
         Assert.ThrowsExactly<ArgumentException>(() => new ReviewedUpdateOperation(Job(), "S-1-5-21-11-22-33-1001", new string('a', 257),
-            "context:123", "evidence:123", ReviewedAt, UpdateRouteContract.WinGetUserExactV2,
+            "context:123", "evidence:123", ReviewedAt, UpdateRouteContract.WinGetUserExactV3,
             ReviewedInstallerMode.Selected(InstallerMode.Silent)));
     }
 
@@ -132,15 +132,17 @@ public sealed class ReviewedUpdateOperationTests
     [DataRow(7, "UnknownProvider")]
     [DataRow(7, "0")]
     [DataRow(6, " winget:contoso.widget")]
-    [DataRow(20, "UnknownRoute")]
-    [DataRow(21, "Unsupported")]
-    [DataRow(22, "UnknownMode")]
-    [DataRow(22, "None")]
-    [DataRow(23, "ProviderScriptControlled")]
+    [DataRow(13, "UnknownBinding")]
+    [DataRow(14, "None")]
+    [DataRow(21, "UnknownRoute")]
+    [DataRow(22, "Unsupported")]
+    [DataRow(23, "UnknownMode")]
+    [DataRow(23, "None")]
+    [DataRow(24, "ProviderScriptControlled")]
     public void RecomputedHashDoesNotPermitMalformedOrNoncanonicalFields(int field, string value)
     {
         string[] lines = Encoding.UTF8.GetString(Operation().GetCanonicalBytes()).Split('\n');
-        Assert.HasCount(24, lines);
+        Assert.HasCount(25, lines);
         lines[field] = value;
         byte[] mutated = Encoding.UTF8.GetBytes(string.Join('\n', lines));
         Assert.IsFalse(RestoreWithRecomputedDigest(mutated));
@@ -155,7 +157,7 @@ public sealed class ReviewedUpdateOperationTests
         byte[] invalidUtf8 = (byte[])original.Clone();
         invalidUtf8[0] = 0xFF;
         Assert.IsFalse(RestoreWithRecomputedDigest(invalidUtf8));
-        Assert.IsFalse(RestoreWithRecomputedDigest(new byte[16 * 1024 + 1]));
+        Assert.IsFalse(RestoreWithRecomputedDigest(new byte[ReviewedUpdateOperation.MaximumCanonicalBytes + 1]));
         Assert.IsFalse(ReviewedUpdateOperation.TryRestore(original, new string('0', 64), out _));
         Assert.IsFalse(ReviewedUpdateOperation.TryRestore(original, "invalid-digest", out _));
     }
@@ -179,7 +181,7 @@ public sealed class ReviewedUpdateOperationTests
             "t" + new string('+', 127), UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Unknown, new string('e', 128)))
             .Confirm(ReviewedAt);
         ReviewedUpdateOperation operation = new(job, sid, new string('i', 256), new string('c', 256), new string('e', 256), ReviewedAt,
-            UpdateRouteContract.ChocolateyMachineRegistrationV2, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled));
+            UpdateRouteContract.ChocolateyMachineRegistrationV3, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled));
         byte[] bytes = operation.GetCanonicalBytes();
         Assert.IsTrue(bytes.Length <= 4096, "Current bounded canonical fields must leave envelope headroom; final protocol framing still needs its own test.");
         Assert.IsTrue(ReviewedUpdateOperation.TryRestore(bytes, operation.Digest, out _));
@@ -204,7 +206,7 @@ public sealed class ReviewedUpdateOperationTests
         Job(change), sid ?? (change == "user" ? "S-1-5-21-11-22-33-1002" : "S-1-5-21-11-22-33-1001"),
         change == "instance" ? "native:456" : "native:123", change == "context" ? "context:456" : "context:123",
         change == "evidence" ? "evidence:456" : "evidence:123", evidenceAt ?? ReviewedAt.AddSeconds(change == "observed" ? -2 : -1),
-        change == "route" ? UpdateRouteContract.ChocolateyMachineRegistrationV2 : UpdateRouteContract.WinGetUserExactV2, change == "binding"
+        change == "route" ? UpdateRouteContract.ChocolateyMachineRegistrationV3 : UpdateRouteContract.WinGetUserExactV3, change == "binding"
             ? ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled)
             : ReviewedInstallerMode.Selected(change == "mode" ? InstallerMode.Interactive : InstallerMode.Silent));
 }

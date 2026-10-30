@@ -29,7 +29,9 @@ public sealed class ReviewedUpdateReview
     }
 
     internal static bool HasSupportedMode(ReviewedUpdateOperation operation) =>
-        operation.RouteContract == UpdateRouteContract.WinGetUserExactV2 &&
+        operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserExactV3 &&
+        operation.Selection.Architecture.Binding == ReviewedArchitectureBinding.Observed &&
+        operation.Selection.Architecture.Value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64 &&
         UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode;
 }
 

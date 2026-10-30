@@ -96,6 +96,6 @@ public sealed class OperationOwnershipTests
             "winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0", "1.1",
             UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(reviewedAt);
         return new(job, User, "native:123", "context:123", "evidence:123", reviewedAt.AddSeconds(-1),
-            UpdateRouteContract.WinGetUserExactV2, ReviewedInstallerMode.Selected(InstallerMode.Silent));
+            UpdateRouteContract.WinGetUserExactV3, ReviewedInstallerMode.Selected(InstallerMode.Silent));
     }
 }

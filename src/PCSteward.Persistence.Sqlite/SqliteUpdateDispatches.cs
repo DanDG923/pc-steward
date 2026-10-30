@@ -74,7 +74,7 @@ public sealed partial class SqliteDatabase : IUpdateDispatchStore
             INSERT INTO update_dispatch_claims(job_id,claim_id,terminal_event_id,draft_generation,canonical_payload,canonical_digest,job_digest,fresh_evidence,claimed_at,state,terminal_payload)
             SELECT job_id,$claim,$event,draft_generation,canonical_payload,canonical_digest,$jobDigest,$evidence,$at,'DispatchClaimed',zeroblob(16384)
             FROM reviewed_update_operations
-            WHERE job_id=$job AND draft_generation=$generation AND schema_version=2 AND canonical_digest=$digest AND canonical_payload=$payload
+            WHERE job_id=$job AND draft_generation=$generation AND schema_version=3 AND canonical_digest=$digest AND canonical_payload=$payload
                 AND NOT EXISTS(SELECT 1 FROM update_dispatch_claims WHERE state IN ('DispatchClaimed','Uncertain'))
             ON CONFLICT(job_id) DO NOTHING;
             """;
@@ -229,7 +229,7 @@ public sealed partial class SqliteDatabase : IUpdateDispatchStore
         command.Parameters.AddWithValue("$digest", operation.Digest);
         command.Parameters.Add("$payload", SqliteType.Blob).Value = operation.GetCanonicalBytes();
         command.Parameters.Add("$evidence", SqliteType.Blob).Value = claim.Evidence.GetCanonicalBytes();
-        command.Parameters.AddWithValue("$jobDigest", new UpdateJobReview(operation.JobId, operation.CorrelationId, operation.Selection).Confirm(operation.ReviewedAt).Digest);
+        command.Parameters.AddWithValue("$jobDigest", operation.LegacyJobDigest);
         command.Parameters.AddWithValue("$at", claim.ClaimedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
         return command;
     }

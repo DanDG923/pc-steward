@@ -297,7 +297,7 @@ public sealed class UpdateDispatchClaimTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         ReviewedUpdateDraft draft = await fixture.SaveAsync();
-        await fixture.ExecuteAsync("DROP TABLE update_dispatch_claims; DELETE FROM schema_migrations WHERE version=11; CREATE TRIGGER reject_eleven BEFORE INSERT ON schema_migrations WHEN NEW.version=11 BEGIN SELECT RAISE(ABORT,'fixture migration fault'); END;");
+        await fixture.ExecuteAsync("DROP TABLE update_dispatch_claims; DELETE FROM schema_migrations WHERE version IN (11,12); CREATE TRIGGER reject_eleven BEFORE INSERT ON schema_migrations WHEN NEW.version=11 BEGIN SELECT RAISE(ABORT,'fixture migration fault'); END;");
         await Assert.ThrowsExactlyAsync<SqliteException>(() => fixture.Store.MigrateAsync(CancellationToken.None));
         Assert.AreEqual(10L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('update_dispatch_claims','ix_update_dispatch_unresolved');"));
@@ -364,7 +364,7 @@ public sealed class UpdateDispatchClaimTests
         change == "sid" ? "S-1-5-21-1" : op.RequestingUserSid, change == "native" ? "other:1" : op.NativeInstanceId,
         change == "context" ? "other:1" : op.InstallationContextId, "fresh:1",
         change == "stale" ? ReviewedAt.AddMinutes(-3) : change == "future" ? ReviewedAt.AddMinutes(2) : ReviewedAt.AddMinutes(1),
-        change == "route" ? UpdateRouteContract.ChocolateyMachineRegistrationV2 : op.RouteContract,
+        change == "route" ? UpdateRouteContract.ChocolateyMachineRegistrationV3 : op.RouteContract,
         change == "mode" ? ReviewedInstallerMode.Selected(InstallerMode.Interactive) : op.Mode, change != "not-actionable", change != "source");
 
     private sealed class Clock : TimeProvider
@@ -384,7 +384,7 @@ public sealed class UpdateDispatchClaimTests
             ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet,
                 "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(ReviewedAt);
             return Store.SaveReviewedOperationAsync(new(job, User, "native:1", "context:1", "review:1", ReviewedAt.AddSeconds(-1),
-                UpdateRouteContract.WinGetUserExactV2, ReviewedInstallerMode.Selected(InstallerMode.Silent)), CancellationToken.None);
+                UpdateRouteContract.WinGetUserExactV3, ReviewedInstallerMode.Selected(InstallerMode.Silent)), CancellationToken.None);
         }
         internal Task<UpdateDispatchClaim?> ClaimAsync(ReviewedUpdateDraft draft) => Store.TryClaimAsync(draft, Fresh(draft.Operation), Owner(), Clock.GetUtcNow(), CancellationToken.None);
         internal Task RecordAsync(UpdateDispatchClaim claim, UpdateDispatchTerminal terminal)
