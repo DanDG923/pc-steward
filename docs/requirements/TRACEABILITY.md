@@ -2,6 +2,8 @@
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [fixed mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) pins Silent/MSIX and closed user/source/architecture values. Fifteen focused cases cover exact arguments and recomputed-digest mode/provider/source/scope/architecture/route/schema negatives. Release clean/full687/687. This formatter is passive with no process or approval API; native targeting/Update-only/identity proof and integrated `AC-UPD-01–11`/Task50 acceptance remain open.
 
+[Proposed Chocolatey native profile](../review/TASK_50_CHOCOLATEY_PROFILE_V1.md) now allocates concrete numeric observer/archive/XML bounds and independent producer/helper responsibilities for the same requirements. It awaits mapping review and remaining primary-source facts; it supplies no additional implementation or host evidence.
+
 ## Earlier observed native query handoff
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records passed independent prerequisite recheck, preserved Unicode redactions, and real synthetic-process proof that source queries retain complete or uncertain ownership through the existing bounded reader. Focused codec23/query42; Release clean/full672/672. Neither codec nor guard is connected to an app update route; source/client qualification and full AC-UPD/Task50 acceptance remain open.
