@@ -22,6 +22,8 @@ Read AGENTS.md, docs/STATUS.md, this prompt, its linked phase brief, the shared 
 
 **Files to inspect / expected change boundary:** `docs/review/; relevant implementation/tests from Tasks 49–53`. Reuse established component seams and tests; narrow concrete edit paths/signatures after inspection. New file/type names must be documented with their consuming/producing interfaces before changing callers. Do not refactor unrelated modules.
 
+**Dependency review scope:** Include Task 53A package delta, regenerated licence/NOTICE map, required Windows App Runtime and exact-source/payload identities. A later Task 54B projection/target change requires refreshed Task 53 evidence and an independent repeat of this affected updater review before Task 55; the original pass remains snapshot-specific.
+
 **Deliverable:** Independently review the pinned Phase C scope against requirements and ADR-025/026, including progress/mode/restart/batch authority, migration, security and measured performance. The task executor must be independent of the implementation author; do not silently treat an author self-check as this gate. No delegated reviewer/worktree is implied without user authorization.
 
 **Verification and failure cases:** Require source lines, concrete trigger/impact, severity, correction and reproducible evidence. Mandatory missing/stale evidence is unproven; AC-UX-01–09 is Optional. Failed gate routes to Task 90 then repeats this same gate on a fresh snapshot.

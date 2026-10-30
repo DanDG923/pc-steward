@@ -8,12 +8,14 @@ WS3 adds bounded consented COM discovery, honest metadata/tags/favourites and di
 
 **Requirement coverage:** `FR-CAT-01–06; FR-UPD-15; FR-SRC-02/07–10; FR-HIS-01–06; FR-DAT-06–07/12–15`.
 
-**Entry decisions/evidence:** Accepted ADR-023/025, Q1 catalogue/progress and Q5 history/favourites policies, source consent; C gate/handoff.
+**Entry decisions/evidence:** Accepted ADR-023/025, Q1 catalogue/progress and Q5 history/favourites policies, source consent; C gate/handoff; 54A owner-accepted adoption/deferral decision, with conditional 54B and refreshed 53/54 updater evidence/review before Task 55.
 
 ## Task order and deliverables
 
 | Task | Deliverable | Prompt |
 |---|---|---|
+| 54A | WinGet COM projection refresh spike (**Planning addition accepted 2026-10-30**; see [proposal](../review/V2_DEPENDENCY_SERVICING_PROPOSAL.md)) | [Task 54A](../../prompts/54A_WINGET_COM_PROJECTION_SPIKE.md) |
+| 54B | Adopt the refreshed WinGet COM projection (**Plan accepted 2026-10-30**; only if 54A recommends adoption and the ADR-003 amendment is accepted) | [Task 54B](../../prompts/54B_ADOPT_WINGET_COM_PROJECTION.md) |
 | 55 | Bounded catalogue and favourites | [Task 55](../../prompts/55_BOUNDED_CATALOGUE_SEARCH.md) |
 | 56 | Distinct reviewed install jobs | [Task 56](../../prompts/56_DISTINCT_INSTALL_JOBS.md) |
 | 57 | Install evidence readiness | [Task 57](../../prompts/57_INSTALL_EVIDENCE_READINESS.md) |
@@ -21,6 +23,8 @@ WS3 adds bounded consented COM discovery, honest metadata/tags/favourites and di
 | 59 | One approved live install | [Task 59](../../prompts/59_APPROVED_LIVE_INSTALL.md) |
 
 No task starts from this table alone. Standard/Agent; GPT-6.1 Sol/High for implementation/live/decisions, GPT-6.1 Terra/High for readiness, GPT-6.1 Sol/Extra High for independent gates. No delegation/worktree authority is implied. Use existing Task 90 remediation followed by a fresh repeat of the failed review; use Task 91 for escalation.
+
+54B changes supersede earlier Task 54 adapter/target evidence for the changed snapshot. Refresh Task 53 evidence and independently repeat the affected Task 54 review before Task 55; retain the original snapshot record. A failed review uses Task 90 and a fresh repeat.
 
 ## Required tests and evidence
 
@@ -34,6 +38,6 @@ Use the [exact-host plan](V2_HOST_TEST_PLANS.md) for any deployment/launch, read
 
 ## Exit and handoff
 
-55–56 checked implementation, committed 57, independent 58 pass and separately approved 59 verified live installation. Security readiness alone cannot close Phase D or authorize install.
+54A accepted recommendation and conditional 54B with refreshed 53/54 checks; 55–56 checked implementation, committed 57, independent 58 pass and separately approved 59 verified live installation. Security readiness alone cannot close Phase D or authorize install.
 
 Record implementation versus review versus actual host evidence separately in STATUS/TRACEABILITY; do not automatically proceed to the next phase.

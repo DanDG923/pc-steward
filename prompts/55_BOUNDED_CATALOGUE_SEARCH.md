@@ -6,7 +6,7 @@
 |---|---|
 | Model / reasoning | GPT-6.1 Sol / High |
 | Speed / mode | Standard / Agent |
-| Entry | Phase C gate passed and applicable phase handoff recorded; accepted ADR-023/025 and Q1/Q5 policies. |
+| Entry | Phase C gate passed and applicable phase handoff recorded; accepted ADR-023/025 and Q1/Q5 policies; Task 54A recommendation owner-accepted and either 54B completed with refreshed updater evidence/review or explicit projection deferral to Task 72 recorded. |
 | Phase brief | [Phase D](../docs/requirements/V2_PHASE_D.md) |
 | Shared contract | [2.0 execution, evidence and authority](../docs/requirements/V2_TASK_CONTRACT.md) |
 
@@ -18,7 +18,7 @@ Task 55 — Bounded catalogue and favourites.
 
 Read AGENTS.md, docs/STATUS.md, this prompt, its linked phase brief, the shared contract and only directly relevant accepted decisions/source. Verify the entry conditions against current evidence before changing anything. If a decision remains Proposed or a required capability is unproven, report the affected blocker; do not invent acceptance or silently widen scope. No subagents/worktrees unless separately authorized for this task.
 
-**Entry:** Phase C gate passed and applicable phase handoff recorded; accepted ADR-023/025 and Q1/Q5 policies.
+**Entry:** Phase C gate passed and applicable phase handoff recorded; accepted ADR-023/025 and Q1/Q5 policies; Task 54A recommendation owner-accepted and either 54B completed with refreshed updater evidence/review or explicit projection deferral to Task 72 recorded.
 
 **Files to inspect / expected change boundary:** `src/PCSteward.Provider.WinGet/; src/PCSteward.Application/; src/PCSteward.Persistence.Sqlite/SqliteDatabase.cs; src/PCSteward.Desktop/`. Reuse established component seams and tests; narrow concrete edit paths/signatures after inspection. New file/type names must be documented with their consuming/producing interfaces before changing callers. Do not refactor unrelated modules.
 
