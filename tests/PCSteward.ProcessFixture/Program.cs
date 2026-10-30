@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.Principal;
 
 namespace PCSteward.ProcessFixture;
 
@@ -10,6 +12,9 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        if (OperatingSystem.IsWindows() && args.Length == 2 && args[0] == "gate-contender" &&
+            Guid.TryParseExact(args[1], "N", out Guid gateFixture) && gateFixture != Guid.Empty)
+            return ObserveGate(gateFixture);
         if (!OperatingSystem.IsWindows() || args.Length != 2 ||
             !args[1].StartsWith("pcsteward-task49-", StringComparison.Ordinal) || args[1].Length > 100 ||
             args[1].Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-')) return 20;
@@ -34,6 +39,23 @@ internal static class Program
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (IOException) { }
+        return 0;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int ObserveGate(Guid fixture)
+    {
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        if (identity.User is not { } user) return 24;
+        string name = $"Global\\PCSteward.DataOperation.v2.{user.Value}.test.{fixture:N}";
+        using Mutex mutex = Mutex.OpenExisting(name);
+        if (!mutex.WaitOne(0))
+        {
+            Console.WriteLine("busy");
+            return 0;
+        }
+        try { Console.WriteLine("acquired"); }
+        finally { mutex.ReleaseMutex(); }
         return 0;
     }
 
