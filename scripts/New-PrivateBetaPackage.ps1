@@ -351,8 +351,8 @@ Apache License
 '@
 
 $licenseMap = [ordered]@{
-    'Microsoft.Data.Sqlite/10.0.1' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.data.sqlite.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = '© Microsoft Corporation. All rights reserved.' }
-    'Microsoft.Data.Sqlite.Core/10.0.1' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.data.sqlite.core.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = '© Microsoft Corporation. All rights reserved.' }
+    'Microsoft.Data.Sqlite/10.0.14' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.data.sqlite.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = '© Microsoft Corporation. All rights reserved.' }
+    'Microsoft.Data.Sqlite.Core/10.0.14' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.data.sqlite.core.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.Web.WebView2/1.0.3179.45' = @{ Spdx = $null; DisplayName = 'Microsoft WebView2 LICENSE.txt'; MetadataFile = 'microsoft.web.webview2.nuspec'; LicenseFiles = @('LICENSE.txt'); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.WindowsAppSDK/1.8.250907003' = @{ Spdx = $null; DisplayName = 'Microsoft Windows App SDK License Terms'; MetadataFile = 'microsoft.windowsappsdk.nuspec'; LicenseFiles = @('license.txt'); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.WindowsAppSDK.AI/1.8.37' = @{ Spdx = $null; DisplayName = 'Microsoft Windows App SDK License Terms'; MetadataFile = 'microsoft.windowsappsdk.ai.nuspec'; LicenseFiles = @('license.txt'); NoticeFiles = @(); Copyright = '© Microsoft Corporation. All rights reserved.' }
@@ -362,10 +362,10 @@ $licenseMap = [ordered]@{
     'Microsoft.WindowsAppSDK.WinUI/1.8.250906003' = @{ Spdx = $null; DisplayName = 'Microsoft Windows App SDK License Terms'; MetadataFile = 'microsoft.windowsappsdk.winui.nuspec'; LicenseFiles = @('license.txt'); NoticeFiles = @('NOTICE.txt', 'tools/NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.WindowsPackageManager.ComInterop/1.10.340' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.windowspackagemanager.cominterop.nuspec'; LicenseFiles = @(); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.WindowsPackageManager.InProcCom/1.10.340' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.windowspackagemanager.inproccom.nuspec'; LicenseFiles = @(); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
-    'SQLitePCLRaw.bundle_e_sqlite3/2.1.11' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.bundle_e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
-    'SQLitePCLRaw.core/2.1.11' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.core.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
-    'SQLitePCLRaw.lib.e_sqlite3/2.1.12' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.lib.e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
-    'SQLitePCLRaw.provider.e_sqlite3/2.1.11' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.provider.e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
+    'SQLitePCLRaw.bundle_e_sqlite3/2.1.13' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.bundle_e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
+    'SQLitePCLRaw.core/2.1.13' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.core.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
+    'SQLitePCLRaw.lib.e_sqlite3/2.1.14' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.lib.e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
+    'SQLitePCLRaw.provider.e_sqlite3/2.1.13' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.provider.e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
 }
 
 function Get-PackageEvidencePath([string]$package, [string]$version, [string]$relativePath)
