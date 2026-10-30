@@ -1,4 +1,8 @@
-# Task 50 — CLI source observation checkpoint
+# Task 50 — observed query ownership checkpoint
+
+Independent recheck at `67337ff` **passed** the isolated codec repair/source guard. Its Low Unicode advisory was reproduced and fixed with redaction both before and after ASCII conversion; focused codec23/23. The guard now uses the new observed-query producer, retaining bounded native ownership/cancellation facts instead of the legacy root-dropping reader. Focused42/42 includes synthetic clean/cancelled/inherited-writer processes and extra malformed/boundary cases. Release zero warnings/errors; full **672/672**, zero skipped. [Evidence](review/TASK_50_ENTRY_ASSESSMENT.md). No WinGet/COM/installed inventory was invoked; app-level native qualification, gate/claim/runner/helper/UI composition and Task50 completion remain open. Protocol1 remains active.
+
+## Earlier CLI source observation checkpoint
 
 Pinned source confirms that a custom source can shadow `winget`. The new internal guard uses one fixed read-only export command, exact bounded seven-field validation and retained preflight ownership; substitution, malformed/oversize output, native failures and cancellation refuse. Focused **34/34**, Release zero warnings/errors, full **661/661**, zero skipped. [Mapping and source call-chain evidence](review/TASK_50_PROVIDER_MAPPING_V2.md); logs `%TEMP%\pc-steward-task50-cli-source-{red,green,build,test}.log`. No production caller is connected. This observation does not establish immutable source state or active COM/CLI implementation identity; native qualification and common-gate/claim/runner/helper/UI integration remain open. Task50 remains incomplete; no host action.
 

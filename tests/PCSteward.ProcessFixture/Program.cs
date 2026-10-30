@@ -19,13 +19,20 @@ internal static class Program
             !args[1].StartsWith("pcsteward-task49-", StringComparison.Ordinal) || args[1].Length > 100 ||
             args[1].Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-')) return 20;
         if (args[0] == "parent") return StartHolder(args[1]);
-        if (args[0] != "holder") return 21;
+        if (args[0] is not ("holder" or "source-query")) return 21;
 
         using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(15));
         using NamedPipeClientStream control = new(".", args[1], PipeDirection.InOut, PipeOptions.Asynchronous);
         try
         {
             await control.ConnectAsync(lifetime.Token).ConfigureAwait(false);
+            if (args[0] == "source-query")
+            {
+                Console.Out.WriteLine("""
+                    {"Arg":"https://cdn.winget.microsoft.com/cache","Data":"Microsoft.Winget.Source_8wekyb3d8bbwe","Explicit":false,"Identifier":"Microsoft.Winget.Source_8wekyb3d8bbwe","Name":"winget","TrustLevel":["Trusted","StoreOrigin"],"Type":"Microsoft.PreIndexed.Package"}
+                    """);
+                Console.Out.Flush();
+            }
             byte[] command = new byte[1];
             while (await control.ReadAsync(command, lifetime.Token).ConfigureAwait(false) == 1)
             {

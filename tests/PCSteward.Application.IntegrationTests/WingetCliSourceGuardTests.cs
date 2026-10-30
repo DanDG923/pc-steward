@@ -48,6 +48,9 @@ public sealed class WingetCliSourceGuardTests
     [DataRow("surrogate-name")]
     [DataRow("oversize")]
     [DataRow("utf8-oversize")]
+    [DataRow("raw-surrogate")]
+    [DataRow("trust-bad-escape")]
+    [DataRow("too-deep")]
     public async Task SubstitutedAmbiguousOrMalformedSourceExportsRefuse(string change)
     {
         string output = change switch
@@ -72,6 +75,9 @@ public sealed class WingetCliSourceGuardTests
             "surrogate-name" => "{\"\\uD800\":1}",
             "oversize" => Export.PadRight(4097),
             "utf8-oversize" => Export.Replace("\"winget\"", "\"" + new string('\u6f22', 1500) + "\"", StringComparison.Ordinal),
+            "raw-surrogate" => Export.Replace("winget", "\uD800", StringComparison.Ordinal),
+            "trust-bad-escape" => Export.Replace("Trusted", "Trus\\qted", StringComparison.Ordinal),
+            "too-deep" => Export.Replace("[\"Trusted\",\"StoreOrigin\"]", "[[[[[\"Trusted\"]]]]]", StringComparison.Ordinal),
             _ => throw new ArgumentOutOfRangeException(nameof(change))
         };
         WingetProcessResult native = Result(output);
@@ -127,10 +133,30 @@ public sealed class WingetCliSourceGuardTests
         WingetCliSourceObservation observation = await guard.ObserveAsync(TimeSpan.Zero, CancellationToken.None);
         Assert.IsFalse(observation.IsExpected || observation.QueryRequested);
         Assert.IsNull(observation.OwnedCompletion);
+        observation = await guard.ObserveAsync(TimeSpan.FromSeconds(-1), CancellationToken.None);
+        Assert.IsFalse(observation.IsExpected || observation.QueryRequested);
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
         await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => guard.ObserveAsync(TimeSpan.FromSeconds(1), cancellation.Token));
         Assert.AreEqual(0, process.Calls);
+    }
+
+    [TestMethod]
+    public async Task ExactlyTheExportByteBoundRemainsUsable()
+    {
+        WingetCliSourceObservation observation = await new WingetCliSourceGuard(new FakeProcess(Result(Export.PadRight(4096))))
+            .ObserveAsync(TimeSpan.FromSeconds(20), CancellationToken.None);
+        Assert.IsTrue(observation.IsExpected);
+    }
+
+    [TestMethod]
+    public async Task ObservedWindowsQueryRefusesInvalidOrCancelledAdmissionBeforeResolvingAProvider()
+    {
+        WindowsWingetProcess process = new();
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => process.RunObservedQueryAsync([], TimeSpan.Zero, CancellationToken.None));
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => process.RunObservedQueryAsync([], TimeSpan.FromSeconds(1), cancellation.Token));
     }
 
     [TestMethod]

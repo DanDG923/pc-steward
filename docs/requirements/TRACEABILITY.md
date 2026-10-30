@@ -1,4 +1,8 @@
-# Task 50 — bounded CLI source observation
+# Task 50 — observed native query handoff
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records passed independent prerequisite recheck, preserved Unicode redactions, and real synthetic-process proof that source queries retain complete or uncertain ownership through the existing bounded reader. Focused codec23/query42; Release clean/full672/672. Neither codec nor guard is connected to an app update route; source/client qualification and full AC-UPD/Task50 acceptance remain open.
+
+## Earlier bounded CLI source observation
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/13`: [mapping evidence](../review/TASK_50_PROVIDER_MAPPING_V2.md) traces export and execution to the same pinned effective-source lookup and records structured endpoint/identity checks rather than name-only trust. Fixed arguments, byte/depth bounds, source substitution/ambiguity, cancellation and retained unsettled roots are covered by34 focused fixtures. Release clean/full661/661. The isolated guard has no production caller and grants no execution authority; source-change race, native provenance and remaining `AC-UPD-01–11`/Task50 integration evidence remain open.
 

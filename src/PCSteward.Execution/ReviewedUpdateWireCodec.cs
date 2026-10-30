@@ -198,9 +198,11 @@ internal static class ReviewedUpdateWireCodec
         ? stream.ToArray() : throw new ArgumentException("Frame exceeds the fixed message ceiling.");
     private static string AsciiDiagnostic(string value)
     {
-        // Convert before redaction: replacing a Unicode letter may create a sensitive-value word boundary.
-        StringBuilder ascii = new(value.Length);
-        foreach (Rune rune in value.EnumerateRunes())
+        // Preserve Unicode case-equivalent redactions first. Convert before the second redaction,
+        // because replacing another Unicode letter may create a sensitive-value word boundary.
+        string redacted = SanitizedDiagnosticBundle.Sanitize(value);
+        StringBuilder ascii = new(redacted.Length);
+        foreach (Rune rune in redacted.EnumerateRunes())
         {
             ascii.Append(rune.Value is >= 32 and <= 126 ? (char)rune.Value : Rune.IsWhiteSpace(rune) ? ' ' : '?');
         }

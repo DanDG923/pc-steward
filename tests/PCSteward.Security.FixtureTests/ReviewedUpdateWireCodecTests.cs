@@ -122,6 +122,24 @@ public sealed class ReviewedUpdateWireCodecTests
     }
 
     [TestMethod]
+    [DataRow("to\u212Aen=hunter2", "hunter2")]
+    [DataRow("\u212A:\\private\\document.txt", "private")]
+    public void UnicodeCaseEquivalentKeywordsAndPathsStayRedacted(string diagnostic, string privateValue)
+    {
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), diagnostic);
+        Assert.DoesNotContain(privateValue, Encoding.UTF8.GetString(frame));
+        Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out _));
+    }
+
+    [TestMethod]
+    public void ReaderRejectsAWellFramedDiagnosticContainingAnUnredactedSensitiveValue()
+    {
+        string frame = Encoding.UTF8.GetString(ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), "safe-placeholder"))
+            .Replace("safe-placeholder", "password=hunter2", StringComparison.Ordinal);
+        Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(Encoding.UTF8.GetBytes(frame), Job, Digest, Nonce, out _));
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void LoneSurrogatePropertyNamesAreRejectedByBothTryParsersWithoutThrowing(bool response)

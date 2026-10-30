@@ -22,7 +22,7 @@ internal sealed class WingetCliSourceGuard(IWingetProcess process)
         cancellationToken.ThrowIfCancellationRequested();
         if (remainingBudget <= TimeSpan.Zero) return new(false, false, null);
         TimeSpan timeout = remainingBudget < MaximumQueryTime ? remainingBudget : MaximumQueryTime;
-        WingetProcessResult result = await process.RunAsync(Arguments, timeout, cancellationToken).ConfigureAwait(false);
+        WingetProcessResult result = await process.RunObservedQueryAsync(Arguments, timeout, cancellationToken).ConfigureAwait(false);
         // Do not await again or discard a pending/faulted native root. The caller must include it in aggregate settlement.
         bool expected = !cancellationToken.IsCancellationRequested && result.ExitCode == 0 &&
             !result.TimedOut && !result.Cancelled && !result.OutputLimitExceeded && !result.OutputIncomplete && !result.ExecutionUncertain &&
