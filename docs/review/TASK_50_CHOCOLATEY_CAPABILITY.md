@@ -23,6 +23,14 @@ Current PC Steward `WindowsChocolateyProcess` builds fixed executable/arguments 
 
 ## Outstanding facts before eligibility
 
+### Subsequent joint-dialogue progress (2026-10-30; delegate-reported source evidence)
+
+Opus pinned Chocolatey's NuGet.Client fork at `d08e5cc246b384fd424e99371168d7cf4534723e` (3.5.0). It reports `FindLocalPackagesResourceV2Provider` accepting FileSystemV2 **or Unknown**, and `LocalPackageListResource` applying latest-version filtering when allVersions is off. Combined with choco's local prerelease-enabled listing and upgrade selection, latest-only agreement cannot prove uniqueness. The future independent observer must follow the actual resolver discovery, retain every matching registration/residue and refuse incomplete, conflicting, unreadable or unsupported layouts. Exact discovery/normalization and guard-option provenance remain in the requested mapping ledger; these reports do not enable the route.
+
+Opus also checked the runtime v10.0.0 `ProcessStartInfo.Environment` implementation: Windows keys use OrdinalIgnoreCase, supporting a fixed verified-root override without a differently cased duplicate. This closes a proposed new-route environment rule only; it does not establish the entire effective input set or an actual elevated-host exploit. The official build scripts/TeamCity configuration select ReleaseOfficial; published-binary provenance remains distinct. M4 affects old-route triage, not whether a compiled root override works under both reviewed source branches.
+
+Joint scope resolved with Astra and Fable: retained Chocolatey Update does not inherit Install's complete no-new-dependencies rule, and no script sandbox is implied. Dependency/package-script effects retain their accepted disclosure. The route still must prove native targeting, Update-only guard, required scope/architecture/channel and relevant executable/configuration/environment input trust. Full protected lib/config/hooks/extensions checks and immediate revalidation are proposed requirements; source/build identity must be admitted for an explicitly reviewed client-version set, not an unrestricted major-version floor. Remembered-options precedence/compatibility, complete resolver observations and checksum admission remain subject to the pinned field-level mapping. Machine Chocolatey stays unavailable. No old-route issue is promoted to confirmed vulnerability by this evidence.
+
 | Fact | Status / next evidence |
 |---|---|
 | M1 — Published binary build configuration | Official-key source branch and build configuration are not proof of the released/installed binary's build. Need release-build provenance or an exact supported artifact contract. No host read is authorized here. |

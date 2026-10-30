@@ -21,6 +21,79 @@ public sealed class ReviewedUpdateOperationStoreTests
     }
 
     [TestMethod]
+    public async Task RecreatedEqualDataHasANewGenerationAndCannotMatchTheOldDraft()
+    {
+        await using Fixture database = await Fixture.CreateAsync();
+        ReviewedUpdateOperation operation = Operation();
+        ReviewedUpdateDraft first = await database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None);
+        ReviewedUpdateDraft same = await database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None);
+        Assert.AreNotEqual(Guid.Empty, first.Generation);
+        Assert.IsTrue(first.HasSameDraftIdentity(same));
+        ReviewedUpdateDraft? read = await database.Store.GetReviewedOperationDraftAsync(operation.JobId, CancellationToken.None);
+        Assert.IsTrue(first.HasSameDraftIdentity(read));
+        await database.ExecuteAsync("DELETE FROM reviewed_update_operations WHERE job_id=$job;", ("$job", operation.JobId.ToString("D")));
+        Assert.IsNull(await database.Store.GetReviewedOperationDraftAsync(operation.JobId, CancellationToken.None));
+        ReviewedUpdateDraft replacement = await database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None);
+        Assert.IsTrue(first.Operation.HasSameIdentity(replacement.Operation));
+        Assert.AreNotEqual(first.Generation, replacement.Generation);
+        Assert.IsFalse(first.HasSameDraftIdentity(replacement));
+    }
+
+    [TestMethod]
+    public async Task SchemaNineDataMigratesWithoutInventingADraftGeneration()
+    {
+        await using Fixture database = await Fixture.CreateAsync();
+        ReviewedUpdateOperation operation = Operation();
+        await database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None);
+        await database.RemoveTenAsync();
+        await database.Store.MigrateAsync(CancellationToken.None);
+        Assert.IsTrue(operation.HasSameIdentity(await database.Store.GetReviewedOperationAsync(operation.JobId, CancellationToken.None)));
+        Assert.IsNull(await database.Store.GetReviewedOperationDraftAsync(operation.JobId, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None));
+        Assert.AreEqual(operation.Digest, await database.ScalarAsync("SELECT canonical_digest FROM reviewed_update_operations;"));
+    }
+
+    [TestMethod]
+    public async Task GenerationMigrationFailurePreservesSchemaNineDataAndRollsBackTheColumn()
+    {
+        await using Fixture database = await Fixture.CreateAsync();
+        ReviewedUpdateOperation operation = Operation();
+        await database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None);
+        await database.RemoveTenAsync();
+        await database.ExecuteAsync("CREATE TRIGGER reject_ten BEFORE INSERT ON schema_migrations WHEN NEW.version=10 BEGIN SELECT RAISE(ABORT,'fixture generation migration fault'); END;");
+        Assert.AreEqual(9L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        await Assert.ThrowsExactlyAsync<SqliteException>(() => database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(10);"));
+        Exception? failure = null;
+        try { await database.Store.MigrateAsync(CancellationToken.None); }
+        catch (Exception exception) { failure = exception; }
+        Assert.IsInstanceOfType<SqliteException>(failure, $"marker={await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;")}; column={await database.ScalarAsync("SELECT COUNT(*) FROM pragma_table_info('reviewed_update_operations') WHERE name='draft_generation';")}; trigger={await database.ScalarAsync("SELECT COUNT(*) FROM sqlite_master WHERE name='reject_ten';")}");
+        Assert.AreEqual(9L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(0L, await database.ScalarAsync("SELECT COUNT(*) FROM pragma_table_info('reviewed_update_operations') WHERE name='draft_generation';"));
+        Assert.AreEqual(operation.Digest, await database.ScalarAsync("SELECT canonical_digest FROM reviewed_update_operations;"));
+    }
+
+    [TestMethod]
+    public async Task MalformedGenerationIsCorruptionRatherThanHistoricalAbsence()
+    {
+        await using Fixture database = await Fixture.CreateAsync();
+        ReviewedUpdateOperation operation = Operation();
+        await database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None);
+        await database.ExecuteAsync("PRAGMA ignore_check_constraints=ON; UPDATE reviewed_update_operations SET draft_generation='invalid';");
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.GetReviewedOperationDraftAsync(operation.JobId, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.GetReviewedOperationAsync(operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task TriggerCannotChooseTheGenerationOfANewlyCreatedDraft()
+    {
+        await using Fixture database = await Fixture.CreateAsync();
+        ReviewedUpdateOperation operation = Operation();
+        await database.ExecuteAsync("CREATE TRIGGER alter_generation AFTER INSERT ON reviewed_update_operations BEGIN UPDATE reviewed_update_operations SET draft_generation='11111111-1111-1111-1111-111111111111' WHERE job_id=NEW.job_id; END;");
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.SaveReviewedOperationAsync(operation, CancellationToken.None));
+        Assert.IsNull(await database.Store.GetReviewedOperationAsync(operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task SameIdentityIsIdempotentButConflictingIdentityNeverOverwrites()
     {
         await using Fixture database = await Fixture.CreateAsync();
@@ -47,7 +120,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         Assert.AreEqual(legacy.Digest, (await database.Store.GetApprovedJobAsync(legacy.Id, CancellationToken.None))!.Digest);
         Assert.HasCount(1, await database.Store.GetHistoryForProductAsync(legacy.Selection.StableProductKey, CancellationToken.None));
         Assert.IsNull(await database.Store.GetReviewedOperationAsync(legacy.Id, CancellationToken.None));
-        Assert.AreEqual(9L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(11L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -106,10 +179,10 @@ public sealed class ReviewedUpdateOperationStoreTests
     public async Task FutureSchemaIsRefusedBeforeMigrationMutation()
     {
         await using Fixture database = await Fixture.CreateAsync();
-        await database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(10);");
+        await database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(12);");
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.MigrateAsync(CancellationToken.None));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.SaveReviewedOperationAsync(Operation(), CancellationToken.None));
-        Assert.AreEqual(10L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(12L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         Assert.IsNull(await database.Store.GetReviewedOperationAsync(Guid.NewGuid(), CancellationToken.None));
     }
 
@@ -119,7 +192,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         await using Fixture database = await Fixture.CreateAsync();
         await database.ExecuteAsync("DROP TABLE reviewed_update_operations;");
         await Assert.ThrowsExactlyAsync<SqliteException>(() => database.Store.MigrateAsync(CancellationToken.None));
-        Assert.AreEqual(9L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(11L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -155,7 +228,8 @@ public sealed class ReviewedUpdateOperationStoreTests
             await fixture.Store.MigrateAsync(CancellationToken.None);
             return fixture;
         }
-        internal Task RemoveNineAsync() => ExecuteAsync("DROP TABLE reviewed_update_operations; DELETE FROM schema_migrations WHERE version=9;");
+        internal Task RemoveNineAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE reviewed_update_operations; DELETE FROM schema_migrations WHERE version IN (9,10,11);");
+        internal Task RemoveTenAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; ALTER TABLE reviewed_update_operations DROP COLUMN draft_generation; DELETE FROM schema_migrations WHERE version IN (10,11);");
         internal async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)
         {
             await using SqliteConnection connection = Connection();

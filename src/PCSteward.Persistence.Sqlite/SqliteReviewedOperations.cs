@@ -7,7 +7,7 @@ namespace PCSteward.Persistence.Sqlite;
 
 public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
 {
-    private const int MaximumSchemaVersion = 9;
+    private const int MaximumSchemaVersion = 11;
 
     private static async Task RefuseFutureSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken, SqliteTransaction? transaction = null)
     {
@@ -29,19 +29,28 @@ public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
                 canonical_payload BLOB NOT NULL CHECK(typeof(canonical_payload)='blob' AND length(canonical_payload) BETWEEN 1 AND 16384),
                 canonical_digest TEXT NOT NULL CHECK(typeof(canonical_digest)='text' AND length(canonical_digest)=64 AND canonical_digest NOT GLOB '*[^0-9A-F]*')
             );
-            INSERT INTO schema_migrations(version) VALUES(9);
             """, cancellationToken, transaction).ConfigureAwait(false);
+        await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES(9);", cancellationToken, transaction).ConfigureAwait(false);
     }
 
     private static async Task ValidateReviewedOperationsSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
     {
         await using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT job_id,schema_version,canonical_payload,canonical_digest FROM reviewed_update_operations LIMIT 0;";
+        command.CommandText = "SELECT job_id,schema_version,canonical_payload,canonical_digest,draft_generation FROM reviewed_update_operations LIMIT 0;";
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task SaveReviewedOperationAsync(ReviewedUpdateOperation operation, CancellationToken cancellationToken)
+    private static async Task CreateReviewedDraftGenerationSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
+    {
+        await ExecuteAsync(connection, """
+            ALTER TABLE reviewed_update_operations ADD COLUMN draft_generation TEXT
+                CHECK(draft_generation IS NULL OR (typeof(draft_generation)='text' AND length(draft_generation)=36));
+            """, cancellationToken, transaction).ConfigureAwait(false);
+        await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES(10);", cancellationToken, transaction).ConfigureAwait(false);
+    }
+
+    public async Task<ReviewedUpdateDraft> SaveReviewedOperationAsync(ReviewedUpdateOperation operation, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
         byte[] payload = operation.GetCanonicalBytes();
@@ -54,16 +63,29 @@ public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
         await RefuseFutureSchemaAsync(connection, cancellationToken, transaction).ConfigureAwait(false);
         await using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT INTO reviewed_update_operations(job_id,schema_version,canonical_payload,canonical_digest) VALUES($job,$schema,$payload,$digest) ON CONFLICT(job_id) DO NOTHING;";
+        Guid createdGeneration = Guid.NewGuid();
+        command.CommandText = "INSERT INTO reviewed_update_operations(job_id,schema_version,canonical_payload,canonical_digest,draft_generation) VALUES($job,$schema,$payload,$digest,$generation) ON CONFLICT(job_id) DO NOTHING;";
         command.Parameters.AddWithValue("$job", operation.JobId.ToString("D", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$schema", ReviewedUpdateOperation.SchemaVersion);
         command.Parameters.Add("$payload", SqliteType.Blob).Value = payload;
         command.Parameters.AddWithValue("$digest", operation.Digest);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        ReviewedUpdateOperation? existing = await ReadReviewedOperationAsync(connection, transaction, operation.JobId, cancellationToken).ConfigureAwait(false);
-        if (!operation.HasSameIdentity(existing))
+        command.Parameters.AddWithValue("$generation", createdGeneration.ToString("D", CultureInfo.InvariantCulture));
+        int inserted = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        StoredReviewedOperation? existing = await ReadReviewedOperationAsync(connection, transaction, operation.JobId, cancellationToken).ConfigureAwait(false);
+        if (existing?.Generation is not { } generation || !operation.HasSameIdentity(existing.Operation) ||
+            (inserted == 1 && generation != createdGeneration))
             throw new InvalidOperationException("The stored job identity differs from the reviewed operation.");
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new(existing.Operation, generation);
+    }
+
+    public async Task<ReviewedUpdateDraft?> GetReviewedOperationDraftAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        if (jobId == Guid.Empty) throw new ArgumentException("A job identity is required.", nameof(jobId));
+        await using SqliteConnection connection = new(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        StoredReviewedOperation? row = await ReadReviewedOperationAsync(connection, null, jobId, cancellationToken).ConfigureAwait(false);
+        return row?.Generation is { } generation ? new(row.Operation, generation) : null;
     }
 
     public async Task<ReviewedUpdateOperation?> GetReviewedOperationAsync(Guid jobId, CancellationToken cancellationToken)
@@ -71,10 +93,10 @@ public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
         if (jobId == Guid.Empty) throw new ArgumentException("A job identity is required.", nameof(jobId));
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return await ReadReviewedOperationAsync(connection, null, jobId, cancellationToken).ConfigureAwait(false);
+        return (await ReadReviewedOperationAsync(connection, null, jobId, cancellationToken).ConfigureAwait(false))?.Operation;
     }
 
-    private static async Task<ReviewedUpdateOperation?> ReadReviewedOperationAsync(SqliteConnection connection, SqliteTransaction? transaction,
+    private static async Task<StoredReviewedOperation?> ReadReviewedOperationAsync(SqliteConnection connection, SqliteTransaction? transaction,
         Guid jobId, CancellationToken cancellationToken)
     {
         await using SqliteCommand command = connection.CreateCommand();
@@ -83,7 +105,9 @@ public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
         command.CommandText = """
             SELECT CASE WHEN typeof(schema_version)='integer' AND schema_version=2 THEN schema_version END,
                 CASE WHEN typeof(canonical_digest)='text' AND length(canonical_digest)=64 THEN canonical_digest END,
-                CASE WHEN typeof(canonical_payload)='blob' AND length(canonical_payload) BETWEEN 1 AND 16384 THEN canonical_payload END
+                CASE WHEN typeof(canonical_payload)='blob' AND length(canonical_payload) BETWEEN 1 AND 16384 THEN canonical_payload END,
+                CASE WHEN typeof(draft_generation)='text' AND length(draft_generation)=36 THEN draft_generation END,
+                draft_generation IS NULL
             FROM reviewed_update_operations WHERE job_id=$job LIMIT 2;
             """;
         command.Parameters.AddWithValue("$job", jobId.ToString("D", CultureInfo.InvariantCulture));
@@ -91,9 +115,18 @@ public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
         if (reader.GetValue(0) is not long schema || schema != ReviewedUpdateOperation.SchemaVersion ||
             reader.GetValue(1) is not string digest || reader.GetValue(2) is not byte[] bytes ||
-            !ReviewedUpdateOperation.TryRestore(bytes, digest, out ReviewedUpdateOperation? operation) || operation is null || operation.JobId != jobId ||
-            await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            !ReviewedUpdateOperation.TryRestore(bytes, digest, out ReviewedUpdateOperation? operation) || operation is null || operation.JobId != jobId)
             throw new InvalidOperationException("The persisted reviewed operation is corrupt, noncanonical or belongs to another job.");
-        return operation;
+        Guid? generation = null;
+        if (reader.GetValue(3) is string generationText && Guid.TryParseExact(generationText, "D", out Guid parsed) &&
+            parsed != Guid.Empty && parsed.ToString("D", CultureInfo.InvariantCulture) == generationText)
+            generation = parsed;
+        else if (reader.GetValue(4) is not long isNull || isNull != 1)
+            throw new InvalidOperationException("The persisted draft generation is invalid.");
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException("More than one reviewed operation exists for the job identity.");
+        return new(operation, generation);
     }
+
+    private sealed record StoredReviewedOperation(ReviewedUpdateOperation Operation, Guid? Generation);
 }

@@ -27,6 +27,10 @@ public sealed class OperationOwnership
     public string RequestingUserSid { get; }
     public bool IsActive { get { lock (sync) return active; } }
     public bool RecoveryRequired { get { lock (sync) return recoveryRequired; } }
+    public bool CanReconcile
+    {
+        get { lock (sync) return active && string.Equals(gateName, OperationGateContract.NamePrefix + RequestingUserSid, StringComparison.Ordinal); }
+    }
 
     public bool CanDispatchFor(ReviewedUpdateOperation operation)
     {

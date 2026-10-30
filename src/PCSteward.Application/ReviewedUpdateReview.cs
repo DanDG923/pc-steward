@@ -6,12 +6,14 @@ public sealed class ReviewedUpdateReview
 {
     private readonly object sync = new();
     private readonly ReviewedUpdateOperation operation;
+    private readonly ReviewedUpdateDraft draft;
     private readonly ReviewedUpdateLifetime lifetime;
     private bool confirmed;
 
-    public ReviewedUpdateReview(ReviewedUpdateOperation operation, TimeProvider? clock = null, CancellationToken cancellationToken = default)
+    public ReviewedUpdateReview(ReviewedUpdateDraft draft, TimeProvider? clock = null, CancellationToken cancellationToken = default)
     {
-        this.operation = operation ?? throw new ArgumentNullException(nameof(operation));
+        this.draft = draft ?? throw new ArgumentNullException(nameof(draft));
+        operation = draft.Operation;
         lifetime = new(operation.ReviewedAt, clock ?? TimeProvider.System, cancellationToken);
     }
 
@@ -22,7 +24,7 @@ public sealed class ReviewedUpdateReview
             if (confirmed || !lifetime.IsCurrent || !HasSupportedMode(operation))
                 throw new InvalidOperationException("Review is expired, cancelled, already confirmed or its mode/route is unavailable.");
             confirmed = true;
-            return new(operation, lifetime);
+            return new(draft, lifetime);
         }
     }
 
@@ -38,13 +40,14 @@ public sealed class LiveApprovedUpdate
     private readonly ReviewedUpdateLifetime lifetime;
     private bool claimAttempted;
 
-    internal LiveApprovedUpdate(ReviewedUpdateOperation operation, ReviewedUpdateLifetime lifetime)
+    internal LiveApprovedUpdate(ReviewedUpdateDraft draft, ReviewedUpdateLifetime lifetime)
     {
-        Operation = operation;
+        Draft = draft;
         this.lifetime = lifetime;
     }
 
-    public ReviewedUpdateOperation Operation { get; }
+    public ReviewedUpdateDraft Draft { get; }
+    public ReviewedUpdateOperation Operation => Draft.Operation;
     public bool IsCurrent => lifetime.IsCurrent;
 
     internal bool TryConsumeClaimAttempt(ReviewedUpdateOperation original, OperationOwnership ownership)

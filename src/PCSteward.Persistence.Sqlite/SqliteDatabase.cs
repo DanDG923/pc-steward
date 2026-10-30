@@ -64,7 +64,12 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         }
         if (await MigrationRequiredAsync(connection, transaction, 9, cancellationToken))
             await CreateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 10, cancellationToken))
+            await CreateReviewedDraftGenerationSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 11, cancellationToken))
+            await CreateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
+        await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -226,7 +231,7 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM reviewed_update_operations) + (SELECT COUNT(*) FROM app_metadata);";
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM reviewed_update_operations) + (SELECT COUNT(*) FROM update_dispatch_claims) + (SELECT COUNT(*) FROM app_metadata);";
         long count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
         return count == 0 && (await GetScheduledCheckSettingsAsync(cancellationToken)).Equals(ScheduledCheckSettings.Manual);
     }

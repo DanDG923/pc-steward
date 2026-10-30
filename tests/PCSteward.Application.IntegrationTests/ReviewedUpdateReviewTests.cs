@@ -14,7 +14,7 @@ public sealed class ReviewedUpdateReviewTests
     {
         ManualClock clock = new();
         ReviewedUpdateOperation operation = Operation();
-        ReviewedUpdateReview review = new(operation, clock);
+        ReviewedUpdateReview review = new(Draft(operation), clock);
         LiveApprovedUpdate approval = review.Confirm();
         Assert.ThrowsExactly<InvalidOperationException>(() => review.Confirm());
         Assert.IsTrue(approval.TryConsumeClaimAttempt(operation, Owner()));
@@ -22,11 +22,21 @@ public sealed class ReviewedUpdateReviewTests
     }
 
     [TestMethod]
+    public void ConfirmationRetainsTheExactSavedDraftGeneration()
+    {
+        ReviewedUpdateDraft draft = Draft(Operation());
+        LiveApprovedUpdate approval = new ReviewedUpdateReview(draft, new ManualClock()).Confirm();
+        Assert.AreSame(draft, approval.Draft);
+        Assert.AreEqual(draft.Generation, approval.Draft.Generation);
+        Assert.IsFalse(approval.Draft.HasSameDraftIdentity(new(draft.Operation, Guid.NewGuid())));
+    }
+
+    [TestMethod]
     public void IdenticalRestoredDataCannotSubstituteForTheLiveReference()
     {
         ReviewedUpdateOperation operation = Operation();
         Assert.IsTrue(ReviewedUpdateOperation.TryRestore(operation.GetCanonicalBytes(), operation.Digest, out ReviewedUpdateOperation? restored));
-        LiveApprovedUpdate approval = new ReviewedUpdateReview(operation, new ManualClock()).Confirm();
+        LiveApprovedUpdate approval = new ReviewedUpdateReview(Draft(operation), new ManualClock()).Confirm();
         Assert.IsFalse(approval.TryConsumeClaimAttempt(restored!, Owner()));
         Assert.IsTrue(approval.TryConsumeClaimAttempt(operation, Owner()));
     }
@@ -38,7 +48,7 @@ public sealed class ReviewedUpdateReviewTests
     {
         ManualClock clock = new();
         ReviewedUpdateOperation operation = Operation();
-        ReviewedUpdateReview review = new(operation, clock);
+        ReviewedUpdateReview review = new(Draft(operation), clock);
         clock.Advance(TimeSpan.FromMinutes(20));
         LiveApprovedUpdate approval = review.Confirm();
         clock.Advance(TimeSpan.FromMinutes(10) + TimeSpan.FromTicks(overTicks));
@@ -49,7 +59,7 @@ public sealed class ReviewedUpdateReviewTests
     public void ExpiredReviewCannotCreateNewApproval()
     {
         ManualClock clock = new();
-        ReviewedUpdateReview review = new(Operation(), clock);
+        ReviewedUpdateReview review = new(Draft(Operation()), clock);
         clock.Advance(TimeSpan.FromMinutes(30) + TimeSpan.FromTicks(1));
         Assert.ThrowsExactly<InvalidOperationException>(() => review.Confirm());
     }
@@ -59,7 +69,7 @@ public sealed class ReviewedUpdateReviewTests
     {
         using CancellationTokenSource cancellation = new();
         ReviewedUpdateOperation operation = Operation();
-        LiveApprovedUpdate approval = new ReviewedUpdateReview(operation, new ManualClock(), cancellation.Token).Confirm();
+        LiveApprovedUpdate approval = new ReviewedUpdateReview(Draft(operation), new ManualClock(), cancellation.Token).Confirm();
         cancellation.Cancel();
         Assert.IsFalse(approval.TryConsumeClaimAttempt(operation, Owner()));
     }
@@ -69,7 +79,7 @@ public sealed class ReviewedUpdateReviewTests
     {
         ManualClock clock = new();
         ReviewedUpdateOperation operation = Operation();
-        LiveApprovedUpdate approval = new ReviewedUpdateReview(operation, clock).Confirm();
+        LiveApprovedUpdate approval = new ReviewedUpdateReview(Draft(operation), clock).Confirm();
         clock.Advance(TimeSpan.FromMinutes(1));
         Assert.IsTrue(approval.IsCurrent);
         clock.Utc = FrozenAt.AddSeconds(30);
@@ -82,7 +92,7 @@ public sealed class ReviewedUpdateReviewTests
     public void WrongReleasedOrRecoveryOnlyOwnershipCannotConsumeAClaimAttempt()
     {
         ReviewedUpdateOperation operation = Operation();
-        LiveApprovedUpdate approval = new ReviewedUpdateReview(operation, new ManualClock()).Confirm();
+        LiveApprovedUpdate approval = new ReviewedUpdateReview(Draft(operation), new ManualClock()).Confirm();
         OperationOwnership released = Owner();
         released.Release();
         Assert.IsFalse(approval.TryConsumeClaimAttempt(operation, released));
@@ -99,7 +109,7 @@ public sealed class ReviewedUpdateReviewTests
     [DataRow("machine")]
     public void UnsupportedModeRouteOrSourceCannotMintLiveConfirmation(string change)
     {
-        Assert.ThrowsExactly<InvalidOperationException>(() => new ReviewedUpdateReview(Operation(change), new ManualClock()).Confirm());
+        Assert.ThrowsExactly<InvalidOperationException>(() => new ReviewedUpdateReview(Draft(Operation(change)), new ManualClock()).Confirm());
     }
 
     [TestMethod]
@@ -114,6 +124,7 @@ public sealed class ReviewedUpdateReviewTests
     }
 
     private static OperationOwnership Owner() => new(User, OperationGateContract.NamePrefix + User, false);
+    private static ReviewedUpdateDraft Draft(ReviewedUpdateOperation operation) => new(operation, Guid.NewGuid());
 
     private static ReviewedUpdateOperation Operation(string? change = null)
     {
