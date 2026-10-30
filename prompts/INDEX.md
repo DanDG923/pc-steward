@@ -55,8 +55,11 @@ Open a fresh Codex chat for every numbered task. Keep the same chat only while c
 | 50 | Enforceable reviewed installer mode | GPT-6.1 Sol / High | C | [Task 50](50_REVIEWED_INSTALLER_MODE.md) |
 | 51 | Reliable restart outcomes | GPT-6.1 Sol / High | C | [Task 51](51_RELIABLE_RESTART_OUTCOMES.md) |
 | 52 | Frozen reviewed update batches | GPT-6.1 Sol / High | C | [Task 52](52_FROZEN_UPDATE_BATCHES.md) |
+| 53A | Dependency servicing before updater evidence (**Proposed**) | GPT-6.1 Sol / High | C | [Task 53A](53A_DEPENDENCY_SERVICING.md) |
 | 53 | Updater evidence readiness | GPT-6.1 Terra / High | C | [Task 53](53_UPDATER_EVIDENCE_READINESS.md) |
 | 54 | Updater review gate | GPT-6.1 Sol / Extra High | C | [Task 54](54_UPDATER_REVIEW_GATE.md) |
+| 54A | WinGet COM projection refresh spike (**Proposed**) | GPT-6.1 Sol / High | D | [Task 54A](54A_WINGET_COM_PROJECTION_SPIKE.md) |
+| 54B | Adopt the refreshed WinGet COM projection (**Proposed**, conditional on 54A) | GPT-6.1 Sol / High | D | [Task 54B](54B_ADOPT_WINGET_COM_PROJECTION.md) |
 | 55 | Bounded catalogue and favourites | GPT-6.1 Sol / High | D | [Task 55](55_BOUNDED_CATALOGUE_SEARCH.md) |
 | 56 | Distinct reviewed install jobs | GPT-6.1 Sol / High | D | [Task 56](56_DISTINCT_INSTALL_JOBS.md) |
 | 57 | Install evidence readiness | GPT-6.1 Terra / High | D | [Task 57](57_INSTALL_EVIDENCE_READINESS.md) |
