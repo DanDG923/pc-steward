@@ -134,7 +134,7 @@ public sealed class UpdateDispatchClaimTests
         Assert.IsFalse(permit.TryConsume(approval, Owner()));
     }
 
-    private static OperationOwnership Owner(bool recovery = false) => new(User, OperationGateContract.NamePrefix + User, recovery);
+    private static OperationOwnership Owner(bool recovery = false) => new(User, OperationGateContract.NamePrefix + User, recovery, reconciled: !recovery);
     [TestMethod]
     public async Task LostCommitAcknowledgmentCannotProduceAPermitOrRetry()
     {
@@ -250,6 +250,25 @@ public sealed class UpdateDispatchClaimTests
         public Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership owner, UpdateDispatchTerminal terminal, CancellationToken ct) => inner.RecordFinalAsync(claim, owner, terminal, ct);
         public Task<int> RecoverUnfinishedDispatchesAsync(OperationOwnership owner, DateTimeOffset now, CancellationToken ct) => inner.RecoverUnfinishedDispatchesAsync(owner, now, ct);
         public Task<UpdateDispatchState?> GetDispatchStateAsync(Guid job, CancellationToken ct) => inner.GetDispatchStateAsync(job, ct);
+        public Task<bool> HasUnresolvedDispatchesAsync(OperationOwnership owner, CancellationToken ct) => inner.HasUnresolvedDispatchesAsync(owner, ct);
+    }
+
+    [TestMethod]
+    public async Task ReconciliationOnlyReportsClearAndNeverGrantsOwnershipOrRevivesAClaim()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        OperationOwnership pending = new(User, OperationGateContract.NamePrefix + User, true);
+        UpdateDispatchReconciliation reconcile = new(fixture.Store, fixture.Clock);
+        Assert.IsTrue(await reconcile.ReconcileAsync(pending, CancellationToken.None));
+        Assert.IsTrue(pending.RecoveryRequired);
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        Assert.IsFalse(pending.CanDispatchFor(draft.Operation));
+        Assert.IsNotNull(await fixture.ClaimAsync(draft));
+        Assert.IsFalse(await reconcile.ReconcileAsync(pending, CancellationToken.None));
+        Assert.AreEqual(UpdateDispatchState.Uncertain, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+        Assert.IsFalse(await reconcile.ReconcileAsync(pending, CancellationToken.None));
+        pending.Release();
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => reconcile.ReconcileAsync(pending, CancellationToken.None));
     }
     private static FreshUpdateDispatchEvidence Fresh(ReviewedUpdateOperation op, string? change = null) => new(
         change == "selection" ? new(op.Selection.StableProductKey, op.Selection.Provider, op.Selection.Source, op.Selection.PackageId, "0.9", "1.1", op.Selection.Scope, op.Selection.Architecture, op.Selection.Channel, op.Selection.MappingEvidenceVersion) : op.Selection,

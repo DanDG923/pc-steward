@@ -196,6 +196,22 @@ public sealed partial class SqliteDatabase : IUpdateDispatchStore
 
     private const string ExactClaimPredicate = "job_id=$job AND claim_id=$claim AND terminal_event_id=$event AND draft_generation=$generation AND canonical_digest=$digest AND canonical_payload=$payload AND job_digest=$jobDigest AND fresh_evidence=$evidence AND claimed_at=$at";
 
+    public async Task<bool> HasUnresolvedDispatchesAsync(OperationOwnership ownership, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ownership);
+        if (!ownership.CanReconcile) throw new InvalidOperationException("Barrier checks require current production-gate ownership.");
+        await using SqliteConnection connection = new(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RefuseFutureSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM update_dispatch_claims WHERE state IS NULL OR state<>'Final' LIMIT 1;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        bool unresolved = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        // Presence is a barrier even if identity/state is unreadable. No persisted row grants a permit.
+        if (!ownership.CanReconcile) throw new InvalidOperationException("Operation ownership ended during barrier checks.");
+        return unresolved;
+    }
+
     private static SqliteCommand ClaimCommand(SqliteConnection connection, SqliteTransaction transaction, UpdateDispatchClaim claim)
     {
         SqliteCommand command = connection.CreateCommand();

@@ -123,7 +123,7 @@ public sealed class ReviewedUpdateReviewTests
         Assert.IsEmpty(typeof(LiveApprovedUpdate).GetConstructors());
     }
 
-    private static OperationOwnership Owner() => new(User, OperationGateContract.NamePrefix + User, false);
+    private static OperationOwnership Owner() => new(User, OperationGateContract.NamePrefix + User, false, reconciled: true);
     private static ReviewedUpdateDraft Draft(ReviewedUpdateOperation operation) => new(operation, Guid.NewGuid());
 
     private static ReviewedUpdateOperation Operation(string? change = null)

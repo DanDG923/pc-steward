@@ -7,12 +7,22 @@ namespace PCSteward.Application.IntegrationTests;
 [TestClass]
 public sealed class OperationOwnershipTests
 {
+    [TestMethod]
+    public void NativeAcquisitionAloneDoesNotGrantReconciledDispatchOwnership()
+    {
+        OperationOwnership ownership = new(User, OperationGateContract.NamePrefix + User, false);
+        Assert.IsFalse(ownership.CanDispatchFor(Operation()));
+        ownership.MarkReconciled();
+        Assert.IsTrue(ownership.CanDispatchFor(Operation()));
+        ownership.RequireRecovery();
+        Assert.IsFalse(ownership.CanDispatchFor(Operation()));
+    }
     private const string User = "S-1-5-21-11-22-33-1001";
 
     [TestMethod]
     public void OnlyAnActiveMatchingProductionGateCanSatisfyTheDispatchPredicate()
     {
-        OperationOwnership ownership = new(User, OperationGateContract.NamePrefix + User, false);
+        OperationOwnership ownership = new(User, OperationGateContract.NamePrefix + User, false, reconciled: true);
         Assert.IsTrue(ownership.IsActive);
         Assert.IsFalse(ownership.RecoveryRequired);
         Assert.IsTrue(ownership.CanDispatchFor(Operation()));
@@ -40,9 +50,9 @@ public sealed class OperationOwnershipTests
     [TestMethod]
     public void OtherUsersAndFixtureNamespacesCannotSatisfyProductionDispatch()
     {
-        OperationOwnership wrongUser = new("S-1-5-21-11-22-33-1002", OperationGateContract.NamePrefix + User, false);
-        OperationOwnership fixture = new(User, OperationGateContract.NamePrefix + User + ".test." + Guid.NewGuid().ToString("N"), false);
-        OperationOwnership legacy = new(User, "Local\\PCSteward.DataOperation.v1", false);
+        OperationOwnership wrongUser = new("S-1-5-21-11-22-33-1002", OperationGateContract.NamePrefix + User, false, reconciled: true);
+        OperationOwnership fixture = new(User, OperationGateContract.NamePrefix + User + ".test." + Guid.NewGuid().ToString("N"), false, reconciled: true);
+        OperationOwnership legacy = new(User, "Local\\PCSteward.DataOperation.v1", false, reconciled: true);
         Assert.IsFalse(wrongUser.CanDispatchFor(Operation()));
         Assert.IsFalse(fixture.CanDispatchFor(Operation()));
         Assert.IsFalse(legacy.CanDispatchFor(Operation()));
@@ -64,7 +74,7 @@ public sealed class OperationOwnershipTests
     [TestMethod]
     public void AsyncConsumerChecksLifetimeWithoutAcquiringThreadAffinity()
     {
-        OperationOwnership ownership = new(User, OperationGateContract.NamePrefix + User, false);
+        OperationOwnership ownership = new(User, OperationGateContract.NamePrefix + User, false, reconciled: true);
         bool admitted = false;
         Thread consumer = new(() => admitted = ownership.CanDispatchFor(Operation()));
         consumer.Start();

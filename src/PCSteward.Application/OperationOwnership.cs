@@ -14,14 +14,16 @@ public sealed class OperationOwnership
     private readonly string gateName;
     private bool active = true;
     private bool recoveryRequired;
+    private bool reconciled;
 
-    internal OperationOwnership(string requestingUserSid, string gateName, bool recoveryRequired)
+    internal OperationOwnership(string requestingUserSid, string gateName, bool recoveryRequired, bool reconciled = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestingUserSid);
         ArgumentException.ThrowIfNullOrWhiteSpace(gateName);
         RequestingUserSid = requestingUserSid;
         this.gateName = gateName;
         this.recoveryRequired = recoveryRequired;
+        this.reconciled = reconciled;
     }
 
     public string RequestingUserSid { get; }
@@ -37,7 +39,7 @@ public sealed class OperationOwnership
         ArgumentNullException.ThrowIfNull(operation);
         lock (sync)
         {
-            return active && !recoveryRequired &&
+            return active && reconciled && !recoveryRequired &&
                 string.Equals(RequestingUserSid, operation.RequestingUserSid, StringComparison.Ordinal) &&
                 string.Equals(gateName, OperationGateContract.NamePrefix + operation.RequestingUserSid, StringComparison.Ordinal);
         }
@@ -49,6 +51,17 @@ public sealed class OperationOwnership
         {
             if (!active) throw new InvalidOperationException("Released operation ownership cannot be reconciled or revived.");
             recoveryRequired = false;
+            reconciled = true;
+        }
+    }
+
+    internal void RequireRecovery()
+    {
+        lock (sync)
+        {
+            if (!active) throw new InvalidOperationException("Released operation ownership cannot acquire recovery state.");
+            recoveryRequired = true;
+            reconciled = false;
         }
     }
 
