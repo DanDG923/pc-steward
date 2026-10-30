@@ -20,7 +20,9 @@ Read AGENTS.md, docs/STATUS.md, this prompt, its linked phase brief, the shared 
 
 **Entry:** Owner explicitly requests reconsideration; earlier phase status recorded; no feature execution from this prompt.
 
-**Files to inspect / expected change boundary:** `docs/product/PC_STEWARD_2_ROADMAP.md; docs/product/PC_STEWARD_2_DELTA.md; docs/requirements/TRACEABILITY.md`. Reuse established component seams and tests; narrow concrete edit paths/signatures after inspection. New file/type names must be documented with their consuming/producing interfaces before changing callers. Do not refactor unrelated modules.
+**Files to inspect / expected change boundary:** `docs/review/V2_DEPENDENCY_SERVICING_PROPOSAL.md; docs/product/PC_STEWARD_2_ROADMAP.md; docs/product/PC_STEWARD_2_DELTA.md; docs/requirements/TRACEABILITY.md`. Reuse established component seams and tests; narrow concrete edit paths/signatures after inspection. New file/type names must be documented with their consuming/producing interfaces before changing callers. Do not refactor unrelated modules.
+
+**Dependency candidates:** Windows App SDK 2.x migration and, only if Task 54A recommends deferral, the WinGet projection refresh. These are candidates for individually requested post-2.0 reconsideration, not accepted migrations or package versions. See [servicing plan](../docs/review/V2_DEPENDENCY_SERVICING_PROPOSAL.md). Retain the prototype archive and manifests; no archive removal is authorized by the servicing plan.
 
 **Deliverable:** Revisit only individually named deferred items. For each, record accept/defer/reject, need, boundaries, requirements/ADRs/security/privacy/resource/host evidence implications and follow-on planning gate. Preserve the complete deferred list and prohibitions; WS5 remains deferred unless separately reopened. New scope requires explicit owner approval and new bounded design/tasks.
 

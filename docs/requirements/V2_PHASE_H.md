@@ -16,6 +16,8 @@ Reconsider only individually owner-selected Later items from the complete roadma
 |---|---|---|
 | 72 | Deferred-item decisions only | [Task 72](../../prompts/72_DEFERRED_ITEM_DECISIONS.md) |
 
+**Accepted candidate listing (2026-10-30; migration not approved):** Windows App SDK 2.x migration, and WinGet COM projection 1.11+ if Task 54A recommends deferral. See the [dependency servicing proposal](../review/V2_DEPENDENCY_SERVICING_PROPOSAL.md). Listing a candidate does not reopen roadmap §2; the owner still names items individually.
+
 No task starts from this table alone. Standard/Agent; GPT-6.1 Sol/High for implementation/live/decisions, GPT-6.1 Terra/High for readiness, GPT-6.1 Sol/Extra High for independent gates. No delegation/worktree authority is implied. Use existing Task 90 remediation followed by a fresh repeat of the failed review; use Task 91 for escalation.
 
 ## Required tests and evidence

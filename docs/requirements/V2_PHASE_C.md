@@ -18,6 +18,7 @@ WS2 closes G1 truthful progress, G2 enforceable reviewed mode, G3 reliable resta
 | 50 | Enforceable reviewed installer mode | [Task 50](../../prompts/50_REVIEWED_INSTALLER_MODE.md) |
 | 51 | Reliable restart outcomes | [Task 51](../../prompts/51_RELIABLE_RESTART_OUTCOMES.md) |
 | 52 | Frozen reviewed update batches | [Task 52](../../prompts/52_FROZEN_UPDATE_BATCHES.md) |
+| 53A | Dependency servicing before updater evidence (**Planning addition accepted 2026-10-30**; see [proposal](../review/V2_DEPENDENCY_SERVICING_PROPOSAL.md)) | [Task 53A](../../prompts/53A_DEPENDENCY_SERVICING.md) |
 | 53 | Updater evidence readiness | [Task 53](../../prompts/53_UPDATER_EVIDENCE_READINESS.md) |
 | 54 | Updater review gate | [Task 54](../../prompts/54_UPDATER_REVIEW_GATE.md) |
 
@@ -35,6 +36,6 @@ Use the [exact-host plan](V2_HOST_TEST_PLANS.md) for any deployment/launch, read
 
 ## Exit and handoff
 
-49–52 implementation and required checks committed, 53 readiness report committed, independent 54 passed, applicable handoff/merge rule fulfilled with explicit merge authority. No implied live update or deployment.
+49–52 and 53A implementation and required checks committed, 53 readiness report including the servicing delta committed, independent 54 passed, applicable handoff/merge rule fulfilled with explicit merge authority. No implied live update or deployment.
 
 Record implementation versus review versus actual host evidence separately in STATUS/TRACEABILITY; do not automatically proceed to the next phase.
