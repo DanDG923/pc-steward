@@ -1,4 +1,8 @@
-# Task 50 — observed query ownership checkpoint
+# Task 50 — fixed User mapping checkpoint
+
+The isolated schema3 User WinGet formatter now pins `--silent --installer-type msix`, rejecting unsupported bindings even after a digest is recomputed. Focused **15/15**, canonical Release zero warnings/errors, full **687/687**, zero skipped. [Mapping/remaining native conditions](review/TASK_50_PROVIDER_MAPPING_V2.md) and [commands/evidence](review/TASK_50_ENTRY_ASSESSMENT.md). No production caller uses it; protocol1 and its current arguments remain unchanged. Native CLI launch context, exact instance/Update-only enforcement, client provenance, common-gate/claim/runner/helper/UI integration and Task50 completion remain open. No host probe or real update occurred.
+
+## Earlier observed query ownership checkpoint
 
 Independent recheck at `67337ff` **passed** the isolated codec repair/source guard. Its Low Unicode advisory was reproduced and fixed with redaction both before and after ASCII conversion; focused codec23/23. The guard now uses the new observed-query producer, retaining bounded native ownership/cancellation facts instead of the legacy root-dropping reader. Focused42/42 includes synthetic clean/cancelled/inherited-writer processes and extra malformed/boundary cases. Release zero warnings/errors; full **672/672**, zero skipped. [Evidence](review/TASK_50_ENTRY_ASSESSMENT.md). No WinGet/COM/installed inventory was invoked; app-level native qualification, gate/claim/runner/helper/UI composition and Task50 completion remain open. Protocol1 remains active.
 
