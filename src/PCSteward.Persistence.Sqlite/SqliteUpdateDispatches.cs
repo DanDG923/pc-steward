@@ -91,15 +91,20 @@ public sealed partial class SqliteDatabase : IUpdateDispatchStore
         return claim;
     }
 
-    public async Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership ownership, UpdateDispatchTerminal terminal,
+    public async Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership ownership, UpdateDispatchTerminal terminal, UpdateDispatchSettlement settlement,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(claim);
         ArgumentNullException.ThrowIfNull(ownership);
         ArgumentNullException.ThrowIfNull(terminal);
+        ArgumentNullException.ThrowIfNull(settlement);
+        if (!settlement.TryConsumeFor(claim, ownership) ||
+            (terminal.Outcome != UpdateDispatchOutcome.Uncertain && !settlement.ProvesSettlement) ||
+            (terminal.Outcome is UpdateDispatchOutcome.Success or UpdateDispatchOutcome.RestartRequired && !settlement.PermitsVerifiedOutcome))
+            throw new InvalidOperationException("Final state requires matching live ownership and positive native settlement; unresolved work remains conflicting.");
         if (!ownership.CanDispatchFor(claim.Draft.Operation) || terminal.OccurredAt < claim.ClaimedAt)
             throw new InvalidOperationException("Final recording requires current ownership and a valid result time.");
-        byte[] payload = terminal.GetReservedPayload();
+        byte[] payload = terminal.GetReservedPayload(settlement);
         await using SqliteConnection connection = await OpenDispatchConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
         await using SqliteCommand command = ClaimCommand(connection, transaction, claim);

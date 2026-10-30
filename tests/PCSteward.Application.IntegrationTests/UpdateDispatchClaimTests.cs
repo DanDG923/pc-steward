@@ -113,10 +113,10 @@ public sealed class UpdateDispatchClaimTests
         UpdateDispatchClaim claim = (await fixture.ClaimAsync(draft))!;
         UpdateDispatchTerminal terminal = new(UpdateDispatchOutcome.Failed, fixture.Clock.GetUtcNow(), -1, new string('\u0800', 4096));
         Assert.HasCount(UpdateDispatchTerminal.ReservedBytes, terminal.GetReservedPayload());
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim with { ClaimId = Guid.NewGuid() }, Owner(), terminal, CancellationToken.None));
-        await fixture.Store.RecordFinalAsync(claim, Owner(), terminal, CancellationToken.None);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.RecordAsync(claim with { ClaimId = Guid.NewGuid() }, terminal));
+        await fixture.RecordAsync(claim, terminal);
         Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim, Owner(), terminal, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.RecordAsync(claim, terminal));
         Assert.IsNotNull(await fixture.ClaimAsync(await fixture.SaveAsync()));
     }
 
@@ -135,6 +135,95 @@ public sealed class UpdateDispatchClaimTests
     }
 
     private static OperationOwnership Owner(bool recovery = false) => new(User, OperationGateContract.NamePrefix + User, recovery, reconciled: !recovery);
+
+    [TestMethod]
+    [DataRow("pending")]
+    [DataRow("faulted")]
+    [DataRow("exit")]
+    [DataRow("io")]
+    [DataRow("eof")]
+    [DataRow("kill")]
+    [DataRow("uncertain")]
+    public async Task FinalStateRequiresPositiveNativeSettlementAndNotJustAVisibleResult(string change)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        UpdateDispatchClaim claim = (await fixture.ClaimAsync(await fixture.SaveAsync()))!;
+        OperationOwnership owner = Owner();
+        TaskCompletionSource root = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task observed = change == "pending" ? root.Task : change == "faulted" ? Task.FromException(new IOException("fixture exit observation failed")) : Task.CompletedTask;
+        UpdateDispatchSettlement settlement = UpdateDispatchSettlement.FromObservedWork(claim, owner, observed,
+            change != "exit", change != "io", change != "eof", change == "kill", change == "uncertain");
+        Assert.IsFalse(settlement.ProvesSettlement);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim, owner,
+            new(UpdateDispatchOutcome.Failed, fixture.Clock.GetUtcNow(), 1, "fixture visible terminal"), settlement, CancellationToken.None));
+        Assert.AreEqual(UpdateDispatchState.DispatchClaimed, await fixture.Store.GetDispatchStateAsync(claim.Draft.Operation.JobId, CancellationToken.None));
+        if (observed.IsFaulted) _ = observed.Exception;
+        root.TrySetResult();
+        Assert.IsFalse(settlement.ProvesSettlement);
+    }
+
+    [TestMethod]
+    public async Task UnsettledTerminalKeepsTheBarrierAndLateCompletionCannotClearIt()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        UpdateDispatchClaim claim = (await fixture.ClaimAsync(await fixture.SaveAsync()))!;
+        OperationOwnership owner = Owner();
+        TaskCompletionSource root = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        UpdateDispatchSettlement settlement = UpdateDispatchSettlement.FromObservedWork(claim, owner, root.Task, false, true, true, false, true);
+        await fixture.Store.RecordFinalAsync(claim, owner, new(UpdateDispatchOutcome.Uncertain, fixture.Clock.GetUtcNow(), null, "Owned cleanup unproven; conflicting work blocked."), settlement, CancellationToken.None);
+        root.SetResult();
+        Assert.AreEqual(UpdateDispatchState.Uncertain, await fixture.Store.GetDispatchStateAsync(claim.Draft.Operation.JobId, CancellationToken.None));
+        Assert.IsTrue(await fixture.Store.HasUnresolvedDispatchesAsync(owner, CancellationToken.None));
+    }
+
+    [TestMethod]
+    [DataRow(UpdateDispatchOutcome.Success)]
+    [DataRow(UpdateDispatchOutcome.RestartRequired)]
+    public async Task PreInvocationSettlementCannotRecordVerifiedSuccess(UpdateDispatchOutcome outcome)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        UpdateDispatchClaim claim = (await fixture.ClaimAsync(await fixture.SaveAsync()))!;
+        OperationOwnership owner = Owner();
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim, owner,
+            new(outcome, fixture.Clock.GetUtcNow(), 0, "invalid fixture success"), UpdateDispatchSettlement.BeforeInvocation(claim, owner), CancellationToken.None));
+        await fixture.Store.RecordFinalAsync(claim, owner, new(UpdateDispatchOutcome.Cancelled, fixture.Clock.GetUtcNow(), null, "cancelled before invocation"), UpdateDispatchSettlement.BeforeInvocation(claim, owner), CancellationToken.None);
+        Assert.IsEmpty(typeof(UpdateDispatchSettlement).GetConstructors());
+    }
+
+    [TestMethod]
+    [DataRow("copy")]
+    [DataRow("owner")]
+    [DataRow("released")]
+    public async Task SettlementCannotBeRestoredReboundOrUsedAfterRelease(string change)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        UpdateDispatchClaim original = (await fixture.ClaimAsync(await fixture.SaveAsync()))!;
+        OperationOwnership originalOwner = Owner();
+        UpdateDispatchSettlement settlement = UpdateDispatchSettlement.FromObservedWork(original, originalOwner, Task.CompletedTask, true, true, true, false, false);
+        UpdateDispatchClaim supplied = change == "copy" ? original with { } : original;
+        OperationOwnership suppliedOwner = change == "owner" ? Owner() : originalOwner;
+        if (change == "released") originalOwner.Release();
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(supplied, suppliedOwner,
+            new(UpdateDispatchOutcome.Cancelled, fixture.Clock.GetUtcNow(), null, "fixture terminal"), settlement, CancellationToken.None));
+        Assert.AreEqual(UpdateDispatchState.DispatchClaimed, await fixture.Store.GetDispatchStateAsync(original.Draft.Operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task FailedUncertaintyPersistenceRetainsTheCommittedBarrier()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        UpdateDispatchClaim claim = (await fixture.ClaimAsync(await fixture.SaveAsync()))!;
+        OperationOwnership owner = Owner();
+        TaskCompletionSource pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        UpdateDispatchSettlement settlement = UpdateDispatchSettlement.FromObservedWork(claim, owner, pending.Task, false, false, false, false, true);
+        await fixture.ExecuteAsync("CREATE TRIGGER reject_uncertain BEFORE UPDATE ON update_dispatch_claims BEGIN SELECT RAISE(ABORT,'fixture unresolved persistence failure'); END;");
+        await Assert.ThrowsExactlyAsync<SqliteException>(() => fixture.Store.RecordFinalAsync(claim, owner,
+            new(UpdateDispatchOutcome.Uncertain, fixture.Clock.GetUtcNow(), null, "cleanup unconfirmed"), settlement, CancellationToken.None));
+        Assert.IsTrue(await fixture.Store.HasUnresolvedDispatchesAsync(owner, CancellationToken.None));
+        pending.SetResult();
+        Assert.AreEqual(UpdateDispatchState.DispatchClaimed, await fixture.Store.GetDispatchStateAsync(claim.Draft.Operation.JobId, CancellationToken.None));
+        Assert.IsFalse(settlement.TryConsumeFor(claim, owner));
+    }
     [TestMethod]
     public async Task LostCommitAcknowledgmentCannotProduceAPermitOrRetry()
     {
@@ -194,7 +283,7 @@ public sealed class UpdateDispatchClaimTests
         await using Fixture fixture = await Fixture.CreateAsync();
         UpdateDispatchClaim claim = (await fixture.ClaimAsync(await fixture.SaveAsync()))!;
         await fixture.ExecuteAsync("CREATE TRIGGER reject_final BEFORE UPDATE ON update_dispatch_claims BEGIN SELECT RAISE(ABORT,'fixture final persistence failure'); END;");
-        await Assert.ThrowsExactlyAsync<SqliteException>(() => fixture.Store.RecordFinalAsync(claim, Owner(), new(UpdateDispatchOutcome.Success, fixture.Clock.GetUtcNow(), 0, "fixture verified"), CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<SqliteException>(() => fixture.RecordAsync(claim, new(UpdateDispatchOutcome.Success, fixture.Clock.GetUtcNow(), 0, "fixture verified")));
         Assert.AreEqual(UpdateDispatchState.DispatchClaimed, await fixture.Store.GetDispatchStateAsync(claim.Draft.Operation.JobId, CancellationToken.None));
         await fixture.ExecuteAsync("DROP TRIGGER reject_final;");
         Assert.AreEqual(1, await fixture.Store.RecoverUnfinishedDispatchesAsync(Owner(), fixture.Clock.GetUtcNow(), CancellationToken.None));
@@ -247,7 +336,7 @@ public sealed class UpdateDispatchClaimTests
             afterCommit();
             return claim;
         }
-        public Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership owner, UpdateDispatchTerminal terminal, CancellationToken ct) => inner.RecordFinalAsync(claim, owner, terminal, ct);
+        public Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership owner, UpdateDispatchTerminal terminal, UpdateDispatchSettlement settlement, CancellationToken ct) => inner.RecordFinalAsync(claim, owner, terminal, settlement, ct);
         public Task<int> RecoverUnfinishedDispatchesAsync(OperationOwnership owner, DateTimeOffset now, CancellationToken ct) => inner.RecoverUnfinishedDispatchesAsync(owner, now, ct);
         public Task<UpdateDispatchState?> GetDispatchStateAsync(Guid job, CancellationToken ct) => inner.GetDispatchStateAsync(job, ct);
         public Task<bool> HasUnresolvedDispatchesAsync(OperationOwnership owner, CancellationToken ct) => inner.HasUnresolvedDispatchesAsync(owner, ct);
@@ -298,6 +387,11 @@ public sealed class UpdateDispatchClaimTests
                 UpdateRouteContract.WinGetUserExactV2, ReviewedInstallerMode.Selected(InstallerMode.Silent)), CancellationToken.None);
         }
         internal Task<UpdateDispatchClaim?> ClaimAsync(ReviewedUpdateDraft draft) => Store.TryClaimAsync(draft, Fresh(draft.Operation), Owner(), Clock.GetUtcNow(), CancellationToken.None);
+        internal Task RecordAsync(UpdateDispatchClaim claim, UpdateDispatchTerminal terminal)
+        {
+            OperationOwnership owner = Owner();
+            return Store.RecordFinalAsync(claim, owner, terminal, UpdateDispatchSettlement.FromObservedWork(claim, owner, Task.CompletedTask, true, true, true, false, false), CancellationToken.None);
+        }
         internal async Task ExecuteAsync(string sql)
         {
             await using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());

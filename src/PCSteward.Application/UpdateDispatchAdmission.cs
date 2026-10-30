@@ -77,11 +77,12 @@ public sealed class UpdateDispatchTerminal
     public DateTimeOffset OccurredAt { get; }
     public int? ExitCode { get; }
     public string Diagnostic { get; }
-    public byte[] GetReservedPayload()
+    public byte[] GetReservedPayload(UpdateDispatchSettlement? settlement = null)
     {
         byte[] diagnostic = new UTF8Encoding(false, true).GetBytes(Diagnostic);
-        byte[] header = Encoding.ASCII.GetBytes(string.Join('\n', "pc-steward-update-terminal:1", Outcome.ToString(),
+        byte[] header = Encoding.ASCII.GetBytes(string.Join('\n', "pc-steward-update-terminal:2", Outcome.ToString(),
             OccurredAt.ToString("O", CultureInfo.InvariantCulture), ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "None",
+            settlement?.State.ToString() ?? "InvocationUnknown", settlement?.Facts ?? "None",
             diagnostic.Length.ToString(CultureInfo.InvariantCulture)) + "\n");
         if (header.Length + diagnostic.Length > ReservedBytes) throw new InvalidOperationException("Terminal representation exceeds its reservation.");
         byte[] reserved = new byte[ReservedBytes];
@@ -99,7 +100,7 @@ public interface IUpdateDispatchStore
 {
     Task<UpdateDispatchClaim?> TryClaimAsync(ReviewedUpdateDraft draft, FreshUpdateDispatchEvidence evidence,
         OperationOwnership ownership, DateTimeOffset claimedAt, CancellationToken cancellationToken);
-    Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership ownership, UpdateDispatchTerminal terminal, CancellationToken cancellationToken);
+    Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership ownership, UpdateDispatchTerminal terminal, UpdateDispatchSettlement settlement, CancellationToken cancellationToken);
     Task<int> RecoverUnfinishedDispatchesAsync(OperationOwnership ownership, DateTimeOffset now, CancellationToken cancellationToken);
     Task<UpdateDispatchState?> GetDispatchStateAsync(Guid jobId, CancellationToken cancellationToken);
     Task<bool> HasUnresolvedDispatchesAsync(OperationOwnership ownership, CancellationToken cancellationToken);
