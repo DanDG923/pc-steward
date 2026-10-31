@@ -1,4 +1,8 @@
-# Task 50 — bounded native configuration parsing
+# Task 50 — native version/store comparison data
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [native-source mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records normalization, native legacy ToString semantics and ordered store alternatives, with unsupported/metadata/path/device negatives. Focused23/23, Release clean, full752/752. It does not observe filesystem state, merge duplicate registrations or create execution authority; full `AC-UPD-01–11`/Task50 acceptance remains open.
+
+## Earlier bounded native configuration parsing
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records exact native XML shape/default/explicit semantics, immutable passive observations, secret-attribute omission and strict ambiguity/resource negatives. Focused28/28, Release clean, full729/729. Parser success is not native trust or compatible policy; no production caller, full `AC-UPD-01–11` or Task50 exit is claimed.
 

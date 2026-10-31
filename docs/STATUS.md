@@ -1,4 +1,8 @@
-# Task 50 — bounded Chocolatey configuration checkpoint
+# Task 50 — native version/store comparison checkpoint
+
+Pinned native normalization and store-path alternatives are now represented as immutable data, preserving legacy forms rather than silently deduplicating observed registrations. Focused **23/23**, clean Release, full **752/752**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). A [pre-UAC candidate-evidence question](failures/task-50-pre-uac-candidate-evidence.md) is pending the owner's optional contract clarification; no new interpretation is assumed. Independent library/store/profile work continues. No production caller, native admission, helper/runner/UI integration or Task50 completion is claimed.
+
+## Earlier bounded Chocolatey configuration checkpoint
 
 The isolated native-model config parser preserves observed feature provenance separately from effective defaults, rejects ambiguous/unsupported/bounded XML and omits credential attributes from its snapshot. Focused **28/28**, clean Release, full **729/729**, zero skipped. [Task90 remediation/evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). Source tracing also requires protecting the existing external Chocolatey HTTP cache even with the ignore flag; no cache/ACL changes are authorized. No production parser/launcher caller or admitting native profile exists. Conditional mapping remediation, common-gate/claim/helper/UI integration and Task50 completion remain open.
 
