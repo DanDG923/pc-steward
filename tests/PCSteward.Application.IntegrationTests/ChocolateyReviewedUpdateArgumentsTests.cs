@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using PCSteward.Domain;
+using PCSteward.Application;
 using PCSteward.Provider.Chocolatey;
 
 namespace PCSteward.Application.IntegrationTests;
@@ -35,6 +36,7 @@ public sealed class ChocolateyReviewedUpdateArgumentsTests
     [DataRow(15, "Unknown")]
     [DataRow(21, "ChocolateyMachineRegistrationV3")]
     [DataRow(21, "ChocolateyMachineRegistrationV2")]
+    [DataRow(21, "ChocolateyMachineProvisionalV3")]
     public void RecomputedDigestCannotMakeUnsupportedDataFormattable(int field, string value)
     {
         string[] lines = Encoding.UTF8.GetString(Operation().GetCanonicalBytes()).Split('\n');
@@ -61,14 +63,60 @@ public sealed class ChocolateyReviewedUpdateArgumentsTests
         Assert.ThrowsExactly<ArgumentException>(() => ChocolateyReviewedUpdateArguments.Build(changed!));
     }
 
-    private static ReviewedUpdateOperation Operation()
+    private static ReviewedUpdateOperation Operation(UpdateRouteContract route = UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3)
     {
         DateTimeOffset at = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git.install",
             UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git.install", "1.0.0", "2.0.0", UpdateScope.Machine,
             UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(at);
         return new(job, "S-1-5-21-11-22-33-1001", "choco:git.install", "machine:choco", "choco-profile-v2:" + new string('A', 64), at,
-            UpdateRouteContract.ChocolateyMachineProvisionalV3,
+            route,
             ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled), ReviewedUpdateArchitecture.ProviderScriptSelected());
+    }
+
+    [TestMethod]
+    public void TheReviewAndHistoryDisclosureIsBoundToTheNewContractAndDoesNotGrantConfirmation()
+    {
+        ReviewedUpdateOperation operation = Operation();
+        string? text = ReviewedUpdateProviderDisclosure.GetRiskText(operation);
+        Assert.IsNotNull(text);
+        StringAssert.Contains(text, "official Chocolatey Community feed");
+        StringAssert.Contains(text, "local packages");
+        StringAssert.Contains(text, "vendor installers");
+        StringAssert.Contains(text, "disable checksum verification");
+        StringAssert.Contains(text, "installer arguments");
+        StringAssert.Contains(text, "replaced");
+        // Frozen at review time so the refusal can only come from unavailable admission, not age or future time.
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            new ReviewedUpdateReview(new(operation, Guid.NewGuid()), new FrozenClock(operation.ReviewedAt)).Confirm());
+    }
+
+    [TestMethod]
+    [DataRow(nameof(UpdateRouteContract.ChocolateyMachineProvisionalV3))]
+    [DataRow(nameof(UpdateRouteContract.ChocolateyMachineRegistrationV3))]
+    public void OlderChocolateyRoutesNeverInheritTheAcceptedRuntimeDisclosure(string route)
+    {
+        ReviewedUpdateOperation operation = Operation(Enum.Parse<UpdateRouteContract>(route));
+        Assert.AreNotEqual(ReviewedProviderGuardContract.CommunityScriptRuntimeLimits, operation.ProviderGuardContract);
+        Assert.IsNull(ReviewedUpdateProviderDisclosure.GetRiskText(operation));
+        Assert.ThrowsExactly<ArgumentException>(() => ChocolateyReviewedUpdateArguments.Build(operation));
+    }
+
+    [TestMethod]
+    public void SchemaTwoRestoredChocolateyDataNeverCarriesTheDisclosure()
+    {
+        string[] lines = Encoding.UTF8.GetString(Operation(UpdateRouteContract.ChocolateyMachineRegistrationV3).GetCanonicalBytes()).Split('\n');
+        lines[0] = "pc-steward-reviewed-update:2";
+        lines[13] = "Neutral";
+        lines[21] = nameof(UpdateRouteContract.ChocolateyMachineRegistrationV2);
+        byte[] bytes = Encoding.UTF8.GetBytes(string.Join('\n', lines.Where((_, index) => index != 14)));
+        Assert.IsTrue(ReviewedUpdateOperation.TryRestore(bytes, Convert.ToHexString(SHA256.HashData(bytes)), out ReviewedUpdateOperation? legacy));
+        Assert.AreEqual(ReviewedProviderGuardContract.LegacyUnqualified, legacy!.ProviderGuardContract);
+        Assert.IsNull(ReviewedUpdateProviderDisclosure.GetRiskText(legacy));
+    }
+
+    private sealed class FrozenClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

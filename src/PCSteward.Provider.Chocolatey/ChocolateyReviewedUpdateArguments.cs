@@ -9,7 +9,8 @@ internal static class ChocolateyReviewedUpdateArguments
     {
         ArgumentNullException.ThrowIfNull(operation);
         ReviewedUpdateSelection selection = operation.Selection;
-        if (!operation.HasCurrentSchema || operation.RouteContract != UpdateRouteContract.ChocolateyMachineProvisionalV3 ||
+        if (!operation.HasCurrentSchema || operation.RouteContract != UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 ||
+            operation.ProviderGuardContract != ReviewedProviderGuardContract.CommunityScriptRuntimeLimits ||
             selection.Provider != UpdateProvider.Chocolatey || selection.Source != UpdateSource.ChocolateyCommunity || selection.Scope != UpdateScope.Machine ||
             selection.Channel != UpdateChannel.Stable || selection.Architecture.Binding != ReviewedArchitectureBinding.ProviderScriptSelected ||
             operation.Mode != ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled) ||

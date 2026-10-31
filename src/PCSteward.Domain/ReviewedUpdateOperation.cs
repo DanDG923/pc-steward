@@ -8,11 +8,20 @@ namespace PCSteward.Domain;
 public enum UpdateRouteContract
 {
     WinGetUserExactV2, ChocolateyMachineRegistrationV2, WinGetUserExactV3, ChocolateyMachineRegistrationV3,
-    ChocolateyMachineProvisionalV3
+    ChocolateyMachineProvisionalV3, ChocolateyMachineRuntimeLimitsV3
 }
 
 /// <summary>Frozen data semantics only. No member asserts that native candidate qualification succeeded.</summary>
 public enum ReviewedCandidateProvenance { UnqualifiedLegacyLabel, TrustedDesktopEvidenceRequired, UserCacheIntent }
+
+/// <summary>
+/// Closed provider-guard meaning derived only from the frozen route and schema; never serialized separately.
+/// <see cref="RequiredEffectiveControls"/> keeps the earlier provisional route's stronger runtime-control duty.
+/// <see cref="CommunityScriptRuntimeLimits"/> is the owner-accepted, disclosed Chocolatey script-runtime exception,
+/// conditional on the fixed official Community feed. No member asserts native eligibility, qualification or consent.
+/// Append new values; never reinterpret an existing one.
+/// </summary>
+public enum ReviewedProviderGuardContract { LegacyUnqualified, RequiredEffectiveControls, CommunityScriptRuntimeLimits }
 
 /// <summary>Canonical reviewed data; neither a digest nor a restored identity grants execution consent.</summary>
 public sealed partial class ReviewedUpdateOperation
@@ -34,9 +43,10 @@ public sealed partial class ReviewedUpdateOperation
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(mode);
         if (!Enum.IsDefined(routeContract)) throw new ArgumentOutOfRangeException(nameof(routeContract));
-        if (encodingVersion != SchemaVersion && routeContract == UpdateRouteContract.ChocolateyMachineProvisionalV3)
+        bool userCacheIntentRoute = IsUserCacheIntentRoute(routeContract);
+        if (encodingVersion != SchemaVersion && userCacheIntentRoute)
             throw new ArgumentException("Provisional candidate intent requires the current canonical schema.", nameof(routeContract));
-        if (routeContract == UpdateRouteContract.ChocolateyMachineProvisionalV3 &&
+        if (userCacheIntentRoute &&
             (job.Selection.Provider != UpdateProvider.Chocolatey || job.Selection.Source != UpdateSource.ChocolateyCommunity ||
                 job.Selection.Scope != UpdateScope.Machine))
             throw new ArgumentException("Provisional candidate intent is limited to Chocolatey Community machine Update.", nameof(routeContract));
@@ -86,8 +96,20 @@ public sealed partial class ReviewedUpdateOperation
     public ReviewedCandidateProvenance CandidateProvenance => !HasCurrentSchema ||
         RouteContract is UpdateRouteContract.WinGetUserExactV2 or UpdateRouteContract.ChocolateyMachineRegistrationV2
         ? ReviewedCandidateProvenance.UnqualifiedLegacyLabel
-        : RouteContract == UpdateRouteContract.ChocolateyMachineProvisionalV3
+        : IsUserCacheIntentRoute(RouteContract)
             ? ReviewedCandidateProvenance.UserCacheIntent : ReviewedCandidateProvenance.TrustedDesktopEvidenceRequired;
+    /// <summary>
+    /// Frozen guard meaning, derived from schema and route only. Legacy, schema-2 and non-provisional routes are
+    /// <see cref="ReviewedProviderGuardContract.LegacyUnqualified"/>; a label never grants eligibility or approval.
+    /// </summary>
+    public ReviewedProviderGuardContract ProviderGuardContract => !HasCurrentSchema
+        ? ReviewedProviderGuardContract.LegacyUnqualified
+        : RouteContract switch
+        {
+            UpdateRouteContract.ChocolateyMachineProvisionalV3 => ReviewedProviderGuardContract.RequiredEffectiveControls,
+            UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 => ReviewedProviderGuardContract.CommunityScriptRuntimeLimits,
+            _ => ReviewedProviderGuardContract.LegacyUnqualified,
+        };
     public ReviewedInstallerMode Mode { get; }
     public string Digest { get; }
 
@@ -156,6 +178,9 @@ public sealed partial class ReviewedUpdateOperation
     /// <summary>Complete data comparison only. The caller still needs live consent and a one-use permit.</summary>
     public bool HasSameIdentity(ReviewedUpdateOperation? other) =>
         other is not null && CryptographicOperations.FixedTimeEquals(GetCanonicalBytes(), other.GetCanonicalBytes());
+
+    private static bool IsUserCacheIntentRoute(UpdateRouteContract route) =>
+        route is UpdateRouteContract.ChocolateyMachineProvisionalV3 or UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3;
 
     private static T ParseEnum<T>(string value) where T : struct, Enum =>
         Enum.TryParse(value, ignoreCase: false, out T parsed) && Enum.IsDefined(parsed)
