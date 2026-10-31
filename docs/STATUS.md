@@ -1,4 +1,8 @@
-# Task 50 — fixed User mapping checkpoint
+# Task 50 — Chocolatey mapping remediation checkpoint
+
+Independent native-profile mapping review at `7211dc5` is CONDITIONAL: environment/config/licensing/store and parser/result details need correction before native admission. The isolated compiled environment builder now has **14/14** focused cases, clean Release and **701/701** full tests, zero skipped. [Remediation/evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records verified public release ZIP/root-engine pins and the next fixed-root launch policy. No client was installed/executed or owner's installed software read. The builder has no production caller; full native profile, common-gate/claim/helper/UI integration and Task50 remain incomplete.
+
+## Earlier fixed User mapping checkpoint
 
 The isolated schema3 User WinGet formatter now pins `--silent --installer-type msix`, rejecting unsupported bindings even after a digest is recomputed. Focused **15/15**, canonical Release zero warnings/errors, full **687/687**, zero skipped. [Mapping/remaining native conditions](review/TASK_50_PROVIDER_MAPPING_V2.md) and [commands/evidence](review/TASK_50_ENTRY_ASSESSMENT.md). No production caller uses it; protocol1 and its current arguments remain unchanged. Native CLI launch context, exact instance/Update-only enforcement, client provenance, common-gate/claim/runner/helper/UI integration and Task50 completion remain open. No host probe or real update occurred.
 

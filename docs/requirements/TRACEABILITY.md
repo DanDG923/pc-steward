@@ -1,4 +1,8 @@
-# Task 50 — fixed reviewed User arguments
+# Task 50 — compiled Chocolatey bootstrap environment
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [conditional mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records a fixed environment set, complete inherited-block replacement and format/injection negatives. Focused14/14, Release clean, full701/701. Public release ZIP/engine hashes are artifact evidence only, not source-build attestation or host eligibility. No production caller, native trust/profile or integrated `AC-UPD-01–11`/Task50 acceptance follows.
+
+## Earlier fixed reviewed User arguments
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [fixed mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) pins Silent/MSIX and closed user/source/architecture values. Fifteen focused cases cover exact arguments and recomputed-digest mode/provider/source/scope/architecture/route/schema negatives. Release clean/full687/687. This formatter is passive with no process or approval API; native targeting/Update-only/identity proof and integrated `AC-UPD-01–11`/Task50 acceptance remain open.
 
