@@ -1,4 +1,8 @@
-# Task 50 — provisional candidate contract and bounded nuspec parsing
+# Task 50 — bounded native package archive identity
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-07/13`: [native mapping evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) adds bounded ZIP structural/entry selection and nuspec-byte parsing without extraction. Stored/deflate/descriptor positives; ambiguity, duplicates, encoding, record/count/offset/size/CRC/XML and decompression negatives pass25/25. Release clean/full805/805 zero skipped. Parser success is neither a package-signature claim nor installed/source/candidate eligibility; native/profile/endpoint/UI/history integration and full `AC-UPD-01–11` remain open.
+
+## Earlier provisional candidate contract and bounded nuspec parsing
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: the [owner amendment](../failures/task-50-pre-uac-candidate-evidence.md) permits provisional candidate intent only for the new Chocolatey route, with independently qualified exact-match helper execution required. A distinct canonical route/closed data label prevents silent reinterpretation; current confirmation/fresh-evidence flags cannot admit it. Nuspec24/provenance3/admission1 focused cases, Release clean, full780/780 zero skipped. [Evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). These are passive prerequisites; full `AC-UPD-01–11`, native profile, endpoint/UI/history integration and Task50 exit remain open.
 

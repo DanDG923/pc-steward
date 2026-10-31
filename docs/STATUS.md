@@ -1,4 +1,8 @@
-# Task 50 — accepted provisional Chocolatey candidate checkpoint
+# Task 50 — bounded Chocolatey archive identity checkpoint
+
+The isolated archive reader validates ZIP record/count/size/offset/name/descriptor consistency before bounded nuspec decompression, checks the selected identity bytes' CRC, and extracts nothing. Focused **25/25**; clean Release/full **805/805**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). The accepted provisional-candidate amendment and distinct canonical intent route are committed in ba3cd83. Native file/ACL coverage, full client profile, independent helper qualification, common-gate/claim/runner/review/history integration and Task50 completion remain open. No production caller, host read, UAC, provider invocation or deployment was added.
+
+## Earlier accepted provisional Chocolatey candidate checkpoint
 
 The owner explicitly amended ADR-025 for provisional signed-client/user-cache candidate review, with independent exact-match helper qualification before upgrade. [Decision/evidence](failures/task-50-pre-uac-candidate-evidence.md). A distinct ChocolateyMachineProvisionalV3 canonical route and closed candidate-provenance label preserve that meaning without qualifying intent; confirmation/dispatch remain closed pending native integration. The bounded nuspec identity reader also passes24 focused cases. Provenance3 plus admission1 cases pass; clean Release/full **780/780**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). No host read, UAC, provider invocation or deployment occurred. Native profile, common-gate/claim/helper/runner/review/history integration, independent review and Task50 completion remain open.
 
