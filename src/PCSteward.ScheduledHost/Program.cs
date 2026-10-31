@@ -14,6 +14,7 @@ internal static class Program
 {
     private const string StateDirectoryName = "PCSteward";
     private const string ScanMutexName = "Local\\PCSteward.ScheduledCheck.v1";
+    private const int UnresolvedOperationExitCode = 78;
 
     private static int Main(string[] args)
     {
@@ -44,7 +45,7 @@ internal static class Program
             Directory.CreateDirectory(stateDirectory);
             SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"));
             database.MigrateAsync(timeout.Token).GetAwaiter().GetResult();
-            if (!session.Reconcile(new UpdateDispatchReconciliation(database).ReconcileAsync, timeout.Token)) return 0;
+            if (!session.Reconcile(new UpdateDispatchReconciliation(database).ReconcileAsync, timeout.Token)) return UnresolvedOperationExitCode;
             timeout.Token.ThrowIfCancellationRequested();
             if (FactoryReset.GetMarkerState() != FactoryResetMarkerState.None ||
                 !session.Context.CanReconcile || session.Context.RecoveryRequired) return 0;

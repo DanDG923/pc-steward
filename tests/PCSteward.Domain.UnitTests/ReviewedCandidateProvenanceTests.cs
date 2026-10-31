@@ -44,13 +44,33 @@ public sealed class ReviewedCandidateProvenanceTests
         Assert.IsFalse(ReviewedUpdateOperation.TryRestore(legacy, Convert.ToHexString(SHA256.HashData(legacy)), out _));
     }
 
-    private static ReviewedUpdateOperation Operation(UpdateRouteContract route)
+    [TestMethod]
+    [DataRow(UpdateProvider.WinGet, UpdateSource.ChocolateyCommunity, UpdateScope.Machine, 7, "WinGet")]
+    [DataRow(UpdateProvider.Chocolatey, UpdateSource.WinGet, UpdateScope.Machine, 8, "WinGet")]
+    [DataRow(UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, UpdateScope.User, 12, "User")]
+    public void ProvisionalMeaningCannotBeAssignedOutsideItsAcceptedRoute(UpdateProvider provider, UpdateSource source, UpdateScope scope, int field, string value)
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => Operation(UpdateRouteContract.ChocolateyMachineProvisionalV3, provider, source, scope));
+        string[] lines = Encoding.UTF8.GetString(Operation(UpdateRouteContract.ChocolateyMachineProvisionalV3).GetCanonicalBytes()).Split('\n');
+        lines[field] = value;
+        byte[] bytes = Encoding.UTF8.GetBytes(string.Join('\n', lines));
+        Assert.IsFalse(ReviewedUpdateOperation.TryRestore(bytes, Convert.ToHexString(SHA256.HashData(bytes)), out _));
+    }
+
+    [TestMethod]
+    [DataRow(UpdateRouteContract.WinGetUserExactV2)]
+    [DataRow(UpdateRouteContract.ChocolateyMachineRegistrationV2)]
+    public void HistoricalRouteIdentifiersRemainUnqualifiedEvenInCurrentEnvelope(UpdateRouteContract route) =>
+        Assert.AreEqual(ReviewedCandidateProvenance.UnqualifiedLegacyLabel, Operation(route).CandidateProvenance);
+
+    private static ReviewedUpdateOperation Operation(UpdateRouteContract route, UpdateProvider provider = UpdateProvider.Chocolatey,
+        UpdateSource source = UpdateSource.ChocolateyCommunity, UpdateScope scope = UpdateScope.Machine)
     {
         DateTimeOffset at = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
         ImmutableUpdateJob job = new UpdateJobReview(Guid.Parse("60000000-0000-0000-0000-000000000001"),
             Guid.Parse("60000000-0000-0000-0000-000000000002"), new UpdateJobSelection("choco:git",
-                UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git", "1.0.0", "2.0.0",
-                UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v1")).Confirm(at);
+                provider, source, "git", "1.0.0", "2.0.0",
+                scope, UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v1")).Confirm(at);
         return new(job, "S-1-5-21-11-22-33-1001", "choco:git", "machine:choco", "evidence:1", at,
             route, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled),
             ReviewedUpdateArchitecture.ProviderScriptSelected());

@@ -68,4 +68,23 @@ public sealed class ChocolateyNuspecIdentityReaderTests
 
     private static bool Read(string xml, out ChocolateyNuspecIdentity? identity) =>
         ChocolateyNuspecIdentityReader.TryRead(Encoding.UTF8.GetBytes(xml), out identity);
+
+    [TestMethod]
+    [DataRow("a..b", false)]
+    [DataRow("a-", false)]
+    [DataRow("a.-b", false)]
+    [DataRow("a_", true)]
+    [DataRow("_a", true)]
+    [DataRow("a_.b-c", true)]
+    [DataRow(" git", false)]
+    public void NativeAsciiWordAndSeparatorGrammarIsExplicit(string id, bool expected) =>
+        Assert.AreEqual(expected, Read($"<package><metadata><id>{id}</id><version>1.0</version></metadata></package>", out _));
+
+    [TestMethod]
+    public void PackagePolicyLengthAndDeliberateUntrimmedVersionAreBounded()
+    {
+        Assert.IsTrue(Read($"<package><metadata><id>{new string('a', 100)}</id><version>1.0</version></metadata></package>", out _));
+        Assert.IsFalse(Read($"<package><metadata><id>{new string('a', 101)}</id><version>1.0</version></metadata></package>", out _));
+        Assert.IsFalse(Read("<package><metadata><id>git</id><version> 1.0 </version></metadata></package>", out _));
+    }
 }

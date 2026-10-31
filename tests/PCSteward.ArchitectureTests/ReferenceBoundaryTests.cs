@@ -211,6 +211,8 @@ public sealed class ReferenceBoundaryTests
         Assert.IsLessThan(source.IndexOf("Directory.CreateDirectory(stateDirectory)", StringComparison.Ordinal),
             source.IndexOf("FactoryReset.GetMarkerState()", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("new(false, FactoryReset.DataOperationMutexName)", StringComparison.Ordinal));
+        StringAssert.Contains(source, "if (!session.Reconcile(new UpdateDispatchReconciliation(database).ReconcileAsync, timeout.Token)) return UnresolvedOperationExitCode;");
+        StringAssert.Contains(source, "private const int UnresolvedOperationExitCode = 78;");
     }
 
     [TestMethod]

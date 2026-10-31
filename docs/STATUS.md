@@ -1,4 +1,8 @@
-# Task 50 — ScheduledHost common-gate checkpoint
+# Task 50 — prerequisite review repair checkpoint
+
+Independent read-only review of74e1803 was CONDITIONAL PASS, no High; [Task90 repair](review/TASK_90_TASK_50_PREREQUISITE_REMEDIATION.md) records M1/L1–L5 and source-backed corrections. Nested OPC payload escapes now work without relaxing manifest/path ambiguity or decoded-duplicate rejection; native ASCII ID policy and route provenance boundaries are explicit. Scheduled unresolved claims return78 without state writes. Focused98 parser/version,8 provenance and5 scheduler checks pass; clean Release/full **837/837**, zero skipped. No fresh review pass/native admission or Task50 completion is claimed. Native profile/filesystem coverage, remaining gate callers and helper/runner/UI/history integration remain open; no host/provider/deployment action occurred.
+
+## Earlier ScheduledHost common-gate checkpoint
 
 The scan-only ScheduledHost now acquires the common native session with zero wait, checks reset marker before SQLite/state access, reconciles durable claims and retains ownership through its asynchronous scan body. Busy/unresolved/reset state returns before scan/status/notification work. Focused gate/claim72 and ScheduledHost architecture5 pass; clean Release/full **806/806**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). This converts one production caller only; desktop/reset entrypoints, native Chocolatey profile, claim/helper/review/history integration and Task50 completion remain open. No host execution, provider invocation or deployment occurred.
 

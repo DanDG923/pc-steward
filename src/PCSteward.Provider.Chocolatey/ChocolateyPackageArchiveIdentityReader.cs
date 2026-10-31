@@ -34,9 +34,9 @@ internal static class ChocolateyPackageArchiveIdentityReader
                 int next = checked(position + 46 + nameLength + extraLength + commentLength);
                 if ((flags & ~0x0808) != 0 || method is not (0 or 8) || next > end ||
                     compressed == uint.MaxValue || length == uint.MaxValue ||
-                    !ValidName(bytes.AsSpan(position + 46, nameLength)) ||
+                    (method == 0 && compressed != length) ||
+                    !TryName(bytes.AsSpan(position + 46, nameLength), out string name) ||
                     !ValidExtra(bytes.AsSpan(position + 46 + nameLength, extraLength))) return false;
-                string name = Encoding.ASCII.GetString(bytes, position + 46, nameLength);
                 if (!names.Add(name)) return false;
                 Entry entry = new(U32(bytes, position + 42), flags, method, crc, compressed, length,
                     bytes.AsSpan(position + 46, nameLength).ToArray());
@@ -115,20 +115,48 @@ internal static class ChocolateyPackageArchiveIdentityReader
             U32(bytes, descriptor + 8) == entry.Length;
     }
 
-    private static bool ValidName(ReadOnlySpan<byte> bytes)
+    private static bool TryName(ReadOnlySpan<byte> bytes, out string name)
     {
+        name = string.Empty;
         if (bytes.Length is 0 or > 4096) return false;
         foreach (byte value in bytes)
-            if (value is < 0x20 or > 0x7e or (byte)'%' or (byte)'\\' or (byte)':' or (byte)'"') return false;
-        string[] segments = Encoding.ASCII.GetString(bytes).Split('/');
+            if (value is < 0x20 or > 0x7e or (byte)'\\' or (byte)':' or (byte)'"') return false;
+        string raw = Encoding.ASCII.GetString(bytes);
+        string decoded = raw;
+        if (raw.Contains('%'))
+        {
+            // The pinned native reader unescapes once. Only nested, non-manifest ASCII payload
+            // escapes are supported here; raw bytes still bind the local/central headers.
+            if (!raw.Contains('/')) return false;
+            StringBuilder builder = new(raw.Length);
+            for (int index = 0; index < raw.Length; index++)
+            {
+                char character = raw[index];
+                if (character == '%')
+                {
+                    if (index + 2 >= raw.Length || !IsHex(raw[index + 1]) || !IsHex(raw[index + 2])) return false;
+                    character = (char)((Hex(raw[index + 1]) << 4) | Hex(raw[index + 2]));
+                    if (character is < ' ' or > '~' or '/' or '\\' or '%' or ':' or '"') return false;
+                    index += 2;
+                }
+                builder.Append(character);
+            }
+            decoded = builder.ToString();
+            if (decoded.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        string[] segments = decoded.Split('/');
         for (int index = 0; index < segments.Length; index++)
         {
             string part = segments[index];
             if (part.Length == 0 && index == segments.Length - 1 && index > 0) continue;
             if (part.Length == 0 || part is "." or ".." || part.EndsWith('.') || part.EndsWith(' ')) return false;
         }
+        name = decoded;
         return true;
     }
+
+    private static bool IsHex(char value) => value is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+    private static int Hex(char value) => value <= '9' ? value - '0' : char.ToUpperInvariant(value) - 'A' + 10;
 
     private static bool ValidExtra(ReadOnlySpan<byte> bytes)
     {

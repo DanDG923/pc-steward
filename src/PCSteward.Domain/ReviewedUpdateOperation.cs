@@ -36,6 +36,10 @@ public sealed partial class ReviewedUpdateOperation
         if (!Enum.IsDefined(routeContract)) throw new ArgumentOutOfRangeException(nameof(routeContract));
         if (encodingVersion != SchemaVersion && routeContract == UpdateRouteContract.ChocolateyMachineProvisionalV3)
             throw new ArgumentException("Provisional candidate intent requires the current canonical schema.", nameof(routeContract));
+        if (routeContract == UpdateRouteContract.ChocolateyMachineProvisionalV3 &&
+            (job.Selection.Provider != UpdateProvider.Chocolatey || job.Selection.Source != UpdateSource.ChocolateyCommunity ||
+                job.Selection.Scope != UpdateScope.Machine))
+            throw new ArgumentException("Provisional candidate intent is limited to Chocolatey Community machine Update.", nameof(routeContract));
         if (evidenceObservedAt == default || evidenceObservedAt > job.ApprovedAt)
             throw new ArgumentException("Review evidence needs an observation time no later than review.", nameof(evidenceObservedAt));
         JobId = job.Id;
@@ -79,7 +83,8 @@ public sealed partial class ReviewedUpdateOperation
     /// Describes what the frozen candidate means, not native proof or execution consent. Provisional intent
     /// needs independent helper qualification; neither restoration nor a fresh-evidence Boolean supplies it.
     /// </summary>
-    public ReviewedCandidateProvenance CandidateProvenance => !HasCurrentSchema
+    public ReviewedCandidateProvenance CandidateProvenance => !HasCurrentSchema ||
+        RouteContract is UpdateRouteContract.WinGetUserExactV2 or UpdateRouteContract.ChocolateyMachineRegistrationV2
         ? ReviewedCandidateProvenance.UnqualifiedLegacyLabel
         : RouteContract == UpdateRouteContract.ChocolateyMachineProvisionalV3
             ? ReviewedCandidateProvenance.UserCacheIntent : ReviewedCandidateProvenance.TrustedDesktopEvidenceRequired;

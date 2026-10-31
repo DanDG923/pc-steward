@@ -47,8 +47,7 @@ internal sealed class ChocolateyNativeVersion
 
     internal IReadOnlyList<string> GetStoreDirectoryNames(string id)
     {
-        if (string.IsNullOrEmpty(id) || id.Length > 256 || !char.IsAsciiLetterOrDigit(id[0]) || id.EndsWith('.') ||
-            !id.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_') || IsDeviceName(id))
+        if (!ChocolateyNativePackageId.IsSupported(id) || IsDeviceName(id))
             throw new ArgumentException("A supported native package ID is required.", nameof(id));
         string suffix = release.Length == 0 ? string.Empty : "-" + release;
         List<string> names = [];

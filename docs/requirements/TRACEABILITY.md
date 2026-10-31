@@ -1,4 +1,8 @@
-# Task 50 — ScheduledHost common-gate composition
+# Task 50 — provenance/archive/ScheduledHost review repair
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [Task90 evidence](../review/TASK_90_TASK_50_PREREQUISITE_REMEDIATION.md) records conditional review at74e1803, OPC escaped-payload support with decoded alias refusal, shared bounded native ID grammar, scoped provisional route labels, distinct unresolved scheduler code and added layout negatives. Focused98/8/5, Release clean/full837/837 zero skipped. Corrects the review's a_ and ID-trimming examples against pinned source. No native registration/candidate authority, fresh review pass or full `AC-UPD-01–11`/Task50 acceptance follows; integration remains open.
+
+## Earlier ScheduledHost common-gate composition
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [composition evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) converts the scan-only ScheduledHost to the common owner-thread session, reset-before-SQLite preflight and durable claim reconciliation. Existing behavioral gate/claim fixtures72 and production source-boundary fixtures5 pass; Release clean/full806/806 zero skipped. No host scheduler execution was performed. Desktop/reset callers and endpoint/native-profile/UI/history integration remain open; this is not complete cross-session enforcement or full `AC-UPD-01–11` acceptance.
 

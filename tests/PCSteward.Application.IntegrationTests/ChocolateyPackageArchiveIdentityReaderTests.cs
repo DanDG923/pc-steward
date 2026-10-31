@@ -37,6 +37,42 @@ public sealed class ChocolateyPackageArchiveIdentityReaderTests
     }
 
     [TestMethod]
+    public void OpcPackageWithEscapedPayloadSpaceKeepsItsSingleRootIdentity()
+    {
+        using MemoryStream stream = new();
+        using (ZipArchive zip = new(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (string path in new[] { "git.nuspec", "[Content_Types].xml", "_rels/.rels", "tools/a%20file.txt" })
+            {
+                using Stream data = zip.CreateEntry(path).Open();
+                data.Write(Encoding.UTF8.GetBytes(path == "git.nuspec" ? Xml : "opaque payload"));
+            }
+        }
+        Assert.IsTrue(ChocolateyPackageArchiveIdentityReader.TryRead(stream.ToArray(), out ChocolateyNuspecIdentity? identity));
+        Assert.AreEqual("git", identity!.Id);
+    }
+
+    [TestMethod]
+    public void DecodedPayloadAliasesRefuseEvenWhenRawEntryNamesDiffer()
+    {
+        byte[] archive = Archive(true, "git.nuspec", Xml, "tools/a%20file.txt");
+        using MemoryStream buffer = new();
+        buffer.Write(archive);
+        using (ZipArchive zip = new(buffer, ZipArchiveMode.Update, leaveOpen: true)) zip.CreateEntry("TOOLS/a file.txt");
+        Refuses(buffer.ToArray());
+    }
+
+    [TestMethod]
+    [DataRow("tools/a%2fb.txt")]
+    [DataRow("tools/a%5cb.txt")]
+    [DataRow("tools/a%2enuspec")]
+    [DataRow("tools/%2e%2e/a.txt")]
+    [DataRow("tools/a%2520b.txt")]
+    [DataRow("tools/a%00b.txt")]
+    [DataRow("tools/a%GGb.txt")]
+    public void EscapesCannotIntroduceManifestOrPathAmbiguity(string path) => Refuses(Archive(true, "git.nuspec", Xml, path));
+
+    [TestMethod]
     [DataRow("eocd-count")]
     [DataRow("disk")]
     [DataRow("central-size")]
@@ -131,6 +167,77 @@ public sealed class ChocolateyPackageArchiveIdentityReaderTests
         Refuses(valid.Concat(comment).ToArray());
     }
 
+    [TestMethod]
+    [DataRow("nonzero-first")]
+    [DataRow("duplicate-offset")]
+    [DataRow("overlap")]
+    [DataRow("gap")]
+    [DataRow("stored-length")]
+    public void LocalLayoutAndStoredPayloadLengthsAreStructurallyConsistent(string mutation)
+    {
+        byte[] archive = Archive(false, "git.nuspec", Xml, "tools/a.txt");
+        int central = checked((int)Read32(archive, archive.Length - 6));
+        int second = central + 46 + Read16(archive, central + 28) + Read16(archive, central + 30) + Read16(archive, central + 32);
+        switch (mutation)
+        {
+            case "nonzero-first": Write32(archive, central + 42, 1); break;
+            case "duplicate-offset": Write32(archive, second + 42, 0); break;
+            case "overlap": Write32(archive, second + 42, 1); break;
+            case "gap": Write32(archive, second + 42, Read32(archive, second + 42) + 1); break;
+            case "stored-length":
+                int local = checked((int)Read32(archive, second + 42));
+                Write32(archive, second + 24, Read32(archive, second + 24) + 1);
+                Write32(archive, local + 22, Read32(archive, local + 22) + 1);
+                break;
+        }
+        Refuses(archive);
+    }
+
+    [TestMethod]
+    [DataRow(0x0001)]
+    [DataRow(0x7075)]
+    public void UnsupportedZip64OrUnicodePathExtraFieldsRefuse(int tag)
+    {
+        byte[] archive = Archive(true, "git.nuspec", Xml);
+        int end = archive.Length - 22, central = checked((int)Read32(archive, end + 16));
+        int insert = central + 46 + Read16(archive, central + 28);
+        byte[] extra = new byte[4];
+        Write16(extra, 0, (ushort)tag);
+        byte[] changed = archive[..insert].Concat(extra).Concat(archive[insert..]).ToArray();
+        Write16(changed, central + 30, 4);
+        Write32(changed, end + 4 + 12, Read32(archive, end + 12) + 4);
+        Refuses(changed);
+    }
+
+    [TestMethod]
+    public void PrependedStubIsRefusedEvenWithConsistentAdjustedOffsets()
+    {
+        byte[] archive = Archive(true, "git.nuspec", Xml);
+        int end = archive.Length - 22, central = checked((int)Read32(archive, end + 16));
+        byte[] changed = new byte[archive.Length + 1];
+        archive.CopyTo(changed, 1);
+        Write32(changed, end + 1 + 16, (uint)central + 1);
+        Write32(changed, central + 1 + 42, 1);
+        Refuses(changed);
+    }
+
+    [TestMethod]
+    public void UnsignedDataDescriptorRetainsExactHeaderAndPayloadAgreement()
+    {
+        using MemoryStream buffer = new();
+        using (ZipArchive zip = new(new NonSeekingWriter(buffer), ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using Stream data = zip.CreateEntry("git.nuspec").Open();
+            data.Write(Encoding.UTF8.GetBytes(Xml));
+        }
+        byte[] archive = buffer.ToArray();
+        int end = archive.Length - 22, central = checked((int)Read32(archive, end + 16));
+        Assert.AreEqual(0x08074b50u, Read32(archive, central - 16));
+        byte[] changed = archive[..(central - 16)].Concat(archive[(central - 12)..]).ToArray();
+        Write32(changed, end - 4 + 16, (uint)central - 4);
+        Assert.IsTrue(ChocolateyPackageArchiveIdentityReader.TryRead(changed, out _));
+    }
+
     private const string Xml = "<package><metadata><id>git</id><version>1.2.0</version></metadata></package>";
 
     private static byte[] Archive(bool compressed, string path, string xml, string? secondPath = null)
@@ -142,7 +249,7 @@ public sealed class ChocolateyPackageArchiveIdentityReaderTests
                 entry.Write(Encoding.UTF8.GetBytes(xml));
             if (secondPath is not null)
             {
-                using Stream entry = zip.CreateEntry(secondPath).Open();
+                using Stream entry = zip.CreateEntry(secondPath, compressed ? CompressionLevel.Optimal : CompressionLevel.NoCompression).Open();
                 entry.Write(Encoding.UTF8.GetBytes(xml));
             }
         }
@@ -155,6 +262,7 @@ public sealed class ChocolateyPackageArchiveIdentityReaderTests
         Assert.IsNull(identity);
     }
     private static uint Read32(byte[] bytes, int offset) => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, 4));
+    private static ushort Read16(byte[] bytes, int offset) => BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
     private static void Write32(byte[] bytes, int offset, uint value) => BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset, 4), value);
     private static void Write16(byte[] bytes, int offset, ushort value) => BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset, 2), value);
 

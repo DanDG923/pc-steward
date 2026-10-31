@@ -64,8 +64,7 @@ internal static class ChocolateyNuspecIdentityReader
                 ids[0].Attributes().Any(attribute => !attribute.IsNamespaceDeclaration) ||
                 versions[0].Attributes().Any(attribute => !attribute.IsNamespaceDeclaration)) return false;
             string id = ids[0].Value;
-            if (id.Length is 0 or > 256 || !char.IsAsciiLetterOrDigit(id[0]) || id.EndsWith('.') ||
-                !id.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_') ||
+            if (!ChocolateyNativePackageId.IsSupported(id) ||
                 !ChocolateyNativeVersion.TryParse(versions[0].Value, out ChocolateyNativeVersion? version)) return false;
             identity = new(id, version!);
             return true;
