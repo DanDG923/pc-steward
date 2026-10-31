@@ -35,3 +35,15 @@ Fake dispatcher/evidence/verifier over real SQLite claims. Positive verified Suc
 ## Limits
 
 Fake adapters prove composition logic only. The following stay open: production dispatchers (none admitted), Desktop/ScheduledHost caller conversion, protocol-2 endpoint and reviewed fact extension, native Chocolatey profile/helper qualification, progress mailbox wiring, history UI projection, and fresh independent review.
+
+## History projection — mode survives history (`FR-HIS-01`, `FR-UPD-15`)
+
+New passive read model; no schema change, migration or authority.
+
+| Type | Producer | Consumer | Meaning |
+|---|---|---|---|
+| `ReviewedUpdateTerminalRecord.TryParse` (`Application/ReviewedUpdateHistory.cs`) | Reserved version-2 slot written by `UpdateDispatchTerminal` | History reader | Strict parse: exact 16 KiB size, seven printable-ASCII header lines, exact enum/time/exit encodings, strict UTF-8 diagnostic and zero padding. Anything else is unreadable. |
+| `IReviewedUpdateHistoryReader` / `SqliteDatabase.GetReviewedUpdateHistoryAsync(max ≤ 500)` (`Persistence.Sqlite/SqliteReviewedUpdateHistory.cs`) | SQLite `update_dispatch_claims` (untrusted) | Presentation | Every projected column is size/type-bounded. The canonical operation is restored only through `TryRestore` with its digest and must be schema 3 for the same job. The terminal digest must match its bytes, and Uncertain state must agree with the Uncertain outcome. A failed check sets `IntegrityVerified=false`; an unreadable state is presented as unresolved. |
+| `ReviewedUpdateHistoryPresentation.Present` → `ReviewedUpdateHistoryView` | Application | Desktop (later) | Fixed text for mode (Selected vs package-script-controlled), candidate evidence (UserCacheIntent means "provisional intent; the helper must independently confirm"), the runtime-limit disclosure for the new route only, and status. Claimed, Uncertain and integrity-failed rows show as blocking. **"Helper qualified" is never displayed**, because stored data has no authenticated, correlated helper observation. |
+
+Tests: `ReviewedUpdateHistoryTests` (10 cases). They cover a finalized row round trip, claimed then recovered-Uncertain blocking rows, the new-route disclosure and provisional-intent text only, six tamper/corruption variants, and the terminal parser round trip plus malformed-slot rejection. Desktop rendering remains UI integration work.
