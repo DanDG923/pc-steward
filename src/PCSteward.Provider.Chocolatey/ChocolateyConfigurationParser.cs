@@ -66,6 +66,8 @@ internal static class ChocolateyConfigurationParser
     private static readonly string[] ConfigNames = ["cacheLocation", "commandExecutionTimeoutSeconds", "webRequestTimeoutSeconds",
         "proxy", "proxyUser", "proxyPassword", "proxyBypassList", "proxyBypassOnLocal", "upgradeAllExceptions", "defaultTemplateName", "defaultPushSource"];
 
+    internal static IReadOnlyDictionary<string, bool> SupportedFeatureDefaults => Defaults;
+
     internal static bool TryRead(ReadOnlySpan<byte> bytes, out ChocolateyConfigurationObservation? observation)
     {
         observation = null;

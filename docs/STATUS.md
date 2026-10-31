@@ -1,4 +1,8 @@
-# Task 50 — revised Chocolatey native mapping prepared
+# Task 50 — native mapping corrections and independent policy checkpoint
+
+The revised mapping review was CONDITIONAL (3 Medium/4 Low, no High). [Task90 corrections](review/TASK_90_TASK_50_CHOCOLATEY_PROFILE_V2_REMEDIATION.md) now pin the fixed formatter, enabled-source alias logic, exact fingerprint bytes and file-only client-change/coverage policy. Focused **63/63**, clean Release/full **900/900**, zero skipped. A stronger native script-refresh checksum/installer-argument bypass was confirmed from pinned source in joint dialogue; the [narrow owner contract choice](failures/task-50-chocolatey-refresh-guard.md) is pending. The candidate-review amendment is unchanged. All native admission and broader gate/claim/helper/runner/UI/history integration remain open; no host/provider/deployment action or Task50 completion is claimed.
+
+## Earlier revised Chocolatey native mapping prepared
 
 The [revision2 native profile](review/TASK_50_CHOCOLATEY_PROFILE_V2.md) consolidates the accepted provisional-candidate split, corrected loader/config/cache/store controls and proposed producer/helper/profile-fingerprint seams for independent mapping review before native admission code. A [56-file public-release manifest](review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json) pins15,258,758 bytes from the already hash-verified public ZIP; every mapped entry digest was independently rechecked without extraction/execution. Prior repair5418c84 remains clean Release/full **837/837**, zero skipped; this follow-on adds documentation/data only. Full native observer, wire-fact extension, remaining gate/claim/helper/UI/history composition and Task50 completion remain open. No host, UAC, provider or deployment action occurred.
 

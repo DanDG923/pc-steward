@@ -1,4 +1,8 @@
-# Task 50 — revised native mapping and release identity data
+# Task 50 — revised mapping policy and concrete guard gap
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/06/07/13`: [Task90 record](../review/TASK_90_TASK_50_CHOCOLATEY_PROFILE_V2_REMEDIATION.md) documents enabled-source precedence, fixed immutable argument formatting, fingerprint golden encoding and first-file-check client/registration drift handling with63 focused cases. Release clean/full900/900 zero skipped. [Native refresh guard packet](../failures/task-50-chocolatey-refresh-guard.md) records the source-verified runtime checksum/argument bypass and joint dialogue; required owner choice remains pending. No native qualification/route or full `AC-UPD-01–11`/Task50 acceptance follows from passive/fake positives. Remaining common-gate/claim/helper/runner/UI/history and native observations stay open.
+
+## Earlier revised native mapping and release identity data
 
 `FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/07/13`: [proposed native mapping revision2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) incorporates the explicit owner candidate amendment and conditional-review corrections. [Release manifest](../review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json) records56 mapped root/helpers/tools files,15,258,758 bytes, rechecked against the exact public asset. This is source/artifact mapping data, not source-build attestation or host eligibility. No code changes since repaired5418c84's clean Release/full837/837; native/mapping review, production observation/composition and full `AC-UPD-01–11`/Task50 exit remain open.
 
