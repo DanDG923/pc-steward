@@ -8,7 +8,7 @@ namespace PCSteward.Application;
 public sealed record ProviderScanResult(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, IReadOnlyCollection<RawProviderRecord> RawRecords, IReadOnlyCollection<string> Warnings);
 public interface ILocalInventoryProvider { string Name { get; } TimeSpan Timeout { get; } Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken); }
 public sealed record ScanProgress(Guid CorrelationId, string Phase, TimeSpan Elapsed, string? Provider);
-public sealed record ScanResult(Guid CorrelationId, bool Succeeded, bool Cancelled, IReadOnlyDictionary<string, TimeSpan> Timings, IReadOnlyCollection<string> Warnings);
+public sealed record ScanResult(Guid CorrelationId, bool Succeeded, bool Cancelled, IReadOnlyDictionary<string, TimeSpan> Timings, IReadOnlyCollection<string> Warnings, LiveInventoryObservation? Observation = null);
 
 public sealed class InventoryScanOrchestrator : IDisposable
 {
@@ -56,10 +56,11 @@ public sealed class InventoryScanOrchestrator : IDisposable
             }
             if (warnings.Any(warning => warning.EndsWith(":timeout-unresponsive", StringComparison.Ordinal))) { await store.RecordScanAsync(new ScanRun(scanId, startedAt, DateTimeOffset.UtcNow, "Failed", correlationId), timings.Select(pair => new ScanProviderTiming(Guid.NewGuid(), scanId, pair.Key, pair.Value, warnings.FirstOrDefault(warning => warning.StartsWith(pair.Key + ":", StringComparison.Ordinal)))).ToArray(), CancellationToken.None); return new ScanResult(correlationId, false, false, timings, warnings); }
             (products, instances) = Normalize(products, instances);
+            LiveInventoryObservation observation = new(correlationId, DateTimeOffset.UtcNow, products, instances, warnings);
             ScanRun run = new(scanId, startedAt, DateTimeOffset.UtcNow, "Completed", correlationId);
             ScanProviderTiming[] timingRows = timings.Select(pair => new ScanProviderTiming(Guid.NewGuid(), scanId, pair.Key, pair.Value, warnings.FirstOrDefault(warning => warning.StartsWith(pair.Key + ":", StringComparison.Ordinal)))).ToArray();
             RawProviderRecord[] rawRows = rawRecords.Select(record => record with { ScanRunId = scanId }).ToArray();
-            progress?.Report(new ScanProgress(correlationId, "Publishing", elapsed.Elapsed, null)); await store.PersistScanAsync(run, products, instances, rawRows, timingRows, cancellationToken); events.Write(new ScanEvent(correlationId, DateTimeOffset.UtcNow, ScanEventSeverity.Information, "scan.completed", null, "Scan completed.")); return new ScanResult(correlationId, true, false, timings, warnings);
+            progress?.Report(new ScanProgress(correlationId, "Publishing", elapsed.Elapsed, null)); await store.PersistScanAsync(run, products, instances, rawRows, timingRows, cancellationToken); events.Write(new ScanEvent(correlationId, DateTimeOffset.UtcNow, ScanEventSeverity.Information, "scan.completed", null, "Scan completed.")); return new ScanResult(correlationId, true, false, timings, warnings, observation);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { await store.RecordScanAsync(new ScanRun(scanId, startedAt, DateTimeOffset.UtcNow, "Cancelled", correlationId), timings.Select(pair => new ScanProviderTiming(Guid.NewGuid(), scanId, pair.Key, pair.Value, null)).ToArray(), CancellationToken.None); return new ScanResult(correlationId, false, true, timings, warnings); }
         finally { elapsed.Stop(); if (releaseLease) lease.Release(); }

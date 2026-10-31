@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.Principal;
 
 namespace PCSteward.ProcessFixture;
 
@@ -10,17 +12,27 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        if (OperatingSystem.IsWindows() && args.Length == 2 && args[0] == "gate-contender" &&
+            Guid.TryParseExact(args[1], "N", out Guid gateFixture) && gateFixture != Guid.Empty)
+            return ObserveGate(gateFixture);
         if (!OperatingSystem.IsWindows() || args.Length != 2 ||
             !args[1].StartsWith("pcsteward-task49-", StringComparison.Ordinal) || args[1].Length > 100 ||
             args[1].Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-')) return 20;
         if (args[0] == "parent") return StartHolder(args[1]);
-        if (args[0] != "holder") return 21;
+        if (args[0] is not ("holder" or "source-query")) return 21;
 
         using CancellationTokenSource lifetime = new(TimeSpan.FromSeconds(15));
         using NamedPipeClientStream control = new(".", args[1], PipeDirection.InOut, PipeOptions.Asynchronous);
         try
         {
             await control.ConnectAsync(lifetime.Token).ConfigureAwait(false);
+            if (args[0] == "source-query")
+            {
+                Console.Out.WriteLine("""
+                    {"Arg":"https://cdn.winget.microsoft.com/cache","Data":"Microsoft.Winget.Source_8wekyb3d8bbwe","Explicit":false,"Identifier":"Microsoft.Winget.Source_8wekyb3d8bbwe","Name":"winget","TrustLevel":["Trusted","StoreOrigin"],"Type":"Microsoft.PreIndexed.Package"}
+                    """);
+                Console.Out.Flush();
+            }
             byte[] command = new byte[1];
             while (await control.ReadAsync(command, lifetime.Token).ConfigureAwait(false) == 1)
             {
@@ -34,6 +46,23 @@ internal static class Program
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (IOException) { }
+        return 0;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int ObserveGate(Guid fixture)
+    {
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        if (identity.User is not { } user) return 24;
+        string name = $"Global\\PCSteward.DataOperation.v2.{user.Value}.test.{fixture:N}";
+        using Mutex mutex = Mutex.OpenExisting(name);
+        if (!mutex.WaitOne(0))
+        {
+            Console.WriteLine("busy");
+            return 0;
+        }
+        try { Console.WriteLine("acquired"); }
+        finally { mutex.ReleaseMutex(); }
         return 0;
     }
 

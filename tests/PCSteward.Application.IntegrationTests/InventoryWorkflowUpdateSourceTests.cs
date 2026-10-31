@@ -9,6 +9,58 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class InventoryWorkflowUpdateSourceTests
 {
     [TestMethod]
+    public async Task StorageReplacementCannotRetargetFreshReviewEvidence()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await EnableTrustedSourcesAsync(database);
+        Guid productId = Guid.NewGuid();
+        CanonicalProduct product = new(productId, "ignored", "Contoso Widget");
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "User", "x64", "Contoso", Channel: "Stable");
+        string stable = InventoryNormalization.ProductFingerprint(new("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "User", "x64", "Stable", "Application", "fixture"));
+        await database.Store.SaveManualMappingAsync(new(Guid.NewGuid(), stable, "winget", "Contoso.Widget", DateTimeOffset.UtcNow, "fixture explicit mapping"), CancellationToken.None);
+        ReplacingSnapshotStore poisoned = new(database.Store, "9.9.0");
+        SourceSnapshot source = new("winget", "fixture", DateTimeOffset.UtcNow, SourceSnapshotState.Live,
+            [new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable")], []);
+        using InventoryWorkflow workflow = new(poisoned, database.Store, database.Store,
+            [new FixedProvider(new([product], [installed], [], []))], decisions: database.Store, sourceCache: database.Store,
+            updateSourceConnectors: [new FakeConnector(source)], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0")));
+        UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(stable, CancellationToken.None);
+        Assert.IsNotNull(prepared.Selection, prepared.Message);
+        Assert.AreEqual("1.0.0", prepared.Selection.InstalledVersion);
+        Assert.IsNotNull(prepared.Observation);
+        Assert.AreEqual("1.0.0", prepared.Observation.Instances.Single().Version);
+        Assert.AreEqual(0, poisoned.Reads);
+        Assert.AreEqual("9.9.0", (await database.Store.GetLastKnownGoodInstancesAsync(CancellationToken.None)).Single().Version);
+    }
+
+    [TestMethod]
+    public async Task StorageReplacementCannotFabricatePostUpdateSuccess()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        Guid productId = Guid.NewGuid();
+        CanonicalProduct product = new(productId, "ignored", "Contoso Widget");
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "User", "x64", "Contoso", Channel: "Stable");
+        string stable = InventoryNormalization.ProductFingerprint(new("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "User", "x64", "Stable", "Application", "fixture"));
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new(stable, UpdateProvider.WinGet, UpdateSource.WinGet,
+            "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+        ReplacingSnapshotStore poisoned = new(database.Store, "1.1.0");
+        using InventoryWorkflow workflow = new(poisoned, database.Store, database.Store,
+            [new FixedProvider(new([product], [installed], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        Assert.IsFalse((await workflow.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.AreEqual(0, poisoned.Reads);
+    }
+
+    private sealed class ReplacingSnapshotStore(SqliteDatabase inner, string version) : IInventorySnapshotStore
+    {
+        internal int Reads;
+        public Task PromoteAsync(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, CancellationToken ct) => inner.PromoteAsync(products, instances, ct);
+        public Task PersistScanAsync(ScanRun run, IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances,
+            IReadOnlyCollection<RawProviderRecord> raw, IReadOnlyCollection<ScanProviderTiming> timings, CancellationToken ct) =>
+            inner.PersistScanAsync(run, products, instances.Select(instance => instance with { Version = version }).ToArray(), raw, timings, ct);
+        public Task<IReadOnlyCollection<CanonicalProduct>> GetLastKnownGoodProductsAsync(CancellationToken ct) { Reads++; return inner.GetLastKnownGoodProductsAsync(ct); }
+        public Task<IReadOnlyCollection<InstallationInstance>> GetLastKnownGoodInstancesAsync(CancellationToken ct) { Reads++; return inner.GetLastKnownGoodInstancesAsync(ct); }
+    }
+    [TestMethod]
     public async Task AsymmetricTrustedSourceConsentLoadsFailClosed()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

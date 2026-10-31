@@ -5,7 +5,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Persistence.Sqlite;
 
-public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
+public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnectorSettingsStore, IScheduledCheckSettingsStore, ISourceSnapshotStore, IUpdateJobStore, IUpdateHistoryStore, IDownloadedArtifactStore, IAdvancedDataControlStore
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
@@ -20,9 +20,11 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
     {
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken);
+        await RefuseFutureSchemaAsync(connection, cancellationToken);
         await ExecuteAsync(connection, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;", cancellationToken);
         await ExecuteAsync(connection, "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);", cancellationToken);
         await using SqliteTransaction transaction = connection.BeginTransaction();
+        await RefuseFutureSchemaAsync(connection, cancellationToken, transaction);
         await ExecuteAsync(connection, "CREATE TABLE IF NOT EXISTS canonical_products (id TEXT PRIMARY KEY, stable_key TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS installation_instances (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, provider TEXT NOT NULL, provider_identity TEXT NOT NULL, version TEXT, scope TEXT NOT NULL, architecture TEXT NOT NULL, FOREIGN KEY(product_id) REFERENCES canonical_products(id)); CREATE TABLE IF NOT EXISTS stable_decisions (id TEXT PRIMARY KEY, stable_product_key TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS scan_runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, completed_at TEXT, status TEXT NOT NULL, correlation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS raw_provider_records (id TEXT PRIMARY KEY, scan_run_id TEXT NOT NULL, provider TEXT NOT NULL, record_key TEXT NOT NULL, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS scan_provider_timings (id TEXT PRIMARY KEY, scan_run_id TEXT NOT NULL, provider TEXT NOT NULL, duration_ms INTEGER NOT NULL, warning TEXT); CREATE TABLE IF NOT EXISTS update_candidates (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, provider TEXT NOT NULL, package_id TEXT NOT NULL, version TEXT); CREATE TABLE IF NOT EXISTS manual_mappings (id TEXT PRIMARY KEY, stable_product_key TEXT NOT NULL, source_id TEXT NOT NULL, package_id TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS update_jobs (id TEXT PRIMARY KEY, provider TEXT NOT NULL, source_id TEXT NOT NULL, package_id TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS downloaded_artifacts (id TEXT PRIMARY KEY, category TEXT NOT NULL, relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);", cancellationToken, transaction);
         await ExecuteAsync(connection, "INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);", cancellationToken, transaction);
         if (await MigrationRequiredAsync(connection, transaction, 2, cancellationToken))
@@ -60,6 +62,16 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
             await ExecuteAsync(connection, "ALTER TABLE downloaded_artifacts ADD COLUMN sha256 TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN job_id TEXT; ALTER TABLE downloaded_artifacts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'Incomplete'; ALTER TABLE downloaded_artifacts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0; CREATE INDEX ix_downloaded_artifacts_created ON downloaded_artifacts(created_at);", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (8);", cancellationToken, transaction);
         }
+        if (await MigrationRequiredAsync(connection, transaction, 9, cancellationToken))
+            await CreateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 10, cancellationToken))
+            await CreateReviewedDraftGenerationSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 11, cancellationToken))
+            await CreateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 12, cancellationToken))
+            await CreateReviewedArchitectureSchemaAsync(connection, transaction, cancellationToken);
+        await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
+        await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -221,7 +233,7 @@ public sealed class SqliteDatabase : IScanDataStore, IUserDecisionStore, IConnec
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM app_metadata);";
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM canonical_products) + (SELECT COUNT(*) FROM installation_instances) + (SELECT COUNT(*) FROM stable_decisions) + (SELECT COUNT(*) FROM scan_runs) + (SELECT COUNT(*) FROM raw_provider_records) + (SELECT COUNT(*) FROM scan_provider_timings) + (SELECT COUNT(*) FROM update_candidates) + (SELECT COUNT(*) FROM manual_mappings) + (SELECT COUNT(*) FROM update_jobs) + (SELECT COUNT(*) FROM downloaded_artifacts) + (SELECT COUNT(*) FROM source_snapshots) + (SELECT COUNT(*) FROM source_package_cache) + (SELECT COUNT(*) FROM approved_update_jobs) + (SELECT COUNT(*) FROM update_job_history) + (SELECT COUNT(*) FROM update_job_execution_state) + (SELECT COUNT(*) FROM reviewed_update_operations) + (SELECT COUNT(*) FROM update_dispatch_claims) + (SELECT COUNT(*) FROM app_metadata);";
         long count = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
         return count == 0 && (await GetScheduledCheckSettingsAsync(cancellationToken)).Equals(ScheduledCheckSettings.Manual);
     }

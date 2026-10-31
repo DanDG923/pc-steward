@@ -53,3 +53,7 @@ Readiness tasks 53/57/61/65/69 create committed sanitized requirement-to-evidenc
 ## Exact-host action contract
 
 See [host-test plans](V2_HOST_TEST_PLANS.md). Planning, mocks, a passing review or selecting 7-Zip never authorize deployment, launch, refresh, OS-record read, install, uninstall, key action, paid request, schedule mutation or data deletion. Get exact action-time authority after the artifact/test is reviewable; preserve it in sanitized evidence. Do not ask for a secret in chat: use the approved secret-entry mechanism if needed. Never put keys, submitted prompts/body hashes or sensitive OS records in evidence. Public distribution/signing/channel gates FRA-14–16 remain open independently of every 2.0 phase.
+
+### Task 50 accepted Chocolatey qualification split — 2026-10-31
+
+For the new-protocol Chocolatey Community machine Update route only, the owner explicitly permits provisional candidate review from the signed client's user-writable cache, followed by first authoritative candidate qualification inside the approved helper. The helper must independently resolve and exactly match the frozen installed/candidate/profile data before upgrade, or refuse without updating. All other checks remain required; intent cannot be relabelled trusted/fresh/helper-qualified evidence. Use the distinct canonical route and closed provenance specified by the [ADR-025 amendment](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md). This exception does not approve native admission, deployment, host reads, UAC or real updates.

@@ -14,7 +14,7 @@ internal static class OwnedProcessWork
 {
     internal static async Task<OwnedProcessReadResult> RunStartedAsync(Process process, TimeSpan timeout,
         CancellationToken cancellationToken, TimeSpan? teardownBudget = null, Func<Process, bool>? terminate = null,
-        OwnedProcessRead? readOperation = null)
+        OwnedProcessRead? readOperation = null, bool confirmOwnershipWithinBudget = false)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -77,6 +77,9 @@ internal static class OwnedProcessWork
         readFailure.TrySetResult();
         Task ownedCompletion = FinishOwnershipAsync(process, readersCancellation, timerCancellation, exit,
             observedWork, timerStop, observedTimer, callerCancelled.Task, overflow.Task, readFailure.Task);
+        if (confirmOwnershipWithinBudget && processExited && ioCompleted && eof && !killFailed &&
+            !capturedOutput.Failed && !capturedError.Failed)
+            await CompletesWithinAsync(ownedCompletion, Remaining(budget, teardown)).ConfigureAwait(false);
         return new(exitCode, capturedOutput.Text, capturedError.Text, timedOut, cancelled,
             capturedOutput.Exceeded || capturedError.Exceeded,
             !ioCompleted || !eof || capturedOutput.Failed || capturedError.Failed,

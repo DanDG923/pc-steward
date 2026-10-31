@@ -198,7 +198,21 @@ public sealed class ReferenceBoundaryTests
 
         StringAssert.Contains(source, "try { scanLeaseHeld = mutex.WaitOne(0); }");
         StringAssert.Contains(source, "catch (AbandonedMutexException) { scanLeaseHeld = true; }");
-        StringAssert.Contains(source, "finally { dataMutex.ReleaseMutex(); mutex.ReleaseMutex(); }");
+        StringAssert.Contains(source, "finally { mutex.ReleaseMutex(); }");
+    }
+
+    [TestMethod]
+    public void ScheduledHostUsesCommonOwnershipAndChecksResetBeforeOpeningSqlite()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ScheduledHost", "Program.cs"));
+        StringAssert.Contains(source, "CurrentUserDataOperationSession.TryAcquire(TimeSpan.Zero, timeout.Token)");
+        StringAssert.Contains(source, "session.Reconcile(new UpdateDispatchReconciliation(database).ReconcileAsync, timeout.Token)");
+        StringAssert.Contains(source, "!session.Context.CanReconcile || session.Context.RecoveryRequired");
+        Assert.IsLessThan(source.IndexOf("Directory.CreateDirectory(stateDirectory)", StringComparison.Ordinal),
+            source.IndexOf("FactoryReset.GetMarkerState()", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("new(false, FactoryReset.DataOperationMutexName)", StringComparison.Ordinal));
+        StringAssert.Contains(source, "if (!session.Reconcile(new UpdateDispatchReconciliation(database).ReconcileAsync, timeout.Token)) return UnresolvedOperationExitCode;");
+        StringAssert.Contains(source, "private const int UnresolvedOperationExitCode = 78;");
     }
 
     [TestMethod]

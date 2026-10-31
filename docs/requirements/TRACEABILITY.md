@@ -1,4 +1,88 @@
+# Task 50 — revised mapping policy and concrete guard gap
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/06/07/13`: [Task90 record](../review/TASK_90_TASK_50_CHOCOLATEY_PROFILE_V2_REMEDIATION.md) documents enabled-source precedence, fixed immutable argument formatting, fingerprint golden encoding and first-file-check client/registration drift handling with63 focused cases. Release clean/full900/900 zero skipped. [Native refresh guard packet](../failures/task-50-chocolatey-refresh-guard.md) records the source-verified runtime checksum/argument bypass and joint dialogue; required owner choice remains pending. No native qualification/route or full `AC-UPD-01–11`/Task50 acceptance follows from passive/fake positives. Remaining common-gate/claim/helper/runner/UI/history and native observations stay open.
+
+## Earlier revised native mapping and release identity data
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/07/13`: [proposed native mapping revision2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) incorporates the explicit owner candidate amendment and conditional-review corrections. [Release manifest](../review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json) records56 mapped root/helpers/tools files,15,258,758 bytes, rechecked against the exact public asset. This is source/artifact mapping data, not source-build attestation or host eligibility. No code changes since repaired5418c84's clean Release/full837/837; native/mapping review, production observation/composition and full `AC-UPD-01–11`/Task50 exit remain open.
+
+## Earlier provenance/archive/ScheduledHost review repair
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [Task90 evidence](../review/TASK_90_TASK_50_PREREQUISITE_REMEDIATION.md) records conditional review at74e1803, OPC escaped-payload support with decoded alias refusal, shared bounded native ID grammar, scoped provisional route labels, distinct unresolved scheduler code and added layout negatives. Focused98/8/5, Release clean/full837/837 zero skipped. Corrects the review's a_ and ID-trimming examples against pinned source. No native registration/candidate authority, fresh review pass or full `AC-UPD-01–11`/Task50 acceptance follows; integration remains open.
+
+## Earlier ScheduledHost common-gate composition
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [composition evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) converts the scan-only ScheduledHost to the common owner-thread session, reset-before-SQLite preflight and durable claim reconciliation. Existing behavioral gate/claim fixtures72 and production source-boundary fixtures5 pass; Release clean/full806/806 zero skipped. No host scheduler execution was performed. Desktop/reset callers and endpoint/native-profile/UI/history integration remain open; this is not complete cross-session enforcement or full `AC-UPD-01–11` acceptance.
+
+## Earlier bounded native package archive identity
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-07/13`: [native mapping evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) adds bounded ZIP structural/entry selection and nuspec-byte parsing without extraction. Stored/deflate/descriptor positives; ambiguity, duplicates, encoding, record/count/offset/size/CRC/XML and decompression negatives pass25/25. Release clean/full805/805 zero skipped. Parser success is neither a package-signature claim nor installed/source/candidate eligibility; native/profile/endpoint/UI/history integration and full `AC-UPD-01–11` remain open.
+
+## Earlier provisional candidate contract and bounded nuspec parsing
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: the [owner amendment](../failures/task-50-pre-uac-candidate-evidence.md) permits provisional candidate intent only for the new Chocolatey route, with independently qualified exact-match helper execution required. A distinct canonical route/closed data label prevents silent reinterpretation; current confirmation/fresh-evidence flags cannot admit it. Nuspec24/provenance3/admission1 focused cases, Release clean, full780/780 zero skipped. [Evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). These are passive prerequisites; full `AC-UPD-01–11`, native profile, endpoint/UI/history integration and Task50 exit remain open.
+
+## Earlier native version/store comparison data
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [native-source mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records normalization, native legacy ToString semantics and ordered store alternatives, with unsupported/metadata/path/device negatives. Focused23/23, Release clean, full752/752. It does not observe filesystem state, merge duplicate registrations or create execution authority; full `AC-UPD-01–11`/Task50 acceptance remains open.
+
+## Earlier bounded native configuration parsing
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records exact native XML shape/default/explicit semantics, immutable passive observations, secret-attribute omission and strict ambiguity/resource negatives. Focused28/28, Release clean, full729/729. Parser success is not native trust or compatible policy; no production caller, full `AC-UPD-01–11` or Task50 exit is claimed.
+
+## Earlier compiled Chocolatey bootstrap environment
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [conditional mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records a fixed environment set, complete inherited-block replacement and format/injection negatives. Focused14/14, Release clean, full701/701. Public release ZIP/engine hashes are artifact evidence only, not source-build attestation or host eligibility. No production caller, native trust/profile or integrated `AC-UPD-01–11`/Task50 acceptance follows.
+
+## Earlier fixed reviewed User arguments
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [fixed mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) pins Silent/MSIX and closed user/source/architecture values. Fifteen focused cases cover exact arguments and recomputed-digest mode/provider/source/scope/architecture/route/schema negatives. Release clean/full687/687. This formatter is passive with no process or approval API; native targeting/Update-only/identity proof and integrated `AC-UPD-01–11`/Task50 acceptance remain open.
+
+[Proposed Chocolatey native profile](../review/TASK_50_CHOCOLATEY_PROFILE_V1.md) now allocates concrete numeric observer/archive/XML bounds and independent producer/helper responsibilities for the same requirements. It awaits mapping review and remaining primary-source facts; it supplies no additional implementation or host evidence.
+
+## Earlier observed native query handoff
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records passed independent prerequisite recheck, preserved Unicode redactions, and real synthetic-process proof that source queries retain complete or uncertain ownership through the existing bounded reader. Focused codec23/query42; Release clean/full672/672. Neither codec nor guard is connected to an app update route; source/client qualification and full AC-UPD/Task50 acceptance remain open.
+
+## Earlier bounded CLI source observation
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/13`: [mapping evidence](../review/TASK_50_PROVIDER_MAPPING_V2.md) traces export and execution to the same pinned effective-source lookup and records structured endpoint/identity checks rather than name-only trust. Fixed arguments, byte/depth bounds, source substitution/ambiguity, cancellation and retained unsettled roots are covered by34 focused fixtures. Release clean/full661/661. The isolated guard has no production caller and grants no execution authority; source-change race, native provenance and remaining `AC-UPD-01–11`/Task50 integration evidence remain open.
+
+## Earlier conditional prerequisite review remediation
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [R1–R5 remediation](../review/TASK_90_TASK_50_WIRE_REMEDIATION.md) covers diagnostic confidentiality/idempotence, exception-safe rejection of malformed JSON names, true result flags, exit-code/observation consistency and historical-data semantics. Synthetic red reproduced the defects; focused20/20, Release clean, full627/627. Conditional independent review still needs its fresh recheck; no native or full `AC-UPD-01–11`/Task50 acceptance follows.
+
+## Earlier typed architecture/schema prerequisite
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [mapping contract](../review/TASK_50_PROVIDER_MAPPING_V2.md) records explicit architecture through canonical review, separately fresh evidence, draft generation and claim CAS. Schema-2 data is passive-only; migration rollback and unresolved-claim preservation are covered. Initial red 12/52; focused Domain62/App94; final Release zero warnings/errors, full620/620. These are prerequisite fixtures, not native qualification, provider enforcement, history UI or `AC-UPD-01–11`/Task 50 exit evidence.
+
+## Earlier isolated canonical wire prerequisite
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [revision-2 mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) and [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) record fresh-review corrections, deterministic frame parsing, bounded ASCII diagnostics, exact correlation and contradictory/unknown invocation/settlement handling. Focused 13/13, Release clean, full 603/603. No endpoint consumes the new passive codec; schema-3 and native profile/runner/helper/common-gate/UI integration remain prerequisites. `AC-UPD-01–11` and Task 50 exit are not closed.
+
 # MVP requirement traceability
+
+**Task 50 — native observation handoff:** `FR-UPD-15`, retained `FR-UPD-01/08/09`, `TM-03–04/07/13`: [entry record](../review/TASK_50_ENTRY_ASSESSMENT.md) demonstrates immutable direct scan-to-review/verification data instead of re-reading writable display rows. Meaningful storage-substitution negatives cover changed reviewed installed version and fabricated verified target version; focused25/25, Release clean, full590/590. [Proposed mapping revision1](../review/TASK_50_PROVIDER_MAPPING_V1.md) awaits fresh review; no provider/profile/helper/AC-UPD closure inferred.
+
+**Task 50 — settlement prerequisite:** `FR-UPD-15`, retained `FR-UPD-01` and honest-outcome safety, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records one-use claim/ownership-bound finalization, immutable native-observation snapshots, unresolved Final rejection and durable-barrier retention after persistence failure/late completion. Focused 94/94; Release clean; full 587/587. Native fact production, provider execution and full AC-UPD/Task 50 acceptance remain open.
+
+**Task 50 — shared lease composition prerequisite:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [entry record](../review/TASK_50_ENTRY_ASSESSMENT.md) covers Global-then-Local acquisition, owner-thread async lifecycle, mandatory reconciliation, raw/unreconciled refusal and marker-before-store preflight. Focused 80/80; Release zero warnings/errors; full 573/573. Same-session synthetic evidence does not establish cross-logon integration; existing production callers remain unchanged. No Task 50 exit/AC-UPD closure is claimed.
+
+**Task 50 — draft/claim lifecycle prerequisites:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records generation-bound review, exact-byte/generation CAS, separately fresh evidence, full synchronous commit, bounded terminal reservation, process-local one-use permit and Uncertain recovery/barrier preservation. Focused 61/61; Release zero warnings/errors; full 560/560, zero skipped. These support immutable review/dispatch safety; `AC-UPD-01–11` and full Task 50 execution/history exit remain unclosed pending production gate/runner/helper/provider/UI integration and independent evidence. No host action or approval inferred.
+
+**Task 50 — live ownership/confirmation prerequisites:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: active current-SID production-gate context, recovery/release rejection, explicit non-restorable confirmation, complete original-object binding, one-use claim attempt and nonrenewing 30-minute UTC/monotonic lifetime. [Evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): combined 36/36, codec 52/52, Release zero warnings/errors, full 523/523. Scope clarification is accepted; claims/permits and execution integration are still absent, so no replay/helper/provider criterion closes. Actual native evidence and [Chocolatey contract](../review/TASK_50_CHOCOLATEY_CAPABILITY.md) remain gated.
+
+**Task 50 — accepted gate population clarification:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: owner selected the single protected deployed build, with legacy standalone coexistence unsupported. [Decision](V2_PLANNING_DECISIONS.md) / ADR-025 scope the participating population without claiming legacy exclusion or waiving common ownership, dispatch claims, replacement/scheduled-entry and exact-host evidence. Prerequisite checkpoint 57d36b6 remains partial; no execution acceptance closes from this choice.
+
+**Task 50 — canonical persistence prerequisite:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: strict restore validates bounded UTF-8, exactly 24 canonical fields, schema/discriminator, closed mode shape and digest without creating consent. Migration 9/passive store preserves legacy rows and refuses corruption, substituted job identity, conflicting saves, partial migration and future-schema migration/new-store writes. [Evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): codec 51/51, new store 10/10, combined storage 29/29, Release zero warnings/errors, full 502/502. No claim, permit, runner/helper mode enforcement or history-UI acceptance is inferred; actual data/host gates remain unchanged.
+
+**Task 50 — canonical reviewed identity prerequisite:** `FR-UPD-15`, retained immutable review `FR-UPD-01`, `TM-03–04/07/13`: `Domain/ReviewedUpdateOperation.cs` deterministically binds schema/Update discriminator, job/correlation, requester/review time, full selection, native-instance/context identity, observed evidence and mode/route. [Mutation/encoding evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): canonical 35/35, gate 16/16, mode 10/10; Release zero warnings/errors, full 476/476. Recomputed digests of changed identities compare unequal; delimiter/length/UTC/byte-ownership checks pass. This type is passive data: no persisted approval, runner/helper enforcement or live dispatch permission is inferred, and all integration acceptance remains open.
+
+**Task 50 — secured gate prerequisite:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13` / ADR-025: `Storage/CurrentUserOperationGate.cs` validates explicit current-user Global-object owner/protected DACL before ownership, bounds/cancels acquisition and distinguishes recovery-required abandonment. [Source/fixture evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): gate 16/16, Release zero warnings/errors, full 441/441. Synthetic same-session two-process contention is proven; actual cross-logon coverage, mixed-version exclusion, production entrypoint migration, reconciliation/claims and execution integration are not proven or enabled. No requirement closes merely from this isolated primitive.
+
+**Task 50 — closed mode data prerequisite:** `FR-UPD-15` / retained immutable-review safety: `Domain/ReviewedInstallerMode.cs` has only Silent/Interactive selections or explicit provider-script-controlled absence of mode control, with private construction/get-only fields and unknown-enum rejection. [Evidence and integration limits](../review/TASK_50_ENTRY_ASSESSMENT.md): red 9 failed/1 passed, green 10/10, Release zero warnings/errors, full 425/425. No provider mapping, runner/helper enforcement, serialization/history migration, live approval or dispatch claim is implemented by this standalone type; acceptance stays open.
+
+**Task 50 — entry/design assessment:** `FR-UPD-15`, retained `FR-UPD-01`, `AC-UPD-01–11`, `TM-03–04/07/13`: [source/provider assessment and consultation](../review/TASK_50_ENTRY_ASSESSMENT.md) records missing immutable mode, existing protocol-1 payload and unresolved supported-mode/legacy-authority interpretation. Baseline Release zero warnings/errors, focused 6/6 and full 415/415 pass, zero skipped; no Task 50 behavior criterion is closed. Concrete mapping/schema review, implementation/migration/mutation fixtures and actual host evidence remain open. No host action or new provider capability is authorized by this assessment.
 
 **Task 49 bounded launch:** `FR-UPD-14`, retained update/UI/observability and `TM-04/TM-06`: [host evidence](../review/TASK_49_BOUNDED_LAUNCH.md) records one normal exit0/38,007ms/zero residual, owner-attested Overview, unchanged live/copied DB/integrity ok/FK0/schema1–8/empty non-migration tables and final installed validator Pass. Automated visual capture unavailable; original observer FailedOrUnknown retained. This is bounded owner observation, not broad FR-UI/accessibility or real helper-UAC/update-progress acceptance.
 
