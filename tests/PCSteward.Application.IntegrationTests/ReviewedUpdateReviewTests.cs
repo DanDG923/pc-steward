@@ -127,6 +127,24 @@ public sealed class ReviewedUpdateReviewTests
     }
 
     private static OperationOwnership Owner() => new(User, OperationGateContract.NamePrefix + User, false, reconciled: true);
+
+    [TestMethod]
+    public void ProvisionalCandidateCannotReachConfirmationOrDispatchThroughFreshEvidenceFlags()
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git",
+            UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git", "1.0.0", "2.0.0", UpdateScope.Machine,
+            UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v1")).Confirm(FrozenAt);
+        ReviewedUpdateOperation operation = new(job, User, "choco:git", "machine:choco", "evidence:1", FrozenAt,
+            UpdateRouteContract.ChocolateyMachineProvisionalV3,
+            ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled),
+            ReviewedUpdateArchitecture.ProviderScriptSelected());
+        Assert.AreEqual(ReviewedCandidateProvenance.UserCacheIntent, operation.CandidateProvenance);
+        Assert.ThrowsExactly<InvalidOperationException>(() => new ReviewedUpdateReview(Draft(operation), new ManualClock()).Confirm());
+        FreshUpdateDispatchEvidence data = new(operation.Selection, User, operation.NativeInstanceId,
+            operation.InstallationContextId, "evidence:2", FrozenAt, operation.RouteContract, operation.Mode,
+            actionable: true, sourceIsFresh: true);
+        Assert.IsFalse(data.Matches(operation, FrozenAt));
+    }
     private static ReviewedUpdateDraft Draft(ReviewedUpdateOperation operation) => new(operation, Guid.NewGuid());
 
     private static ReviewedUpdateOperation Operation(string? change = null)

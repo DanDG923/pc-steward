@@ -1,6 +1,6 @@
-# Task 50 — pre-UAC Chocolatey candidate evidence, active consultation
+# Task 50 — pre-UAC Chocolatey candidate evidence, owner decision recorded
 
-Date: 2026-10-31. Requirements: `FR-UPD-15`, `FR-UPD-01`, `AC-UPD-01–11`, `TM-03–04/07/13`. **This is an unresolved capability/contract question, not a final blocked handoff or authority to change ADR-025.** Independent parser/native-profile work continues.
+Date: 2026-10-31. Requirements: `FR-UPD-15`, `FR-UPD-01`, `AC-UPD-01–11`, `TM-03–04/07/13`. **Resolved by the owner's explicit contract amendment below; implementation/native admission remains incomplete.** Historical investigation and opposing interpretations are retained to explain the amendment. Independent parser/native-profile work continues.
 
 ## Objective and exact requirement
 
@@ -23,10 +23,14 @@ Main/Opus/Fable/Astra remain involved. Fable reads the native client/user-cache 
 
 If no supported signed-client observation can satisfy the desktop clause, the smallest potential owner clarification is whether to retain that two-sided qualification requirement (route unavailable until it can be met) or explicitly amend the desktop responsibility to allow provisional intent with first authoritative qualification inside the approved helper. Neither choice approves deployment, a provider invocation, cache/ACL mutation or weakening helper validation. No such amendment is inferred yet.
 
-The optional owner question was presented on 2026-10-31 with these two choices and is pending. Main/Opus agree there is no currently evidenced signed-client cache-independent pre-UAC candidate path; Fable/Astra's interpretation difference remains recorded. Dependent qualification changes wait for the answer. Independent bounded parsing/native-profile work continues; no elapsed time is treated as approval.
+The optional owner question was presented on 2026-10-31 with these two choices. The owner subsequently selected **“Allow provisional review (Recommended) — the helper must qualify the exact reviewed candidate or refuse without updating.”** This is an explicit amendment, not an interpretation silently applied to the earlier text. ADR-025's Update row now links the narrowly scoped exception, and the planning/shared contracts record it. It permits no deployment, host read, UAC or real application update.
+
+The desktop may display/freeze signed-client user-cache candidate intent with explicit provisional disclosure. Trusted pre-UAC client/profile, installed registration and explicit mapping remain required. The helper independently validates its protected machine inputs and resolves the same installed/candidate/profile binding before upgrade; missing proof or any mismatch refuses without retargeting. Preflight settlement, durable unresolved barriers and desktop post-update verification remain unchanged. Native freshness still requires proof; a protected cache alone does not establish it.
+
+The new canonical route is ChocolateyMachineProvisionalV3; the previous ChocolateyMachineRegistrationV3 meaning is unchanged. ReviewedCandidateProvenance separates legacy labels, trusted-desktop-evidence requirements and UserCacheIntent; none asserts HelperQualified. Provisional intent has no current confirmation/dispatch path. Integration must implement an independently produced helper qualification result, honest review/history and exact-match refusal; no existing Actionable/SourceIsFresh flag is relabelled.
 
 ## Current validated work and next action
 
 Latest committed implementation `bda7d3ca7cd9212a9547185f590fbfbd59b8e846`: environment14/config28 focused; Release0 warnings/errors; full729/729, zero skipped. [Task90 mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records commands/logs, source/artifact identity and open B1–B4/M1–M3. These tests exercise passive prerequisites, not execution eligibility. Changed files for this question: this evidence record only; no production call site changed.
 
-Continue independent bounded library/version/store/parser and native-profile work while resolving the exact desktop qualification contract. Do not start Task54B, import installer URLs, use a new provider, infer an all-unavailable Task50 completion, or request an unprepared host action.
+Continue bounded library/version/store/parser and native-profile work under the recorded amendment, followed by common gate/claim/helper/UI integration and review. Do not start Task54B, import installer URLs, use a new provider, infer an all-unavailable Task50 completion, or request an unprepared host action.

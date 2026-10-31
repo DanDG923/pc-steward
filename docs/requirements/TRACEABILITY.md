@@ -1,4 +1,8 @@
-# Task 50 — native version/store comparison data
+# Task 50 — provisional candidate contract and bounded nuspec parsing
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: the [owner amendment](../failures/task-50-pre-uac-candidate-evidence.md) permits provisional candidate intent only for the new Chocolatey route, with independently qualified exact-match helper execution required. A distinct canonical route/closed data label prevents silent reinterpretation; current confirmation/fresh-evidence flags cannot admit it. Nuspec24/provenance3/admission1 focused cases, Release clean, full780/780 zero skipped. [Evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). These are passive prerequisites; full `AC-UPD-01–11`, native profile, endpoint/UI/history integration and Task50 exit remain open.
+
+## Earlier native version/store comparison data
 
 `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [native-source mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records normalization, native legacy ToString semantics and ordered store alternatives, with unsupported/metadata/path/device negatives. Focused23/23, Release clean, full752/752. It does not observe filesystem state, merge duplicate registrations or create execution authority; full `AC-UPD-01–11`/Task50 acceptance remains open.
 

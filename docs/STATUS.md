@@ -1,6 +1,10 @@
-# Task 50 — native version/store comparison checkpoint
+# Task 50 — accepted provisional Chocolatey candidate checkpoint
 
-Pinned native normalization and store-path alternatives are now represented as immutable data, preserving legacy forms rather than silently deduplicating observed registrations. Focused **23/23**, clean Release, full **752/752**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). A [pre-UAC candidate-evidence question](failures/task-50-pre-uac-candidate-evidence.md) is pending the owner's optional contract clarification; no new interpretation is assumed. Independent library/store/profile work continues. No production caller, native admission, helper/runner/UI integration or Task50 completion is claimed.
+The owner explicitly amended ADR-025 for provisional signed-client/user-cache candidate review, with independent exact-match helper qualification before upgrade. [Decision/evidence](failures/task-50-pre-uac-candidate-evidence.md). A distinct ChocolateyMachineProvisionalV3 canonical route and closed candidate-provenance label preserve that meaning without qualifying intent; confirmation/dispatch remain closed pending native integration. The bounded nuspec identity reader also passes24 focused cases. Provenance3 plus admission1 cases pass; clean Release/full **780/780**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). No host read, UAC, provider invocation or deployment occurred. Native profile, common-gate/claim/helper/runner/review/history integration, independent review and Task50 completion remain open.
+
+## Earlier native version/store comparison checkpoint
+
+Pinned native normalization and store-path alternatives are now represented as immutable data, preserving legacy forms rather than silently deduplicating observed registrations. Focused **23/23**, clean Release, full **752/752**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). The then-pending [pre-UAC candidate question](failures/task-50-pre-uac-candidate-evidence.md) has since been answered explicitly, as recorded above. Independent library/store/profile work continues. No production caller, native admission, helper/runner/UI integration or Task50 completion is claimed.
 
 ## Earlier bounded Chocolatey configuration checkpoint
 

@@ -5,7 +5,14 @@ using System.Text.RegularExpressions;
 
 namespace PCSteward.Domain;
 
-public enum UpdateRouteContract { WinGetUserExactV2, ChocolateyMachineRegistrationV2, WinGetUserExactV3, ChocolateyMachineRegistrationV3 }
+public enum UpdateRouteContract
+{
+    WinGetUserExactV2, ChocolateyMachineRegistrationV2, WinGetUserExactV3, ChocolateyMachineRegistrationV3,
+    ChocolateyMachineProvisionalV3
+}
+
+/// <summary>Frozen data semantics only. No member asserts that native candidate qualification succeeded.</summary>
+public enum ReviewedCandidateProvenance { UnqualifiedLegacyLabel, TrustedDesktopEvidenceRequired, UserCacheIntent }
 
 /// <summary>Canonical reviewed data; neither a digest nor a restored identity grants execution consent.</summary>
 public sealed partial class ReviewedUpdateOperation
@@ -27,6 +34,8 @@ public sealed partial class ReviewedUpdateOperation
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(mode);
         if (!Enum.IsDefined(routeContract)) throw new ArgumentOutOfRangeException(nameof(routeContract));
+        if (encodingVersion != SchemaVersion && routeContract == UpdateRouteContract.ChocolateyMachineProvisionalV3)
+            throw new ArgumentException("Provisional candidate intent requires the current canonical schema.", nameof(routeContract));
         if (evidenceObservedAt == default || evidenceObservedAt > job.ApprovedAt)
             throw new ArgumentException("Review evidence needs an observation time no later than review.", nameof(evidenceObservedAt));
         JobId = job.Id;
@@ -66,6 +75,14 @@ public sealed partial class ReviewedUpdateOperation
     public string EvidenceId { get; }
     public DateTimeOffset EvidenceObservedAt { get; }
     public UpdateRouteContract RouteContract { get; }
+    /// <summary>
+    /// Describes what the frozen candidate means, not native proof or execution consent. Provisional intent
+    /// needs independent helper qualification; neither restoration nor a fresh-evidence Boolean supplies it.
+    /// </summary>
+    public ReviewedCandidateProvenance CandidateProvenance => !HasCurrentSchema
+        ? ReviewedCandidateProvenance.UnqualifiedLegacyLabel
+        : RouteContract == UpdateRouteContract.ChocolateyMachineProvisionalV3
+            ? ReviewedCandidateProvenance.UserCacheIntent : ReviewedCandidateProvenance.TrustedDesktopEvidenceRequired;
     public ReviewedInstallerMode Mode { get; }
     public string Digest { get; }
 
