@@ -1,4 +1,8 @@
-# Task 50 — bounded native package archive identity
+# Task 50 — ScheduledHost common-gate composition
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [composition evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) converts the scan-only ScheduledHost to the common owner-thread session, reset-before-SQLite preflight and durable claim reconciliation. Existing behavioral gate/claim fixtures72 and production source-boundary fixtures5 pass; Release clean/full806/806 zero skipped. No host scheduler execution was performed. Desktop/reset callers and endpoint/native-profile/UI/history integration remain open; this is not complete cross-session enforcement or full `AC-UPD-01–11` acceptance.
+
+## Earlier bounded native package archive identity
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-07/13`: [native mapping evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) adds bounded ZIP structural/entry selection and nuspec-byte parsing without extraction. Stored/deflate/descriptor positives; ambiguity, duplicates, encoding, record/count/offset/size/CRC/XML and decompression negatives pass25/25. Release clean/full805/805 zero skipped. Parser success is neither a package-signature claim nor installed/source/candidate eligibility; native/profile/endpoint/UI/history integration and full `AC-UPD-01–11` remain open.
 

@@ -1,4 +1,8 @@
-# Task 50 — bounded Chocolatey archive identity checkpoint
+# Task 50 — ScheduledHost common-gate checkpoint
+
+The scan-only ScheduledHost now acquires the common native session with zero wait, checks reset marker before SQLite/state access, reconciles durable claims and retains ownership through its asynchronous scan body. Busy/unresolved/reset state returns before scan/status/notification work. Focused gate/claim72 and ScheduledHost architecture5 pass; clean Release/full **806/806**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). This converts one production caller only; desktop/reset entrypoints, native Chocolatey profile, claim/helper/review/history integration and Task50 completion remain open. No host execution, provider invocation or deployment occurred.
+
+## Earlier bounded Chocolatey archive identity checkpoint
 
 The isolated archive reader validates ZIP record/count/size/offset/name/descriptor consistency before bounded nuspec decompression, checks the selected identity bytes' CRC, and extracts nothing. Focused **25/25**; clean Release/full **805/805**, zero skipped. [Task90 evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). The accepted provisional-candidate amendment and distinct canonical intent route are committed in ba3cd83. Native file/ACL coverage, full client profile, independent helper qualification, common-gate/claim/runner/review/history integration and Task50 completion remain open. No production caller, host read, UAC, provider invocation or deployment was added.
 
