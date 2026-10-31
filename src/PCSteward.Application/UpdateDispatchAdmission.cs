@@ -58,7 +58,8 @@ public sealed class FreshUpdateDispatchEvidence
 }
 
 public enum UpdateDispatchState { DispatchClaimed, Final, Uncertain }
-public enum UpdateDispatchOutcome { Success, RestartRequired, Failed, Cancelled, Uncertain }
+/// <summary>Append only. <see cref="Unverified"/>: owned work positively settled but post-verification proved neither target nor restart state; never Success.</summary>
+public enum UpdateDispatchOutcome { Success, RestartRequired, Failed, Cancelled, Uncertain, Unverified }
 
 public sealed class UpdateDispatchTerminal
 {
