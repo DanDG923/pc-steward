@@ -1,4 +1,8 @@
-# Task 50 — provenance/archive/ScheduledHost review repair
+# Task 50 — revised native mapping and release identity data
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/07/13`: [proposed native mapping revision2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) incorporates the explicit owner candidate amendment and conditional-review corrections. [Release manifest](../review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json) records56 mapped root/helpers/tools files,15,258,758 bytes, rechecked against the exact public asset. This is source/artifact mapping data, not source-build attestation or host eligibility. No code changes since repaired5418c84's clean Release/full837/837; native/mapping review, production observation/composition and full `AC-UPD-01–11`/Task50 exit remain open.
+
+## Earlier provenance/archive/ScheduledHost review repair
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [Task90 evidence](../review/TASK_90_TASK_50_PREREQUISITE_REMEDIATION.md) records conditional review at74e1803, OPC escaped-payload support with decoded alias refusal, shared bounded native ID grammar, scoped provisional route labels, distinct unresolved scheduler code and added layout negatives. Focused98/8/5, Release clean/full837/837 zero skipped. Corrects the review's a_ and ID-trimming examples against pinned source. No native registration/candidate authority, fresh review pass or full `AC-UPD-01–11`/Task50 acceptance follows; integration remains open.
 

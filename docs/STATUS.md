@@ -1,4 +1,8 @@
-# Task 50 — prerequisite review repair checkpoint
+# Task 50 — revised Chocolatey native mapping prepared
+
+The [revision2 native profile](review/TASK_50_CHOCOLATEY_PROFILE_V2.md) consolidates the accepted provisional-candidate split, corrected loader/config/cache/store controls and proposed producer/helper/profile-fingerprint seams for independent mapping review before native admission code. A [56-file public-release manifest](review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json) pins15,258,758 bytes from the already hash-verified public ZIP; every mapped entry digest was independently rechecked without extraction/execution. Prior repair5418c84 remains clean Release/full **837/837**, zero skipped; this follow-on adds documentation/data only. Full native observer, wire-fact extension, remaining gate/claim/helper/UI/history composition and Task50 completion remain open. No host, UAC, provider or deployment action occurred.
+
+## Earlier prerequisite review repair checkpoint
 
 Independent read-only review of74e1803 was CONDITIONAL PASS, no High; [Task90 repair](review/TASK_90_TASK_50_PREREQUISITE_REMEDIATION.md) records M1/L1–L5 and source-backed corrections. Nested OPC payload escapes now work without relaxing manifest/path ambiguity or decoded-duplicate rejection; native ASCII ID policy and route provenance boundaries are explicit. Scheduled unresolved claims return78 without state writes. Focused98 parser/version,8 provenance and5 scheduler checks pass; clean Release/full **837/837**, zero skipped. No fresh review pass/native admission or Task50 completion is claimed. Native profile/filesystem coverage, remaining gate callers and helper/runner/UI/history integration remain open; no host/provider/deployment action occurred.
 
