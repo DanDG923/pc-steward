@@ -100,7 +100,7 @@ public sealed partial class SqliteDatabase : IUpdateDispatchStore
         ArgumentNullException.ThrowIfNull(settlement);
         if (!settlement.TryConsumeFor(claim, ownership) ||
             (terminal.Outcome != UpdateDispatchOutcome.Uncertain && !settlement.ProvesSettlement) ||
-            (terminal.Outcome is UpdateDispatchOutcome.Success or UpdateDispatchOutcome.RestartRequired && !settlement.PermitsVerifiedOutcome))
+            (terminal.Outcome is UpdateDispatchOutcome.Success or UpdateDispatchOutcome.RestartRequired or UpdateDispatchOutcome.Unverified && !settlement.PermitsVerifiedOutcome))
             throw new InvalidOperationException("Final state requires matching live ownership and positive native settlement; unresolved work remains conflicting.");
         if (!ownership.CanDispatchFor(claim.Draft.Operation) || terminal.OccurredAt < claim.ClaimedAt)
             throw new InvalidOperationException("Final recording requires current ownership and a valid result time.");

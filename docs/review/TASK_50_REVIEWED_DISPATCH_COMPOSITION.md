@@ -30,7 +30,7 @@ The gate runner is supplied as a delegate: `(work, reviewDeadlineUtc, ct) => Tas
 
 ## Tests (`ReviewedUpdateDispatchWorkflowTests`)
 
-Fake dispatcher/evidence/verifier over real SQLite claims. Positive verified Success and RestartRequired. Unverified. Unsupported route or mode never claims. Recomputed-digest mode/route mutation in fresh evidence is rejected. Expired review. Busy gate. Cancellation before claim. Lost permit with a retained claim. Unknown invocation and unsettled owned work give Uncertain plus a barrier. Started-then-cancelled is Unverified. A final write failure gives Uncertain. The dispatcher receives the exact frozen operation and claim. The result carries the frozen mode and guard, and the runtime-limit disclosure appears only for the new route.
+Fake dispatcher/evidence/verifier over real SQLite claims. Positive verified Success and RestartRequired. Unverified. Unsupported route or mode never claims. Mode/route mutation in fresh evidence is rejected (recomputed-digest canonical mutation is covered by the operation and claim suites). Expired review. Busy gate. Cancellation before claim. Lost permit with a retained claim. Unknown invocation and unsettled owned work give Uncertain plus a barrier. Started-then-cancelled is Unverified. A final write failure gives Uncertain. The dispatcher receives the exact frozen operation and claim. The result carries the frozen mode and guard; Chocolatey routes cannot reach dispatch (review confirmation refuses them). New-route disclosure is covered by the history and argument suites.
 
 ## Limits
 
@@ -47,3 +47,8 @@ New passive read model; no schema change, migration or authority.
 | `ReviewedUpdateHistoryPresentation.Present` → `ReviewedUpdateHistoryView` | Application | Desktop (later) | Fixed text for mode (Selected vs package-script-controlled), candidate evidence (UserCacheIntent means "provisional intent; the helper must independently confirm"), the runtime-limit disclosure for the new route only, and status. Claimed, Uncertain and integrity-failed rows show as blocking. **"Helper qualified" is never displayed**, because stored data has no authenticated, correlated helper observation. |
 
 Tests: `ReviewedUpdateHistoryTests` (10 cases). They cover a finalized row round trip, claimed then recovered-Uncertain blocking rows, the new-route disclosure and provisional-intent text only, six tamper/corruption variants, and the terminal parser round trip plus malformed-slot rejection. Desktop rendering remains UI integration work.
+
+
+## Post-review corrections
+
+See the [Task 90 remediation](TASK_90_TASK_50_DISPATCH_REVIEW_REMEDIATION.md). Appended outcomes: `ElevationDenied` and `Refused`. Observation gains `RestartReported` and a 2048-char diagnostic bound. Admission gains `ClaimAsync`, which returns a committed claim without a permit for NotInvoked finalization. Started-then-timed-out/failed/cancelled work is `Unverified`.

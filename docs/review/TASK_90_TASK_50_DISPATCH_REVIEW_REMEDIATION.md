@@ -1,0 +1,17 @@
+# Task 90 — remediation of the independent review of Task 50 dispatch composition
+
+Independent reviewer: a separate Claude subagent with fresh context, given only the code and the contract. It reviewed `f45f6d9` and `40ceacf` read-only and reproduced findings with a scratch probe outside the repository. Its verdict found one High and five Medium issues; it confirmed Success/RestartRequired reachability, one-dispatch-per-approval, the unawaited owned root, gate lifetime and confinement of the runtime-limit exception. A fresh repeat of the same review follows this remediation.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | High | UAC denial recorded as `Failed` (AC-UPD-05, ADR-025 distinct denial); refusal collapsed into failure | Fixed. Appended `UpdateDispatchOutcome.ElevationDenied` and `Refused`, and mapped both for NotStarted and settled observations. History text added. Tests updated. |
+| 2 | Medium | Started-then-timed-out/failed settled work recorded as `Failed` ("not updated") despite possible partial effect | Fixed. Started `TimedOut`/`Failed`/`Cancelled` now record `Unverified`; only `ProviderFailed` or a non-zero exit without a restart report records `Failed`. The history `Failed` text no longer claims "not updated". |
+| 3 | Medium | Restart only reachable after exit 0; 3010 locked to `Failed` | Fixed within Task 50 scope. A typed `RestartReported` observation flag (set by a route adapter's fixed table) triggers verification. RestartRequired still needs the verifier's reliable restart-pending state, otherwise the result is `Unverified`. The reliable-restart classification itself remains Task 51. |
+| 4 | Medium | Diagnostic over 4096 chars made the terminal constructor throw, so even a proven refusal stayed `DispatchClaimed` and later became a permanent Uncertain barrier | Fixed. Observation diagnostics are bounded to 2048 chars (the wire bound) and the terminal message to 4000 after sanitizing. Test covers a 20,000-char diagnostic for both NotStarted and started outcomes. |
+| 5 | Medium | A claim committed without a permit (post-commit expiry/stale evidence/cancellation) was lost and recovered as false "invocation uncertain" | Fixed. New `UpdateDispatchAdmission.ClaimAsync` returns `UpdateDispatchAdmissionResult(Permit, CommittedClaim)`; the workflow finalizes such a claim `Cancelled` with a NotInvoked settlement. `TryClaimAsync` keeps its prior contract. Three-case test. |
+| 6 | Low | State lookup failure reported "No update was started" | Fixed. A lookup failure is reported as `NotStartedClaimRetained`. |
+| P1 | Low (plausible) | A gate-exit exception after work could relabel a recorded result | Fixed. The work result is captured and returned if the gate fails while exiting. |
+| P2 | Low (plausible) | Store accepted `Unverified` with NotInvoked settlement | Fixed. The store now requires an owned-work-stopped settlement for `Unverified` too. Test added. |
+| T | Low | Composition doc overstated workflow tests (recomputed digest, new-route disclosure); no Chocolatey-unreachable or unreconciled cases | Doc wording corrected. Added Chocolatey-route-unreachable and unreconciled-ownership tests. Recomputed-digest mutation remains covered by the Domain/Application operation and claim suites, not this workflow suite. |
+
+Linux focused dispatch/claim/review/history: **124/124**. Windows CI on the pushed head is the authoritative gate.

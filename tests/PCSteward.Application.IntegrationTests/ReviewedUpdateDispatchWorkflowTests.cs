@@ -126,15 +126,125 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     }
 
     [TestMethod]
-    public async Task LostPermitAfterCommittedClaimRetainsTheBarrierWithoutDispatch()
+    [DataRow("expired")]
+    [DataRow("stale-evidence")]
+    [DataRow("cancelled")]
+    public async Task ClaimCommittedWithoutAPermitIsFinalizedAsNeverInvokedNotLeftUncertain(string change)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         ReviewedUpdateDraft draft = await fixture.SaveAsync();
         FakeDispatcher dispatcher = new(_ => Settled(ReviewedUpdateProviderStatus.Completed, 0));
-        AfterClaimStore store = new(fixture.Store, () => fixture.Clock.Now = ReviewedAt.AddMinutes(31));
-        ReviewedUpdateDispatchResult result = await fixture.Workflow(dispatcher, store: store).RunAsync(fixture.Confirm(draft), CancellationToken.None);
-        Assert.AreEqual(ReviewedUpdateDispatchDisposition.NotStartedClaimRetained, result.Disposition);
+        using CancellationTokenSource cancellation = new();
+        AfterClaimStore store = new(fixture.Store, () =>
+        {
+            if (change == "expired") fixture.Clock.Now = ReviewedAt.AddMinutes(31);
+            else if (change == "stale-evidence") fixture.Clock.Now = ReviewedAt.AddMinutes(4);
+            else cancellation.Cancel();
+        });
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(dispatcher, store: store).RunAsync(fixture.Confirm(draft), cancellation.Token);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, result.Disposition);
+        Assert.AreEqual(UpdateDispatchOutcome.Cancelled, result.Outcome);
         Assert.AreEqual(0, dispatcher.Calls);
+        Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+        Assert.IsFalse(await fixture.Store.HasUnresolvedDispatchesAsync(Owner(), CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task OversizedDiagnosticsAreBoundedAndCannotBlockFinalization()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        string huge = new('x', 20_000);
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Refused, huge)))
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, result.Disposition);
+        Assert.AreEqual(UpdateDispatchOutcome.Refused, result.Outcome);
+        Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+
+        ReviewedUpdateDraft second = await fixture.SaveAsync();
+        ReviewedUpdateDispatchResult started = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.ProviderFailed, 1) with { Diagnostic = huge }))
+            .RunAsync(fixture.Confirm(second), CancellationToken.None);
+        Assert.AreEqual(UpdateDispatchOutcome.Failed, started.Outcome);
+        Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(second.Operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    [DataRow(true, false, UpdateDispatchOutcome.Success)]
+    [DataRow(false, true, UpdateDispatchOutcome.RestartRequired)]
+    [DataRow(false, false, UpdateDispatchOutcome.Unverified)]
+    public async Task ProviderRestartReportIsVerifiedNotTreatedAsFailure(bool expected, bool restart, UpdateDispatchOutcome outcome)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        FakeVerifier verifier = new(new(expected, restart));
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.Completed, 3010) with { RestartReported = true }), verifier: verifier)
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(outcome, result.Outcome);
+        Assert.AreEqual(1, verifier.Calls);
+    }
+
+    [TestMethod]
+    public async Task UnreadableDispatchStateIsReportedAsARetainedBarrier()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.Completed, 0)),
+            store: new UnreadableStateStore(fixture.Store), gate: (_, _, _) => throw new InvalidOperationException("busy"))
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.NotStartedClaimRetained, result.Disposition);
+    }
+
+    [TestMethod]
+    public async Task FailureWhileLeavingTheGateCannotRewriteARecordedResult()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.Completed, 0)),
+            gate: async (work, _, ct) => { await work(Owner(), ct); throw new InvalidOperationException("release failed"); })
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, result.Disposition);
+        Assert.AreEqual(UpdateDispatchOutcome.Success, result.Outcome);
+    }
+
+    [TestMethod]
+    public async Task UnreconciledOwnershipNeverClaims()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        FakeDispatcher dispatcher = new(_ => Settled(ReviewedUpdateProviderStatus.Completed, 0));
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(dispatcher,
+            gate: (work, _, ct) => work(new OperationOwnership(User, OperationGateContract.NamePrefix + User, true, reconciled: false), ct))
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.NotStarted, result.Disposition);
+        Assert.AreEqual(0, dispatcher.Calls);
+        Assert.IsNull(await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ChocolateyRoutesCannotReachDispatchEvenWhenAnAdapterClaimsSupport()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        foreach (UpdateRouteContract route in new[] { UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyMachineProvisionalV3 })
+        {
+            ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git.install",
+                UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git.install", "1.0.0", "2.0.0", UpdateScope.Machine,
+                UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(ReviewedAt);
+            ReviewedUpdateDraft draft = await fixture.Store.SaveReviewedOperationAsync(new(job, User, "choco:git.install", "machine:choco", "evidence:1", ReviewedAt, route,
+                ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled), ReviewedUpdateArchitecture.ProviderScriptSelected()), CancellationToken.None);
+            Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(draft.Operation));
+            Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Confirm(draft));
+        }
+    }
+
+    [TestMethod]
+    public async Task StoreRejectsUnverifiedWithoutPositiveOwnedWorkSettlement()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        OperationOwnership owner = Owner();
+        UpdateDispatchClaim claim = (await fixture.Store.TryClaimAsync(draft, Fresh(draft.Operation)!, owner, fixture.Clock.GetUtcNow(), CancellationToken.None))!;
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim, owner,
+            new(UpdateDispatchOutcome.Unverified, fixture.Clock.GetUtcNow(), null, "x"), UpdateDispatchSettlement.BeforeInvocation(claim, owner), CancellationToken.None));
         Assert.AreEqual(UpdateDispatchState.DispatchClaimed, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
     }
 
@@ -181,8 +291,11 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     [TestMethod]
     [DataRow(ReviewedUpdateProviderStatus.ProviderFailed, 1, UpdateDispatchOutcome.Failed)]
     [DataRow(ReviewedUpdateProviderStatus.Completed, 3010, UpdateDispatchOutcome.Failed)]
-    [DataRow(ReviewedUpdateProviderStatus.TimedOut, null, UpdateDispatchOutcome.Failed)]
+    [DataRow(ReviewedUpdateProviderStatus.TimedOut, null, UpdateDispatchOutcome.Unverified)]
+    [DataRow(ReviewedUpdateProviderStatus.Failed, null, UpdateDispatchOutcome.Unverified)]
     [DataRow(ReviewedUpdateProviderStatus.Cancelled, null, UpdateDispatchOutcome.Unverified)]
+    [DataRow(ReviewedUpdateProviderStatus.ElevationDenied, null, UpdateDispatchOutcome.ElevationDenied)]
+    [DataRow(ReviewedUpdateProviderStatus.Refused, null, UpdateDispatchOutcome.Refused)]
     public async Task SettledNonSuccessIsNeverVerifiedSuccess(ReviewedUpdateProviderStatus status, int? exit, UpdateDispatchOutcome outcome)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
@@ -196,9 +309,10 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     }
 
     [TestMethod]
-    [DataRow(ReviewedUpdateProviderStatus.Refused, UpdateDispatchOutcome.Failed)]
-    [DataRow(ReviewedUpdateProviderStatus.ElevationDenied, UpdateDispatchOutcome.Failed)]
+    [DataRow(ReviewedUpdateProviderStatus.Refused, UpdateDispatchOutcome.Refused)]
+    [DataRow(ReviewedUpdateProviderStatus.ElevationDenied, UpdateDispatchOutcome.ElevationDenied)]
     [DataRow(ReviewedUpdateProviderStatus.Cancelled, UpdateDispatchOutcome.Cancelled)]
+    [DataRow(ReviewedUpdateProviderStatus.Failed, UpdateDispatchOutcome.Failed)]
     public async Task ProvenNotStartedRefusalIsFinalWithoutVerification(ReviewedUpdateProviderStatus status, UpdateDispatchOutcome outcome)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
@@ -295,7 +409,7 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
             inner.RecordFinalAsync(claim, ownership, terminal, settlement, cancellationToken);
         public Task<int> RecoverUnfinishedDispatchesAsync(OperationOwnership ownership, DateTimeOffset now, CancellationToken cancellationToken) =>
             inner.RecoverUnfinishedDispatchesAsync(ownership, now, cancellationToken);
-        public Task<UpdateDispatchState?> GetDispatchStateAsync(Guid jobId, CancellationToken cancellationToken) => inner.GetDispatchStateAsync(jobId, cancellationToken);
+        public virtual Task<UpdateDispatchState?> GetDispatchStateAsync(Guid jobId, CancellationToken cancellationToken) => inner.GetDispatchStateAsync(jobId, cancellationToken);
         public Task<bool> HasUnresolvedDispatchesAsync(OperationOwnership ownership, CancellationToken cancellationToken) => inner.HasUnresolvedDispatchesAsync(ownership, cancellationToken);
     }
 
@@ -307,6 +421,12 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
             afterCommit();
             return claim;
         }
+    }
+
+    private sealed class UnreadableStateStore(IUpdateDispatchStore inner) : DelegatingStore(inner)
+    {
+        public override Task<UpdateDispatchState?> GetDispatchStateAsync(Guid jobId, CancellationToken cancellationToken) =>
+            Task.FromException<UpdateDispatchState?>(new InvalidOperationException("corrupt"));
     }
 
     private sealed class FailingFinalStore(IUpdateDispatchStore inner) : DelegatingStore(inner)

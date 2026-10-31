@@ -1,3 +1,7 @@
+# Task 90 — Task 50 dispatch review remediation
+
+`FR-UPD-15`, `AC-UPD-05`, retained `FR-UPD-01/14`, `TM-03/04/06/13`: [remediation](../review/TASK_90_TASK_50_DISPATCH_REVIEW_REMEDIATION.md) maps each independent finding to its fix and test. Covered: ElevationDenied/Refused distinct outcomes, started-timeout/failure as Unverified, RestartReported verification, a 20,000-char diagnostic bound, committed-without-permit finalized NotInvoked (expired/stale/cancelled), unreadable state as retained, gate-exit failure preserving the result, unreconciled ownership, Chocolatey routes unreachable, and store rejection of NotInvoked Unverified. Linux focused 124/124; Windows CI and fresh re-review pending.
+
 # Task 50 — reviewed history projection (mode survives history)
 
 `FR-HIS-01`, `FR-UPD-15`, `TM-07/13`: `ReviewedUpdateHistoryTests` (10) covers frozen mode/route/guard/disclosure and outcome restored from claim rows, claimed/Uncertain rows blocking, new-route-only disclosure and provisional-intent wording, tamper/corruption rows as unreadable-and-blocking, strict terminal parser round-trip/malformed rejection, and never displaying helper qualification. Linux focused 10/10; Windows CI pending. Passive projection only.

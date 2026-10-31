@@ -21,8 +21,12 @@ public sealed record ReviewedUpdateDispatchObservation(
     bool OwnedIoComplete,
     bool PipeEndOfFile,
     bool TerminationFailed,
-    bool ExecutionUncertain)
+    bool ExecutionUncertain,
+    bool RestartReported = false)
 {
+    /// <summary>Maximum diagnostic characters carried into a terminal record (the wire diagnostic bound).</summary>
+    public const int MaximumDiagnosticLength = 2048;
+
     /// <summary>Positive proof that nothing was invoked; only this form may settle as NotInvoked.</summary>
     public static ReviewedUpdateDispatchObservation NotStarted(ReviewedUpdateProviderStatus status, string diagnostic) =>
         new(ReviewedUpdateInvocation.NotStarted, status, null, diagnostic, Task.CompletedTask, false, false, false, false, false);
@@ -91,6 +95,7 @@ public delegate Task<ReviewedUpdateDispatchResult> ReviewedUpdateGateRunner(
 public sealed class ReviewedUpdateDispatchWorkflow
 {
     private static readonly TimeSpan MaximumReviewAge = TimeSpan.FromMinutes(30);
+    private const int MaximumTerminalMessageLength = 4000;
     private readonly ReviewedUpdateGateRunner runUnderGate;
     private readonly IReviewedUpdateDispatchEvidenceSource evidence;
     private readonly IReviewedUpdateRouteDispatcher dispatcher;
@@ -119,10 +124,16 @@ public sealed class ReviewedUpdateDispatchWorkflow
             return Result(operation, ReviewedUpdateDispatchDisposition.NotStarted, null, "The review expired or was cancelled. Open a new review; no update was started.");
         if (!ReviewedUpdateReview.HasSupportedMode(operation) || !dispatcher.Supports(operation))
             return Result(operation, ReviewedUpdateDispatchDisposition.NotStarted, null, "This reviewed provider, mode or route is unavailable. No update was started.");
+        ReviewedUpdateDispatchResult? completed = null;
         try
         {
-            return await runUnderGate((ownership, ct) => RunOwnedAsync(approval, ownership, ct), operation.ReviewedAt + MaximumReviewAge,
-                cancellationToken).ConfigureAwait(false);
+            return await runUnderGate(async (ownership, ct) => completed = await RunOwnedAsync(approval, ownership, ct).ConfigureAwait(false),
+                operation.ReviewedAt + MaximumReviewAge, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (completed is not null)
+        {
+            // The owned work already produced (and recorded) its result; a failure while leaving the gate cannot rewrite it.
+            return completed;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -138,8 +149,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
     private async Task<ReviewedUpdateDispatchResult> AfterGateFailureAsync(ReviewedUpdateOperation operation, string reason)
     {
         UpdateDispatchState? state = null;
+        bool lookupFailed = false;
         try { state = await store.GetDispatchStateAsync(operation.JobId, CancellationToken.None).ConfigureAwait(false); }
-        catch (Exception exception) when (exception is not OutOfMemoryException) { /* Unknown state is reported as retained below. */ }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { lookupFailed = true; }
+        if (lookupFailed)
+            return Result(operation, ReviewedUpdateDispatchDisposition.NotStartedClaimRetained, null,
+                $"{reason} The dispatch state could not be read, so it is treated as a retained conflicting-work barrier until reconciliation.");
         return state switch
         {
             UpdateDispatchState.Final => Result(operation, ReviewedUpdateDispatchDisposition.NotStarted, null,
@@ -159,8 +174,11 @@ public sealed class ReviewedUpdateDispatchWorkflow
         FreshUpdateDispatchEvidence? fresh = await evidence.ObserveAsync(operation, ownership, cancellationToken).ConfigureAwait(false);
         if (fresh is null)
             return Result(operation, ReviewedUpdateDispatchDisposition.NotStarted, null, "Fresh update evidence is unavailable or no longer actionable. No update was started.");
-        UpdateDispatchPermit? permit = await admission.TryClaimAsync(approval, fresh, ownership, cancellationToken).ConfigureAwait(false);
-        if (permit is null)
+        UpdateDispatchAdmissionResult admitted = await admission.ClaimAsync(approval, fresh, ownership, cancellationToken).ConfigureAwait(false);
+        if (admitted is { Permit: null, CommittedClaim: { } orphan })
+            return await FinalizeAsync(orphan, ownership, UpdateDispatchSettlement.BeforeInvocation(orphan, ownership), UpdateDispatchOutcome.Cancelled,
+                null, "Review, ownership, fresh evidence or cancellation lapsed right after the claim committed; nothing was invoked.").ConfigureAwait(false);
+        if (admitted.Permit is not { } permit)
             return await AfterGateFailureAsync(operation, "The fresh evidence no longer matches the frozen review, or the one-use claim was not granted.").ConfigureAwait(false);
 
         UpdateDispatchClaim claim = permit.Claim;
@@ -183,11 +201,15 @@ public sealed class ReviewedUpdateDispatchWorkflow
         UpdateDispatchSettlement settlement = Settle(claim, ownership, observation);
         if (!settlement.ProvesSettlement)
             return await FinalizeAsync(claim, ownership, settlement, UpdateDispatchOutcome.Uncertain, observation.ExitCode,
-                $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {observation.Diagnostic}").ConfigureAwait(false);
+                $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}").ConfigureAwait(false);
         if (settlement.State == UpdateDispatchSettlementState.NotInvoked)
-            return await FinalizeAsync(claim, ownership, settlement,
-                observation.Status == ReviewedUpdateProviderStatus.Cancelled ? UpdateDispatchOutcome.Cancelled : UpdateDispatchOutcome.Failed,
-                null, $"Nothing was invoked. {observation.Diagnostic}").ConfigureAwait(false);
+            return await FinalizeAsync(claim, ownership, settlement, observation.Status switch
+            {
+                ReviewedUpdateProviderStatus.Cancelled => UpdateDispatchOutcome.Cancelled,
+                ReviewedUpdateProviderStatus.ElevationDenied => UpdateDispatchOutcome.ElevationDenied,
+                ReviewedUpdateProviderStatus.Refused => UpdateDispatchOutcome.Refused,
+                _ => UpdateDispatchOutcome.Failed,
+            }, null, $"Nothing was invoked. {Bounded(observation.Diagnostic)}").ConfigureAwait(false);
 
         (UpdateDispatchOutcome outcome, string message) = await ClassifySettledAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
         return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, message).ConfigureAwait(false);
@@ -206,10 +228,22 @@ public sealed class ReviewedUpdateDispatchWorkflow
     private async Task<(UpdateDispatchOutcome, string)> ClassifySettledAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
         ReviewedUpdateDispatchObservation observation, CancellationToken cancellationToken)
     {
-        if (observation.Status == ReviewedUpdateProviderStatus.Cancelled)
-            return (UpdateDispatchOutcome.Unverified, $"Cancelled after the provider started; the resulting version is unverified. {observation.Diagnostic}");
-        if (observation.Status != ReviewedUpdateProviderStatus.Completed || observation.ExitCode != 0)
-            return (UpdateDispatchOutcome.Failed, $"Provider result {observation.Status} (exit {observation.ExitCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown"}). {observation.Diagnostic}");
+        string diagnostic = Bounded(observation.Diagnostic);
+        string exit = observation.ExitCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
+        switch (observation.Status)
+        {
+            case ReviewedUpdateProviderStatus.ElevationDenied:
+                return (UpdateDispatchOutcome.ElevationDenied, $"Administrator approval was declined. {diagnostic}");
+            case ReviewedUpdateProviderStatus.Refused:
+                return (UpdateDispatchOutcome.Refused, $"The update was refused before changing the application. {diagnostic}");
+            case ReviewedUpdateProviderStatus.ProviderFailed:
+                return (UpdateDispatchOutcome.Failed, $"The provider reported failure (exit {exit}). {diagnostic}");
+            case ReviewedUpdateProviderStatus.Cancelled or ReviewedUpdateProviderStatus.TimedOut or ReviewedUpdateProviderStatus.Failed:
+                // Started work may have partly applied; never report it as not updated.
+                return (UpdateDispatchOutcome.Unverified, $"{observation.Status} after the provider started; the resulting version is unverified. {diagnostic}");
+        }
+        if (observation.ExitCode != 0 && !observation.RestartReported)
+            return (UpdateDispatchOutcome.Failed, $"The provider exited with code {exit}. {diagnostic}");
         try
         {
             PostUpdateInventoryResult verification = await verifier.VerifyAsync(operation, ownership, cancellationToken).ConfigureAwait(false);
@@ -217,7 +251,9 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 ? (UpdateDispatchOutcome.Success, "Target version verified by post-update inventory.")
                 : verification.RestartPending
                     ? (UpdateDispatchOutcome.RestartRequired, "Provider completed; a reliable restart-pending state was detected.")
-                    : (UpdateDispatchOutcome.Unverified, "Provider completed but the target version was not detected.");
+                    : (UpdateDispatchOutcome.Unverified, observation.RestartReported
+                        ? "The provider reported that a restart is needed, but neither the target version nor a reliable restart-pending state was verified."
+                        : "Provider completed but the target version was not detected.");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -232,7 +268,9 @@ public sealed class ReviewedUpdateDispatchWorkflow
         try
         {
             DateTimeOffset now = clock.GetUtcNow();
-            UpdateDispatchTerminal terminal = new(outcome, now < claim.ClaimedAt ? claim.ClaimedAt : now, exitCode, message);
+            string bounded = SanitizedDiagnosticBundle.Sanitize(message);
+            if (bounded.Length > MaximumTerminalMessageLength) bounded = bounded[..MaximumTerminalMessageLength];
+            UpdateDispatchTerminal terminal = new(outcome, now < claim.ClaimedAt ? claim.ClaimedAt : now, exitCode, bounded);
             await store.RecordFinalAsync(claim, ownership, terminal, settlement, CancellationToken.None).ConfigureAwait(false);
             return Result(operation, outcome == UpdateDispatchOutcome.Uncertain ? ReviewedUpdateDispatchDisposition.Uncertain : ReviewedUpdateDispatchDisposition.Finalized,
                 outcome, terminal.Diagnostic);
@@ -242,6 +280,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
             return Result(operation, ReviewedUpdateDispatchDisposition.Uncertain, UpdateDispatchOutcome.Uncertain,
                 "The outcome could not be recorded; the committed dispatch claim remains a conflicting-work barrier. " + SanitizedDiagnosticBundle.Sanitize(message));
         }
+    }
+
+    private static string Bounded(string? diagnostic)
+    {
+        string safe = SanitizedDiagnosticBundle.Sanitize(diagnostic);
+        return safe.Length <= ReviewedUpdateDispatchObservation.MaximumDiagnosticLength ? safe : safe[..ReviewedUpdateDispatchObservation.MaximumDiagnosticLength];
     }
 
     private static ReviewedUpdateDispatchResult Result(ReviewedUpdateOperation operation, ReviewedUpdateDispatchDisposition disposition,

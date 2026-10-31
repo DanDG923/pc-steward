@@ -58,8 +58,12 @@ public sealed class FreshUpdateDispatchEvidence
 }
 
 public enum UpdateDispatchState { DispatchClaimed, Final, Uncertain }
-/// <summary>Append only. <see cref="Unverified"/>: owned work positively settled but post-verification proved neither target nor restart state; never Success.</summary>
-public enum UpdateDispatchOutcome { Success, RestartRequired, Failed, Cancelled, Uncertain, Unverified }
+/// <summary>
+/// Append only. <see cref="Unverified"/>: owned work positively settled but post-verification proved neither target nor
+/// restart state; never Success. <see cref="ElevationDenied"/>: the user declined UAC (AC-UPD-05, distinct from failure).
+/// <see cref="Refused"/>: the helper/runner refused before updating (for example, exact-candidate qualification mismatch).
+/// </summary>
+public enum UpdateDispatchOutcome { Success, RestartRequired, Failed, Cancelled, Uncertain, Unverified, ElevationDenied, Refused }
 
 public sealed class UpdateDispatchTerminal
 {
@@ -119,19 +123,37 @@ public sealed class UpdateDispatchAdmission
     public async Task<UpdateDispatchPermit?> TryClaimAsync(LiveApprovedUpdate approval, FreshUpdateDispatchEvidence evidence,
         OperationOwnership ownership, CancellationToken cancellationToken)
     {
+        UpdateDispatchAdmissionResult result = await ClaimAsync(approval, evidence, ownership, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result.Permit;
+    }
+
+    /// <summary>
+    /// Like <see cref="TryClaimAsync"/>, but also returns a claim that committed without a permit (post-commit expiry,
+    /// stale evidence, lost ownership or cancellation) so the caller can finalize it as never invoked instead of leaving
+    /// a false "invocation uncertain" barrier. A committed claim without a permit is never dispatch authority.
+    /// </summary>
+    public async Task<UpdateDispatchAdmissionResult> ClaimAsync(LiveApprovedUpdate approval, FreshUpdateDispatchEvidence evidence,
+        OperationOwnership ownership, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(approval);
         ArgumentNullException.ThrowIfNull(evidence);
         ArgumentNullException.ThrowIfNull(ownership);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!approval.TryConsumeClaimAttempt(approval.Operation, ownership) || !evidence.Matches(approval.Operation, clock.GetUtcNow())) return null;
+        if (!approval.TryConsumeClaimAttempt(approval.Operation, ownership) || !evidence.Matches(approval.Operation, clock.GetUtcNow())) return new(null, null);
         UpdateDispatchClaim? claim = await store.TryClaimAsync(approval.Draft, evidence, ownership, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (claim is null || claim.ClaimId == Guid.Empty || claim.TerminalEventId == Guid.Empty ||
-            !approval.Draft.HasSameDraftIdentity(claim.Draft) || !ReferenceEquals(claim.Evidence, evidence) ||
-            !approval.IsCurrent || !ownership.CanDispatchFor(approval.Operation) || !evidence.Matches(approval.Operation, clock.GetUtcNow())) return null;
-        return new(claim, approval, ownership, clock);
+        if (claim is null) return new(null, null);
+        // A claim that differs from the reviewed identity is never finalized or used here; its committed row stays a barrier.
+        if (claim.ClaimId == Guid.Empty || claim.TerminalEventId == Guid.Empty ||
+            !approval.Draft.HasSameDraftIdentity(claim.Draft) || !ReferenceEquals(claim.Evidence, evidence)) return new(null, null);
+        if (cancellationToken.IsCancellationRequested || !approval.IsCurrent || !ownership.CanDispatchFor(approval.Operation) ||
+            !evidence.Matches(approval.Operation, clock.GetUtcNow())) return new(null, claim);
+        return new(new(claim, approval, ownership, clock), claim);
     }
 }
+
+/// <summary>Admission outcome. <see cref="CommittedClaim"/> without <see cref="Permit"/> is a barrier to finalize as never invoked, never authority.</summary>
+public sealed record UpdateDispatchAdmissionResult(UpdateDispatchPermit? Permit, UpdateDispatchClaim? CommittedClaim);
 
 /// <summary>One-use, process-local dispatch authorization; no public construction or restore path.</summary>
 public sealed class UpdateDispatchPermit
