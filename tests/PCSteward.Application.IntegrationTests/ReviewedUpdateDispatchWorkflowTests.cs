@@ -169,6 +169,65 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     }
 
     [TestMethod]
+    [DataRow("lone-high")]
+    [DataRow("lone-low")]
+    [DataRow("astral-at-observation-bound")]
+    [DataRow("astral-at-terminal-bound")]
+    public async Task NonBmpOrMalformedUtf16DiagnosticsCannotBlockFinalization(string change)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        string diagnostic = change switch
+        {
+            "lone-high" => "helper refused \uD83D",
+            "lone-low" => "\uDE00 helper refused",
+            "astral-at-observation-bound" => new string('x', ReviewedUpdateDispatchObservation.MaximumDiagnosticLength - 1) + "\U0001F600tail",
+            _ => new string('x', 3999) + "\U0001F600",
+        };
+        ReviewedUpdateDispatchResult refused = await fixture.Workflow(new FakeDispatcher(_ => ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Refused, diagnostic)))
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, refused.Disposition, refused.Message);
+        Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+
+        ReviewedUpdateDraft second = await fixture.SaveAsync();
+        ReviewedUpdateDispatchResult failed = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.ProviderFailed, 1) with { Diagnostic = diagnostic }))
+            .RunAsync(fixture.Confirm(second), CancellationToken.None);
+        Assert.AreEqual(UpdateDispatchOutcome.Failed, failed.Outcome, failed.Message);
+        Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(second.Operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void SanitizedDiagnosticsAlwaysEncodeAsStrictUtf8AndKeepSurrogatePairsWhole()
+    {
+        System.Text.UTF8Encoding strict = new(false, true);
+        foreach (string input in new[] { "a\uD83Db", "\uDE00", new string('y', 4095) + "\U0001F600", "ok \U0001F600 ok" })
+        {
+            string safe = SanitizedDiagnosticBundle.Sanitize(input);
+            Assert.IsLessThanOrEqualTo(4096, safe.Length);
+            _ = strict.GetByteCount(safe);
+        }
+        Assert.AreEqual("ok \U0001F600 ok", SanitizedDiagnosticBundle.Sanitize("ok \U0001F600 ok"));
+        Assert.AreEqual("ab", SanitizedDiagnosticBundle.Truncate("ab\U0001F600", 3));
+        // The terminal sanitizes first, so malformed input is repaired rather than rejected, and its payload always encodes.
+        _ = new UpdateDispatchTerminal(UpdateDispatchOutcome.Failed, ReviewedAt, null, "bad \uD83D").GetReservedPayload();
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(-1)]
+    public async Task RestartReportWithANonRebootExitCodeIsStillFailure(int exit)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        FakeVerifier verifier = new(new(true, false));
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.Completed, exit) with { RestartReported = true }), verifier: verifier)
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(UpdateDispatchOutcome.Failed, result.Outcome);
+        Assert.AreEqual(0, verifier.Calls);
+    }
+
+    [TestMethod]
     [DataRow(true, false, UpdateDispatchOutcome.Success)]
     [DataRow(false, true, UpdateDispatchOutcome.RestartRequired)]
     [DataRow(false, false, UpdateDispatchOutcome.Unverified)]

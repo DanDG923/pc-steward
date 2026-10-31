@@ -370,7 +370,33 @@ public static partial class SanitizedDiagnosticBundle
         safe = WindowsPath().Replace(safe, "[path]");
         safe = new string(safe.Select(character => char.IsControl(character) ? ' ' : character).ToArray());
         safe = Whitespace().Replace(safe, " ").Trim();
-        return safe[..Math.Min(safe.Length, MaximumTextLength)];
+        return Truncate(ReplaceLoneSurrogates(safe), MaximumTextLength);
+    }
+
+    /// <summary>Truncates to at most <paramref name="maximumLength"/> UTF-16 units without splitting a surrogate pair.</summary>
+    public static string Truncate(string value, int maximumLength)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumLength);
+        if (value.Length <= maximumLength) return value;
+        int length = maximumLength;
+        if (length > 0 && char.IsHighSurrogate(value[length - 1])) length--;
+        return value[..length];
+    }
+
+    /// <summary>Replaces unpaired UTF-16 surrogates with U+FFFD so text always encodes as strict UTF-8.</summary>
+    private static string ReplaceLoneSurrogates(string value)
+    {
+        char[]? buffer = null;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (char.IsHighSurrogate(current) && index + 1 < value.Length && char.IsLowSurrogate(value[index + 1])) { index++; continue; }
+            if (!char.IsSurrogate(current)) continue;
+            buffer ??= value.ToCharArray();
+            buffer[index] = '\uFFFD';
+        }
+        return buffer is null ? value : new string(buffer);
     }
 
     [GeneratedRegex(@"(?i)\b(password|token|secret|licen[cs]e[-_ ]?key)\s*[:=]\s*\S+", RegexOptions.CultureInvariant)]

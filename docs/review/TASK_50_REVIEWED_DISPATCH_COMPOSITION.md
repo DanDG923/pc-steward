@@ -25,7 +25,7 @@ The gate runner is supplied as a delegate: `(work, reviewDeadlineUtc, ct) => Tas
 4. `permit.TryConsume` rechecks approval currency, ownership and evidence freshness immediately before launch. If it fails, the claim is finalized `Cancelled` with a NotInvoked settlement.
 5. The dispatcher runs once, under the same ownership. An exception or cancellation without positive facts is an Unknown invocation, which means Uncertain.
 6. Settlement comes from the observation (`BeforeInvocation` only for positively proven NotStarted). Unsettled facts record `Uncertain` and keep the barrier. The owned root is captured, never awaited again.
-7. The verifier runs only after an `OwnedWorkStopped` settlement and a zero-exit Completed status, still under the gate. Expected version means Success; reliable restart pending means RestartRequired; anything else means Unverified. Non-zero/refused/denied/timed-out outcomes record Failed. A settled, started-then-cancelled run records Unverified, never Cancelled.
+7. The verifier runs only after an `OwnedWorkStopped` settlement and a zero-exit Completed status, still under the gate. Expected version means Success; reliable restart pending means RestartRequired; anything else means Unverified. (Superseded by the post-review corrections below: denial and refusal have their own outcomes; started timeout/failure/cancellation records Unverified; only provider-reported failure or a non-restart non-zero exit records Failed.)
 8. If final recording fails, the disposition is Uncertain and the committed DispatchClaimed barrier remains.
 
 ## Tests (`ReviewedUpdateDispatchWorkflowTests`)

@@ -111,6 +111,31 @@ public sealed class ReviewedUpdateHistoryTests
     }
 
     [TestMethod]
+    [DataRow(nameof(UpdateDispatchOutcome.Success), "not-invoked")]
+    [DataRow(nameof(UpdateDispatchOutcome.RestartRequired), "not-invoked")]
+    [DataRow(nameof(UpdateDispatchOutcome.Unverified), "not-invoked")]
+    [DataRow(nameof(UpdateDispatchOutcome.Failed), "unsettled")]
+    [DataRow(nameof(UpdateDispatchOutcome.Cancelled), "unknown")]
+    public async Task RowsTheStoreCouldNeverWriteAreCorruptionNotHistory(string outcomeName, string settlement)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveWinGetAsync();
+        UpdateDispatchClaim claim = (await fixture.ClaimAsync(draft))!;
+        OperationOwnership owner = Owner();
+        UpdateDispatchSettlement? forged = settlement switch
+        {
+            "not-invoked" => UpdateDispatchSettlement.BeforeInvocation(claim, owner),
+            "unsettled" => UpdateDispatchSettlement.FromObservedWork(claim, owner, Task.CompletedTask, false, true, true, false, false),
+            _ => null,
+        };
+        byte[] payload = new UpdateDispatchTerminal(Enum.Parse<UpdateDispatchOutcome>(outcomeName), ReviewedAt.AddMinutes(2), 0, "forged").GetReservedPayload(forged);
+        await fixture.ExecuteAsync($"PRAGMA ignore_check_constraints=ON; UPDATE update_dispatch_claims SET state='Final', terminal_payload=x'{Convert.ToHexString(payload)}', terminal_digest='{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload))}';");
+        ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
+        Assert.IsFalse(record.IntegrityVerified);
+        Assert.IsTrue(ReviewedUpdateHistoryPresentation.Present(record).BlocksOtherUpdates);
+    }
+
+    [TestMethod]
     public void TerminalParserRoundTripsTheWriterAndRejectsMalformedSlots()
     {
         UpdateDispatchTerminal terminal = new(UpdateDispatchOutcome.Unverified, ReviewedAt, -5, "naïve diagnostic ✓");

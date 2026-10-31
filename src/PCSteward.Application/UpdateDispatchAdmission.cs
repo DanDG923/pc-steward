@@ -77,6 +77,8 @@ public sealed class UpdateDispatchTerminal
         ExitCode = exitCode;
         Diagnostic = SanitizedDiagnosticBundle.Sanitize(diagnostic);
         if (Diagnostic.Length > 4096) throw new ArgumentException("Sanitized diagnostic exceeds the terminal reservation.");
+        try { _ = new UTF8Encoding(false, true).GetByteCount(Diagnostic); }
+        catch (EncoderFallbackException exception) { throw new ArgumentException("Sanitized diagnostic is not valid UTF-16 text.", exception); }
     }
     public UpdateDispatchOutcome Outcome { get; }
     public DateTimeOffset OccurredAt { get; }

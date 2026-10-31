@@ -182,9 +182,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
             return await AfterGateFailureAsync(operation, "The fresh evidence no longer matches the frozen review, or the one-use claim was not granted.").ConfigureAwait(false);
 
         UpdateDispatchClaim claim = permit.Claim;
-        if (!permit.TryConsume(approval, ownership) || !dispatcher.Supports(operation))
+        if (!permit.TryConsume(approval, ownership))
             return await FinalizeAsync(claim, ownership, UpdateDispatchSettlement.BeforeInvocation(claim, ownership), UpdateDispatchOutcome.Cancelled,
                 null, "Review, ownership or fresh evidence lapsed immediately before launch; nothing was invoked.").ConfigureAwait(false);
+        if (!dispatcher.Supports(operation))
+            return await FinalizeAsync(claim, ownership, UpdateDispatchSettlement.BeforeInvocation(claim, ownership), UpdateDispatchOutcome.Cancelled,
+                null, "The provider route became unavailable immediately before launch; nothing was invoked.").ConfigureAwait(false);
 
         ReviewedUpdateDispatchObservation observation;
         try
@@ -242,7 +245,9 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 // Started work may have partly applied; never report it as not updated.
                 return (UpdateDispatchOutcome.Unverified, $"{observation.Status} after the provider started; the resulting version is unverified. {diagnostic}");
         }
-        if (observation.ExitCode != 0 && !observation.RestartReported)
+        // A restart report is honoured only with the standard reboot-required codes; any other non-zero exit is failure.
+        bool restartReported = observation.RestartReported && observation.ExitCode is 3010 or 1641;
+        if (observation.ExitCode != 0 && !restartReported)
             return (UpdateDispatchOutcome.Failed, $"The provider exited with code {exit}. {diagnostic}");
         try
         {
@@ -251,7 +256,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 ? (UpdateDispatchOutcome.Success, "Target version verified by post-update inventory.")
                 : verification.RestartPending
                     ? (UpdateDispatchOutcome.RestartRequired, "Provider completed; a reliable restart-pending state was detected.")
-                    : (UpdateDispatchOutcome.Unverified, observation.RestartReported
+                    : (UpdateDispatchOutcome.Unverified, restartReported
                         ? "The provider reported that a restart is needed, but neither the target version nor a reliable restart-pending state was verified."
                         : "Provider completed but the target version was not detected.");
         }
@@ -268,8 +273,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         try
         {
             DateTimeOffset now = clock.GetUtcNow();
-            string bounded = SanitizedDiagnosticBundle.Sanitize(message);
-            if (bounded.Length > MaximumTerminalMessageLength) bounded = bounded[..MaximumTerminalMessageLength];
+            string bounded = SanitizedDiagnosticBundle.Truncate(SanitizedDiagnosticBundle.Sanitize(message), MaximumTerminalMessageLength);
             UpdateDispatchTerminal terminal = new(outcome, now < claim.ClaimedAt ? claim.ClaimedAt : now, exitCode, bounded);
             await store.RecordFinalAsync(claim, ownership, terminal, settlement, CancellationToken.None).ConfigureAwait(false);
             return Result(operation, outcome == UpdateDispatchOutcome.Uncertain ? ReviewedUpdateDispatchDisposition.Uncertain : ReviewedUpdateDispatchDisposition.Finalized,
@@ -284,8 +288,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
 
     private static string Bounded(string? diagnostic)
     {
-        string safe = SanitizedDiagnosticBundle.Sanitize(diagnostic);
-        return safe.Length <= ReviewedUpdateDispatchObservation.MaximumDiagnosticLength ? safe : safe[..ReviewedUpdateDispatchObservation.MaximumDiagnosticLength];
+        return SanitizedDiagnosticBundle.Truncate(SanitizedDiagnosticBundle.Sanitize(diagnostic), ReviewedUpdateDispatchObservation.MaximumDiagnosticLength);
     }
 
     private static ReviewedUpdateDispatchResult Result(ReviewedUpdateOperation operation, ReviewedUpdateDispatchDisposition disposition,

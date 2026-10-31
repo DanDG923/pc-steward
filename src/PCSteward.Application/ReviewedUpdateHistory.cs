@@ -99,7 +99,7 @@ public static class ReviewedUpdateHistoryPresentation
     {
         UpdateDispatchOutcome.Success => "Updated: the target version was verified after the update.",
         UpdateDispatchOutcome.RestartRequired => "Restart required: a reliable restart-pending state was detected.",
-        UpdateDispatchOutcome.Unverified => "Finished, but the new version could not be verified.",
+        UpdateDispatchOutcome.Unverified => "The update ran (or was stopped after starting), but the new version could not be verified.",
         UpdateDispatchOutcome.Failed => "Update failed: the provider reported an error. Check the application's version before trying again.",
         UpdateDispatchOutcome.Cancelled => "Cancelled before anything was started.",
         UpdateDispatchOutcome.ElevationDenied => "Not updated: administrator approval was declined.",

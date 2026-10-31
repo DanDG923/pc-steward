@@ -62,9 +62,20 @@ public sealed partial class SqliteDatabase : IReviewedUpdateHistoryReader
         else if (reserved is not null && reader.GetValue(6) is string terminalDigest &&
             terminalDigest == Convert.ToHexString(SHA256.HashData(reserved)) &&
             ReviewedUpdateTerminalRecord.TryParse(reserved, out ReviewedUpdateTerminalRecord? parsedTerminal) && parsedTerminal is not null &&
-            (parsedTerminal.Outcome == UpdateDispatchOutcome.Uncertain) == (state == UpdateDispatchState.Uncertain))
+            (parsedTerminal.Outcome == UpdateDispatchOutcome.Uncertain) == (state == UpdateDispatchState.Uncertain) &&
+            SatisfiesWriteInvariants(parsedTerminal))
             terminal = parsedTerminal;
         else integrity = false;
         return new(jobId, operation, state, claimedAt, terminal, integrity);
     }
+
+    // Mirrors RecordFinalAsync: a row the store could never have written is corruption, not history. This detects
+    // corruption only; an unkeyed digest cannot stop a same-user writer from forging a consistent row.
+    private static bool SatisfiesWriteInvariants(ReviewedUpdateTerminalRecord terminal) => terminal.Outcome switch
+    {
+        UpdateDispatchOutcome.Uncertain => true,
+        UpdateDispatchOutcome.Success or UpdateDispatchOutcome.RestartRequired or UpdateDispatchOutcome.Unverified =>
+            terminal.Settlement == UpdateDispatchSettlementState.OwnedWorkStopped,
+        _ => terminal.Settlement is UpdateDispatchSettlementState.NotInvoked or UpdateDispatchSettlementState.OwnedWorkStopped,
+    };
 }
