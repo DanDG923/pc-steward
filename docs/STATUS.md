@@ -1,4 +1,8 @@
-# Task 50 — Chocolatey mapping remediation checkpoint
+# Task 50 — bounded Chocolatey configuration checkpoint
+
+The isolated native-model config parser preserves observed feature provenance separately from effective defaults, rejects ambiguous/unsupported/bounded XML and omits credential attributes from its snapshot. Focused **28/28**, clean Release, full **729/729**, zero skipped. [Task90 remediation/evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). Source tracing also requires protecting the existing external Chocolatey HTTP cache even with the ignore flag; no cache/ACL changes are authorized. No production parser/launcher caller or admitting native profile exists. Conditional mapping remediation, common-gate/claim/helper/UI integration and Task50 completion remain open.
+
+## Earlier Chocolatey mapping remediation checkpoint
 
 Independent native-profile mapping review at `7211dc5` is CONDITIONAL: environment/config/licensing/store and parser/result details need correction before native admission. The isolated compiled environment builder now has **14/14** focused cases, clean Release and **701/701** full tests, zero skipped. [Remediation/evidence](review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records verified public release ZIP/root-engine pins and the next fixed-root launch policy. No client was installed/executed or owner's installed software read. The builder has no production caller; full native profile, common-gate/claim/helper/UI integration and Task50 remain incomplete.
 

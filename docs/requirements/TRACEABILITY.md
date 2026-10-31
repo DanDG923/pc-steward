@@ -1,4 +1,8 @@
-# Task 50 — compiled Chocolatey bootstrap environment
+# Task 50 — bounded native configuration parsing
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records exact native XML shape/default/explicit semantics, immutable passive observations, secret-attribute omission and strict ambiguity/resource negatives. Focused28/28, Release clean, full729/729. Parser success is not native trust or compatible policy; no production caller, full `AC-UPD-01–11` or Task50 exit is claimed.
+
+## Earlier compiled Chocolatey bootstrap environment
 
 `FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [conditional mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records a fixed environment set, complete inherited-block replacement and format/injection negatives. Focused14/14, Release clean, full701/701. Public release ZIP/engine hashes are artifact evidence only, not source-build attestation or host eligibility. No production caller, native trust/profile or integrated `AC-UPD-01–11`/Task50 acceptance follows.
 
