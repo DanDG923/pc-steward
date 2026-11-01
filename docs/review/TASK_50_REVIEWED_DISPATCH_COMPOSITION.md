@@ -80,3 +80,17 @@ A fresh-context reviewer (Fable 5.1) returned **PASS** with only Low findings. I
 - **L3, N5-gated adapter obligation.** Enforce the O2 `EvidenceId` format (`choco-profile-v2:` + 64 uppercase hex) in `ReviewedUpdateOperation` for the runtime-limit route. Today only `TryGetProfileDigest` enforces it, and it fails closed.
 - **L5.** Test gaps whose failure mode is conservative: individual Channel/Architecture/Mode negatives for `TryGetProfileDigest`, and an explicit "Refused with a pending desktop root" case. To be added with the adapter slice.
 - **Info.** The §4.1 Undetermined row versus the precedence sentence. Both settle to Failed, so the recorded outcome is the same.
+
+## Helper candidate check in history (adapter gates Part B) — interface before callers
+
+Contract: [protocol-2 adapter gates rev 2](TASK_50_ADAPTER_GATES.md) Part B and §R B2-L1/B2-L2 (`FR-HIS-01`, `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`). Part A (capability seam, ledger, transport binding, A.6.1) is **not** in this slice. The value is history data only: it never changes `Status`, settlement or outcome, and it never feeds review, approval, admission, dispatch, reconciliation or provenance.
+
+| Type / member | Producer | Consumer | Meaning |
+|---|---|---|---|
+| `RecordedHelperCandidateCheck` (+ `RecordedHelperCheckKind`, `RecordedHelperRefusalReason`) (`Application/RecordedHelperCandidateCheck.cs`) | `ReviewedHelperCandidateCheck.ToRecorded()` in the interpreter file — the single `FromDesktopDerived` call site in `src` | Workflow finalization, store, history reader | Desktop-derived, recorded-at-the-time value; private constructor; structural rules R1–R4 and the version form; `IsConsistentWith(op, outcome, settlement)` holds all B.5 invariants and is shared by workflow pre-check, store write and reader. `TryRestore` is used only by `ReviewedUpdateTerminalRecord.TryParse`. |
+| `IReviewedHelperVersionGrammar` / `ChocolateyHelperVersionGrammar` (Provider.Chocolatey) | Composition roots | `SqliteDatabase` (write readback and history read) | One injected grammar: `ChocolateyVersionGrammar.IsNormalized(value, 128)`, the codec's facade. |
+| `ReviewedUpdateDispatchObservation.HelperCheck` (appended, optional; null = NotObserved) | Future protocol-2 dispatcher, via `ReviewedUpdateProtocol2Interpretation.WorkflowObservation` | Workflow | Carried to `FinalizeAsync` only; an inconsistent value records NotObserved and prefixes `helper-check-not-recorded` before truncation. |
+| `UpdateDispatchTerminal.HelperCheck` (moved unchanged to `UpdateDispatchTerminal.cs`) | Workflow | Store | `GetReservedPayload` writes version 3 iff the check is not NotObserved; otherwise version-2 bytes are identical to before. |
+| `ReviewedUpdateTerminalRecord.HelperCheck`, `TryParse(reserved, grammar, out record)` | Reserved slot | History reader | Strict v2/v3 parse; v3 needs a grammar; v3 with NotObserved is corruption. |
+| `ReviewedUpdateDispatchResult.HelperCheck`, `ReviewedUpdateHistoryView.HelperReport` | Workflow / presentation | Desktop (later) | Result carries only the value actually persisted. `HelperReport` is separate from `Status` and is null for Unconfirmed, NotObserved and integrity failures. |
+| `SqliteDatabase(string, IReviewedHelperVersionGrammar)` (public); `SqliteDatabase(string)` becomes internal (tests only) | Desktop and ScheduledHost composition roots | — | B2-L1: every production root injects the grammar. B2-L2: the store re-checks consistency and refuses to commit a v3 payload its own history reader would reject. |
