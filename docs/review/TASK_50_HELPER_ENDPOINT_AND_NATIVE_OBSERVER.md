@@ -1,14 +1,15 @@
-# Task 50 — protocol-2 helper endpoint and native Profile V2 observer (design, revision 5)
+# Task 50 — protocol-2 helper endpoint and native Profile V2 observer (design, revision 6)
 
 Requirements: `FR-UPD-15`, `FR-UPD-01/08/09/14`, `AC-UPD-01–11`, `TM-03/04/07/13`.
 
-Status: **revision 5.** Slice N0 may start (rev-4 review: "if M1 is fixed … the remaining items do not block N0"); a delta re-review of this revision runs alongside N0 and must pass before N3/N4a.
+Status: **revision 6.** The rev-5 delta review found nothing blocking N0–N2. Its text-level findings (F1–F4) are resolved here (§15). N3 and N4a build on this revision.
 - Revision 1 (`1024708`, SHA-256 `66cc6398…a46db239`) was reviewed CONDITIONAL: no Blocker, 4 High, 7 Medium, 6 Low.
 - Revision 2 (`0f03ae7`, SHA-256 `0037f8bd…4780`) was reviewed CONDITIONAL: no Blocker or High, 5 Medium, 6 Low.
 - Revision 3 (`38959d6`, SHA-256 `8c813d4e…e293`) was reviewed CONDITIONAL: no Blocker or High, 3 Medium, 4 Low.
 - Revision 4 (`b1cbd77`, SHA-256 `36a6a63b…f075`) was reviewed CONDITIONAL: no Blocker or High, 2 Medium, 5 Low. All rev-3 findings were closed.
+- Revision 5 (`8527a50`, SHA-256 `1987afb9…425c`) was reviewed CONDITIONAL: no Blocker or High, 1 Medium, 3 Low. All rev-4 findings were closed.
 
-This revision addresses every finding (§11–§14). This record authorizes no host action, UAC, deployment, provider query or route admission.
+This revision addresses every finding (§11–§15). This record authorizes no host action, UAC, deployment, provider query or route admission.
 
 Contracts implemented by this design:
 - [Profile V2](TASK_50_CHOCOLATEY_PROFILE_V2.md) and its [Task 90 corrections](TASK_90_TASK_50_CHOCOLATEY_PROFILE_V2_REMEDIATION.md), including M1–M3, L1–L4 and the accepted fixed-feed runtime-limit contract;
@@ -51,7 +52,7 @@ These live in `PCSteward.Provider.Chocolatey/Native/` (namespace `PCSteward.Prov
 - An architecture test requires the two `FILE_ID_INFO` P/Invoke layouts to be identical.
 - Provider.Chocolatey adds `InternalsVisibleTo("PCSteward.Execution")`.
 - Execution calls native code **only** through the qualification port (§5.4), which is declared **in Provider.Chocolatey**. The G1 reader uses `IChocolateyHelperItem.RequesterCannotModify` (§6), never `RequesterToken`/`RequesterAccess` directly.
-- An architecture test lists every Execution file that references `PCSteward.Provider.Chocolatey.Native`. The architecture test is an **allow-list** (rev-4 L1): the port interfaces of §5.4 plus the value records `ChocolateyStageValues`, `ChocolateyCandidateValues`, `NativeProcessObservation`, `NativeInvocation` and `ChocolateyItemRefusal`. In particular, no Execution file may name `LaunchJob`, `ProtectedNodeReader`, `ProtectedTreeWalker`, `RequesterToken`, `PeerProcess`, `ChocolateyHeldClientBinding`, `ChocolateyProfileObservation` or `ChocolateyCompiledCommand` (rev-3 M-A).
+- An architecture test lists every Execution file that references `PCSteward.Provider.Chocolatey.Native`. The architecture test is an **allow-list** (rev-4 L1): the port interfaces of §5.4 plus the value records `ChocolateyStageValues`, `ChocolateyCandidateValues`, `ChocolateyUpgradeResult`, `NativeProcessObservation`, `NativeInvocation` and `ChocolateyItemRefusal` (rev-5 F1). In particular, no Execution file may name `LaunchJob`, `ProtectedNodeReader`, `ProtectedTreeWalker`, `RequesterToken`, `PeerProcess`, `ChocolateyHeldClientBinding`, `ChocolateyProfileObservation` or `ChocolateyCompiledCommand` (rev-3 M-A).
 
 ### 2.1 Requester token and peer process handle (H2, H3)
 
@@ -346,7 +347,9 @@ internal sealed class NativeLaunchSpec                 // private constructor
     internal string WorkingDirectory { get; }
     internal static NativeLaunchSpec ForTests(string imagePath, IReadOnlyList<string> arguments,           // test-only; banned
         IReadOnlyDictionary<string, string> environment, string workingDirectory);                         // from src by an
-}                                                                                                           // architecture test
+    // N3 (rev-5 F3): the only production factory; its only call site is LaunchJob.RunAsync.              // architecture test
+    internal static NativeLaunchSpec FromBinding(ChocolateyHeldClientBinding client, ChocolateyCompiledCommand command);
+}
 internal sealed class LaunchJob : IDisposable  // one per process; JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; no BREAKAWAY_OK; own IOCP
 {
     // N0: the core. Its only src caller is RunAsync below (N3); until N3 it has no src caller (architecture test).
@@ -362,7 +365,9 @@ internal sealed record NativeProcessObservation(NativeInvocation Invocation, int
 internal enum NativeInvocation { NotStarted, Started, Unknown }
 ```
 
-**Launcher surface (M4, rev-3 M-A/M-B).**
+**Launcher surface (M4, rev-3 M-A/M-B, rev-5 F4).**
+- The bans on `src` callers of `ForTests`, `RunCoreAsync` and the fault hook, and the single call site of `FromBinding`, are checked as **compiled symbol references** across every `src` assembly (reflection or IL metadata scan), not by text search. `InternalsVisibleTo(Execution)` makes these members visible to Execution.
+- A `NativeLaunchSpec` is never derived from wire, database or payload input.
 - `LaunchJob.RunAsync` takes no path or argument strings: the engine path comes from the held binding, the arguments from the sealed `ChocolateyCompiledCommand`.
 - An architecture test pins its call sites to the three methods of `ChocolateyClientQueries`, and forbids any Execution reference to `LaunchJob` or `ChocolateyCompiledCommand`.
 - Each launch has its own job and completion port, so no message from an earlier launch can reach a later one (rev-3 M-C stale message).
@@ -492,21 +497,27 @@ internal interface IChocolateyHelperItem : IDisposable              // owns toke
     ChocolateyStageValues ObserveProfile(ReviewedUpdateOperation operation, string expectedFingerprint, TimeSpan remaining, CancellationToken cancellationToken);
     Task<ChocolateyCandidateValues> QueryCandidateAsync(TimeSpan remaining, CancellationToken cancellationToken);
     ChocolateyStageValues RevalidateBeforeLaunch(TimeSpan remaining, CancellationToken cancellationToken);
-    Task<ChocolateyUpgradeResult> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken); // observation | OutOfOrder
+    Task<ChocolateyUpgradeResult> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken);
     bool AggregateSettled { get; }                                   // every launch job of the item settled
 }
 ```
 
 The value types are plain records with public construction. Fakes can therefore build them, but they carry no authority:
-- `ChocolateyStageValues` is a closed kind {Observed, Refused(reason), TimedOut}, plus the observed installed version and fingerprint "as far as observed";
-- `ChocolateyCandidateValues` is a closed kind {Matched(candidate), Refused(reason, values), Undetermined(flags)};
+- `ChocolateyStageValues` is a closed kind {Observed, Refused(reason), TimedOut, Cancelled, OutOfOrder}, plus the observed installed version and fingerprint "as far as observed" (rev-5 F1);
+- `ChocolateyCandidateValues` is a closed kind {Matched(candidate), Refused(reason, values), Undetermined(flags), OutOfOrder};
+- `ChocolateyUpgradeResult` is a closed record {Observed(`NativeProcessObservation`), OutOfOrder}. No third-party union type is used;
 - `NativeProcessObservation` is the wire facts.
 
 Rules enforced inside the native item, independent of the stage machine:
 - `QueryCandidateAsync` requires an earlier `Observed` from `ObserveProfile`;
 - `RevalidateBeforeLaunch` requires a stage-C `Matched`;
 - `UpgradeAsync` requires the one-use launch permission minted by a stage-D `Observed` that follows a stage-C `Matched` (rev-3 L-C);
-- any out-of-order call returns `ChocolateyItemRefusal.OutOfOrder` without I/O or launch (rev-4 L5). `UpgradeAsync` therefore returns `OneOf<NativeProcessObservation, ChocolateyItemRefusal>`, a closed result record, not a bare observation.
+- any out-of-order call returns its record's `OutOfOrder` arm without I/O or launch (rev-4 L5).
+
+**OutOfOrder mapping per stage (rev-5 F2).** The stage machine reports `Refused/MachineInputsUnsupported` **only if `item.AggregateSettled`**. Otherwise it reports `Undetermined` + `¬aggregateSettlementConfirmed` (N2). Field values by stage:
+- **Stage C:** installed is the stage-B value, candidate null, fingerprint the stage-B value.
+- **Stage D:** no stage-D values exist, so installed and fingerprint are null and the candidate is therefore null (S7).
+- **Launch:** the stage-D values plus the stage-C candidate (installed is non-null, candidate = frozen; S7, P5, P6).
 
 Architecture tests:
 - `NativeChocolateyHelperQualification` (port), its item and its peer are the **only** implementations in `src`;
@@ -547,7 +558,7 @@ The peer desktop image hash is computed from the image path read from the **held
 - **N0 (Windows CI)**, via `NativeLaunchSpec.ForTests` (rev-4 M1; no `src` caller of `RunCoreAsync` or `ForTests`):
   - a fixture child that spawns a grandchild → the job kills both on cancel and deadline;
   - `AggregateSettled` only at zero active processes;
-  - a lingering grandchild after a normal child exit → killed after the 10 s settle window, `LingeringTerminated` (rev-3 M-C);
+  - a lingering grandchild after a normal child exit → killed after the settle window of min(10 s, time left on the launch deadline), `LingeringTerminated` (rev-3 M-C, rev-4 L4);
   - per-launch jobs: a second launch is unaffected by the first launch's messages;
   - an internal **test-only** fault hook (architecture-banned from `src` callers) injects an assign/resume failure → `NotStarted` after confirmed termination (L1), and a teardown failure → `TerminationFailed`;
   - `CreateProcessW` failure (missing image) → `NotStarted`;
@@ -659,4 +670,13 @@ The [host-evidence plan](TASK_50_HOST_EVIDENCE_PLAN.md) covers O5, A-Q1 and A2-L
 | L3 observer had no deadline or interrupt arms | Low | `remaining` parameter; `TimedOut`/`Cancelled` arms mapped to `Undetermined` (§3) |
 | L4 Success after a killed detached installer | Low | Window clipped to the launch deadline; disclosure includes running installers; history shows the token beside every outcome (§4.1) |
 | L5 no pre-I/O refusal signal; unsettled-upgrade wording | Low | `ChocolateyItemRefusal.OutOfOrder` → `MachineInputsUnsupported`, other exceptions → `Unknown`; an unsettled upgrade is `Started`+¬settled (§4, §5.2, §5.4) |
+
+## 15. Changes from revision 5 (review of `8527a50`)
+
+| Finding | Severity | Change |
+|---|---|---|
+| F1 value types inconsistent; OneOf wording | Medium | `ChocolateyUpgradeResult` closed record {Observed, OutOfOrder}; OutOfOrder on both values records; Cancelled on `ChocolateyStageValues`; allow-list updated (§2, §5.4) |
+| F2 OutOfOrder at stage C and D | Low | Per-stage field values; `MachineInputsUnsupported` only when `AggregateSettled`, else `Undetermined` + ¬settled (§5.4) |
+| F3 no production spec factory | Low | `NativeLaunchSpec.FromBinding`, called only from `RunAsync` (§4.1) |
+| F4 ban mechanism; settle-window nit | Low | Compiled symbol-reference checks across `src` assemblies; spec never from wire or DB input; §8 wording (§4.1, §8) |
 
