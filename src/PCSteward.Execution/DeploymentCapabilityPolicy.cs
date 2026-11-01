@@ -335,6 +335,9 @@ internal static class DeploymentCapabilityPolicy
         if (variant == DeploymentLedgerVariant.Rollback)
         {
             if (element.ValueKind == JsonValueKind.Null) return true;
+            // Windows PowerShell 5.1 (the deployment runtime) serializes that empty unrolled pipeline as an empty object `{}`
+            // where pwsh 7 writes null. Accept exactly an empty object; any object with members is refused.
+            if (element.ValueKind == JsonValueKind.Object) return !element.EnumerateObject().Any();
             if (element.ValueKind == JsonValueKind.String) return CertificateStores.Contains(element.GetString(), StringComparer.Ordinal);
         }
         if (!TryStringArray(element, variant == DeploymentLedgerVariant.Rollback ? 0 : 1, CertificateStores.Length, 32, out string[] stores)) return false;

@@ -55,6 +55,25 @@ public sealed class DeploymentCapabilityPolicyTests
         Assert.AreEqual(Status.Incomplete, Evaluate(new Scenario { Ledger = bytes }));
     }
 
+    [TestMethod]
+    [DataRow("Rollback", "{}", true)]
+    [DataRow("Rollback", "{\r\n\r\n                               }", true)]
+    [DataRow("Rollback", "{ \"x\": 1 }", false)]
+    [DataRow("Rollback", "{ \"My\": null }", false)]
+    [DataRow("Pending", "{}", false)]
+    public void WindowsPowerShellEmptyObjectIsZeroStoresOnlyForRollbackLedgers(string variantName, string storesJson, bool readable)
+    {
+        // Windows PowerShell 5.1 (the deployment runtime) renders the rollback writer's empty unrolled store list as {}.
+        IReadOnlyList<(string, object?)> ledger = variantName == "Rollback" ? Ledgers.Rollback(null, null, null) : Ledgers.Pending(null, ["My"]);
+        string rendered = Ps7Json.Render(ledger);
+        string mutated = System.Text.RegularExpressions.Regex.Replace(rendered, "\"ownedCertificateStores\":\\s*(null|\\[[^\\]]*\\])",
+            "\"ownedCertificateStores\":  " + storesJson.Replace("$", "$$"));
+        Assert.AreNotEqual(rendered, mutated, "fixture mutation must apply");
+        byte[] bytes = Encoding.UTF8.GetBytes(mutated);
+        Assert.AreEqual(readable, DeploymentCapabilityPolicy.TryReadLedger(bytes, out _), storesJson);
+        Assert.AreEqual(readable ? Status.Incomplete : Status.Unreadable, Evaluate(new Scenario { Ledger = bytes }), storesJson);
+    }
+
     public static IEnumerable<object[]> WriterVariants() =>
     [
         ["pending-null-thumbprint", Ledgers.Pending(null, ["My"]), "Pending", "Incomplete"],

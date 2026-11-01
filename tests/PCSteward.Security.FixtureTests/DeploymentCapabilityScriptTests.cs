@@ -136,7 +136,8 @@ public sealed class DeploymentCapabilityScriptTests
             [
                 ("pending-null-thumbprint", DeploymentLedgerVariant.Pending, JsonValueKind.Array),
                 ("pending-with-certificate", DeploymentLedgerVariant.Pending, JsonValueKind.Array),
-                ("rollback-zero-stores", DeploymentLedgerVariant.Rollback, JsonValueKind.Null),
+                // Windows PowerShell 5.1 writes the empty unrolled store list as {}; pwsh 7 writes null (both are zero stores).
+                ("rollback-zero-stores", DeploymentLedgerVariant.Rollback, shell == "windows-powershell" ? JsonValueKind.Object : JsonValueKind.Null),
                 ("rollback-one-store", DeploymentLedgerVariant.Rollback, JsonValueKind.String),
                 ("rollback-several-stores", DeploymentLedgerVariant.Rollback, JsonValueKind.Array),
             ];
