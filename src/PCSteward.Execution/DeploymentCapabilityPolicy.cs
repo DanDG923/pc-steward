@@ -20,6 +20,17 @@ internal sealed record DeploymentCapabilityInputs(
     string ExpectedInstallRoot,
     IReadOnlyDictionary<string, DeploymentObservedFile> ObservedHashes);
 
+/// <summary>
+/// The A.4 evaluation stages in order: step 3 (ledger), steps 4–5 (candidate manifest and capability statement), step 6
+/// (binding-set hashes). The Windows reader stops after the first failing stage without reading later inputs.
+/// </summary>
+internal enum DeploymentCapabilityStage
+{
+    Ledger,
+    Statement,
+    BindingSet,
+}
+
 /// <summary>The ADR-022 ledger writer that produced a ledger (adapter gates §R A2-L1).</summary>
 internal enum DeploymentLedgerVariant
 {
@@ -119,14 +130,39 @@ internal static class DeploymentCapabilityPolicy
 
     internal static HelperProtocolCapabilityResult Evaluate(DeploymentCapabilityInputs inputs, UpdateRouteContract route)
     {
-        try { return HelperProtocolCapabilityResult.For(EvaluateCore(inputs, route)); }
+        try { return HelperProtocolCapabilityResult.For(EvaluateCore(inputs, route, DeploymentCapabilityStage.BindingSet)); }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Unreadable);
         }
     }
 
-    private static HelperProtocolCapabilityStatus EvaluateCore(DeploymentCapabilityInputs inputs, UpdateRouteContract route)
+    /// <summary>
+    /// Runs the A.4 checks up to and including <paramref name="stage"/> only, so a reader can stop before reading the next
+    /// inputs ("the first failure ends evaluation"). Inputs belonging to later stages are ignored. Returning <c>true</c> means
+    /// only "no failure so far"; it is never a capability. Only <see cref="Evaluate"/> can return
+    /// <see cref="HelperProtocolCapabilityStatus.Supported"/>. Any exception yields <c>false</c> with
+    /// <see cref="HelperProtocolCapabilityStatus.Unreadable"/>.
+    /// </summary>
+    internal static bool PassesThrough(
+        DeploymentCapabilityInputs inputs, UpdateRouteContract route, DeploymentCapabilityStage stage, out HelperProtocolCapabilityStatus failure)
+    {
+        try
+        {
+            if (stage is not (DeploymentCapabilityStage.Ledger or DeploymentCapabilityStage.Statement))
+                throw new ArgumentOutOfRangeException(nameof(stage));
+            HelperProtocolCapabilityStatus status = EvaluateCore(inputs, route, stage);
+            failure = status;
+            return status == HelperProtocolCapabilityStatus.Supported;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            failure = HelperProtocolCapabilityStatus.Unreadable;
+            return false;
+        }
+    }
+
+    private static HelperProtocolCapabilityStatus EvaluateCore(DeploymentCapabilityInputs inputs, UpdateRouteContract route, DeploymentCapabilityStage lastStage)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         // Step 3: ledger. Order follows the specification table.
@@ -139,6 +175,7 @@ internal static class DeploymentCapabilityPolicy
             return HelperProtocolCapabilityStatus.Mismatch;
         if (ledger.Variant == DeploymentLedgerVariant.CompletedLegacy || ledger.PayloadOrigin == PayloadOriginV1) return HelperProtocolCapabilityStatus.Absent;
         if (ledger.PayloadOrigin != PayloadOriginV2 || ledger.CandidateManifestSha256 is null) return HelperProtocolCapabilityStatus.Unreadable;
+        if (lastStage == DeploymentCapabilityStage.Ledger) return HelperProtocolCapabilityStatus.Supported;
 
         // Step 4: pinned candidate manifest and its single capability entry.
         if (inputs.CandidateManifestBytes is null || inputs.CandidateManifestBytes.Length > MaximumCandidateManifestBytes ||
@@ -159,6 +196,7 @@ internal static class DeploymentCapabilityPolicy
             !TryParseCapability(capability, out string protocol, out IReadOnlyList<UpdateRouteContract> operations) ||
             !string.Equals(protocol, ReviewedUpdateWireCodec.ProtocolVersion, StringComparison.Ordinal) || !operations.Contains(route))
             return HelperProtocolCapabilityStatus.Mismatch;
+        if (lastStage == DeploymentCapabilityStage.Statement) return HelperProtocolCapabilityStatus.Supported;
 
         // Step 6: binding-set observations, bounds first, then hashes against the ledger.
         IReadOnlyDictionary<string, DeploymentObservedFile> observed = inputs.ObservedHashes ?? throw new ArgumentException("Observations required.");

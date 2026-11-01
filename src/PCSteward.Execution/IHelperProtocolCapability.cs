@@ -39,12 +39,21 @@ internal sealed record HelperProtocolCapabilityResult
 /// compatibility and consistency gate only, never a security boundary against administrators, never eligibility evidence
 /// and never cached. The protocol version is not a parameter, so a caller cannot choose it.
 /// <para>
-/// Slice limit: only <see cref="Evaluate"/> is declared. <c>TryHold(route, out HeldHelperBinding?)</c> and the
-/// <c>HeldHelperBinding</c> share-read handle set are Windows handle-holding code and arrive with the Windows reader and
-/// protocol-2 transport slice. No implementation exists in <c>src</c> yet.
+/// Both members perform bounded synchronous reads (at most 64 MiB) on every call; the Desktop must call
+/// <c>ReviewedUpdateDispatchWorkflow.RunAsync</c> off the UI thread (G3). The Windows producer is
+/// <see cref="OwnerOnlyDeploymentCapabilityReader"/>. No production caller exists yet: the route dispatcher and the
+/// protocol-2 transport that consume it arrive with the protocol-2 transport slice.
 /// </para>
 /// </summary>
 internal interface IHelperProtocolCapability
 {
+    /// <summary>A.4 steps 2–6 with every share-read handle released before return (<c>Supports</c>/<c>StillSupported</c>).</summary>
     HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route);
+
+    /// <summary>
+    /// A.4 step 3.1: the same evaluation, keeping the binding set held through share-read handles. <paramref name="binding"/>
+    /// is non-null only when the result is <see cref="HelperProtocolCapabilityStatus.Supported"/>; the caller owns it and
+    /// disposes it only after helper exit has been observed and the transport is sealed (A-M2).
+    /// </summary>
+    HelperProtocolCapabilityResult TryHold(UpdateRouteContract route, out HeldHelperBinding? binding);
 }

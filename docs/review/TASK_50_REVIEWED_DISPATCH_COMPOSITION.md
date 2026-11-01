@@ -148,3 +148,49 @@ Windows CI on `e0da653` is green. Recorded Lows:
 - **L2.** The policy is intentionally stricter than the spec on a completed-ledger `rollbackRequired` and on case-insensitive path de-duplication.
 - **L3.** An empty `originalFailure` reads Unreadable rather than Incomplete. That is diagnostic-only.
 - **Info.** `Incomplete` is reported before the SID/root mismatch check. Source-text architecture tests are formatting-sensitive.
+
+## Adapter gates Part A (Windows slice): interfaces before callers
+
+Contract: [protocol-2 adapter gates rev 2](TASK_50_ADAPTER_GATES.md) Part A §A.2, §A.4 steps 2–6 and step 3 (3.1, 3.4, 3.5), §A.5, and §R A2-L3/A2-L5, under the owner-accepted ADR-022 alignment note (`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`). This slice adds the Windows producer of the capability seam, the held binding and the `FileIdInfo` primitives in Execution. All of them are `internal`. **No production caller exists**: there is no route dispatcher, no protocol-2 transport or endpoint, and no route admission. The protocol-1 `WindowsElevatedHelperTransport` is unchanged, and an architecture test keeps it free of the new types.
+
+| Type / member | Project | Producer | Consumer (future) | Meaning |
+|---|---|---|---|---|
+| `IHelperProtocolCapability.TryHold(route, out HeldHelperBinding?)` | Execution | `OwnerOnlyDeploymentCapabilityReader` | protocol-2 transport, at final pre-launch trust (A.4 step 3.1) | Same evaluation as `Evaluate`, but the binding set stays held. The binding is non-null only for `Supported`, and the caller owns it. Both members are synchronous bounded I/O (G3: `RunAsync` off the UI thread). |
+| `OwnerOnlyDeploymentCapabilityReader` | Execution | — | `ChocolateyRuntimeLimitsRouteDispatcher.Supports`/`StillSupported` (future), transport | Fixed layout from `SpecialFolder.ProgramFiles`, `Environment.ProcessPath` and the current SID only. It works in stages and stops at the first failure. Step 2: process path equals `<PF>\PC Steward\PCSteward.Desktop.exe`, otherwise Unreadable. A missing state root or ledger gives Absent. The state root is then checked for no reparse and caller-cannot-modify (`ProtectedLaunchLayout`). Step 3: ledger, at most 1 MiB, through `DeploymentCapabilityPolicy.PassesThrough(Ledger)`. Steps 4–5: manifest (at most 1 MiB), then the install-root protection check, then the statement read through its held handle (`PassesThrough(Statement)`). Step 6: every leaf is held and hashed (at most 32 MiB per file and 64 MiB per set, bounds before hashing), followed by a full `Evaluate`. A route outside the compiled allowlist is Mismatch with no I/O. Any exception is Unreadable, and no handle survives a refusal. There is no cache and no database, environment-variable, registry or remote input. |
+| `DeploymentCapabilityLayout`, `DeploymentLayoutProtectionCheck` | Execution | Production resolver / `IsProtectedLayout` | Reader | Test seam only: fixture layouts and a substitute protection check. Production uses the parameterless constructor. |
+| `HeldHelperBinding : IDisposable` | Execution | Reader (`TryCreate`, only after a full Supported) | protocol-2 transport | Read-only, `FileShare.Read`-only handles on all 12 binding-set leaves, including lazily loaded closure DLLs and the statement. It also carries `VerifiedHashes` and `HelperIdentity`, the helper apphost's `FileIdInfo` captured before launch. It is disposed only after helper exit is observed and the transport is sealed, or after teardown on the no-exit path (A-M2). Every check fails closed once it is disposed. |
+| `HeldHelperBinding.PeerImageMatchesHelper(peerImagePath)` | Execution | — | transport, after `VerifyPeer` (A.4 step 3.4, A-M1) | Opens the peer main-module image with no write or delete share and compares its `FileIdInfo` with `HelperIdentity`. False, including on a read failure, means the request is not written (`HelperStartedRequestNotWritten`). |
+| `HeldHelperBinding.RevalidateAfterPeer(peerImagePath)` | Execution | — | transport, only if A-Q1 evidence rejects the hold (A2-L5) | The fallback. It runs the peer identity check against the **pre-launch reference identity** `HelperIdentity`, then re-opens and re-hashes every leaf by its fixed path against `VerifiedHashes`. It detects **replacement only**: a swap that is restored before this check is not detected, so the ACL and `VerifyPeer` remain the controls for that window. |
+| `WindowsFileIdentity(VolumeSerialNumber, UInt128 FileId)`, `DeploymentFileAccess` | Execution | — | Reader, binding | `GetFileInformationByHandleEx(FileIdInfo)` and `GetFinalPathNameByHandleW` (`DllImport`, `SetLastError`, `SafeFileHandle`, as in the existing transport code). `TryOpenShareRead` requires the handle's final path to equal the requested path, which refuses a followed link, junction or mount point after the open. Bounded `TryReadBounded`/`TryHashBounded` use `RandomAccess` and require EOF at the observed length. |
+| `DeploymentCapabilityPolicy.PassesThrough(inputs, route, stage, out failure)`, `DeploymentCapabilityStage` | Execution (pure) | — | Reader | The Ledger or Statement stage of the unchanged policy. `true` means only "no failure so far". Only `Evaluate` can return Supported, and the `BindingSet` stage is refused. |
+
+Tests:
+- **Windows-only** (Security `DeploymentCapabilityReaderTests`; GUID-named temp fixtures; these fail with `PlatformNotSupportedException` off Windows and are Windows-CI evidence):
+  - the share-read hold refuses delete, rename, replace-by-move and write, while reads and loader-style opens work;
+  - `FileIdInfo` is equal for one file and differs after replacement or for a copy; a same-volume move keeps the identity;
+  - A2-L3: a write probe on a protected, held file still returns `ERROR_ACCESS_DENIED`, and a caller-writable held file returns a sharing violation, which fails closed;
+  - end-to-end Supported on a real-writer-shaped fixture tree, with all leaves held, the peer identity and fallback checks, and handles released on dispose;
+  - no cache;
+  - 25 on-disk status cases (Absent, Incomplete, Unreadable, Mismatch, with ledger-stage failures never touching the install root);
+  - the production protection refuses a caller-writable tree;
+  - a symbolic-link leaf is refused even when the protection check is bypassed.
+- **Portable:**
+  - the out-of-allowlist route gives Mismatch with no I/O;
+  - unresolvable or throwing layouts fail closed;
+  - an incomplete handle set gives no binding;
+  - staged-policy agreement with `Evaluate` on 11 scenarios, plus the stage-misuse refusals.
+- **Architecture:**
+  - the reader is the only seam implementation;
+  - reader sources have no Sqlite, registry, environment-variable, current-directory, process, cache, or write/delete-share text;
+  - `Environment` use is limited to `ProcessPath`/`GetFolderPath(ProgramFiles)`;
+  - there is no static state;
+  - the protocol-1 transport does not reference the seam, and nothing in `src` constructs the reader.
+
+Deferred (not in this slice):
+- the protocol-2 transport that calls `TryHold`, `PeerImageMatchesHelper` and the A-M2 disposal point;
+- the route dispatcher and its `Supports` wiring;
+- the helper-side G1 check;
+- the Profile V2 observer (F′);
+- route admission.
+
+A-Q1 remains native evidence required before admission. The CI fixtures show read-share compatibility, not a `runas` launch under a hold on the exact artifact, which needs a separately authorized host test.

@@ -1,5 +1,14 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — adapter gates Part A, Windows slice (2026-11-01):** Implements the Windows pieces deferred by the portable slice ([adapter gates](review/TASK_50_ADAPTER_GATES.md) Part A §A.2, §A.4 steps 2–6 and 3.1/3.4/3.5, §R A2-L3/A2-L5; `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`). Interfaces are listed first in the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).
+- **Reader.** `OwnerOnlyDeploymentCapabilityReader` is the production `IHelperProtocolCapability`. It uses fixed Program Files/ProcessPath/SID inputs and staged, bounded, share-read-only reads into the pure policy, stopping at the first failure. It fails closed, keeps no cache, and reads no DB, environment-variable, registry or remote input.
+- **Hold.** `TryHold` and `HeldHelperBinding` keep `FileShare.Read`-only handles on all 12 binding-set leaves until disposal (A-M2).
+- **Peer identity.** `PeerImageMatchesHelper` performs the `FileIdInfo` peer check (A-M1). `RevalidateAfterPeer` is the A2-L5 fallback: it names the pre-launch reference identity and detects replacement only.
+- **Policy.** The pure policy gains `PassesThrough` (Ledger/Statement stages). `Evaluate` is unchanged.
+- **No callers.** There is no production caller, transport, dispatcher, endpoint or route admission. Protocol-1 is unchanged.
+- **Linux results.** Zero warnings (Execution, Security, Architecture, Domain and Application test builds). Domain 167/167; Architecture 44/44. Security 436 passed, 41 failed, 1 Inconclusive of 478. The 41 failures are the 9 baseline platform failures plus 32 new Windows-only `DeploymentCapabilityReaderTests` cases, which fail with `PlatformNotSupportedException` off Windows. Application 780 passed, 103 failed of 883, identical to the `42a3cee` set.
+- **Windows-CI evidence pending.** The 32 Windows-only cases. A-Q1 (`runas` and the image loader under the hold on the exact artifact) still needs a separately authorized host test. G1 and the transport wiring are deferred.
+
 **Task 50 — deployment capability scripts (ADR-022 alignment note follow-up, 2026-11-01):** Implements follow-up items 1–7 of the [ADR-022 note record](review/TASK_50_ADR022_ALIGNMENT_NOTE_PROPOSED.md). Details are in the [implementation record](review/TASK_50_DEPLOYMENT_CAPABILITY_SCRIPTS.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; A2-L1/A2-L2.
 - **Scripts.** A v2 manifest pins a root `PCSteward.DeploymentCapability.txt`. The script parser mirrors `TryParseCapability` byte for byte. A malformed v2 capability fails before any installer effect or signing.
 - **Provenance and validator.** Provenance recognises `pinned-unsigned-v2` only with a valid pinned capability file. The installer writes the manifest-implied origin and checks it after install. The validator reports `helperProtocol` for v2.

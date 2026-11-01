@@ -13,7 +13,10 @@ public sealed class DeploymentCapabilityBoundaryTests
 {
     private static readonly string[] CapabilityTypes =
         ["IHelperProtocolCapability", "HelperProtocolCapabilityStatus", "HelperProtocolCapabilityResult", "DeploymentCapabilityPolicy",
-         "DeploymentCapabilityInputs", "DeploymentObservedFile", "DeploymentLedger", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader"];
+         "DeploymentCapabilityInputs", "DeploymentObservedFile", "DeploymentLedger", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader",
+         "DeploymentCapabilityLayout", "DeploymentLayoutProtectionCheck", "DeploymentCapabilityStage", "DeploymentFileAccess", "WindowsFileIdentity"];
+    private static readonly string[] ReaderSources =
+        ["OwnerOnlyDeploymentCapabilityReader.cs", "HeldHelperBinding.cs", "DeploymentFileAccess.cs"];
 
     [TestMethod]
     public void CapabilityTypesLiveOnlyInExecution()
@@ -27,9 +30,55 @@ public sealed class DeploymentCapabilityBoundaryTests
             foreach (string type in CapabilityTypes)
                 Assert.IsFalse(Regex.IsMatch(source, $@"\b{type}\b"), $"{path} references {type}");
         }
-        // Implementations of the seam exist only in Execution (none yet in this slice).
-        foreach (string path in Sources(src).Where(path => !path.Contains($"{Path.DirectorySeparatorChar}PCSteward.Execution{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
-            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"\b(class|record|struct)\s+\w+[^{;]*:[^{;]*\bIHelperProtocolCapability\b"), path);
+        // Implementations of the seam exist only in Execution: exactly one, the Windows reader.
+        string[] implementations = [.. Sources(src).Where(path =>
+            Regex.IsMatch(File.ReadAllText(path), @"\b(class|record|struct)\s+\w+[^{;]*:[^{;]*\bIHelperProtocolCapability\b"))];
+        Assert.AreEqual(1, implementations.Length, string.Join(", ", implementations));
+        Assert.AreEqual(Path.Combine(src, "PCSteward.Execution", "OwnerOnlyDeploymentCapabilityReader.cs"), implementations[0]);
+    }
+
+    [TestMethod]
+    public void WindowsReaderReadsOnlyFixedProtectedInputsAndCachesNothing()
+    {
+        // §A.2/§A.5: fixed paths from SpecialFolder.ProgramFiles and Environment.ProcessPath only; no database, environment
+        // variable, registry, network or current-directory input; no cache; no command execution.
+        string execution = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Execution");
+        foreach (string file in ReaderSources)
+        {
+            string source = File.ReadAllText(Path.Combine(execution, file));
+            foreach (string forbidden in new[]
+            {
+                "Sqlite", "Registry", "GetEnvironmentVariable", "ExpandEnvironmentVariables", "HttpClient", "CurrentDirectory",
+                "GetCurrentDirectory", "Process.Start", "ProcessStartInfo", "MemoryCache", "Lazy<", "ConcurrentDictionary", "FileShare.ReadWrite",
+                "FileShare.Delete", "FileShare.Write", "FileAccess.Write", "FileAccess.ReadWrite", "FileMode.Create", "FileMode.OpenOrCreate",
+            })
+                Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal), $"{file} contains {forbidden}");
+            foreach (Match member in Regex.Matches(source, @"\bEnvironment\.\w+"))
+                Assert.IsTrue(member.Value is "Environment.ProcessPath" or "Environment.GetFolderPath" or "Environment.SpecialFolder", $"{file} uses {member.Value}");
+            foreach (Match folder in Regex.Matches(source, @"SpecialFolder\.\w+"))
+                Assert.AreEqual("SpecialFolder.ProgramFiles", folder.Value, file);
+            // No static state other than constants and the immutable empty observation map.
+            foreach (Match field in Regex.Matches(source, @"^\s*(private|internal)\s+static\s+(?!readonly\s+IReadOnlyDictionary<string, DeploymentObservedFile> NoObservations)(?!class\b)[^(=;]*[=;]", RegexOptions.Multiline))
+                Assert.Fail($"{file} declares static state: {field.Value.Trim()}");
+        }
+        StringAssert.Contains(File.ReadAllText(Path.Combine(execution, "DeploymentFileAccess.cs")),
+            "File.OpenHandle(Path.GetFullPath(path), FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.None)");
+    }
+
+    [TestMethod]
+    public void ProtocolOneTransportIsNotWiredToTheCapabilitySeamYet()
+    {
+        // This slice adds no protocol-2 dispatcher, endpoint or route admission: the protocol-1 transport and every
+        // Application/Desktop file stay free of the reader and the held binding.
+        string src = Path.Combine(FindRepositoryRoot(), "src");
+        string transport = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
+        foreach (string type in new[] { "IHelperProtocolCapability", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader", "DeploymentFileAccess", "TryHold" })
+            Assert.IsFalse(transport.Contains(type, StringComparison.Ordinal), $"protocol-1 transport references {type}");
+        foreach (string path in Sources(src))
+        {
+            if (path.EndsWith("OwnerOnlyDeploymentCapabilityReader.cs", StringComparison.Ordinal)) continue;
+            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\s*\("), $"{path} constructs the reader (no production caller yet)");
+        }
     }
 
     [TestMethod]

@@ -1,3 +1,28 @@
+# Task 50 — adapter gates Part A (Windows slice)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.4 steps 2–6 and 3.1/3.4/3.5, §A.5, §A.7 (Ledger, Manifest/capability, Binding, Phases no-cache, Peer identity), §R A2-L3/A2-L5.
+
+- Security `DeploymentCapabilityReaderTests`:
+  - **Windows-only** (32 cases; reported as failed off Windows):
+    - the share-read hold refuses delete, rename, replacement and write, while reads stay possible;
+    - `FileIdInfo` same file / replaced / copy / move;
+    - the A2-L3 probe while held;
+    - the reader end to end: Supported, all leaves held, peer identity and fallback, release on dispose;
+    - no cache;
+    - 25 fixture-tree status cases;
+    - the production protection on a caller-writable tree;
+    - a symbolic-link leaf.
+  - **Portable:**
+    - out-of-allowlist route without I/O;
+    - fail-closed layouts;
+    - incomplete handle set.
+- Security `DeploymentCapabilityPolicyTests`: staged `PassesThrough` agrees with `Evaluate` (11 scenarios) and refuses misuse.
+- Architecture `DeploymentCapabilityBoundaryTests`:
+  - the single seam implementation;
+  - reader input and static-state purity;
+  - the protocol-1 transport is not wired, and the reader is not constructed in `src`.
+- Record: [composition record, Windows slice](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). No host evidence is claimed. A-Q1 and G1 remain open.
+
 # Task 50 — deployment capability scripts (ADR-022 alignment note follow-up)
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; ADR-022 alignment note; adapter gates §A.3, §A.7, §R A2-L1/A2-L2; follow-up items 1–7.

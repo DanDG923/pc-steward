@@ -438,6 +438,57 @@ public sealed class DeploymentCapabilityPolicyTests
 
     // ---- Fixture machinery ----
 
+    // ---- Staged evaluation used by the Windows reader ("the first failure ends evaluation") ----
+
+    public static IEnumerable<object[]> StagedScenarios() =>
+    [
+        ["consistent", new Scenario(), true, true, "Supported"],
+        ["ledger-absent", new Scenario { LedgerAbsent = true }, false, false, "Absent"],
+        ["ledger-v1", new Scenario { Ledger = Encoding.UTF8.GetBytes(Ps7Json.Render(Ledgers.Completed(DeploymentCapabilityPolicy.PayloadOriginV1))) }, false, false, "Absent"],
+        ["ledger-pending", new Scenario { Ledger = Encoding.UTF8.GetBytes(Ps7Json.Render(Ledgers.Pending(null, ["My"]))) }, false, false, "Incomplete"],
+        ["ledger-bom", new Scenario { Ledger = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(Ps7Json.Render(Ledgers.Completed(DeploymentCapabilityPolicy.PayloadOriginV2)))] }, false, false, "Unreadable"],
+        ["manifest-absent", new Scenario { ManifestAbsent = true }, true, false, "Mismatch"],
+        ["manifest-hash", new Scenario { ManifestHashOverride = Hash("other manifest") }, true, false, "Mismatch"],
+        ["capability-absent", new Scenario { CapabilityAbsent = true }, true, false, "Mismatch"],
+        ["capability-protocol-1", new Scenario { Capability = Encoding.ASCII.GetBytes("pc-steward-deployment-capability:1\nhelper-protocol:1\noperation:Update/ChocolateyMachineRuntimeLimitsV3\n") }, true, false, "Mismatch"],
+        ["binding-hash", new Scenario { ObservedHashOverride = ("PCSteward.Provider.Chocolatey.dll", Hash("replaced")) }, true, true, "Mismatch"],
+        ["binding-unobserved", new Scenario { OmitObservation = "PCSteward.Desktop.dll" }, true, true, "Unreadable"],
+    ];
+
+    [TestMethod]
+    [DynamicData(nameof(StagedScenarios))]
+    public void StagedEvaluationAgreesWithTheFullPolicyAndStopsAtTheFirstFailingStage(
+        string name, object scenarioObject, bool passesLedger, bool passesStatement, string fullName)
+    {
+        Status full = Enum.Parse<Status>(fullName);
+        DeploymentCapabilityInputs inputs = ((Scenario)scenarioObject).Inputs();
+        Assert.AreEqual(full, DeploymentCapabilityPolicy.Evaluate(inputs, Route).Status, name);
+        // Later-stage inputs are ignored by an earlier stage, as the reader has not read them yet.
+        DeploymentCapabilityInputs ledgerOnly = inputs with { CandidateManifestBytes = null, CapabilityBytes = null, ObservedHashes = new Dictionary<string, DeploymentObservedFile>() };
+        Assert.AreEqual(passesLedger, DeploymentCapabilityPolicy.PassesThrough(ledgerOnly, Route, DeploymentCapabilityStage.Ledger, out Status ledgerFailure), name);
+        if (!passesLedger) Assert.AreEqual(full, ledgerFailure, name);
+        if (!passesLedger) return;
+        DeploymentCapabilityInputs statement = inputs with { ObservedHashes = new Dictionary<string, DeploymentObservedFile>() };
+        Assert.AreEqual(passesStatement, DeploymentCapabilityPolicy.PassesThrough(statement, Route, DeploymentCapabilityStage.Statement, out Status statementFailure), name);
+        if (!passesStatement) Assert.AreEqual(full, statementFailure, name);
+    }
+
+    [TestMethod]
+    public void StagedEvaluationNeverReportsSupportedAndRefusesTheBindingStageOrBadInput()
+    {
+        DeploymentCapabilityInputs inputs = new Scenario().Inputs();
+        Assert.IsFalse(DeploymentCapabilityPolicy.PassesThrough(inputs, Route, DeploymentCapabilityStage.BindingSet, out Status failure));
+        Assert.AreEqual(Status.Unreadable, failure, "only Evaluate can report a full result");
+        Assert.IsFalse(DeploymentCapabilityPolicy.PassesThrough(inputs, Route, (DeploymentCapabilityStage)99, out failure));
+        Assert.AreEqual(Status.Unreadable, failure);
+        Assert.IsFalse(DeploymentCapabilityPolicy.PassesThrough(null!, Route, DeploymentCapabilityStage.Ledger, out failure));
+        Assert.AreEqual(Status.Unreadable, failure);
+        // A route outside the statement fails at the statement stage, never at the ledger stage.
+        Assert.IsTrue(DeploymentCapabilityPolicy.PassesThrough(inputs, UpdateRouteContract.WinGetUserExactV3, DeploymentCapabilityStage.Ledger, out _));
+        Assert.IsFalse(DeploymentCapabilityPolicy.PassesThrough(inputs, UpdateRouteContract.WinGetUserExactV3, DeploymentCapabilityStage.Statement, out failure));
+        Assert.AreEqual(Status.Mismatch, failure);
+    }
+
     private static Status Evaluate(Scenario scenario, UpdateRouteContract route = Route) =>
         DeploymentCapabilityPolicy.Evaluate(scenario.Inputs(), route).Status;
 
