@@ -69,3 +69,14 @@ Deliberate limits:
 - **Carrying the candidate check.** §4.1 wants it appended to the observation. Application cannot reference an Execution type, so the check is returned beside the observation. The integration slice must define the Application-level member and its history format. That is a reviewed Application change.
 - **Workflow admission.** `ReviewedUpdateReview.HasSupportedMode` still admits only `WinGetUserExactV3`. The composition test therefore drives the real workflow with a WinGet carrier operation, while the interpreter judges a separate frozen `ChocolateyMachineRuntimeLimitsV3` operation.
 - **`Matched ∧ NotStarted ∧ outputLimitExceeded`.** This is rejected explicitly (§10 nit).
+
+### Protocol-2 interpreter — independent review PASS (`956068c`)
+
+A fresh-context reviewer (Fable 5.1) returned **PASS** with only Low findings. It confirmed there is no path from forged, partial, uncorrelated or inconsistent input, or a missing H, to Confirmed, a false NotInvoked, unverified Success, a non-Uncertain unknown invocation, or `RestartReported`. P1–P6 match the spec word for word. Dropping any predicate, the H check, the Refused-first rule or the launch-failure rule fails a named test. Dispositions:
+
+- **L1, fixed.** Pre-request rows (launch refused, elevation declined, helper started without a request) now fail closed when a response frame accompanies them or the desktop facts are unsettled (pending root or failed termination).
+- **L4, fixed.** `ExecutionUncertain` explicitly includes `Invocation == Unknown` as defence in depth.
+- **L2, transport-slice obligation.** `HelperStartedRequestNotWritten` must mean zero request bytes written; a partial write is `RequestWrittenNoValidResponse`.
+- **L3, N5-gated adapter obligation.** Enforce the O2 `EvidenceId` format (`choco-profile-v2:` + 64 uppercase hex) in `ReviewedUpdateOperation` for the runtime-limit route. Today only `TryGetProfileDigest` enforces it, and it fails closed.
+- **L5.** Test gaps whose failure mode is conservative: individual Channel/Architecture/Mode negatives for `TryGetProfileDigest`, and an explicit "Refused with a pending desktop root" case. To be added with the adapter slice.
+- **Info.** The §4.1 Undetermined row versus the precedence sentence. Both settle to Failed, so the recorded outcome is the same.

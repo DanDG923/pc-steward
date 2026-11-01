@@ -370,8 +370,8 @@ public sealed class ReviewedUpdateProtocol2InterpreterTests
     {
         ReviewedUpdateOperation operation = Protocol2InterpreterFixture.Operation();
         byte[] validFrame = Protocol2InterpreterFixture.Frame(operation, Protocol2InterpreterFixture.Started(), Protocol2InterpreterFixture.Matched());
-        ReviewedUpdateProtocol2Interpretation Run(ReviewedHelperTransportOutcome outcome, ReviewedHelperDesktopObservation desktop) =>
-            ReviewedUpdateProtocol2Interpreter.Interpret(operation, outcome, validFrame, Nonce, desktop);
+        ReviewedUpdateProtocol2Interpretation Run(ReviewedHelperTransportOutcome outcome, ReviewedHelperDesktopObservation desktop, bool withFrame = false) =>
+            ReviewedUpdateProtocol2Interpreter.Interpret(operation, outcome, withFrame ? validFrame : [], Nonce, desktop);
 
         ReviewedUpdateProtocol2Interpretation launch = Run(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, Protocol2InterpreterFixture.SettledDesktop);
         Assert.AreEqual(ReviewedUpdateInvocation.NotStarted, launch.Observation.Invocation);
@@ -386,6 +386,15 @@ public sealed class ReviewedUpdateProtocol2InterpreterTests
         foreach (ReviewedUpdateProtocol2Interpretation result in new[] { launch, uac, exited })
             Assert.AreSame(ReviewedHelperCandidateCheck.NotObserved, result.CandidateCheck);
 
+        // Review 9 L1: a frame or unsettled desktop facts beside a pre-request row are inconsistent input and fail closed.
+        foreach (ReviewedHelperTransportOutcome preRequest in new[] { ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation,
+            ReviewedHelperTransportOutcome.ElevationDeclined, ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten })
+        {
+            Protocol2InterpreterFixture.AssertRejected(Run(preRequest, Protocol2InterpreterFixture.SettledDesktop, withFrame: true));
+            Protocol2InterpreterFixture.AssertRejected(Run(preRequest, Protocol2InterpreterFixture.SettledDesktop with { TerminationFailed = true }));
+            Protocol2InterpreterFixture.AssertRejected(Run(preRequest, Protocol2InterpreterFixture.SettledDesktop with { OwnedRootSnapshot = new TaskCompletionSource().Task }));
+        }
+
         foreach (ReviewedHelperDesktopObservation desktop in new[]
         {
             Protocol2InterpreterFixture.SettledDesktop with { HelperExitObserved = false },
@@ -399,8 +408,8 @@ public sealed class ReviewedUpdateProtocol2InterpreterTests
             Assert.AreSame(ReviewedHelperCandidateCheck.NotObserved, unobserved.CandidateCheck);
         }
         // After the request is written, a missing or invalid response discards everything, even if a valid frame is passed alongside.
-        Protocol2InterpreterFixture.AssertRejected(Run(ReviewedHelperTransportOutcome.RequestWrittenNoValidResponse, Protocol2InterpreterFixture.SettledDesktop));
-        Protocol2InterpreterFixture.AssertRejected(Run((ReviewedHelperTransportOutcome)99, Protocol2InterpreterFixture.SettledDesktop));
+        Protocol2InterpreterFixture.AssertRejected(Run(ReviewedHelperTransportOutcome.RequestWrittenNoValidResponse, Protocol2InterpreterFixture.SettledDesktop, withFrame: true));
+        Protocol2InterpreterFixture.AssertRejected(Run((ReviewedHelperTransportOutcome)99, Protocol2InterpreterFixture.SettledDesktop, withFrame: true));
     }
 
     [TestMethod]

@@ -100,8 +100,14 @@ internal static class ReviewedUpdateProtocol2Interpreter
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(desktop);
         if (!TryGetProfileDigest(operation, out string profileDigest)) return Rejected(desktop);
+        // Pre-request rows (review 9 L1): an accompanying frame or unsettled desktop facts are inconsistent transport input and
+        // fail closed instead of settling as NotStarted.
+        bool quietPreRequest = responseFrame.IsEmpty && !desktop.TerminationFailed && desktop.OwnedRootSnapshot is { IsCompletedSuccessfully: true };
         switch (outcome)
         {
+            case ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation or ReviewedHelperTransportOutcome.ElevationDeclined
+                or ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten when !quietPreRequest:
+                return Rejected(desktop);
             case ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation:
                 return new(ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Failed, LaunchRefusedDiagnostic),
                     ReviewedHelperCandidateCheck.NotObserved);
@@ -138,7 +144,7 @@ internal static class ReviewedUpdateProtocol2Interpreter
             OwnedIoComplete: wire.OwnedIoCompleted && desktop.OwnedIoComplete,
             PipeEndOfFile: wire.PipeEofObserved && desktop.PipeEndOfFile,
             TerminationFailed: wire.AggregateTerminationFailed || desktop.TerminationFailed,
-            ExecutionUncertain: !wire.AggregateSettlementConfirmed || !h,
+            ExecutionUncertain: !wire.AggregateSettlementConfirmed || !h || wire.Invocation == UpdateWireInvocation.Unknown,
             RestartReported: false);
         return new(observation, ReviewedHelperCandidateCheck.FromAcceptedFacts(response.Reviewed));
     }

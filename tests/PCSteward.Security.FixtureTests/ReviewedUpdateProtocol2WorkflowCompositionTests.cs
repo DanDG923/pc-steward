@@ -131,7 +131,9 @@ public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
                 outcome = ReviewedHelperTransportOutcome.ElevationDeclined;
                 break;
         }
-        byte[] frame = Protocol2InterpreterFixture.Frame(frozen, facts, reviewed);
+        // Pre-request rows carry no response frame (review 9 L1: a frame beside them fails closed).
+        byte[] frame = outcome is ReviewedHelperTransportOutcome.ResponseFrameReceived or ReviewedHelperTransportOutcome.RequestWrittenNoValidResponse
+            ? Protocol2InterpreterFixture.Frame(frozen, facts, reviewed) : [];
         return ReviewedUpdateProtocol2Interpreter.Interpret(frozen, outcome, frame, Protocol2InterpreterFixture.Nonce, desktop);
     }
 
