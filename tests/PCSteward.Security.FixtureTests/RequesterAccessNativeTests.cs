@@ -1,4 +1,5 @@
 using System.Security.AccessControl;
+using System.Security.Principal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32.SafeHandles;
 using PCSteward.Provider.Chocolatey.Native;
@@ -148,21 +149,31 @@ public sealed class RequesterAccessNativeTests
             Assert.AreEqual(directory, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Node), sddl);
             Assert.AreEqual(ancestor, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Ancestor), sddl);
         }
-        // N1 review H1: a conditional (callback) ACE depending on a resource attribute, or an object ACE, is never evaluated
-        // without its inputs: Unreadable, never Denied. The OWNER RIGHTS entry removes the owner's implied WRITE_DAC.
-        foreach (string conditional in new[]
+        // N1 review H1: a conditional (callback) allow/deny ACE or an object ACE is never evaluated without the claims or
+        // resource attributes it may depend on: Unreadable, never Denied. Built in binary form (no reliance on SDDL support for
+        // conditional expressions); the opaque payload carries the "artx" conditional-expression signature.
+        SecurityIdentifier requester = new(user);
+        byte[] conditionalPayload = [0x61, 0x72, 0x74, 0x78, 0x00, 0x00, 0x00, 0x00];
+        GenericAce[] nonPlain =
+        [
+            new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, 0x1F01FF, requester, isCallback: true, conditionalPayload),
+            new CommonAce(AceFlags.None, AceQualifier.AccessDenied, 0x1F01FF, requester, isCallback: true, conditionalPayload),
+            new ObjectAce(AceFlags.None, AceQualifier.AccessAllowed, 0x1, requester, ObjectAceFlags.ObjectAceTypePresent,
+                new Guid("bf967a86-0de6-11d0-a285-00aa003049e2"), Guid.Empty, isCallback: false, opaque: null),
+        ];
+        foreach (GenericAce ace in nonPlain)
         {
-            $"O:{user}G:{user}D:P(A;;{ReadExecute};;;OW)(XA;;FA;;;{user};(Exists @Resource.x))",
-            $"O:SYG:SYD:P(A;;{ReadExecute};;;{user})(XA;;FA;;;{user};(Exists @User.x))",
-            $"O:SYG:SYD:P(XD;;FA;;;{user};(Exists @Resource.x))(A;;{ReadExecute};;;{user})",
-            $"O:SYG:SYD:P(OA;;CC;bf967a86-0de6-11d0-a285-00aa003049e2;;{user})(A;;{ReadExecute};;;{user})",
-        })
-        {
-            byte[] descriptor = Binary(conditional);
-            Assert.AreEqual(RequesterModification.Unreadable, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, false, AccessMode.Node), conditional);
-            Assert.AreEqual(RequesterModification.Unreadable, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Ancestor), conditional);
+            RawSecurityDescriptor shaped = new($"O:{user}G:{user}D:P(A;;{ReadExecute};;;OW)(A;;{ReadExecute};;;{user})");
+            shaped.DiscretionaryAcl!.InsertAce(shaped.DiscretionaryAcl.Count, ace);
+            byte[] descriptor = new byte[shaped.BinaryLength];
+            shaped.GetBinaryForm(descriptor, 0);
+            Assert.AreEqual(RequesterModification.Unreadable, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, false, AccessMode.Node), ace.AceType.ToString());
+            Assert.AreEqual(RequesterModification.Unreadable, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Ancestor), ace.AceType.ToString());
         }
-                // A descriptor without an owner cannot be evaluated: Unreadable, never Denied.
+        // The same descriptor without the extra ACE is evaluated normally (plain ACEs only): Denied.
+        Assert.AreEqual(RequesterModification.Denied, RequesterAccess.EvaluateDescriptorForTests(token,
+            Binary($"O:{user}G:{user}D:P(A;;{ReadExecute};;;OW)(A;;{ReadExecute};;;{user})"), false, AccessMode.Node));
+        // A descriptor without an owner cannot be evaluated: Unreadable, never Denied.
         Assert.AreEqual(RequesterModification.Unreadable,
             RequesterAccess.EvaluateDescriptorForTests(token, Binary($"D:P(A;;{ReadExecute};;;{user})"), false, AccessMode.Node));
     }
