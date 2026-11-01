@@ -20,6 +20,14 @@
 - Architecture `DesktopProducersBoundaryTests` (5) and the extended `HelperEndpointBoundaryTests` pins (`Observe`, `TryFromCurrentProcess`).
 - Not claimed: Desktop composition, route admission, or Windows CI evidence for the 5 Windows-only tests.
 
+# Task 50 — N5 desktop producers and N6 review disclosure and history
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N5 and N6; [N6 scope](../review/TASK_50_N6_SCOPE.md).
+
+- N5: `ChocolateyDesktopProducersTests` (portable), `ChocolateyDesktopProducersNativeTests` (Windows-only, 5), the registration-digest golden vector in `ChocolateyProfileRulesTests`, and `DesktopProducersBoundaryTests`. Windows CI is green at `a749dba` and at `edb1d19` (after the review fixes).
+- N6: `ChocolateyReviewDisclosureTests`, the history and workflow tests in `ReviewedUpdateDispatchWorkflowTests`, and the non-admission pins in `DesktopProducersBoundaryTests`. Windows CI is green at `83377bc`.
+- Not claimed: Desktop UI rendering (N6 review M1), a production intent resolver, host evidence, or admission. See "Admission obligations" in the composition record.
+
 # Task 50 — N4b native port, Helper-role G1 and protocol-2 bootstrap
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; [design rev 6](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4, §7, §8, §10 and §11–§15; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N4b.

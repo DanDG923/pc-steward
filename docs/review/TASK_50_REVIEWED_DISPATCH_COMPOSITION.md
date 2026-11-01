@@ -574,3 +574,57 @@ An independent fresh-context review returned **PASS with fixes**: no false-Succe
 - **L5:** the Windows test retries the package rewrite and the folder rename on sharing violations (up to 5 times, with a growing back-off).
 
 **Windows CI on `edb1d19` is green**: Security 1108/1108, integration 888, domain 167, architecture 86.
+
+## Slice N6: review disclosure, history rendering and composition prep (`e864936..83377bc`)
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 N6 row, §(L6) and the lingering-installer disclosure; [scope](TASK_50_N6_SCOPE.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
+
+What it adds (Application and Provider layers; no Desktop or XAML change):
+- `ChocolateyReviewDisclosurePresentation.Present` (Application). It shows the Profile V2 user-cache text verbatim, the intent's own `IntentResolvedAt` (UTC), the runtime limits and package-script mode, the lingering-installer disclosure and the lib-bad residue note. It also lists closed unavailability reasons: not admitted pending host evidence (from the real `HasSupportedMode`), split token required (L6), token unsupported, token unknown, review mismatch. `CanConfirm` is false while any reason exists, which is always today.
+- History: `ReviewedUpdateHistoryView` gains computed `Route`, `VerificationDetail` and `LingeringProcessesNote`. There is no persistence change, and old rows still present. The workflow prefixes the helper's `lingering-descendants-terminated` token onto the recorded message, following the existing `helper-check-not-recorded` pattern.
+- `ChocolateyReviewedRouteComposition` (Provider.Chocolatey/Native): one `ChocolateyDispatchBaselines` shared by the evidence source and the verifier (closes N5 obligation (b) at the composition point); `ResolveReviewIntentAsync`, which accepts an intent only if the resolver's own time falls inside the call; `ProbeSplitTokenState`/`MapSplitToken`. Nothing in `src` constructs it.
+- Non-admission is pinned. Architecture tests: the composition is the only constructor of the producers; nothing in `src` constructs the composition or `ReviewedUpdateDispatchWorkflow`; `HasSupportedMode` compares only against `WinGetUserExactV3`. Behavioural tests: a split token plus a matching intent still gives `CanConfirm == false`.
+
+**Windows CI on `83377bc` is green**: Security 1119/1119, integration 941, domain 167, architecture 88. That run includes the Desktop and ScheduledHost Windows builds.
+
+A fresh integrated review of N6 and its seams with N0–N5 returned **PASS with fixes**. There is no Blocker, and nothing can make the route dispatchable. The review verified:
+- the disclosure text is verbatim;
+- the L6 mapping: Default and Full → NoSplitToken; malformed, unreadable or undefined → Unknown, which counts as unavailable;
+- the layering (Application references only Domain);
+- history compatibility;
+- the spoofing-resistant verification text;
+- the single shared baseline store.
+
+Findings:
+- **H1 (N4b gap; an admission obligation):** `ReviewedHelperEndpoint.FromObservation` always writes `launch-started` and drops `LingeringTerminated`, so the design's `lingering-descendants-terminated` diagnostic is never emitted, and the N6 note can never fire in production.
+- **M1 (admission obligation):** no Desktop UI renders the disclosure or the new history fields; `MainWindow` has no reviewed-update review or history screen. Before admission the Desktop must:
+  - render every `ChocolateyReviewDisclosureView` field before confirmation;
+  - enable Confirm only on `CanConfirm`, with `ReviewedUpdateReview.Confirm` still rechecking;
+  - probe the split-token state fresh at each review;
+  - render `Route`, `VerificationDetail`, `LingeringProcessesNote` and `HelperReport` in history;
+  - have a UI-level test.
+- **M2:** STATUS and traceability were not updated in the slice; recorded here and in STATUS.
+- **L1:** the lingering marker is added on any route and invocation.
+- **L2:** history matches the token anywhere in the diagnostic, not only at the start.
+- **L3:** `Route()` uses a catch-all label.
+- **L4:** `Matches()` has no time limit between the intent and the review.
+- **L5:** a false architecture-test comment about route dispatchers.
+- **L6:** no Windows test of the real split-token probe.
+- **Info:**
+  - the leading markers show in the user-visible diagnostic;
+  - Profile V2 line 73 says administrator proxy and client-certificate effects are "disclosed", but the review disclosure omits them; the owner or design must confirm whether the ADR-025 runtime-limits text supersedes this;
+  - obligation (a) needs a production intent resolver.
+
+H1, L1–L6 and the Info marker stripping are being fixed.
+
+### Admission obligations (consolidated, after N6)
+
+Admission of `ChocolateyMachineRuntimeLimitsV3` requires all of:
+1. owner host evidence: Chocolatey version eligibility (align to 2.7.5 or a reviewed re-pin), O5/A-Q1/A2-L3 on the eligible install, a target package, and AQ1UAC/runas;
+2. the ADR-025 exact-artifact test of the signed helper, including the §2.1 linked-token match and a real `AccessCheck` on the Chocolatey tree;
+3. an approved v2 redeploy;
+4. N6 review H1 (helper emits the lingering token), being fixed;
+5. N6 review M1 (Desktop review and history UI);
+6. N5 obligation (a): a production intent resolver called immediately before the observation;
+7. a decision on the Profile V2 proxy and client-certificate disclosure (N6 Info);
+8. a change to `HasSupportedMode` and the non-admission architecture pins, made only with explicit owner approval after items 1–7.

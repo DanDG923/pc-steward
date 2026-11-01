@@ -1,9 +1,14 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N6 review disclosure and history (2026-11-01):** `ChocolateyReviewDisclosurePresentation` (user-cache text verbatim, the intent's own time, runtime limits, the lingering-installer disclosure, and closed unavailability reasons including the L6 split-token rule; `CanConfirm` is always false today), history `Route`/`VerificationDetail`/`LingeringProcessesNote`, and `ChocolateyReviewedRouteComposition` (one shared baseline store, unconstructed). The route stays non-admitted, and architecture tests pin that. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
+- **Windows CI on `83377bc` is green** (Security 1119/1119, integration 941).
+- **Fresh integrated review: PASS with fixes.** H1: the helper never emits `lingering-descendants-terminated`. H1 and L1–L6 are being fixed. M1: there is no Desktop review or history UI yet; it is an admission obligation.
+- The consolidated admission obligations are in the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) ("Admission obligations"). Most are owner-gated.
+
 **Task 50 — slice N5 desktop producers (2026-11-01):** F′ `ChocolateyProfileEvidenceSource` (fresh-fingerprint evidence ID, one-use client-state baseline), review intent (UserCacheIntent with the Profile V2 disclosure), and `ChocolateyReviewedUpdateVerifier` (file-first, then an independent re-observation; never restart-pending). Also the registration-digest golden vector. Nothing is composed, so the route stays non-admitted. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `a749dba` is green on the first attempt** (Security 1098/1098, including the 5 Windows-only producer tests).
 - **Independent review: PASS with fixes.** The L1–L5 and M1 code fixes are in `edb1d19`, and **Windows CI is green** (Security 1108/1108). M1 is a recorded scope deferral: the review intent is supplied and validated, not captured by running `outdated`. That, and sharing one baseline store between source and verifier, are N6 obligations.
-- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N6 (UI and history), in progress.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). N6 is done (see above).
 
 **Task 50 — slice N4b native port and protocol-2 wiring (2026-11-01):** `NativeChocolateyHelperQualification`, the native item and peer, the Helper-role G1 reader (`HelperDeploymentCapabilityCheck`) and `ReviewedHelperBootstrap`; `--protocol 2` now reaches the endpoint, and protocol 1 is unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `c91a0e0` is green on the first attempt**, including the 23 Windows-only N4b tests (Security fixtures 1023/1023).
