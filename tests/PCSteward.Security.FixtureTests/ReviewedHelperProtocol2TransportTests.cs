@@ -19,6 +19,8 @@ public sealed class ReviewedHelperProtocol2TransportTests
 {
     private static readonly string Nonce = Protocol2InterpreterFixture.Nonce;
     private static readonly TimeSpan HelperWait = TimeSpan.FromSeconds(30);
+    // Every exchange is budget-bounded; this outer bound turns any platform hang into a named failure, not a suite timeout.
+    private static readonly TimeSpan ExchangeWait = TimeSpan.FromSeconds(60);
     private static readonly ReviewedHelperBudgets Fast = new(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
 
     // ---- Exchange session (portable) ----
@@ -35,7 +37,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
             await PipeMessageFraming.WriteAsync(client, response, CancellationToken.None);
         }, exitAfter: true);
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None).WaitAsync(ExchangeWait);
         await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.ResponseFrameReceived, exchange.Outcome);
@@ -99,7 +101,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
             }
         }, exitAfter: true);
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None).WaitAsync(ExchangeWait);
         // The desktop stops reading after the first surplus byte; close its end so a helper still writing is released.
         await harness.DisposeServerAsync();
         await helper.WaitAsync(HelperWait);
@@ -123,7 +125,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
             await release.Task;
         });
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Execution = TimeSpan.FromMilliseconds(300) }, CancellationToken.None);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Execution = TimeSpan.FromMilliseconds(300) }, CancellationToken.None).WaitAsync(ExchangeWait);
         release.SetResult();
         await helper.WaitAsync(HelperWait);
 
@@ -146,7 +148,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
             await PipeMessageFraming.WriteAsync(client, response, CancellationToken.None);
         });
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Exit = TimeSpan.FromMilliseconds(300) }, CancellationToken.None);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Exit = TimeSpan.FromMilliseconds(300) }, CancellationToken.None).WaitAsync(ExchangeWait);
         await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.ResponseFrameReceived, exchange.Outcome);
@@ -183,7 +185,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
             bytesSeenByHelper = await client.ReadAsync(new byte[1]);
         });
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, cancellation.Token);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, cancellation.Token).WaitAsync(ExchangeWait);
         await harness.DisposeServerAsync();
         await helper.WaitAsync(HelperWait);
 
@@ -205,7 +207,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
         await using Harness harness = new();
         harness.Exit.SetResult();
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None).WaitAsync(ExchangeWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, exchange.Outcome);
         Assert.AreEqual(0, harness.Channel.VerifyCalls);
@@ -219,7 +221,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
         ReviewedUpdateOperation operation = Protocol2InterpreterFixture.Operation();
         await using Harness harness = new();
 
-        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Connection = TimeSpan.FromMilliseconds(200) }, CancellationToken.None);
+        ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Connection = TimeSpan.FromMilliseconds(200) }, CancellationToken.None).WaitAsync(ExchangeWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, exchange.Outcome);
         Assert.AreEqual(1, harness.Terminations);
@@ -234,7 +236,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
         await using Harness harness = new() { TerminateSucceeds = false, TerminateCompletesExit = false };
 
         ReviewedHelperExchange exchange = await harness.RunAsync(operation,
-            Fast with { Connection = TimeSpan.FromMilliseconds(200), Exit = TimeSpan.FromMilliseconds(200) }, CancellationToken.None);
+            Fast with { Connection = TimeSpan.FromMilliseconds(200), Exit = TimeSpan.FromMilliseconds(200) }, CancellationToken.None).WaitAsync(ExchangeWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, exchange.Outcome);
         Assert.IsTrue(exchange.Desktop.TerminationFailed);
@@ -255,7 +257,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
         foreach (ReviewedUpdateOperation operation in new[] { WinGetOperation(),
             Protocol2InterpreterFixture.Operation(route: UpdateRouteContract.ChocolateyMachineProvisionalV3) })
         {
-            ReviewedHelperExchange exchange = await transport.ExchangeAsync(operation, Nonce, CancellationToken.None);
+            ReviewedHelperExchange exchange = await transport.ExchangeAsync(operation, Nonce, CancellationToken.None).WaitAsync(ExchangeWait);
             Assert.AreEqual(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, exchange.Outcome);
             Assert.AreEqual(0, exchange.ResponseFrame.Length);
         }
@@ -283,7 +285,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
             () => scenario != "caller-untrusted",
             (string _, string _, string _, out bool declined) => { launches++; declined = false; return null; }, Fast);
 
-        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None);
+        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None).WaitAsync(ExchangeWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, exchange.Outcome, scenario);
         Assert.AreEqual(0, launches);
@@ -330,7 +332,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
                 return scenario == "launcher-throws" ? throw new InvalidOperationException("synthetic") : null;
             }, Fast);
 
-        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, cancellation.Token);
+        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, cancellation.Token).WaitAsync(ExchangeWait);
 
         Assert.AreEqual(expected, exchange.Outcome, scenario);
         Assert.AreEqual(expectedLaunches, launches, scenario);
@@ -364,7 +366,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
                 return Process.Start(start);
             }, Fast);
 
-        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None);
+        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None).WaitAsync(ExchangeWait);
 
         Assert.IsTrue(heldAtLaunch);
         Assert.AreEqual(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, exchange.Outcome);
@@ -419,7 +421,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
                 return child;
             }, Fast);
 
-        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None);
+        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None).WaitAsync(ExchangeWait);
         (bool heldMidExchange, int bytesSeen) = await impostor!.WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.IsTrue(heldMidExchange, "the binding is held while the helper process runs");
