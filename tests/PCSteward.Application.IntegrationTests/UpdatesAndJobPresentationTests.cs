@@ -11,7 +11,15 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class UpdatesAndJobPresentationTests
 {
     private static readonly string[] ExpectedFactLabels = ["App", "Version", "Publisher", "Source", "Updated with", "Package ID", "Scope", "Architecture", "Channel"];
-    private static readonly string[] FourOutcomeLabels = ["Verified", "Restart required", "Installed, not verified", "Failed"];
+    private static readonly Dictionary<UpdateOutcomeKind, string> OutcomeLabels = new()
+    {
+        [UpdateOutcomeKind.Verified] = "Verified",
+        [UpdateOutcomeKind.RestartRequired] = "Restart required",
+        [UpdateOutcomeKind.InstalledNotVerified] = "Installed, not verified",
+        [UpdateOutcomeKind.Failed] = "Failed",
+        [UpdateOutcomeKind.NotStarted] = "Not started",
+        [UpdateOutcomeKind.ResultNotVerified] = "Result not verified"
+    };
     private static readonly string[] ReadyKeys = ["ready"];
     private static readonly string[] NeedsReviewKeys = ["review", "unavailable"];
     private static readonly string[] IgnoredKeys = ["ignored", "pinned"];
@@ -287,7 +295,7 @@ public sealed class UpdatesAndJobPresentationTests
     }
 
     [TestMethod]
-    [Description("FR-UPD-07–09; FR-HIS-03; UJ-04 step 8 (audit P-H3): every recorded status maps to Verified, Restart required, Installed, not verified, Failed or Not started; only Success is Verified.")]
+    [Description("FR-UPD-07–09; FR-HIS-03; UJ-04 step 8 (audit P-H3; independent review): every recorded status maps to Verified, Restart required, Installed, not verified, Result not verified, Failed or Not started; only Success is Verified; a timeout is never Failed or Review again.")]
     public void EveryRecordedStatusMapsToAnHonestOutcome()
     {
         Dictionary<UpdateHistoryStatus, UpdateOutcomeKind> expected = new()
@@ -295,9 +303,9 @@ public sealed class UpdatesAndJobPresentationTests
             [UpdateHistoryStatus.Success] = UpdateOutcomeKind.Verified,
             [UpdateHistoryStatus.RestartRequired] = UpdateOutcomeKind.RestartRequired,
             [UpdateHistoryStatus.Inconclusive] = UpdateOutcomeKind.InstalledNotVerified,
-            [UpdateHistoryStatus.VerificationRequired] = UpdateOutcomeKind.InstalledNotVerified,
+            [UpdateHistoryStatus.VerificationRequired] = UpdateOutcomeKind.ResultNotVerified,
             [UpdateHistoryStatus.VerificationFailed] = UpdateOutcomeKind.InstalledNotVerified,
-            [UpdateHistoryStatus.Running] = UpdateOutcomeKind.InstalledNotVerified,
+            [UpdateHistoryStatus.Running] = UpdateOutcomeKind.ResultNotVerified,
             [UpdateHistoryStatus.ElevationDenied] = UpdateOutcomeKind.NotStarted,
             [UpdateHistoryStatus.Cancelled] = UpdateOutcomeKind.NotStarted,
             [UpdateHistoryStatus.Queued] = UpdateOutcomeKind.NotStarted,
@@ -305,15 +313,16 @@ public sealed class UpdatesAndJobPresentationTests
             [UpdateHistoryStatus.SourceFailed] = UpdateOutcomeKind.Failed,
             [UpdateHistoryStatus.DownloadFailed] = UpdateOutcomeKind.Failed,
             [UpdateHistoryStatus.InstallerFailed] = UpdateOutcomeKind.Failed,
-            [UpdateHistoryStatus.TimedOut] = UpdateOutcomeKind.Failed,
+            [UpdateHistoryStatus.TimedOut] = UpdateOutcomeKind.InstalledNotVerified,
             [UpdateHistoryStatus.ProductFailed] = UpdateOutcomeKind.Failed
         };
         CollectionAssert.AreEquivalent(Enum.GetValues<UpdateHistoryStatus>(), expected.Keys.ToArray(), "every enum value is covered");
+        CollectionAssert.AreEquivalent(Enum.GetValues<UpdateOutcomeKind>(), OutcomeLabels.Keys.ToArray(), "every display state has a label");
         foreach (UpdateHistoryStatus status in Enum.GetValues<UpdateHistoryStatus>())
         {
             UpdateOutcomePresentation outcome = UpdateOutcomePresenter.ForStatus(status, "diag", 1, "2.0");
             Assert.AreEqual(expected[status], outcome.Kind, status.ToString());
-            Assert.AreEqual(outcome.Kind == UpdateOutcomeKind.NotStarted ? "Not started" : FourOutcomeLabels[(int)outcome.Kind], outcome.Label, status.ToString());
+            Assert.AreEqual(OutcomeLabels[outcome.Kind], outcome.Label, status.ToString());
             Assert.IsFalse(string.IsNullOrWhiteSpace(outcome.Summary), status.ToString());
             Assert.IsFalse(string.IsNullOrWhiteSpace(outcome.NextStep), status.ToString());
             Assert.IsFalse(string.IsNullOrEmpty(outcome.Glyph), "icon plus text");
@@ -321,10 +330,35 @@ public sealed class UpdatesAndJobPresentationTests
             Assert.AreEqual(status == UpdateHistoryStatus.ElevationDenied, outcome.ReturnsToReview, status.ToString());
             Assert.IsFalse(outcome.Summary.Contains("Update failed", StringComparison.Ordinal), "no flattened failure title");
             if (outcome.Kind == UpdateOutcomeKind.Verified) Assert.AreEqual(UpdateHistoryStatus.Success, status, "only verified re-inventory reads as Verified");
+            if (outcome.Kind == UpdateOutcomeKind.RestartRequired) Assert.AreEqual(UpdateHistoryStatus.RestartRequired, status, "only a reliable restart-pending result reads as Restart required");
             if (outcome.Kind == UpdateOutcomeKind.NotStarted) Assert.AreNotEqual(StatusTone.Critical, outcome.Tone, "not started is not shown as a failure");
+            if (outcome.Kind is UpdateOutcomeKind.InstalledNotVerified or UpdateOutcomeKind.ResultNotVerified)
+            {
+                Assert.AreEqual(StatusTone.Attention, outcome.Tone, status.ToString());
+                Assert.IsTrue(outcome.NextStep.StartsWith("Scan again", StringComparison.Ordinal), $"{status}: the next step is to scan again");
+            }
         }
+
+        // A timeout: "Installed, not verified" with timeout wording, Scan again, never a failure or a new review.
+        UpdateOutcomePresentation timedOut = UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.TimedOut, null, null, "2.0");
+        Assert.AreEqual(UpdateOutcomeKind.InstalledNotVerified, timedOut.Kind);
+        Assert.AreEqual("Installed, not verified", timedOut.Label);
+        StringAssert.Contains(timedOut.Summary, "took too long and PC Steward stopped waiting");
+        StringAssert.Contains(timedOut.Summary, "may have partly applied");
+        StringAssert.StartsWith(timedOut.NextStep, "Scan again");
+        Assert.IsFalse(timedOut.NextStep.Contains("review the update again", StringComparison.OrdinalIgnoreCase), "no Review again after a timeout");
+        Assert.IsFalse(timedOut.ReturnsToReview);
+
+        // Verification required reads as installed only when the provider reported finishing; otherwise nothing shows it ran.
+        Assert.AreEqual(UpdateOutcomeKind.InstalledNotVerified,
+            UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationRequired, UpdateOutcomePresenter.ProviderCompletedCheckInterruptedDiagnostic, null, "2.0").Kind);
+        Assert.AreEqual(UpdateOutcomeKind.InstalledNotVerified, UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationRequired, "diag", 0, "2.0").Kind);
+        Assert.AreEqual(UpdateOutcomeKind.ResultNotVerified,
+            UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationRequired, "recovered-after-interrupted-started-update; verification-required", null, "2.0").Kind);
+        Assert.AreEqual(UpdateOutcomeKind.ResultNotVerified, UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationRequired, null, null, "2.0").Kind);
+        Assert.AreEqual(UpdateOutcomeKind.ResultNotVerified, UpdateOutcomePresenter.ForStatus((UpdateHistoryStatus)999, null, null, "2.0").Kind,
+            "an unreadable recorded outcome is not described as installed");
         StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.ElevationDenied, "user-declined-elevation", null, "2.0").Summary, "cancelled the Windows permission prompt");
-        StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.TimedOut, null, null, "2.0").Summary, "may have partly run");
         StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed, null, 1603, "2.0").Summary, "exit code 1603");
         Assert.AreEqual(ElevationStory.HelperMissingOutcome,
             UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.ProductFailed, UpdateOutcomePresenter.HelperMissingDiagnostic, null, "2.0").Summary);
@@ -375,7 +409,17 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.AreEqual(UpdateOutcomeKind.NotStarted, late.Items.Single().Outcome.Kind);
 
         UpdateJobCompletion unrecorded = UpdateOutcomePresenter.ForResult(new(true, "no recorded outcome", null), selection, "Widget");
-        Assert.AreEqual(UpdateOutcomeKind.InstalledNotVerified, unrecorded.Items.Single().Outcome.Kind, "an unrecorded run is never Verified");
+        Assert.AreEqual(UpdateOutcomeKind.ResultNotVerified, unrecorded.Items.Single().Outcome.Kind, "an unrecorded run is never Verified or described as installed");
+        Assert.AreEqual("Result not verified", unrecorded.Headline);
+        Assert.AreEqual("Result not verified", unrecorded.Items.Single().Outcome.Label);
+        Assert.IsFalse(unrecorded.ReturnsToReview);
+        StringAssert.StartsWith(unrecorded.Items.Single().Outcome.NextStep, "Scan again");
+
+        UpdateJobCompletion interrupted = UpdateOutcomePresenter.ForResult(Result(true, selection, UpdateHistoryStatus.VerificationRequired), selection, "Widget");
+        Assert.AreEqual("Result not verified", interrupted.Headline, "verification required with no evidence of installation");
+
+        UpdateJobCompletion timedOut = UpdateOutcomePresenter.ForResult(Result(true, selection, UpdateHistoryStatus.TimedOut), selection, "Widget");
+        Assert.AreEqual("Installed, not verified", timedOut.Headline, "a timeout is not shown as a failure");
         Assert.AreEqual("No outcome recorded", new UpdateJobCompletion([]).Headline);
     }
 

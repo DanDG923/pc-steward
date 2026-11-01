@@ -385,7 +385,10 @@ public sealed class ReferenceBoundaryTests
         Assert.AreEqual(1, presenter.Split("UpdateOutcomeKind.Verified, VerifiedLabel", StringSplitOptions.None).Length - 1, "only one path reads as Verified");
         Assert.AreEqual(1, presenter.Split("UpdateOutcomeKind.RestartRequired, RestartRequiredLabel", StringSplitOptions.None).Length - 1, "only one path reads as Restart required");
         StringAssert.Contains(presenter, "UpdateHistoryStatus.ElevationDenied => new(UpdateOutcomeKind.NotStarted");
-        StringAssert.Contains(presenter, "_ => NotVerified(");
+        // Independent review: an unreadable outcome, an unrecorded run and an interrupted run with no evidence of installation read
+        // as "Result not verified", never "Installed, not verified" or Verified.
+        StringAssert.Contains(presenter, "_ => ResultNotVerified(");
+        StringAssert.Contains(presenter, "UpdateOutcomeKind.ResultNotVerified => \"Result not verified\"");
         // The helper-missing copy still comes from the portable ElevationStory (audit P-H5).
         StringAssert.Contains(presenter, "Failed(ElevationStory.HelperMissingOutcome, technical)");
         StringAssert.Contains(presenter, "HelperMissingDiagnostic = \"elevated-helper-fixed-installed-path-invalid\"");

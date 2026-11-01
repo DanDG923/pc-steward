@@ -224,14 +224,19 @@ public static class UpdateJobProgressText
     }
 }
 
-/// <summary>The outcome shown on the Verify step. The first four are the ADR-030 outcomes; <see cref="NotStarted"/> is not a failure.</summary>
+/// <summary>
+/// The outcome shown on the Verify step. The first four are the ADR-030 outcomes; <see cref="NotStarted"/> is not a failure.
+/// <see cref="ResultNotVerified"/> is the honest reading when nothing shows that the update was installed and nothing checked it
+/// (independent review: "Installed, not verified" would overstate what is known).
+/// </summary>
 public enum UpdateOutcomeKind
 {
     Verified,
     RestartRequired,
     InstalledNotVerified,
     Failed,
-    NotStarted
+    NotStarted,
+    ResultNotVerified
 }
 
 /// <summary>One per-item outcome on the Verify step.</summary>
@@ -269,13 +274,17 @@ public sealed record UpdateJobCompletion(IReadOnlyList<UpdateJobItemOutcome> Ite
         UpdateOutcomeKind.RestartRequired => "Restart required to finish",
         UpdateOutcomeKind.InstalledNotVerified => "Installed, not verified",
         UpdateOutcomeKind.Failed => "Update failed",
+        UpdateOutcomeKind.ResultNotVerified => "Result not verified",
         _ => "Update not started"
     };
 }
 
 /// <summary>
 /// FR-UPD-07–09, FR-HIS-03, UJ-04 step 8 (Task 73 Phase 2, ADR-030 foundation 3; audit P-H3): maps every recorded outcome to one
-/// of four honest labels — Verified, Restart required, Installed, not verified and Failed — or to "Not started" when nothing ran.
+/// of four honest labels — Verified, Restart required, Installed, not verified and Failed — or to "Not started" when nothing ran,
+/// or to "Result not verified" when nothing shows the update was installed and nothing checked it. "Installed, not verified" is
+/// kept for results where the installer reported finishing (or ran until PC Steward stopped waiting) but the check failed or was
+/// inconclusive.
 /// Only <see cref="UpdateHistoryStatus.Success"/> (post-update inventory found the target version) reads as Verified, and only
 /// <see cref="UpdateHistoryStatus.RestartRequired"/> (a reliable restart-pending result) reads as Restart required. Presentation
 /// only: it reads recorded results and never changes them.
@@ -287,9 +296,13 @@ public static class UpdateOutcomePresenter
     public const string InstalledNotVerifiedLabel = "Installed, not verified";
     public const string FailedLabel = "Failed";
     public const string NotStartedLabel = "Not started";
+    public const string ResultNotVerifiedLabel = "Result not verified";
 
     /// <summary>The diagnostic recorded when the machine-wide update helper is missing (existing special case).</summary>
     public const string HelperMissingDiagnostic = "elevated-helper-fixed-installed-path-invalid";
+
+    /// <summary>The diagnostic recorded when the provider finished but the post-update check was interrupted (existing workflow text).</summary>
+    public const string ProviderCompletedCheckInterruptedDiagnostic = "verification-interrupted-after-provider-completed";
 
     private const string CheckAgain = "Scan again to check the installed version. PC Steward hasn't recorded this update as successful.";
     private const string TryAgain = "Check the app in Installed apps, then review the update again from Updates.";
@@ -306,8 +319,11 @@ public static class UpdateOutcomePresenter
                 "Restart when it suits you. PC Steward never restarts your PC.", technical),
             UpdateHistoryStatus.Inconclusive => NotVerified($"The installer finished, but PC Steward didn't find version {targetVersion} when it checked again.", technical),
             UpdateHistoryStatus.VerificationFailed => NotVerified("The installer finished, but PC Steward couldn't complete its check of installed apps.", technical),
-            UpdateHistoryStatus.VerificationRequired or UpdateHistoryStatus.Running => NotVerified(
-                "The update may have run, but it was interrupted before PC Steward could check the installed version.", technical),
+            // Verification required is "installed" only when the provider reported finishing; otherwise nothing shows it ran.
+            UpdateHistoryStatus.VerificationRequired when ProviderReportedFinishing(diagnostic, exitCode) => NotVerified(
+                "The installer finished, but PC Steward was interrupted before it could check the installed version.", technical),
+            UpdateHistoryStatus.VerificationRequired or UpdateHistoryStatus.Running => ResultNotVerified(
+                "The update may have started, but it was interrupted before PC Steward could check the installed version.", technical),
             UpdateHistoryStatus.ElevationDenied => new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral,
                 "Not started — you cancelled the Windows permission prompt, so nothing was changed.",
                 "Your review is still here. Start a new review when you want to try again.", technical, ReturnsToReview: true),
@@ -320,13 +336,15 @@ public static class UpdateOutcomePresenter
             UpdateHistoryStatus.SourceFailed => Failed("The package source couldn't provide the update.", technical),
             UpdateHistoryStatus.DownloadFailed => Failed("The update couldn't be downloaded.", technical),
             UpdateHistoryStatus.InstallerFailed => Failed(exitCode is { } code ? $"The installer reported an error (exit code {code})." : "The installer reported an error.", technical),
-            // A timeout ends the attempt before any verification runs, so the installed version is unknown: it is a failure
-            // class (FR-HIS-03), never "installed". The copy says it may have partly run.
-            UpdateHistoryStatus.TimedOut => Failed("The update took too long and was stopped before PC Steward could check it. It may have partly run.", technical),
+            // A timeout ends the attempt before any verification runs. The recorded status stays TimedOut (FR-HIS-03); the display
+            // is "Installed, not verified" because the installer ran until PC Steward stopped waiting and may have partly applied.
+            // The next step is to scan again, not to review again (independent review).
+            UpdateHistoryStatus.TimedOut => NotVerified(
+                "The update took too long and PC Steward stopped waiting. It may have partly applied — scan again to check.", technical),
             UpdateHistoryStatus.ProductFailed when string.Equals(diagnostic, HelperMissingDiagnostic, StringComparison.Ordinal) =>
                 Failed(ElevationStory.HelperMissingOutcome, technical),
             UpdateHistoryStatus.ProductFailed => Failed("PC Steward couldn't run the update.", technical),
-            _ => NotVerified("PC Steward couldn't read the recorded outcome.", technical)
+            _ => ResultNotVerified("PC Steward couldn't read the recorded outcome.", technical)
         };
     }
 
@@ -350,13 +368,19 @@ public static class UpdateOutcomePresenter
             return new([Item(new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral,
                 $"Not started — {result.Message}", TryAgain, "not-started"))]);
         // Started but nothing was recorded: execution or verification may have been interrupted. Never Verified.
-        return new([Item(NotVerified(
+        return new([Item(ResultNotVerified(
             "PC Steward didn't record an outcome for this update. It may or may not have run, and the installed version wasn't checked.",
             "no-recorded-outcome"))]);
     }
 
     private static UpdateOutcomePresentation NotVerified(string summary, string technical) =>
         new(UpdateOutcomeKind.InstalledNotVerified, InstalledNotVerifiedLabel, "", StatusTone.Attention, summary, CheckAgain, technical);
+
+    private static UpdateOutcomePresentation ResultNotVerified(string summary, string technical) =>
+        new(UpdateOutcomeKind.ResultNotVerified, ResultNotVerifiedLabel, "\uE9CE", StatusTone.Attention, summary, CheckAgain, technical);
+
+    private static bool ProviderReportedFinishing(string? diagnostic, int? exitCode) =>
+        exitCode == 0 || string.Equals(diagnostic, ProviderCompletedCheckInterruptedDiagnostic, StringComparison.Ordinal);
 
     private static UpdateOutcomePresentation Failed(string summary, string technical) =>
         new(UpdateOutcomeKind.Failed, FailedLabel, "", StatusTone.Critical, summary, TryAgain, technical);
