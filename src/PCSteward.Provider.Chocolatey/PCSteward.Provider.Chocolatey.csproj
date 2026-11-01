@@ -8,6 +8,9 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PCSteward.Application.IntegrationTests" />
+    <!-- Task 50 design rev 6 §2 (M1): Execution reaches native code only through the qualification port; an
+         architecture allow-list pins which Execution files may name PCSteward.Provider.Chocolatey.Native. -->
+    <InternalsVisibleTo Include="PCSteward.Execution" />
     <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
   </ItemGroup>
 </Project>
