@@ -277,5 +277,22 @@ Linux after remediation:
 
 Fix: the harness pipe now uses the production restricted-pipe buffer sizes (16 KiB). The surplus-byte test closes the desktop end before awaiting the helper and tolerates the resulting `IOException`. Every helper wait is bounded at 30 s. The transport itself is unchanged: production pipes have 16 KiB buffers, and the desktop never waits on a helper write.
 
-Windows CI on the harness fix is pending.
+**Windows CI on `52e81e4`** ([run 41296745848](https://github.com/DanDG923/pc-steward/actions/runs/41296745848)): green with nothing skipped. Architecture 46/46, Domain 167/167, Application 883/883, and Security **523/523**: 481 previous tests plus all 42 new transport tests, of which 13 are Windows-only. Those cover the real held binding, the real peer check and real child processes.
+
+### Delta re-review of the remediation (`5ac5662`, `52e81e4`, `58740fc`): PASS
+
+A fresh-context reviewer, pinned to `58740fc` from start to end, returned **PASS** with no safety defect. It confirmed:
+
+- findings 1–6 are closed;
+- protocol 1 is not weakened. `HelperBootstrap` still requires `--protocol 1` and the `pcsteward-elevated-` locator, the protocol-1 transport still creates only that locator, and any cross-connection would also fail the launched-helper PID check;
+- the `HelperProcessWork` failure path cannot settle. Its ownership task never completes and H is false, so the interpreter rejects it;
+- the hang diagnosis is sound, and production cannot deadlock the same way. Every desktop pipe operation is token-bounded on an overlapped pipe, and the desktop never waits on a helper write;
+- the test changes do not weaken assertions.
+
+Recorded, non-blocking:
+
+- **L1.** The `HelperProcessWork` failure branch is effectively unreachable (its constructor only throws `ArgumentNullException`), untested, and does not dispose the `Process` handle. It fails closed.
+- **L2.** The "held while running" sample is taken once, during the connection wait. Early release after peer refusal is guarded by the architecture test (exactly two release points; release only through the ownership continuation).
+- **I1.** Only the PID check of the channel's peer verification is exercised. The signer and image-identity checks need the protocol-2 helper endpoint for an end-to-end test. `PeerImageMatchesHelper` itself is covered by `DeploymentCapabilityReaderTests`.
+- **I2.** The late-release architecture check matches the literal `ReleaseWithoutHelper(binding);`; the exact two-`.Dispose()` count still guards direct disposal.
 
