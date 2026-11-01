@@ -380,3 +380,41 @@ An independent code review (Opus, `ce4839d`) returned **CONDITIONAL**. It verifi
 | L3 | Low | The environment/registry ban covered only the N1 files | The ban now covers the whole `Native/` folder |
 | Info | — | ReFS wide IDs and WOF, dedup or OneDrive reparse tags refuse, so GAC roots may be unavailable on CompactOS machines | Recorded (fail closed) |
 
+## Slice N2: static Chocolatey profile observer (`4c1ec2f..70966c0`)
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §3, §3.1, §2.3 and §8 N2. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+
+Implemented in `PCSteward.Provider.Chocolatey.Native`, all internal and with no `src` caller:
+- `ChocolateyReleaseManifest2_7_5`: a generated table, equal to the JSON;
+- `ChocolateyProfileObservation`: private construction, with a held-file holder;
+- the closed `ChocolateyProfileResult`: Observed, Refused, TimedOut or Cancelled;
+- `ChocolateyProfileObserver`: steps 1–9 and 8a in rev 6 order, with a test-only seam banned from `src` in compiled IL;
+- `ChocolateyProfileRules`: pure rules;
+- `ChocolateyEngineTrust`: manifest hash, WinVerifyTrust on the held handle, the signer from that chain, and version 2.7.5.0.
+
+The implementer's deviations are all stricter or test-only:
+- the whole root is walked once;
+- extra helpers/tools directories, `chocolatey.licensed` anywhere under the root, and pending markers anywhere under `lib` all refuse;
+- a negative source priority refuses at step 6;
+- an absent GAC root is accepted only under the M3 parent-deny rule;
+- the `lib-bkp` rule also matches 8.3 short names (hence the walker's `ShortName`/`TryListChildren`);
+- a new registration-digest encoding, `pc-steward-choco-client-registration:1`.
+
+Windows CI on `70966c0` passed 737 of 738 Security tests. The one failure was fixture setup: the log-file ACL was applied after `logs` had been deleted. It is fixed in `8cc8bf8`.
+
+An independent code review (Opus, pinned `4c1ec2f..70966c0`) returned **PASS**, with no Blocker, High or Medium finding and no false-Observed path. Every refusal re-checks the interrupt state, and Observed is returned only after a final check. The reviewer verified:
+- every step against Profile V2 and Task 90, including the source resolution and S6–S9 values;
+- TOCTOU: hashing and holding go through the same share-read handles;
+- the L3 fingerprint, with the golden reproduced through substitution;
+- the IL seam ban;
+- the manifest, compared independently with Python.
+
+**Logs directory question resolved.** The reviewer fetched the pinned `setup.psm1` (blob `c66c1282` verified). Lines 349–353 add Users `Write` with `ObjectInherit | InheritOnly`, so the grant applies only to files created inside `logs`, not to the directory. Default installs therefore pass. Non-default install folders, and `ChocolateyInstallAllowCurrentUser`, correctly refuse.
+
+Recorded items, none blocking:
+- **L1 (availability).** A single 32,768-entry/depth-32 walk covers the whole root, including `lib` package contents and `logs`, so a large but healthy install could exceed it and be refused. A running choco holding a log file open for writing also makes the share-read open fail, so the result is Unreadable and the route is refused while choco runs. This is accepted as a stricter, fail-closed choice. Per-tree budgets are a later option if owner-host evidence shows real installs exceed the bound.
+- **L2 (document reconciliation, integrating note).** Fact extension rev 3 §8 lists "stage-D registration vanished → InstalledMismatch with installed null". Design rev 6 §3 step 7 (L5) maps a missing target registration to `MachineInputsUnsupported`, and N2 follows rev 6. Settled by rev 3's own S6–S9, it stays `Refused` with installed and candidate null, so the outcome is the same settled Refused. This note annotates rev 3 §8 for the N4 stage-machine tests without rewriting the pinned artifact.
+- **Info.** A `Compute` exception after steps 8/8a is reachable only with a non-canonical SID, which a real token cannot produce. A SID pre-check is optional.
+- **Info, an N5 obligation.** The registration-digest encoding is sound, but it needs an independent golden vector before N5 persists or compares digests across builds. Drift would read as ClientChanged, which fails safe. The sort key uses `\` while the hashed paths use `/`; this is deterministic.
+- **Info, N5.** The M2 postcheck passes the expected new version as `frozenInstalled`. Leftover `lib-bkp` or pending state then refuses, giving Unverified.
+

@@ -1,5 +1,12 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N2 static profile observer (2026-11-01):** The design rev 6 §3 observer: the compiled 2.7.5 manifest, steps 1–9 and 8a, held-handle engine trust, and closed results with interrupt arms. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+- **Independent review: PASS.** No Blocker, High or Medium, and no false-eligible path.
+- **The logs-directory concern is resolved:** the setup grant applies to files only.
+- Recorded items: L1 (single-walk availability), L2 (rev 3 §8 reconciliation note), and an N5 golden-vector obligation for the registration digest.
+- Windows CI on `70966c0`: 737/738. The one fixture failure is fixed in `8cc8bf8`, with CI pending.
+- No `src` caller. See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N3 (fixed queries and the held client binding).
+
 **Task 50 — slice N1 native primitives (2026-11-01):** Requester token policy and factories, AccessCheck in Node and Ancestor modes, the protected node reader, the bounded tree walker and native path resolution. Design rev 6 §2. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
 
 The independent review was CONDITIONAL. Its **H1** finding is fixed: conditional or object ACEs are now Unreadable, and resource attributes are read. L2 and L3 are fixed, and L1 is recorded.
