@@ -8,7 +8,7 @@ Windows CI fixture issues are fixed:
 - children-first locking;
 - `KF_FLAG_DONT_VERIFY` for known folders.
 
-`GetUserProfileDirectory` on the identification token is confirmed to work on CI. See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Windows CI on the remediation commit is pending. No `src` caller.
+`GetUserProfileDirectory` on the identification token is confirmed to work on CI. See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). **Windows CI on `a6dce2e` is green**: Security 665/665, with every Windows-only N1 test run; Application 883; Architecture 59; Domain 167; nothing skipped. No `src` caller. Next: N2, the static profile observer.
 
 **Task 50 — host evidence run completed (2026-11-01):** The owner ran the approved Default steps (H1, H1b, H2, H5, H6; cleanup complete). The results are in the [result JSON](review/TASK_50_HOST_EVIDENCE_RESULT.json) and the [interpretation](review/TASK_50_HOST_EVIDENCE_INTERPRETATION.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 
