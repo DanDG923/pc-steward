@@ -14,8 +14,8 @@ namespace PCSteward.ArchitectureTests;
 /// allow-listed stage-C values (N4a), and Execution never names the launcher, the spec, the binding or a compiled command;</item>
 /// <item>the binding, the command hierarchy (base and every nested record), the query outcome and the spec have only
 /// private constructors; the command and candidate-value hierarchies are closed;</item>
-/// <item>every N3 factory and hold-release hook has exactly its pinned caller, and the command factories have no
-/// <c>src</c> caller until the N4 item exists;</item>
+/// <item>every N3 factory and hold-release hook has exactly its pinned caller; since N4b the command factories, the three
+/// client launches and the stage-C mapping are called only by the native item's work;</item>
 /// <item>the N3 files never build a <c>ProcessStartInfo</c>, start a process directly, or read ambient state.</item>
 /// </list>
 /// The test-only seams (spec factory, fault entry, observer seam, derived token) stay banned by their own tests.
@@ -31,6 +31,7 @@ public sealed class ClientQueriesBoundaryTests
     private const string Values = Native + "ChocolateyCandidateValues";
     private const string Spec = Native + "NativeLaunchSpec";
     private const string LaunchJob = Native + "LaunchJob";
+    private const string ItemWork = Native + "NativeChocolateyHelperItem+NativeWork";
 
     private static readonly string[] N3Types =
     [
@@ -73,15 +74,15 @@ public sealed class ClientQueriesBoundaryTests
         (Command + "+Upgrade", "TryCreate", [Command + ".TryUpgrade"]),
         (Native + "ChocolateyExactListArguments", "Build", [Command + "+ListExact.TryCreate"]),
         (Outcome, "Create", [Native + "ChocolateyQueryParser.ParseListExact", Native + "ChocolateyQueryParser.ParseOutdated"]),
-        // N4 owns the item; until then the command factories and the stage-C mapping have no src caller.
-        (Command, "TryListExact", []),
-        (Command, "CreateOutdated", []),
-        (Command, "TryUpgrade", []),
-        (Native + "ChocolateyClientQueries", "ListExactAsync", []),
-        (Native + "ChocolateyClientQueries", "OutdatedAsync", []),
-        (Native + "ChocolateyClientQueries", "UpgradeAsync", []),
-        (Native + "ChocolateyStageCMapping", "Map", []),
-        (Native + "ChocolateyStageCMapping", "AfterList", [Native + "ChocolateyStageCMapping.Map"]),
+        // N4b (design rev 6 §4, §5.4): the native item owns the commands, the launches and the stage-C decision.
+        (Command, "TryListExact", [ItemWork + ".ObserveProfile"]),
+        (Command, "CreateOutdated", [ItemWork + ".QueryCandidateAsync"]),
+        (Command, "TryUpgrade", [ItemWork + ".ObserveProfile"]),
+        (Native + "ChocolateyClientQueries", "ListExactAsync", [ItemWork + ".QueryCandidateAsync"]),
+        (Native + "ChocolateyClientQueries", "OutdatedAsync", [ItemWork + ".QueryCandidateAsync"]),
+        (Native + "ChocolateyClientQueries", "UpgradeAsync", [ItemWork + ".UpgradeAsync"]),
+        (Native + "ChocolateyStageCMapping", "Map", [ItemWork + ".QueryCandidateAsync"]),
+        (Native + "ChocolateyStageCMapping", "AfterList", [Native + "ChocolateyStageCMapping.Map", ItemWork + ".QueryCandidateAsync"]),
     ];
 
     [TestMethod]

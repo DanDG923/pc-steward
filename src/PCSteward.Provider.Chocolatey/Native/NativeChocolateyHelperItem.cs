@@ -9,7 +9,7 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// <summary>
 /// The Helper-role static observation the native item runs at stages B and D. Production is exactly
 /// <see cref="ChocolateyProfileObserver.Observe"/> with <see cref="ChocolateyObserverRole.Helper"/>; only the test-only
-/// <see cref="NativeChocolateyHelperItem.ForTestsOverFixture"/> supplies another (an observation over fixture inputs).
+/// <see cref="NativeChocolateyHelperItem.CreateOverFixtureForTests"/> supplies another (an observation over fixture inputs).
 /// </summary>
 internal delegate ChocolateyProfileResult ChocolateyHelperObserve(RequesterToken token, string targetId, ChocolateyNativeVersion frozenInstalled,
     string expectedFingerprint, TimeSpan remaining, CancellationToken cancellationToken);
@@ -66,7 +66,7 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
     /// Test-only (an architecture test bans every <c>src</c> caller): the item's ordering, permission, settlement and disposal
     /// rules over scripted stage values instead of native work.
     /// </summary>
-    internal static NativeChocolateyHelperItem ForTests(ChocolateyHelperItemTestSeam seam)
+    internal static NativeChocolateyHelperItem CreateForTests(ChocolateyHelperItemTestSeam seam)
     {
         ArgumentNullException.ThrowIfNull(seam);
         return new NativeChocolateyHelperItem(new ScriptedWork(seam));
@@ -79,7 +79,7 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
     /// does); <paramref name="stageCForTests"/>, when set, replaces the two client queries with a fixed stage-C value (a
     /// stand-in engine prints no Chocolatey records). The token is owned by the item.
     /// </summary>
-    internal static NativeChocolateyHelperItem ForTestsOverFixture(RequesterToken token, ChocolateyHelperObserve observe, string? ancestryBase,
+    internal static NativeChocolateyHelperItem CreateOverFixtureForTests(RequesterToken token, ChocolateyHelperObserve observe, string? ancestryBase,
         Func<ChocolateyCandidateValues>? stageCForTests)
     {
         ArgumentNullException.ThrowIfNull(token);
@@ -499,7 +499,7 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
 
 /// <summary>
 /// Test-only (an architecture test bans every <c>src</c> reference to <see cref="CreateForTests"/> and to
-/// <see cref="NativeChocolateyHelperItem.ForTests"/>): scripted stage values for the native item, so its ordering, one-use
+/// <see cref="NativeChocolateyHelperItem.CreateForTests"/>): scripted stage values for the native item, so its ordering, one-use
 /// permission, settlement and in-flight disposal rules can be exercised without native inputs. It carries no authority: the
 /// item still decides every transition.
 /// </summary>
