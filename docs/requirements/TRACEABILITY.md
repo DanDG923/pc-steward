@@ -1,3 +1,20 @@
+# Task 50 — N0 native launcher
+
+`FR-UPD-15`, `TM-03/07/13`; [design rev 5](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4.1 (H4, L1, rev-3 M-C, rev-4 M1/L4) and §8 N0.
+
+- Security `NativeCommandLineTests` (**portable**, 36): MSVCRT quoting goldens and a 4,000-case round trip through a reference parser; the image is always quoted; NUL, unquotable images and oversized command lines are refused; the environment block is sorted, NUL-separated and double-terminated, and duplicate (case-insensitive), `=`-bearing, empty, control-character or NUL-valued entries are refused; `NativeLaunchSpec.ForTests` copies its inputs and refuses relative, UNC, device, `..`/`.`, forward-slash, quoted, stream, wildcard and trailing-space paths and control-character arguments; `RunCoreAsync` refuses a null spec or non-positive deadline, and a pre-cancelled launch is `NotStarted`+`Cancelled`+settled without any native call.
+- Security `NativeLaunchJobTests` (**Windows-only**, 13; `cmd.exe`/`PING.EXE` fixture trees with late-marker grandchildren):
+  - a completed child settles with its exit code and both streams, before the settle window;
+  - cancellation and the deadline kill the child and its grandchild (`AggregateSettled`, termination exit code, no late marker);
+  - a lingering grandchild after a normal exit delays settlement until zero and is killed after the 10 s window (`LingeringTerminated`); the window is clipped to the deadline (`TimedOut`);
+  - concurrent launches are independent (cancelling one never affects the other), and a later launch gets a fresh job;
+  - a missing image is `NotStarted`; an inheritable test handle outside the handle list is not inherited;
+  - output beyond 1,000,000 characters gives `OutputLimitExceeded` with teardown and settlement;
+  - the child environment printed by `set` equals the spec exactly (a parent-only sentinel is absent);
+  - the test-only fault hook: assign or resume failure gives `NotStarted` with no user code run; teardown failure gives `TerminationFailed`, unsettled, and the kill-on-close backstop still ends the tree.
+- Architecture `NativeLauncherBoundaryTests`: no `src` caller of `LaunchJob.RunCoreAsync`, `NativeLaunchSpec.ForTests`, `RunCoreWithFaultForTestsAsync` or `LaunchJobFault` (definitions counted once); Execution never names the launcher; `Native/` uses no environment-variable or registry API, declares only internal types and private launcher/spec constructors, declares no breakaway flag, and keeps the suspended/handle-list/Unicode-environment creation and the exact kill-on-close readback.
+- Not claimed: the typed N3 wrapper, `ChocolateyCompiledCommand`, any `src` caller, Windows CI evidence for the 13 Windows-only tests.
+
 # Task 50 — protocol-2 desktop transport and Chocolatey route dispatcher
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.4 steps 1–3 (3.1, 3.4, 3.5), §A.5; reviewed fact extension rev 3 §4.1 (three phases, H) and §6 (budgets, single frame then EOF); review-16 L2.
