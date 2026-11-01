@@ -623,8 +623,21 @@ Admission of `ChocolateyMachineRuntimeLimitsV3` requires all of:
 1. owner host evidence: Chocolatey version eligibility (align to 2.7.5 or a reviewed re-pin), O5/A-Q1/A2-L3 on the eligible install, a target package, and AQ1UAC/runas;
 2. the ADR-025 exact-artifact test of the signed helper, including the §2.1 linked-token match and a real `AccessCheck` on the Chocolatey tree;
 3. an approved v2 redeploy;
-4. N6 review H1 (helper emits the lingering token), being fixed;
+4. ~~N6 review H1 (helper emits the lingering token)~~ closed in `94018e8`;
 5. N6 review M1 (Desktop review and history UI);
 6. N5 obligation (a): a production intent resolver called immediately before the observation;
 7. a decision on the Profile V2 proxy and client-certificate disclosure (N6 Info);
 8. a change to `HasSupportedMode` and the non-admission architecture pins, made only with explicit owner approval after items 1–7.
+
+### N6 review remediation (`94018e8..08b0e91`): Windows CI green
+
+- **H1:** a Started launch reports `launch-started; lingering-descendants-terminated` when the launch job terminated lingering descendants. The token is the shared constant `ReviewedUpdateLingeringProcesses.Token`. The codec and the desktop interpreter accept the diagnostic unchanged. The end-to-end test carries it from the endpoint fixture through the codec, interpreter and workflow into history. The workflow cannot run the route, so the last hop applies the route's marker rule to the same output. Admission obligation 4 is closed.
+- **L1:** the marker is added only for a Started invocation on `ChocolateyMachineRuntimeLimitsV3`.
+- **L2:** history notes the token only at the start, after at most one `helper-check-not-recorded`.
+- **L3:** the three earlier Chocolatey routes are named explicitly; anything else is "Unknown route".
+- **L4:** the review must fall 0 to `IntentMaxAge` after the intent resolution. Application's copy of the constant is pinned equal to the provider's.
+- **L5:** the comment is corrected, and an IL check confirms nothing in `src` constructs `ChocolateyRuntimeLimitsRouteDispatcher`.
+- **L6:** `TheRunnersOwnTokenWithoutASplitTokenIsNoSplitToken` passes on Windows CI (the CI user has no split token), giving real-token evidence for the L6 mapping.
+- **Info:** the lingering marker is removed from the visible history diagnostic; `helper-check-not-recorded` stays visible because it has no fixed note. Stored data is unchanged.
+
+**Windows CI on `08b0e91` is green**: Security 1124/1124 (0 skipped), integration 949, domain 167, architecture 88.
