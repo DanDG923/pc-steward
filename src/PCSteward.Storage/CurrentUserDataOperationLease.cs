@@ -5,6 +5,9 @@ namespace PCSteward.Storage;
 public sealed class CurrentUserDataOperationSession : IDisposable
 {
     internal const string LegacyMutexName = "Local\\PCSteward.DataOperation.v1";
+    // Native mutexes are re-entrant on their owning thread, so a fresh handle would let a nested acquisition on the same
+    // thread succeed silently. Enforce "no recursive acquisition": a thread holding a session cannot acquire another.
+    [ThreadStatic] private static int sessionsHeldOnThread;
     private readonly CurrentUserOperationGate gate;
     private readonly OperationGateOwnership globalOwnership;
     private readonly Mutex legacy;
@@ -31,6 +34,7 @@ public sealed class CurrentUserDataOperationSession : IDisposable
         try
         {
             ct.ThrowIfCancellationRequested();
+            if (sessionsHeldOnThread > 0) return null;
             ownership = gate.TryAcquire(wait, ct);
             if (ownership is null) return null;
             legacy = new(false, legacyName);
@@ -40,6 +44,7 @@ public sealed class CurrentUserDataOperationSession : IDisposable
             ct.ThrowIfCancellationRequested();
             CurrentUserDataOperationSession result = new(gate, ownership, legacy);
             transferred = true;
+            sessionsHeldOnThread++;
             return result;
         }
         finally
@@ -58,6 +63,7 @@ public sealed class CurrentUserDataOperationSession : IDisposable
     {
         if (Environment.CurrentManagedThreadId != ownerThread) throw new InvalidOperationException("Native operation ownership must be released on the acquiring thread.");
         if (disposed) return;
+        sessionsHeldOnThread--;
         try { legacy.ReleaseMutex(); }
         finally
         {

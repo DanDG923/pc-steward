@@ -253,6 +253,8 @@ public sealed class ReviewedUpdateDispatchWorkflow
         }
         // A restart report is honoured only with the standard reboot-required codes; any other non-zero exit is failure.
         bool restartReported = observation.RestartReported && observation.ExitCode is 3010 or 1641;
+        if (observation.RestartReported && !restartReported && observation.ExitCode == 0)
+            return (UpdateDispatchOutcome.Unverified, $"The provider reported a restart with a success exit code; the inconsistent result is unverified. {diagnostic}");
         if (observation.ExitCode is null)
             return (UpdateDispatchOutcome.Unverified, $"The provider ran but its exit code was not observed; the resulting version is unverified. {diagnostic}");
         if (observation.ExitCode != 0 && !restartReported)

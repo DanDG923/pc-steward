@@ -213,6 +213,18 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     }
 
     [TestMethod]
+    public async Task RestartReportWithASuccessExitCodeIsInconsistentAndNeverSuccess()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        FakeVerifier verifier = new(new(true, false));
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.Completed, 0) with { RestartReported = true }), verifier: verifier)
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(UpdateDispatchOutcome.Unverified, result.Outcome);
+        Assert.AreEqual(0, verifier.Calls);
+    }
+
+    [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
     [DataRow(-1)]

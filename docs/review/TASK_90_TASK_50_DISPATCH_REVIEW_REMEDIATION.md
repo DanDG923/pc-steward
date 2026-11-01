@@ -43,3 +43,16 @@ There were no Blocker or High findings. F1, F2 and F4 are verified, and the shar
 | L4 | Low | Dispatcher contract traps: started work with a null exit recorded as Failed; a throwing second `Supports` after permit consumption left a false barrier | Fixed. Null exit on settled started work is Unverified; a `Supports` exception counts as unsupported and finalizes Cancelled/NotInvoked. **Kept conservative:** a NotStarted observation carrying an exit code is not proof of non-invocation and stays Uncertain. Adapters must report UAC denial as NotStarted without an exit code (documented contract). |
 
 Linux focused 159/159. Failure-set diff against the Windows-green baseline shows only the new Windows-only `DataOperationLeaseTests`.
+
+## Fourth fresh review (Fable 5.1): gate conversion `af41a0c` and third remediation `c037576`
+
+There were no Blocker or High findings. The bootstrap ordering, thread affinity, the read/mutation classification of every MainWindow call and the same-thread Local v1 re-entrancy inside FactoryReset were all verified. Third-round claims M1 and L1–L4 are **verified**. Windows CI: `38314b6` green (the one `af41a0c`/`c037576` failure was the test assumption fixed in `38314b6`).
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| G1 | Medium | "No recursive acquisition" was convention only: a fresh gate handle on the owning thread re-enters silently | Fixed. `CurrentUserDataOperationSession` keeps a per-thread held count and refuses any nested acquisition on a thread that already holds a session. Test added. |
+| G2 | Low | Gate-open `Win32Exception`/`UnauthorizedAccessException` could escape UI handlers that catch only `InvalidOperationException` | Fixed centrally. `DataOperationLease` wraps gate-open failures (Win32, access, IO) as a handled fail-closed refusal. Three-case test. |
+| G3 | Low | Second marker recheck after reconciliation was untested | Test added. |
+| G4 | Low | `RestartReported` with exit 0 was silently ignored and could still yield Success | Fixed. The inconsistent report is Unverified without verification. Test added. |
+| G5 | Low | Sync-over-async reconciliation on the UI thread is safe only because the dispatch store uses `ConfigureAwait(false)` and SQLite completes synchronously | Recorded limit. It matches the pre-existing `MigrateAsync` bootstrap pattern. A future genuinely asynchronous reconciliation step must move bootstrap reconciliation to the dedicated-thread path. |
+| G6 | Low (by design) | An Uncertain barrier, never auto-cleared and with no explicit-reconciliation UI yet, also blocks factory reset from the UI | **Owner note.** This matches the accepted entry-assessment decision (Arm needs proof of no unresolved claim). Safe explicit reconciliation remains open work. |

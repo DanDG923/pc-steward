@@ -100,12 +100,19 @@ public static class DataOperationLease
         cancellationToken.ThrowIfCancellationRequested();
         if (ambient is { } scope)
         {
-            // Reuse the bootstrap session explicitly: no recursive acquisition, no second reconciliation.
+            // Reuse the bootstrap session explicitly (the session also refuses nested acquisition on its thread).
             if (kind != DataOperationKind.ResetControl && !markerClear()) throw ResetPending();
             if (kind == DataOperationKind.Mutating && scope.ReconciledClear != true) throw Unresolved();
             return work(scope.Session.Context);
         }
-        using CurrentUserDataOperationSession session = acquire(TimeSpan.Zero, cancellationToken)
+        CurrentUserDataOperationSession? acquired;
+        try { acquired = acquire(TimeSpan.Zero, cancellationToken); }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or UnauthorizedAccessException or IOException)
+        {
+            // An untrusted or unopenable gate fails closed with the same handled refusal as contention.
+            throw new InvalidOperationException("The PC Steward operation gate is unavailable; no state was opened or changed.", exception);
+        }
+        using CurrentUserDataOperationSession session = acquired
             ?? throw new InvalidOperationException("Another PC Steward data operation is still active.");
         if (kind != DataOperationKind.ResetControl)
         {

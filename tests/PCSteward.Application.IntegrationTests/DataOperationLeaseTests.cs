@@ -119,6 +119,50 @@ public sealed class DataOperationLeaseTests
         Assert.IsInstanceOfType<InvalidOperationException>(contended);
     }
 
+    [TestMethod]
+    public void NestedAcquisitionOnTheOwningThreadIsRefusedNotSilentlyReentrant()
+    {
+        Fixture fixture = new();
+        using (CurrentUserDataOperationSession outer = fixture.Acquire(TimeSpan.Zero, CancellationToken.None)!)
+        {
+            Assert.IsNull(fixture.Acquire(TimeSpan.Zero, CancellationToken.None));
+            Assert.IsNull(CurrentUserDataOperationSession.TryAcquireForTesting(Guid.NewGuid(), TimeSpan.Zero, CancellationToken.None));
+            Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Run(DataOperationKind.Read));
+            Assert.AreEqual(0, fixture.Work);
+        }
+        Assert.IsTrue(fixture.Run(DataOperationKind.Mutating));
+    }
+
+    [TestMethod]
+    public void ResetStartingDuringReconciliationRefusesWorkAfterReconciling()
+    {
+        Fixture fixture = new();
+        int checks = 0;
+        Assert.ThrowsExactly<InvalidOperationException>(() => DataOperationLease.RunOnCurrentThread(_ => { fixture.Work++; return true; },
+            DataOperationKind.Read, fixture.Acquire, () => ++checks == 1, (_, _) => { fixture.Reconciliations++; return Task.FromResult(true); }, CancellationToken.None));
+        Assert.AreEqual(2, checks);
+        Assert.AreEqual(1, fixture.Reconciliations);
+        Assert.AreEqual(0, fixture.Work);
+    }
+
+    [TestMethod]
+    [DataRow("win32")]
+    [DataRow("access")]
+    [DataRow("io")]
+    public void UnopenableGateFailsClosedAsAHandledRefusal(string failure)
+    {
+        int work = 0;
+        InvalidOperationException refused = Assert.ThrowsExactly<InvalidOperationException>(() => DataOperationLease.RunOnCurrentThread(_ => ++work,
+            DataOperationKind.Read, (_, _) => throw (failure switch
+            {
+                "win32" => new System.ComponentModel.Win32Exception(5),
+                "access" => (Exception)new UnauthorizedAccessException("untrusted gate"),
+                _ => new IOException("gate"),
+            }), () => true, (_, _) => Task.FromResult(true), CancellationToken.None));
+        Assert.IsNotNull(refused.InnerException);
+        Assert.AreEqual(0, work);
+    }
+
     private sealed class Fixture
     {
         private readonly Guid id = Guid.NewGuid();
