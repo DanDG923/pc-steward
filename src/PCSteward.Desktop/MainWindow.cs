@@ -67,6 +67,11 @@ public sealed class MainWindow : Window
     private bool ignoredGroupExpanded;
     private UpdateJobSession? updateJob;
     private TaskCompletionSource<bool>? reviewDecision;
+    // Independent review: true while BeginReviewAsync prepares a review, so a second review cannot start meanwhile.
+    private bool preparingReview;
+    // Independent review: a job finished while the user was elsewhere; the band offers "View result" instead of moving them.
+    private bool jobResultPending;
+    private ProgressBar? operationProgress;
     private TextBlock? jobProgressStateText;
     private Button? operationViewJob;
     private Control? pageInitialFocus;
@@ -97,7 +102,7 @@ public sealed class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
         navigation = new ShellNavigation(showPostResetOnboarding ? ShellPage.Onboarding : ShellPage.Home);
         // Leaving the update job's Review step cancels that review: navigation never approves anything (FR-UPD-01).
-        navigation.PropertyChanged += (_, _) => { SyncNavigationChrome(); if (navigation.Current != ShellPage.UpdateJob) reviewDecision?.TrySetResult(false); };
+        navigation.PropertyChanged += (_, _) => { SyncNavigationChrome(); if (navigation.Current != ShellPage.UpdateJob) CancelPendingReview(); else jobResultPending = false; };
         BuildWindowChrome();
         if (!showPostResetOnboarding) startupStateLoadFailed = !LoadSavedInventory();
         Render();
@@ -105,6 +110,9 @@ public sealed class MainWindow : Window
 
     private bool LoadSavedInventory()
     {
+        // FR-UPD-01 (independent review): a reload, rescan, Clear scan data or a finished update job ends any earlier choice on
+        // Updates; nothing is preselected again.
+        selectedReadyKey = null;
         try { DataOperationLease.RunReadSynchronous(() =>
         {
             InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
@@ -196,7 +204,19 @@ public sealed class MainWindow : Window
 
     private static Border Card(FrameworkElement child) => new() { Style = AppStyle("StewardCardStyle"), Child = child };
 
-    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || isClearing || downloads.IsCleaning;
+    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || isClearing || downloads.IsCleaning || preparingReview;
+
+    /// <summary>Leaving or cancelling the review clears it at once, so the next page is not built while it still counts as open.</summary>
+    private void CancelPendingReview()
+    {
+        if (reviewDecision is not { } pending) return;
+        reviewDecision = null;
+        pending.TrySetResult(false);
+    }
+
+    private bool ShowsJobResultInBand => jobResultPending && !isExecuting && updateJob is { Completion: not null } && navigation.Current != ShellPage.UpdateJob;
+
+    private const string PreparingReviewLabel = "Preparing review…";
 
     private string CurrentOperationLabel => viewModel.IsScanning
         ? $"Reading installed application records · {viewModel.ScanPhase} · {viewModel.Elapsed:mm\\:ss}"
@@ -208,17 +228,33 @@ public sealed class MainWindow : Window
                     ? updateProgressLabel
                     : isClearing || downloads.IsCleaning
                         ? "Completing the requested PC Steward data cleanup"
-                        : "Ready · no background coordinator is running";
+                        : preparingReview
+                            ? PreparingReviewLabel
+                            : ShowsJobResultInBand && updateJob is { Completion: { } completion } finished
+                                ? $"{finished.Sheet.AppName}: {completion.Headline}"
+                                : "Ready · no background coordinator is running";
 
     private void RefreshOperationVisuals()
     {
-        if (operationBand is not null) operationBand.Visibility = HasActiveOperation ? Visibility.Visible : Visibility.Collapsed;
+        if (operationBand is not null) operationBand.Visibility = HasActiveOperation || ShowsJobResultInBand ? Visibility.Visible : Visibility.Collapsed;
+        if (operationProgress is not null) operationProgress.Visibility = HasActiveOperation ? Visibility.Visible : Visibility.Collapsed;
         if (operationStatusText is not null) operationStatusText.Text = CurrentOperationLabel;
         if (operationCancel is not null) operationCancel.Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (scanPageStatusText is not null) scanPageStatusText.Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}";
         // Task 73 Phase 2: the job page's per-item state follows the same polled progress presentation; no page rebuild per frame.
         if (jobProgressStateText is not null && isExecuting) jobProgressStateText.Text = UpdateJobProgressText.ItemState(updateProgressPresentation);
-        if (operationViewJob is not null) operationViewJob.Visibility = isExecuting && updateJob is not null && navigation.Current != ShellPage.UpdateJob ? Visibility.Visible : Visibility.Collapsed;
+        if (operationViewJob is not null)
+        {
+            // Independent review: a job that finished elsewhere shows its result here with "View result"; it never moves the user.
+            bool showResult = ShowsJobResultInBand;
+            operationViewJob.Visibility = (isExecuting && updateJob is not null && navigation.Current != ShellPage.UpdateJob) || showResult ? Visibility.Visible : Visibility.Collapsed;
+            string viewLabel = showResult ? "View result" : "View update progress";
+            if (!string.Equals(operationViewJob.Content as string, viewLabel, StringComparison.Ordinal))
+            {
+                operationViewJob.Content = viewLabel;
+                AutomationProperties.SetName(operationViewJob, viewLabel);
+            }
+        }
     }
 
     private StackPanel BuildOnboardingPage()
@@ -1069,6 +1105,7 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(progress, "Current PC Steward operation progress");
         Grid.SetColumn(progress, 1);
         operation.Children.Add(progress);
+        operationProgress = progress;
         Button cancel = new() { Content = "Cancel scan", Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed };
         AutomationProperties.SetName(cancel, "Cancel the active local inventory scan");
         cancel.Click += (_, _) => scanCancellation?.Cancel();
@@ -1351,7 +1388,8 @@ public sealed class MainWindow : Window
         }
         if (page.Ready.Count > 0)
         {
-            Button review = StewardVisuals.PrimaryButton(page.ReviewButtonLabel, page.ReviewButtonLabel);
+            string reviewLabel = preparingReview ? PreparingReviewLabel : page.ReviewButtonLabel;
+            Button review = StewardVisuals.PrimaryButton(reviewLabel, reviewLabel);
             review.IsEnabled = page.CanReview && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
             AutomationProperties.SetHelpText(review, "Opens the review. Nothing is updated until you confirm on the review page.");
             review.Click += async (_, _) => { if (page.Selected is { } chosen && viewModel.AllRows.SingleOrDefault(row => row.StableProductKey == chosen.StableProductKey) is { } row) await ReviewAndExecuteAsync(row); };
@@ -1533,16 +1571,17 @@ public sealed class MainWindow : Window
         StackPanel fineprint = new() { Spacing = StewardSpacing.Small };
         fineprint.Children.Add(new TextBlock { Text = sheet.Attestation, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         fineprint.Children.Add(new TextBlock { Text = sheet.CoverageDisclosure, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        panel.Children.Add(new Expander { Header = "What you're confirming", Content = fineprint, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+        // Independent review: the attestation and coverage disclosure are what the user confirms, so they start expanded.
+        panel.Children.Add(new Expander { Header = "What you're confirming", Content = fineprint, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
 
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
         if (refused || reviewDecision is not { } decision)
         {
-            Button again = StewardVisuals.PrimaryButton("Start a new review", $"Start a new review of the update for {sheet.AppName}");
+            Button again = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : "Start a new review", $"Start a new review of the update for {sheet.AppName}");
             again.IsEnabled = !HasActiveOperation;
             again.Click += async (_, _) => await ReviewAndExecuteAsync(job.Row);
             Button leave = new() { Content = "Back to Updates" };
-            leave.Click += (_, _) => { updateJob = null; NavigateTo(ShellPage.Updates); };
+            leave.Click += (_, _) => { updateJob = null; jobResultPending = false; NavigateTo(ShellPage.Updates); };
             actions.Children.Add(leave);
             actions.Children.Add(again);
             panel.Children.Add(actions);
@@ -1557,7 +1596,19 @@ public sealed class MainWindow : Window
         Button confirm = new() { Content = primaryContent, Style = AppStyle("StewardPrimaryButtonStyle") };
         AutomationProperties.SetName(confirm, sheet.PrimaryAutomationName);
         AutomationProperties.SetHelpText(confirm, sheet.AdministratorRequirement.Explanation);
-        cancel.Click += (_, _) => { cancel.IsEnabled = false; confirm.IsEnabled = false; decision.TrySetResult(false); if (navigation.CanGoBack) GoBack(); else NavigateTo(ShellPage.Updates); };
+        // Independent review: once the decision is made (for example the update was confirmed and is about to start), a rebuilt
+        // sheet shows both buttons disabled, and Cancel can no longer navigate away. Confirm also waits for any active operation.
+        bool decided = decision.Task.IsCompleted;
+        cancel.IsEnabled = !decided;
+        confirm.IsEnabled = !HasActiveOperation && !decided;
+        cancel.Click += (_, _) =>
+        {
+            cancel.IsEnabled = false; confirm.IsEnabled = false;
+            if (!decision.TrySetResult(false)) return;
+            // Clear the review before navigating so the page shown next has its Review button enabled again.
+            if (ReferenceEquals(reviewDecision, decision)) reviewDecision = null;
+            if (navigation.CanGoBack) GoBack(); else NavigateTo(ShellPage.Updates);
+        };
         confirm.Click += (_, _) => { cancel.IsEnabled = false; confirm.IsEnabled = false; decision.TrySetResult(true); };
         actions.Children.Add(cancel);
         actions.Children.Add(confirm);
@@ -1626,7 +1677,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(Card(cleanup));
 
         Button done = StewardVisuals.PrimaryButton("Done", "Close the update result and return to Updates");
-        done.Click += (_, _) => { updateJob = null; NavigateTo(ShellPage.Updates); };
+        done.Click += (_, _) => { updateJob = null; jobResultPending = false; NavigateTo(ShellPage.Updates); };
         panel.Children.Add(done);
     }
 
@@ -2046,6 +2097,7 @@ public sealed class MainWindow : Window
             Button review = StewardVisuals.PrimaryButton("Review and update", $"Review and update this verified package. {administratorRequirement.Label}");
             AutomationProperties.SetName(review, $"Review and update this verified package. {administratorRequirement.Label}");
             AutomationProperties.SetHelpText(review, administratorRequirement.Explanation);
+            review.IsEnabled = !HasActiveOperation && reviewDecision is null;
             review.Click += async (_, _) => await ReviewAndExecuteAsync(row);
             decisionActions.Children.Add(review);
         }
@@ -2138,17 +2190,29 @@ public sealed class MainWindow : Window
     private async Task ReviewAndExecuteAsync(InventoryRow row)
     {
         if (HasActiveOperation || windowClosed || reviewDecision is not null) return;
-        UpdateReviewPreparation preparation;
-        try { preparation = await DataOperationLease.RunAsync(token => updates.BeginReviewAsync(row.StableProductKey, token), CancellationToken.None); }
-        catch (InvalidOperationException) { if (!windowClosed) await ShowDataOperationUnavailableAsync(); return; }
-        catch (Exception)
+        // Independent review: while the review is prepared every review entry point is disabled (HasActiveOperation) and the band
+        // says "Preparing review…", so a second review cannot start. The flag covers preparation only, never the sheet.
+        preparingReview = true;
+        jobResultPending = false;
+        Render();
+        UpdateReviewPreparation? prepared = null;
+        bool leaseUnavailable = false;
+        try { prepared = await DataOperationLease.RunAsync(token => updates.BeginReviewAsync(row.StableProductKey, token), CancellationToken.None); }
+        catch (InvalidOperationException) { leaseUnavailable = true; }
+        catch (Exception) { prepared = null; }
+        finally { preparingReview = false; }
+        if (windowClosed) return;
+        if (prepared is null)
         {
-            if (!windowClosed) await ShowUpdateOutcomeAsync("Update not available", "PC Steward could not prepare this update. No update was started.");
+            Render();
+            if (leaseUnavailable) await ShowDataOperationUnavailableAsync();
+            else await ShowUpdateOutcomeAsync("Update not available", "PC Steward could not prepare this update. No update was started.");
             return;
         }
-        if (windowClosed) return;
+        UpdateReviewPreparation preparation = prepared;
         if (preparation.Review is null)
         {
+            Render();
             await ShowUpdateOutcomeAsync("Update not available", preparation.Message);
             return;
         }
@@ -2164,13 +2228,15 @@ public sealed class MainWindow : Window
         updateJob = job;
         TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
         reviewDecision = decision;
-        NavigateTo(ShellPage.UpdateJob);
+        // A new review (for example "Start a new review" from the job page) always gets a fresh page: focus on Cancel, scroll at top.
+        if (navigation.Current == ShellPage.UpdateJob) ShowCurrentPage(preserveViewState: false); else NavigateTo(ShellPage.UpdateJob);
         bool confirmed = await decision.Task;
-        reviewDecision = null;
+        if (ReferenceEquals(reviewDecision, decision)) reviewDecision = null;
         if (!confirmed || windowClosed)
         {
             if (ReferenceEquals(updateJob, job)) updateJob = null;
-            if (!windowClosed && navigation.Current == ShellPage.UpdateJob) Render();
+            // Independent review: always refresh whichever page is shown, so its Review button is enabled again after Cancel.
+            if (!windowClosed) Render();
             return;
         }
 
@@ -2194,7 +2260,9 @@ public sealed class MainWindow : Window
         // to Review. The retained terminal may still be rate-limited; do not fabricate a progress frame or sequence.
         job.Completion = UpdateOutcomePresenter.ForResult(result, selection, row.Name);
         job.Step = job.Completion.ReturnsToReview ? UpdateJobStep.Review : UpdateJobStep.Verify;
-        if (navigation.Current == ShellPage.UpdateJob) Render(); else NavigateTo(ShellPage.UpdateJob);
+        // Independent review: never move the user. Elsewhere, the band shows the result with "View result".
+        jobResultPending = navigation.Current != ShellPage.UpdateJob;
+        Render();
     }
 
     private Task<ContentDialogResult> ShowUpdateOutcomeAsync(string title, string message) => new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = message, CloseButtonText = "Close" }.ShowAsync().AsTask();

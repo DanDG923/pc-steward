@@ -351,11 +351,13 @@ public sealed class ReferenceBoundaryTests
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
         int reviewStart = source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal);
         Assert.IsTrue(reviewStart >= 0);
-        int completionStart = source.IndexOf("finally {", reviewStart, StringComparison.Ordinal);
+        // The execution finally block (the review-preparation finally only clears preparingReview).
+        int completionStart = source.IndexOf("finally { StopUpdateProgressPolling();", reviewStart, StringComparison.Ordinal);
         Assert.IsTrue(completionStart >= 0);
         int outcome = source.IndexOf("job.Completion = UpdateOutcomePresenter.ForResult(result, selection, row.Name);", completionStart, StringComparison.Ordinal);
         Assert.IsTrue(outcome > completionStart);
-        int show = source.IndexOf("if (navigation.Current == ShellPage.UpdateJob) Render(); else NavigateTo(ShellPage.UpdateJob);", outcome, StringComparison.Ordinal);
+        // Independent review: the result is shown where the user is (the band offers "View result" elsewhere); it never navigates.
+        int show = source.IndexOf("jobResultPending = navigation.Current != ShellPage.UpdateJob;", outcome, StringComparison.Ordinal);
 
         Assert.IsTrue(show > outcome);
         string completion = source[completionStart..outcome];

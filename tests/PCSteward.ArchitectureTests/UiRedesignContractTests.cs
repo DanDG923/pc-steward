@@ -383,8 +383,14 @@ public sealed class UiRedesignContractTests
         }
         Assert.IsFalse(source.Contains("Title = \"Review approved update\"", StringComparison.Ordinal), "the wall-of-text dialog is gone");
         Assert.IsFalse(source.Contains("Install approved update", StringComparison.Ordinal), "never 'approved' before approval");
-        StringAssert.Contains(source, "if (navigation.Current != ShellPage.UpdateJob) reviewDecision?.TrySetResult(false);");
+        // Leaving the page cancels the review and clears it before the next page is built (independent review).
+        StringAssert.Contains(source, "if (navigation.Current != ShellPage.UpdateJob) CancelPendingReview();");
+        string cancelPending = Between(source, "private void CancelPendingReview()", "private bool ShowsJobResultInBand");
+        int clear = cancelPending.IndexOf("reviewDecision = null;", StringComparison.Ordinal);
+        int settle = cancelPending.IndexOf("pending.TrySetResult(false);", StringComparison.Ordinal);
+        Assert.IsTrue(clear >= 0 && settle > clear, "the review is cleared, then cancelled");
         StringAssert.Contains(source, "Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false);");
+        Assert.AreEqual(1, Count(source, "TrySetResult(true)"), "exactly one confirmation path in the whole window");
 
         string reviewStep = Between(source, "private void AddReviewStep(", "private void AddUpdateStep(");
         int cancel = reviewStep.IndexOf("actions.Children.Add(cancel);", StringComparison.Ordinal);
@@ -400,6 +406,72 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(reviewStep, "foreach (ReviewRiskCallout risk in sheet.Risks)");
         StringAssert.Contains(reviewStep, "sheet.Attestation");
         StringAssert.Contains(source, "?? initialFocus");
+    }
+
+    /// <summary>
+    /// Task 73 Phase 2 independent-review fixes (FR-UPD-01/04, FR-UI-03/04, UJ-04): Cancel or leaving the review re-enables the
+    /// Review button; a review being prepared blocks a second one and shows a busy state; a decided sheet cannot be confirmed or
+    /// cancelled again; a new review gets a fresh page; the confirmation fine print starts expanded; a stale choice is cleared;
+    /// and a job that finishes elsewhere is announced in the band instead of moving the user.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-01/04; FR-UI-03/04; UJ-04 (independent review): review state is released, guarded and never moves the user.")]
+    public void UpdateJobReviewStateIsReleasedGuardedAndNeverMovesTheUser()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string review = Between(source, "private async Task ReviewAndExecuteAsync", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
+
+        // Item 1: the not-confirmed path always re-renders the page now shown, and Cancel clears the review before navigating.
+        string notConfirmed = Between(review, "if (!confirmed || windowClosed)", "isExecuting = true;");
+        StringAssert.Contains(notConfirmed, "if (!windowClosed) Render();");
+        Assert.IsFalse(notConfirmed.Contains("navigation.Current == ShellPage.UpdateJob", StringComparison.Ordinal), "re-render whichever page is shown");
+        StringAssert.Contains(review, "if (ReferenceEquals(reviewDecision, decision)) reviewDecision = null;");
+        string reviewStep = Between(source, "private void AddReviewStep(", "private void AddUpdateStep(");
+        string cancelHandler = Between(reviewStep, "cancel.Click += (_, _) =>", "confirm.Click +=");
+        int settled = cancelHandler.IndexOf("if (!decision.TrySetResult(false)) return;", StringComparison.Ordinal);
+        int cleared = cancelHandler.IndexOf("reviewDecision = null;", StringComparison.Ordinal);
+        int leave = cancelHandler.IndexOf("GoBack();", StringComparison.Ordinal);
+        Assert.IsTrue(settled >= 0 && cleared > settled && leave > cleared, "Cancel settles, clears, then navigates (and never navigates once decided)");
+
+        // Item 2: preparation is guarded and visible; it covers preparation only.
+        StringAssert.Contains(source, "|| downloads.IsCleaning || preparingReview;");
+        int guard = review.IndexOf("if (HasActiveOperation || windowClosed || reviewDecision is not null) return;", StringComparison.Ordinal);
+        int set = review.IndexOf("preparingReview = true;", StringComparison.Ordinal);
+        int begin = review.IndexOf("updates.BeginReviewAsync(row.StableProductKey, token)", StringComparison.Ordinal);
+        int reset = review.IndexOf("finally { preparingReview = false; }", StringComparison.Ordinal);
+        int sheet = review.IndexOf("UpdateReviewSheet.Create(selection,", StringComparison.Ordinal);
+        Assert.IsTrue(guard >= 0 && set > guard && begin > set && reset > begin && sheet > reset, "preparingReview wraps BeginReviewAsync only");
+        StringAssert.Contains(source, "private const string PreparingReviewLabel = \"Preparing review…\";");
+        StringAssert.Contains(source, "? PreparingReviewLabel");
+        string detail = Between(source, "Button review = StewardVisuals.PrimaryButton(\"Review and update\"", "decisionActions.Children.Add(review);");
+        StringAssert.Contains(detail, "review.IsEnabled = !HasActiveOperation && reviewDecision is null;");
+
+        // Items 2 and 10: a decided sheet renders both buttons disabled; Confirm also waits for any active operation.
+        StringAssert.Contains(reviewStep, "bool decided = decision.Task.IsCompleted;");
+        StringAssert.Contains(reviewStep, "cancel.IsEnabled = !decided;");
+        StringAssert.Contains(reviewStep, "confirm.IsEnabled = !HasActiveOperation && !decided;");
+
+        // Item 5: a new review from the job page gets a fresh render (focus on Cancel, scroll reset).
+        StringAssert.Contains(review, "if (navigation.Current == ShellPage.UpdateJob) ShowCurrentPage(preserveViewState: false); else NavigateTo(ShellPage.UpdateJob);");
+
+        // Item 8: the attestation and coverage disclosure start expanded.
+        StringAssert.Contains(reviewStep, "Header = \"What you're confirming\", Content = fineprint, IsExpanded = true");
+
+        // Item 6: any reload, rescan, Clear scan data or finished job ends the earlier choice.
+        string load = Between(source, "private bool LoadSavedInventory()", "try { DataOperationLease.RunReadSynchronous(");
+        StringAssert.Contains(load, "selectedReadyKey = null;");
+        string completion = review[review.IndexOf("finally { StopUpdateProgressPolling();", StringComparison.Ordinal)..];
+        StringAssert.Contains(completion, "LoadSavedInventory();");
+        StringAssert.Contains(Between(source, "private async Task ConfirmAndClearScanDataAsync()", "private async Task ConfirmAndClearDownloadedFilesAsync("), "LoadSavedInventory();");
+
+        // Item 7: completion never navigates; elsewhere the band shows the result with "View result".
+        string tail = review[review.IndexOf("job.Completion = UpdateOutcomePresenter.ForResult(result, selection, row.Name);", StringComparison.Ordinal)..];
+        Assert.IsFalse(tail.Contains("NavigateTo(", StringComparison.Ordinal), "completion does not move the user");
+        StringAssert.Contains(tail, "jobResultPending = navigation.Current != ShellPage.UpdateJob;");
+        string visuals = Between(source, "private void RefreshOperationVisuals()", "private StackPanel BuildOnboardingPage()");
+        StringAssert.Contains(visuals, "HasActiveOperation || ShowsJobResultInBand ? Visibility.Visible : Visibility.Collapsed");
+        StringAssert.Contains(visuals, "string viewLabel = showResult ? \"View result\" : \"View update progress\";");
+        StringAssert.Contains(source, "if (navigation.Current != ShellPage.UpdateJob) CancelPendingReview(); else jobResultPending = false;");
     }
 
     /// <summary>
