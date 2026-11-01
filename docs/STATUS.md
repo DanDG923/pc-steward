@@ -1,5 +1,16 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — host evidence run completed (2026-11-01):** The owner ran the approved Default steps (H1, H1b, H2, H5, H6; cleanup complete). The results are in the [result JSON](review/TASK_50_HOST_EVIDENCE_RESULT.json) and the [interpretation](review/TASK_50_HOST_EVIDENCE_INTERPRETATION.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+
+Verdicts:
+- **O5 PASS-READABLE.** The contingency is not triggered.
+- **AQ1N, AQ1M and AQ1C PASS.** The hold is viable for native, .NET Framework and coreclr loaders; no fallback is needed.
+- **A2L3S PASS**, as analogue evidence.
+
+**Eligibility finding:** the installed Chocolatey does **not** match the pinned 2.7.5 release. The engine hash differs, 6 of 56 release files differ, and so does the nupkg. The route would therefore refuse on this host until the owner aligns Chocolatey with the pin or a reviewed re-pin is done. That choice is needed before admission, not now.
+
+H3 and H4 were not run. Independent review of the interpretation is pending.
+
 **Task 50 — slice N0 native job-object launcher (2026-11-01):** Implemented per design rev 6 §4.1 (`fca8837`; Windows CI green, Security 572/572 including the 13 Windows-only launcher tests). Requirements: `FR-UPD-15`, `TM-03/07/13`.
 
 An independent code review was CONDITIONAL with no Blocker or High; all findings are remediated:
