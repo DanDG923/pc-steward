@@ -10,8 +10,8 @@ namespace PCSteward.ArchitectureTests;
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §2, §4, §4.1, §5.4 and §8 N3 (rev-3 M-A/M-B, rev-4 L2, rev-5 F3/F4),
 /// checked on compiled IL of every built <c>src</c> assembly:
 /// <list type="bullet">
-/// <item>no <c>src</c> code outside <c>Native/</c> names an N3 type yet, and Execution never names the launcher, the spec,
-/// the binding or a compiled command;</item>
+/// <item>no <c>src</c> code outside <c>Native/</c> names an N3 type, except the Execution stage machine naming the
+/// allow-listed stage-C values (N4a), and Execution never names the launcher, the spec, the binding or a compiled command;</item>
 /// <item>the binding, the command hierarchy (base and every nested record), the query outcome and the spec have only
 /// private constructors; the command and candidate-value hierarchies are closed;</item>
 /// <item>every N3 factory and hold-release hook has exactly its pinned caller, and the command factories have no
@@ -41,6 +41,13 @@ public sealed class ClientQueriesBoundaryTests
     ];
 
     private static readonly string[] ExecutionBanned = ["LaunchJob", "NativeLaunchSpec", "ChocolateyCompiledCommand", "ChocolateyHeldClientBinding"];
+
+    /// <summary>
+    /// N4a (design rev 6 §2, §5.4): the stage-C value record and its reason are on the port allow-list, so the Execution stage
+    /// machine (and only it) may name them; <c>HelperEndpointBoundaryTests</c> pins the whole allow-list.
+    /// </summary>
+    private static readonly string[] PortValueTypes = ["ChocolateyCandidateValues", "ChocolateyCandidateRefusal"];
+    private const string Endpoint = "PCSteward.Execution.ReviewedHelperEndpoint";
 
     private static readonly string[] N3Files =
     [
@@ -87,11 +94,13 @@ public sealed class ClientQueriesBoundaryTests
         foreach (string path in assemblies)
         {
             bool chocolatey = Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey";
+            bool executionAssembly = Path.GetFileNameWithoutExtension(path) == "PCSteward.Execution";
             if (!chocolatey)
-                foreach (string type in CompiledIlScanner.TypeReferences(path).Where(type => IsType(type, N3Types)))
+                foreach (string type in CompiledIlScanner.TypeReferences(path).Where(type => IsType(type, N3Types) && !(executionAssembly && IsType(type, PortValueTypes))))
                     violations.Add($"{Path.GetFileName(path)} references type {type}");
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path).Where(reference => IsType(reference.TargetType, N3Types)))
-                if (!chocolatey || !reference.Caller.StartsWith(Native, StringComparison.Ordinal))
+                if ((!chocolatey || !reference.Caller.StartsWith(Native, StringComparison.Ordinal)) &&
+                    !(executionAssembly && reference.Caller == Endpoint && IsType(reference.TargetType, PortValueTypes)))
                     violations.Add($"{Path.GetFileName(path)}: {reference.Caller} references {reference.TargetType}.{reference.TargetMember}");
         }
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
