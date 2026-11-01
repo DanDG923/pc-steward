@@ -617,6 +617,71 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
         }
     }
 
+    /// <summary>
+    /// N6 (design rev 6 rev-4 L4; fact extension rev 3 §4.3): what the workflow records reaches history as the fixed
+    /// verification text, and the helper's lingering-process token is kept on every path, including the verified one that
+    /// otherwise drops the diagnostic, without changing the outcome.
+    /// </summary>
+    [TestMethod]
+    [DataRow("verified", false)]
+    [DataRow("verified", true)]
+    [DataRow("not-detected", false)]
+    [DataRow("not-detected", true)]
+    [DataRow("did-not-finish", true)]
+    [DataRow("client-changed", false)]
+    [DataRow("client-unverifiable", true)]
+    [DataRow("timed-out", true)]
+    [DataRow("no-exit", true)]
+    [DataRow("refused", true)]
+    [DataRow("unsettled", true)]
+    public async Task RecordedVerificationAndLingeringTokenReachHistoryWithoutChangingTheOutcome(string scenario, bool lingering)
+    {
+        (UpdateDispatchOutcome outcome, string? verification) = scenario switch
+        {
+            "verified" => (UpdateDispatchOutcome.Success, ReviewedUpdateHistoryPresentation.TargetVerifiedText),
+            "not-detected" => (UpdateDispatchOutcome.Unverified, ReviewedUpdateHistoryPresentation.TargetNotDetectedText),
+            "did-not-finish" => (UpdateDispatchOutcome.Unverified, ReviewedUpdateHistoryPresentation.VerificationDidNotFinishText),
+            "client-changed" or "client-unverifiable" => (UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage),
+            "timed-out" => (UpdateDispatchOutcome.Unverified, ReviewedUpdateHistoryPresentation.StoppedAfterStartText),
+            "no-exit" => (UpdateDispatchOutcome.Unverified, ReviewedUpdateHistoryPresentation.ExitCodeNotObservedText),
+            "refused" => (UpdateDispatchOutcome.Refused, (string?)null),
+            _ => (UpdateDispatchOutcome.Uncertain, (string?)null),
+        };
+        foreach (bool withToken in lingering ? new[] { false, true } : new[] { false })
+        {
+            await using Fixture fixture = await Fixture.CreateAsync();
+            ReviewedUpdateDraft draft = await fixture.SaveAsync();
+            string diagnostic = withToken ? "helper settle: " + ReviewedUpdateLingeringProcesses.Token : "fixture";
+            ReviewedUpdateDispatchObservation observation = scenario switch
+            {
+                "timed-out" => Settled(ReviewedUpdateProviderStatus.TimedOut, null),
+                "no-exit" => Settled(ReviewedUpdateProviderStatus.Completed, null),
+                "refused" => ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Refused, diagnostic),
+                "unsettled" => Settled(ReviewedUpdateProviderStatus.Completed, 0) with { OwnedRoot = new TaskCompletionSource().Task },
+                _ => Settled(ReviewedUpdateProviderStatus.Completed, 0),
+            } with { Diagnostic = diagnostic };
+            PostUpdateInventoryResult? result = scenario switch
+            {
+                "not-detected" => new(false, false),
+                "did-not-finish" => null,
+                "client-changed" => new(false, false, PostUpdateVerificationDetail.ClientChanged),
+                "client-unverifiable" => new(false, false, PostUpdateVerificationDetail.ClientUnverifiable),
+                _ => new(true, false),
+            };
+            ReviewedUpdateDispatchResult dispatched = await fixture.Workflow(new FakeDispatcher(_ => observation), verifier: new FakeVerifier(result))
+                .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+            Assert.AreEqual(outcome, dispatched.Outcome, $"{scenario} token={withToken}");
+
+            ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
+            Assert.IsTrue(record.IntegrityVerified);
+            Assert.AreEqual(outcome, record.Terminal!.Outcome);
+            ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(record);
+            Assert.AreEqual(verification, view.VerificationDetail, $"{scenario} token={withToken}");
+            Assert.AreEqual(withToken ? ReviewedUpdateLingeringProcesses.HistoryNote : null, view.LingeringProcessesNote, $"{scenario} token={withToken}");
+            Assert.AreEqual(withToken, record.Terminal.Diagnostic.StartsWith(ReviewedUpdateLingeringProcesses.Token + " ", StringComparison.Ordinal));
+        }
+    }
+
     private static ReviewedUpdateDispatchObservation Settled(ReviewedUpdateProviderStatus status, int? exit) =>
         new(ReviewedUpdateInvocation.Started, status, exit, "fixture", Task.CompletedTask, true, true, true, false, false);
 

@@ -9,8 +9,10 @@ namespace PCSteward.ArchitectureTests;
 /// FR-UPD-15, FR-UPD-01, TM-03/04/07/13; Task 50 design rev 6 §7 and §8 N5, adapter gates §A.6.1 (A2-L6), fact extension
 /// rev 3 §4.3 (L5): the desktop producers' boundaries, on compiled IL of every built <c>src</c> assembly and on source.
 /// <list type="bullet">
-/// <item>they are the only <c>src</c> implementations of the evidence-source and verifier ports, and nothing in <c>src</c>
-/// constructs them or their shared baselines yet (no composition: the route stays non-admitted);</item>
+/// <item>they are the only <c>src</c> implementations of the evidence-source and verifier ports; only the N6 composition
+/// (<c>ChocolateyReviewedRouteComposition</c>) constructs them and their ONE shared baseline store, and nothing in
+/// <c>src</c> constructs that composition or the dispatch workflow, and <c>HasSupportedMode</c> admits only WinGet (the
+/// route stays non-admitted);</item>
 /// <item>their test-only factories have no <c>src</c> caller;</item>
 /// <item>their code never reaches a process, the launcher, the N3 client surface, the helper item, the helper or its
 /// transport, the file system directly, the registry or the environment: the only native call is the Desktop-role
@@ -30,7 +32,8 @@ public sealed class DesktopProducersBoundaryTests
 
     private static readonly string[] ProducerTypes = [Source, Verifier, Observation, Baselines];
 
-    private static readonly string[] ProducerFiles = ["ChocolateyProfileEvidenceSource.cs", "ChocolateyReviewedUpdateVerifier.cs", "ChocolateyDesktopObservation.cs"];
+    private static readonly string[] ProducerFiles =
+        ["ChocolateyProfileEvidenceSource.cs", "ChocolateyReviewedUpdateVerifier.cs", "ChocolateyDesktopObservation.cs", "ChocolateyReviewedRouteComposition.cs"];
 
     /// <summary>Target types (exact, or as a prefix ending in "." or "+") that producer code must never reference.</summary>
     private static readonly string[] BannedTargets =
@@ -44,8 +47,14 @@ public sealed class DesktopProducersBoundaryTests
         Native + "RequesterAccess", Native + "ChocolateyObserverTestSeam", "PCSteward.Execution.", "PCSteward.ElevatedHelper.",
     ];
 
+    /// <summary>
+    /// N6 (obligations (a)/(b)): the single composition point. It is the only <c>src</c> constructor site of the producers
+    /// and their shared baselines, and nothing in <c>src</c> constructs it, so the route stays non-admitted.
+    /// </summary>
+    private const string Composition = Native + "ChocolateyReviewedRouteComposition";
+
     [TestMethod]
-    public void TheProducersAreTheOnlyPortImplementationsAndNothingInSrcComposesThemYet()
+    public void TheProducersAreTheOnlyPortImplementationsAndOnlyTheCompositionConstructsThem()
     {
         List<string> assemblies = RequireBuilt();
         List<string> sources = [], verifiers = [];
@@ -58,16 +67,73 @@ public sealed class DesktopProducersBoundaryTests
         CollectionAssert.AreEquivalent(new[] { Verifier }, verifiers, string.Join(Environment.NewLine, verifiers));
 
         List<string> violations = [];
+        HashSet<string> compositionConstructs = [];
         foreach (string path in assemblies)
         {
             bool chocolatey = Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey";
             if (!chocolatey)
-                foreach (string type in CompiledIlScanner.TypeReferences(path).Where(type => ProducerTypes.Contains(type)))
+                foreach (string type in CompiledIlScanner.TypeReferences(path).Where(type => ProducerTypes.Contains(type) || type == Composition))
                     violations.Add($"{Path.GetFileName(path)} references {type}");
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
-                if (reference.TargetMember == ".ctor" && ProducerTypes.Contains(reference.TargetType) && reference.Caller != reference.TargetType)
+            {
+                if (reference.TargetMember != ".ctor") continue;
+                if (reference.TargetType == Composition && reference.Caller != Composition)
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the composition (no src caller may compose the route yet)");
+                if (!ProducerTypes.Contains(reference.TargetType) || reference.Caller == reference.TargetType) continue;
+                // The one permitted site: the composition's constructor (its static factory lambdas included).
+                if (chocolatey && reference.LogicalCaller == Composition + "..ctor" &&
+                    reference.TargetType is Source or Verifier or Baselines)
+                    compositionConstructs.Add(reference.TargetType);
+                else
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs {reference.TargetType}");
+            }
         }
+        Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
+        CollectionAssert.AreEquivalent(new[] { Source, Verifier, Baselines }, compositionConstructs.ToArray(),
+            "the composition constructs the source, the verifier and exactly one baseline store");
+    }
+
+    [TestMethod]
+    public void TheCompositionSharesOneBaselineStoreAndSuppliesNoDispatcherOrAdmission()
+    {
+        string source = Read("ChocolateyReviewedRouteComposition.cs");
+        Assert.AreEqual(1, Regex.Count(source, @"new\s*\(\s*\)|new ChocolateyDispatchBaselines\s*\("), "exactly one baseline store construction");
+        StringAssert.Contains(source, "ChocolateyDispatchBaselines baselines = new();");
+        StringAssert.Contains(source, "evidenceSource = createSource(baselines)");
+        StringAssert.Contains(source, "verifier = createVerifier(baselines)");
+        Assert.IsFalse(Regex.IsMatch(source, @"\b(IReviewedUpdateRouteDispatcher|ReviewedUpdateDispatchWorkflow|HasSupportedMode|Supports|ReviewedUpdateReview|runas|ElevatedHelper|HelperTransport)\b"),
+            "the composition supplies no dispatcher, workflow or admission");
+
+        // The test-only factory has no src caller.
+        List<string> violations = [];
+        foreach (string path in RequireBuilt())
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+                if (reference.TargetType == Composition && reference.TargetMember == "CreateForTests")
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} calls the composition's test-only factory");
+        Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>
+    /// The CRITICAL scope limit of N6: the runtime-limit Chocolatey route stays non-admitted. The review gate admits only
+    /// <c>WinGetUserExactV3</c>, and no <c>src</c> type implements a route dispatcher for any Chocolatey route.
+    /// </summary>
+    [TestMethod]
+    public void TheRuntimeLimitRouteStaysNonAdmitted()
+    {
+        string review = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Application", "ReviewedUpdateReview.cs"));
+        Match gate = Regex.Match(review, @"internal static bool HasSupportedMode\(ReviewedUpdateOperation operation\) =>(?<body>[^;]*);");
+        Assert.IsTrue(gate.Success, "HasSupportedMode not found");
+        string body = gate.Groups["body"].Value;
+        StringAssert.Contains(body, "operation.RouteContract == UpdateRouteContract.WinGetUserExactV3");
+        Assert.IsFalse(body.Contains("Chocolatey", StringComparison.Ordinal), "HasSupportedMode must not admit a Chocolatey route");
+        Assert.AreEqual(1, Regex.Count(body, @"RouteContract\s*=="), "HasSupportedMode compares the route with exactly one contract");
+
+        // No src code composes the reviewed dispatch workflow, so no UI path can reach any route dispatcher.
+        List<string> violations = [];
+        foreach (string path in RequireBuilt())
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+                if (reference.TargetMember == ".ctor" && reference.TargetType == "PCSteward.Application.ReviewedUpdateDispatchWorkflow")
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the reviewed dispatch workflow");
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
     }
 
@@ -97,7 +163,7 @@ public sealed class DesktopProducersBoundaryTests
         int scanned = 0;
         foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(chocolatey))
         {
-            if (!ProducerTypes.Any(type => reference.Caller == type || reference.Caller.StartsWith(type + "+", StringComparison.Ordinal))) continue;
+            if (!ProducerTypes.Append(Composition).Any(type => reference.Caller == type || reference.Caller.StartsWith(type + "+", StringComparison.Ordinal))) continue;
             scanned++;
             if (BannedTargets.Any(banned => reference.TargetType == banned ||
                     (banned.EndsWith('.') || banned.EndsWith('+')) && reference.TargetType.StartsWith(banned, StringComparison.Ordinal) ||

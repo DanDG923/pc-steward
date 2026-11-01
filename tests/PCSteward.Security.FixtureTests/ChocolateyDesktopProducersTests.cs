@@ -476,6 +476,130 @@ public sealed class ChocolateyDesktopProducersTests
             Assert.IsFalse((await Verifier(new(script), Baselines(operation)).VerifyAsync(operation, Owner(), CancellationToken.None)).RestartPending);
     }
 
+    // ---- N6 composition (obligations (a) and (b)) ------------------------------------------------------------------------
+
+    [TestMethod]
+    public async Task TheCompositionSharesOneBaselineStoreSoTheVerifierTakesTheBaselineFPrimeRecorded()
+    {
+        // Obligation (b): F′ records the client baseline and the verifier of the same composition takes it (Success path).
+        ReviewedUpdateOperation operation = Operation();
+        ChocolateyDispatchBaselines? seenBySource = null, seenByVerifier = null;
+        ScriptedObserver verifierObserver = new(_ => Observed(Observation(installed: "2.0.0")));
+        ChocolateyReviewedRouteComposition composition = ChocolateyReviewedRouteComposition.CreateForTests(
+            baselines => Source(new(_ => Observed(Observation())), seenBySource = baselines),
+            baselines => Verifier(verifierObserver, seenByVerifier = baselines), new Clock(ReviewedAt.AddSeconds(30)));
+        Assert.IsNotNull(seenBySource);
+        Assert.AreSame(seenBySource, seenByVerifier, "exactly one baseline store for both producers");
+
+        Assert.IsNotNull(await composition.EvidenceSource.ObserveAsync(operation, Owner(), CancellationToken.None));
+        Assert.AreEqual(new PostUpdateInventoryResult(true, false), await composition.Verifier.VerifyAsync(operation, Owner(), CancellationToken.None));
+        Assert.AreEqual(2, verifierObserver.Calls.Count);
+
+        // Separate compositions (separate stores) never verify: the safe but unusable case the obligation rules out.
+        ChocolateyReviewedRouteComposition first = ChocolateyReviewedRouteComposition.CreateForTests(
+            baselines => Source(new(_ => Observed(Observation())), baselines), baselines => Verifier(new(_ => Observed(Observation(installed: "2.0.0"))), baselines),
+            new Clock(ReviewedAt.AddSeconds(30)));
+        ChocolateyReviewedRouteComposition second = ChocolateyReviewedRouteComposition.CreateForTests(
+            baselines => Source(new(_ => Observed(Observation())), baselines), baselines => Verifier(new(_ => Observed(Observation(installed: "2.0.0"))), baselines),
+            new Clock(ReviewedAt.AddSeconds(30)));
+        Assert.IsNotNull(await first.EvidenceSource.ObserveAsync(operation, Owner(), CancellationToken.None));
+        Assert.AreEqual(new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientUnverifiable),
+            await second.Verifier.VerifyAsync(operation, Owner(), CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task TheFreshIntentPathObservesImmediatelyAndKeepsTheIntentsOwnTime()
+    {
+        // Obligation (a): the intent is resolved during the supply call, observed immediately, and its own time reaches the review.
+        DateTimeOffset now = ReviewedAt.AddSeconds(-10);
+        ScriptedObserver observer = new(_ => Observed(Observation(libBad: true)));
+        ChocolateyReviewedRouteComposition composition = Composition(observer, new Clock(now));
+        int resolverCalls = 0;
+        ChocolateyReviewIntentFacts? facts = await composition.ResolveReviewIntentAsync(_ =>
+        {
+            resolverCalls++;
+            Assert.AreEqual(0, observer.Calls.Count, "the intent is resolved before the observation");
+            return Task.FromResult<ChocolateyResolvedIntent?>(new(Candidate(), now));
+        }, CancellationToken.None);
+        Assert.IsNotNull(facts);
+        Assert.AreEqual(1, resolverCalls);
+        Assert.AreEqual(1, observer.Calls.Count);
+        Assert.AreEqual(now, facts.IntentResolvedAt);
+        Assert.AreEqual(now, facts.ObservedAt);
+        Assert.AreEqual(ReviewedCandidateProvenance.UserCacheIntent, facts.CandidateProvenance);
+        Assert.IsTrue(facts.TargetLibBadResidue);
+        Assert.AreEqual((Target, "1.0.0", "2.0.0", User), (facts.PackageId, facts.InstalledVersion, facts.CandidateVersion, facts.RequestingUserSid));
+
+        // The review built from these facts shows the intent's own time and stays unavailable: the route is not admitted.
+        ReviewedUpdateOperation operation = Operation(frozenFingerprint: facts.ProfileEvidenceId[ReviewedUpdateOperation.ProfileEvidencePrefix.Length..]);
+        ChocolateyReviewDisclosureView view = ChocolateyReviewDisclosurePresentation.Present(operation, facts, ReviewedRouteSplitTokenState.SplitTokenLimited);
+        Assert.AreEqual(now, view.IntentResolvedAt);
+        CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence }, view.UnavailableReasons.ToArray());
+        Assert.IsFalse(view.CanConfirm);
+        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(operation), "N6 never admits the runtime-limit route");
+    }
+
+    [TestMethod]
+    [DataRow("before-call")]
+    [DataRow("after-return")]
+    [DataRow("default")]
+    [DataRow("null")]
+    [DataRow("null-candidate")]
+    [DataRow("throws")]
+    [DataRow("cancelled")]
+    [DataRow("unsupported")]
+    public async Task AnIntentNotResolvedDuringTheSupplyCallIsRefusedWithoutObserving(string change)
+    {
+        DateTimeOffset now = ReviewedAt.AddSeconds(-10);
+        ScriptedObserver observer = new(_ => Observed(Observation()));
+        using CancellationTokenSource cancel = new();
+        ChocolateyIntentResolver resolver = _ => change switch
+        {
+            "before-call" => Task.FromResult<ChocolateyResolvedIntent?>(new(Candidate(), now.AddTicks(-1))),
+            "after-return" => Task.FromResult<ChocolateyResolvedIntent?>(new(Candidate(), now.AddTicks(1))),
+            "default" => Task.FromResult<ChocolateyResolvedIntent?>(new(Candidate(), default)),
+            "null" => Task.FromResult<ChocolateyResolvedIntent?>(null),
+            "null-candidate" => Task.FromResult<ChocolateyResolvedIntent?>(new(null!, now)),
+            "throws" => throw new IOException("client query failed"),
+            "cancelled" => Cancel(cancel),
+            _ => Task.FromResult<ChocolateyResolvedIntent?>(new(new StructuredUpdateCandidateEvidence("chocolatey-other", Target, "1.0.0", "2.0.0"), now)),
+        };
+        Assert.IsNull(await Composition(observer, new Clock(now)).ResolveReviewIntentAsync(resolver, cancel.Token));
+        Assert.AreEqual(0, observer.Calls.Count);
+
+        static Task<ChocolateyResolvedIntent?> Cancel(CancellationTokenSource source)
+        {
+            source.Cancel();
+            return Task.FromResult<ChocolateyResolvedIntent?>(new(Candidate(), ReviewedAt.AddSeconds(-10)));
+        }
+    }
+
+    [TestMethod]
+    public void OnlyAnAcceptedDesktopTokenIsAUsableSplitToken()
+    {
+        foreach (TokenVerdict verdict in Enum.GetValues<TokenVerdict>())
+        {
+            ReviewedRouteSplitTokenState state = ChocolateyReviewedRouteComposition.MapSplitToken(verdict);
+            Assert.AreEqual(verdict == TokenVerdict.Accepted, state == ReviewedRouteSplitTokenState.SplitTokenLimited, verdict.ToString());
+        }
+        Assert.AreEqual(ReviewedRouteSplitTokenState.NoSplitToken, ChocolateyReviewedRouteComposition.MapSplitToken(TokenVerdict.NoLinkedToken));
+        Assert.AreEqual(ReviewedRouteSplitTokenState.NoSplitToken, ChocolateyReviewedRouteComposition.MapSplitToken(TokenVerdict.PeerNotLimited));
+        Assert.AreEqual(ReviewedRouteSplitTokenState.DesktopTokenUnsupported, ChocolateyReviewedRouteComposition.MapSplitToken(TokenVerdict.EvaluationAppContainer));
+        Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, ChocolateyReviewedRouteComposition.MapSplitToken(TokenVerdict.EvaluationTokenUnreadable));
+        Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, ChocolateyReviewedRouteComposition.MapSplitToken((TokenVerdict)999));
+
+        ReviewedRouteSplitTokenState probed = ChocolateyReviewedRouteComposition.ProbeSplitTokenState();
+        Assert.IsTrue(Enum.IsDefined(probed));
+        if (!OperatingSystem.IsWindows()) Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, probed);
+    }
+
+    private static ChocolateyReviewedRouteComposition Composition(ScriptedObserver observer, TimeProvider clock) =>
+        ChocolateyReviewedRouteComposition.CreateForTests(
+            baselines => ChocolateyProfileEvidenceSource.CreateForTests(observer.Observe, baselines, clock, Budget),
+            baselines => ChocolateyReviewedUpdateVerifier.CreateForTests(observer.Observe, baselines, clock, Budget), clock);
+
+    private static StructuredUpdateCandidateEvidence Candidate() => new(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "2.0.0");
+
     // ---- Helpers ------------------------------------------------------------------------------------------------------
 
     private static ChocolateyProfileEvidenceSource Source(ScriptedObserver observer, ChocolateyDispatchBaselines? baselines = null, Clock? clock = null) =>

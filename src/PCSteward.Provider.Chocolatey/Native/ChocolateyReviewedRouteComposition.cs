@@ -19,8 +19,8 @@ internal delegate Task<ChocolateyResolvedIntent?> ChocolateyIntentResolver(Cance
 /// time (<see cref="ChocolateyReviewIntentFacts.IntentResolvedAt"/>).</item>
 /// <item>the split-token probe for the review's §(L6) unavailability reason.</item>
 /// </list>
-/// It supplies no route dispatcher, does not touch <c>ReviewedUpdateReview.HasSupportedMode</c> and has no <c>src</c>
-/// caller (architecture test), so the runtime-limit route stays non-admitted and nothing can dispatch it.
+/// It supplies no route dispatcher, leaves the review gate's admitted-mode check unchanged and has no <c>src</c> caller
+/// (architecture test), so the runtime-limit route stays non-admitted and nothing can dispatch it.
 /// </summary>
 internal sealed class ChocolateyReviewedRouteComposition
 {
