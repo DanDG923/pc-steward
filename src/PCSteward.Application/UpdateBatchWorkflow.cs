@@ -73,7 +73,16 @@ public interface IApprovedUpdateExecutor
         UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteAsync(job, currentEvidence, cancellationToken);
 }
 
-public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending);
+/// <summary>
+/// Protocol-2 fact extension rev 3 §4.3 (L5): <see cref="Detail"/> is appended for the reviewed Chocolatey verifier. A detail
+/// other than <see cref="PostUpdateVerificationDetail.None"/> means the client's own files or registrations changed or could
+/// not be checked, so nothing was run to verify; the reviewed workflow records it as Unverified whatever the other fields say.
+/// </summary>
+public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending,
+    PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None);
+
+/// <summary>Why a post-update verification did not proceed to the target check (fact extension rev 3 §4.3).</summary>
+public enum PostUpdateVerificationDetail { None, ClientChanged, ClientUnverifiable }
 
 public interface IPostUpdateInventory
 {

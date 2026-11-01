@@ -34,6 +34,59 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
         Assert.IsNull(result.Disclosure);
     }
 
+    /// <summary>Fact extension rev 3 §4.3 (L5): any verification detail other than None is Unverified with the fixed message, even beside a detected version or a restart.</summary>
+    [TestMethod]
+    [DataRow(true, false, PostUpdateVerificationDetail.ClientChanged)]
+    [DataRow(true, true, PostUpdateVerificationDetail.ClientUnverifiable)]
+    [DataRow(false, true, PostUpdateVerificationDetail.ClientChanged)]
+    [DataRow(true, false, (PostUpdateVerificationDetail)99)]
+    public async Task AVerificationDetailIsUnverifiedWithTheFixedMessageNeverSuccess(bool expected, bool restart, PostUpdateVerificationDetail detail)
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        FakeDispatcher dispatcher = new(_ => Settled(ReviewedUpdateProviderStatus.Completed, 0));
+        FakeVerifier verifier = new(new(expected, restart, detail));
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(dispatcher, verifier: verifier).RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, result.Disposition);
+        Assert.AreEqual(UpdateDispatchOutcome.Unverified, result.Outcome);
+        StringAssert.Contains(result.Message, ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage);
+        Assert.AreEqual(1, verifier.Calls);
+    }
+
+    /// <summary>
+    /// Fact extension rev 3 §4.3 (L5): a restart-pending result on the runtime-limit Chocolatey route is a contract violation
+    /// (Unverified, never RestartRequired). The workflow does not admit that route yet, so the pure guard is checked directly.
+    /// </summary>
+    [TestMethod]
+    public void TheVerificationGuardRejectsARestartOnTheRuntimeLimitRouteOnly()
+    {
+        ReviewedUpdateOperation chocolatey = Chocolatey();
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(chocolatey, new(false, true)));
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(chocolatey, new(true, true)));
+        Assert.AreEqual(UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.RejectVerification(chocolatey, null)?.Outcome);
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(chocolatey, new(true, false, PostUpdateVerificationDetail.ClientChanged)));
+        Assert.IsNull(ReviewedUpdateDispatchWorkflow.RejectVerification(chocolatey, new(true, false)), "a clean verified target maps normally");
+        Assert.IsNull(ReviewedUpdateDispatchWorkflow.RejectVerification(chocolatey, new(false, false)), "a clean miss maps normally (Unverified)");
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet,
+            "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(ReviewedAt);
+        ReviewedUpdateOperation winget = new(job, User, "native:1", "context:1", "review:1", ReviewedAt.AddSeconds(-1),
+            UpdateRouteContract.WinGetUserExactV3, ReviewedInstallerMode.Selected(InstallerMode.Silent));
+        Assert.IsNull(ReviewedUpdateDispatchWorkflow.RejectVerification(winget, new(false, true)), "other routes keep their restart semantics");
+    }
+
+    private static ReviewedUpdateOperation Chocolatey()
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git.install",
+            UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git.install", "1.0.0", "2.0.0", UpdateScope.Machine,
+            UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(ReviewedAt);
+        return new(job, User, "choco:git.install", "machine:choco", "choco-profile-v2:" + new string('A', 64), ReviewedAt,
+            UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled),
+            ReviewedUpdateArchitecture.ProviderScriptSelected());
+    }
+
     [TestMethod]
     public async Task UnsupportedRouteNeverEntersTheGateOrClaims()
     {

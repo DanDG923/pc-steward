@@ -106,6 +106,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
     private const int MaximumTerminalMessageLength = 4000;
     /// <summary>Fixed marker recorded when a helper check failed <see cref="RecordedHelperCandidateCheck.IsConsistentWith"/>.</summary>
     public const string HelperCheckNotRecordedDiagnostic = "helper-check-not-recorded";
+    /// <summary>Fact extension rev 3 §4.3: the fixed message for a verification detail other than None.</summary>
+    public const string ClientNotVerifiedMessage =
+        "Chocolatey's own files or registration changed, or could not be checked, so PC Steward did not run it to verify the update; the result is unverified.";
+    /// <summary>Fact extension rev 3 §4.3 (L5): the runtime-limit Chocolatey route never infers a restart.</summary>
+    public const string RestartContractViolationMessage =
+        "The verifier reported a restart-pending state, which this Chocolatey route never infers; the result is unverified.";
     private readonly ReviewedUpdateGateRunner runUnderGate;
     private readonly IReviewedUpdateDispatchEvidenceSource evidence;
     private readonly IReviewedUpdateRouteDispatcher dispatcher;
@@ -285,6 +291,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         try
         {
             PostUpdateInventoryResult verification = await verifier.VerifyAsync(operation, ownership, cancellationToken).ConfigureAwait(false);
+            if (RejectVerification(operation, verification) is { } rejected) return rejected;
             // AC-UPD-07: a non-zero (restart-requested) provider result is never Success, even if the version is detected.
             if (restartReported)
                 return verification.RestartPending
@@ -302,6 +309,23 @@ public sealed class ReviewedUpdateDispatchWorkflow
         {
             return (UpdateDispatchOutcome.Unverified, "Provider completed but post-update verification did not finish.");
         }
+    }
+
+    /// <summary>
+    /// Fact extension rev 3 §4.3 (L5), applied before any Success/RestartRequired mapping: a detail other than None (or an
+    /// undefined one) is Unverified with the fixed message, never Success; a restart-pending result on
+    /// <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/> is a contract violation and Unverified, never
+    /// RestartRequired. A missing result is Unverified. Null means the verification may be mapped normally.
+    /// </summary>
+    internal static (UpdateDispatchOutcome Outcome, string Message)? RejectVerification(ReviewedUpdateOperation operation,
+        PostUpdateInventoryResult? verification)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (verification is null) return (UpdateDispatchOutcome.Unverified, "Provider completed but post-update verification did not finish.");
+        if (verification.Detail != PostUpdateVerificationDetail.None) return (UpdateDispatchOutcome.Unverified, ClientNotVerifiedMessage);
+        if (operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 && verification.RestartPending)
+            return (UpdateDispatchOutcome.Unverified, RestartContractViolationMessage);
+        return null;
     }
 
     private async Task<ReviewedUpdateDispatchResult> FinalizeAsync(UpdateDispatchClaim claim, OperationOwnership ownership,
