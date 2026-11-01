@@ -192,6 +192,57 @@ public sealed class ChocolateyProfileRulesTests
         Assert.AreNotEqual(digest, ChocolateyProfileRules.ComputeRegistrationDigest([a]));
     }
 
+    /// <summary>
+    /// N2/N5 obligation (composition record, N2 Info): an independent golden vector for <c>pc-steward-choco-client-registration:1</c>.
+    /// The canonical input is spelled out field by field here (each field: UTF-8 bytes preceded by their length as a 32-bit
+    /// little-endian integer) and hashed by the test itself; the expected digests were also computed outside .NET (Python
+    /// <c>hashlib</c>/<c>struct</c>) and are pinned as literals. Records sort by the upper-cased path with <c>\</c>, so
+    /// <c>lib\chocolatey0</c> precedes <c>lib\chocolatey</c> (<c>0</c> &lt; <c>\</c>), while the hashed paths use <c>/</c>
+    /// (where the order would be reversed); IDs are upper-cased; both the original and normalized versions are bound.
+    /// </summary>
+    [TestMethod]
+    public void TheRegistrationDigestMatchesTheIndependentGoldenVector()
+    {
+        const string GoldenTwo = "BBA747F4FDDDD62B6A0DB70313769A6EB2C87B31E57547E132CF09DC1ADBDF04";
+        const string GoldenOne = "9B33C178099488BBAF96FFE29DC32DB3BD345B322DE8A6F90D31CBE129BA572D";
+        ChocolateyRegistrationRecord a = Record(@"lib\chocolatey\chocolatey.nupkg", "chocolatey", "2.7.5", 1, 100, 'A');
+        ChocolateyRegistrationRecord b = Record(@"lib\chocolatey0\chocolatey.nupkg", "Chocolatey", "2.7.4.0", 2, 200, 'B');
+        // The premises of the spelled-out input below.
+        Assert.AreEqual(("2.7.4.0", "2.7.4"), (b.Version.Original, b.Version.Normalized));
+        Assert.AreEqual("0000000000000001:" + string.Concat(Enumerable.Repeat("02", 16)), b.ArchiveIdentity);
+
+        string[] two =
+        [
+            "pc-steward-choco-client-registration:1", "2",
+            "LIB/CHOCOLATEY0/CHOCOLATEY.NUPKG", "CHOCOLATEY", "2.7.4.0", "2.7.4", "0000000000000001:" + string.Concat(Enumerable.Repeat("02", 16)), "200", new string('B', 64),
+            "LIB/CHOCOLATEY/CHOCOLATEY.NUPKG", "CHOCOLATEY", "2.7.5", "2.7.5", "0000000000000001:" + string.Concat(Enumerable.Repeat("01", 16)), "100", new string('A', 64),
+        ];
+        string[] one =
+        [
+            "pc-steward-choco-client-registration:1", "1",
+            "LIB/CHOCOLATEY/CHOCOLATEY.NUPKG", "CHOCOLATEY", "2.7.5", "2.7.5", "0000000000000001:" + string.Concat(Enumerable.Repeat("01", 16)), "100", new string('A', 64),
+        ];
+        Assert.AreEqual(GoldenTwo, LengthPrefixedSha256(two), "the spelled-out input reproduces the external golden");
+        Assert.AreEqual(GoldenOne, LengthPrefixedSha256(one));
+        Assert.AreEqual(GoldenTwo, ChocolateyProfileRules.ComputeRegistrationDigest([a, b]));
+        Assert.AreEqual(GoldenTwo, ChocolateyProfileRules.ComputeRegistrationDigest([b, a]));
+        Assert.AreEqual(GoldenOne, ChocolateyProfileRules.ComputeRegistrationDigest([a]));
+    }
+
+    private static string LengthPrefixedSha256(IEnumerable<string> fields)
+    {
+        using MemoryStream canonical = new();
+        Span<byte> length = stackalloc byte[4];
+        foreach (string field in fields)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(field);
+            BinaryPrimitives.WriteUInt32LittleEndian(length, (uint)bytes.Length);
+            canonical.Write(length);
+            canonical.Write(bytes);
+        }
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(canonical.ToArray()));
+    }
+
     [TestMethod]
     public void TheEntryParserReadsShortNamesAndRefusesMalformedShortNameLengths()
     {
