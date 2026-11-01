@@ -621,6 +621,16 @@ public sealed class ChocolateyDesktopProducersTests
         if (!OperatingSystem.IsWindows()) Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, probed);
     }
 
+    /// <summary>Admission obligation 5: the Desktop's public probe forwards to the composition's static probe and never throws.</summary>
+    [TestMethod]
+    public void TheDesktopProbeForwardsToTheCompositionsStaticSplitTokenProbe()
+    {
+        ReviewedRouteSplitTokenState probed = ChocolateyReviewedRouteProbe.ProbeSplitTokenState();
+        Assert.IsTrue(Enum.IsDefined(probed));
+        Assert.AreEqual(ChocolateyReviewedRouteComposition.ProbeSplitTokenState(), probed, "the same token, read again");
+        if (!OperatingSystem.IsWindows()) Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, probed);
+    }
+
     /// <summary>
     /// Design rev 6 §(L6) on the runner's real token. CI (scripts/Test-CI.ps1) runs the tests as a disposable local standard
     /// user started from the elevated runner: no linked token, elevation type Default, so §2.1 refuses it as PeerNotLimited
