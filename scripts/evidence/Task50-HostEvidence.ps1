@@ -15,6 +15,9 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Process scope only: use Windows PowerShell's own modules even when launched from PowerShell 7, which passes a module
+# path where 5.1 cannot auto-load Get-FileHash, ConvertTo-Json and similar (same guard as the approved redeploy script).
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 
 function Stop-Probe([string]$Reason) { throw ('STOP: ' + $Reason) }
 
