@@ -72,6 +72,24 @@ internal sealed class N1NativeFixture : IDisposable
     /// <summary>The usual protected shape: user-owned, OWNER RIGHTS read/execute, user read/execute.</summary>
     internal void Lock(string path) => Protect(path, ownerRights: true, FileSystemRights.ReadAndExecute);
 
+    /// <summary>Owner = user, protected DACL with exactly <paramref name="aces"/> (no logon cleanup ACE: delete through the parent).</summary>
+    internal void ProtectExactly(string path, params (SecurityIdentifier Sid, FileSystemRights Rights)[] aces)
+    {
+        FileSecurity security = new();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.SetOwner(User);
+        foreach ((SecurityIdentifier sid, FileSystemRights rights) in aces)
+            security.AddAccessRule(new FileSystemAccessRule(sid, rights, AccessControlType.Allow));
+        new FileInfo(path).SetAccessControl(security);
+    }
+
+    /// <summary>Locks every node below <paramref name="root"/> and the root itself (create junctions afterwards).</summary>
+    internal void LockTree(string root)
+    {
+        foreach (string entry in System.IO.Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)) Lock(entry);
+        Lock(root);
+    }
+
     internal static void Junction(string link, string target)
     {
         using Process process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"))
