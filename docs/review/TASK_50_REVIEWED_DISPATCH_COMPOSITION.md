@@ -52,3 +52,20 @@ Tests: `ReviewedUpdateHistoryTests` (10 cases). They cover a finalized row round
 ## Post-review corrections
 
 See the [Task 90 remediation](TASK_90_TASK_50_DISPATCH_REVIEW_REMEDIATION.md). Appended outcomes: `ElevationDenied` and `Refused`. Observation gains `RestartReported` and a 2048-char diagnostic bound. Admission gains `ClaimAsync`, which returns a committed claim without a permit for NotInvoked finalization. Started-then-timed-out/failed/cancelled work is `Unverified`.
+
+## Protocol-2 interpreter — interface before callers
+
+Contract: [protocol-2 reviewed fact extension rev 3](TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) §3.3, §4.1, §8 and §10 N1–N4 (`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`). This adds a pure, passive Execution component. No transport, endpoint, helper, route dispatcher, `Supports`/manifest capability seam, history format or verifier is added, and no caller exists yet. Application workflow semantics are unchanged.
+
+| Type (`src/PCSteward.Execution/ReviewedUpdateProtocol2Interpreter.cs`) | Producer | Consumer | Meaning |
+|---|---|---|---|
+| `ReviewedHelperTransportOutcome` | Future protocol-2 transport (after the permit is consumed) | Interpreter | Closed phase fact: `LaunchRefusedBeforeElevation`, `ElevationDeclined`, `HelperStartedRequestNotWritten`, `RequestWrittenNoValidResponse`, `ResponseFrameReceived` (exactly one authenticated frame, then pipe EOF, within the budget). |
+| `ReviewedHelperDesktopObservation` | Future transport (desktop-observed only) | Interpreter | Owned-root snapshot, helper exit observed within `ExitTimeout`, transport sealed, desktop termination failure, desktop owned-I/O completion and pipe EOF. `H` = exit observed ∧ sealed ∧ ¬termination failure. |
+| `ReviewedUpdateProtocol2Interpreter.Interpret(operation, outcome, frame, nonce, desktop)` | Execution (pure) | Future `IReviewedUpdateRouteDispatcher` for `ChocolateyMachineRuntimeLimitsV3` | Re-reads the frame through `ReviewedUpdateWireCodec.TryReadResponse` against the frozen `JobId`/`Digest` and the request nonce (correlation, S1–S13), checks the route shape and `F` from `EvidenceId = "choco-profile-v2:" + F`, then P1–P6 and H. Any failure discards all wire facts: `Unknown`/`Failed`/`ExecutionUncertain`, diagnostic `helper-response-rejected`, so the workflow records Uncertain. Otherwise it applies the §4.1 status table and observation-member rules. `RestartReported` is always false (O4). |
+| `ReviewedUpdateProtocol2Interpretation` | Interpreter | Future dispatcher | The `ReviewedUpdateDispatchObservation` plus the candidate check. |
+| `ReviewedHelperCandidateCheck` (+ `ReviewedHelperCandidateCheckKind { NotObserved, Confirmed, Refused, Unconfirmed }`) | Interpreter only (private constructor; the single factory is referenced only from the interpreter file, enforced by an architecture test) | Future history persistence (§4.2) and live display | Desktop-derived value: `Matched` → `Confirmed`, `Refused` → `Refused` with the reason and the reported installed/candidate versions, `Undetermined` → `Unconfirmed`, anything rejected or pre-response → `NotObserved`. It never changes status, settlement or outcome, and it has no conversion to or from `ReviewedCandidateProvenance`. Only `Confirmed` has live text, the fixed §4.1 sentence. |
+
+Deliberate limits:
+- **Carrying the candidate check.** §4.1 wants it appended to the observation. Application cannot reference an Execution type, so the check is returned beside the observation. The integration slice must define the Application-level member and its history format. That is a reviewed Application change.
+- **Workflow admission.** `ReviewedUpdateReview.HasSupportedMode` still admits only `WinGetUserExactV3`. The composition test therefore drives the real workflow with a WinGet carrier operation, while the interpreter judges a separate frozen `ChocolateyMachineRuntimeLimitsV3` operation.
+- **`Matched ∧ NotStarted ∧ outputLimitExceeded`.** This is rejected explicitly (§10 nit).
