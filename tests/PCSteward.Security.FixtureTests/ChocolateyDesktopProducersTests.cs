@@ -540,6 +540,34 @@ public sealed class ChocolateyDesktopProducersTests
     }
 
     [TestMethod]
+    public async Task TheProductionResolverResolvesTheExactPackageImmediatelyBeforeTheObservation()
+    {
+        // Admission obligation 6: the production resolver (existing connector query) runs inside the composition's call,
+        // before the observation, and its own clock time is the intent time the review shows.
+        DateTimeOffset now = ReviewedAt.AddSeconds(-10);
+        ScriptedObserver observer = new(_ => Observed(Observation()));
+        List<string> order = [];
+        OrderedProcess process = new(order, observer, "git.install|1.0.0|2.0.0|false\n");
+        ChocolateyReviewIntentResolver resolver = new(new ChocolateyUpdateSourceConnector(process), new Clock(now));
+        ChocolateyReviewedRouteComposition composition = Composition(observer, new Clock(now));
+
+        ChocolateyReviewIntentFacts? facts = await composition.ResolveReviewIntentAsync(resolver, Target, CancellationToken.None);
+
+        Assert.IsNotNull(facts);
+        Assert.AreEqual("client-query", order.Single(), "the client query ran once, before any observation");
+        Assert.AreEqual(1, observer.Calls.Count);
+        Assert.AreEqual(now, facts.IntentResolvedAt);
+        Assert.AreEqual((Target, "1.0.0", "2.0.0"), (facts.PackageId, facts.InstalledVersion, facts.CandidateVersion));
+
+        // A refused resolution (here: the client reports no candidate) never observes.
+        ScriptedObserver untouched = new(_ => Observed(Observation()));
+        ChocolateyReviewIntentResolver empty = new(new ChocolateyUpdateSourceConnector(new OrderedProcess([], untouched, "other.package|1.0|1.1\n")), new Clock(now));
+        Assert.IsNull(await Composition(untouched, new Clock(now)).ResolveReviewIntentAsync(empty, Target, CancellationToken.None));
+        Assert.AreEqual(0, untouched.Calls.Count);
+        Assert.ThrowsExactly<ArgumentNullException>(() => { _ = composition.ResolveReviewIntentAsync((ChocolateyReviewIntentResolver)null!, Target, CancellationToken.None); });
+    }
+
+    [TestMethod]
     [DataRow("before-call")]
     [DataRow("after-return")]
     [DataRow("default")]
@@ -721,6 +749,18 @@ public sealed class ChocolateyDesktopProducersTests
     private sealed class Clock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>A scripted client process that records the query, asserting no observation has started yet.</summary>
+    private sealed class OrderedProcess(List<string> order, ScriptedObserver observer, string output) : IChocolateyProcess
+    {
+        public Task<ChocolateyProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            Assert.AreEqual(0, observer.Calls.Count, "no observation before the client query");
+            CollectionAssert.AreEqual(ChocolateyUpdateSourceConnector.BuildOutdatedArguments().ToArray(), arguments.ToArray());
+            order.Add("client-query");
+            return Task.FromResult(new ChocolateyProcessResult(0, output, string.Empty, false));
+        }
     }
 
     /// <summary>A clock the scripted observer moves forward while it "observes".</summary>

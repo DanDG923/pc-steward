@@ -5,7 +5,10 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// <summary>A supplied user-cache candidate (the non-elevated client's <c>outdated</c> record) and when its resolver resolved it.</summary>
 internal sealed record ChocolateyResolvedIntent(StructuredUpdateCandidateEvidence Candidate, DateTimeOffset ResolvedAt);
 
-/// <summary>Resolves the user-cache candidate intent when asked; it must resolve it during the call (N5 obligation (a)).</summary>
+/// <summary>
+/// Resolves the user-cache candidate intent when asked; it must resolve it during the call (N5 obligation (a)). The production
+/// resolver is <see cref="ChocolateyReviewIntentResolver.For"/>.
+/// </summary>
 internal delegate Task<ChocolateyResolvedIntent?> ChocolateyIntentResolver(CancellationToken cancellationToken);
 
 /// <summary>
@@ -14,7 +17,7 @@ internal delegate Task<ChocolateyResolvedIntent?> ChocolateyIntentResolver(Cance
 /// <item>(b) the single construction site of the desktop producers: ONE <see cref="ChocolateyDispatchBaselines"/> shared by
 /// the F′ evidence source and the verifier, so the verifier takes the baseline that F′ recorded for the same operation
 /// (separate instances would make every verification unverifiable).</item>
-/// <item>(a) the fresh-intent supply path: <see cref="ResolveReviewIntentAsync"/> asks the resolver for the intent and
+/// <item>(a) the fresh-intent supply path: <see cref="ResolveReviewIntentAsync(ChocolateyIntentResolver, CancellationToken)"/> asks the resolver for the intent and
 /// accepts it only when its own resolution time falls inside that call, then observes immediately; the review shows that
 /// time (<see cref="ChocolateyReviewIntentFacts.IntentResolvedAt"/>).</item>
 /// <item>the split-token probe for the review's §(L6) unavailability reason.</item>
@@ -85,6 +88,17 @@ internal sealed class ChocolateyReviewedRouteComposition
             return null;
         }
         return intent is null || cancellationToken.IsCancellationRequested ? null : ToFacts(intent);
+    }
+
+    /// <summary>
+    /// Admission obligation 6: the production supply path. The production <paramref name="resolver"/> resolves the exact
+    /// <paramref name="packageId"/> inside this call, immediately before the observation, under the same in-call time rule.
+    /// </summary>
+    internal Task<ChocolateyReviewIntentFacts?> ResolveReviewIntentAsync(ChocolateyReviewIntentResolver resolver, string packageId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        return ResolveReviewIntentAsync(resolver.For(packageId), cancellationToken);
     }
 
     /// <summary>The review-relevant facts of an intent, keeping its own resolved time separate from the observation time.</summary>
