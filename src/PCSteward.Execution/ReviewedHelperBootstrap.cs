@@ -51,31 +51,19 @@ internal sealed record ReviewedHelperBootstrap(int DesktopProcessId, string Pipe
     }
 
     /// <summary>
-    /// The connected part of the protocol-2 bootstrap; the caller has already parsed the command line and checked elevation.
-    /// The peer handle stays open until the endpoint has finished (the endpoint disposes its item first).
+    /// The connected part of the protocol-2 bootstrap; the caller has already parsed the command line, checked elevation and
+    /// resolved <paramref name="host"/>. The peer handle stays open until the endpoint has finished (the endpoint disposes its
+    /// item first).
     /// </summary>
-    internal static async Task<int> RunAsync(ReviewedHelperBootstrap bootstrap, IChocolateyHelperQualificationPort port,
+    internal static async Task<int> RunAsync(ReviewedHelperBootstrap bootstrap, ReviewedHelperHost host, IChocolateyHelperQualificationPort port,
         IReviewedHelperCapabilityCheck capability, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(bootstrap);
+        ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(port);
         ArgumentNullException.ThrowIfNull(capability);
         ArgumentNullException.ThrowIfNull(clock);
         if (!OperatingSystem.IsWindows()) return LayoutUnavailable;
-        string helperPath;
-        string expectedDesktopPath;
-        string currentSid;
-        int currentSession;
-        try
-        {
-            helperPath = Environment.ProcessPath ?? string.Empty;
-            expectedDesktopPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, InstalledHelperLaunchTrust.DesktopExecutableName));
-            using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) currentSid = identity.User?.Value ?? string.Empty;
-            using (Process current = Process.GetCurrentProcess()) currentSession = current.SessionId;
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException) { return LayoutUnavailable; }
-        if (helperPath.Length == 0 || currentSid.Length == 0 || !File.Exists(expectedDesktopPath)) return LayoutUnavailable;
-
         try
         {
             using NamedPipeClientStream pipe = new(".", bootstrap.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
@@ -94,7 +82,7 @@ internal sealed record ReviewedHelperBootstrap(int DesktopProcessId, string Pipe
                 return PeerNotVerified;
             using IChocolateyPeer? peer = port.OpenPeer(serverProcessId);
             if (peer is null ||
-                !WindowsPeerIdentityVerifier.VerifyPeer(peer, serverProcessId, expectedDesktopPath, helperPath, currentSession, currentSid, out _))
+                !WindowsPeerIdentityVerifier.VerifyPeer(peer, serverProcessId, host.ExpectedDesktopPath, host.HelperPath, host.Session, host.UserSid, out _))
                 return PeerNotVerified;
             ReviewedHelperEndpointResult result = await ReviewedHelperEndpoint.RunAsync(pipe, peer, port, capability, clock, connected,
                 bootstrap.Nonce, CancellationToken.None).ConfigureAwait(false);
@@ -126,6 +114,34 @@ internal sealed record ReviewedHelperBootstrap(int DesktopProcessId, string Pipe
 }
 
 /// <summary>
+/// The helper's own facts the peer is verified against (§5.1): its process path, the fixed desktop path beside it (which must
+/// exist), its user SID and its session. Production reads them only from the running process (<see cref="TryResolve"/>).
+/// </summary>
+internal sealed record ReviewedHelperHost(string HelperPath, string ExpectedDesktopPath, string UserSid, int Session)
+{
+    internal static ReviewedHelperHost? TryResolve()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            string helperPath = Environment.ProcessPath ?? string.Empty;
+            string expectedDesktopPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, InstalledHelperLaunchTrust.DesktopExecutableName));
+            string sid;
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) sid = identity.User?.Value ?? string.Empty;
+            int session;
+            using (Process current = Process.GetCurrentProcess()) session = current.SessionId;
+            return helperPath.Length == 0 || sid.Length == 0 || !File.Exists(expectedDesktopPath)
+                ? null
+                : new ReviewedHelperHost(helperPath, expectedDesktopPath, sid, session);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>
 /// The ElevatedHelper composition root for protocol 2 (Task 50 design rev 6 §5.1, §5.4): it constructs only the native
 /// qualification port, the Helper-role capability check and the system clock. A refused parse, a non-Windows host or a
 /// non-elevated process exits with code 20 before any connection, as protocol 1 does.
@@ -139,7 +155,9 @@ public static partial class ElevatedHelperEntryPoint
         if (!OperatingSystem.IsWindows() || !ReviewedHelperBootstrap.TryParse(arguments, out ReviewedHelperBootstrap? bootstrap) ||
             bootstrap is null || !IsElevated())
             return Task.FromResult(20);
-        return ReviewedHelperBootstrap.RunAsync(bootstrap, new NativeChocolateyHelperQualification(), new HelperDeploymentCapabilityCheck(),
+        ReviewedHelperHost? host = ReviewedHelperHost.TryResolve();
+        if (host is null) return Task.FromResult(ReviewedHelperBootstrap.LayoutUnavailable);
+        return ReviewedHelperBootstrap.RunAsync(bootstrap, host, new NativeChocolateyHelperQualification(), new HelperDeploymentCapabilityCheck(),
             TimeProvider.System);
     }
 }

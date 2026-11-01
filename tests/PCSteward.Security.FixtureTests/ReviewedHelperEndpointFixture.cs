@@ -231,6 +231,10 @@ internal sealed class EndpointHarness
     internal FakeItem Item { get; } = new();
     internal FakePort Port { get; }
     internal FakeCapability Capability { get; } = new();
+    /// <summary>N4b: a real port (for example one returning the native item) instead of <see cref="Port"/>.</summary>
+    internal IChocolateyHelperQualificationPort? PortOverride { get; set; }
+    /// <summary>N4b: a capability check other than <see cref="Capability"/>.</summary>
+    internal IReviewedHelperCapabilityCheck? CapabilityOverride { get; set; }
     internal ReviewedHelperEndpointBudgets Budgets { get; set; } = ReviewedHelperEndpointBudgets.Production;
     /// <summary>Time already elapsed since the pipe connected (t0) when the endpoint starts.</summary>
     internal TimeSpan PreElapsed { get; set; }
@@ -299,7 +303,8 @@ internal sealed class EndpointHarness
             await client.ConnectAsync(10_000);
             long connected = Clock.GetTimestamp() - PreElapsed.Ticks;
             Stream pipe = WrapHelperPipe?.Invoke(client) ?? client;
-            return await ReviewedHelperEndpoint.RunAsync(pipe, Peer, Port, Capability, Clock, connected, EndpointFixture.Nonce, Budgets,
+            return await ReviewedHelperEndpoint.RunAsync(pipe, Peer, PortOverride ?? Port, CapabilityOverride ?? Capability, Clock, connected,
+                EndpointFixture.Nonce, Budgets,
                 HelperCancellation.Token);
         }
         finally
