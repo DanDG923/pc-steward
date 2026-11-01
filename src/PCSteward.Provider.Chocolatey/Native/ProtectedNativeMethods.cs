@@ -10,7 +10,7 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// </summary>
 internal static class ProtectedNativeMethods
 {
-    internal const uint ProcessQueryLimitedInformation = 0x00001000;
+    internal const uint ProcessQueryLimitedInformation = 0x1000;
     internal const uint Synchronize = 0x00100000;
     internal const uint WaitObject0 = 0x00000000;
     internal const uint WaitTimeout = 0x00000102;
@@ -63,7 +63,7 @@ internal static class ProtectedNativeMethods
     internal const uint LabelSecurityInformation = 0x00000010;
     internal const uint MaximumAllowed = 0x02000000;
 
-    /// <summary>Same layout as Execution's <c>DeploymentFileAccess.NativeMethods.FileIdInformation</c> (architecture-tested).</summary>
+    /// <summary>Same layout as Execution's <c>FILE_ID_INFO</c> declaration (architecture-tested).</summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct FileIdInformation
     {
