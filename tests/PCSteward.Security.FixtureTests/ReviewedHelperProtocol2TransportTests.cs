@@ -386,6 +386,12 @@ public sealed class ReviewedHelperProtocol2TransportTests
         Assert.IsTrue(RestrictedNamedPipe.IsAcceptedLocator($"pcsteward-elevated-{Guid.NewGuid():N}"), "protocol 1 is unchanged");
         foreach (string bad in new[] { "pcsteward-reviewed-", name.ToUpperInvariant(), name + "0", "pcsteward-other-" + new string('a', 32), "" })
             Assert.IsFalse(RestrictedNamedPipe.IsAcceptedLocator(bad), bad);
+        // N4b review L4: a "$" anchor would accept a trailing newline; the protocol-2 pattern is anchored with \z.
+        foreach (string bad in new[] { name + "\n", name + "\r\n", "\n" + name, name + "\r" })
+        {
+            Assert.IsFalse(WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(bad), bad);
+            Assert.IsFalse(RestrictedNamedPipe.IsAcceptedLocator(bad), bad);
+        }
         // The endpoint is deferred: the protocol-1 helper bootstrap accepts neither the protocol-2 locator nor --protocol 2.
         foreach (string protocol in new[] { ElevatedHelperProtocol.Version, ReviewedUpdateWireCodec.ProtocolVersion })
             Assert.IsFalse(HelperBootstrap.TryParse(["--protocol", protocol, "--desktop-pid", "42", "--pipe", name, "--nonce", Nonce], out _), protocol);

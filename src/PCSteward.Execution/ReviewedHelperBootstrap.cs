@@ -78,12 +78,8 @@ internal sealed record ReviewedHelperBootstrap(int DesktopProcessId, string Pipe
             }
             // §4: the endpoint clock starts when the pipe connects, before the frame read.
             long connected = clock.GetTimestamp();
-            if (!RestrictedNamedPipe.TryGetServerProcessId(pipe, out int serverProcessId) || serverProcessId != bootstrap.DesktopProcessId)
-                return PeerNotVerified;
-            using IChocolateyPeer? peer = port.OpenPeer(serverProcessId);
-            if (peer is null ||
-                !WindowsPeerIdentityVerifier.VerifyPeer(peer, serverProcessId, host.ExpectedDesktopPath, host.HelperPath, host.Session, host.UserSid, out _))
-                return PeerNotVerified;
+            using IChocolateyPeer? peer = OpenVerifiedPeer(pipe, bootstrap, host, port);
+            if (peer is null) return PeerNotVerified;
             ReviewedHelperEndpointResult result = await ReviewedHelperEndpoint.RunAsync(pipe, peer, port, capability, clock, connected,
                 bootstrap.Nonce, CancellationToken.None).ConfigureAwait(false);
             return result.Exit switch
@@ -97,6 +93,32 @@ internal sealed record ReviewedHelperBootstrap(int DesktopProcessId, string Pipe
         {
             return ResponseWriteFailed;
         }
+    }
+
+    /// <summary>
+    /// The server PID check, the held peer handle and the handle-based peer verification (§5.1). Null on any refusal or
+    /// exception, so a fault here is <see cref="PeerNotVerified"/>, never a response-write failure; a peer opened but not
+    /// verified is closed. Peer trust uses the shared Authenticode policy (no revocation check, cache-only URL retrieval).
+    /// </summary>
+    private static IChocolateyPeer? OpenVerifiedPeer(NamedPipeClientStream pipe, ReviewedHelperBootstrap bootstrap, ReviewedHelperHost host,
+        IChocolateyHelperQualificationPort port)
+    {
+        IChocolateyPeer? peer = null;
+        try
+        {
+            if (!RestrictedNamedPipe.TryGetServerProcessId(pipe, out int serverProcessId) || serverProcessId != bootstrap.DesktopProcessId) return null;
+            peer = port.OpenPeer(serverProcessId);
+            if (peer is not null &&
+                WindowsPeerIdentityVerifier.VerifyPeer(peer, serverProcessId, host.ExpectedDesktopPath, host.HelperPath, host.Session, host.UserSid, out _))
+                return peer;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Refused below.
+        }
+        try { peer?.Dispose(); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { }
+        return null;
     }
 
     /// <summary>The dispatch rule: an eight-argument command line naming <c>--protocol 2</c>; the full parse decides afterwards.</summary>

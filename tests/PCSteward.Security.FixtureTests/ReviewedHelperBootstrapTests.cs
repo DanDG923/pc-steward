@@ -41,6 +41,8 @@ public sealed class ReviewedHelperBootstrapTests
     [DataRow("uppercase-locator")]
     [DataRow("short-locator")]
     [DataRow("locator-with-path")]
+    [DataRow("locator-trailing-newline")]
+    [DataRow("locator-trailing-crlf")]
     [DataRow("lowercase-nonce")]
     [DataRow("short-nonce")]
     [DataRow("non-hex-nonce")]
@@ -66,6 +68,9 @@ public sealed class ReviewedHelperBootstrapTests
             "uppercase-locator" => Arguments(pipe: "pcsteward-reviewed-0123456789ABCDEF0123456789abcdef"),
             "short-locator" => Arguments(pipe: "pcsteward-reviewed-0123456789abcdef"),
             "locator-with-path" => Arguments(pipe: @"..\pcsteward-reviewed-0123456789abcdef0123456789abcdef"),
+            // N4b review L4: "$" would accept a trailing newline; the protocol-2 locator is anchored with \z.
+            "locator-trailing-newline" => Arguments(pipe: Pipe + "\n"),
+            "locator-trailing-crlf" => Arguments(pipe: Pipe + "\r\n"),
             "lowercase-nonce" => Arguments(nonce: F.Nonce.ToLowerInvariant()),
             "short-nonce" => Arguments(nonce: F.Nonce[..63]),
             "non-hex-nonce" => Arguments(nonce: "G" + F.Nonce[1..]),
@@ -117,7 +122,9 @@ public sealed class ReviewedHelperBootstrapTests
     public async Task AWellFormedProtocol2LineExitsWith20WhenNotElevated()
     {
         if (OperatingSystem.IsWindows() && IsElevated())
-            Assert.Inconclusive("an elevated test host would attempt the pipe connection; CI runs as a standard user");
+            // scripts/Test-CI.ps1 runs the tests as a disposable standard user, started with explicit credentials from the
+            // runner's elevated administrator session: a plain non-elevated token with no UAC split, so this does not apply there.
+            Assert.Inconclusive("an elevated test host would attempt the pipe connection");
         Assert.AreEqual(20, await ElevatedHelperEntryPoint.RunAsync(Arguments(pipe: WindowsReviewedHelperTransport.CreatePipeName())).WaitAsync(F.Wait));
     }
 
@@ -185,6 +192,27 @@ public sealed class ReviewedHelperBootstrapTests
 
         await connected.WaitAsync(F.Wait);
         Assert.AreEqual(ReviewedHelperBootstrap.PeerNotVerified, exit);
+    }
+
+    [TestMethod]
+    public async Task APeerOpenThatThrowsIsPeerNotVerifiedNotAResponseWriteFailure()
+    {
+        // N4b review L6: an exception before the endpoint (opening or verifying the peer) is PeerNotVerified (23), not 26.
+        N1NativeFixture.RequireWindows("protocol-2 bootstrap peer open exception");
+        string name = WindowsReviewedHelperTransport.CreatePipeName();
+        using NamedPipeServerStream server = RestrictedNamedPipe.Create(name, CurrentSid());
+        Task connected = server.WaitForConnectionAsync();
+        RecordingPort port = new(null, throwOnOpen: true);
+        FakeCapability capability = new();
+
+        int exit = await ReviewedHelperBootstrap.RunAsync(new ReviewedHelperBootstrap(Environment.ProcessId, name, F.Nonce), Host(), port, capability,
+            TimeProvider.System).WaitAsync(F.Wait);
+
+        await connected.WaitAsync(F.Wait);
+        Assert.AreEqual(ReviewedHelperBootstrap.PeerNotVerified, exit);
+        Assert.AreEqual(1, port.OpenCalls);
+        Assert.AreEqual(0, capability.Calls, "the endpoint never ran");
+        Assert.AreEqual(0, await ReadToEndAsync(server), "nothing is written");
     }
 
     // ---- Windows: the handle-based VerifyPeer overload through the native port ----
@@ -260,7 +288,8 @@ public sealed class ReviewedHelperBootstrapTests
         Assert.AreEqual(ChocolateyItemRefusal.RequesterTokenRefused, refusal);
         TokenVerdict expected = OwnElevation() switch
         {
-            // CI: a standard user (or an administrator without split tokens) has nothing linked. Linked-token success is
+            // CI: the disposable standard user that scripts/Test-CI.ps1 starts from the elevated runner administrator has a
+            // plain token without a UAC split, so nothing is linked (as for an administrator without split tokens). Linked-token success is
             // owner-host evidence only (design rev 6 §8, §9).
             TokenElevationKind.Default => TokenVerdict.NoLinkedToken,
             TokenElevationKind.Limited => TokenVerdict.EvaluationNotLimited,
@@ -341,8 +370,8 @@ public sealed class ReviewedHelperBootstrapTests
         return (TokenElevationKind)elevation;
     }
 
-    /// <summary>A port that records <c>OpenPeer</c> and returns a fixed peer (or null).</summary>
-    private sealed class RecordingPort(IChocolateyPeer? peer) : IChocolateyHelperQualificationPort
+    /// <summary>A port that records <c>OpenPeer</c> and returns a fixed peer (or null), or throws when told to.</summary>
+    private sealed class RecordingPort(IChocolateyPeer? peer, bool throwOnOpen = false) : IChocolateyHelperQualificationPort
     {
         internal int OpenCalls { get; private set; }
         internal int OpenedFor { get; private set; }
@@ -351,6 +380,7 @@ public sealed class ReviewedHelperBootstrapTests
         {
             OpenCalls++;
             OpenedFor = pipeServerProcessId;
+            if (throwOnOpen) throw new InvalidOperationException("synthetic peer open failure");
             return peer;
         }
 

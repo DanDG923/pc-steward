@@ -302,8 +302,11 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
         _ = ownedCompletion.ContinueWith(static (_, state) => ((HeldHelperBinding)state!).Dispose(), binding,
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
-    /// <summary>The protocol-2 per-request pipe locator (distinct from the protocol-1 <c>pcsteward-elevated-</c> locator).</summary>
-    [GeneratedRegex("^pcsteward-reviewed-[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
+    /// <summary>
+    /// The protocol-2 per-request pipe locator (distinct from the protocol-1 <c>pcsteward-elevated-</c> locator), anchored with
+    /// <c>\A</c> and <c>\z</c>: a <c>$</c> anchor would also accept a trailing newline.
+    /// </summary>
+    [GeneratedRegex(@"\Apcsteward-reviewed-[a-f0-9]{32}\z", RegexOptions.CultureInvariant)]
     internal static partial Regex PipeNamePattern();
 
     internal static string CreatePipeName() => PipeNamePrefix + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
