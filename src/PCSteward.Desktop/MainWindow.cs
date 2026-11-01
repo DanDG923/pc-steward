@@ -816,6 +816,7 @@ public sealed class MainWindow : Window
         if (activity.Count == 0)
         {
             Button start = StewardVisuals.PrimaryButton("Start local inventory", "Start a read-only local application inventory");
+            start.IsEnabled = !HasActiveOperation;
             start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
             panel.Children.Add(StewardVisuals.EmptyState("\uE823", "No local activity yet", "Complete an inventory or save a decision and its timestamped record will appear here.", start));
         }
@@ -886,8 +887,6 @@ public sealed class MainWindow : Window
         if (Microsoft.UI.Windowing.AppWindowTitleBar.IsCustomizationSupported())
         {
             AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Standard;
-            AppWindow.TitleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
-            AppWindow.TitleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
         }
 
         windowRoot = new Grid();
@@ -911,7 +910,8 @@ public sealed class MainWindow : Window
             Visibility = Visibility.Collapsed
         };
         AutomationProperties.SetName(titleBarBack, "Back");
-        ToolTipService.SetToolTip(titleBarBack, "Back (Alt+Left)");
+        // Independent review L9: WinUI appends the keyboard accelerator to the tooltip itself, so the text stays plain.
+        ToolTipService.SetToolTip(titleBarBack, "Back");
         titleBarBack.KeyboardAccelerators.Add(new KeyboardAccelerator { Key = Windows.System.VirtualKey.Left, Modifiers = Windows.System.VirtualKeyModifiers.Menu });
         titleBarBack.KeyboardAccelerators.Add(new KeyboardAccelerator { Key = Windows.System.VirtualKey.GoBack });
         titleBarBack.Click += (_, _) => GoBack();
@@ -929,14 +929,67 @@ public sealed class MainWindow : Window
         windowRoot.Children.Add(titleBar);
         Content = windowRoot;
         SetTitleBar(dragRegion);
+        // Independent review L9: the mouse Back button (XButton1) goes back anywhere in the shell, even over handled controls.
+        windowRoot.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnShellPointerPressed), true);
 
         try
         {
             accessibilitySettings = new Windows.UI.ViewManagement.AccessibilitySettings();
-            accessibilitySettings.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { if (!windowClosed) ApplyBackdrop(); });
+            accessibilitySettings.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { if (!windowClosed) RefreshForThemeChange(); });
         }
         catch (Exception) { accessibilitySettings = null; }
+        windowRoot.ActualThemeChanged += (_, _) => { if (!windowClosed) RefreshForThemeChange(); };
         ApplyBackdrop();
+        ApplyCaptionButtonColors();
+    }
+
+    private void OnShellPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (windowRoot is null || navigationView is null || !navigation.CanGoBack) return;
+        if (!args.GetCurrentPoint(windowRoot).Properties.IsXButton1Pressed) return;
+        args.Handled = true;
+        GoBack();
+    }
+
+    /// <summary>
+    /// Independent review L7: theme brushes are read when controls are built, so a high-contrast or light/dark change refreshes
+    /// the backdrop, the caption buttons, the persistent operation band and the current page (which rebuilds its list items).
+    /// </summary>
+    private void RefreshForThemeChange()
+    {
+        ApplyBackdrop();
+        ApplyCaptionButtonColors();
+        if (operationBand is not null)
+        {
+            operationBand.Background = StewardVisuals.Brush("StewardBrandSubtleBrush");
+            operationBand.BorderBrush = StewardVisuals.Brush("StewardBorderBrush");
+        }
+        if (operationStatusText is not null) operationStatusText.Foreground = StewardVisuals.Brush("StewardTextBrush");
+        Render();
+    }
+
+    /// <summary>
+    /// Independent review L9: with content extended into the title bar, the caption buttons take the current theme's text colour,
+    /// with a subtle hover and pressed fill; high contrast uses the system-mapped text and canvas colours.
+    /// </summary>
+    private void ApplyCaptionButtonColors()
+    {
+        if (!Microsoft.UI.Windowing.AppWindowTitleBar.IsCustomizationSupported()) return;
+        Microsoft.UI.Windowing.AppWindowTitleBar bar = AppWindow.TitleBar;
+        bool highContrast = accessibilitySettings?.HighContrast == true;
+        Windows.UI.Color text = ((SolidColorBrush)StewardVisuals.Brush("StewardTextBrush")).Color;
+        Windows.UI.Color canvas = ((SolidColorBrush)StewardVisuals.Brush("StewardCanvasBrush")).Color;
+        Windows.UI.Color inactive = ((SolidColorBrush)StewardVisuals.Brush("StewardTertiaryTextBrush")).Color;
+        Windows.UI.Color hover = highContrast ? text : Microsoft.UI.ColorHelper.FromArgb(0x19, text.R, text.G, text.B);
+        Windows.UI.Color pressed = highContrast ? text : Microsoft.UI.ColorHelper.FromArgb(0x33, text.R, text.G, text.B);
+        bar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+        bar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+        bar.ButtonForegroundColor = text;
+        bar.ButtonInactiveForegroundColor = inactive;
+        bar.ButtonHoverBackgroundColor = hover;
+        bar.ButtonHoverForegroundColor = highContrast ? canvas : text;
+        bar.ButtonPressedBackgroundColor = pressed;
+        bar.ButtonPressedForegroundColor = highContrast ? canvas : text;
     }
 
     private void ApplyBackdrop()
@@ -1080,10 +1133,11 @@ public sealed class MainWindow : Window
             page.Loaded -= Restore;
             DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
             {
-                if (windowClosed || !ReferenceEquals(pageHost?.Content, page)) return;
-                if (offset > 0) pageHost.ChangeView(null, offset, null, true);
+                if (windowClosed || pageHost is not { } host || !ReferenceEquals(host.Content, page)) return;
+                if (offset > 0) RestoreScrollOffset(host, page, offset);
                 if (!focusWasInPage) return;
-                Control? target = (sameView && focusKey is not null ? FindFocusTarget(page, focusKey) : null)
+                // Independent review M3: restore only an unambiguous match; otherwise start at the top of the page.
+                Control? target = (sameView && focusKey is not null ? PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey)) : null)
                     ?? FocusManager.FindFirstFocusableElement(page) as Control;
                 target?.Focus(FocusState.Programmatic);
             });
@@ -1091,6 +1145,23 @@ public sealed class MainWindow : Window
         page.Loaded += Restore;
         RefreshOperationVisuals();
         SyncNavigationChrome();
+    }
+
+    /// <summary>
+    /// Independent review L8: the rebuilt page must be measured before its saved offset is reachable, so layout is completed
+    /// first; if the content is still shorter than the offset, the offset is applied once more after the next layout pass.
+    /// </summary>
+    private void RestoreScrollOffset(ScrollViewer host, StackPanel page, double offset)
+    {
+        host.UpdateLayout();
+        host.ChangeView(null, offset, null, true);
+        if (host.ScrollableHeight >= offset) return;
+        void Retry(object? sender, object args)
+        {
+            host.LayoutUpdated -= Retry;
+            if (!windowClosed && ReferenceEquals(host.Content, page)) host.ChangeView(null, offset, null, true);
+        }
+        host.LayoutUpdated += Retry;
     }
 
     private bool IsFocusInside(DependencyObject container, out string? key)
@@ -1116,9 +1187,10 @@ public sealed class MainWindow : Window
         };
     }
 
-    private static Control? FindFocusTarget(DependencyObject root, string key)
+    /// <summary>Every enabled control on the page whose accessible name (or content) equals <paramref name="key"/>.</summary>
+    private static IEnumerable<Control> FindFocusTargets(DependencyObject root, string key)
     {
-        if (root is Control { IsEnabled: true } control && string.Equals(FocusKey(control), key, StringComparison.Ordinal)) return control;
+        if (root is Control { IsEnabled: true } control && string.Equals(FocusKey(control), key, StringComparison.Ordinal)) yield return control;
         IEnumerable<DependencyObject> children = root switch
         {
             Panel panel => panel.Children,
@@ -1128,8 +1200,8 @@ public sealed class MainWindow : Window
             _ => []
         };
         foreach (DependencyObject child in children)
-            if (FindFocusTarget(child, key) is { } match) return match;
-        return null;
+            foreach (Control match in FindFocusTargets(child, key))
+                yield return match;
     }
 
     private StackPanel BuildScanPage()
@@ -1356,15 +1428,19 @@ public sealed class MainWindow : Window
 
     private async Task StartScanAsync()
     {
-        scanCancellation = new CancellationTokenSource();
+        // Independent review L6: a request while a scan or another operation is active starts nothing and never replaces the
+        // active scan's cancellation source.
+        if (HasActiveOperation) { Render(); return; }
+        CancellationTokenSource cancellation = new();
+        scanCancellation = cancellation;
         Render();
         Progress<ScanProgress> progress = new(value => { viewModel.ReportProgress(value); RefreshOperationVisuals(); });
         // Providers and SQLite complete asynchronously.  Keep their continuations off the
         // WinUI dispatcher; Progress posts the small UI updates back to it explicitly.
         ScanResult? completed = null;
-        try { completed = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), scanCancellation.Token); viewModel.CompleteScan(completed, DateTimeOffset.UtcNow); LoadSavedInventory(); }
+        try { completed = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), cancellation.Token); viewModel.CompleteScan(completed, DateTimeOffset.UtcNow); LoadSavedInventory(); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-        finally { scanCancellation?.Dispose(); scanCancellation = null; if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.Results); else Render(); }
+        finally { if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.Results); else Render(); }
     }
 
     private async Task CheckUpdateSourcesAsync()
@@ -1454,14 +1530,14 @@ public sealed class MainWindow : Window
             Grid row = new() { ColumnSpacing = 12 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.Children.Add(new TextBlock { Text = $"{decision.Kind}: {decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" — {decision.Reason}")}", TextWrapping = TextWrapping.Wrap });
-            Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, $"Remove {decision.Kind} decision"); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.ReverseDecisionAsync(decision.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; Grid.SetColumn(remove, 1); row.Children.Add(remove); panel.Children.Add(row);
+            Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, PageFocusRestore.RemoveDecisionName(PageFocusRestore.ProductName(viewModel.AllRows, decision.StableProductKey), decision.Kind)); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.ReverseDecisionAsync(decision.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; Grid.SetColumn(remove, 1); row.Children.Add(remove); panel.Children.Add(row);
         }
         foreach (PCSteward.Domain.ManualMapping mapping in manualMappings)
         {
             Grid row = new() { ColumnSpacing = 12 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.Children.Add(new TextBlock { Text = $"Manual mapping: {mapping.SourceId}:{mapping.PackageId}{(string.IsNullOrWhiteSpace(mapping.Reason) ? string.Empty : $" — {mapping.Reason}")}", TextWrapping = TextWrapping.Wrap });
-            Button remove = new() { Content = "Remove mapping" }; AutomationProperties.SetName(remove, $"Remove manual mapping {mapping.PackageId}"); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.DeleteManualMappingAsync(mapping.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; Grid.SetColumn(remove, 1); row.Children.Add(remove); panel.Children.Add(row);
+            Button remove = new() { Content = "Remove mapping" }; AutomationProperties.SetName(remove, PageFocusRestore.RemoveManualMappingName(PageFocusRestore.ProductName(viewModel.AllRows, mapping.StableProductKey), mapping.SourceId, mapping.PackageId)); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.DeleteManualMappingAsync(mapping.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; Grid.SetColumn(remove, 1); row.Children.Add(remove); panel.Children.Add(row);
         }
     }
 

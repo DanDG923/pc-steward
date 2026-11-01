@@ -62,13 +62,17 @@ public sealed class ShellNavigation : INotifyPropertyChanged
     /// <summary>The navigation item to highlight for <see cref="Current"/>.</summary>
     public ShellPage SelectedItem => Current == ShellPage.Detail && backStack.Count != 0 ? ParentOf(backStack[^1]) : ParentOf(Current);
 
-    /// <summary>Opens <paramref name="page"/>. Returns false when it is already the current page, so no Back entry is added.</summary>
+    /// <summary>
+    /// Opens <paramref name="page"/>. Returns false when it is already the current page, so no Back entry is added. Leaving a
+    /// transient page (app details) for the page directly beneath it is treated like Back, so that page is not stacked twice.
+    /// </summary>
     public bool Navigate(ShellPage page)
     {
         if (!Enum.IsDefined(page)) throw new ArgumentOutOfRangeException(nameof(page));
         if (page == Current) return false;
         if (Current == ShellPage.Onboarding) backStack.Clear();
         else if (!IsTransient(Current)) Push(Current);
+        else if (backStack.Count != 0 && backStack[^1] == page) backStack.RemoveAt(backStack.Count - 1);
         Current = page;
         Changed();
         return true;

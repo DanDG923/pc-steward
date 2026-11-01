@@ -10,6 +10,8 @@ public sealed class DesktopFoundationsPresentationTests
 {
     private static readonly string[] NavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions", "Settings", "About"];
     private static readonly string[] FooterLabels = ["Settings", "About"];
+    private static readonly string[] SingleFocusCandidate = ["only"];
+    private static readonly string[] AmbiguousFocusCandidates = ["Remove", "Remove"];
 
     [TestMethod]
     [Description("FR-UI-01/02; AC-UX-01/02: ADR-030 navigation set — five main items then Settings and About in the footer.")]
@@ -88,6 +90,57 @@ public sealed class DesktopFoundationsPresentationTests
         ShellNavigation onboarding = new(ShellPage.Onboarding);
         onboarding.Navigate(ShellPage.Scan);
         Assert.IsFalse(onboarding.CanGoBack, "post-reset onboarding is never returned to");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-02; AC-UX-01 (independent review L5): leaving details for the page beneath them does not stack that page twice.")]
+    public void LeavingDetailsForTheOpeningPageDoesNotDuplicateIt()
+    {
+        ShellNavigation navigation = new();
+        Assert.IsTrue(navigation.Navigate(ShellPage.InstalledApps));
+        Assert.IsTrue(navigation.Navigate(ShellPage.Detail));
+        Assert.AreEqual(2, navigation.BackStackDepth);
+        Assert.IsTrue(navigation.Navigate(ShellPage.InstalledApps));
+        Assert.AreEqual(ShellPage.InstalledApps, navigation.Current);
+        Assert.AreEqual(1, navigation.BackStackDepth, "Installed apps is not stacked beneath itself");
+        Assert.IsTrue(navigation.GoBack());
+        Assert.AreEqual(ShellPage.Home, navigation.Current, "one Back returns past Installed apps, not to it again");
+        Assert.IsFalse(navigation.CanGoBack);
+
+        Assert.IsTrue(navigation.Navigate(ShellPage.Updates));
+        Assert.IsTrue(navigation.Navigate(ShellPage.Detail));
+        Assert.IsTrue(navigation.Navigate(ShellPage.Activity));
+        Assert.AreEqual(2, navigation.BackStackDepth, "leaving details for a different page still keeps the opening page for Back");
+        Assert.IsTrue(navigation.GoBack());
+        Assert.AreEqual(ShellPage.Updates, navigation.Current);
+    }
+
+    [TestMethod]
+    [Description("AC-UX-02; FR-UI-02 (independent review M3): focus is restored only to a unique match, and per-row actions name their product.")]
+    public void FocusRestoreNeedsAUniqueMatchAndRowActionNamesAreDistinct()
+    {
+        Assert.IsNull(PageFocusRestore.UniqueMatch(Array.Empty<string>()));
+        Assert.AreEqual("only", PageFocusRestore.UniqueMatch(SingleFocusCandidate));
+        Assert.IsNull(PageFocusRestore.UniqueMatch(AmbiguousFocusCandidates),"an ambiguous name is never restored to the first match");
+
+        InventoryExperienceViewModel viewModel = new();
+        Guid widget = Guid.NewGuid(), gadget = Guid.NewGuid();
+        viewModel.LoadInventory(
+            [new CanonicalProduct(widget, "product:widget", "Widget"), new CanonicalProduct(gadget, "product:gadget", "Gadget")],
+            [new InstallationInstance(Guid.NewGuid(), widget, "registry", "widget", "1.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), gadget, "registry", "gadget", "2.0", "User", "x64", "Fabrikam")]);
+        Assert.AreEqual("Widget", PageFocusRestore.ProductName(viewModel.AllRows, "product:widget"));
+        Assert.AreEqual("product:missing", PageFocusRestore.ProductName(viewModel.AllRows, "product:missing"), "an unloaded product falls back to its key");
+        Assert.AreEqual("an unknown app", PageFocusRestore.ProductName(viewModel.AllRows, ""));
+
+        string[] names =
+        [
+            PageFocusRestore.RemoveDecisionName(PageFocusRestore.ProductName(viewModel.AllRows, "product:widget"), "Pin"),
+            PageFocusRestore.RemoveDecisionName(PageFocusRestore.ProductName(viewModel.AllRows, "product:gadget"), "Pin"),
+            PageFocusRestore.RemoveManualMappingName("Widget", "winget", "Contoso.Widget"),
+            PageFocusRestore.RemoveManualMappingName("Gadget", "winget", "Contoso.Widget")
+        ];
+        Assert.AreEqual("Remove Pin decision for Widget", names[0]);
+        Assert.HasCount(names.Length, names.Distinct(StringComparer.Ordinal).ToArray(), "the same decision kind on two products gets two names");
     }
 
     [TestMethod]

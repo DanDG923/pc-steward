@@ -10,6 +10,16 @@ public sealed class UiRedesignContractTests
     private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions"];
     private static readonly string[] FooterNavigationLabels = ["Settings", "About"];
     private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Onboarding"];
+    private static readonly string[] PerRowActionNames =
+    [
+        "$\"Pin {row.Name} at installed version {row.Version}\"",
+        "$\"Choose how long to ignore {row.Name}\"",
+        "$\"Review {row.Name} decision evidence and options\"",
+        "$\"Review {row.Name} evidence",
+        "$\"Open {row.Name} evidence\"",
+        "$\"Open unavailable source evidence for {row.Name}\"",
+        "$\"Open repository evidence for {row.Name}\""
+    ];
     private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Decisions", "InstalledApps", "Settings"];
 
     /// <summary>
@@ -66,13 +76,40 @@ public sealed class UiRedesignContractTests
     public void PageRefreshPreservesScrollAndFocus()
     {
         string source = DesktopSource("MainWindow.cs");
-        string show = Between(source, "private void ShowCurrentPage(bool preserveViewState)", "private bool IsFocusInside");
+        string show = Between(source, "private void ShowCurrentPage(bool preserveViewState)", "private void RestoreScrollOffset(");
         StringAssert.Contains(show, "pageHost.VerticalOffset");
-        StringAssert.Contains(show, "pageHost.ChangeView(null, offset, null, true)");
-        StringAssert.Contains(show, "FindFocusTarget(page, focusKey)");
+        StringAssert.Contains(show, "RestoreScrollOffset(host, page, offset)");
         StringAssert.Contains(show, "Focus(FocusState.Programmatic)");
         StringAssert.Contains(show, "pageHost.Content = page;");
         Assert.IsFalse(show.Contains("operationStatusText =", StringComparison.Ordinal), "the operation band is not rebuilt by a page refresh");
+
+        // Independent review L8: the saved offset is applied only after layout, with one retry after the next layout pass.
+        string scroll = Between(source, "private void RestoreScrollOffset(", "private bool IsFocusInside");
+        int layout = scroll.IndexOf("host.UpdateLayout();", StringComparison.Ordinal);
+        int change = scroll.IndexOf("host.ChangeView(null, offset, null, true);", StringComparison.Ordinal);
+        Assert.IsTrue(layout >= 0 && change > layout, "layout completes before the offset is restored");
+        StringAssert.Contains(scroll, "host.LayoutUpdated += Retry;");
+        StringAssert.Contains(scroll, "host.LayoutUpdated -= Retry;");
+    }
+
+    [TestMethod]
+    [Description("AC-UX-02; FR-UI-02 (independent review M3): focus is restored only to an unambiguous control, and repeated per-row actions name their product.")]
+    public void FocusRestoreRequiresAUniqueMatchAndRowActionsNameTheirProduct()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string show = Between(source, "private void ShowCurrentPage(bool preserveViewState)", "private void RestoreScrollOffset(");
+        StringAssert.Contains(show, "PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey))");
+        StringAssert.Contains(show, "?? FocusManager.FindFirstFocusableElement(page) as Control;");
+        Assert.IsFalse(source.Contains("FindFocusTarget(page, focusKey)", StringComparison.Ordinal), "the first-match focus search is gone");
+        StringAssert.Contains(Between(source, "private static IEnumerable<Control> FindFocusTargets(", "private StackPanel BuildScanPage()"), "yield return control;");
+
+        string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", "private async Task SaveExportAsync(");
+        StringAssert.Contains(decisions, "PageFocusRestore.RemoveDecisionName(PageFocusRestore.ProductName(viewModel.AllRows, decision.StableProductKey), decision.Kind)");
+        StringAssert.Contains(decisions, "PageFocusRestore.RemoveManualMappingName(PageFocusRestore.ProductName(viewModel.AllRows, mapping.StableProductKey), mapping.SourceId, mapping.PackageId)");
+
+        // Every per-row action button created inside a loop over rows, decisions or mappings carries the row's product name.
+        foreach (string perRowName in PerRowActionNames) StringAssert.Contains(source, perRowName);
+        Assert.IsFalse(source.Contains("$\"Remove {decision.Kind} decision\"", StringComparison.Ordinal), "decision names include the product");
     }
 
     [TestMethod]
@@ -151,6 +188,52 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(source, "IsIndeterminate = true");
         StringAssert.Contains(source, "cancel.Click += (_, _) => scanCancellation?.Cancel()");
         StringAssert.Contains(source, "Previous completed data is retained where available");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-02; AC-UX-01/02 (independent review L6): every Start inventory entry point is gated on an active operation, and StartScanAsync never starts a second scan or replaces the active cancellation source.")]
+    public void ScanEntryPointsAreGatedAndStartScanIsNotReentrant()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string scan = Between(source, "private async Task StartScanAsync()", "private async Task CheckUpdateSourcesAsync()");
+        int guard = scan.IndexOf("if (HasActiveOperation) { Render(); return; }", StringComparison.Ordinal);
+        int assign = scan.IndexOf("scanCancellation = cancellation;", StringComparison.Ordinal);
+        Assert.IsTrue(guard >= 0 && assign > guard, "the re-entrancy guard runs before the cancellation source is assigned");
+        Assert.AreEqual(1, Count(scan, "scanCancellation = cancellation;"));
+        Assert.IsFalse(scan.Contains("scanCancellation = new", StringComparison.Ordinal), "the active scan's source is never overwritten");
+        StringAssert.Contains(scan, "if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null;");
+
+        string activity = Between(source, "private StackPanel BuildActivityPage()", "private void BuildWindowChrome()");
+        int start = activity.IndexOf("Button start = StewardVisuals.PrimaryButton(\"Start local inventory\"", StringComparison.Ordinal);
+        Assert.IsTrue(start >= 0);
+        StringAssert.Contains(activity[start..], "start.IsEnabled = !HasActiveOperation;");
+        // Every button that starts a scan is disabled while any operation is active.
+        Assert.AreEqual(Count(source, "PrimaryButton(\"Start local inventory\""), Count(source, "start.IsEnabled = !HasActiveOperation;"));
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/02; AC-UX-02/04 (independent review L7/L9): theme and high-contrast changes refresh the page, caption buttons follow the theme, Back has a plain tooltip and the mouse Back button navigates back.")]
+    public void ThemeChangesRefreshThePageAndTheTitleBarFollowsTheTheme()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string chrome = Between(source, "private void BuildWindowChrome()", "private void OnShellPointerPressed(");
+        StringAssert.Contains(chrome, "HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { if (!windowClosed) RefreshForThemeChange(); });");
+        StringAssert.Contains(chrome, "windowRoot.ActualThemeChanged += (_, _) => { if (!windowClosed) RefreshForThemeChange(); };");
+        StringAssert.Contains(chrome, "ToolTipService.SetToolTip(titleBarBack, \"Back\");");
+        Assert.IsFalse(source.Contains("\"Back (Alt+Left)\"", StringComparison.Ordinal), "WinUI shows the accelerator itself");
+        StringAssert.Contains(chrome, "windowRoot.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnShellPointerPressed), true);");
+        StringAssert.Contains(chrome, "ApplyCaptionButtonColors();");
+
+        string pointer = Between(source, "private void OnShellPointerPressed(", "private void RefreshForThemeChange()");
+        StringAssert.Contains(pointer, "IsXButton1Pressed");
+        StringAssert.Contains(pointer, "GoBack();");
+
+        string refresh = Between(source, "private void RefreshForThemeChange()", "private void ApplyCaptionButtonColors()");
+        foreach (string step in new[] { "ApplyBackdrop();", "ApplyCaptionButtonColors();", "Render();" }) StringAssert.Contains(refresh, step);
+
+        string captions = Between(source, "private void ApplyCaptionButtonColors()", "private void ApplyBackdrop()");
+        foreach (string property in new[] { "ButtonForegroundColor", "ButtonInactiveForegroundColor", "ButtonHoverForegroundColor", "ButtonHoverBackgroundColor", "ButtonPressedForegroundColor", "ButtonPressedBackgroundColor" })
+            StringAssert.Contains(captions, $"bar.{property} =");
     }
 
     [TestMethod]
