@@ -1,8 +1,12 @@
-# Task 50 — protocol-2 helper endpoint and native Profile V2 observer (design, revision 2)
+# Task 50 — protocol-2 helper endpoint and native Profile V2 observer (design, revision 3)
 
 Requirements: `FR-UPD-15`, `FR-UPD-01/08/09/14`, `AC-UPD-01–11`, `TM-03/04/07/13`.
 
-Status: **revision 2, proposed for a fresh independent re-review before any implementation.** Revision 1 (`1024708`, SHA-256 `66cc6398…a46db239`) was reviewed: CONDITIONAL, no Blocker, 4 High, 7 Medium, 6 Low. This revision addresses every finding (§11). This record authorizes no host action, UAC, deployment, provider query or route admission.
+Status: **revision 3, proposed for a fresh independent re-review before any implementation.**
+- Revision 1 (`1024708`, SHA-256 `66cc6398…a46db239`) was reviewed CONDITIONAL: no Blocker, 4 High, 7 Medium, 6 Low.
+- Revision 2 (`0f03ae7`, SHA-256 `0037f8bd…4780`) was reviewed CONDITIONAL: no Blocker or High, 5 Medium, 6 Low.
+
+This revision addresses every finding (§11, §12). This record authorizes no host action, UAC, deployment, provider query or route admission.
 
 Contracts implemented by this design:
 - [Profile V2](TASK_50_CHOCOLATEY_PROFILE_V2.md) and its [Task 90 corrections](TASK_90_TASK_50_CHOCOLATEY_PROFILE_V2_REMEDIATION.md), including M1–M3, L1–L4 and the accepted fixed-feed runtime-limit contract;
@@ -44,7 +48,8 @@ These live in `PCSteward.Provider.Chocolatey/Native/` (namespace `PCSteward.Prov
 - `Native/` defines its own `NativeFileIdentity(ulong VolumeSerial, UInt128 FileId)` and `NativeObservedFile(long Length, string Sha256)`. It does not use Execution's `WindowsFileIdentity`/`DeploymentObservedFile`.
 - An architecture test requires the two `FILE_ID_INFO` P/Invoke layouts to be identical.
 - Provider.Chocolatey adds `InternalsVisibleTo("PCSteward.Execution")`.
-- Execution calls the observer **only** through the qualification port (§5.4) and calls `RequesterToken`/`RequesterAccess` from the helper G1 reader (§6). An architecture test lists every Execution file that references `PCSteward.Provider.Chocolatey.Native`.
+- Execution calls the observer **only** through the qualification port (§5.4), which is declared **in Provider.Chocolatey**. It calls `RequesterToken`/`RequesterAccess` from the helper G1 reader (§6).
+- An architecture test lists every Execution file that references `PCSteward.Provider.Chocolatey.Native`. It also lists the exact members each file calls: no Execution file may call `ItemJob`, `ProtectedNodeReader` or `ProtectedTreeWalker`.
 
 ### 2.1 Requester token and peer process handle (H2, H3)
 
@@ -75,18 +80,22 @@ internal sealed class RequesterToken : IDisposable
 - After duplicating the token, `HasExited` must be false. Exit at any point before A3 completes gives `RequestNotAdmitted`.
 - Protocol 1 keeps its PID-based `VerifyPeer`. The shared verifier gains a handle-based overload that protocol 2 uses, while protocol 1 behaviour is unchanged.
 
-**Evaluation token (H2).** The token passed to `AccessCheck` is the helper's own **linked token** (`GetTokenInformation(TokenLinkedToken)`). That is the filtered token of the same split logon, duplicated to `SecurityIdentification`. It is accepted only when all of the following hold:
+**Evaluation token (H2).** The token passed to `AccessCheck` is the helper's own **linked token** (`GetTokenInformation(TokenLinkedToken)`). Without SeTcb, Windows returns it as an identification-level **impersonation** token, which `AccessCheck` uses directly. It is accepted only when all of the following hold:
 - the peer desktop token (from the held handle, `TOKEN_QUERY`) has `TokenElevationType == Limited`;
 - its `AuthenticationId` equals the linked token's `AuthenticationId`;
 - its user SID equals `expectedSid` and the linked token's SID;
 - the evaluation token's integrity level is **exactly Medium**;
 - `IsTokenRestricted` is false;
 - `TokenIsAppContainer` is false;
-- none of `SeBackupPrivilege`, `SeRestorePrivilege`, `SeTakeOwnershipPrivilege`, `SeRelabelPrivilege` or `SeSecurityPrivilege` is present, enabled or not.
+- **(L4)** every privilege present (enabled or not) is in the allow-list {`SeChangeNotifyPrivilege`, `SeShutdownPrivilege`, `SeUndockPrivilege`, `SeIncreaseWorkingSetPrivilege`, `SeTimeZonePrivilege`}. Any other privilege kept by UAC filtering could exceed what `AccessCheck` models, so it refuses.
 
-A Low-integrity, restricted or AppContainer desktop therefore cannot understate the user's rights: the evaluation always uses the full Medium filtered token of that logon. If UAC is off (no linked token), or the elevation type is Default/Full, the request is refused (`RequestNotAdmitted`). Such a host has no unelevated requester token, and the owner-only deployment already requires UAC.
+A Low-integrity, restricted or AppContainer desktop therefore cannot understate the user's rights: the evaluation always uses the full Medium filtered token of that logon. If UAC is off (no linked token), or the elevation type is Default/Full, the request is refused (`RequestNotAdmitted`).
 
-The desktop role applies the same rules to its own token: exactly Medium, not restricted, not AppContainer, none of those privileges, elevation type Limited.
+**(L6)** This is a **new availability constraint of this route**, not an existing ADR-018/022 rule. The route is available only to an administrator account using a UAC split token. It is unavailable when UAC is off, and for standard-user desktops (elevation type Default, where the helper runs under a different account and the same-SID peer model already refuses). The review UI states this as an unavailability reason (N6).
+
+The desktop role applies the same rules to its own token (exactly Medium, not restricted, not AppContainer, privilege allow-list, elevation type Limited). **(L3)** The current process token is primary, so it is first duplicated with `DuplicateTokenEx(TOKEN_QUERY, SecurityIdentification, TokenImpersonation)`.
+
+**Testable validation (M5).** The rules are a pure function `RequesterTokenPolicy.Validate(TokenFacts peer, TokenFacts evaluation) → TokenVerdict`. `TokenFacts` holds the user SID, AuthenticationId, elevation type, integrity RID, restricted, AppContainer and the privilege names. The verdict is closed, with one value per specific refusal reason. The native factories only read `TokenFacts` from real tokens and call the policy.
 
 Invariants:
 - Tokens are never used to impersonate for I/O, never used to start a process, and never persisted.
@@ -109,7 +118,9 @@ internal static class RequesterAccess
 
 **Two modes (M2).**
 - **Node** uses the full mask below. It applies to every protected node.
-- **Ancestor** uses `DELETE | WRITE_DAC | WRITE_OWNER`, plus the grandparent's `FILE_DELETE_CHILD`, plus no reparse attribute. It applies to every directory from the volume root down to the parent of a protected root. Standard users may create subfolders in `C:\ProgramData` (which Ancestor mode tolerates), but must not be able to delete, rename, replace or re-ACL an ancestor.
+- **Ancestor (M3)** denies `FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER` and requires no reparse attribute, on **every** directory from the lexical drive root of the final path down to the parent of the protected root. This is the same set as the existing `ProtectedLaunchLayout.AncestorReplacementRights`. Because every ancestor is checked for `FILE_DELETE_CHILD`, every ancestor's own rename/replace right is covered by its parent's check. The drive root itself has no parent check.
+- The walk starts at the lexical root of the final path, **not** `GetVolumePathName`, so a mounted-folder ancestor is not skipped.
+- Standard users may create subfolders in `C:\ProgramData` (`FILE_ADD_SUBDIRECTORY`, which Ancestor mode tolerates), but must not be able to delete, rename, replace or re-ACL an ancestor or one of its children.
 - `EvaluateAncestry` runs top-down **before** any node of that root is opened. The roots it covers:
   - the Chocolatey root;
   - `ChocolateyHttpCache`;
@@ -137,14 +148,14 @@ Rationale:
 ### 2.3 Protected node reader and bounded walk
 
 ```csharp
-internal readonly record struct NativeNode(string FullPath, string RelativePath, bool Directory, WindowsFileIdentity Identity, long Length);
+internal readonly record struct NativeNode(string FullPath, string RelativePath, bool Directory, NativeFileIdentity Identity, long Length);
 internal static class ProtectedNodeReader
 {
     // Opens by path with FILE_FLAG_OPEN_REPARSE_POINT (and BACKUP_SEMANTICS for directories), share-read only; refuses a
     // reparse attribute, a final path different from the requested canonical path, or a zero file ID.
     internal static SafeFileHandle? TryOpen(string canonicalPath, bool directory, out NativeNode node);
     internal static bool TryReadBounded(SafeFileHandle file, int maximum, out byte[] bytes);        // EOF at observed length
-    internal static bool TryHashBounded(SafeFileHandle file, long maximum, out DeploymentObservedFile observed);
+    internal static bool TryHashBounded(SafeFileHandle file, long maximum, out NativeObservedFile observed);
 }
 internal static class ProtectedTreeWalker
 {
@@ -272,7 +283,10 @@ internal static class ChocolateyClientQueries
 
 The binding:
 - **(M4)** holds `FileShare.Read`-only handles on the root engine and every release-tree file (`helpers`/`tools`) from stage B through invocation and exit.
-- holds `hooks`/`extensions` code files only from stage B until process creation, then releases them. Reviewed Community dependency updates may change extension packages; they are disclosed, not forbidden (Task 90 M2). Any change is caught by the file-first postcheck (`ClientChanged`, never Success).
+- **(L2)** holds `hooks`/`extensions` code files from stage B until `CreateProcessW`, `AssignProcessToJobObject` **and** `ResumeThread` have all succeeded, then releases them.
+  - "Through invocation" in Profile V2 is read as through process creation (rev 3 L-5).
+  - Later loads (extensions at client startup, hooks at script time) rely on the requester-unmodifiable ACLs checked in stages B and D, plus the Task 90 M2 file-first postcheck. That check reports `ClientChanged`, never Success.
+  - Reviewed Community dependency updates may change extension packages. They are disclosed, not forbidden (Task 90 M2).
 - **(L6)** The binding captured in stage B is the one that launches. Stage D compares freshly observed identities against the held ones; any difference is drift.
 - like `HeldHelperBinding`, it depends on **A-Q1** evidence that the loader can map held images;
 - never holds `lib` or registration files (Profile V2: "do not hold writable package-registration files open").
@@ -282,10 +296,11 @@ The queries:
 - `ProcessStartInfo` is built from `EnginePath` plus `ChocolateyCompiledEnvironment.ApplyTo(start, LaunchPaths)`, with `UseShellExecute=false`, the working directory set to the root, and no inherited environment.
 - Output capture is bounded at 1,000,000 characters and 1,024 records, as in Profile V2.
 - Every query and the upgrade run through the **N0 launcher** (§4.1), inside one item job: the item's aggregate root. An unsettled job yields `Undetermined`/`¬aggregateSettlementConfirmed`.
-- **Deadlines (M5).** The helper starts its clock when the pipe connects, **before** the frame read.
-  - Each process deadline is min(its own budget, `11 min − elapsed − 5 s exit margin − 5 s response margin`).
-  - The own budgets are 60 s for each query and 300 s for the upgrade, matching its `--execution-timeout`.
-  - Reaching the deadline kills the job. A timeout before launch reports `Undetermined`+`timedOut` (N4). A timeout after launch reports `Started` + `timedOut`.
+- **Deadlines (M5, revised for rev-2 M1).** The helper starts its clock `t0` when the pipe connects, before the frame read. `remaining = 11 min − (now − t0) − 5 s exit margin − 5 s response margin`.
+  - Each process uses its **existing** item budget (Profile V2: "existing item budgets… no new deadline"), capped by `remaining`. The budgets are `list --exact` 30 s (protocol-1 executor recheck), `outdated` 45 s (`ChocolateyUpdateSourceConnector.Timeout`) and upgrade 10 min (`ChocolateyMachineUpdateExecutor.UpdateTimeout`).
+  - `--execution-timeout 300` is the client's own per-script limit and is not the whole-run cap.
+  - **Launch floor.** Immediately before `CreateProcessW` (after the stage-D re-walk), `remaining` must be at least 60 s. Otherwise → `Matched ∧ NotStarted` + `timedOut` (settled; nothing was launched).
+  - A query reaching its deadline kills its job and gives `Undetermined` + `timedOut` (N4). An upgrade reaching its deadline kills the job and gives `Started` + `timedOut`.
 - **(L6)** The `outdated` record's installed field must equal the stage-C `list --exact` value; otherwise `Refused/InstalledMismatch` with the list value.
 
 ### 4.1 N0 native launcher (H4)
@@ -294,15 +309,22 @@ The queries:
 internal sealed class ItemJob : IDisposable                   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, no BREAKAWAY_OK
 {
     internal static ItemJob? TryCreate();
-    internal Task<NativeProcessObservation> RunAsync(string engine, IReadOnlyList<string> arguments, ChocolateyLaunchPaths paths,
-        TimeSpan deadline, int maximumCapturedCharacters, CancellationToken cancellationToken);
+    // M4: no strings. Only the held client binding and a closed compiled command; callable only from ChocolateyClientQueries.
+    internal Task<NativeProcessObservation> RunAsync(ChocolateyHeldClientBinding client, ChocolateyCompiledCommand command,
+        TimeSpan deadline, CancellationToken cancellationToken);
     internal bool IsSettled { get; }                           // QueryInformationJobObject: ActiveProcesses == 0
 }
 internal sealed record NativeProcessObservation(NativeInvocation Invocation, int? ExitCode, bool DirectExitObserved,
     bool OwnedIoCompleted, bool PipeEofObserved, bool TerminationFailed, bool AggregateSettled, bool Cancelled,
     bool TimedOut, bool OutputLimitExceeded, string StandardOutput, string StandardError);
 internal enum NativeInvocation { NotStarted, Started, Unknown }
+// Closed: ListExact(id) | Outdated | Upgrade(ChocolateyReviewedUpdateArguments). Arguments come only from the compiled builders.
+internal abstract record ChocolateyCompiledCommand;
 ```
+
+**Launcher surface (M4).**
+- `ItemJob.RunAsync` takes no path or argument strings: the engine path comes from the held binding, the arguments from the closed `ChocolateyCompiledCommand`.
+- An architecture test pins its call sites to the three methods of `ChocolateyClientQueries`, and forbids any Execution reference to `ItemJob`.
 
 How `RunAsync` launches:
 - It calls `CreateProcessW` with `CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT`.
@@ -312,15 +334,24 @@ How `RunAsync` launches:
 
 Invocation classification:
 - `CreateProcessW` returns FALSE → `NotStarted`. This is the only definitive pre-creation failure.
-- After success, invocation is `Started`. A failed job assignment terminates the suspended process; the observation is `Started` with the observed exit if termination is confirmed, otherwise `Unknown`.
+- **(L1)** After `CreateProcessW` succeeds, a failure of `AssignProcessToJobObject` **or** `ResumeThread` means the suspended process never ran user code. The launcher calls `TerminateProcess` and waits, within the exit margin, for the process handle:
+  - confirmed exit → `NotStarted` (definitive launch failure: rev 3 Launch row, settled, S13 satisfied);
+  - otherwise `Unknown`.
+- After `ResumeThread` succeeds, invocation is `Started`.
 - An exception after the call returns, before its result is known → `Unknown`.
 
 Settlement:
-- `AggregateSettled` means the job's active process count is 0 after the primary process exit. The kill-on-close job ensures no descendant outlives the helper.
+- `AggregateSettled` means the job's active process count reached 0 after the primary process exit. The job has an I/O completion port, and `JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO` or `ActiveProcesses == 0` is observed **while the job handle is open**.
+- **Teardown (M2).** On cancellation or a deadline, the launcher calls `TerminateJobObject` and waits, within the exit margin, for the active-process-zero message (or `ActiveProcesses == 0`). Only then does it close the job handle.
+  - The zero count was observed → `AggregateSettled` = true.
+  - Otherwise → `AggregateSettled` = false and `TerminationFailed` = true.
+  - Kill-on-close on the final handle close remains a backstop for helper crashes, never the settlement step.
+- Settlement is job-scoped. Work hosted outside the job (for example by `msiserver`) is outside it; the desktop postcheck stays independent of settlement (Info).
+- Nested jobs: an empty job nests under an existing one (Windows 8+), and kill-on-close works when nested.
 - `DirectExitObserved` means the primary process exit was observed.
 - `OwnedIoCompleted` and `PipeEofObserved` mean both pipe readers finished at EOF.
 
-Output capture is bounded (1,000,000 characters, 1,024 records). Cancellation or the deadline closes the job, which kills every process. These are exactly wire facts 4–13.
+Output capture is bounded (1,000,000 characters, 1,024 records). These are exactly wire facts 4–13.
 
 Result mapping (rev 3 §3.1 stage C with N1 and N3):
 
@@ -358,9 +389,9 @@ Protocol 2 then opens the **`PeerProcess` handle** (H3) and runs the handle-base
 | A1 | Freshness at most 2 min, **`issuedAt` not later than now** (L6; same machine clock, no tolerance), within the 30-min review ceiling; route == `ChocolateyMachineRuntimeLimitsV3` with exact shape; payload SID == verified peer SID; `TryGetProfileDigest` | `Refused/RequestNotAdmitted`, fields 16–18 null |
 | A2 | `RequesterToken.TryForVerifiedPeer(peerHandle, sid)` (§2.1 linked-token rules); peer not exited | `Refused/RequestNotAdmitted` |
 | A3 (G1) | Helper capability reader (§6) with the A2 token as the protection principal; image hashes of the helper itself and of the peer (from the held handle) == ledger entries | `Refused/RequestNotAdmitted` |
-| B | `ChocolateyProfileObserver.Observe(token, Helper, id, frozenInstalled, F)`, where F = the frozen operation's profile digest | Its refusal reason and values (S6–S9) |
+| B | `port.ObserveProfile(token, id, frozenInstalled, F)` (§5.4), where F = the frozen operation's profile digest | Its refusal reason and values (S6–S9) |
 | C | `ListExactAsync`, then `OutdatedAsync` (§4 table) | §4 table |
-| D | Recheck cancellation, the 2-min and 30-min limits, and the **desktop's remaining budget** (N4: 11 min from request read, minus elapsed). Then repeat stage B in full with the same F. | Lapse → `Refused/ApprovalExpired`. Budget lapse → `Undetermined`+`timedOut` (N4). Drift → the stage-B reason with **stage-D** values; the candidate is kept unless installed is null (S7). |
+| D | Recheck cancellation, the 2-min and 30-min limits, and `remaining` (§4: from `t0` at connection). Then repeat stage B in full with the same F through the port, comparing identities with the held stage-B binding. Then apply the 60 s launch floor (§4). | Approval lapse → `Refused/ApprovalExpired`. Budget lapse **during** the stage-D re-walk → `Undetermined`+`timedOut` (N4). Launch-floor failure after a successful re-walk → `Matched ∧ NotStarted`+`timedOut`. Drift → the stage-B reason with **stage-D** values; the candidate is kept unless installed is null (S7). |
 | Launch | `UpgradeAsync` with the stage-B binding (L6) and `ChocolateyReviewedUpdateArguments.Build(operation)`, exactly once, through the N0 launcher (§4.1) | `CreateProcessW` FALSE → `Matched ∧ NotStarted`. Cancellation or timeout after D and before `CreateProcessW` → `Matched ∧ NotStarted` with the flag. `NativeInvocation.Unknown` → `Unknown`. Otherwise `Started` with the observation's exit code and flags (facts 4–13 from `NativeProcessObservation`). |
 
 Internal faults (N2):
@@ -387,7 +418,7 @@ The disconnect monitor (as in protocol 1) cancels provider work when the desktop
 ### 5.4 The qualification port (M6)
 
 ```csharp
-internal interface IChocolateyHelperQualificationPort          // Execution-facing; one production implementation
+internal interface IChocolateyHelperQualificationPort          // declared in Provider.Chocolatey; one production implementation
 {
     ChocolateyProfileResult ObserveProfile(RequesterToken token, string targetId, ChocolateyNativeVersion frozenInstalled,
         string expectedFingerprint, CancellationToken cancellationToken);
@@ -421,7 +452,7 @@ The helper evaluates the **same pure** `DeploymentCapabilityPolicy` as the deskt
   - `Environment.ProcessPath` must equal the helper apphost in that directory;
   - the state root is the same fixed path the desktop reader uses.
 
-The peer desktop image hash is computed from the path returned for the verified peer PID. Both image hashes must equal their ledger entries. A failure gives `Refused/RequestNotAdmitted`. This is settled and NotInvoked, and the desktop records it as `Refused`.
+The peer desktop image hash is computed from the image path read from the **held peer handle** (§2.1). Both image hashes must equal their ledger entries. A failure gives `Refused/RequestNotAdmitted`. This is settled and NotInvoked, and the desktop records it as `Refused`.
 
 ## 7. N5 desktop producers (for completeness; admission waits for O5)
 
@@ -439,10 +470,12 @@ The peer desktop image hash is computed from the path returned for the verified 
   - the handle list excludes an inheritable test handle;
   - an output overflow;
   - the environment block equals the compiled one.
-- **N1 (Windows CI, standard user):**
+- **N1 (Windows CI; the runner is an admin without split tokens):**
   - fixture DACLs: a requester-writable file, a parent with `FILE_DELETE_CHILD`, a requester-owned node, an OWNER RIGHTS restriction, a High integrity label → each gives the expected Node/Ancestor verdict;
   - an Ancestor-mode positive on a directory where the requester may only add subfolders;
-  - **token negatives (M7)** on tokens derived from the test process: a `CreateRestrictedToken` token is refused; a duplicated token lowered to Low IL via `SetTokenInformation(TokenIntegrityLevel)` is refused; a child `PeerProcess` that exits before duplication is refused; a peer handle whose PID differs from the pipe PID is refused;
+  - **token policy (M5, portable):** `RequesterTokenPolicy.Validate` over every combination of AuthenticationId match, SID match, elevation type, integrity level, restricted, AppContainer and privileges inside/outside the allow-list. Each test asserts the **specific** verdict;
+  - **evaluator principal (M5, Windows):** an internal **test-only** factory `RequesterToken.ForTestsFromDerivedToken()` builds a token from the runner's own token: `CreateRestrictedToken(LUA_TOKEN)`, set to Medium IL, privileges outside the allow-list removed, then duplicated to identification level. The fixture-DACL tests run against it. An architecture test forbids any `src` caller of this factory;
+  - **native factory refusals (Windows):** on the runner, `TryForVerifiedPeer` refuses with the specific reason "no linked token"; a child `PeerProcess` that exits before duplication is refused; a peer handle whose PID differs from the pipe PID is refused. These assert the reason, not just null;
   - reparse (junction) refusal, final-path mismatch, a parent-identity mismatch, absence vs unreadable (L2), bounds, cancellation;
   - architecture: no environment variables, registry or SQLite; no write-capable opens; the `FILE_ID_INFO` layout equals Execution's.
 - **Positive linked-token path (not CI).** GitHub Windows runners run the admin without UAC split tokens, so the linked-token match cannot be exercised there faithfully. It is **owner-host evidence** for the exact-artifact run (§9). CI proves the refusals and the evaluator.
@@ -494,3 +527,21 @@ The [host-evidence plan](TASK_50_HOST_EVIDENCE_PLAN.md) covers O5, A-Q1 and A2-L
 | L4 ownership | Low | User, logon and enabled group SIDs; every HTTP-cache node (§2.2, §3 step 4) |
 | L5 order | Low | Library structure before source; installed comparison after source; all regular files in hooks/extensions; `logs` may be absent under a protected root (§3) |
 | L6 details | Low | `outdated` installed field equals the list value; the stage-B binding launches; future `issuedAt` refused; G1 base-directory and process-path rule (§4, §5.2, §6) |
+
+## 12. Changes from revision 2 (review of `0f03ae7`)
+
+| Finding | Severity | Change |
+|---|---|---|
+| M1 new 60 s / 300 s deadlines; wording inconsistent | Medium | Existing item budgets (30 s, 45 s, 10 min) capped by `remaining` from `t0` at connection; 60 s launch floor → `Matched ∧ NotStarted`+`timedOut`; §4 and §5.2 D wording aligned (§4, §5.2) |
+| M2 settlement after closing the job | Medium | `TerminateJobObject`, then wait for active-process-zero with the handle open, then close; otherwise `TerminationFailed` (§4.1) |
+| M3 ancestor mask read as one directory | Medium | Deny `FILE_DELETE_CHILD`, `DELETE`, `WRITE_DAC`, `WRITE_OWNER` plus reparse on every ancestor from the lexical drive root; mounted folders not skipped (§2.2) |
+| M4 general-purpose launcher reachable from Execution | Medium | `RunAsync` takes the held binding plus a closed compiled command, no strings; call sites pinned; no Execution reference to `ItemJob`; port declared in Provider.Chocolatey (§2, §4.1, §5.4) |
+| M5 CI cannot exercise the factories | Medium | Pure `RequesterTokenPolicy` over `TokenFacts` with specific verdicts; test-only derived-token factory with an architecture ban on production callers; native refusals assert their reason (§2.1, §8) |
+| L1 assignment/resume failure labelled Started | Low | Terminated suspended process → `NotStarted` if exit is confirmed, else `Unknown`; same for a `ResumeThread` failure (§4.1) |
+| L2 hold-release point ambiguous | Low | Release after `CreateProcessW` + assignment + resume; later loads rely on ACLs plus the file-first postcheck (§4) |
+| L3 desktop primary token | Low | Duplicated to an identification-level impersonation token; linked token used directly (§2.1) |
+| L4 privilege deny-list | Low | Allow-list of the five standard filtered-token privileges (§2.1) |
+| L5 Execution types in `NativeNode`/`TryHashBounded` | Low | `NativeFileIdentity`/`NativeObservedFile` (§2.3) |
+| L6 UAC claim unsupported | Low | Recorded as a new availability constraint of this route, disclosed in review UI (§2.1) |
+| Info | — | Peer image from the held handle (§6); stage B through the port (§5.2); N0 added to STATUS; job-scoped settlement and nested jobs noted (§4.1) |
+
