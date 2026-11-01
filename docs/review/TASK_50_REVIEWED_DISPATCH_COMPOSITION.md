@@ -94,3 +94,21 @@ Contract: [protocol-2 adapter gates rev 2](TASK_50_ADAPTER_GATES.md) Part B and 
 | `ReviewedUpdateTerminalRecord.HelperCheck`, `TryParse(reserved, grammar, out record)` | Reserved slot | History reader | Strict v2/v3 parse; v3 needs a grammar; v3 with NotObserved is corruption. |
 | `ReviewedUpdateDispatchResult.HelperCheck`, `ReviewedUpdateHistoryView.HelperReport` | Workflow / presentation | Desktop (later) | Result carries only the value actually persisted. `HelperReport` is separate from `Status` and is null for Unconfirmed, NotObserved and integrity failures. |
 | `SqliteDatabase(string, IReviewedHelperVersionGrammar)` (public); `SqliteDatabase(string)` becomes internal (tests only) | Desktop and ScheduledHost composition roots | — | B2-L1: every production root injects the grammar. B2-L2: the store re-checks consistency and refuses to commit a v3 payload its own history reader would reject. |
+
+### Helper-check history (adapter gates Part B): independent review PASS (`4129266`)
+
+A fresh-context reviewer (Fable 5.1) returned **PASS** with Low findings only. It confirmed:
+
+- the helper check cannot change an outcome, disposition or barrier;
+- construction is confined to the single adapter;
+- the v3 layout, strict parsing and v2 byte-identity behave as specified;
+- every v3 row the store writes is one its own reader accepts;
+- older builds still reconcile and still block on barriers;
+- the grammar is injected in both production composition roots;
+- the wording follows §B.6.
+
+Windows CI on `4129266` is green, including the Desktop and ScheduledHost compiles. Dispositions:
+
+- **L2, fixed.** A v3 terminal whose facts line is `None` (only producible by `GetReservedPayload(null)`; no live writer emits it) is now unreadable. Test added, and the grammar test now uses a NotInvoked settlement like live writers.
+- **L1, route-admission obligation.** Add a workflow test on a `ChocolateyMachineRuntimeLimitsV3` draft with a consistent Confirmed/Refused check asserting `result.HelperCheck == record.Terminal.HelperCheck`, a v3 row and no marker. This cannot run until the route passes the review gate (`HasSupportedMode` admits only WinGet).
+- **L3, accepted.** Application's existing `InternalsVisibleTo` to Storage means `TryRestore`'s confinement relies on the source-level architecture test.

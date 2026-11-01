@@ -62,7 +62,8 @@ public sealed record ReviewedUpdateTerminalRecord(UpdateDispatchOutcome Outcome,
             RecordedHelperCandidateCheck helperCheck = RecordedHelperCandidateCheck.NotObserved;
             if (v3)
             {
-                if (!IsSettlementFacts(fields[5], settlement) ||
+                // Review 12 L2: live writers always carry settlement facts in v3; a "None" facts line is never written.
+                if (fields[5] == "None" || !IsSettlementFacts(fields[5], settlement) ||
                     !TryStrip(fields[6], UpdateDispatchTerminal.HelperCheckPrefix, out string kind) ||
                     !TryStrip(fields[7], UpdateDispatchTerminal.HelperRefusalPrefix, out string reason) ||
                     !TryStrip(fields[8], UpdateDispatchTerminal.HelperInstalledPrefix, out string installed) ||

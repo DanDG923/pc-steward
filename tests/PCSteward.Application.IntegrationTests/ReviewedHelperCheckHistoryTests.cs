@@ -110,6 +110,15 @@ public sealed class ReviewedHelperCheckHistoryTests
     }
 
     [TestMethod]
+    public void Version3WithoutSettlementFactsIsNeverReadable()
+    {
+        // Review 12 L2: GetReservedPayload(null) can encode a v3 "InvocationUnknown|None" header that no live writer produces.
+        RecordedHelperCandidateCheck check = Check(Kind.Refused, Reason.MachineInputsUnsupported, null, null);
+        byte[] payload = new UpdateDispatchTerminal(Outcome.Uncertain, ReviewedAt, null, "forged", check).GetReservedPayload(null);
+        Assert.IsFalse(ReviewedUpdateTerminalRecord.TryParse(payload, Grammar, out _));
+    }
+
+    [TestMethod]
     public void MaximalVersion3FrameRoundTripsByteExactly()
     {
         string longInstalled = "1.0.0-" + new string('a', 122), longCandidate = "1.0.1-" + new string('b', 122);
@@ -410,7 +419,11 @@ public sealed class ReviewedHelperCheckHistoryTests
         foreach (Kind kind in new[] { Kind.Confirmed, Kind.Refused, Kind.Unconfirmed })
         {
             Outcome outcome = kind == Kind.Confirmed ? Outcome.Cancelled : kind == Kind.Refused ? Outcome.Refused : Outcome.Failed;
-            byte[] payload = new UpdateDispatchTerminal(outcome, ReviewedAt, null, "x", CheckFor(kind, kind == Kind.Refused ? Reason.ApprovalExpired : Reason.None)).GetReservedPayload();
+            ReviewedUpdateOperation op = RuntimeLimits();
+            UpdateDispatchClaim claim = new(Guid.NewGuid(), Guid.NewGuid(), new ReviewedUpdateDraft(op, Guid.NewGuid()), Evidence(op), ReviewedAt);
+            // Live writers always pass a settlement (review 12 L2); these outcomes settle as NotInvoked.
+            byte[] payload = new UpdateDispatchTerminal(outcome, ReviewedAt, null, "x", CheckFor(kind, kind == Kind.Refused ? Reason.ApprovalExpired : Reason.None))
+                .GetReservedPayload(UpdateDispatchSettlement.BeforeInvocation(claim, Owner()));
             Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(payload, Grammar, out _));
             Assert.IsFalse(ReviewedUpdateTerminalRecord.TryParse(payload, null, out _));
         }
