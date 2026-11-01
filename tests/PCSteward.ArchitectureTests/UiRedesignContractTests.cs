@@ -443,7 +443,7 @@ public sealed class UiRedesignContractTests
         Assert.IsTrue(settled >= 0 && cleared > settled && leave > cleared, "Cancel settles, clears, then navigates (and never navigates once decided)");
 
         // Item 2: preparation is guarded and visible; it covers preparation only.
-        StringAssert.Contains(source, "|| downloads.IsCleaning || preparingReview;");
+        StringAssert.Contains(source, "|| downloads.IsCleaning || preparingReview || isSavingSchedule;");
         int guard = review.IndexOf("if (HasActiveOperation || windowClosed || reviewDecision is not null) return;", StringComparison.Ordinal);
         int set = review.IndexOf("preparingReview = true;", StringComparison.Ordinal);
         int begin = review.IndexOf("updates.BeginReviewAsync(row.StableProductKey, token)", StringComparison.Ordinal);
@@ -719,23 +719,49 @@ public sealed class UiRedesignContractTests
     }
 
     [TestMethod]
-    [Description("Audit P-M7; FR-DAT-01/03; FR-HIS-05 (Task 73 Phase 4): Settings uses one save model (applies immediately) through the unchanged schedule operation, keeps source consent separate, and Copy diagnostic copies the existing sanitized bundle.")]
+    [Description("Audit P-M7 (owner decision); FR-DAT-01/03; FR-HIS-05 (Task 73 Phase 4 independent review): Settings apply immediately except the Schedule card, which has exactly one Save schedule button; saving fails closed, distinguishes a Task Scheduler refusal from a busy gate and counts as active work; source consent stays separate; Copy diagnostic copies the existing sanitized bundle and flushes the clipboard.")]
     public void SettingsUseOneSaveModelAndCopyTheSanitizedDiagnostic()
     {
         string source = DesktopSource("MainWindow.cs");
         string settings = Between(source, "private StackPanel BuildSettingsPage()", "private static ComboBox FilterBox(string selected, params");
-        Assert.IsFalse(settings.Contains("Content = \"Save", StringComparison.Ordinal), "no Save button: one save model");
-        StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediately;");
+        string scheduleCard = Between(settings, "ScheduleCardPresentation plan = SettingsPresenter.Schedule(", "StackPanel decisions = new()");
+        // Exactly one Save button in Settings, on the Schedule card; every other setting saves immediately.
+        Assert.IsFalse(settings.Contains("Content = \"Save", StringComparison.Ordinal), "no other Save button");
+        Assert.AreEqual(1, Count(settings, "SettingsPresenter.SaveScheduleLabel"), "exactly one Save button in Settings");
+        StringAssert.Contains(scheduleCard, "Button saveSchedule = StewardVisuals.PrimaryButton(SettingsPresenter.SaveScheduleLabel, \"Save schedule\");");
+        StringAssert.Contains(scheduleCard, "saveSchedule.Click += async (_, _) => await SaveScheduleAsync();");
+        StringAssert.Contains(scheduleCard, "saveSchedule.IsEnabled = plan.IsSaveEnabled;");
+        StringAssert.Contains(scheduleCard, "SettingsPresenter.ScheduleDescription");
+        StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "Changes to the schedule apply when you select Save schedule.");
+        StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediatelyExceptSchedule;");
+        foreach (string immediate in new[] { "cadence.SelectionChanged += async", "startTime.TimeChanged +=", "weeklyDay.SelectionChanged +=", "scheduleEnabled.Toggled +=", "notifications.Toggled +=" })
+            Assert.IsFalse(scheduleCard.Contains(immediate, StringComparison.Ordinal), $"schedule controls do not save on change: {immediate}");
+        // The cadence handler only changes which controls are available; it never saves.
+        string cadenceHandler = Between(scheduleCard, "cadence.SelectionChanged += (_, _) =>", "saveSchedule.Click +=");
+        StringAssert.Contains(cadenceHandler, "SettingsPresenter.ScheduleControlAvailability(cadence.SelectedIndex, busy: false)");
+        foreach (string save in new[] { "SaveScheduleAsync", "ApplyScheduleAsync", "Render()" })
+            Assert.IsFalse(cadenceHandler.Contains(save, StringComparison.Ordinal), $"the cadence handler never saves or re-renders: {save}");
         StringAssert.Contains(settings, "CreatePagePanel(1000)");
-        StringAssert.Contains(settings, "SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem as DayOfWeek?, startTime.Time)");
+        // Fail closed (fix 3): no cadence or weekday selection shows a message and saves nothing; the weekday is set by index.
+        StringAssert.Contains(scheduleCard, "SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time)");
+        StringAssert.Contains(scheduleCard, "if (requested is null) { scheduleSummary.Text = SettingsPresenter.ScheduleNotChosen; return; }");
+        StringAssert.Contains(scheduleCard, "weeklyDay.SelectedIndex = (int)plan.WeeklyDay;");
+        Assert.IsFalse(scheduleCard.Contains("SelectedItem as DayOfWeek", StringComparison.Ordinal));
         StringAssert.Contains(settings, "IsEnabled = plan.IsTimeEnabled");
         StringAssert.Contains(settings, "IsEnabled = plan.IsWeekdayEnabled");
         StringAssert.Contains(settings, "IsEnabled = plan.IsEnableToggleEnabled");
         // Handlers are attached after the saved values are set, so rendering the page never saves anything.
-        Assert.IsTrue(settings.IndexOf("ToggleSwitch notifications = new()", StringComparison.Ordinal) < settings.IndexOf("cadence.SelectionChanged += async", StringComparison.Ordinal));
+        Assert.IsTrue(settings.IndexOf("ToggleSwitch notifications = new()", StringComparison.Ordinal) < settings.IndexOf("saveSchedule.Click += async", StringComparison.Ordinal));
+        // Fix 5: registration and save failures are handled inside the lease with distinct outcomes; only the gate reaches "Action unavailable".
         string apply = Between(settings, "private async Task ApplyScheduleAsync(ScheduledCheckSettings requested)", "private void CopyDiagnostic(");
-        StringAssert.Contains(apply, "await DataOperationLease.RunAsync(async token => { await scheduleRegistration.ApplyAsync(requested, token); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, token); return await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }, CancellationToken.None); scheduledSettings = requested;");
+        StringAssert.Contains(apply, "ScheduleSaveOperation.SaveAsync(previous, requested, scheduleRegistration.ApplyAsync, scheduleSettingsStore.SaveScheduledCheckSettingsAsync, token)");
+        StringAssert.Contains(apply, "if (outcome == ScheduleSaveOutcome.Saved) scheduledSettings = requested;");
+        StringAssert.Contains(apply, "SettingsPresenter.ScheduleSaveResult(outcome)");
+        StringAssert.Contains(apply, "catch (InvalidOperationException) { isSavingSchedule = false; Render(); await ShowDataOperationUnavailableAsync(); return; }");
         StringAssert.Contains(apply, "Title = \"Schedule was not changed\"");
+        // Fix 6: saving the schedule is active work, so clear/reset and other actions are unavailable meanwhile.
+        StringAssert.Contains(source, "|| preparingReview || isSavingSchedule;");
+        StringAssert.Contains(settings, "SettingsPresenter.Schedule(scheduledSettings, scheduledStatus, isSavingSchedule, otherWorkActive: HasActiveOperation)");
         // Source consent keeps its own disclosure; turning it on starts nothing.
         StringAssert.Contains(settings, "winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);");
         StringAssert.Contains(settings, "includeAppx.Toggled += async (_, _) => await ChangeConnectorAsync(appx.Name, includeAppx.IsOn);");
@@ -750,6 +776,7 @@ public sealed class UiRedesignContractTests
         string copy = Between(settings, "private void CopyDiagnostic(", "private DataResetInputs DataResetInputsNow()");
         StringAssert.Contains(copy, "package.SetText(SanitizedDiagnosticBundle.Create(updateHistory));");
         StringAssert.Contains(copy, "confirmation.Text = SettingsPresenter.DiagnosticCopied(updateHistory.Count);");
+        AssertFlushedAfterSetContent(copy);
         StringAssert.Contains(settings, "NavigateTo(ShellPage.Privacy)");
     }
 
@@ -766,7 +793,22 @@ public sealed class UiRedesignContractTests
         Assert.AreEqual(3, Count(app, "Content = StartupNotice.Build(this,"), "all three windows use the shared style");
         StringAssert.Contains(app, "StartupNoticeText.ExceptionDetails(exception.GetType().Name, exception.Message)");
         StringAssert.Contains(app, "StartupNoticeText.ResidualDetails(result.Residuals.Select(item => (item.Category, item.Reason, item.Detail)))");
+        // Independent review fix 2: both diagnostics are sanitized before they are shown or copied.
+        string text = ApplicationSource("StartupNoticePresentation.cs");
+        StringAssert.Contains(text, "return SanitizedDiagnosticBundle.Sanitize(text);");
+        StringAssert.Contains(text, "$\"{Safe(typeName, userProfile)}: {Safe(message, userProfile)}\"");
+        StringAssert.Contains(text, "string detail = Safe(item.Detail, userProfile);");
+        // Independent review fix 1: the copied details survive closing the window and the app.
+        AssertFlushedAfterSetContent(notice);
         Assert.IsFalse(notice.Contains("FactoryReset.", StringComparison.Ordinal), "the notice never resets or retries");
+    }
+
+    private static void AssertFlushedAfterSetContent(string section)
+    {
+        int set = section.IndexOf("Clipboard.SetContent(package);", StringComparison.Ordinal);
+        int flush = section.IndexOf("Clipboard.Flush();", StringComparison.Ordinal);
+        int fallback = section.IndexOf("catch (Exception exception) when (exception is not OutOfMemoryException)", StringComparison.Ordinal);
+        Assert.IsTrue(set >= 0 && flush > set && fallback > flush, "Clipboard.Flush() follows SetContent inside the same try");
     }
 
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));

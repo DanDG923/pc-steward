@@ -211,6 +211,8 @@ internal static class StartupNotice
                     DataPackage package = new();
                     package.SetText(details);
                     Clipboard.SetContent(package);
+                    // Keeps the copied details on the clipboard after PC Steward closes (the next action is Close).
+                    Clipboard.Flush();
                     status.Text = StartupNoticeText.DetailsCopied;
                 }
                 catch (Exception exception) when (exception is not OutOfMemoryException) { status.Text = StartupNoticeText.DetailsNotCopied; }

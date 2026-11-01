@@ -23,6 +23,9 @@ public sealed class SettingsDataResetPresentationTests
     private static readonly string[] ScanFacts = ["Size", "Items", "Last cleared"];
     private static readonly string[] ScanFactValues = ["About 2 MB", "1,234 items", "30 Oct 2026 · 09:15"];
     private static readonly string[] DownloadFacts = ["Size", "Can be freed", "In use", "Last cleaned"];
+    private static readonly string[] SavedCalls = ["register Weekly", "save Weekly"];
+    private static readonly string[] RefusedCalls = ["register Weekly"];
+    private static readonly string[] RestoredCalls = ["register Weekly", "save Weekly", "register Daily"];
     private static readonly string[] DownloadFactValues = ["40 MB", "30 MB", "1 file kept for an active update", "Never"];
 
     private static DataResetInputs Inputs(bool busy = false, long recoverable = 30L * 1024 * 1024, int active = 1, int records = 3, bool historyUnavailable = false) =>
@@ -74,7 +77,9 @@ public sealed class SettingsDataResetPresentationTests
         Assert.AreEqual("3 records", page.Cards[3].Facts[1].Value);
         Assert.AreEqual("500 or more", DataResetPresenter.Build(Inputs(records: 500), Culture, Utc).Cards[3].Facts[1].Value);
         Assert.AreEqual("Couldn't be read just now", DataResetPresenter.Build(Inputs(historyUnavailable: true), Culture, Utc).Cards[3].Facts[1].Value);
-        Assert.AreEqual("2 decisions", page.Cards[4].Facts[0].Value);
+        Assert.AreEqual("Decisions", page.Cards[4].Facts[0].Label);
+        Assert.AreEqual("2 active (expired ignores are also removed)", page.Cards[4].Facts[0].Value, "the count says the clear also removes expired ignores");
+        StringAssert.Contains(page.Cards[4].Deletes, "including expired ignores");
         foreach (DataCardPresentation card in page.Cards)
         {
             Assert.IsFalse(string.IsNullOrWhiteSpace(card.Deletes), card.Title);
@@ -121,13 +126,15 @@ public sealed class SettingsDataResetPresentationTests
     }
 
     [TestMethod]
-    [Description("Audit P-M7: one save model (applies immediately); Settings sections in one column in the planned order.")]
+    [Description("Audit P-M7 (owner decision, independent review): one save model — settings apply immediately except the Schedule card, which saves with its one Save schedule button; Settings sections in one column in the planned order.")]
     public void SettingsUseOneSaveModelAndGroupedSections()
     {
-        Assert.AreEqual(SettingsSaveModel.AppliesImmediately, Enum.GetValues<SettingsSaveModel>().Single(), "there is exactly one save model");
+        Assert.AreEqual(SettingsSaveModel.AppliesImmediatelyExceptSchedule, Enum.GetValues<SettingsSaveModel>().Single(), "there is exactly one save model");
         CollectionAssert.AreEqual(SettingsSections, SettingsPresenter.Sections.ToArray());
         CollectionAssert.AreEqual(Cadences, SettingsPresenter.CadenceOptions.ToArray());
-        StringAssert.Contains(SettingsPresenter.SaveModelText, "save as soon as you make them");
+        StringAssert.Contains(SettingsPresenter.SaveModelText, "save as soon as you make them, except the schedule");
+        Assert.AreEqual("Save schedule", SettingsPresenter.SaveScheduleLabel);
+        StringAssert.EndsWith(SettingsPresenter.ScheduleDescription, "Changes to the schedule apply when you select Save schedule.");
         StringAssert.Contains(SettingsPresenter.SourceConsentNote, "never starts a scan");
         Assert.AreEqual("Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", SettingsPresenter.ExportWarning);
         Assert.AreEqual("Data & reset", ShellNavigation.TitleOf(ShellPage.Privacy), "the data subpage is named Data & reset (SPEC §17.3)");
@@ -135,15 +142,84 @@ public sealed class SettingsDataResetPresentationTests
     }
 
     [TestMethod]
-    [Description("Audit P-M7: the requested schedule is the same normalized record the old Save built; Manual only always means not scheduled.")]
+    [Description("Audit P-M7; independent review fix 3: the requested schedule is the normalized record; Manual only always means not scheduled; no cadence or weekday selection fails closed (nothing to save).")]
     public void RequestedScheduleIsTheSameNormalizedRecord()
     {
         TimeSpan nine = new(9, 30, 0);
-        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Manual, false, true, DayOfWeek.Monday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(0, true, true, null, nine));
-        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Daily, true, false, DayOfWeek.Friday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(1, true, false, DayOfWeek.Friday, nine));
-        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Weekly, false, false, DayOfWeek.Sunday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(2, false, false, DayOfWeek.Sunday, nine));
+        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Manual, false, true, DayOfWeek.Monday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(0, true, true, (int)DayOfWeek.Monday, nine));
+        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Daily, true, false, DayOfWeek.Friday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(1, true, false, (int)DayOfWeek.Friday, nine));
+        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Weekly, false, false, DayOfWeek.Sunday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(2, false, false, (int)DayOfWeek.Sunday, nine));
+        Assert.AreEqual(DayOfWeek.Saturday, SettingsPresenter.RequestedSchedule(2, true, false, 6, nine)!.WeeklyDay, "the weekday index is the DayOfWeek value");
         foreach (ScheduleCadence cadence in Enum.GetValues<ScheduleCadence>())
             Assert.AreEqual(cadence, SettingsPresenter.CadenceAt(SettingsPresenter.CadenceIndex(cadence)));
+
+        // Fail closed: a missing selection never becomes Manual only or Monday.
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(-1, true, true, (int)DayOfWeek.Monday, nine), "no cadence selection");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(3, true, true, (int)DayOfWeek.Monday, nine), "out-of-range cadence");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(2, true, true, -1, nine), "no weekday selection");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(1, true, true, 7, nine), "out-of-range weekday");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(1, true, true, 1, TimeSpan.FromHours(24)), "out-of-range time");
+        Assert.AreEqual("Choose a schedule before saving.", SettingsPresenter.ScheduleNotChosen);
+    }
+
+    [TestMethod]
+    [Description("Independent review fix 3: the controls available follow the selected cadence without saving; Manual only disables time, weekday and enable.")]
+    public void ScheduleControlAvailabilityFollowsTheSelectedCadence()
+    {
+        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlAvailability(0, busy: false));
+        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlAvailability(-1, busy: false));
+        Assert.AreEqual((true, false, true), SettingsPresenter.ScheduleControlAvailability(1, busy: false));
+        Assert.AreEqual((true, true, true), SettingsPresenter.ScheduleControlAvailability(2, busy: false));
+        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlAvailability(2, busy: true));
+    }
+
+    [TestMethod]
+    [Description("Independent review fix 5 (FR-DAT-01): a Task Scheduler refusal is its own outcome; a failed settings save re-registers the previous schedule, and says so honestly if that also fails.")]
+    public async Task ScheduleSaveDistinguishesSchedulerRefusalAndRestoresThePreviousTask()
+    {
+        ScheduledCheckSettings previous = new(ScheduleCadence.Daily, true, false, DayOfWeek.Monday, new TimeOnly(8, 0));
+        ScheduledCheckSettings requested = new(ScheduleCadence.Weekly, true, false, DayOfWeek.Friday, new TimeOnly(18, 0));
+        List<string> calls = [];
+        Func<ScheduledCheckSettings, CancellationToken, Task> Register(params bool[] failures)
+        {
+            int call = 0;
+            return (settings, _) =>
+            {
+                calls.Add($"register {settings.Cadence}");
+                bool fail = call < failures.Length && failures[call];
+                call++;
+                return fail ? Task.FromException(new InvalidOperationException("Windows Task Scheduler rejected the current-user scan-only task.")) : Task.CompletedTask;
+            };
+        }
+        Func<ScheduledCheckSettings, CancellationToken, Task> Save(bool fail) => (settings, _) =>
+        {
+            calls.Add($"save {settings.Cadence}");
+            return fail ? Task.FromException(new IOException("database is locked")) : Task.CompletedTask;
+        };
+
+        Assert.AreEqual(ScheduleSaveOutcome.Saved, await ScheduleSaveOperation.SaveAsync(previous, requested, Register(), Save(false), CancellationToken.None));
+        CollectionAssert.AreEqual(SavedCalls, calls);
+
+        calls.Clear();
+        Assert.AreEqual(ScheduleSaveOutcome.SchedulerRefused, await ScheduleSaveOperation.SaveAsync(previous, requested, Register(true), Save(false), CancellationToken.None));
+        CollectionAssert.AreEqual(RefusedCalls, calls, "a refused registration saves nothing");
+
+        calls.Clear();
+        Assert.AreEqual(ScheduleSaveOutcome.SettingsNotSavedTaskRestored, await ScheduleSaveOperation.SaveAsync(previous, requested, Register(), Save(true), CancellationToken.None));
+        CollectionAssert.AreEqual(RestoredCalls, calls, "the previous schedule is registered again");
+
+        calls.Clear();
+        Assert.AreEqual(ScheduleSaveOutcome.SettingsNotSavedTaskChanged, await ScheduleSaveOperation.SaveAsync(previous, requested, Register(false, true), Save(true), CancellationToken.None));
+
+        Assert.IsNull(SettingsPresenter.ScheduleSaveResult(ScheduleSaveOutcome.Saved));
+        Assert.AreEqual("The schedule was not changed: Windows Task Scheduler refused the change. Your saved settings were left unchanged.", SettingsPresenter.ScheduleSaveResult(ScheduleSaveOutcome.SchedulerRefused)!.Body);
+        StringAssert.Contains(SettingsPresenter.ScheduleSaveResult(ScheduleSaveOutcome.SettingsNotSavedTaskRestored)!.Body, "put back as it was");
+        ScheduleSaveMessage changed = SettingsPresenter.ScheduleSaveResult(ScheduleSaveOutcome.SettingsNotSavedTaskChanged)!;
+        StringAssert.Contains(changed.Body, "The Windows scheduled task was changed");
+        StringAssert.Contains(changed.Body, "Select Save schedule to try again");
+
+        // Cancellation is not reported as a scheduler refusal.
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => ScheduleSaveOperation.SaveAsync(previous, requested, (_, _) => Task.FromException(new OperationCanceledException()), Save(false), CancellationToken.None));
     }
 
     [TestMethod]
@@ -175,7 +251,12 @@ public sealed class SettingsDataResetPresentationTests
         StringAssert.Contains(SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, false, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, false, Culture, Utc).Summary, "Paused");
 
         ScheduleCardPresentation saving = SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, true, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, true, Culture, Utc);
-        Assert.IsFalse(saving.IsCadenceEnabled || saving.IsTimeEnabled || saving.IsWeekdayEnabled || saving.IsEnableToggleEnabled || saving.IsNotificationsToggleEnabled);
+        Assert.IsFalse(saving.IsCadenceEnabled || saving.IsTimeEnabled || saving.IsWeekdayEnabled || saving.IsEnableToggleEnabled || saving.IsNotificationsToggleEnabled || saving.IsSaveEnabled);
+
+        // Save schedule is available when idle and unavailable during other active work (independent review fix 6).
+        Assert.IsTrue(weekly.IsSaveEnabled);
+        ScheduleCardPresentation otherWork = SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, true, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, false, Culture, Utc, otherWorkActive: true);
+        Assert.IsFalse(otherWork.IsSaveEnabled);
         Assert.AreEqual("Not yet", SettingsPresenter.Schedule(ScheduledCheckSettings.Manual, ScheduledCheckStatus.NotScheduled, false, Culture, Utc).Status[1].Value);
     }
 
@@ -203,9 +284,24 @@ public sealed class SettingsDataResetPresentationTests
     }
 
     [TestMethod]
-    [Description("Audit P-L5: startup notices keep the exception diagnostic and list reset residuals in words.")]
-    public void StartupNoticesKeepTheirDiagnostic()
+    [Description("Audit P-L5; independent review fix 2 (FR-HIS-05): startup notices keep a sanitized diagnostic; user names and paths are redacted before display and copy.")]
+    public void StartupNoticesSanitizeTheirDiagnostic()
     {
+        const string message = @"SQLite Error 14: unable to open C:\Users\Alice\AppData\Local\PCSteward\pcsteward.db token=abc123";
+        string failure = StartupNoticeText.ExceptionDetails("SqliteException", message, userProfile: @"C:\Users\Alice");
+        Assert.IsFalse(failure.Contains("Alice", StringComparison.OrdinalIgnoreCase), failure);
+        Assert.IsFalse(failure.Contains(@"C:\Users", StringComparison.OrdinalIgnoreCase), failure);
+        Assert.IsFalse(failure.Contains("abc123", StringComparison.Ordinal), failure);
+        StringAssert.StartsWith(failure, "SqliteException: SQLite Error 14: unable to open ");
+        // Without the profile hint the shared sanitizer still removes the path.
+        Assert.IsFalse(StartupNoticeText.ExceptionDetails("SqliteException", message, userProfile: "").Contains("Alice", StringComparison.Ordinal));
+        // A profile name with a space is redacted too.
+        Assert.IsFalse(StartupNoticeText.ExceptionDetails("IOException", @"Locked: C:\Users\Alice Smith\AppData\Local\PCSteward\logs", @"C:\Users\Alice Smith").Contains("Smith", StringComparison.Ordinal));
+
+        string residual = StartupNoticeText.ResidualDetails([("Logs", "Locked", @"C:\Users\Alice\AppData\Local\PCSteward\pcsteward.db is in use.")], userProfile: @"C:\Users\Alice");
+        Assert.IsFalse(residual.Contains("Alice", StringComparison.OrdinalIgnoreCase), residual);
+        StringAssert.StartsWith(residual, "Logs: Locked — ");
+
         Assert.AreEqual("IOException: The file is locked.", StartupNoticeText.ExceptionDetails("IOException", "The file is locked."));
         Assert.AreEqual("Reset marker: InvalidMarker — The reset control state is invalid.\nLogs: Locked",
             StartupNoticeText.ResidualDetails([("Reset marker", "InvalidMarker", "The reset control state is invalid."), ("Logs", "Locked", "")]));

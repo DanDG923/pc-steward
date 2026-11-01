@@ -155,8 +155,8 @@ public static class DataResetPresenter
             ]);
 
         DataCardPresentation decisions = new(DataCategory.Decisions, "Mappings, pins and ignores", "",
-            [new("Active decisions", DisplayFormat.Plural(inputs.DecisionCount, "decision"))],
-            "Package identities you confirmed, pins and ignores.",
+            [new("Decisions", $"{inputs.DecisionCount.ToString("N0", culture ?? CultureInfo.CurrentCulture)} active (expired ignores are also removed)")],
+            "Package identities you confirmed, pins and ignores, including expired ignores.",
             "Inventory, settings, source consent, source metadata, update history and downloaded files.",
             [Action(DataAction.ClearMappingsAndPolicies, "Clear mappings and policies", "Clear mappings and policies: confirmed identities, pins and ignores", !busy, busyReason)]);
 

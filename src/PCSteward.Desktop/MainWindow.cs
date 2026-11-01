@@ -238,7 +238,7 @@ public sealed class MainWindow : Window
 
     private static Border Card(FrameworkElement child) => new() { Style = AppStyle("StewardCardStyle"), Child = child };
 
-    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || isClearing || downloads.IsCleaning || preparingReview;
+    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || isClearing || downloads.IsCleaning || preparingReview || isSavingSchedule;
 
     /// <summary>Leaving or cancelling the review clears it at once, so the next page is not built while it still counts as open.</summary>
     private void CancelPendingReview()
@@ -262,6 +262,8 @@ public sealed class MainWindow : Window
                     ? updateProgressLabel
                     : isClearing || downloads.IsCleaning
                         ? "Completing the requested PC Steward data cleanup"
+                        : isSavingSchedule
+                            ? "Saving the schedule"
                         : preparingReview
                             ? PreparingReviewLabel
                             : ShowsJobResultInBand && updateJob is { Completion: { } completion } finished
@@ -1872,8 +1874,9 @@ public sealed class MainWindow : Window
     /// <summary>
     /// Task 73 Phase 4 (ADR-030 concept A; audit P-M7, §6 items 9–10; FR-DAT-01/03, FR-HIS-05): Settings as SettingsCard groups in one
     /// column (Update sources, Scan scope, Schedule, Decisions, Privacy &amp; exports, Data &amp; reset, About) with one save model —
-    /// every control saves as soon as it changes (<see cref="SettingsPresenter.SaveModel"/>). The source consent toggle keeps its
-    /// own disclosure and turning it on starts nothing; data controls live on the Data &amp; reset subpage.
+    /// every control saves as soon as it changes, except the Schedule card, which changes Windows Task Scheduler and so applies only
+    /// through its one "Save schedule" button (<see cref="SettingsPresenter.SaveModel"/>). The source consent toggle keeps its own
+    /// disclosure and turning it on starts nothing; data controls live on the Data &amp; reset subpage.
     /// </summary>
     private StackPanel BuildSettingsPage()
     {
@@ -1902,8 +1905,8 @@ public sealed class MainWindow : Window
         scope.Children.Add(StewardVisuals.SettingsRow("Include current-user AppX/MSIX catalog", "Store and packaged apps installed for your account. Read locally; nothing is shared.", includeAppx));
         panel.Children.Add(StewardVisuals.SettingsCard("", "Scan scope", "What a scan reads. Scanning never asks for administrator permission and never changes anything.", scope));
 
-        // Schedule: each change saves the whole record through the existing register-then-save operation.
-        ScheduleCardPresentation plan = SettingsPresenter.Schedule(scheduledSettings, scheduledStatus, isSavingSchedule);
+        // Schedule: nothing applies until "Save schedule", which saves the whole record through the register-then-save operation.
+        ScheduleCardPresentation plan = SettingsPresenter.Schedule(scheduledSettings, scheduledStatus, isSavingSchedule, otherWorkActive: HasActiveOperation);
         StackPanel schedule = new() { Spacing = StewardSpacing.Small };
         RadioButtons cadence = new() { SelectedIndex = plan.CadenceIndex, IsEnabled = plan.IsCadenceEnabled };
         foreach (string option in SettingsPresenter.CadenceOptions) cadence.Items.Add(option);
@@ -1912,7 +1915,7 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(startTime, "Local start time");
         ComboBox weeklyDay = new() { IsEnabled = plan.IsWeekdayEnabled, MinWidth = 160 };
         foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>()) weeklyDay.Items.Add(day);
-        weeklyDay.SelectedItem = plan.WeeklyDay;
+        weeklyDay.SelectedIndex = (int)plan.WeeklyDay;
         AutomationProperties.SetName(weeklyDay, "Weekly day");
         ToggleSwitch scheduleEnabled = new() { IsOn = plan.IsEnabled, IsEnabled = plan.IsEnableToggleEnabled, OffContent = "Not scheduled", OnContent = "Current-user task · no resident service" };
         AutomationProperties.SetName(scheduleEnabled, "Enable scheduled checks");
@@ -1920,29 +1923,40 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(notifications, "Windows notifications");
         TextBlock scheduleSummary = new() { Text = isSavingSchedule ? "Saving…" : plan.Summary, TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetLiveSetting(scheduleSummary, AutomationLiveSetting.Polite);
-        Control[] scheduleControls = [cadence, startTime, weeklyDay, scheduleEnabled, notifications];
+        Button saveSchedule = StewardVisuals.PrimaryButton(SettingsPresenter.SaveScheduleLabel, "Save schedule");
+        saveSchedule.IsEnabled = plan.IsSaveEnabled;
+        Control[] scheduleControls = [cadence, startTime, weeklyDay, scheduleEnabled, notifications, saveSchedule];
         async Task SaveScheduleAsync()
         {
-            ScheduledCheckSettings requested = SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem as DayOfWeek?, startTime.Time);
-            if (isSavingSchedule || requested == scheduledSettings.Normalize()) return;
+            if (isSavingSchedule) return;
+            if (HasActiveOperation) { scheduleSummary.Text = DataResetPresenter.ActiveWorkReason; return; }
+            // Fail closed: no cadence or weekday selection means nothing is saved.
+            ScheduledCheckSettings? requested = SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time);
+            if (requested is null) { scheduleSummary.Text = SettingsPresenter.ScheduleNotChosen; return; }
             foreach (Control control in scheduleControls) control.IsEnabled = false;
             scheduleSummary.Text = "Saving…";
             await ApplyScheduleAsync(requested);
         }
-        // Handlers are attached after the saved values are set, so building the page never saves anything.
-        cadence.SelectionChanged += async (_, _) => await SaveScheduleAsync();
-        startTime.TimeChanged += async (_, _) => await SaveScheduleAsync();
-        weeklyDay.SelectionChanged += async (_, _) => await SaveScheduleAsync();
-        scheduleEnabled.Toggled += async (_, _) => await SaveScheduleAsync();
-        notifications.Toggled += async (_, _) => await SaveScheduleAsync();
+        // Handlers are attached after the saved values are set. Only "Save schedule" saves; the cadence handler changes which
+        // controls are available and never saves, registers or re-renders anything.
+        cadence.SelectionChanged += (_, _) =>
+        {
+            if (isSavingSchedule) return;
+            (bool time, bool weekday, bool enable) = SettingsPresenter.ScheduleControlAvailability(cadence.SelectedIndex, busy: false);
+            startTime.IsEnabled = time;
+            weeklyDay.IsEnabled = weekday;
+            scheduleEnabled.IsEnabled = enable;
+        };
+        saveSchedule.Click += async (_, _) => await SaveScheduleAsync();
         schedule.Children.Add(scheduleSummary);
         schedule.Children.Add(StewardVisuals.SettingsRow("Check cadence", "Manual only means PC Steward checks only when you start a scan.", cadence));
         schedule.Children.Add(StewardVisuals.SettingsRow("Local start time", "Used for daily and weekly checks.", startTime));
         schedule.Children.Add(StewardVisuals.SettingsRow("Weekly day", "Used for weekly checks.", weeklyDay));
         schedule.Children.Add(StewardVisuals.SettingsRow("Enable scheduled checks", "Creates a current-user scheduled check. Unavailable with Manual only.", scheduleEnabled));
         schedule.Children.Add(StewardVisuals.SettingsRow("Windows notifications", "Only when something needs your attention or scans keep failing.", notifications));
+        schedule.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { saveSchedule } });
         foreach (DetailFact fact in plan.Status) schedule.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
-        panel.Children.Add(StewardVisuals.SettingsCard("", "Schedule", "Scheduled work checks inventory only. It never approves or installs updates and does not leave a resident service or tray process.", schedule));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Schedule", SettingsPresenter.ScheduleDescription, schedule));
 
         StackPanel decisions = new() { Spacing = StewardSpacing.Small };
         Button openDecisions = new() { Content = "Open Decisions" };
@@ -1987,18 +2001,37 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>
-    /// Audit P-M7: saves the whole schedule record exactly as the old Save schedule button did — register (or remove) the
-    /// current-user scan-only task, then save the settings, inside the data-operation lease. A failure leaves the saved schedule
-    /// unchanged and the page shows the saved values again.
+    /// Audit P-M7 and independent review fixes 5–6: "Save schedule" registers (or removes) the current-user scan-only task, then
+    /// saves the settings, inside the data-operation lease (<see cref="ScheduleSaveOperation"/>). Registration and save failures are
+    /// handled inside the lease, so only a busy gate reaches the "Action unavailable" dialog; a Task Scheduler refusal, a restored
+    /// task or a task that could not be put back each say what happened. While saving, <see cref="HasActiveOperation"/> is true, so
+    /// clear, reset, scan and other actions are unavailable.
     /// </summary>
     private async Task ApplyScheduleAsync(ScheduledCheckSettings requested)
     {
+        ScheduledCheckSettings previous = scheduledSettings.Normalize();
         isSavingSchedule = true;
-        try { scheduledStatus = await DataOperationLease.RunAsync(async token => { await scheduleRegistration.ApplyAsync(requested, token); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, token); return await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }, CancellationToken.None); scheduledSettings = requested; }
+        RefreshOperationVisuals();
+        ScheduleSaveOutcome outcome;
+        try
+        {
+            (outcome, ScheduledCheckStatus? status) = await DataOperationLease.RunAsync(async token =>
+            {
+                ScheduleSaveOutcome saved = await ScheduleSaveOperation.SaveAsync(previous, requested, scheduleRegistration.ApplyAsync, scheduleSettingsStore.SaveScheduledCheckSettingsAsync, token);
+                ScheduledCheckStatus? current = null;
+                try { current = await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }
+                catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException)) { }
+                return (saved, current);
+            }, CancellationToken.None);
+            if (outcome == ScheduleSaveOutcome.Saved) scheduledSettings = requested;
+            if (status is not null) scheduledStatus = status;
+        }
         catch (InvalidOperationException) { isSavingSchedule = false; Render(); await ShowDataOperationUnavailableAsync(); return; }
-        catch (Exception) { isSavingSchedule = false; Render(); await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Schedule was not changed", Content = "Windows could not create the current-user scan-only task. Your saved settings were left unchanged.", CloseButtonText = "Close" }.ShowAsync(); return; }
+        catch (Exception) { isSavingSchedule = false; Render(); await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Schedule was not changed", Content = "PC Steward couldn't start saving the schedule. Your saved settings were left unchanged.", CloseButtonText = "Close" }.ShowAsync(); return; }
         isSavingSchedule = false;
         Render();
+        if (SettingsPresenter.ScheduleSaveResult(outcome) is { } message)
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = message.Title, Content = message.Body, CloseButtonText = "Close" }.ShowAsync();
     }
 
     /// <summary>FR-HIS-05: copies the existing sanitized diagnostic bundle of recent update outcomes and confirms in text.</summary>
@@ -2009,6 +2042,8 @@ public sealed class MainWindow : Window
             Windows.ApplicationModel.DataTransfer.DataPackage package = new();
             package.SetText(SanitizedDiagnosticBundle.Create(updateHistory));
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            // Keeps the copied diagnostic on the clipboard after PC Steward closes.
+            Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
             confirmation.Text = SettingsPresenter.DiagnosticCopied(updateHistory.Count);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException) { confirmation.Text = SettingsPresenter.DiagnosticCopyFailed; }
