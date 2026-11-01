@@ -26,7 +26,7 @@ internal static class ChocolateyEngineTrust
     private const uint ChoiceFile = 1;
     private const uint StateActionVerify = 1;
     private const uint StateActionClose = 2;
-    private const uint CacheOnlyUrlRetrieval = 0x00001000;
+    private const uint CacheOnlyUrlRetrieval = 0x1000; // WTD_CACHE_ONLY_URL_RETRIEVAL (wintrust.h), as MachineTrustedChocolatey
 
     /// <summary>Embedded signature trusted, signed by the expected vendor, and file version exactly 2.7.5.0.</summary>
     internal static bool IsTrustedEngine(SafeFileHandle held, string canonicalPath) =>

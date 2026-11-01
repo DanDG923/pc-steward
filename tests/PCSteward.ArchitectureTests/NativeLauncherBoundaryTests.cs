@@ -66,7 +66,8 @@ public sealed class NativeLauncherBoundaryTests
             "GetEnvironmentVariable", "SetEnvironmentVariable", "ExpandEnvironmentVariables", "EnvironmentVariableTarget",
             "Registry", "RegOpenKey", "RegQueryValue", "RegGetValue", "GetEnvironmentStrings"
         ];
-        foreach ((string path, string source) in native)
+        // The generated release table is data only (pinned by ProfileObserverBoundaryTests); its paths name a helper script.
+        foreach ((string path, string source) in native.Where(pair => !IsNativeFile(pair.Key, "ChocolateyReleaseManifest2_7_5.cs")))
             foreach (string token in forbidden)
                 Assert.IsFalse(source.Contains(token, StringComparison.Ordinal), $"{path} uses {token}");
     }

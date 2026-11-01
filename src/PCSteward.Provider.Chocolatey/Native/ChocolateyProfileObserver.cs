@@ -6,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 namespace PCSteward.Provider.Chocolatey.Native;
 
 /// <summary>
-/// Test-only (an architecture test bans every <c>src</c> reference to <see cref="ForTests"/> and to
+/// Test-only (an architecture test bans every <c>src</c> reference to <see cref="CreateForTests"/> and to
 /// <see cref="ChocolateyProfileObserver.ObserveForTests"/>): synthetic machine inputs for the observer. A test supplies
 /// fixture roots (production uses only <see cref="ChocolateyNativePathResolver.TryResolveMachine"/>); an ancestry base, below
 /// which ancestry is evaluated in Ancestor mode from that base instead of from the drive root (a temp fixture always has a
@@ -31,7 +31,7 @@ internal sealed class ChocolateyObserverTestSeam
     internal IReadOnlyList<ChocolateyReleaseFile> ReleaseFiles { get; }
     internal Func<SafeFileHandle, string, bool> EngineTrust { get; }
 
-    internal static ChocolateyObserverTestSeam ForTests(ChocolateyNativeRoots roots, string ancestryBase,
+    internal static ChocolateyObserverTestSeam CreateForTests(ChocolateyNativeRoots roots, string ancestryBase,
         IReadOnlyList<ChocolateyReleaseFile> releaseFiles, Func<SafeFileHandle, string, bool> engineTrust)
     {
         ArgumentNullException.ThrowIfNull(roots);

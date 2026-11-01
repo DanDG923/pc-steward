@@ -110,7 +110,8 @@ public sealed class NativePrimitivesBoundaryTests
         // N1 review L3: the whole Native/ folder (N0's files too) is free of environment, registry and SQLite access.
         string[] ambient = ["GetEnvironmentVariable", "ExpandEnvironmentVariables", "EnvironmentVariableTarget", "GetEnvironmentStrings",
             "Registry", "RegOpenKey", "RegQueryValue", "RegGetValue"];
-        foreach ((string path, string source) in SourceFiles(NativeDirectory()))
+        // The generated release table is data only (pinned by ProfileObserverBoundaryTests); its paths name a helper script.
+        foreach ((string path, string source) in SourceFiles(NativeDirectory()).Where(pair => Path.GetFileName(pair.Key) != "ChocolateyReleaseManifest2_7_5.cs"))
         {
             foreach (string token in ambient)
                 Assert.IsFalse(source.Contains(token, StringComparison.Ordinal), $"{path} uses {token}");
