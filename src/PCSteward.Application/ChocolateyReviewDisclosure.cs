@@ -137,13 +137,7 @@ public static class ChocolateyReviewDisclosurePresentation
 
         List<ReviewedRouteUnavailableReason> reasons = [];
         if (!ReviewedUpdateReview.HasSupportedMode(operation)) reasons.Add(ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence);
-        switch (splitToken)
-        {
-            case ReviewedRouteSplitTokenState.SplitTokenLimited: break;
-            case ReviewedRouteSplitTokenState.NoSplitToken: reasons.Add(ReviewedRouteUnavailableReason.SplitTokenRequired); break;
-            case ReviewedRouteSplitTokenState.DesktopTokenUnsupported: reasons.Add(ReviewedRouteUnavailableReason.DesktopTokenUnsupported); break;
-            default: reasons.Add(ReviewedRouteUnavailableReason.DesktopTokenUnknown); break;
-        }
+        AddSplitTokenReason(reasons, splitToken);
         if (!matches) reasons.Add(ReviewedRouteUnavailableReason.ReviewDataMismatch);
 
         DateTimeOffset? resolved = matches ? intent!.IntentResolvedAt.ToUniversalTime() : null;
@@ -162,6 +156,47 @@ public static class ChocolateyReviewDisclosurePresentation
             reasons,
             reasons.Select(Text).ToArray(),
             reasons.Count == 0);
+    }
+
+    public const string NoReviewTitle = "Chocolatey Community machine update (reviewed route)";
+
+    public const string NoReviewCandidateText =
+        "No reviewed Chocolatey candidate is available. PC Steward does not prepare reviews for this route while it is not allowed.";
+
+    /// <summary>
+    /// Admission obligation 5 (N6 review M1): the same disclosure when no reviewed operation exists, which is always the case
+    /// today because nothing composes this route. It shows the fixed pre-review disclosures, the route's script-runtime limits and
+    /// package-script mode, the not-admitted reason and the freshly probed split-token reason. Without a reviewed operation there
+    /// is nothing to confirm, so <see cref="ChocolateyReviewDisclosureView.CanConfirm"/> is always false.
+    /// </summary>
+    public static ChocolateyReviewDisclosureView PresentWithoutReview(ReviewedRouteSplitTokenState splitToken)
+    {
+        List<ReviewedRouteUnavailableReason> reasons = [ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence];
+        AddSplitTokenReason(reasons, splitToken);
+        return new(
+            NoReviewTitle,
+            NoReviewCandidateText,
+            null,
+            IntentTimeUnavailableText,
+            UserCacheDisclosure,
+            ReviewedUpdateHistoryPresentation.Mode(ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled)),
+            ReviewedUpdateProviderDisclosure.ChocolateyCommunityScriptRuntimeLimits,
+            ReviewedUpdateLingeringProcesses.ReviewDisclosure,
+            null,
+            reasons,
+            reasons.Select(Text).ToArray(),
+            false);
+    }
+
+    private static void AddSplitTokenReason(List<ReviewedRouteUnavailableReason> reasons, ReviewedRouteSplitTokenState splitToken)
+    {
+        switch (splitToken)
+        {
+            case ReviewedRouteSplitTokenState.SplitTokenLimited: break;
+            case ReviewedRouteSplitTokenState.NoSplitToken: reasons.Add(ReviewedRouteUnavailableReason.SplitTokenRequired); break;
+            case ReviewedRouteSplitTokenState.DesktopTokenUnsupported: reasons.Add(ReviewedRouteUnavailableReason.DesktopTokenUnsupported); break;
+            default: reasons.Add(ReviewedRouteUnavailableReason.DesktopTokenUnknown); break;
+        }
     }
 
     public static string Text(ReviewedRouteUnavailableReason reason) => reason switch
