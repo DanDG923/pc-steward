@@ -131,3 +131,20 @@ Contract: [protocol-2 adapter gates rev 2](TASK_50_ADAPTER_GATES.md) Part A §A.
 | `DeploymentCapabilityPolicy.CanonicalCapabilityBytes()` | Execution (internal) | — | Tests now; payload build later | Bytes generated from `ProtocolVersion` and the compiled operation allowlist (A.3). The checked-in payload file and its publish wiring are deferred with the script changes. |
 
 Placement is enforced by architecture tests: capability types appear only in Execution; the policy file has no Sqlite/Registry/environment/HTTP/file-system or P/Invoke use; Application, Persistence and ScheduledHost never reference capability types.
+
+### Adapter gates Part A, portable slice: independent review PASS (`e0da653`)
+
+A fresh-context reviewer (Fable 5.1) returned **PASS** with Low/Info notes only. It confirmed:
+
+- the strict EvidenceId format and the stored-row matrix (barriers retained, Final untrusted);
+- the A.6.1 rule is confined to the route, fixed-time and identical at all `Matches` sites;
+- no throwing `Supports` can escape, claim or dispatch;
+- the closed ledger key sets match each real writer exactly (Pending 9, Rollback 10, Legacy 9, Pinned 12), and the writer-quirk leniencies are safe;
+- the ADR-022 note is owner-gated and ADR-022 is unchanged.
+
+Windows CI on `e0da653` is green. Recorded Lows:
+
+- **L1.** The three-site agreement test proves only the false outcome until the route is admitted.
+- **L2.** The policy is intentionally stricter than the spec on a completed-ledger `rollbackRequired` and on case-insensitive path de-duplication.
+- **L3.** An empty `originalFailure` reads Unreadable rather than Incomplete. That is diagnostic-only.
+- **Info.** `Incomplete` is reported before the SID/root mismatch check. Source-text architecture tests are formatting-sensitive.
