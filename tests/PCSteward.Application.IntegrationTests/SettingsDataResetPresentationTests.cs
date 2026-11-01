@@ -130,6 +130,8 @@ public sealed class SettingsDataResetPresentationTests
         StringAssert.Contains(SettingsPresenter.SaveModelText, "save as soon as you make them");
         StringAssert.Contains(SettingsPresenter.SourceConsentNote, "never starts a scan");
         Assert.AreEqual("Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", SettingsPresenter.ExportWarning);
+        Assert.AreEqual("Data & reset", ShellNavigation.TitleOf(ShellPage.Privacy), "the data subpage is named Data & reset (SPEC §17.3)");
+        Assert.AreEqual(ShellPage.Settings, ShellNavigation.ParentOf(ShellPage.Privacy));
     }
 
     [TestMethod]

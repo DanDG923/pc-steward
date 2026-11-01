@@ -650,6 +650,125 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(activity.Contains("string.Equals(installedVersion, job.TargetVersion, StringComparison.Ordinal)", StringComparison.Ordinal), "no string-equality version check");
     }
 
+    [TestMethod]
+    [Description("FR-DAT-06/08/12/13/14; AC-UX-07/08; SPEC §17.3 (Task 73 Phase 4): the three exact labels stay, each Data & reset button runs its existing operation and confirmation, and every control is disabled during active work.")]
+    public void DataAndResetKeepsTheExactLabelsAndExistingOperations()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string presenter = ApplicationSource("DataResetPresentation.cs");
+        StringAssert.Contains(presenter, "public const string ClearScanDataLabel = \"Clear scan data\";");
+        StringAssert.Contains(presenter, "public const string ClearDownloadedFilesLabel = \"Clear downloaded files\";");
+        StringAssert.Contains(presenter, "public const string FactoryResetLabel = \"Factory reset PC Steward\";");
+        StringAssert.Contains(presenter, "public const string FactoryResetConfirmationPhrase = \"RESET\";");
+        StringAssert.Contains(presenter, "ProviderCacheBoundary");
+
+        string section = Between(source, "private void AddDataAndResetSection(StackPanel panel)", "private async Task ConfirmAndArmFactoryResetAsync(Button invoker)");
+        StringAssert.Contains(section, "DataResetPresenter.Build(DataResetInputsNow())");
+        StringAssert.Contains(section, "page.ProviderCacheBoundary");
+        StringAssert.Contains(section, "StewardVisuals.EvidenceRow(\"Deletes\", card.Deletes)");
+        StringAssert.Contains(section, "StewardVisuals.EvidenceRow(\"Keeps\", card.Keeps)");
+        StringAssert.Contains(section, "Button button = new() { Content = action.Label, IsEnabled = action.IsEnabled };");
+        StringAssert.Contains(section, "case DataAction.ClearScanData: button.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); break;");
+        StringAssert.Contains(section, "case DataAction.ClearDownloadedFiles: button.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync(\"Clear downloaded files?\"); break;");
+        foreach (string clear in new[] { "workflow.ClearSourceMetadataAsync(CancellationToken.None)", "FactoryReset.ClearLogsAsync(CancellationToken.None)", "workflow.ClearUpdateHistoryAsync(CancellationToken.None)", "workflow.ClearMappingsAndPoliciesAsync(CancellationToken.None)" })
+            StringAssert.Contains(section, clear);
+        // Each advanced clear keeps its own confirmation (Cancel is the default) and runs inside the data-operation lease.
+        StringAssert.Contains(section, "PrimaryButtonText = label, CloseButtonText = \"Cancel\", DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(section, "await DataOperationLease.RunAsync(_ => clear(), CancellationToken.None)");
+        // Factory reset sits in its own danger-zone card after the routine cards, not beside routine cleanup.
+        int routine = section.IndexOf("foreach (DataCardPresentation card in page.Cards)", StringComparison.Ordinal);
+        int danger = section.IndexOf("reset.Heading, \"Separate from routine cleanup. This cannot be undone.\", danger, danger: true)", StringComparison.Ordinal);
+        Assert.IsTrue(routine >= 0 && danger > routine, "the danger zone is a separate card after routine cleanup");
+        StringAssert.Contains(section, "danger: true");
+        StringAssert.Contains(section, "Button factoryReset = new() { Content = reset.Label, IsEnabled = reset.IsEnabled");
+        StringAssert.Contains(section, "factoryReset.Click += async (_, _) => await ConfirmAndArmFactoryResetAsync(factoryReset);");
+        Assert.AreEqual(1, Count(source, "await ConfirmAndArmFactoryResetAsync("), "one factory reset entry point");
+        // Disabled during any active work (FR-DAT-14).
+        StringAssert.Contains(source, "activeDecisions.Count + manualMappings.Count, HasActiveWork: HasActiveOperation);");
+
+        // The existing confirmation dialogs keep their exact labels and Cancel default.
+        string clearScan = Between(source, "private async Task ConfirmAndClearScanDataAsync()", "private async Task ConfirmAndClearDownloadedFilesAsync(");
+        StringAssert.Contains(clearScan, "Title = \"Clear scan data?\"");
+        StringAssert.Contains(clearScan, "PrimaryButtonText = \"Clear scan data\", CloseButtonText = \"Cancel\", DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(clearScan, "DataOperationLease.RunAsync(token => workflow.ClearScanDataAsync(token), CancellationToken.None)");
+        string clearDownloads = Between(source, "private async Task ConfirmAndClearDownloadedFilesAsync(", "/// FR-POL-01–05, FR-HIS-02, FR-UI-04");
+        StringAssert.Contains(clearDownloads, "PrimaryButtonText = \"Delete downloaded files\", CloseButtonText = \"Cancel\", DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(clearDownloads, "DataOperationLease.RunAsync(token => downloads.ClearInactiveAsync(token), CancellationToken.None)");
+        StringAssert.Contains(clearDownloads, "Windows, WinGet, Microsoft Store, or other provider caches");
+    }
+
+    [TestMethod]
+    [Description("FR-DAT-12/13; AC-UX-08 (Task 73 Phase 4): factory reset keeps two confirmations with Cancel as the default, the exact case-sensitive RESET, no Enter activation, the active-work lockout and arm-then-close for next-launch verification.")]
+    public void FactoryResetKeepsTheTwoStepRESETFlow()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string reset = Between(source, "private async Task ConfirmAndArmFactoryResetAsync(Button invoker)", "/// FR-POL-01–05 (Task 73 Phase 3, ADR-030 foundation 7)");
+        int scope = reset.IndexOf("Title = \"Review factory reset scope\"", StringComparison.Ordinal);
+        int final = reset.IndexOf("Title = \"This cannot be undone\"", StringComparison.Ordinal);
+        int lockout = reset.IndexOf("if (viewModel.IsScanning || isExecuting || isClearing || downloads.IsCleaning)", StringComparison.Ordinal);
+        int arm = reset.IndexOf("DataOperationLease.RunSynchronous(() => FactoryReset.Arm()); Close();", StringComparison.Ordinal);
+        Assert.IsTrue(scope >= 0 && final > scope && lockout > final && arm > lockout, "scope, then RESET, then lockout, then arm and close");
+        Assert.AreEqual(2, Count(reset, "DefaultButton = ContentDialogButton.Close"), "Cancel is the default on both confirmations");
+        StringAssert.Contains(reset, "PrimaryButtonText = \"Factory reset PC Steward\", CloseButtonText = \"Cancel\", DefaultButton = ContentDialogButton.Close, IsPrimaryButtonEnabled = false");
+        StringAssert.Contains(reset, "final.IsPrimaryButtonEnabled = string.Equals(phrase.Text, \"RESET\", StringComparison.Ordinal);");
+        StringAssert.Contains(reset, "TextBox phrase = new() { Header = \"Type RESET to continue\", PlaceholderText = \"RESET\" };");
+        foreach (string enter in new[] { "KeyboardAccelerator", "VirtualKey.Enter", "KeyDown", "AcceptsReturn", "DefaultButton = ContentDialogButton.Primary" })
+            Assert.IsFalse(reset.Contains(enter, StringComparison.Ordinal), $"no Enter activation: {enter}");
+        Assert.AreEqual(1, Count(source, "FactoryReset.Arm()"), "factory reset is armed in one place");
+        StringAssert.Contains(ApplicationSource("DataResetPresentation.cs"), "finishes the cleanup the next time it starts and checks it before first-run setup");
+    }
+
+    [TestMethod]
+    [Description("Audit P-M7; FR-DAT-01/03; FR-HIS-05 (Task 73 Phase 4): Settings uses one save model (applies immediately) through the unchanged schedule operation, keeps source consent separate, and Copy diagnostic copies the existing sanitized bundle.")]
+    public void SettingsUseOneSaveModelAndCopyTheSanitizedDiagnostic()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string settings = Between(source, "private StackPanel BuildSettingsPage()", "private static ComboBox FilterBox(string selected, params");
+        Assert.IsFalse(settings.Contains("Content = \"Save", StringComparison.Ordinal), "no Save button: one save model");
+        StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediately;");
+        StringAssert.Contains(settings, "CreatePagePanel(1000)");
+        StringAssert.Contains(settings, "SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem as DayOfWeek?, startTime.Time)");
+        StringAssert.Contains(settings, "IsEnabled = plan.IsTimeEnabled");
+        StringAssert.Contains(settings, "IsEnabled = plan.IsWeekdayEnabled");
+        StringAssert.Contains(settings, "IsEnabled = plan.IsEnableToggleEnabled");
+        // Handlers are attached after the saved values are set, so rendering the page never saves anything.
+        Assert.IsTrue(settings.IndexOf("ToggleSwitch notifications = new()", StringComparison.Ordinal) < settings.IndexOf("cadence.SelectionChanged += async", StringComparison.Ordinal));
+        string apply = Between(settings, "private async Task ApplyScheduleAsync(ScheduledCheckSettings requested)", "private void CopyDiagnostic(");
+        StringAssert.Contains(apply, "await DataOperationLease.RunAsync(async token => { await scheduleRegistration.ApplyAsync(requested, token); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, token); return await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }, CancellationToken.None); scheduledSettings = requested;");
+        StringAssert.Contains(apply, "Title = \"Schedule was not changed\"");
+        // Source consent keeps its own disclosure; turning it on starts nothing.
+        StringAssert.Contains(settings, "winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);");
+        StringAssert.Contains(settings, "includeAppx.Toggled += async (_, _) => await ChangeConnectorAsync(appx.Name, includeAppx.IsOn);");
+        foreach (string start in new[] { "StartScanAsync()", "CheckUpdateSourcesAsync()", "CheckForUpdatesAsync()" })
+            Assert.IsFalse(settings.Contains(start, StringComparison.Ordinal), $"Settings starts nothing: {start}");
+        // Exports keep the identifying-data warning (FR-DAT-01/03).
+        StringAssert.Contains(settings, "SettingsPresenter.ExportWarning");
+        StringAssert.Contains(settings, "await SaveExportAsync(false)");
+        StringAssert.Contains(settings, "await SaveExportAsync(true)");
+        StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.");
+        // Copy diagnostic uses the existing sanitized bundle (FR-HIS-05).
+        string copy = Between(settings, "private void CopyDiagnostic(", "private DataResetInputs DataResetInputsNow()");
+        StringAssert.Contains(copy, "package.SetText(SanitizedDiagnosticBundle.Create(updateHistory));");
+        StringAssert.Contains(copy, "confirmation.Text = SettingsPresenter.DiagnosticCopied(updateHistory.Count);");
+        StringAssert.Contains(settings, "NavigateTo(ShellPage.Privacy)");
+    }
+
+    [TestMethod]
+    [Description("Audit P-L5 (Task 73 Phase 4): the startup busy, reset-recovery and failure windows share one style, make their diagnostic selectable and offer Copy details and Close, without changing start-up decisions.")]
+    public void StartupNoticesHaveSelectableDetailsCopyAndClose()
+    {
+        string app = DesktopSource("App.xaml.cs");
+        string notice = app[app.IndexOf("internal static class StartupNotice", StringComparison.Ordinal)..];
+        StringAssert.Contains(notice, "IsTextSelectionEnabled = true");
+        StringAssert.Contains(notice, "Content = StartupNoticeText.CopyDetailsLabel");
+        StringAssert.Contains(app, "StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, \"Close PC Steward\")");
+        StringAssert.Contains(notice, "close.Click += (_, _) => window.Close();");
+        Assert.AreEqual(3, Count(app, "Content = StartupNotice.Build(this,"), "all three windows use the shared style");
+        StringAssert.Contains(app, "StartupNoticeText.ExceptionDetails(exception.GetType().Name, exception.Message)");
+        StringAssert.Contains(app, "StartupNoticeText.ResidualDetails(result.Residuals.Select(item => (item.Category, item.Reason, item.Detail)))");
+        Assert.IsFalse(notice.Contains("FactoryReset.", StringComparison.Ordinal), "the notice never resets or retries");
+    }
+
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
 
     private static string ApplicationSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", relativePath));

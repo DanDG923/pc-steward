@@ -1987,7 +1987,7 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>
-    /// Audit P-M7: saves the whole schedule record exactly as the old "Save schedule" button did — register (or remove) the
+    /// Audit P-M7: saves the whole schedule record exactly as the old Save schedule button did — register (or remove) the
     /// current-user scan-only task, then save the settings, inside the data-operation lease. A failure leaves the saved schedule
     /// unchanged and the page shows the saved values again.
     /// </summary>

@@ -36,7 +36,7 @@ public static class SettingsPresenter
     /// <summary>
     /// The one save model. Source and AppX choices were already saved per control (with the existing disclosure first), so the
     /// schedule now follows the same rule: each change saves the whole schedule record through the same register-then-save
-    /// operation the old "Save schedule" button used, and a failure leaves the saved schedule unchanged.
+    /// operation the old Save schedule button used, and a failure leaves the saved schedule unchanged.
     /// </summary>
     public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediately;
 
@@ -60,7 +60,7 @@ public static class SettingsPresenter
     public static ScheduleCadence CadenceAt(int index) => index switch { 1 => ScheduleCadence.Daily, 2 => ScheduleCadence.Weekly, _ => ScheduleCadence.Manual };
 
     /// <summary>
-    /// The schedule record requested by the current control values. This is the same record the old "Save schedule" button built,
+    /// The schedule record requested by the current control values. This is the same record the old Save schedule button built,
     /// normalized, so "Manual only" always means not scheduled.
     /// </summary>
     public static ScheduledCheckSettings RequestedSchedule(int cadenceIndex, bool isEnabled, bool notificationsEnabled, DayOfWeek? weeklyDay, TimeSpan localStartTime) =>
