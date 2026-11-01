@@ -193,16 +193,30 @@ internal sealed class FakeCapability : IReviewedHelperCapabilityCheck
     internal bool Throw { get; set; }
     internal string? PeerImagePath { get; private set; }
     internal int Calls { get; private set; }
+    /// <summary>Runs before the protection check (for example, blocks to model slow hashing).</summary>
+    internal Action? BeforeProtection { get; set; }
+    /// <summary>What the supplied protection check returned, once it has been called.</summary>
+    internal bool? ProtectionResult { get; private set; }
+    /// <summary>Completes when <see cref="Evaluate"/> returns or throws.</summary>
+    internal TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Uses the supplied protection principal like the Helper-role reader: any unprotected input is a mismatch.</summary>
     public HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route, DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath)
     {
-        Calls++;
-        PeerImagePath = peerImagePath;
-        if (Throw) throw new IOException("synthetic");
-        if (!requesterCannotModify(Root, ["PCSteward.ElevatedHelper.exe", "deployment.json"]))
-            return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Mismatch);
-        return HelperProtocolCapabilityResult.For(Status);
+        try
+        {
+            Calls++;
+            PeerImagePath = peerImagePath;
+            if (Throw) throw new IOException("synthetic");
+            BeforeProtection?.Invoke();
+            bool protectedLayout = requesterCannotModify(Root, ["PCSteward.ElevatedHelper.exe", "deployment.json"]);
+            ProtectionResult = protectedLayout;
+            return HelperProtocolCapabilityResult.For(protectedLayout ? Status : HelperProtocolCapabilityStatus.Mismatch);
+        }
+        finally
+        {
+            Completed.TrySetResult();
+        }
     }
 }
 

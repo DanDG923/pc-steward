@@ -220,6 +220,31 @@ public sealed class ReviewedHelperEndpointTests
         Assert.AreEqual(1, harness.Capability.Calls);
     }
 
+    [TestMethod]
+    public async Task AnUnresponsiveA3IsCappedAtRemainingNotAdmittedAndTheAbandonedCheckNeverReachesTheItem()
+    {
+        // N4b review M2: A3 (G1) runs off the endpoint thread under a real-time cap of the remaining budget (400 ms here).
+        EndpointHarness harness = HungStageHarness();
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Capability.BeforeProtection = () => release.Task.Wait(F.Wait);
+        try
+        {
+            EndpointRun run = await harness.ExchangeAsync();
+
+            AssertNotAdmitted(run, "a3-unresponsive");
+            Assert.IsFalse(harness.Item.Calls.Contains("observe"), "stage B never ran");
+            Assert.IsTrue(harness.Item.Disposed, "the item is disposed after the response");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        // The abandoned check finishes later: its protection call refuses without reaching the item, and its result is ignored.
+        await harness.Capability.Completed.Task.WaitAsync(F.Wait);
+        Assert.IsFalse(harness.Capability.ProtectionResult!.Value, "an abandoned check's protection call refuses");
+        Assert.IsFalse(harness.Item.Calls.Contains("protect"), "an abandoned check never reaches the item");
+    }
+
     // ---- The full positive path ----
 
     [TestMethod]
@@ -276,13 +301,13 @@ public sealed class ReviewedHelperEndpointTests
     }
 
     [TestMethod]
-    [DataRow("before-b", "b-timed-out")]
+    [DataRow("before-a3", "a3-timed-out")]
     [DataRow("during-b", "c-timed-out")]
     [DataRow("during-c-start-of-d", "d-timed-out")]
     public async Task ABudgetLapseBeforeLaunchIsUndeterminedTimedOut(string when, string diagnostic)
     {
         TimeSpan available = TimeSpan.FromMinutes(11) - TimeSpan.FromSeconds(10);
-        EndpointHarness harness = new() { PreElapsed = when == "before-b" ? available : available - TimeSpan.FromSeconds(30) };
+        EndpointHarness harness = new() { PreElapsed = when == "before-a3" ? available : available - TimeSpan.FromSeconds(30) };
         if (when == "during-b")
             harness.Item.Observe = (_, _, _, _) =>
             {
@@ -301,6 +326,8 @@ public sealed class ReviewedHelperEndpointTests
         Assert.AreEqual(diagnostic, run.Result.Diagnostic);
         AssertUndetermined(run, cancelled: false, timedOut: true, settled: true);
         Assert.AreEqual(0, harness.Item.UpgradeCalls);
+        // N4b review M2: a budget spent before A3 does not start G1 (its real-time cap would be zero).
+        if (when == "before-a3") Assert.AreEqual(0, harness.Capability.Calls, "G1 never started");
     }
 
     // ---- Stage B ----

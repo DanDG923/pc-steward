@@ -47,8 +47,8 @@ internal sealed record ReviewedHelperEndpointResult(ReviewedHelperEndpointExit E
 /// payload hash equal to the digest, <c>TryRestore</c>, fixed-time nonce: any failure sends <b>no response</b>.</item>
 /// <item><b>A1</b> request at most 2 minutes old and not from the future, review at most 30 minutes old, exact route shape and
 /// O2 profile digest, payload SID equal to the held peer's SID; <b>A2</b> <c>BeginItem</c> and peer not exited; <b>A3</b>
-/// G1 through <see cref="IReviewedHelperCapabilityCheck"/>: any failure is <c>Refused/RequestNotAdmitted</c>, fields 16–18
-/// null.</item>
+/// G1 through <see cref="IReviewedHelperCapabilityCheck"/>, capped in real time at <c>remaining</c>: any failure, including
+/// the cap, is <c>Refused/RequestNotAdmitted</c>, fields 16–18 null.</item>
 /// <item><b>B</b>, <b>C</b>, <b>D</b> and <b>Launch</b> per the §5.2 rows, with the N2 internal-fault rules: before process
 /// creation a fault is <c>MachineInputsUnsupported</c> only when every owned launch job is settled and no interrupt is
 /// present, otherwise <c>Undetermined</c>; from entering process creation any fault is <c>Unknown</c>. An out-of-order item
@@ -213,6 +213,7 @@ internal static class ReviewedHelperEndpoint
         private readonly DateTimeOffset issuedAt = request.IssuedAt;
         private IChocolateyHelperItem? item;
         private bool launchEntered;
+        private int capabilityAbandoned;
         private string profileDigest = string.Empty;
         private string? stageBInstalled, stageBFingerprint, stageCCandidate, stageDInstalled, stageDFingerprint;
 
@@ -239,7 +240,7 @@ internal static class ReviewedHelperEndpoint
             if (PeerExited()) return NotAdmitted("a2-peer-exited");
 
             // ---- A3 (G1): helper capability with the requester as protection principal, plus image hashes ----
-            if (!CapabilitySupported(item, peerImage)) return NotAdmitted("a3-capability-refused");
+            if (await CapabilityAsync(item, peerImage).ConfigureAwait(false) is { } refusedAtA3) return refusedAtA3;
 
             return await StageBAsync(item).ConfigureAwait(false);
         }
@@ -452,15 +453,37 @@ internal static class ReviewedHelperEndpoint
             catch (Exception exception) when (exception is not OutOfMemoryException) { return true; }
         }
 
-        private bool CapabilitySupported(IChocolateyHelperItem current, string peerImage)
+        /// <summary>
+        /// A3 (G1) under a real-time cap of the endpoint's remaining budget: the bounded hashing and ACL walks still take
+        /// real time. Null when supported; a budget spent before G1 starts is <c>Undetermined</c>+<c>timedOut</c>; otherwise
+        /// <c>RequestNotAdmitted</c> through the settled-refusal rule. When the cap
+        /// fires the check is abandoned. Its result is never read, and any later protection call it makes refuses without
+        /// reaching the item. The item is disposed after the response, so nothing proceeds from an abandoned check.
+        /// </summary>
+        private async Task<Decision?> CapabilityAsync(IChocolateyHelperItem current, string peerImage)
         {
+            // A budget already spent is the N4 lapse (as before stages B and C); G1 is not started.
+            TimeSpan remaining = Remaining();
+            if (remaining <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, "a3-timed-out");
             bool Protection(string root, IReadOnlyList<string> files)
             {
+                if (Volatile.Read(ref capabilityAbandoned) != 0) return false;
                 try { return current.RequesterCannotModify(root, files); }
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
             }
-            try { return capability.Evaluate(operation.RouteContract, Protection, peerImage) is { IsSupported: true }; }
-            catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+            bool supported;
+            try
+            {
+                supported = await Task.Run(() => capability.Evaluate(operation.RouteContract, Protection, peerImage) is { IsSupported: true },
+                    CancellationToken.None).WaitAsync(remaining, clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                Volatile.Write(ref capabilityAbandoned, 1);
+                return NotAdmitted("a3-unresponsive");
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return NotAdmitted("a3-capability-refused"); }
+            return supported ? null : NotAdmitted("a3-capability-refused");
         }
 
         /// <summary>True only when every owned launch job is known settled; before A2 nothing is owned.</summary>
