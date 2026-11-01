@@ -5,12 +5,15 @@
 **Task 73 — Phase 1 foundations (2026-11-01), draft PR DanDG923/pc-steward#13 stacked on the Task 50 branch:**
 - What it adds: a persistent shell (navigation items, title bar and progress band created once; Home, Updates, Installed apps, Activity, Decisions, plus Settings and About), `ItemInvoked`, title-bar Back with a portable back stack, entry points for every page, a real Decisions page, one SPEC §7.2 status vocabulary (icon + text + tone), Mica with a custom title bar and tokens, and one elevation story. The UI contract pins were updated deliberately, and none was weakened. Requirements: `FR-UI-01/02/05`, `AC-UX-01–04`.
 - **Windows CI on `887094d` is green, including the Desktop build** (Security 1148, integration 970, architecture 97).
-- **Independent review: PASS with fixes**, with no Blocker or High and no behaviour change beyond presentation. Fixes are in progress:
-  - copy that over-promised "no UAC prompt" and "always unelevated";
-  - focus restore with non-unique names, on a Remove-decision path;
-  - a duplicate Back entry;
-  - scan re-entrancy from the Activity empty state;
-  - high-contrast refresh, scroll-restore timing and title-bar details.
+- **Independent review: PASS with fixes**, with no Blocker or High and no behaviour change beyond presentation. All fixes are in `edfa0c0..b5a4eb8`, and **Windows CI is green** (architecture 100, integration 972, Security 1148):
+  - the user-scope copy no longer promises "no UAC prompt", and "designed to run without administrator rights" replaces "always";
+  - focus is restored only to a uniquely named control, and per-row Remove names include the product;
+  - leaving details to the page beneath it acts as Back;
+  - scan re-entrancy is guarded;
+  - high-contrast and theme changes refresh the page;
+  - scroll restore runs after layout;
+  - title-bar caption colours follow the theme, and XButton1 goes back.
+- Phase 2 (Updates grouping and the job stepper) is in progress.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
