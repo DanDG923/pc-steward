@@ -20,7 +20,7 @@ internal delegate ChocolateyProfileResult ChocolateyHelperObserve(RequesterToken
 /// binding, §4 M4/L2/L6) and every launch job, and enforces the stage order itself, independent of the stage machine:
 /// <list type="number">
 /// <item><see cref="RequesterCannotModify"/> (G1, §6) only before stage B;</item>
-/// <item><see cref="ObserveProfile"/> once, first;</item>
+/// <item><see cref="ObserveProfile"/> once, first, and only with no call in flight (no G1 check still running);</item>
 /// <item><see cref="QueryCandidateAsync"/> once, only after a stage-B <c>Observed</c>;</item>
 /// <item><see cref="RevalidateBeforeLaunch"/> once, only after a stage-C <c>Matched</c>; its <c>Observed</c> mints the one-use
 /// launch permission;</item>
@@ -29,8 +29,9 @@ internal delegate ChocolateyProfileResult ChocolateyHelperObserve(RequesterToken
 /// Any other call, a concurrent call, or a call after <see cref="Dispose"/> returns its record's <c>OutOfOrder</c> arm (or
 /// <c>false</c> for the G1 check) without any I/O or launch. A non-passing result ends the sequence. Dispose may arrive while a
 /// call is in flight (the stage machine's real-time caps): it cancels the in-flight work through the item's lifetime token
-/// and admits nothing new; the token, the observation and the held binding are released only when the last in-flight call
-/// has returned, and the binding only when every launch job settled (otherwise it stays held until process exit, M4).
+/// and admits nothing new; the token, the observation, the held binding and the lifetime token source are released only
+/// once Dispose has cancelled and the last in-flight call has returned, and the binding only when every launch job settled
+/// (otherwise it stays held until process exit, M4).
 /// <see cref="AggregateSettled"/> is true only with no call in flight and every launch job of the item settled.
 /// </summary>
 internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
@@ -51,6 +52,7 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
     private Phase phase = Phase.Begun;
     private int inFlight;
     private bool disposed;
+    private bool lifetimeCancelled;
     private bool released;
 
     private NativeChocolateyHelperItem(IWork work) => this.work = work;
@@ -167,26 +169,34 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
 
     public void Dispose()
     {
-        bool release;
         lock (gate)
         {
             if (disposed) return;
             disposed = true;
             phase = Phase.Closed;
-            release = inFlight == 0 && !released;
-            if (release) released = true;
         }
         // In-flight work observes the lifetime token (the observer's walk, the launcher's teardown); nothing new is admitted.
+        // The cancellation runs outside the gate (its callbacks are the in-flight work's), and before any release.
         try { lifetime.Cancel(); }
         catch (AggregateException) { }
+        bool release;
+        lock (gate)
+        {
+            lifetimeCancelled = true;
+            release = ShouldRelease();
+        }
         if (release) Release();
     }
 
+    /// <summary>
+    /// Admits one call. An exclusive call (every stage) needs its phase and no call in flight, so stage B never starts while a
+    /// G1 check is still running; the G1 check is non-exclusive and needs only <see cref="Phase.Begun"/>.
+    /// </summary>
     private bool TryEnter(Phase expected, bool exclusive)
     {
         lock (gate)
         {
-            if (disposed || phase != expected) return false;
+            if (disposed || phase != expected || (exclusive && inFlight != 0)) return false;
             if (exclusive) phase = Phase.Busy;
             inFlight++;
             return true;
@@ -200,19 +210,31 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         {
             if (exclusive) phase = disposed ? Phase.Closed : next;
             inFlight--;
-            release = disposed && inFlight == 0 && !released;
-            if (release) released = true;
+            release = ShouldRelease();
         }
         if (release) Release();
+    }
+
+    /// <summary>Under the gate: true exactly once, when Dispose has cancelled the lifetime token and no call is in flight.</summary>
+    private bool ShouldRelease()
+    {
+        if (!disposed || !lifetimeCancelled || inFlight != 0 || released) return false;
+        released = true;
+        return true;
     }
 
     private CancellationTokenSource Link(CancellationToken cancellationToken) =>
         CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
 
+    /// <summary>
+    /// Releases the work, then the lifetime token source: no call is in flight (so no <see cref="Link"/> can run), nothing new
+    /// is admitted after Dispose, and Dispose's own cancellation has completed.
+    /// </summary>
     private void Release()
     {
         try { work.Dispose(); }
         catch (Exception exception) when (exception is not OutOfMemoryException) { }
+        lifetime.Dispose();
     }
 
     private static ChocolateyProfileResult ProductionObserve(RequesterToken token, string targetId, ChocolateyNativeVersion frozenInstalled,

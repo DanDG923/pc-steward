@@ -22,6 +22,7 @@ public sealed class NativeHelperItemTests
     private static readonly string[] Stages = ["observe", "query", "revalidate", "upgrade"];
     private static readonly string[] ObserveQuery = ["observe", "query"];
     private static readonly string[] ObserveOnly = ["observe"];
+    private static readonly string[] ProtectObserve = ["protect", "observe"];
 
     [TestMethod]
     public async Task TheFullOrderRunsEachStageOnceAndLaunchesOnce()
@@ -226,6 +227,33 @@ public sealed class NativeHelperItemTests
         Assert.IsInstanceOfType<ChocolateyStageValues.Observed>(await observing.WaitAsync(Wait));
         Assert.IsInstanceOfType<ChocolateyCandidateValues.Matched>(await item.QueryCandidateAsync(Remaining, CancellationToken.None));
         CollectionAssert.AreEqual(ObserveQuery, script.Calls);
+    }
+
+    [TestMethod]
+    public async Task StageBIsOutOfOrderWhileAG1CheckIsInFlight()
+    {
+        // N4b review L3: the G1 check is non-exclusive, so stage B also requires no call in flight.
+        Script script = new();
+        using ManualResetEventSlim release = new();
+        using ManualResetEventSlim entered = new();
+        script.Protect = () =>
+        {
+            entered.Set();
+            release.Wait(Wait);
+            return true;
+        };
+        using NativeChocolateyHelperItem item = script.Item();
+        Task<bool> checking = Task.Run(() => item.RequesterCannotModify(@"C:\Program Files\PC Steward", ["a"]));
+        Assert.IsTrue(entered.Wait(Wait));
+
+        Assert.IsInstanceOfType<ChocolateyStageValues.OutOfOrder>(item.ObserveProfile(F.Operation(), F.Fingerprint, Remaining, CancellationToken.None));
+        Assert.IsFalse(item.AggregateSettled, "a G1 check in flight is not settled");
+
+        release.Set();
+        Assert.IsTrue(await checking.WaitAsync(Wait));
+        // The refused call changed nothing: stage B runs once G1 has returned.
+        Assert.IsInstanceOfType<ChocolateyStageValues.Observed>(item.ObserveProfile(F.Operation(), F.Fingerprint, Remaining, CancellationToken.None));
+        CollectionAssert.AreEqual(ProtectObserve, script.Calls);
     }
 
     [TestMethod]
