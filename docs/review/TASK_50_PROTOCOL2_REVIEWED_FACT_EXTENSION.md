@@ -2,7 +2,7 @@
 
 Requirements: `FR-UPD-15`, `FR-UPD-01`, `AC-UPD-01–11`, `TM-03/04/07/13`; retained `FR-UPD-08/09/14`, `TM-06`, `FR-HIS-01`.
 
-Status: **proposed specification, revision 3.** It responds to the CONDITIONAL independent review of revision 2 (committed at `d1d49c1`, SHA `e0659e9a…c600`), which followed the review of revision 1 (`c3c870f`, SHA `030df504…de1`). It adds no code or endpoint. It admits no route and authorizes no deployment, host read, UAC prompt or real update. Revisions 1 and 2 remain as reviewed artifacts.
+Status: **independently reviewed specification — PASS at revision 3** (commit `8aa50db`, SHA-256 `082963ca…7b5c`, fresh Opus reviewer). Low findings N1–N5 are carried as binding implementation obligations in §10. This is a design review result inside owner-accepted ADR-025, not owner acceptance of a new ADR. It adds no code or endpoint and grants no route admission, deployment, host-read, UAC or update authority.
 
 Sources: the Task 50 handover (§3–§6); ADR-025 (the responsibility table, the 2026-10-31 owner amendments, and the requirement for a new protocol version); `TASK_50_PROVIDER_MAPPING_V2.md` (bounded response and settlement); `TASK_50_CHOCOLATEY_PROFILE_V2.md` (producer/consumer seams, L1 cache precheck, query mapping); the Task 90 profile-V2 remediation (L3 fingerprint, M2 file-first postcheck); and the source files `ReviewedUpdateWireCodec.cs`, `ReviewedUpdateOperation.cs`, `ChocolateyCommonProfileFingerprint.cs`, `ChocolateyNativeVersion.cs`, `ChocolateyReviewedUpdateArguments.cs`, `ReviewedUpdateDispatchWorkflow.cs` (HEAD, including `StillSupported`), `UpdateDispatchSettlement.cs`, `UpdateBatchWorkflow.cs` (`PostUpdateInventoryResult`) and `WindowsElevatedHelperTransport.cs`.
 
@@ -301,3 +301,16 @@ An uncorrelatable request gets no response, so the desktop records Uncertain and
 There are no other open owner questions.
 
 **Non-goals:** WinGet; changes to protocol 1 or the request; progress frames; a wire `Success`, `Final` or `HelperQualified`; new deadlines; native observer implementation; restart inference; relaxing verification or claim barriers.
+
+## 10. Review record and binding implementation obligations
+
+Review history: rev 1 (`c3c870f`) CONDITIONAL (4 Medium, 4 Low); rev 2 (`d1d49c1`) CONDITIONAL (2 Medium, 6 Low); **rev 3 (`8aa50db`) PASS** with only Low findings. Each review was by a fresh-context reviewer independent of the drafter, with the file hash pinned at start and end. The obligations below bind the implementation and its review. They clarify the rev-3 text and must not be read as loosening it.
+
+| # | Obligation |
+|---|---|
+| N1 | For a stage-C decision, field 16 reports the installed version confirmed by the stage-C list recheck, and field 18 reports the stage-B fingerprint. A stage-C `CandidateMismatch` must therefore satisfy P4 and settle as Refused, not Uncertain. |
+| N2 | The internal-fault table applies only before process creation is entered. Any interrupt flag (`cancelled`/`timedOut`/`outputLimitExceeded`) forces `Undetermined`, so S10 can never make `CreateResponse` throw. A fault at or after entering process creation follows the Launch row (Unknown → Uncertain). §8 tests must also cover a fault in stage C. |
+| N3 | A well-formed stage-C `list <ID> --exact` result that disagrees with stage B maps to `InstalledMismatch`, carrying the stage-C value. |
+| N4 | A budget lapse at stage D maps to `Undetermined` + `timedOut` (never Refused + `timedOut`). The stage-D budget check uses the desktop's remaining budget (11 min) rather than the helper's 15 min, so the helper never launches after the desktop has given up. The historical 15/11 inconsistency is not otherwise redesigned here (Task 51). |
+| N5 | These still gate the adapter, in addition to the O5 owner contingency: the manifest capability seam specification and review (L-4); review of the history storage format (§4.2); O5 native readability evidence; and a supersession note against `TASK_50_PROVIDER_MAPPING_V2.md`'s 15-field response text. |
+| Nits | §0.1's "S6 and P1" refer to rev-1 identifiers. H applies only once a response exists; the "no request written" row needs none. Matched∧NotStarted with `outputLimitExceeded` is impossible in practice, and the implementation may reject it explicitly. Config/cache/feature drift between stage D and launch is covered by the requester-unwritable ACLs checked in stages B/D, not by held identities or the postcheck. |

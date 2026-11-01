@@ -1,3 +1,7 @@
+# Task 50 — protocol-2 reviewed fact extension (design gate)
+
+`FR-UPD-15`, `FR-UPD-01`, `AC-UPD-01–11`, `TM-03/04/07/13`: [specification](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) passed independent design review at revision 3 after two CONDITIONAL rounds. §8 lists the negative test matrix the implementation must satisfy, and §10 the binding obligations. This is design evidence only: no endpoint, route admission or `AC-UPD` closure.
+
 # Task 50 — common-gate caller conversion
 
 `FR-UPD-15`, `TM-04/06/07`, reset design §4.3: `DataOperationLeaseTests` covers mutation needing a clear reconciliation while reads proceed, an unreadable barrier blocking mutation only, pending reset refusing before reconciliation, missing configuration failing closed, reset-control semantics, concurrent-holder busy/release, and bootstrap session reuse without recursive acquisition. The rewritten `AsyncDataOperationLeaseBlocksResetUntilTheOperationCompletes` uses test gates. `DesktopBootstrapAndResetUseTheCommonGateWithReconciliation` checks the ordering marker → SQLite → reconcile → MainWindow. Windows CI is authoritative for the native gate and Desktop build.
