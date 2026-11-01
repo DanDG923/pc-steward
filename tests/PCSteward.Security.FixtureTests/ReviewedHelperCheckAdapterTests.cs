@@ -100,7 +100,7 @@ public sealed class ReviewedHelperCheckAdapterTests
                 // B2-L2: every value the codec accepts can be written through the single factory and read back.
                 accepted++;
                 byte[] written = new UpdateDispatchTerminal(UpdateDispatchOutcome.Cancelled, Protocol2InterpreterFixture.ReviewedAt, null, "x",
-                    RecordedHelperCandidateCheck.FromDesktopDerived(RecordedHelperCheckKind.Confirmed, RecordedHelperRefusalReason.None, text, text)).GetReservedPayload();
+                    RecordedHelperCandidateCheck.FromDesktopDerived(RecordedHelperCheckKind.Confirmed, RecordedHelperRefusalReason.None, text, text)).GetReservedPayload(NotInvoked());
                 Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(written, Grammar, out _), text);
             }
             else rejected++;
@@ -134,6 +134,17 @@ public sealed class ReviewedHelperCheckAdapterTests
     }
 
     // Forged version-3 Confirmed slot (bypasses the factory) so the reader alone judges the version text.
+    // Live writers always pass a settlement; v3 without settlement facts is unreadable (review 12 L2).
+    private static UpdateDispatchSettlement NotInvoked()
+    {
+        ReviewedUpdateOperation op = Protocol2InterpreterFixture.Operation();
+        UpdateDispatchClaim claim = new(Guid.NewGuid(), Guid.NewGuid(), new ReviewedUpdateDraft(op, Guid.NewGuid()),
+            new FreshUpdateDispatchEvidence(op.Selection, op.RequestingUserSid, op.NativeInstanceId, op.InstallationContextId, "fresh:1",
+                op.ReviewedAt, op.RouteContract, op.Mode, true, true), op.ReviewedAt);
+        OperationOwnership owner = new(op.RequestingUserSid, OperationGateContract.NamePrefix + op.RequestingUserSid, false, reconciled: true);
+        return UpdateDispatchSettlement.BeforeInvocation(claim, owner);
+    }
+
     private static byte[] ForgeConfirmed(string version)
     {
         byte[] diagnostic = "d"u8.ToArray();
