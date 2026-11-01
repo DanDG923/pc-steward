@@ -121,6 +121,7 @@ public static partial class AppDetailPresenter
                 new("Scope", candidate.Scope),
                 new("Architecture", candidate.Architecture),
                 new("Channel", candidate.Channel ?? "Unknown"),
+                new("Evidence", candidate.Evidence),
             ];
             IReadOnlyList<string> reasons = ReviewReasonText.DescribeAll(candidate.ReviewReasons);
             if (reasons.Count != 0) facts.Add(new("Why it needs review", string.Join(" ", reasons)));

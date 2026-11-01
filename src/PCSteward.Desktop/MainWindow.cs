@@ -405,6 +405,11 @@ public sealed class MainWindow : Window
         check.Click += async (_, _) => await CheckForUpdatesAsync();
         actions.Children.Add(review);
         actions.Children.Add(check);
+        // The last scan's results page stays reachable from Home (audit P-H2), as a quiet link rather than a third button.
+        HyperlinkButton results = new() { Content = "View scan results", VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(results, "View scan results");
+        results.Click += (_, _) => NavigateTo(ShellPage.Results);
+        actions.Children.Add(results);
         hero.Children.Add(actions);
         panel.Children.Add(Card(hero));
 
