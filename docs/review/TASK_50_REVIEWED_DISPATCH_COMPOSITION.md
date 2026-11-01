@@ -451,3 +451,34 @@ An independent code review (Opus, pinned `26e908a..9c3f1a1`) returned **PASS**, 
 | L4 | Low | The rows were not asserted against the desktop predicates | A new portable test passes every settled stage-C refusal through `ReviewedUpdateWireCodec.StructuralViolations` and `ReviewedUpdateProtocol2Interpreter.OperationBoundViolations`, with zero violations |
 | Info | — | The strict outdated parser refuses the whole query on any odd record, even for an unrelated package | Recorded as an availability cost; required by Profile V2 ("strict unique records") |
 
+## Slice N4a: protocol-2 helper stage machine over the qualification port (`81608fe..1f0e13e`)
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §4, §5.1–§5.4, §6 and §8 N4a, with fact extension rev 3 §2, §3, §6 and §10. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+
+What it adds:
+- The port interfaces and closed value records (`ChocolateyStageValues`, `ChocolateyUpgradeResult`, `ChocolateyItemRefusal`, `ChocolateyStageRefusal`), in Provider.Chocolatey. There is no native implementation yet; that is N4b.
+- `ReviewedHelperEndpoint`, in Execution: the A0–A3, B, C, D and Launch stage machine, plus the `IReviewedHelperCapabilityCheck` seam for G1.
+- No entry-point wiring: `--protocol 2` still exits with code 20.
+
+Tests use fakes over a real pipe pair (16 KiB buffers) and run against the real desktop `ReviewedHelperExchangeSession` and `ReviewedUpdateProtocol2Interpreter`. All 103 endpoint tests pass; a mutation check showed they detect broken S7 nulling and a broken settlement guard. Architecture tests pass, 77/77. **Windows CI on `7066d76` is green.**
+
+The implementer's deviations are all stricter or fail-safe:
+- A1 also checks the route shape and refuses a future `ReviewedAt`.
+- An `Observed` or `Matched` result whose values are not the frozen ones is treated as an internal fault.
+- A refusal is sent only when `AggregateSettled`; otherwise Undetermined with ¬settled.
+- `ApprovalExpired` at stage D carries null values.
+- An unsettled, termination-failed or overflowed NotStarted at Launch is reported as Unknown.
+- Async item calls have hard caps.
+
+An independent code review (Opus, pinned `81608fe..1f0e13e`) returned **PASS**, with no Blocker, High or Medium and **no reachable path to any critical failure**: no false Matched, no launch without a stage-C Matched and a stage-D Observed, no settled refusal over unsettled work, no response to an uncorrelatable request, no second upgrade, and no response that the desktop would reject where the spec requires settlement. It verified:
+- A0/A1 correlation, fixed-time checks, and the freshness and ceiling rules;
+- G1 through `item.RequesterCannotModify`;
+- the deadline arithmetic and the 60 s floor in the Launch row only;
+- the disconnect monitor;
+- a single `CreateResponse` call site and a single write;
+- the field 16–18 values for every row against S6–S10 and P1–P6.
+
+Its Lows (no real-time cap on synchronous stages B and D, a Launch cap without teardown slack, no hung-Launch test) and Info items (TimeProvider in waits, an item OCE that is not the endpoint's own, post-cap monitor and write waits) are being fixed in a follow-up commit. N4b obligations recorded:
+- the native item tolerates disposal while a call is in flight;
+- the observer honours `remaining` and the token.
+

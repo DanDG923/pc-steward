@@ -1,5 +1,11 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N4a helper stage machine (2026-11-01):** The port interfaces and value records, plus `ReviewedHelperEndpoint`, which implements A0–A3, B, C, D and Launch with deadlines, the launch floor, N2 faults, the OutOfOrder mapping, single-response emission and the disconnect monitor. Tests use fakes, run against the real desktop session and interpreter. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+- **Windows CI on `7066d76` is green.**
+- **Independent review: PASS**, with no reachable critical failure. Its Lows and Info items (cap stages B and D, Launch teardown slack, more tests, wait bounds) are being fixed.
+- Not wired: protocol 2 still exits with code 20.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N4b (native port and item, Helper-role G1 reader, and bootstrap wiring).
+
 **Task 50 — slice N3 fixed client queries (2026-11-01):** Held root-engine binding, the exact-list builder, sealed compiled commands, `FromBinding` with the typed `RunAsync`, strict queries and stage-C mapping. Design rev 6 §4. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
 - **Windows CI:** all six held-binding launch tests pass. A stand-in engine launches while held read-share-only, which is CI-level support for A-Q1.
 - **Independent review: PASS.** Its four Lows are fixed:
