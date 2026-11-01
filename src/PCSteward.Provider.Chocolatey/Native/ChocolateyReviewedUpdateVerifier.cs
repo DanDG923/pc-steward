@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PCSteward.Application;
 using PCSteward.Domain;
 
@@ -17,8 +18,12 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// state still equal to the baseline.</item>
 /// </list>
 /// Success (<c>ExpectedVersionDetected</c>) only when that re-observation proves the expected version.
-/// <c>ClientChanged</c> and <c>Unverifiable</c> carry their detail and are Unverified, never Success. <c>RestartPending</c>
-/// is always false: this route never infers a restart (L5). Cancellation propagates; the workflow records Unverified.
+/// <c>ClientChanged</c> and <c>Unverifiable</c> carry their detail and are Unverified, never Success. A file-only capture the
+/// observer refused as <c>InstalledMismatch</c> (the static reads completed but the registration is not the expected version,
+/// for example an exit-0 update that changed nothing) is Unverified with detail <c>None</c>, so the workflow says the target
+/// version was not detected (N5 review L1); every other capture refusal stays <c>ClientUnverifiable</c>. <c>RestartPending</c>
+/// is always false: this route never infers a restart (L5). A caller cancellation during either observation throws
+/// <see cref="OperationCanceledException"/> (N5 review L3); the workflow records "verification did not finish", Unverified.
 /// </summary>
 internal sealed class ChocolateyReviewedUpdateVerifier : IReviewedUpdateVerifier
 {
@@ -56,14 +61,16 @@ internal sealed class ChocolateyReviewedUpdateVerifier : IReviewedUpdateVerifier
             !string.Equals(baseline.RequestingUserSid, operation.RequestingUserSid, StringComparison.Ordinal))
             return Unverified(PostUpdateVerificationDetail.ClientUnverifiable);
 
+        StrongBox<bool> installedMismatch = new(false);
         ChocolateyPostClientResult<bool> result = await ChocolateyPostUpdateClientCheck.RunAsync(baseline.ClientState,
-            token => CaptureFilesAsync(targetId, expected, baseline, token),
+            token => CaptureFilesAsync(targetId, expected, baseline, installedMismatch, token),
             token => ReobserveTargetAsync(targetId, expected, baseline, token),
             cancellationToken).ConfigureAwait(false);
         return result.Comparison switch
         {
             ChocolateyClientComparison.Unchanged => result.Value ? new PostUpdateInventoryResult(true, false) : Unverified(PostUpdateVerificationDetail.None),
             ChocolateyClientComparison.ClientChanged => Unverified(PostUpdateVerificationDetail.ClientChanged),
+            _ when installedMismatch.Value => Unverified(PostUpdateVerificationDetail.None),
             _ => Unverified(PostUpdateVerificationDetail.ClientUnverifiable),
         };
     }
@@ -71,23 +78,32 @@ internal sealed class ChocolateyReviewedUpdateVerifier : IReviewedUpdateVerifier
     /// <summary>Not Success and never restart-pending (L5).</summary>
     private static PostUpdateInventoryResult Unverified(PostUpdateVerificationDetail detail) => new(false, false, detail);
 
-    /// <summary>The file-only capture: the observation's client state, or null (Unverifiable) when it cannot be read.</summary>
+    /// <summary>
+    /// The file-only capture: the observation's client state, or null (Unverifiable) when it cannot be read.
+    /// <paramref name="installedMismatch"/> records an <c>InstalledMismatch</c> refusal (the result is then null).
+    /// </summary>
     private async Task<ChocolateyClientStateData?> CaptureFilesAsync(string targetId, ChocolateyNativeVersion expected,
-        ChocolateyDispatchBaseline baseline, CancellationToken cancellationToken)
+        ChocolateyDispatchBaseline baseline, StrongBox<bool> installedMismatch, CancellationToken cancellationToken)
     {
-        using ChocolateyProfileObservation? capture = await ChocolateyDesktopObservation
-            .TryObserveAsync(observe, targetId, expected, budget, time, cancellationToken).ConfigureAwait(false);
+        ChocolateyDesktopOutcome outcome = await ChocolateyDesktopObservation
+            .ObserveOutcomeAsync(observe, targetId, expected, budget, time, cancellationToken).ConfigureAwait(false);
+        installedMismatch.Value = outcome.InstalledMismatch;
+        using ChocolateyProfileObservation? capture = outcome.Observation;
         if (capture is null || !string.Equals(capture.Common.RequestingUserSid, baseline.RequestingUserSid, StringComparison.Ordinal)) return null;
         return capture.ClientState;
     }
 
-    /// <summary>Reached only after an Unchanged comparison: the unique exact target at the expected version, client unchanged.</summary>
+    /// <summary>
+    /// Reached only after an Unchanged comparison: the unique exact target at the expected version, client unchanged. A caller
+    /// cancellation throws rather than reading as "not detected" (L3).
+    /// </summary>
     private async Task<bool> ReobserveTargetAsync(string targetId, ChocolateyNativeVersion expected, ChocolateyDispatchBaseline baseline,
         CancellationToken cancellationToken)
     {
         using ChocolateyProfileObservation? reobserved = await ChocolateyDesktopObservation
             .TryObserveAsync(observe, targetId, expected, budget, time, cancellationToken).ConfigureAwait(false);
-        return reobserved is not null && !cancellationToken.IsCancellationRequested &&
+        cancellationToken.ThrowIfCancellationRequested();
+        return reobserved is not null &&
             string.Equals(reobserved.Common.RequestingUserSid, baseline.RequestingUserSid, StringComparison.Ordinal) &&
             ChocolateyPostUpdateClientCheck.Compare(baseline.ClientState, reobserved.ClientState) == ChocolateyClientComparison.Unchanged;
     }

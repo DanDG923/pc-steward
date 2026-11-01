@@ -125,7 +125,11 @@ public sealed class DesktopProducersBoundaryTests
         string source = Read("ChocolateyProfileEvidenceSource.cs");
         Assert.AreEqual(1, Regex.Count(source, @"new FreshUpdateDispatchEvidence\("), "one evidence construction");
         StringAssert.Contains(source, "string freshEvidenceId = ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint;");
-        StringAssert.Contains(source, "freshEvidenceId, time.GetUtcNow(), operation.RouteContract, operation.Mode, actionable: true, sourceIsFresh: true);");
+        StringAssert.Contains(source, "freshEvidenceId, observedAt, operation.RouteContract, operation.Mode, actionable: true, sourceIsFresh: true);");
+        // N5 review L4: the evidence time is taken before the observation starts.
+        int stamp = source.IndexOf("DateTimeOffset observedAt = time.GetUtcNow();", StringComparison.Ordinal);
+        int observe = source.IndexOf("ChocolateyDesktopObservation.TryObserveAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(stamp >= 0 && stamp < observe, "the evidence is timestamped before the observation");
         Assert.IsFalse(Regex.IsMatch(source, @"\.\s*EvidenceId\b"), "the frozen EvidenceId is never read");
         // The requester is the fresh token's, not the operation's (which admission compares it with).
         StringAssert.Contains(source, "string requester = observation.Common.RequestingUserSid;");

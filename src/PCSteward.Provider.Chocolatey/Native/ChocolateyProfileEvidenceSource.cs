@@ -5,12 +5,17 @@ namespace PCSteward.Provider.Chocolatey.Native;
 
 /// <summary>
 /// The desktop review intent (design rev 6 §7; Profile V2 "Native producer"): the fresh Desktop-role observation of the
-/// target plus the non-elevated client's <c>outdated</c> candidate, kept as <see cref="ReviewedCandidateProvenance.UserCacheIntent"/>
-/// with the fixed Profile V2 disclosure. Review data only: it is not helper qualification, not trusted candidate evidence
-/// and not a dispatch permit; the helper must independently confirm the exact candidate before updating.
+/// target plus a <b>supplied</b> structured candidate (the non-elevated client's <c>outdated</c> record, resolved by the
+/// caller), which this producer validates but never captures or re-runs. It is provisional
+/// <see cref="ReviewedCandidateProvenance.UserCacheIntent"/> with the fixed Profile V2 disclosure. Review data only: it is
+/// not helper qualification, not trusted candidate evidence and not a dispatch permit; the helper confirms the exact
+/// candidate itself at stage C before updating.
+/// <see cref="IntentResolvedAt"/> is when the supplied candidate was resolved; <see cref="ObservedAt"/> is when the
+/// observation started. They are kept separate.
 /// </summary>
 internal sealed record ChocolateyReviewIntent(string PackageId, string InstalledVersion, string CandidateVersion, string RequestingUserSid,
-    string ProfileEvidenceId, ReviewedCandidateProvenance CandidateProvenance, bool TargetLibBadResidue, string Disclosure, DateTimeOffset ObservedAt);
+    string ProfileEvidenceId, ReviewedCandidateProvenance CandidateProvenance, bool TargetLibBadResidue, string Disclosure, DateTimeOffset ObservedAt,
+    DateTimeOffset IntentResolvedAt);
 
 /// <summary>
 /// FR-UPD-15, FR-UPD-01, TM-03/04/07/13; Task 50 design rev 6 §7 (F′, N5) and adapter gates §A.6.1 (A2-L6): the dispatch
@@ -22,9 +27,12 @@ internal sealed record ChocolateyReviewIntent(string PackageId, string Installed
 /// <b>fresh</b> observation's fingerprint (F′), never a value copied from the frozen operation, and the requesting SID is
 /// the fresh token's. Any refusal, timeout, cancellation or token refusal returns null, so nothing is dispatched. The
 /// observation's client-state baseline is recorded for the verifier of the same operation.</item>
-/// <item><see cref="ObserveReviewIntentAsync"/> is the same observation for a candidate intent the non-elevated client
-/// already reported. It runs no process: the Desktop role has no held client binding, and the sealed N3 commands run only
-/// through the helper item (design rev 6 §3, §4).</item>
+/// <item><see cref="ObserveReviewIntentAsync"/> is the same observation for a supplied candidate intent that the
+/// non-elevated client already reported; it validates that intent and its freshness and never runs <c>outdated</c> or any
+/// other process: the Desktop role has no held client binding, and the sealed N3 commands run only through the helper item
+/// (design rev 6 §3, §4).</item>
+/// <item>Each producer timestamps its observation when the observation starts (N5 review L4), so freshness windows
+/// downstream (<see cref="FreshUpdateDispatchEvidence.Matches"/>: two minutes) are measured from the oldest fact read.</item>
 /// </list>
 /// Data alone grants nothing: admission still compares the evidence with the frozen review, and the helper still compares
 /// its own fingerprint with the frozen one.
@@ -64,6 +72,8 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
         if (operation is null || ownership is null || !ownership.CanDispatchFor(operation) ||
             !ChocolateyDesktopObservation.TryGetRouteTarget(operation, out string? targetId, out ChocolateyNativeVersion? installed, out _))
             return null;
+        // L4: the evidence time is when the observation started, never after it (the conservative end for freshness).
+        DateTimeOffset observedAt = time.GetUtcNow();
         using ChocolateyProfileObservation? observation =
             await ChocolateyDesktopObservation.TryObserveAsync(observe, targetId, installed, budget, time, cancellationToken).ConfigureAwait(false);
         if (observation is null || cancellationToken.IsCancellationRequested) return null;
@@ -76,7 +86,7 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
         try
         {
             evidence = new FreshUpdateDispatchEvidence(operation.Selection, requester, operation.NativeInstanceId, operation.InstallationContextId,
-                freshEvidenceId, time.GetUtcNow(), operation.RouteContract, operation.Mode, actionable: true, sourceIsFresh: true);
+                freshEvidenceId, observedAt, operation.RouteContract, operation.Mode, actionable: true, sourceIsFresh: true);
         }
         catch (ArgumentException)
         {
@@ -87,13 +97,27 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
     }
 
     /// <summary>
-    /// The review intent for <paramref name="intent"/>: the non-elevated client's <c>outdated</c> record for one package
-    /// (the existing structured candidate). The intent must name the Community source, a supported non-client ID and
-    /// normalized versions with a stable, strictly newer candidate; the fresh observation must then find exactly that
-    /// installed version. Anything else returns null. The result is provisional user-cache intent with the fixed disclosure.
+    /// The longest a supplied candidate may have been resolved before the review observation starts. It equals the two-minute
+    /// dispatch-evidence freshness window (<see cref="FreshUpdateDispatchEvidence.Matches"/>), the shortest freshness bound
+    /// on this path, so an intent is never older than evidence dispatch itself would accept.
     /// </summary>
-    internal async Task<ChocolateyReviewIntent?> ObserveReviewIntentAsync(StructuredUpdateCandidateEvidence intent, CancellationToken cancellationToken)
+    internal static readonly TimeSpan IntentMaxAge = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// The review intent for a <b>supplied</b> <paramref name="intent"/>: the non-elevated client's <c>outdated</c> record
+    /// for one package (the existing structured candidate), resolved by the caller at <paramref name="intentResolvedAt"/>.
+    /// This method validates that record; it does not capture or re-run <c>outdated</c>. The intent must name the Community
+    /// source, a supported non-client ID and normalized versions with a stable, strictly newer candidate, and must have been
+    /// resolved no later than the observation start and at most <see cref="IntentMaxAge"/> before it (checked before
+    /// anything is observed); the fresh observation must then find exactly that installed version. Anything else returns
+    /// null. The result is provisional <see cref="ReviewedCandidateProvenance.UserCacheIntent"/> with the fixed disclosure;
+    /// the helper confirms the exact candidate at stage C.
+    /// </summary>
+    internal async Task<ChocolateyReviewIntent?> ObserveReviewIntentAsync(StructuredUpdateCandidateEvidence intent, DateTimeOffset intentResolvedAt,
+        CancellationToken cancellationToken)
     {
+        DateTimeOffset observedAt = time.GetUtcNow();
+        if (intentResolvedAt == default || intentResolvedAt > observedAt || observedAt - intentResolvedAt > IntentMaxAge) return null;
         if (intent is null || !string.Equals(intent.SourceId, ChocolateyUpdateSourceConnector.CommunitySourceId, StringComparison.Ordinal) ||
             !ChocolateyNativePackageId.IsSupported(intent.PackageId) || ChocolateyClientReleasePolicy.IsClientTarget(intent.PackageId) ||
             !ChocolateyDesktopObservation.TryNormalized(intent.InstalledVersion, out ChocolateyNativeVersion? installed) ||
@@ -105,6 +129,6 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
         if (observation is null || cancellationToken.IsCancellationRequested) return null;
         return new ChocolateyReviewIntent(intent.PackageId, installed.Normalized, candidate.Normalized, observation.Common.RequestingUserSid,
             ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint, ReviewedCandidateProvenance.UserCacheIntent,
-            observation.TargetLibBadResidue, UserCacheDisclosure, time.GetUtcNow());
+            observation.TargetLibBadResidue, UserCacheDisclosure, observedAt, intentResolvedAt.ToUniversalTime());
     }
 }

@@ -93,10 +93,11 @@ public sealed class ChocolateyDesktopProducersNativeTests
 
         PostUpdateInventoryResult result = await Verifier(token, fixture, baselines).VerifyAsync(operation, Owner(token.Sid), CancellationToken.None);
 
-        // The file capture observes at the expected version, so the unchanged 1.2.0 registration refuses it (step 8a).
+        // The file capture observes at the expected version, so the unchanged 1.2.0 registration refuses it (step 8a,
+        // InstalledMismatch): "target version was not detected" (N5 review L1), Unverified, never Success.
         Assert.IsFalse(result.ExpectedVersionDetected);
         Assert.IsFalse(result.RestartPending);
-        Assert.AreEqual(PostUpdateVerificationDetail.ClientUnverifiable, result.Detail);
+        Assert.AreEqual(PostUpdateVerificationDetail.None, result.Detail);
     }
 
     // ---- Helpers ------------------------------------------------------------------------------------------------------
@@ -120,8 +121,30 @@ public sealed class ChocolateyDesktopProducersNativeTests
     /// </summary>
     private static void SimulateUpdate(N2ProfileFixture fixture)
     {
-        fixture.WritePackage(@"lib\git\git.nupkg", N2ProfileFixture.Target, "1.3.0");
-        Directory.Move(fixture.RootPath(@".chocolatey\git.1.2.0"), fixture.RootPath(@".chocolatey\git.1.3.0"));
+        RetryOnSharingViolation(() => fixture.WritePackage(@"lib\git\git.nupkg", N2ProfileFixture.Target, "1.3.0"));
+        RetryOnSharingViolation(() => Directory.Move(fixture.RootPath(@".chocolatey\git.1.2.0"), fixture.RootPath(@".chocolatey\git.1.3.0")));
+    }
+
+    /// <summary>
+    /// N5 review L5: a just-finished observation (or an indexer/AV scanner on the runner) can still hold a handle on the
+    /// fixture briefly, so the simulated upgrade retries a sharing or lock violation a few times with short delays. Both
+    /// operations are all-or-nothing (a file created in one call, a single rename), so a retry never sees a half-done step.
+    /// </summary>
+    private static void RetryOnSharingViolation(Action action)
+    {
+        const int SharingViolation = unchecked((int)0x80070020), LockViolation = unchecked((int)0x80070021), Attempts = 5;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                action();
+                return;
+            }
+            catch (IOException exception) when (attempt < Attempts && exception.HResult is SharingViolation or LockViolation)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(100 * attempt));
+            }
+        }
     }
 
     private static void RewriteSameLength(string path, string content)

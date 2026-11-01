@@ -162,16 +162,57 @@ public sealed class ChocolateyDesktopProducersTests
         Assert.IsNull(await pending);
     }
 
+    [TestMethod]
+    public async Task TheRealTimeCapCancelsTheAbandonedObservation()
+    {
+        // N5 review L2: the cap does not only stop waiting; the observer's own token is cancelled so it stops and releases handles.
+        using ManualResetEventSlim stopped = new();
+        ScriptedObserver hung = new(token =>
+        {
+            if (token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30))) stopped.Set();
+            return ChocolateyProfileResult.Cancelled.Create();
+        });
+        ChocolateyProfileEvidenceSource source = ChocolateyProfileEvidenceSource.CreateForTests(hung.Observe, new(), new Clock(ReviewedAt.AddSeconds(30)),
+            TimeSpan.FromMilliseconds(100));
+        Assert.IsNull(await source.ObserveAsync(Operation(), Owner(), CancellationToken.None));
+        Assert.IsTrue(stopped.Wait(TimeSpan.FromSeconds(20)), "the observer's token was cancelled at the cap");
+    }
+
+    [TestMethod]
+    public async Task TheEvidenceIsTimestampedWhenTheObservationStarts()
+    {
+        // N5 review L4: the clock moves on while the observation runs; ObservedAt is the start, the conservative end for freshness.
+        MovingClock clock = new(ReviewedAt.AddSeconds(30));
+        ChocolateyProfileObservation observation = Observation();
+        ScriptedObserver observer = new(_ =>
+        {
+            clock.Advance(TimeSpan.FromSeconds(40));
+            return Observed(observation);
+        });
+        ReviewedUpdateOperation operation = Operation(frozenFingerprint: observation.Fingerprint);
+        FreshUpdateDispatchEvidence? evidence = await ChocolateyProfileEvidenceSource.CreateForTests(observer.Observe, new(), clock, Budget)
+            .ObserveAsync(operation, Owner(), CancellationToken.None);
+        Assert.IsNotNull(evidence);
+        Assert.AreEqual(ReviewedAt.AddSeconds(30), evidence.ObservedAt);
+        Assert.IsTrue(evidence.ProfileEvidenceMatches(operation));
+        Assert.IsTrue(evidence.ObservedAt < clock.GetUtcNow(), "not the completion time");
+    }
+
     // ---- Review intent ------------------------------------------------------------------------------------------------
 
     [TestMethod]
     public async Task TheReviewIntentIsUserCacheIntentWithTheFixedDisclosureAndTheFreshProfile()
     {
         ChocolateyProfileObservation observation = Observation(libBad: true);
-        ScriptedObserver observer = new(_ => Observed(observation));
-        Clock clock = new(ReviewedAt);
-        ChocolateyReviewIntent? intent = await Source(observer, clock: clock).ObserveReviewIntentAsync(
-            new StructuredUpdateCandidateEvidence(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "2.0.0"), CancellationToken.None);
+        MovingClock clock = new(ReviewedAt);
+        ScriptedObserver observer = new(_ =>
+        {
+            clock.Advance(TimeSpan.FromSeconds(40));
+            return Observed(observation);
+        });
+        DateTimeOffset resolvedAt = new(2026, 11, 1, 13, 59, 15, TimeSpan.FromHours(2)); // ReviewedAt − 45 s, in another offset
+        ChocolateyReviewIntent? intent = await ChocolateyProfileEvidenceSource.CreateForTests(observer.Observe, new(), clock, Budget).ObserveReviewIntentAsync(
+            new StructuredUpdateCandidateEvidence(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "2.0.0"), resolvedAt, CancellationToken.None);
         Assert.IsNotNull(intent);
         Assert.AreEqual(ReviewedCandidateProvenance.UserCacheIntent, intent.CandidateProvenance);
         Assert.AreEqual("Candidate shown from your user cache; PC Steward confirms the exact version with protected machine data before updating.",
@@ -179,8 +220,32 @@ public sealed class ChocolateyDesktopProducersTests
         Assert.AreEqual((Target, "1.0.0", "2.0.0", User), (intent.PackageId, intent.InstalledVersion, intent.CandidateVersion, intent.RequestingUserSid));
         Assert.AreEqual(ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint, intent.ProfileEvidenceId);
         Assert.IsTrue(intent.TargetLibBadResidue, "lib-bad residue is carried for disclosure");
-        Assert.AreEqual(ReviewedAt, intent.ObservedAt);
+        Assert.AreEqual(ReviewedAt, intent.ObservedAt, "the observation start (L4)");
+        Assert.AreEqual(ReviewedAt.AddSeconds(-45), intent.IntentResolvedAt, "the supplied candidate's own time, kept separate (M1)");
+        Assert.AreEqual(TimeSpan.Zero, intent.IntentResolvedAt.Offset);
         Assert.AreEqual((Target, "1.0.0", Budget), observer.Calls.Single(), "the installed version the observation must find is the intent's");
+    }
+
+    [TestMethod]
+    [DataRow(0, true)]
+    [DataRow(-1, true)]
+    [DataRow(-120, true)]
+    [DataRow(-121, false)]
+    [DataRow(1, false)]
+    [DataRow(null, false)]
+    public async Task TheSuppliedIntentMustHaveBeenResolvedWithinTheBoundBeforeTheObservation(int? secondsFromObservation, bool accepted)
+    {
+        // N5 review M1: the intent is supplied (never captured here); one resolved in the future or more than IntentMaxAge
+        // (the two-minute dispatch freshness window) before the observation is refused before anything is observed.
+        Assert.AreEqual(TimeSpan.FromMinutes(2), ChocolateyProfileEvidenceSource.IntentMaxAge);
+        DateTimeOffset now = ReviewedAt.AddSeconds(30);
+        DateTimeOffset resolvedAt = secondsFromObservation is int seconds ? now.AddSeconds(seconds) : default;
+        ScriptedObserver observer = new(_ => Observed(Observation()));
+        ChocolateyReviewIntent? intent = await Source(observer, clock: new Clock(now)).ObserveReviewIntentAsync(
+            new StructuredUpdateCandidateEvidence(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "2.0.0"), resolvedAt, CancellationToken.None);
+        Assert.AreEqual(accepted, intent is not null);
+        Assert.AreEqual(accepted ? 1 : 0, observer.Calls.Count);
+        if (accepted) Assert.AreEqual((now, resolvedAt), (intent!.ObservedAt, intent.IntentResolvedAt));
     }
 
     [TestMethod]
@@ -206,7 +271,7 @@ public sealed class ChocolateyDesktopProducersTests
             _ => new(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "1.0.0"),
         };
         ScriptedObserver observer = new(_ => Observed(Observation()));
-        Assert.IsNull(await Source(observer).ObserveReviewIntentAsync(intent, CancellationToken.None));
+        Assert.IsNull(await Source(observer).ObserveReviewIntentAsync(intent, ReviewedAt, CancellationToken.None));
         Assert.AreEqual(0, observer.Calls.Count);
     }
 
@@ -218,7 +283,7 @@ public sealed class ChocolateyDesktopProducersTests
     [DataRow("token-refused")]
     public async Task AReviewIntentWhoseObservationIsRefusedIsNull(string kind) =>
         Assert.IsNull(await Source(new(_ => NotObserved(kind))).ObserveReviewIntentAsync(
-            new StructuredUpdateCandidateEvidence(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "2.0.0"), CancellationToken.None));
+            new StructuredUpdateCandidateEvidence(ChocolateyUpdateSourceConnector.CommunitySourceId, Target, "1.0.0", "2.0.0"), ReviewedAt, CancellationToken.None));
 
     // ---- Verifier -----------------------------------------------------------------------------------------------------
 
@@ -264,7 +329,6 @@ public sealed class ChocolateyDesktopProducersTests
     [TestMethod]
     [DataRow("machine-inputs")]
     [DataRow("source")]
-    [DataRow("installed")]
     [DataRow("profile")]
     [DataRow("timed-out")]
     [DataRow("cancelled")]
@@ -280,6 +344,35 @@ public sealed class ChocolateyDesktopProducersTests
         PostUpdateInventoryResult result = await Verifier(observer, Baselines(operation)).VerifyAsync(operation, Owner(), CancellationToken.None);
         Assert.AreEqual(new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientUnverifiable), result);
         Assert.AreEqual(1, observer.Calls.Count);
+    }
+
+    [TestMethod]
+    public async Task AnUpdateThatLeftTheOldVersionIsTargetNotDetectedNeverSuccess()
+    {
+        // N5 review L1: an exit-0 update that changed nothing makes the file capture (at the expected version) settle as
+        // InstalledMismatch. That is "target version was not detected" (detail None), not "client could not be checked";
+        // still Unverified, never Success or restart-pending, and the target is not re-observed.
+        ReviewedUpdateOperation operation = Operation();
+        ScriptedObserver observer = new(_ => NotObserved("installed", installed: "2.0.0"));
+        PostUpdateInventoryResult result = await Verifier(observer, Baselines(operation)).VerifyAsync(operation, Owner(), CancellationToken.None);
+        Assert.AreEqual(new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.None), result);
+        Assert.AreEqual(1, observer.Calls.Count);
+        Assert.IsNull(ReviewedUpdateDispatchWorkflow.RejectVerification(operation, result),
+            "not the fixed client message: the workflow maps it to \"the target version was not detected\" (Unverified)");
+    }
+
+    [TestMethod]
+    public async Task AnInstalledMismatchThatCoincidesWithCancellationStillPropagatesTheCancellation()
+    {
+        ReviewedUpdateOperation operation = Operation();
+        using CancellationTokenSource during = new();
+        ScriptedObserver observer = new(_ =>
+        {
+            during.Cancel();
+            return NotObserved("installed", installed: "2.0.0");
+        });
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            Verifier(observer, Baselines(operation)).VerifyAsync(operation, Owner(), during.Token));
     }
 
     [TestMethod]
@@ -354,12 +447,30 @@ public sealed class ChocolateyDesktopProducersTests
     }
 
     [TestMethod]
+    public async Task CancellationDuringTheReobservationThrowsRatherThanReadingAsNotDetected()
+    {
+        // N5 review L3: the workflow then records "verification did not finish", not "target version was not detected".
+        ReviewedUpdateOperation operation = Operation();
+        using CancellationTokenSource during = new();
+        ScriptedObserver observer = new(_ => Observed(Observation(installed: "2.0.0")));
+        observer.Then(_ =>
+        {
+            during.Cancel();
+            return Observed(Observation(installed: "2.0.0"));
+        });
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            Verifier(observer, Baselines(operation)).VerifyAsync(operation, Owner(), during.Token));
+        Assert.AreEqual(2, observer.Calls.Count, "the capture completed; the re-observation was cancelled");
+    }
+
+    [TestMethod]
     public async Task TheVerifierNeverReportsARestart()
     {
         ReviewedUpdateOperation operation = Operation();
         foreach (Func<CancellationToken, ChocolateyProfileResult?> script in new Func<CancellationToken, ChocolateyProfileResult?>[]
                  {
                      _ => Observed(Observation(installed: "2.0.0")), _ => NotObserved("machine-inputs", installed: "2.0.0"),
+                     _ => NotObserved("installed", installed: "2.0.0"),
                      _ => Observed(Observation(installed: "2.0.0", state: State() with { EngineSha256 = new string('E', 64) })),
                  })
             Assert.IsFalse((await Verifier(new(script), Baselines(operation)).VerifyAsync(operation, Owner(), CancellationToken.None)).RestartPending);
@@ -463,5 +574,15 @@ public sealed class ChocolateyDesktopProducersTests
     private sealed class Clock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>A clock the scripted observer moves forward while it "observes".</summary>
+    private sealed class MovingClock(DateTimeOffset start) : TimeProvider
+    {
+        private long ticks = start.UtcTicks;
+
+        internal void Advance(TimeSpan by) => Interlocked.Add(ref ticks, by.Ticks);
+
+        public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref ticks), TimeSpan.Zero);
     }
 }
