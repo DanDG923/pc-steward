@@ -1,3 +1,18 @@
+# Task 50 — protocol-2 reviewed fact extension: passive codec slice
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`: `ReviewedUpdateWireCodecReviewedFactTests` (126 cases) and the updated `ReviewedUpdateWireCodecTests` (23) cover the codec-level §8 cases of the [specification](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md):
+- the exact 20-field order and encoding;
+- rejection of an explicit 15-field legacy protocol-2 frame (O1);
+- each field missing, swapped or null;
+- non-canonical and mistyped frames: escapes, whitespace, comments, BOM, lone surrogates, numbers and strings swapped, the `exitCode` forms `2147483648`, `0.0`, `-0` and `1e0`, booleans as `"false"`, `0` or `1`, trailing bytes and a second frame;
+- exact enum round-trip, with case, numeric, flag-list and unknown aliases rejected;
+- 128/64 boundaries and +1, non-normalized versions and malformed fingerprints;
+- one negative case per S1–S13 predicate with its exact violation set, plus positive cases;
+- a byte-exact 5,083 B largest valid frame and rejection of over-bound frames;
+- the O9 differential against `ChocolateyNativeVersion`.
+
+See the [slice note](../review/TASK_50_PROTOCOL2_CODEC_SLICE.md) for the O9 choice and the deferred cases. This is a passive codec only: no endpoint, adapter, route admission or `AC-UPD` closure.
+
 # Task 50 — protocol-2 reviewed fact extension (design gate)
 
 `FR-UPD-15`, `FR-UPD-01`, `AC-UPD-01–11`, `TM-03/04/07/13`: [specification](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) passed independent design review at revision 3 after two CONDITIONAL rounds. §8 lists the negative test matrix the implementation must satisfy, and §10 the binding obligations. This is design evidence only: no endpoint, route admission or `AC-UPD` closure.

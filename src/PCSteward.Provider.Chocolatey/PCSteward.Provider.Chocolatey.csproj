@@ -9,5 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PCSteward.Application.IntegrationTests" />
     <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
+    <!-- Task 50 O9 (a): the protocol-2 codec reuses ChocolateyNativeVersion for the reported-version grammar. -->
+    <InternalsVisibleTo Include="PCSteward.Execution" />
   </ItemGroup>
 </Project>

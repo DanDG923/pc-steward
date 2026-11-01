@@ -65,7 +65,7 @@ public sealed class ReviewedUpdateWireCodecTests
         Assert.IsTrue(ReviewedUpdateWireCodec.TryReadRequest(request, out _));
         foreach (string diagnostic in new[] { new string('"', 4096), new string('\\', 4096), string.Concat(Enumerable.Repeat("😀漢", 4096)), "bad\uD800tail" })
         {
-            byte[] response = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), diagnostic);
+            byte[] response = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), Matched(), diagnostic);
             Assert.IsLessThan(16_384, response.Length);
             Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(response, Job, Digest, Nonce, out FramedUpdateResponse? read));
             Assert.IsTrue(read!.Diagnostic.Length <= 2048 && read.Diagnostic.All(c => c is >= ' ' and <= '~'));
@@ -91,9 +91,13 @@ public sealed class ReviewedUpdateWireCodecTests
                     (invocation == UpdateWireInvocation.NotStarted || (direct && io && eof))));
             Assert.AreEqual(expected, facts.IsConsistent, $"{invocation}/{flags}/{exit}");
             if (!expected) continue;
-            byte[] response = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, facts, "facts only");
+            // S3/S4/S11: started or unknown work is Matched; settled not-started work is a refusal; unsettled is Undetermined.
+            ReviewedHelperFacts reviewed = invocation != UpdateWireInvocation.NotStarted ? Matched()
+                : aggregate ? NotAdmitted() : Reviewed(ReviewedHelperQualification.Undetermined, ReviewedHelperRefusalReason.None, null, null, null);
+            byte[] response = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, facts, reviewed, "facts only");
             Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(response, Job, Digest, Nonce, out FramedUpdateResponse? read));
             Assert.AreEqual(facts, read!.Facts);
+            Assert.AreEqual(reviewed, read.Reviewed);
             Assert.AreEqual(!aggregate, read.Facts.RequiresUncertainty);
         }
         Assert.IsFalse(new UpdateWireFacts((UpdateWireInvocation)99, null, false, false, false, false, false, false, false, false).IsConsistent);
@@ -102,10 +106,10 @@ public sealed class ReviewedUpdateWireCodecTests
     [TestMethod]
     public void DiagnosticCleanupIsStableAtTheTruncationBoundary()
     {
-        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), new string('a', 2047) + " b");
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), Matched(), new string('a', 2047) + " b");
         Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out FramedUpdateResponse? read));
         Assert.AreEqual(new string('a', 2047), read!.Diagnostic);
-        CollectionAssert.AreEqual(frame, ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, read.Facts, read.Diagnostic));
+        CollectionAssert.AreEqual(frame, ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, read.Facts, read.Reviewed, read.Diagnostic));
     }
 
     [TestMethod]
@@ -114,11 +118,11 @@ public sealed class ReviewedUpdateWireCodecTests
     [DataRow("\U0001F600token=hunter2")]
     public void AsciiConversionCannotExposeASensitiveValueThatHadNoUnicodeWordBoundary(string diagnostic)
     {
-        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), diagnostic);
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), Matched(), diagnostic);
         Assert.DoesNotContain("hunter2", Encoding.UTF8.GetString(frame));
         Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out FramedUpdateResponse? read));
         StringAssert.Contains(read!.Diagnostic, "[redacted]");
-        CollectionAssert.AreEqual(frame, ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, read.Facts, read.Diagnostic));
+        CollectionAssert.AreEqual(frame, ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, read.Facts, read.Reviewed, read.Diagnostic));
     }
 
     [TestMethod]
@@ -126,7 +130,7 @@ public sealed class ReviewedUpdateWireCodecTests
     [DataRow("\u212A:\\private\\document.txt", "private")]
     public void UnicodeCaseEquivalentKeywordsAndPathsStayRedacted(string diagnostic, string privateValue)
     {
-        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), diagnostic);
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), Matched(), diagnostic);
         Assert.DoesNotContain(privateValue, Encoding.UTF8.GetString(frame));
         Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out _));
     }
@@ -134,7 +138,7 @@ public sealed class ReviewedUpdateWireCodecTests
     [TestMethod]
     public void ReaderRejectsAWellFramedDiagnosticContainingAnUnredactedSensitiveValue()
     {
-        string frame = Encoding.UTF8.GetString(ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), "safe-placeholder"))
+        string frame = Encoding.UTF8.GetString(ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), Matched(), "safe-placeholder"))
             .Replace("safe-placeholder", "password=hunter2", StringComparison.Ordinal);
         Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(Encoding.UTF8.GetBytes(frame), Job, Digest, Nonce, out _));
     }
@@ -153,7 +157,7 @@ public sealed class ReviewedUpdateWireCodecTests
     public void CancellationTimeoutAndOutputLimitObservationsSurviveTheWire()
     {
         UpdateWireFacts facts = Settled() with { Cancelled = true, TimedOut = true, OutputLimitExceeded = true };
-        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, facts, "native observations");
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, facts, Matched(), "native observations");
         Assert.IsTrue(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, Nonce, out FramedUpdateResponse? read));
         Assert.AreEqual(facts, read!.Facts);
         Assert.IsTrue(read.Facts.Cancelled && read.Facts.TimedOut && read.Facts.OutputLimitExceeded);
@@ -162,7 +166,7 @@ public sealed class ReviewedUpdateWireCodecTests
     [TestMethod]
     public void ResponseCorrelationAndContradictorySettlementCannotBeSubstituted()
     {
-        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), "provider exited; verification still required");
+        byte[] frame = ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce, Settled(), Matched(), "provider exited; verification still required");
         Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(frame, Guid.NewGuid(), Digest, Nonce, out _));
         Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, new string('0', 64), Nonce, out _));
         Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(frame, Job, Digest, new string('B', 64), out _));
@@ -171,12 +175,27 @@ public sealed class ReviewedUpdateWireCodecTests
             json.Replace("\"ownedIoCompleted\":true", "\"ownedIoCompleted\":false", StringComparison.Ordinal),
             json.Replace("\"exitCode\":0", "\"exitCode\":\"0\"", StringComparison.Ordinal),
             json.Replace("\"exitCode\":0", "\"exitCode\":-0", StringComparison.Ordinal),
+            json.Replace("\"protocolVersion\":\"2\"", "\"protocolVersion\":\"1\"", StringComparison.Ordinal),
+            json.Replace("\"protocolVersion\":\"2\"", "\"protocolVersion\":\"3\"", StringComparison.Ordinal),
             json.Insert(1, "\"Final\":true,"), json + " ",
             json.Replace("provider", "\\u0070rovider", StringComparison.Ordinal) })
             Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(Encoding.UTF8.GetBytes(invalid), Job, Digest, Nonce, out _));
         Assert.ThrowsExactly<ArgumentException>(() => ReviewedUpdateWireCodec.CreateResponse(Job, Digest, Nonce,
-            Settled() with { OwnedIoCompleted = false }, "contradictory"));
+            Settled() with { OwnedIoCompleted = false }, Matched(), "contradictory"));
+        // A protocol-1 response is never a protocol-2 response.
+        byte[] protocol1 = Encoding.UTF8.GetBytes("{\"protocolVersion\":\"1\",\"jobId\":\"" + Job + "\",\"nonce\":\"" + Nonce +
+            "\",\"outcome\":\"Completed\",\"exitCode\":0,\"sanitizedOutput\":\"completed\"}");
+        Assert.IsFalse(ReviewedUpdateWireCodec.TryReadResponse(protocol1, Job, Digest, Nonce, out _));
     }
 
     private static UpdateWireFacts Settled() => new(UpdateWireInvocation.Started, 0, true, true, true, false, true, false, false, false);
+
+    private static ReviewedHelperFacts Matched() => Reviewed(ReviewedHelperQualification.Matched, ReviewedHelperRefusalReason.None,
+        ReviewedUpdateWireCodecFixture.Installed, ReviewedUpdateWireCodecFixture.Candidate, ReviewedUpdateWireCodecFixture.Fingerprint);
+
+    private static ReviewedHelperFacts NotAdmitted() =>
+        Reviewed(ReviewedHelperQualification.Refused, ReviewedHelperRefusalReason.RequestNotAdmitted, null, null, null);
+
+    private static ReviewedHelperFacts Reviewed(ReviewedHelperQualification qualification, ReviewedHelperRefusalReason reason,
+        string? installed, string? candidate, string? fingerprint) => new(qualification, reason, installed, candidate, fingerprint);
 }
