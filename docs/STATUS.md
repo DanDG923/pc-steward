@@ -7,7 +7,7 @@
   - one-shot upgrade claim;
   - expected-fingerprint check in the baseline;
   - desktop-predicate test.
-- Windows CI on the fix commit is pending.
+- **Windows CI on the fix commit `81608fe` is green.**
 - See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N4a (the stage machine and port, with fakes).
 
 **Task 50 — slice N2 static profile observer (2026-11-01):** The design rev 6 §3 observer: the compiled 2.7.5 manifest, steps 1–9 and 8a, held-handle engine trust, and closed results with interrupt arms. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
