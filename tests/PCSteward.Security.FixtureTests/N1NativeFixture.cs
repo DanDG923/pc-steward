@@ -86,7 +86,11 @@ internal sealed class N1NativeFixture : IDisposable
     /// <summary>Locks every node below <paramref name="root"/> and the root itself (create junctions afterwards).</summary>
     internal void LockTree(string root)
     {
-        foreach (string entry in System.IO.Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)) Lock(entry);
+        // Children before parents: locking a parent with a protected DACL re-propagates inheritance and strips the ACEs a
+        // child inherited (including WRITE_OWNER), so a later lock on that child would be refused. Pre-order reversed puts
+        // every child ahead of its parent.
+        string[] entries = [.. System.IO.Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)];
+        for (int index = entries.Length - 1; index >= 0; index--) Lock(entries[index]);
         Lock(root);
     }
 

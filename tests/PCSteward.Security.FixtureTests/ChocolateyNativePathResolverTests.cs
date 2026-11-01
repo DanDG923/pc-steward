@@ -12,6 +12,31 @@ namespace PCSteward.Security.FixtureTests;
 [TestClass]
 public sealed class ChocolateyNativePathResolverTests
 {
+    [System.Runtime.InteropServices.DllImport("userenv.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetUserProfileDirectory(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token, char[]? buffer, ref uint size);
+
+    /// <summary>Names the component that failed, so a CI failure is diagnosable (token SID, profile lookup, known folders).</summary>
+    private static string Diagnose(RequesterToken token)
+    {
+        using System.Security.Principal.WindowsIdentity self = System.Security.Principal.WindowsIdentity.GetCurrent();
+        uint size = 0;
+        bool first = GetUserProfileDirectory(token.Handle, null, ref size);
+        int firstError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+        string profile = "n/a";
+        int secondError = 0;
+        if (size is > 0 and < 32768)
+        {
+            char[] buffer = new char[size];
+            profile = GetUserProfileDirectory(token.Handle, buffer, ref size) ? new string(buffer).TrimEnd('\0') : "failed";
+            secondError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+        }
+        string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return $"sidEqual={string.Equals(self.User?.Value, token.Sid, StringComparison.Ordinal)}; profileProbe={first}/{firstError}/size={size}; " +
+            $"profile={profile}/{secondError}/canonical={ProtectedNodeReader.IsCanonicalLocalPath(profile)}; " +
+            $"roamingCanonical={ProtectedNodeReader.IsCanonicalLocalPath(roaming)}; localCanonical={ProtectedNodeReader.IsCanonicalLocalPath(local)}";
+    }
+
     [TestMethod]
     public void MachineRootsComeFromKnownFoldersWithFixedChocolateyConcatenations()
     {
@@ -33,7 +58,8 @@ public sealed class ChocolateyNativePathResolverTests
         ChocolateyNativeRoots roots = ChocolateyNativePathResolver.TryResolveMachine() ?? throw new AssertFailedException("unresolved");
         string cache = roots.ProgramData + @"\PCSteward\cache";
 
-        ChocolateyLaunchPaths paths = ChocolateyNativePathResolver.TryResolveLaunchPaths(token, roots, cache) ?? throw new AssertFailedException("unresolved");
+        ChocolateyLaunchPaths paths = ChocolateyNativePathResolver.TryResolveLaunchPaths(token, roots, cache)
+            ?? throw new AssertFailedException("launch paths unresolved: " + Diagnose(token));
 
         Assert.AreEqual(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), paths.UserProfile, ignoreCase: true);
         Assert.AreEqual(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), paths.RoamingAppData, ignoreCase: true);
