@@ -540,3 +540,26 @@ The first Windows CI attempt on `011a3df` (docs plus the `1866662` endpoint fixe
 - L7 and the running-image Info item remain the accepted residuals above.
 
 Linux: changed projects build with 0 warnings, architecture 81/81. **Windows CI on `10daa47` is green**: Security fixtures 1031/1031 (0 skipped), integration 883, domain 167, architecture 81.
+
+## Slice N5: desktop producers (`80c9aa1..a749dba`)
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §7 and §8 N5; [adapter gates](TASK_50_ADAPTER_GATES.md) F′ and A2-L6; [Profile V2](TASK_50_CHOCOLATEY_PROFILE_V2.md) §4.3. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+
+What it adds (all internal, in `Provider.Chocolatey/Native/`, constructed by no `src` code, so the route stays non-admitted):
+- **F′** `ChocolateyProfileEvidenceSource.ObserveAsync`. It refuses unless the route shape is accepted and the ownership check passes. It then runs a Desktop-role observation over `RequesterToken.TryFromCurrentProcess` with `expectedFingerprint: null`, capped at 60 s plus a 5 s real-time cap. `EvidenceId` is `"choco-profile-v2:"` + the fresh fingerprint, and the SID is the fresh token's. Every refusal, timeout, cancellation or fault returns null. On success it records the observation's `ClientState` as the verifier baseline: in memory, one-use, keyed by operation digest, at most 8 entries with oldest-first eviction.
+- **Review intent** `ObserveReviewIntentAsync`: a `ChocolateyReviewIntent` marked `UserCacheIntent`, with the Profile V2 disclosure text verbatim and the lib-bad residue flag.
+- **Verifier** `ChocolateyReviewedUpdateVerifier`. The baseline is taken first, then `ChocolateyPostUpdateClientCheck.RunAsync` does the file capture (a Desktop observation at the expected version). Only `Unchanged` leads to an independent re-observation. Success needs the unique exact target at the expected version, the same SID and an unchanged client state. It never reports `RestartPending`.
+- **Application:** `PostUpdateInventoryResult` gained an appended `Detail` (default None). `RejectVerification` records a non-None detail, or a restart-pending result on `ChocolateyMachineRuntimeLimitsV3`, as Unverified. The result type is not persisted, and WinGet behaviour and history mapping are unchanged.
+- **Golden vector** for `pc-steward-choco-client-registration:1` in `ChocolateyProfileRulesTests`: literal digests plus a test-local field encoder. The reviewer recomputed both digests independently. This closes the N2/N5 golden-vector obligation.
+
+**Windows CI on `a749dba` is green on the first attempt**, including the 5 Windows-only producer tests: Security 1098/1098, integration 888, domain 167, architecture 86.
+
+An independent fresh-context review returned **PASS with fixes**: no false-Success path, no evidence on a refusal, nothing that enables live dispatch, and the test seams are IL-pinned or banned from `src`. Findings:
+- **M1, a scope deferral, recorded here:** design §7 and Profile V2 say the producer itself captures the non-elevated client's `outdated` intent and the aggregate root. N5 does not run `outdated`. The Desktop role has no held binding, and the N3 commands are pinned to the helper item. Instead it validates a supplied `StructuredUpdateCandidateEvidence`: Community source, supported non-client ID, normalized versions, stable, strictly newer. This is not a safety regression: the intent is provisional (UserCacheIntent), the helper confirms the exact candidate at stage C, and the observer refuses `.pin` markers at step 7. **N6-blocking obligation:** composition must supply an intent resolved immediately before the observation, and the review must show the intent's own time.
+- **L1:** an exit-0 update that changed nothing ends as `ClientUnverifiable`, with a misleading message (still Unverified).
+- **L2:** the real-time cap does not cancel the observer.
+- **L3:** cancellation during the re-observation reads as "target version was not detected".
+- **L4:** `ObservedAt` is stamped after the observation finishes.
+- **L5:** a possible sharing-violation flake in the native test's directory move.
+
+**N6 obligation:** the evidence source and the verifier must share one baseline store instance; separate instances make every result Unverifiable (safe, but the route would be unusable).

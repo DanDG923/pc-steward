@@ -1,10 +1,15 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N5 desktop producers (2026-11-01):** F′ `ChocolateyProfileEvidenceSource` (fresh-fingerprint evidence ID, one-use client-state baseline), review intent (UserCacheIntent with the Profile V2 disclosure), and `ChocolateyReviewedUpdateVerifier` (file-first, then an independent re-observation; never restart-pending). Also the registration-digest golden vector. Nothing is composed, so the route stays non-admitted. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+- **Windows CI on `a749dba` is green on the first attempt** (Security 1098/1098, including the 5 Windows-only producer tests).
+- **Independent review: PASS with fixes.** Fixes are in progress for L1–L5 and the M1 code part. M1 is a recorded scope deferral: the review intent is supplied and validated, not captured by running `outdated`. That, and sharing one baseline store between source and verifier, are N6 obligations.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: the N5 fixes, then N6 (UI and history).
+
 **Task 50 — slice N4b native port and protocol-2 wiring (2026-11-01):** `NativeChocolateyHelperQualification`, the native item and peer, the Helper-role G1 reader (`HelperDeploymentCapabilityCheck`) and `ReviewedHelperBootstrap`; `--protocol 2` now reaches the endpoint, and protocol 1 is unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `c91a0e0` is green on the first attempt**, including the 23 Windows-only N4b tests (Security fixtures 1023/1023).
 - **Independent review: PASS with fixes**, no Blocker or High. All fixes are in `576063f..10daa47`, and **Windows CI on `10daa47` is green** (Security 1031/1031). M1: a test-only record-printing stand-in now drives the real native chain (stage C, D and Launch) with no stage replaced. M2: G1 is capped at the remaining budget, and peer trust is pinned to offline revocation. L7 (the PID window before `OpenProcess`) is an accepted residual.
 - A 63-test ACL-fixture failure on `011a3df` was environmental: the unchanged re-run was green. It is recorded in the composition record.
-- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N5 (desktop producers).
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). N5 is done (see above).
 
 **Task 50 — slice N4a helper stage machine (2026-11-01):** The port interfaces and value records, plus `ReviewedHelperEndpoint`, which implements A0–A3, B, C, D and Launch with deadlines, the launch floor, N2 faults, the OutOfOrder mapping, single-response emission and the disconnect monitor. Tests use fakes, run against the real desktop session and interpreter. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `7066d76` is green.**
