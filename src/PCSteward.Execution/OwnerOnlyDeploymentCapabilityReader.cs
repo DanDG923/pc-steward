@@ -19,6 +19,18 @@ internal sealed record DeploymentCapabilityLayout(string InstallRoot, string Sta
 internal delegate bool DeploymentLayoutProtectionCheck(string root, IReadOnlyList<string> files);
 
 /// <summary>
+/// Task 50 design rev 6 §6 (H1, L6): which process reads the deployment capability. The role sets the expected process leaf
+/// (<c>PCSteward.Desktop.exe</c> or <c>PCSteward.ElevatedHelper.exe</c>) and the protection principal: the Desktop role keeps
+/// the ADR-018 caller-token check; the Helper role is constructed only with the requester check
+/// (<c>IChocolateyHelperItem.RequesterCannotModify</c>), because the elevated helper's own token can write Program Files.
+/// </summary>
+internal enum DeploymentCapabilityRole
+{
+    Desktop,
+    Helper
+}
+
+/// <summary>
 /// FR-UPD-15, TM-03/04/07/13; adapter gates §A.2, §A.4 steps 2–6 and step 3.1, §A.5: the Windows producer of
 /// <see cref="IHelperProtocolCapability"/>. It reads the ADR-022 protected ledger, the pinned candidate manifest, the pinned
 /// capability statement and the binding-set hashes through read-only, read-share-only handles, and hands the bytes to the
@@ -34,6 +46,7 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
     internal const string CandidateManifestFileName = "candidate-manifest.json";
     private static readonly IReadOnlyDictionary<string, DeploymentObservedFile> NoObservations = ReadOnlyDictionary<string, DeploymentObservedFile>.Empty;
 
+    private readonly DeploymentCapabilityRole role;
     private readonly Func<DeploymentCapabilityLayout?> resolveLayout;
     private readonly DeploymentLayoutProtectionCheck protection;
 
@@ -43,10 +56,30 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
 
     /// <summary>Test seam: fixture layouts and a substitute protection check. Production uses the parameterless constructor.</summary>
     internal OwnerOnlyDeploymentCapabilityReader(Func<DeploymentCapabilityLayout?> resolveLayout, DeploymentLayoutProtectionCheck protection)
+        : this(DeploymentCapabilityRole.Desktop, resolveLayout, protection)
     {
+    }
+
+    /// <summary>
+    /// The role-parameterized reader (§6). Helper role in production: <see cref="ResolveHelperLayout"/> and the item's
+    /// requester check (<see cref="HelperDeploymentCapabilityCheck"/>); fixtures may substitute both.
+    /// </summary>
+    internal OwnerOnlyDeploymentCapabilityReader(DeploymentCapabilityRole role, Func<DeploymentCapabilityLayout?> resolveLayout,
+        DeploymentLayoutProtectionCheck protection)
+    {
+        if (!Enum.IsDefined(role)) throw new ArgumentOutOfRangeException(nameof(role));
+        this.role = role;
         this.resolveLayout = resolveLayout ?? throw new ArgumentNullException(nameof(resolveLayout));
         this.protection = protection ?? throw new ArgumentNullException(nameof(protection));
     }
+
+    /// <summary>The process leaf this role must run as, inside the install root.</summary>
+    internal static string ExpectedProcessLeaf(DeploymentCapabilityRole role) => role switch
+    {
+        DeploymentCapabilityRole.Desktop => InstalledHelperLaunchTrust.DesktopExecutableName,
+        DeploymentCapabilityRole.Helper => InstalledHelperLaunchTrust.HelperExecutableName,
+        _ => throw new ArgumentOutOfRangeException(nameof(role)),
+    };
 
     public HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route)
     {
@@ -90,7 +123,7 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
             return HelperProtocolCapabilityStatus.Unreadable;
         string installRoot = Path.GetFullPath(layout.InstallRoot);
         string stateRoot = Path.GetFullPath(layout.StateRoot);
-        if (!string.Equals(Path.GetFullPath(layout.ProcessPath), Path.Combine(installRoot, InstalledHelperLaunchTrust.DesktopExecutableName),
+        if (!string.Equals(Path.GetFullPath(layout.ProcessPath), Path.Combine(installRoot, ExpectedProcessLeaf(role)),
                 StringComparison.OrdinalIgnoreCase))
             return HelperProtocolCapabilityStatus.Unreadable;
         string ledgerPath = Path.Combine(stateRoot, LedgerFileName);
@@ -163,6 +196,29 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
             Path.Combine(programFiles, StateDirectoryName),
             processPath,
             sid);
+    }
+
+    /// <summary>
+    /// Production Helper-role layout (§6 L6): <c>AppContext.BaseDirectory</c> must equal
+    /// <c>&lt;known-folder Program Files&gt;\PC Steward\</c> and the process path must be the helper apphost in it; the install
+    /// and state roots are the same fixed paths the desktop reader uses. Null on any mismatch or failure.
+    /// </summary>
+    internal static DeploymentCapabilityLayout? ResolveHelperLayout()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        string? processPath = Environment.ProcessPath;
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (string.IsNullOrWhiteSpace(processPath) || string.IsNullOrWhiteSpace(programFiles) || !Path.IsPathFullyQualified(programFiles))
+            return null;
+        string installRoot = Path.Combine(programFiles, InstalledHelperLaunchTrust.InstallDirectoryName);
+        if (!string.Equals(AppContext.BaseDirectory, installRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFullPath(processPath), Path.Combine(installRoot, InstalledHelperLaunchTrust.HelperExecutableName),
+                StringComparison.OrdinalIgnoreCase))
+            return null;
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        string? sid = identity.User?.Value;
+        if (string.IsNullOrEmpty(sid)) return null;
+        return new(installRoot, Path.Combine(programFiles, StateDirectoryName), processPath, sid);
     }
 
     /// <summary>Production protection: no reparse component and caller cannot modify (the ADR-018 launch-trust primitives).</summary>

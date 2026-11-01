@@ -499,9 +499,16 @@ internal static class ProtectedLaunchLayout
     }
 }
 
-public static class ElevatedHelperEntryPoint
+public static partial class ElevatedHelperEntryPoint
 {
+    /// <summary>
+    /// Task 50 design rev 6 §5.1: <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every
+    /// other command line takes the unchanged protocol-1 path, which refuses anything but <c>--protocol 1</c> with exit code 20.
+    /// </summary>
     public static Task<int> RunAsync(string[] arguments) =>
+        SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : RunProtocol1Async(arguments);
+
+    private static Task<int> RunProtocol1Async(string[] arguments) =>
         RunAsync(
             arguments,
             static (job, cancellationToken) => job.Selection.Provider switch
@@ -767,7 +774,7 @@ internal static class RestrictedNamedPipe
 {
     internal static NamedPipeServerStream Create(string pipeName, string currentUserSid)
     {
-        // Protocol 1 and protocol 2 each use their own fixed locator; the helper bootstrap still accepts only protocol 1's.
+        // Protocol 1 and protocol 2 each use their own fixed locator; each helper bootstrap accepts only its own (§5.1).
         if (!IsAcceptedLocator(pipeName))
         {
             throw new ArgumentException("The pipe locator is invalid.", nameof(pipeName));
@@ -842,7 +849,7 @@ internal static class RestrictedNamedPipe
     }
 }
 
-internal static class WindowsPeerIdentityVerifier
+internal static partial class WindowsPeerIdentityVerifier
 {
     internal static bool VerifyPeer(
         int processId,
