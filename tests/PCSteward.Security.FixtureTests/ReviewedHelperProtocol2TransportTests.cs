@@ -18,6 +18,7 @@ namespace PCSteward.Security.FixtureTests;
 public sealed class ReviewedHelperProtocol2TransportTests
 {
     private static readonly string Nonce = Protocol2InterpreterFixture.Nonce;
+    private static readonly TimeSpan HelperWait = TimeSpan.FromSeconds(30);
     private static readonly ReviewedHelperBudgets Fast = new(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
 
     // ---- Exchange session (portable) ----
@@ -35,7 +36,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
         }, exitAfter: true);
 
         ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None);
-        await helper;
+        await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.ResponseFrameReceived, exchange.Outcome);
         CollectionAssert.AreEqual(response, exchange.ResponseFrame);
@@ -67,6 +68,8 @@ public sealed class ReviewedHelperProtocol2TransportTests
         Task helper = harness.RunHelper(async client =>
         {
             harness.ReceivedRequest = await PipeMessageFraming.ReadAsync(client, CancellationToken.None);
+            try
+            {
             switch (behaviour)
             {
                 case "trailing-byte":
@@ -89,10 +92,17 @@ public sealed class ReviewedHelperProtocol2TransportTests
                     await client.WriteAsync(response.AsMemory(0, response.Length / 2));
                     break;
             }
+            }
+            catch (IOException)
+            {
+                // Expected when the desktop has already closed its end after rejecting the surplus bytes.
+            }
         }, exitAfter: true);
 
         ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, CancellationToken.None);
-        await helper;
+        // The desktop stops reading after the first surplus byte; close its end so a helper still writing is released.
+        await harness.DisposeServerAsync();
+        await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.RequestWrittenNoValidResponse, exchange.Outcome, behaviour);
         Assert.AreEqual(0, exchange.ResponseFrame.Length);
@@ -115,7 +125,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
 
         ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Execution = TimeSpan.FromMilliseconds(300) }, CancellationToken.None);
         release.SetResult();
-        await helper;
+        await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.RequestWrittenNoValidResponse, exchange.Outcome);
         Assert.AreEqual(1, harness.Terminations);
@@ -137,7 +147,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
         });
 
         ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast with { Exit = TimeSpan.FromMilliseconds(300) }, CancellationToken.None);
-        await helper;
+        await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.ResponseFrameReceived, exchange.Outcome);
         Assert.IsFalse(exchange.Desktop.HelperExitObserved);
@@ -175,7 +185,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
 
         ReviewedHelperExchange exchange = await harness.RunAsync(operation, Fast, cancellation.Token);
         await harness.DisposeServerAsync();
-        await helper;
+        await helper.WaitAsync(HelperWait);
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, exchange.Outcome, scenario);
         Assert.AreEqual(1, harness.Channel.VerifyCalls);
@@ -572,7 +582,9 @@ public sealed class ReviewedHelperProtocol2TransportTests
 
         internal Harness()
         {
-            server = new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            // Same buffer sizes as the production restricted pipe; a zero-size Windows pipe buffer blocks every write until read.
+            server = new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
+                ElevatedHelperProtocol.MaximumMessageBytes, ElevatedHelperProtocol.MaximumMessageBytes);
             Channel = new(server);
             Owned = new(Exit.Task, () => Interlocked.Increment(ref disposals));
         }
@@ -603,6 +615,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
                 budgets, token);
 
         internal async Task DisposeServerAsync() => await server.DisposeAsync();
+
 
         private bool Terminate()
         {

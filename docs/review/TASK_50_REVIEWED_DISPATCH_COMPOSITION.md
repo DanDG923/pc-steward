@@ -273,5 +273,9 @@ Linux after remediation:
 - the transport class: 29 portable tests pass, and 13 Windows-only tests fail as designed off Windows;
 - the remaining Security and Application failures are the unchanged Windows-native set.
 
-Windows CI on the remediation commit is pending.
+**Windows CI hang (test harness only).** Windows CI on `953ad78` passed Architecture 46, Domain 167 and Application 883, but Security reached the 10-minute guard. The test harness created its server pipe with zero-size buffers. On Windows, every write to such a pipe blocks until the peer reads it. In the "second frame" case the transport correctly stops after reading the first surplus byte, so the fixture helper's write never completed, and the test awaited the helper before closing the desktop end. Linux socket buffers hide this.
+
+Fix: the harness pipe now uses the production restricted-pipe buffer sizes (16 KiB). The surplus-byte test closes the desktop end before awaiting the helper and tolerates the resulting `IOException`. Every helper wait is bounded at 30 s. The transport itself is unchanged: production pipes have 16 KiB buffers, and the desktop never waits on a helper write.
+
+Windows CI on the harness fix is pending.
 
