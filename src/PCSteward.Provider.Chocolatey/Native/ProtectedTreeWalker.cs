@@ -70,8 +70,8 @@ internal enum ChildPresence
     Refused
 }
 
-/// <summary>One parsed <c>FILE_ID_BOTH_DIR_INFO</c> entry.</summary>
-internal readonly record struct NativeDirectoryEntry(string Name, uint Attributes, ulong FileId);
+/// <summary>One parsed <c>FILE_ID_BOTH_DIR_INFO</c> entry; <see cref="ShortName"/> is the 8.3 alias, empty when there is none.</summary>
+internal readonly record struct NativeDirectoryEntry(string Name, uint Attributes, ulong FileId, string ShortName = "");
 
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §2.3 (L2, §10 answer 2): a bounded, iterative walk of one protected
@@ -130,6 +130,21 @@ internal static class ProtectedTreeWalker
         return ChildPresence.Refused;
     }
 
+    /// <summary>
+    /// N2: every name-checked entry of a held directory, sorted ordinally, or the refusal. Absence of a name from this list is
+    /// the only absence (L2). Access is not evaluated here.
+    /// </summary>
+    internal static TreeWalkRefusal? TryListChildren(SafeFileHandle directory, int budget, CancellationToken cancellationToken,
+        out IReadOnlyList<NativeDirectoryEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+        entries = [];
+        if (budget is < 0 or > 32_768) return TreeWalkRefusal.OverBound;
+        TreeWalkRefusal? failure = TryEnumerate(directory, budget, cancellationToken, out List<NativeDirectoryEntry> listed);
+        if (failure is null) entries = listed.AsReadOnly();
+        return failure;
+    }
+
     /// <summary>Pure name rule for one enumerated entry; <paramref name="seenUpperInvariant"/> detects case aliases.</summary>
     internal static TreeWalkRefusal? CheckEntryName(string name, ISet<string> seenUpperInvariant)
     {
@@ -142,7 +157,8 @@ internal static class ProtectedTreeWalker
 
     /// <summary>
     /// Pure parser of a <c>FILE_ID_BOTH_DIR_INFO</c> chain. Returns false for any entry or name outside the buffer, a
-    /// misaligned or backwards offset, or an odd name length. <c>.</c> and <c>..</c> are skipped.
+    /// misaligned or backwards offset, an odd name length, or a short-name length that is odd or above 24 bytes. <c>.</c> and
+    /// <c>..</c> are skipped.
     /// </summary>
     internal static bool TryParseEntries(ReadOnlySpan<byte> buffer, List<NativeDirectoryEntry> entries)
     {
@@ -156,10 +172,14 @@ internal static class ProtectedTreeWalker
             uint attributes = BinaryPrimitives.ReadUInt32LittleEndian(entry[56..]);
             uint nameBytes = BinaryPrimitives.ReadUInt32LittleEndian(entry[60..]);
             ulong fileId = BinaryPrimitives.ReadUInt64LittleEndian(entry[96..]);
+            // ShortNameLength (CCHAR, bytes) at 68 and ShortName (WCHAR[12]) at 70.
+            int shortBytes = entry[68];
+            if (shortBytes % 2 != 0 || shortBytes > 24) return false;
             if (nameBytes == 0 || nameBytes % 2 != 0 || nameBytes > (uint)(entry.Length - EntryHeaderBytes)) return false;
             if (next != 0 && (next % 8 != 0 || next < EntryHeaderBytes + nameBytes || next > (uint)entry.Length)) return false;
             string name = new(MemoryMarshal.Cast<byte, char>(entry.Slice(EntryHeaderBytes, (int)nameBytes)));
-            if (name is not ("." or "..")) entries.Add(new NativeDirectoryEntry(name, attributes, fileId));
+            string shortName = new(MemoryMarshal.Cast<byte, char>(entry.Slice(70, shortBytes)));
+            if (name is not ("." or "..")) entries.Add(new NativeDirectoryEntry(name, attributes, fileId, shortName));
             if (next == 0) return true;
             offset += (int)next;
         }
