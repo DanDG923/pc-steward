@@ -13,8 +13,11 @@ namespace PCSteward.Security.FixtureTests;
 /// real protocol-2 interpreter, over an N2/N3 fixture profile whose root engine is a stand-in (a copy of <c>cmd.exe</c>, which
 /// ignores the fixed Chocolatey arguments and exits at the end of its NUL input). The item runs the native Helper-role
 /// observation at stages B and D (through the N2 fixture seam), its own identity comparison, and the held-binding launches.
-/// The stand-in prints no Chocolatey records, so the native stage-C queries end in a settled refusal; the full chain to the
-/// launch replaces only the two stage-C queries with a fixed <c>Matched</c> (<see cref="NativeChocolateyHelperItem.CreateOverFixtureForTests"/>).
+/// The <c>cmd.exe</c> stand-in prints no Chocolatey records, so the native stage-C queries end in a settled refusal, and the
+/// tests that need a match replace only the two stage-C queries with a fixed <c>Matched</c>
+/// (<see cref="NativeChocolateyHelperItem.CreateOverFixtureForTests"/>). N4b review M1: one test instead uses
+/// <see cref="StandInChocolateyEngine"/>, a minimal console image built in the fixture tree that prints the target's
+/// <c>list</c> and <c>outdated</c> records, so the whole native chain (real parse, Map, Matched, stage D, launch) runs.
 /// The evaluation token is the derived requester token (CI has no split token; linked-token acceptance is owner-host
 /// evidence). No real Chocolatey client runs and nothing is elevated.
 /// </summary>
@@ -43,6 +46,33 @@ public sealed class NativeHelperItemEndToEndTests
         Assert.AreEqual(fixture.Fingerprint, response.Reviewed.ObservedProfileFingerprint);
         Assert.IsFalse(run.Interpretation.Observation.ExecutionUncertain, "the desktop accepts the exchange");
         // The endpoint disposed the item: every launch settled, so the engine and release holds are gone.
+        fixture.AssertWritable("choco.exe");
+        fixture.AssertWritable(@"tools\7z.exe");
+        fixture.AssertWritable(@"hooks\pre-install-all.ps1");
+    }
+
+    [TestMethod]
+    public async Task TheRealNativeChainParsesRealRecordsMatchesRevalidatesAndLaunchesThroughTheHeldBinding()
+    {
+        // N4b review M1: no stage is replaced. Stage C runs list --exact and outdated as real child processes of the held
+        // stage-B engine (under the stage-B read-share holds) and parses their real --limit-output records; stage D re-observes
+        // in full; the launch runs the same held engine.
+        using ProfileFixture fixture = new(printsRecords: true);
+        EndpointHarness harness = fixture.Harness(stageC: null);
+
+        EndpointRun run = await harness.ExchangeAsync(fixture.Operation);
+
+        Assert.AreEqual(ReviewedHelperEndpointExit.ResponseWritten, run.Result.Exit, run.Result.Diagnostic);
+        FramedUpdateResponse response = run.Response;
+        Assert.AreEqual(ReviewedHelperQualification.Matched, response.Reviewed.Qualification, run.Result.Diagnostic);
+        Assert.AreEqual("launch-started", run.Result.Diagnostic);
+        Assert.AreEqual(UpdateWireInvocation.Started, response.Facts.Invocation, "the stand-in ran from the held stage-B binding");
+        Assert.AreEqual(0, response.Facts.ExitCode);
+        Assert.IsTrue(response.Facts.DirectProcessExitObserved && response.Facts.AggregateSettlementConfirmed);
+        Assert.AreEqual(Installed, response.Reviewed.ObservedInstalledVersion);
+        Assert.AreEqual(Candidate, response.Reviewed.ObservedCandidateVersion, "the candidate came from the parsed outdated record");
+        Assert.AreEqual(fixture.Fingerprint, response.Reviewed.ObservedProfileFingerprint);
+        Assert.IsFalse(run.Interpretation.Observation.ExecutionUncertain, "the desktop accepts the exchange");
         fixture.AssertWritable("choco.exe");
         fixture.AssertWritable(@"tools\7z.exe");
         fixture.AssertWritable(@"hooks\pre-install-all.ps1");
@@ -109,13 +139,19 @@ public sealed class NativeHelperItemEndToEndTests
     /// </summary>
     private sealed class ProfileFixture : IDisposable
     {
-        internal ProfileFixture()
+        /// <param name="printsRecords">
+        /// False: the <c>cmd.exe</c> copy (no records). True: <see cref="StandInChocolateyEngine"/>, which prints the target's
+        /// installed record for <c>list</c> and its frozen candidate for <c>outdated</c>.
+        /// </param>
+        internal ProfileFixture(bool printsRecords = false)
         {
             N1NativeFixture.RequireWindows("native item end to end over a fixture profile");
             Profile = new N2ProfileFixture();
             try
             {
-                Profile.ReleaseBinary["choco.exe"] = File.ReadAllBytes(Path.Combine(Environment.SystemDirectory, "cmd.exe"));
+                Profile.ReleaseBinary["choco.exe"] = printsRecords
+                    ? StandInChocolateyEngine.Build($"{N2ProfileFixture.Target}|{Installed}\r\n", $"{N2ProfileFixture.Target}|{Installed}|{Candidate}|false\r\n")
+                    : File.ReadAllBytes(Path.Combine(Environment.SystemDirectory, "cmd.exe"));
                 Profile.ReleaseContent["choco.exe.manifest"] = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
                     "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\"></assembly>";
                 Profile.Build().Lock();
