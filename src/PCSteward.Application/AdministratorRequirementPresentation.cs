@@ -33,15 +33,15 @@ public static class AdministratorRequirementPresenter
     private static AdministratorRequirementPresentation Required() => new(
         AdministratorRequirementStatus.Required,
         "Administrator approval required",
-        "Windows will show an administrator approval (UAC) prompt only after you confirm the reviewed update.");
+        "This is a machine-wide update. After you confirm it, Windows asks for administrator permission (UAC) once for this update job. PC Steward itself keeps running without administrator rights.");
 
     private static AdministratorRequirementPresentation NotExpected() => new(
         AdministratorRequirementStatus.NotExpected,
         "Administrator approval not expected",
-        "PC Steward will use the confirmed user-scope update path and will not request administrator approval.");
+        "This is a current-user update, so Windows will not ask for administrator permission.");
 
     private static AdministratorRequirementPresentation Unknown() => new(
         AdministratorRequirementStatus.Unknown,
         "Administrator requirement unknown",
-        "PC Steward will confirm the installation scope during fresh update review. No update or administrator prompt starts from this page.");
+        "PC Steward will confirm the installation scope during the update review. Checking for updates and opening this page never ask for administrator permission.");
 }

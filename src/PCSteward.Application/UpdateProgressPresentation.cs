@@ -43,7 +43,7 @@ public sealed class UpdateProgressPresentation(Guid jobId, Guid correlationId, U
         {
             UpdateProgressPhase.Queued => "Reviewed update queued",
             UpdateProgressPhase.Preparing => "Revalidating reviewed update",
-            UpdateProgressPhase.ElevationRequested => "Requesting elevation; provider execution not observed",
+            UpdateProgressPhase.ElevationRequested => "Waiting for Windows administrator permission (UAC); installer progress not observed",
             UpdateProgressPhase.HandedToHelper => "Update request sent; helper validation and provider execution indeterminate",
             UpdateProgressPhase.ProcessStarted => "Provider client started; installer progress indeterminate",
             UpdateProgressPhase.Verifying => "Verifying installed version",
