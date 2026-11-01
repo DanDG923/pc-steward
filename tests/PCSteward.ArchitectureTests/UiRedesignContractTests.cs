@@ -501,6 +501,46 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(presenter, "NeverRestartsNote = \"PC Steward never restarts your PC.\"");
     }
 
+    /// <summary>
+    /// Task 73 Phase 3 (FR-UI-01, FR-POL-01–05, FR-HIS-02; audit P-L7, P-M1, P-L6, P-M5): Installed apps has saved filters with counts
+    /// over every app and keeps the virtualized, bounded list; app details use the same confirmation dialogs as the lists for pin,
+    /// ignore and every mapping action (no immediate decision writes), and show structured sections and the timeline as a list.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UI-01; FR-POL-01–05; FR-HIS-02; audit P-L7/P-M1/P-L6: saved filters, shared decision dialogs, structured details.")]
+    public void InstalledAppsUsesSavedFiltersAndDetailsUseTheSharedDecisionDialogs()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
+        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.AllRows))");
+        StringAssert.Contains(apps, "viewModel.SetSavedFilter(value)");
+        StringAssert.Contains(apps, "AutomationProperties.SetName(filter, option.AccessibleName);");
+        StringAssert.Contains(apps, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
+        StringAssert.Contains(apps, "ItemTemplate = (DataTemplate)");
+        StringAssert.Contains(apps, "MaxHeight = 620", "the virtualized list keeps a bounded height inside the page host");
+        StringAssert.Contains(apps, "StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged)).Meaning");
+        string filters = ApplicationSource("InstalledAppsPresentation.cs");
+        StringAssert.Contains(filters, "rows.Count(row => Matches(filter, row.Status))");
+        StringAssert.Contains(filters, "!Statuses.TryGetValue(filter, out string[]? keys) ||", "All matches every status");
+
+        string detail = Between(source, "private StackPanel BuildProductDetailPage()", "private async Task ShowDetailsAsync");
+        foreach (string shared in new[] { "PromptAndPinCurrentVersionAsync(row)", "PromptAndIgnoreProductAsync(row)", "PromptAndConfirmPackageIdentityAsync(row, detail)",
+            "PromptAndCreateManualMappingAsync(row, candidate.SourceId, candidate.PackageId)", "PromptAndCreateManualMappingAsync(row, sourceId, packageId)" })
+            StringAssert.Contains(detail, shared);
+        foreach (string immediate in new[] { "workflow.PinCurrentVersionAsync", "workflow.IgnoreAsync", "workflow.CreateManualMappingAsync", "string.Join(\"\\n\"" })
+            Assert.IsFalse(detail.Contains(immediate, StringComparison.Ordinal), $"no immediate decision write or newline dump on details: {immediate}");
+        foreach (string section in new[] { "AppDetailPresenter.Timeline(detailTimeline)", "AppDetailPresenter.Instances(row.Instances)", "AppDetailPresenter.Candidates(" })
+            StringAssert.Contains(detail, section);
+
+        string mapping = Between(source, "private async Task PromptAndCreateManualMappingAsync(", "private async Task PromptAndPinCurrentVersionAsync(");
+        StringAssert.Contains(mapping, "DefaultButton = ContentDialogButton.Close");
+        int read = mapping.IndexOf("string decisionReason = reason.Text;", StringComparison.Ordinal);
+        int lease = mapping.IndexOf("DataOperationLease.RunAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(read >= 0 && lease > read, "the reason is read on the UI thread before the lease");
+        StringAssert.Contains(mapping, "It does not approve or start an update.");
+        Assert.IsFalse(mapping.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+    }
+
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
 
     private static string ApplicationSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", relativePath));

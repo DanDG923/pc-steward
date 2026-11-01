@@ -40,6 +40,7 @@ public sealed class MainWindow : Window
     private bool activityHistoryUnavailable;
     private ActivityFilter activityFilter = ActivityFilter.All;
     private const int ActivityHistoryLimit = 500;
+    private bool moreAppFiltersExpanded;
     private bool isClearing;
     private bool isExecuting;
     private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
@@ -486,6 +487,11 @@ public sealed class MainWindow : Window
         return button;
     }
 
+    /// <summary>
+    /// FR-UI-01, AC-UX-03 (Task 73 Phase 3; ADR-030 decision 5; audit P-L7): saved filters (All, Updates, Needs review, Unmanaged,
+    /// Pinned &amp; ignored) with counts over every saved app, search, and the detailed filters behind "More filters". The list stays
+    /// virtualized with a bounded height inside the page host. Repository apps stays reachable from the header.
+    /// </summary>
     private StackPanel BuildInstalledAppsPage()
     {
         StackPanel panel = CreatePagePanel();
@@ -500,6 +506,25 @@ public sealed class MainWindow : Window
         headerActions.Children.Add(scan);
         panel.Children.Add(StewardVisuals.PageHeader("Installed apps", "Search and inspect the local inventory. Filtering never changes saved data.", null, headerActions));
         panel.Children.Add(StewardVisuals.InformationBanner("Inventory freshness", viewModel.FreshnessLabel, viewModel.LastScanAt is null ? "attention" : "information"));
+
+        // Saved filters: the same words as the status chips, and counts over every saved app ("All" really is all).
+        StackPanel savedFilters = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+        AutomationProperties.SetName(savedFilters, "Saved filters");
+        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.AllRows))
+        {
+            bool selected = viewModel.SavedFilter == option.Filter;
+            // The selected filter stays focusable (accent style plus "Selected" item status) so a refresh can restore focus to it.
+            Button filter = selected ? StewardVisuals.PrimaryButton(option.DisplayLabel, option.AccessibleName) : new Button { Content = option.DisplayLabel };
+            AutomationProperties.SetName(filter, option.AccessibleName);
+            if (selected) AutomationProperties.SetItemStatus(filter, "Selected");
+            InstalledAppsFilter value = option.Filter;
+            filter.Click += (_, _) => { viewModel.SetSavedFilter(value); Render(); };
+            savedFilters.Children.Add(filter);
+        }
+        panel.Children.Add(new ScrollViewer { Content = savedFilters, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Auto, VerticalScrollMode = ScrollMode.Disabled });
+        if (viewModel.SavedFilter == InstalledAppsFilter.Unmanaged)
+            panel.Children.Add(StewardVisuals.InformationBanner("Unmanaged isn't unsafe", StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged)).Meaning, "neutral"));
+
         TextBox search = new() { Header = "Search", PlaceholderText = "Name or publisher", Text = viewModel.SearchText };
         AutomationProperties.SetName(search, "Search applications");
         // Filters show the labels the rows show (StatusVocabulary, StewardPresentation), never raw enum or provider values.
@@ -527,16 +552,22 @@ public sealed class MainWindow : Window
             Grid.SetRow(filterControls[index], index / 3);
             filters.Children.Add(filterControls[index]);
         }
-        filterContent.Children.Add(filters);
+        bool detailedFiltersInUse = viewModel.StatusFilter != StatusVocabulary.AllStatusesLabel || viewModel.PublisherFilter != "All publishers" || viewModel.SourceFilter != "All sources" || viewModel.ScopeFilter != "All scopes" || viewModel.SortField != "Name";
+        Expander moreFilters = new() { Header = "More filters", Content = filters, IsExpanded = moreAppFiltersExpanded || detailedFiltersInUse, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        moreFilters.Expanding += (_, _) => moreAppFiltersExpanded = true;
+        moreFilters.Collapsed += (_, _) => moreAppFiltersExpanded = false;
+        filterContent.Children.Add(moreFilters);
         panel.Children.Add(Card(filterContent));
+        // Bounded height keeps the list virtualized inside the page's own scroll host (wheel scrolling chains to the page at the ends).
         ListView list = new() { Style = AppStyle("StewardListViewStyle"), ItemContainerStyle = AppStyle("StewardListItemStyle"), ItemTemplate = (DataTemplate)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardApplicationRowTemplate"], MaxHeight = 620 };
         TextBlock matching = PageCopy(string.Empty);
-        Border empty = StewardVisuals.EmptyState("\uE711", "No applications match", "Adjust the search or filters. The saved inventory has not changed.");
+        AutomationProperties.SetLiveSetting(matching, AutomationLiveSetting.Polite);
+        Border empty = StewardVisuals.EmptyState("", "No applications match", "Adjust the search or filters. The saved inventory has not changed.");
         void ApplyFilters()
         {
             viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
             RenderInventory(list);
-            matching.Text = $"{viewModel.VisibleRows.Count:N0} application{(viewModel.VisibleRows.Count == 1 ? string.Empty : "s")} match the current filters.";
+            matching.Text = $"{DisplayFormat.Plural(viewModel.VisibleRows.Count, "application")} {(viewModel.VisibleRows.Count == 1 ? "matches" : "match")} {InstalledAppsFilters.Label(viewModel.SavedFilter)} and the current search.";
             list.Visibility = viewModel.VisibleRows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             empty.Visibility = viewModel.VisibleRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -819,11 +850,19 @@ public sealed class MainWindow : Window
         return refresh;
     }
 
-    private async Task PromptAndConfirmPackageIdentityAsync(InventoryRow row, UpdateDetail detail)
+    private async Task PromptAndConfirmPackageIdentityAsync(InventoryRow row, UpdateDetail detail) =>
+        await PromptAndCreateManualMappingAsync(row, detail.SourceId!, detail.PackageId!);
+
+    /// <summary>
+    /// FR-POL-03/05 (Task 73 Phase 3; audit P-M1): the one confirmation for recording a package identity, used by the lists, the
+    /// review page and every mapping action on app details. It records a reversible mapping after validation; it never approves or
+    /// starts an update. The reason is read on the UI thread before the data-operation lease starts.
+    /// </summary>
+    private async Task PromptAndCreateManualMappingAsync(InventoryRow row, string sourceId, string packageId)
     {
         TextBox reason = DecisionReasonBox("Optional reason for confirming this package identity");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
-        content.Children.Add(PageCopy($"Confirm only if you recognise {detail.PackageId} from {detail.SourceId} as {row.Name}. This records a reversible mapping. It does not approve or start an update."));
+        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {sourceId} as {row.Name}. This records a reversible mapping. It does not approve or start an update."));
         content.Children.Add(reason);
         ContentDialog confirmation = new()
         {
@@ -837,7 +876,7 @@ public sealed class MainWindow : Window
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
         string decisionReason = reason.Text;
         PCSteward.Domain.ManualMappingValidation validation;
-        try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId!, detail.PackageId!, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); }
+        try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, sourceId, packageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Identity not confirmed", validation.Explanation); return; }
         LoadSavedInventory();
@@ -871,15 +910,15 @@ public sealed class MainWindow : Window
 
     private async Task PromptAndIgnoreProductAsync(InventoryRow row)
     {
-        CheckBox untilEnabled = new() { Content = "Ignore until a selected date" };
-        DatePicker until = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) };
-        untilEnabled.Checked += (_, _) => until.IsEnabled = true;
-        untilEnabled.Unchecked += (_, _) => until.IsEnabled = false;
+        CheckBox ignoreUntilEnabled = new() { Content = "Ignore until a selected date" };
+        DatePicker ignoreUntil = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) };
+        ignoreUntilEnabled.Checked += (_, _) => ignoreUntil.IsEnabled = true;
+        ignoreUntilEnabled.Unchecked += (_, _) => ignoreUntil.IsEnabled = false;
         TextBox reason = DecisionReasonBox("Optional reason for ignoring this product");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
         content.Children.Add(PageCopy($"Ignore {row.Name} indefinitely, or select an end date below. You can reverse this decision on the Decisions page. No application is changed."));
-        content.Children.Add(untilEnabled);
-        content.Children.Add(until);
+        content.Children.Add(ignoreUntilEnabled);
+        content.Children.Add(ignoreUntil);
         content.Children.Add(reason);
         ContentDialog confirmation = new()
         {
@@ -891,13 +930,13 @@ public sealed class MainWindow : Window
             DefaultButton = ContentDialogButton.Close
         };
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
-        DateTimeOffset? ignoredUntil = untilEnabled.IsChecked == true ? until.Date : null;
+        DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null;
         string decisionReason = reason.Text;
         try { await DataOperationLease.RunAsync(token => workflow.IgnoreAsync(row.StableProductKey, ignoredUntil, decisionReason, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
         Render();
-        await ShowUpdateOutcomeAsync("Product ignored", ignoredUntil is null ? $"{row.Name} is ignored until you reverse the decision. No application was changed." : $"{row.Name} is ignored until {ignoredUntil.Value.ToLocalTime():d MMMM yyyy}. No application was changed.");
+        await ShowUpdateOutcomeAsync("Product ignored", ignoredUntil is null ? $"{row.Name} is ignored until you reverse the decision. No application was changed." : $"{row.Name} is ignored until {DisplayFormat.Date(ignoredUntil.Value)}. No application was changed.");
     }
 
     private static TextBox DecisionReasonBox(string placeholder) => new() { Header = "Optional reason", PlaceholderText = placeholder, MaxLength = 512 };
@@ -964,7 +1003,7 @@ public sealed class MainWindow : Window
         {
             StackPanel timeline = new() { Spacing = 0 };
             foreach ((DateTimeOffset occurredAt, string glyph, string title, string detail) in activity.OrderByDescending(item => item.OccurredAt).Take(50))
-                timeline.Children.Add(StewardVisuals.ActivityRow(occurredAt, glyph, title, detail));
+                timeline.Children.Add(StewardVisuals.ActivityRow(DisplayFormat.DateTime(occurredAt), glyph, title, detail));
             panel.Children.Add(Card(timeline));
             panel.Children.Add(PageCopy($"Showing {Math.Min(activity.Count, 50):N0} of {activity.Count:N0} locally available record{(activity.Count == 1 ? string.Empty : "s")}. Update execution outcomes remain attached to each application's technical timeline."));
         }
@@ -2038,6 +2077,11 @@ public sealed class MainWindow : Window
         ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Downloaded files cleared" : "Downloaded files were only partly cleared", Content = result.Message + (result.Residuals.Count == 0 ? string.Empty : " Remaining items: " + string.Join(", ", result.Residuals.Select(residual => $"{residual.RelativePath} ({residual.Reason})"))), CloseButtonText = "Close" }; await outcome.ShowAsync();
     }
 
+    /// <summary>
+    /// FR-POL-01–05, FR-HIS-02, FR-UI-04 (Task 73 Phase 3; audit P-M1, P-L6): an app's details. Pin, ignore and every mapping action
+    /// use the same confirmation dialogs as the lists and the Updates page; technical details are structured sections (instances,
+    /// candidates) and the app's own timeline is a list in words, not a newline dump.
+    /// </summary>
     private StackPanel BuildProductDetailPage()
     {
         if (detailRow is null)
@@ -2045,7 +2089,7 @@ public sealed class MainWindow : Window
             StackPanel missing = CreatePagePanel(760);
             Button leave = new() { Content = "Open installed apps" };
             leave.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
-            missing.Children.Add(StewardVisuals.EmptyState("\uE711", "App details are no longer open", "Open an app from Installed apps, Updates or the scan results to see its details.", leave));
+            missing.Children.Add(StewardVisuals.EmptyState("", "App details are no longer open", "Open an app from Installed apps, Updates or the scan results to see its details.", leave));
             return missing;
         }
 
@@ -2061,7 +2105,9 @@ public sealed class MainWindow : Window
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         StackPanel title = new() { Spacing = 4 };
         title.Children.Add(new TextBlock { Text = "Application detail", Style = AppStyle("StewardCaptionStyle") });
-        title.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardPageTitleStyle") });
+        TextBlock name = new() { Text = row.Name, Style = AppStyle("StewardPageTitleStyle") };
+        AutomationProperties.SetHeadingLevel(name, AutomationHeadingLevel.Level1);
+        title.Children.Add(name);
         StewardStatus statusPresentation = StewardStatus.From(row.Status);
         title.Children.Add(StewardVisuals.Badge(status, statusPresentation.Glyph, statusPresentation.Tone, $"{row.Name}: {status}"));
         heading.Children.Add(title);
@@ -2072,27 +2118,30 @@ public sealed class MainWindow : Window
         comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         StackPanel installed = new() { Spacing = StewardSpacing.Small };
-        installed.Children.Add(new TextBlock { Text = "Installed", Style = AppStyle("StewardSectionTitleStyle") });
+        installed.Children.Add(SectionHeading("Installed"));
         installed.Children.Add(StewardVisuals.EvidenceRow("Version", row.Version));
         installed.Children.Add(StewardVisuals.EvidenceRow("Publisher", row.Publisher));
         installed.Children.Add(StewardVisuals.EvidenceRow("Location", $"{StewardPresentation.Scope(row.Scope)} · {StewardPresentation.Provider(row.Provider)}"));
         comparison.Children.Add(Card(installed));
         StackPanel evidence = new() { Spacing = StewardSpacing.Small };
-        evidence.Children.Add(new TextBlock { Text = "Repository evidence", Style = AppStyle("StewardSectionTitleStyle") });
+        evidence.Children.Add(SectionHeading("Repository evidence"));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Package ID", detail?.PackageId ?? "No managed package identity"));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Repository", detail?.SourceId ?? "No enabled source match"));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Available", detail?.CandidateVersion ?? "Not established"));
+        evidence.Children.Add(StewardVisuals.EvidenceRow("Confidence", ReviewReasonText.Confidence(detail?.Confidence)));
         evidence.Children.Add(PageCopy(detail?.Freshness ?? "Local-only — no source check has been run."));
         Grid.SetColumn(evidence, 1); comparison.Children.Add(Card(evidence));
         panel.Children.Add(comparison);
 
         StackPanel why = new() { Spacing = StewardSpacing.Small };
-        why.Children.Add(new TextBlock { Text = "Why this appears", Style = AppStyle("StewardSectionTitleStyle") });
+        why.Children.Add(SectionHeading("Why this appears"));
         why.Children.Add(PageCopy(detail?.Explanation ?? "This application is present in the local inventory. No concrete repository package identity is currently available."));
+        IReadOnlyList<string> reasons = ReviewReasonText.DescribeAll(detail?.ReviewReasons ?? []);
+        foreach (string reason in reasons) why.Children.Add(PageCopy($"• {reason}"));
         panel.Children.Add(Card(why));
 
         StackPanel capability = new() { Spacing = StewardSpacing.Small };
-        capability.Children.Add(new TextBlock { Text = "What PC Steward can do", Style = AppStyle("StewardSectionTitleStyle") });
+        capability.Children.Add(SectionHeading("What PC Steward can do"));
         capability.Children.Add(PageCopy(detail?.ActionState ?? "No automatic action is available. You can record a decision or review available source evidence."));
         capability.Children.Add(PageCopy("What is preserved: this page does not install, remove, or change the application."));
         panel.Children.Add(Card(capability));
@@ -2104,24 +2153,17 @@ public sealed class MainWindow : Window
             panel.Children.Add(StewardVisuals.InformationBanner(administratorRequirement.Label, administratorRequirement.Explanation, "attention"));
         }
 
-        TextBox reason = new() { Header = "Optional decision reason", PlaceholderText = "Why are you pinning, ignoring or mapping this product?", MaxLength = 512 };
-        CheckBox ignoreUntilEnabled = new() { Content = "Ignore until a selected date" };
-        DatePicker ignoreUntil = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) };
-        ignoreUntilEnabled.Checked += (_, _) => ignoreUntil.IsEnabled = true;
-        ignoreUntilEnabled.Unchecked += (_, _) => ignoreUntil.IsEnabled = false;
-        TextBlock outcome = new() { TextWrapping = TextWrapping.Wrap };
         bool sourceEvidenceUnavailable = row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable);
         StackPanel decisions = new() { Spacing = 8 };
-        decisions.Children.Add(new TextBlock { Text = sourceEvidenceUnavailable ? "Available next step" : "Decisions", Style = AppStyle("StewardSectionTitleStyle") });
+        decisions.Children.Add(SectionHeading(sourceEvidenceUnavailable ? "Available next step" : "Decisions"));
         if (sourceEvidenceUnavailable)
         {
             decisions.Children.Add(PageCopy("Retry the approved repository evidence. PC Steward is not asking you to approve, map, pin, or ignore this item while update availability is missing."));
         }
         else
         {
-            decisions.Children.Add(reason);
-            decisions.Children.Add(ignoreUntilEnabled);
-            decisions.Children.Add(ignoreUntil);
+            // Audit P-M1: the same decisions, with the same confirmation dialogs (and optional reason), as everywhere else.
+            decisions.Children.Add(PageCopy("Each decision opens a confirmation where you can add an optional reason. Decisions are reversible on the Decisions page and never start an update."));
         }
         ComboBox? candidatePicker = null;
         if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: null, PackageId: null } && detail.ReviewCandidates.Count > 0 && viewModel.IsUpdateSourceEnabled)
@@ -2148,41 +2190,28 @@ public sealed class MainWindow : Window
             Button confirmSelected = StewardVisuals.PrimaryButton("Confirm selected identity", $"Confirm the selected approved package identity for {row.Name}");
             confirmSelected.Click += async (_, _) =>
             {
-                if (candidatePicker.SelectedItem is not ReviewCandidateChoice candidate) { outcome.Text = "Select an approved package candidate first."; return; }
-                string decisionReason = reason.Text;
-                PCSteward.Domain.ManualMappingValidation validation;
-                try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, candidate.SourceId, candidate.PackageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); }
-                catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
-                outcome.Text = validation.Explanation;
-                if (!validation.IsValid) return;
-                LoadSavedInventory();
-                detailRow = viewModel.AllRows.SingleOrDefault(item => item.StableProductKey == row.StableProductKey) ?? row;
-                Render();
+                if (candidatePicker.SelectedItem is not ReviewCandidateChoice candidate) return;
+                await PromptAndCreateManualMappingAsync(row, candidate.SourceId, candidate.PackageId);
             };
             decisionActions.Children.Add(confirmSelected);
         }
         if (!sourceEvidenceUnavailable)
         {
-            Button pin = new() { Content = "Pin current version" }; pin.Click += async (_, _) => { string decisionReason = reason.Text; try { await DataOperationLease.RunAsync(token => workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, decisionReason, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowUpdateOutcomeAsync("Action unavailable", "Factory reset recovery or another data operation is active."); } }; decisionActions.Children.Add(pin);
-            Button ignore = new() { Content = "Ignore product" }; ignore.Click += async (_, _) => { string decisionReason = reason.Text; DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null; try { await DataOperationLease.RunAsync(token => workflow.IgnoreAsync(row.StableProductKey, ignoredUntil, decisionReason, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowUpdateOutcomeAsync("Action unavailable", "Factory reset recovery or another data operation is active."); } }; decisionActions.Children.Add(ignore);
+            Button pin = new() { Content = "Pin current version", IsEnabled = !HasActiveOperation };
+            AutomationProperties.SetName(pin, $"Pin {row.Name} at installed version {row.Version}");
+            pin.Click += async (_, _) => await PromptAndPinCurrentVersionAsync(row);
+            decisionActions.Children.Add(pin);
+            Button ignore = new() { Content = "Ignore…", IsEnabled = !HasActiveOperation };
+            AutomationProperties.SetName(ignore, $"Choose how long to ignore {row.Name}");
+            ignore.Click += async (_, _) => await PromptAndIgnoreProductAsync(row);
+            decisionActions.Children.Add(ignore);
         }
         if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true } && viewModel.IsUpdateSourceEnabled)
         {
             decisions.Children.Add(PageCopy($"Confirm this only if you recognise {detail.PackageId} from {detail.SourceId} as this installed application. The reversible mapping does not start an update."));
             Button confirmPackage = new() { Content = "Confirm package identity" };
             AutomationProperties.SetName(confirmPackage, $"Confirm {detail.PackageId} is this installed application");
-            confirmPackage.Click += async (_, _) =>
-            {
-                string decisionReason = reason.Text;
-                PCSteward.Domain.ManualMappingValidation validation;
-                try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, decisionReason, token), CancellationToken.None); }
-                catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
-                outcome.Text = validation.Explanation;
-                if (!validation.IsValid) return;
-                LoadSavedInventory();
-                detailRow = viewModel.AllRows.SingleOrDefault(candidate => candidate.StableProductKey == row.StableProductKey) ?? row;
-                Render();
-            };
+            confirmPackage.Click += async (_, _) => await PromptAndConfirmPackageIdentityAsync(row, detail);
             decisionActions.Children.Add(confirmPackage);
         }
         if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate) && viewModel.IsUpdateSourceEnabled && !isExecuting)
@@ -2195,13 +2224,12 @@ public sealed class MainWindow : Window
             decisionActions.Children.Add(review);
         }
         decisions.Children.Add(decisionActions);
-        decisions.Children.Add(outcome);
         panel.Children.Add(Card(decisions));
 
         if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId))
         {
             StackPanel reviewedRoute = new() { Spacing = StewardSpacing.Small };
-            reviewedRoute.Children.Add(new TextBlock { Text = "Chocolatey reviewed update", Style = AppStyle("StewardSectionTitleStyle") });
+            reviewedRoute.Children.Add(SectionHeading("Chocolatey reviewed update"));
             reviewedRoute.Children.Add(PageCopy("PC Steward does not allow this Chocolatey update route yet. You can read what it would disclose before any confirmation; it cannot start an update."));
             Button openReviewedRoute = ReviewedRouteSurfaces.ChocolateyReviewEntryButton();
             openReviewedRoute.Click += async (_, _) => await ShowChocolateyReviewedRouteAsync();
@@ -2209,19 +2237,68 @@ public sealed class MainWindow : Window
             panel.Children.Add(Card(reviewedRoute));
         }
 
+        // FR-HIS-02: the app's own timeline as a list, newest first.
+        StackPanel history = new() { Spacing = 0 };
+        history.Children.Add(SectionHeading("History for this app"));
+        IReadOnlyList<ProductTimelineItem> timeline = AppDetailPresenter.Timeline(detailTimeline);
+        if (timeline.Count == 0) history.Children.Add(PageCopy("No events are recorded for this app yet."));
+        foreach (ProductTimelineItem item in timeline)
+        {
+            Border entry = StewardVisuals.ActivityRow(item.When, item.Glyph, item.Title, item.Detail ?? string.Empty);
+            AutomationProperties.SetName(entry, item.AccessibleName);
+            history.Children.Add(entry);
+        }
+        panel.Children.Add(Card(history));
+
+        // Technical details: structured sections instead of newline-joined text (audit P-L6).
+        StackPanel technical = new() { Spacing = StewardSpacing.Medium };
+        technical.Children.Add(SectionHeading("Installed instances", AutomationHeadingLevel.Level3));
+        IReadOnlyList<DetailItem> instances = AppDetailPresenter.Instances(row.Instances);
+        if (instances.Count == 0) technical.Children.Add(PageCopy("No installed instance details are recorded."));
+        foreach (DetailItem instance in instances) technical.Children.Add(DetailItemCard(instance));
+        technical.Children.Add(SectionHeading("Source candidates", AutomationHeadingLevel.Level3));
+        IReadOnlyList<DetailItem> candidates = AppDetailPresenter.Candidates(detail?.ReviewCandidates ?? []);
+        if (candidates.Count == 0) technical.Children.Add(PageCopy("No source candidates are available."));
+        foreach (DetailItem candidate in candidates) technical.Children.Add(DetailItemCard(candidate));
+        technical.Children.Add(SectionHeading("Map an exact approved package", AutomationHeadingLevel.Level3));
         ComboBox mappingSource = FilterBox(detail?.SourceId ?? "winget", "winget", "msstore");
+        mappingSource.Header = "Approved source";
+        AutomationProperties.SetName(mappingSource, $"Approved source for mapping {row.Name}");
         TextBox mappingPackage = new() { Header = "Exact approved source package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
-        StackPanel technical = new() { Spacing = 8 };
-        technical.Children.Add(PageCopy($"Installed instances:\n{string.Join("\n", row.Instances.Select(instance => $"{instance.Provider}: {instance.ProviderIdentity}; {instance.Version ?? "unknown version"}; {instance.Scope}; {instance.Architecture}"))}"));
-        technical.Children.Add(PageCopy(detailTimeline.Count == 0 ? "Timeline: no product-specific events are recorded." : $"Timeline:\n{string.Join("\n", detailTimeline.Select(entry => $"{entry.OccurredAt.ToLocalTime():g} — {entry.Summary}"))}"));
-        technical.Children.Add(PageCopy(detail?.SourceCandidates.Count > 0 ? $"Source candidates:\n{string.Join("\n", detail.SourceCandidates)}" : "Source candidates: none available."));
         technical.Children.Add(mappingSource);
         technical.Children.Add(mappingPackage);
-        Button map = new() { Content = "Map exact approved package", IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable }; AutomationProperties.SetName(map, "Create manual mapping for an exact approved source package"); map.Click += async (_, _) => { string sourceId = mappingSource.SelectedItem?.ToString() ?? "winget"; string packageId = string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text; string decisionReason = reason.Text; try { PCSteward.Domain.ManualMappingValidation validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, sourceId, packageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); outcome.Text = validation.Explanation; if (validation.IsValid) { LoadSavedInventory(); detailRow = viewModel.AllRows.SingleOrDefault(candidate => candidate.StableProductKey == row.StableProductKey) ?? row; Render(); } } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; technical.Children.Add(map);
-        technical.Children.Add(PageCopy($"Bounded raw diagnostic records: {detailRaw.Count}."));
-        Expander disclosure = new() { Header = "Technical details", Content = technical };
+        Button map = new() { Content = "Map exact approved package…", IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable && !HasActiveOperation };
+        AutomationProperties.SetName(map, $"Map exact approved package… for {row.Name}");
+        map.Click += async (_, _) =>
+        {
+            string sourceId = mappingSource.SelectedItem?.ToString() ?? "winget";
+            string packageId = string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text.Trim();
+            if (packageId.Length == 0) { await ShowUpdateOutcomeAsync("Package ID needed", "Enter the exact approved package ID first. Nothing was saved."); return; }
+            await PromptAndCreateManualMappingAsync(row, sourceId, packageId);
+        };
+        technical.Children.Add(map);
+        technical.Children.Add(PageCopy($"Raw provider records kept for diagnostics: {detailRaw.Count.ToString("N0", CultureInfo.CurrentCulture)}."));
+        Expander disclosure = new() { Header = "Technical details", Content = technical, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         panel.Children.Add(disclosure);
         return panel;
+    }
+
+    private static TextBlock SectionHeading(string text, AutomationHeadingLevel level = AutomationHeadingLevel.Level2)
+    {
+        TextBlock heading = new() { Text = text, Style = AppStyle("StewardSectionTitleStyle"), TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetHeadingLevel(heading, level);
+        return heading;
+    }
+
+    /// <summary>One structured item (an instance or a candidate): a title and its facts, with selectable values.</summary>
+    private static Border DetailItemCard(DetailItem item)
+    {
+        StackPanel content = new() { Spacing = 0 };
+        content.Children.Add(new TextBlock { Text = item.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, Margin = new Thickness(0, 0, 0, StewardSpacing.XSmall) });
+        foreach (DetailFact fact in item.Facts) content.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        Border card = new() { BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(StewardSpacing.XSmall), Padding = new Thickness(StewardSpacing.Medium), Child = content };
+        AutomationProperties.SetName(card, item.Title);
+        return card;
     }
 
     /// <summary>

@@ -218,7 +218,7 @@ internal static class StewardVisuals
         return row;
     }
 
-    public static Border ActivityRow(DateTimeOffset occurredAt, string glyph, string title, string detail)
+    public static Border ActivityRow(string when, string glyph, string title, string detail)
     {
         Grid row = new() { ColumnSpacing = 12 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -227,10 +227,10 @@ internal static class StewardVisuals
         row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Foreground = Brush("StewardBrandBrush"), Margin = new Thickness(0, 2, 0, 0) });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
         copy.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
-        copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle") });
+        if (!string.IsNullOrWhiteSpace(detail)) copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         Grid.SetColumn(copy, 1);
         row.Children.Add(copy);
-        TextBlock time = new() { Text = occurredAt.ToLocalTime().ToString("d MMM yyyy · HH:mm", System.Globalization.CultureInfo.CurrentCulture), Style = Style("StewardCaptionStyle"), Margin = new Thickness(12, 1, 0, 0) };
+        TextBlock time = new() { Text = when, Style = Style("StewardCaptionStyle"), Margin = new Thickness(12, 1, 0, 0) };
         Grid.SetColumn(time, 2);
         row.Children.Add(time);
         Border result = new() { BorderBrush = Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, 10, 0, 10), Child = row };
