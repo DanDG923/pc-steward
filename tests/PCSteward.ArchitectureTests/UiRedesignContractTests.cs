@@ -106,9 +106,17 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(source.Contains("FindFocusTarget(page, focusKey)", StringComparison.Ordinal), "the first-match focus search is gone");
         StringAssert.Contains(Between(source, "private static IEnumerable<Control> FindFocusTargets(", "private StackPanel BuildScanPage()"), "yield return control;");
 
+        // Task 73 Phase 3 deliberately moves the product-named Remove names into the portable DecisionsPresenter (unit-tested in
+        // HomeActivityDecisionsPresentationTests); the Desktop binds them and every name still comes from PageFocusRestore with the product.
         string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", "private async Task SaveExportAsync(");
-        StringAssert.Contains(decisions, "PageFocusRestore.RemoveDecisionName(PageFocusRestore.ProductName(viewModel.AllRows, decision.StableProductKey), decision.Kind)");
-        StringAssert.Contains(decisions, "PageFocusRestore.RemoveManualMappingName(PageFocusRestore.ProductName(viewModel.AllRows, mapping.StableProductKey), mapping.SourceId, mapping.PackageId)");
+        StringAssert.Contains(decisions, "DecisionsPresenter.Build(activeDecisions, manualMappings, viewModel.AllRows)");
+        StringAssert.Contains(decisions, "AutomationProperties.SetName(remove, decision.RemoveAccessibleName);");
+        string decisionsPresenter = ApplicationSource("DecisionsPresentation.cs");
+        StringAssert.Contains(decisionsPresenter, "string product = PageFocusRestore.ProductName(rows, decision.StableProductKey);");
+        StringAssert.Contains(decisionsPresenter, "string product = PageFocusRestore.ProductName(rows, mapping.StableProductKey);");
+        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveDecisionName(product, \"pin\")");
+        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveDecisionName(product, \"ignore\")");
+        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveManualMappingName(product, mapping.SourceId, mapping.PackageId)");
 
         // Every per-row action button created inside a loop over rows, decisions or mappings carries the row's product name.
         foreach (string perRowName in PerRowActionNames) StringAssert.Contains(source, perRowName);
@@ -569,6 +577,46 @@ public sealed class UiRedesignContractTests
         foreach (string write in new[] { "INSERT", "UPDATE ", "DELETE", "CREATE ", "DROP", "ExecuteNonQuery" })
             Assert.IsFalse(reader.Contains(write, StringComparison.Ordinal), $"the activity reader only reads: {write}");
         StringAssert.Contains(reader, "LIMIT $limit");
+
+        // Audit P-M6: one date format and human-readable sizes through the portable DisplayFormat.
+        foreach (string raw in new[] { "ToString(\"g\"", ":N0} bytes", "} characters", "d MMMM yyyy", "dddd, d MMMM" })
+            Assert.IsFalse(source.Contains(raw, StringComparison.Ordinal) || DesktopSource("StewardPresentation.cs").Contains(raw, StringComparison.Ordinal), $"no ad-hoc date or size format: {raw}");
+    }
+
+    /// <summary>
+    /// Task 73 Phase 3 (FR-POL-01–05; ADR-030 foundation 7): Decisions is one view of pins, ignores and mappings, each reversed only
+    /// through its existing operation; Home keeps unmanaged as "not a safety warning", its tiles are real buttons, and "Check for
+    /// updates" composes only the existing read-only scan and source refresh (never review or execution).
+    /// </summary>
+    [TestMethod]
+    [Description("FR-POL-01–05; FR-UI-01/05/06: one reversible Decisions view; Home tiles are buttons; Check for updates never reviews, approves or elevates.")]
+    public void DecisionsAreReversibleAndHomeNeverStartsAnUpdate()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", "private async Task SaveExportAsync(");
+        StringAssert.Contains(decisions, "workflow.DeleteManualMappingAsync(decision.Id, token)");
+        StringAssert.Contains(decisions, "workflow.ReverseDecisionAsync(decision.Id, token)");
+        StringAssert.Contains(decisions, "decision.Reason is { } reason");
+        Assert.IsFalse(decisions.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+        StringAssert.Contains(Between(source, "private StackPanel BuildDecisionsPage()", "private static Style AppStyle("), "AddDecisionsSection(panel);");
+
+        string home = Between(source, "private StackPanel BuildHomePage()", "private StackPanel BuildInstalledAppsPage()");
+        StringAssert.Contains(home, "HomePresenter.Build(new HomeInputs(");
+        StringAssert.Contains(home, "Button button = new()");
+        StringAssert.Contains(home, "AutomationProperties.SetName(button, tile.AccessibleName);");
+        StringAssert.Contains(home, "check.Click += async (_, _) => await CheckForUpdatesAsync();");
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "BeginReviewAsync", "selectedReadyKey =" })
+            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update: {authority}");
+        string check = Between(source, "private async Task CheckForUpdatesAsync()", "private async Task StartScanAsync()");
+        StringAssert.Contains(check, "if (HasActiveOperation) { Render(); return; }");
+        StringAssert.Contains(check, "await StartScanAsync();");
+        StringAssert.Contains(check, "await CheckUpdateSourcesAsync();");
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "Elevat", "runas" })
+            Assert.IsFalse(check.Contains(authority, StringComparison.OrdinalIgnoreCase), authority);
+        string homePresenter = ApplicationSource("HomePresentation.cs");
+        StringAssert.Contains(homePresenter, "Inventoried only: no approved update source is mapped. This is not a safety warning.");
+        StringAssert.Contains(homePresenter, "UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now).Ready.Count", "Home's ready count is the Updates Ready group with nothing selected");
+        Assert.IsFalse(homePresenter.Contains("unsafe", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));

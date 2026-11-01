@@ -750,7 +750,7 @@ public sealed class MainWindow : Window
         }
         if (downloadCache.RecoverableBytes > 0)
         {
-            Button storage = new() { Content = $"Review {downloadCache.RecoverableBytes:N0} bytes of app-owned downloads" }; storage.Click += (_, _) => NavigateTo(ShellPage.Storage); panel.Children.Add(storage);
+            Button storage = new() { Content = $"Review {DisplayFormat.Size(downloadCache.RecoverableBytes)} of app-owned downloads" }; storage.Click += (_, _) => NavigateTo(ShellPage.Storage); panel.Children.Add(storage);
         }
         Button review = new() { Content = "Review available actions" }; review.Click += (_, _) => NavigateTo(ShellPage.Review); panel.Children.Add(review);
         return panel;
@@ -968,8 +968,8 @@ public sealed class MainWindow : Window
         panel.Children.Add(StewardVisuals.InformationBanner("Bounded scope", "Windows temporary files, provider caches, documents, drivers, firmware, and installed applications are outside this screen's scope."));
         StackPanel summary = new() { Spacing = 8 };
         summary.Children.Add(new TextBlock { Text = "App-owned storage", Style = AppStyle("StewardSectionTitleStyle") });
-        summary.Children.Add(PageCopy($"Scan data: {scanData.ItemCount:N0} items; estimated payload {scanData.SizeBytes:N0} characters."));
-        summary.Children.Add(PageCopy($"Downloaded update files: {downloadCache.TotalBytes:N0} bytes total; {downloadCache.RecoverableBytes:N0} bytes recoverable."));
+        summary.Children.Add(PageCopy($"Scan data: {scanData.ItemCount:N0} items; estimated size about {DisplayFormat.Size(scanData.SizeBytes)}."));
+        summary.Children.Add(PageCopy($"Downloaded update files: {DisplayFormat.Size(downloadCache.TotalBytes)} total; {DisplayFormat.Size(downloadCache.RecoverableBytes)} recoverable."));
         summary.Children.Add(PageCopy("Source metadata, logs, and update history are controlled separately in Privacy & data."));
         panel.Children.Add(Card(summary));
         Button privacy = new() { Content = "Manage privacy and data" }; privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy); panel.Children.Add(privacy);
@@ -1103,9 +1103,7 @@ public sealed class MainWindow : Window
     {
         StackPanel panel = CreatePagePanel(900);
         panel.Children.Add(StewardVisuals.PageHeader("Decisions", "Pins, ignores and package identities you confirmed. Each one is reversible, and none of them starts an update."));
-        StackPanel decisions = new() { Spacing = StewardSpacing.Medium };
-        AddDecisionsSection(decisions);
-        panel.Children.Add(Card(decisions));
+        AddDecisionsSection(panel);
         return panel;
     }
 
@@ -1903,7 +1901,7 @@ public sealed class MainWindow : Window
         };
         schedule.Children.Add(cadence); schedule.Children.Add(startTime); schedule.Children.Add(weeklyDay); schedule.Children.Add(scheduleEnabled); schedule.Children.Add(notifications); schedule.Children.Add(save);
         schedule.Children.Add(StewardVisuals.EvidenceRow("Task status", scheduledStatus.LastResult));
-        schedule.Children.Add(StewardVisuals.EvidenceRow("Last completed", scheduledStatus.LastCompletedAt is null ? "Not yet" : scheduledStatus.LastCompletedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)));
+        schedule.Children.Add(StewardVisuals.EvidenceRow("Last completed", scheduledStatus.LastCompletedAt is null ? "Not yet" : DisplayFormat.DateTime(scheduledStatus.LastCompletedAt.Value)));
         panel.Children.Add(Card(schedule));
 
         StackPanel decisions = new() { Spacing = StewardSpacing.Small };
@@ -1919,7 +1917,7 @@ public sealed class MainWindow : Window
         data.Children.Add(new TextBlock { Text = "Storage, privacy & reset", Style = AppStyle("StewardSectionTitleStyle") });
         data.Children.Add(PageCopy("Review app-owned storage, export inventory, clear individual data categories, or perform the separately protected factory-reset flow."));
         data.Children.Add(StewardVisuals.EvidenceRow("Scan records", $"{scanData.ItemCount:N0} items"));
-        data.Children.Add(StewardVisuals.EvidenceRow("Downloaded files", $"{downloadCache.TotalBytes:N0} bytes"));
+        data.Children.Add(StewardVisuals.EvidenceRow("Downloaded files", DisplayFormat.Size(downloadCache.TotalBytes)));
         StackPanel dataActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
         Button storage = new() { Content = "View storage" }; storage.Click += (_, _) => NavigateTo(ShellPage.Storage); dataActions.Children.Add(storage);
         Button privacy = new() { Content = "Privacy & data controls" }; privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy); dataActions.Children.Add(privacy);
@@ -2035,15 +2033,15 @@ public sealed class MainWindow : Window
     private void AddDataAndResetSection(StackPanel panel)
     {
         panel.Children.Add(new TextBlock { Text = "Data & reset", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated payload {scanData.SizeBytes:N0} characters. Last cleared: {(scanData.LastClearedAt is null ? "never" : scanData.LastClearedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated size about {DisplayFormat.Size(scanData.SizeBytes)}. Last cleared: {(scanData.LastClearedAt is null ? "never" : DisplayFormat.DateTime(scanData.LastClearedAt.Value))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", TextWrapping = TextWrapping.Wrap });
         StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; Button exportCsv = new() { Content = "Export inventory CSV" }; exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv); Button exportJson = new() { Content = "Export inventory JSON" }; exportJson.Click += async (_, _) => await SaveExportAsync(true); exportActions.Children.Add(exportJson); panel.Children.Add(exportActions);
         bool available = !viewModel.IsScanning && !isExecuting && !isClearing && !downloads.IsCleaning; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
-        panel.Children.Add(new TextBlock { Text = $"Downloaded update files: {downloadCache.ArtifactCount} tracked item(s), {downloadCache.TotalBytes:N0} bytes total, {downloadCache.RecoverableBytes:N0} bytes recoverable. Last cleaned: {(downloadCache.LastCleanedAt is null ? "never" : downloadCache.LastCleanedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))}. Clear downloaded files removes only inactive files under PC Steward's app-owned download cache; it preserves active update files, installed applications, scan data, source metadata, update history and all Windows, WinGet, Microsoft Store and other provider caches.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = $"Downloaded update files: {downloadCache.ArtifactCount} tracked item(s), {DisplayFormat.Size(downloadCache.TotalBytes)} total, {DisplayFormat.Size(downloadCache.RecoverableBytes)} recoverable. Last cleaned: {(downloadCache.LastCleanedAt is null ? "never" : DisplayFormat.DateTime(downloadCache.LastCleanedAt.Value))}. Clear downloaded files removes only inactive files under PC Steward's app-owned download cache; it preserves active update files, installed applications, scan data, source metadata, update history and all Windows, WinGet, Microsoft Store and other provider caches.", TextWrapping = TextWrapping.Wrap });
         Button clearDownloads = new() { Content = "Clear downloaded files", IsEnabled = available && downloadCache.RecoverableBytes > 0 }; AutomationProperties.SetName(clearDownloads, "Clear downloaded files"); clearDownloads.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Clear downloaded files?"); panel.Children.Add(clearDownloads);
         if (downloadCache.RecoverableBytes > 0)
         {
-            panel.Children.Add(new TextBlock { Text = $"Update completion cleanup: {downloadCache.RecoverableBytes:N0} bytes of app-owned downloaded files remain. You can recover this space without affecting the installed update.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = $"Update completion cleanup: {DisplayFormat.Size(downloadCache.RecoverableBytes)} of app-owned downloaded files remain. You can recover this space without affecting the installed update.", TextWrapping = TextWrapping.Wrap });
             Button completionDelete = new() { Content = "Delete downloaded files", IsEnabled = available }; AutomationProperties.SetName(completionDelete, "Delete downloaded files after update completion"); completionDelete.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Delete downloaded files after update completion?"); panel.Children.Add(completionDelete);
         }
         panel.Children.Add(new TextBlock { Text = available ? "Routine cleanup is available without administrator elevation." : "Cleanup is unavailable while a scan, update, or cleanup is active. Cancel or wait for it to finish.", TextWrapping = TextWrapping.Wrap });
@@ -2091,24 +2089,60 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// FR-POL-01–05 (Task 73 Phase 3, ADR-030 foundation 7): pins, ignores (indefinitely or until a date) and confirmed package
+    /// identities in one view, grouped by kind, each with its reason and its existing reversal. Each Remove button's accessible name
+    /// starts with its label and names the product (Phase 1 focus rule). Removing a decision only reapplies the normal review rules;
+    /// it never starts an update.
+    /// </summary>
     private void AddDecisionsSection(StackPanel panel)
     {
-        panel.Children.Add(new TextBlock { Text = "Update decisions", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or manual mappings. Decisions are optional, reversible, and do not enable updates." : "Active decisions and manual mappings are listed below. Remove one to reapply normal review rules on the next source check.", TextWrapping = TextWrapping.Wrap });
-        foreach (PCSteward.Domain.StableDecision decision in activeDecisions)
+        IReadOnlyList<DecisionRow> rows = DecisionsPresenter.Build(activeDecisions, manualMappings, viewModel.AllRows);
+        panel.Children.Add(PageCopy(rows.Count == 0
+            ? "No active pins, ignores or confirmed package identities. Decisions are optional, reversible, and never enable or start updates."
+            : "Remove a decision to reapply the normal review rules on the next source check. Nothing is updated when you do."));
+        foreach (DecisionKind kind in new[] { DecisionKind.Pin, DecisionKind.Ignore, DecisionKind.Mapping })
         {
-            Grid row = new() { ColumnSpacing = 12 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.Children.Add(new TextBlock { Text = $"{decision.Kind}: {decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" — {decision.Reason}")}", TextWrapping = TextWrapping.Wrap });
-            Button remove = new() { Content = "Remove decision" }; AutomationProperties.SetName(remove, PageFocusRestore.RemoveDecisionName(PageFocusRestore.ProductName(viewModel.AllRows, decision.StableProductKey), decision.Kind)); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.ReverseDecisionAsync(decision.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; Grid.SetColumn(remove, 1); row.Children.Add(remove); panel.Children.Add(row);
+            DecisionRow[] group = rows.Where(row => row.Kind == kind).ToArray();
+            if (group.Length == 0) continue;
+            StackPanel section = new() { Spacing = 0 };
+            section.Children.Add(SectionHeading(DecisionsPresenter.GroupHeading(kind, group.Length)));
+            foreach (DecisionRow decision in group) section.Children.Add(DecisionRowView(decision));
+            panel.Children.Add(Card(section));
         }
-        foreach (PCSteward.Domain.ManualMapping mapping in manualMappings)
+    }
+
+    private Border DecisionRowView(DecisionRow decision)
+    {
+        Grid line = new() { ColumnSpacing = StewardSpacing.Medium };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        line.Children.Add(new FontIcon { Glyph = decision.Glyph, FontSize = 16, Foreground = StewardVisuals.Brush("StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
+        StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
+        copy.Children.Add(new TextBlock { Text = decision.ProductName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        copy.Children.Add(new TextBlock { Text = decision.Title, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        copy.Children.Add(new TextBlock { Text = decision.Detail, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (decision.Reason is { } reason) copy.Children.Add(new TextBlock { Text = $"Reason: {reason}", TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        Grid.SetColumn(copy, 1); line.Children.Add(copy);
+        Button remove = new() { Content = decision.RemoveLabel, VerticalAlignment = VerticalAlignment.Top, IsEnabled = !HasActiveOperation };
+        AutomationProperties.SetName(remove, decision.RemoveAccessibleName);
+        remove.Click += async (_, _) =>
         {
-            Grid row = new() { ColumnSpacing = 12 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.Children.Add(new TextBlock { Text = $"Manual mapping: {mapping.SourceId}:{mapping.PackageId}{(string.IsNullOrWhiteSpace(mapping.Reason) ? string.Empty : $" — {mapping.Reason}")}", TextWrapping = TextWrapping.Wrap });
-            Button remove = new() { Content = "Remove mapping" }; AutomationProperties.SetName(remove, PageFocusRestore.RemoveManualMappingName(PageFocusRestore.ProductName(viewModel.AllRows, mapping.StableProductKey), mapping.SourceId, mapping.PackageId)); remove.Click += async (_, _) => { try { await DataOperationLease.RunAsync(token => workflow.DeleteManualMappingAsync(mapping.Id, token), CancellationToken.None); LoadSavedInventory(); Render(); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }; Grid.SetColumn(remove, 1); row.Children.Add(remove); panel.Children.Add(row);
-        }
+            remove.IsEnabled = false;
+            try
+            {
+                // The existing reversal operations: a pin or ignore is reversed, a confirmed mapping is deleted.
+                if (decision.Kind == DecisionKind.Mapping) await DataOperationLease.RunAsync(token => workflow.DeleteManualMappingAsync(decision.Id, token), CancellationToken.None);
+                else await DataOperationLease.RunAsync(token => workflow.ReverseDecisionAsync(decision.Id, token), CancellationToken.None);
+                LoadSavedInventory(); Render();
+            }
+            catch (InvalidOperationException) { remove.IsEnabled = true; await ShowDataOperationUnavailableAsync(); }
+        };
+        Grid.SetColumn(remove, 2); line.Children.Add(remove);
+        Border row = new() { BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, StewardSpacing.Medium, 0, StewardSpacing.Medium), Child = line };
+        AutomationProperties.SetName(row, $"{decision.ProductName}: {decision.Title}");
+        return row;
     }
 
     private async Task SaveExportAsync(bool json) { try { InventoryExport export = await DataOperationLease.RunReadAsync(token => workflow.CreateExportAsync(json, token), CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }
