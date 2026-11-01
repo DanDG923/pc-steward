@@ -1,5 +1,7 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Planned follow-up (owner request, 2026-11-01): full UI and user-experience overhaul.** After the Task 50 coding is done, run a full overhaul of the Desktop UI and user experience. It gets its own numbered, scoped task: an audit of the current screens, flows, copy and accessibility (ADR-021 best effort) first, then a plan that the owner reviews before implementation. It is not part of Task 50 admission and does not change the MVP scope until that task is scoped.
+
 **Task 50 — slice N6 review disclosure and history (2026-11-01):** `ChocolateyReviewDisclosurePresentation` (user-cache text verbatim, the intent's own time, runtime limits, the lingering-installer disclosure, and closed unavailability reasons including the L6 split-token rule; `CanConfirm` is always false today), history `Route`/`VerificationDetail`/`LingeringProcessesNote`, and `ChocolateyReviewedRouteComposition` (one shared baseline store, unconstructed). The route stays non-admitted, and architecture tests pin that. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
 - **Windows CI on `83377bc` is green** (Security 1119/1119, integration 941).
 - **Fresh integrated review: PASS with fixes.** The H1 fix (the helper now emits `lingering-descendants-terminated`) and L1–L6 are in `94018e8..08b0e91`, and **Windows CI is green** (Security 1124/1124). M1 (Desktop review and history UI) and the production intent resolver are in progress; the route stays non-admitted.
