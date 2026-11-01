@@ -25,6 +25,11 @@ public sealed class UpdateProgressUiContractTests
         Assert.IsFalse(tick.Contains("Task.Run", StringComparison.Ordinal));
         Assert.IsFalse(tick.Contains("TryEnqueue", StringComparison.Ordinal));
         Assert.IsFalse(tick.Contains("while", StringComparison.Ordinal));
+        // Task 73 Phase 1: the operation band (and so the polled label) is created once with the persistent shell.
+        string shell = Between(source, "private void EnsureShell()", "private static void AddNavigationItem");
+        StringAssert.Contains(shell, "if (navigationView is not null || windowRoot is null) return;");
+        StringAssert.Contains(shell, "operationStatusText = new TextBlock");
+        Assert.AreEqual(1, source.Split("operationStatusText = new TextBlock", StringSplitOptions.None).Length - 1);
     }
 
     [TestMethod]

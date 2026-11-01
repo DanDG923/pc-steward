@@ -94,7 +94,7 @@ public sealed class ReviewedRouteDesktopUiBoundaryTests
         StringAssert.Contains(window, "ReviewedRouteSurfaces.RenderHistory(outcomes, history);");
         StringAssert.Contains(surfaces, "foreach (ReviewedUpdateHistoryItemViewModel item in model.Items)");
         StringAssert.Contains(surfaces, "foreach (ReviewedDisplayField field in item.Fields)");
-        string activity = Between(window, "private void RenderActivityPage()", "private void RenderPrivacyPage()");
+        string activity = Between(window, "private StackPanel BuildActivityPage()", "private StackPanel BuildPrivacyPage()");
         StringAssert.Contains(activity, "AddReviewedUpdateOutcomesSection(panel);");
     }
 

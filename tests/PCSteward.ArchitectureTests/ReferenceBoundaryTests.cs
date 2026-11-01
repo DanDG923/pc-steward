@@ -180,7 +180,8 @@ public sealed class ReferenceBoundaryTests
         int acknowledgement = desktopSource.IndexOf("PostResetOnboardingFlow.Evaluate(", StringComparison.Ordinal);
         int failedAcknowledgement = desktopSource.IndexOf("if (!outcome.AcknowledgementSucceeded)", acknowledgement, StringComparison.Ordinal);
         int reloadOrMarkerFailure = desktopSource.IndexOf("if (!outcome.ScanNavigationRequested)", failedAcknowledgement, StringComparison.Ordinal);
-        int openScan = desktopSource.IndexOf("destination = \"scan\"; Render();", reloadOrMarkerFailure, StringComparison.Ordinal);
+        // Task 73 Phase 1: onboarding opens Scan through the shell navigation and clears Back so onboarding is never revisited.
+        int openScan = desktopSource.IndexOf("navigation.Reset(ShellPage.Scan); Render();", reloadOrMarkerFailure, StringComparison.Ordinal);
 
         Assert.IsTrue(acknowledgement >= 0 && failedAcknowledgement > acknowledgement && reloadOrMarkerFailure > failedAcknowledgement && openScan > reloadOrMarkerFailure);
         StringAssert.Contains(flowSource, "if (!acknowledgementResult.Succeeded)");
@@ -289,8 +290,8 @@ public sealed class ReferenceBoundaryTests
         string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
         string source = File.ReadAllText(sourcePath);
 
-        StringAssert.Contains(source, "RenderProductDetailPage()");
-        StringAssert.Contains(source, "destination = \"detail\"");
+        StringAssert.Contains(source, "BuildProductDetailPage()");
+        StringAssert.Contains(source, "NavigateTo(ShellPage.Detail)");
         StringAssert.Contains(source, "Header = \"Technical details\"");
         StringAssert.Contains(source, "InventoryRow[] decisions");
         StringAssert.Contains(source, "Needs a decision");
@@ -355,7 +356,9 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "PCSteward.Application.UpdateHistoryStatus.Success => \"Update completed\"");
         StringAssert.Contains(source, "PCSteward.Application.UpdateHistoryStatus.RestartRequired => \"Restart required\"");
         StringAssert.Contains(source, "_ => \"Update failed\"");
-        StringAssert.Contains(source, "The update was blocked before it could run.");
+        // Task 73 Phase 1: the helper-missing copy moved to the portable ElevationStory (audit P-H5); the pin moved with it.
+        StringAssert.Contains(source, "? ElevationStory.HelperMissingOutcome");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "ElevationStory.cs")), "\"The update was blocked before it could run. ");
         Assert.IsFalse(source.Contains("result.Started ? \"Update completed\" : \"Update not started\"", StringComparison.Ordinal));
     }
 
