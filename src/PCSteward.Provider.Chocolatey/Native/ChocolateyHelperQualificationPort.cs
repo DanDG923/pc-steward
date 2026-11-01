@@ -5,8 +5,9 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §5.4 (M6, rev-3 M-A): the helper qualification port. The port owns the
 /// item; the stage machine in Execution sees only these opaque interfaces and the plain value records below. No type with a
-/// private constructor crosses into Execution. Exactly one production implementation of each interface exists (N4b); until
-/// then no <c>src</c> type implements them (architecture test).
+/// private constructor crosses into Execution. Exactly one production implementation of each interface exists (N4b):
+/// <see cref="NativeChocolateyHelperQualification"/>, <see cref="NativeChocolateyPeer"/> and
+/// <see cref="NativeChocolateyHelperItem"/> (architecture test).
 /// </summary>
 internal interface IChocolateyHelperQualificationPort
 {

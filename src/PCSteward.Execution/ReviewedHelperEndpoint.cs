@@ -10,7 +10,7 @@ namespace PCSteward.Execution;
 /// The helper-side G1 seam (Task 50 design rev 6 §5.2 A3, §6): the pure <see cref="DeploymentCapabilityPolicy"/> evaluated
 /// over inputs the helper reads itself, with the item's requester check as the protection principal, plus
 /// the helper's own image hash and the peer desktop image hash at the given image path (read from the held
-/// peer handle) equal to their ledger entries. The Helper-role reader is N4b; any exception means unsupported.
+/// peer handle) equal to their ledger entries. The Helper-role check is <see cref="HelperDeploymentCapabilityCheck"/>; any exception means unsupported.
 /// </summary>
 internal interface IReviewedHelperCapabilityCheck
 {
@@ -58,7 +58,7 @@ internal sealed record ReviewedHelperEndpointResult(ReviewedHelperEndpointExit E
 /// </list>
 /// The response is built only through <see cref="ReviewedUpdateWireCodec.CreateResponse"/>; if it throws, nothing is
 /// written. At most one frame is written. A disconnect monitor cancels provider work when the desktop closes the pipe.
-/// It never retries, never upgrades twice, and never reports success. No production composition calls it yet (N4b).
+/// It never retries, never upgrades twice, and never reports success. Its only caller is <see cref="ReviewedHelperBootstrap"/> (N4b).
 /// </summary>
 internal static class ReviewedHelperEndpoint
 {
