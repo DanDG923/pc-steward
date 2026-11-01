@@ -1,15 +1,16 @@
 #Requires -Version 5.1
 <#
-  Task 50 host-evidence probe for O5, A-Q1 and A2-L3. DRAFT revision 1.
-  Do not run until the final file is reviewed, its SHA-256 is recorded and the owner approves exactly that hash.
-  Writes only inside %TEMP%\pcsteward-evidence-task50. Never runs choco.exe or any PC Steward binary.
-  No registry writes, ACL changes, installs, network calls or elevation (except the separately approved Uac case).
-  Pure ASCII, CRLF line endings.
+  Task 50 host-evidence probe for O5, A-Q1 and A2-L3 -- revision 2.
+  Plan: docs/review/TASK_50_HOST_EVIDENCE_PLAN.md (revision 2). Approval binds the CRLF file SHA-256 recorded in plan section 4.
+  Run and Cleanup write only inside %TEMP%\pcsteward-evidence-task50. SelfCheck writes only compiler output under -ScratchDirectory.
+  Never runs choco.exe or any PC Steward binary. No registry writes, ACL changes, installs, network calls or elevation
+  (except the separately approved Uac case). Pure ASCII.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('Run', 'Cleanup')][string]$Mode,
-    [ValidateSet('Default', 'Uac', 'PcStewardHolds')][string]$Cases = 'Default'
+    [Parameter(Mandatory = $true)][ValidateSet('Run', 'Cleanup', 'SelfCheck')][string]$Mode,
+    [ValidateSet('Default', 'Uac', 'PcStewardHolds')][string]$Cases = 'Default',
+    [string]$ScratchDirectory   # SelfCheck only: caller-supplied, existing, empty directory for compiler output
 )
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
@@ -17,55 +18,9 @@ $ProgressPreference = 'SilentlyContinue'
 
 function Stop-Probe([string]$Reason) { throw ('STOP: ' + $Reason) }
 
-# ---- S0: interpreter, platform, fixed location and token preconditions ----------------
-if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { Stop-Probe 'windows-powershell-5.1-required' }
-if (-not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { Stop-Probe 'x64-process-required' }
-if ([Environment]::OSVersion.Version.Major -ne 10 -or [Environment]::OSVersion.Version.Build -lt 22000) { Stop-Probe 'windows-11-required' }
-$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
-$evidenceDir = Join-Path $tempRoot 'pcsteward-evidence-task50'
-$scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
-if (-not [string]::Equals([IO.Path]::GetDirectoryName($scriptPath), $evidenceDir, [StringComparison]::OrdinalIgnoreCase)) { Stop-Probe 'script-not-in-dedicated-evidence-directory' }
-$cursor = New-Object IO.DirectoryInfo $evidenceDir
-while ($null -ne $cursor) {
-    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'reparse-point-in-evidence-ancestry' }
-    $cursor = $cursor.Parent
-}
-$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-if ((New-Object Security.Principal.WindowsPrincipal $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Stop-Probe 'elevated-or-full-administrator-token' }
-
-# ---- Cleanup mode: removes only the dedicated evidence directory after strict shape checks ----
-if ($Mode -eq 'Cleanup') {
-    $entries = @(Get-ChildItem -LiteralPath $evidenceDir -Force -Recurse)
-    if ($entries.Count -gt 256) { Stop-Probe 'cleanup-unexpected-entry-count' }
-    foreach ($entry in $entries) {
-        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'cleanup-reparse-point' }
-        $parent = if ($entry.PSIsContainer) { $entry.Parent.FullName } else { $entry.DirectoryName }
-        $parentName = Split-Path -Leaf $parent
-        $grandParent = Split-Path -Parent $parent
-        $inEvidence = $parent -eq $evidenceDir
-        $inRun = ($grandParent -eq $evidenceDir) -and ($parentName -match '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$')
-        $inScratch = ($parentName -eq 'tmp') -and ((Split-Path -Parent $grandParent) -eq $evidenceDir) -and ((Split-Path -Leaf $grandParent) -match '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$')
-        if ($entry.PSIsContainer) {
-            if (-not (($inEvidence -and $entry.Name -match '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$') -or ($inRun -and $entry.Name -eq 'tmp'))) { Stop-Probe 'cleanup-unexpected-directory' }
-        } elseif (-not (($inEvidence -and $entry.Name -eq 'Task50-HostEvidence.ps1') -or $inRun -or $inScratch)) { Stop-Probe 'cleanup-unexpected-file' }
-    }
-    Remove-Item -LiteralPath $evidenceDir -Recurse -Force
-    'CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed'
-    return
-}
-
-# ---- Run mode setup -------------------------------------------------------------------
-$deadlineSeconds = @{ Default = 240; Uac = 300; PcStewardHolds = 60 }[$Cases]
+$deadlineSeconds = @{ Run = @{ Default = 240; Uac = 300; PcStewardHolds = 60 }[$Cases]; Cleanup = 60; SelfCheck = 150 }[$Mode]
 $clock = [Diagnostics.Stopwatch]::StartNew()
 function Assert-Deadline { if ($clock.Elapsed.TotalSeconds -gt $deadlineSeconds) { Stop-Probe 'overall-deadline' } }
-$scriptSha256 = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash
-$runName = 'run-' + [DateTime]::UtcNow.ToString('yyyyMMdd\THHmmss\Z') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
-$run = Join-Path $evidenceDir $runName
-$scratch = Join-Path $run 'tmp'
-if (Test-Path -LiteralPath $run) { Stop-Probe 'run-directory-exists' }
-[void][IO.Directory]::CreateDirectory($scratch)
-$env:TEMP = $scratch   # process scope only: compiler scratch files stay inside the run directory
-$env:TMP = $scratch
 
 $nativeSource = @'
 using System;
@@ -417,8 +372,123 @@ if ($release.Count -ne 56) { Stop-Probe 'embedded-release-list-count' }
 $engineSha256 = '4AB5785C91D6CB3CC0E9890BCA29077F7D6BAAC0DFC935DBE2DA37047ED761C0'
 $assetSha256 = 'F86F99A18D236C2F99E6F67A20BE7ADC65C6C7756BF6CF3B43759E7EC0AA5839'
 
-Add-Type -TypeDefinition $nativeSource -Language CSharp
+# ---- Shared by Run and SelfCheck: the one Add-Type call and the bounded synthetic build -----------
+function Import-T50 {
+    Assert-Deadline
+    Add-Type -TypeDefinition $nativeSource -Language CSharp   # the same call in Run and SelfCheck
+    Assert-Deadline
+}
 
+# CodeDom (csc.exe) build in a separate runspace so that the wait is bounded. Outputs are never loaded into this process.
+# On timeout the probe stops; an orphaned csc.exe can only finish writing into the given scratch/output directory.
+$compileScript = @'
+param($Source, $Output, $Executable, $Scratch)
+$provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+$parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+$parameters.GenerateExecutable = $Executable
+$parameters.GenerateInMemory = $false
+$parameters.OutputAssembly = $Output
+$parameters.TempFiles = New-Object System.CodeDom.Compiler.TempFileCollection($Scratch, $false)
+$result = $provider.CompileAssemblyFromSource($parameters, $Source)
+-not $result.Errors.HasErrors
+'@
+function Build-Synthetic([string]$Source, [string]$Output, [bool]$Executable, [string]$Scratch) {
+    Assert-Deadline
+    $shell = [PowerShell]::Create()
+    $async = $null
+    try {
+        [void]$shell.AddScript($compileScript).AddArgument($Source).AddArgument($Output).AddArgument($Executable).AddArgument($Scratch)
+        $async = $shell.BeginInvoke()
+        $remaining = [int][Math]::Max(1000, [Math]::Min(60000, ($deadlineSeconds - $clock.Elapsed.TotalSeconds) * 1000))
+        if (-not $async.AsyncWaitHandle.WaitOne($remaining)) { Stop-Probe 'synthetic-build-deadline' }
+        $ok = @($shell.EndInvoke($async))
+        if ($shell.HadErrors -or $ok.Count -ne 1 -or -not $ok[0]) { Stop-Probe 'synthetic-build-failed' }
+    } finally {
+        if ($null -ne $async -and $async.IsCompleted) { $shell.Dispose() }
+    }
+}
+
+# ---- SelfCheck (CI rehearsal): host version, the Run-mode Add-Type compile and the synthetic compiles only -------
+# No reads outside this script's own directory (other than .NET/compiler binaries), no launches, no probes; writes only
+# compiler output and scratch under -ScratchDirectory.
+if ($Mode -eq 'SelfCheck') {
+    'SELFCHECK-HOST: ' + $PSVersionTable.PSEdition + ' ' + $PSVersionTable.PSVersion.ToString()
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        'SELFCHECK-FAIL: windows-powershell-5.1-required'; exit 2
+    }
+    if ([string]::IsNullOrEmpty($ScratchDirectory) -or -not [IO.Path]::IsPathRooted($ScratchDirectory)) { 'SELFCHECK-FAIL: absolute-scratch-directory-required'; exit 2 }
+    $scratchInfo = New-Object IO.DirectoryInfo $ScratchDirectory
+    if (-not $scratchInfo.Exists -or ($scratchInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or @($scratchInfo.GetFileSystemInfos()).Count -ne 0) {
+        'SELFCHECK-FAIL: scratch-directory-must-exist-empty-and-not-be-a-reparse-point'; exit 2
+    }
+    $env:TEMP = $scratchInfo.FullName   # process scope only
+    $env:TMP = $scratchInfo.FullName
+    try {
+        'SELFCHECK-SHA256: ' + (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+        'SELFCHECK-RELEASE-ENTRIES: ' + $release.Count
+        Import-T50
+        if ([T50]::FileModificationRights.Length -ne 7 -or [T50]::DirectoryModificationRights.Length -ne 6 -or [T50]::AncestorReplacementRights.Length -ne 4) { Stop-Probe 'rights-lists' }
+        Build-Synthetic $lazySource (Join-Path $scratchInfo.FullName 'aq1-lazy.dll') $false $scratchInfo.FullName
+        Build-Synthetic $managedSource (Join-Path $scratchInfo.FullName 'aq1-managed.exe') $true $scratchInfo.FullName
+    } catch {
+        $message = [string]$_.Exception.Message
+        if ($message.StartsWith('STOP: ')) { 'SELFCHECK-FAIL: ' + $message.Substring(6) } else { 'SELFCHECK-FAIL: ' + $_.Exception.GetType().Name }
+        exit 1
+    }
+    'SELFCHECK-OK'
+    exit 0
+}
+
+# ---- S0: interpreter, platform, fixed location and token preconditions ----------------
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { Stop-Probe 'windows-powershell-5.1-required' }
+if (-not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { Stop-Probe 'x64-process-required' }
+if ([Environment]::OSVersion.Version.Major -ne 10 -or [Environment]::OSVersion.Version.Build -lt 22000) { Stop-Probe 'windows-11-required' }
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+$evidenceDir = Join-Path $tempRoot 'pcsteward-evidence-task50'
+$scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
+if (-not [string]::Equals([IO.Path]::GetDirectoryName($scriptPath), $evidenceDir, [StringComparison]::OrdinalIgnoreCase)) { Stop-Probe 'script-not-in-dedicated-evidence-directory' }
+$cursor = New-Object IO.DirectoryInfo $evidenceDir
+while ($null -ne $cursor) {
+    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'reparse-point-in-evidence-ancestry' }
+    $cursor = $cursor.Parent
+}
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+if ((New-Object Security.Principal.WindowsPrincipal $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Stop-Probe 'elevated-or-full-administrator-token' }
+
+# ---- Cleanup mode: fixed-depth manual walk (evidence dir -> run-* -> tmp), reparse refused at every level ----
+if ($Mode -eq 'Cleanup') {
+    $runPattern = '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$'
+    $runFiles = @('aq1-native.exe', 'aq1-managed.exe', 'aq1-lazy.dll', 'aq1-managed.runtimeconfig.json', 'a2l3-own.bin', 'evidence.json')
+    function Get-Level([string]$Directory, [int]$Limit) {
+        $items = @(Get-ChildItem -LiteralPath $Directory -Force)   # one level only; never -Recurse
+        if ($items.Count -gt $Limit) { Stop-Probe 'cleanup-unexpected-entry-count' }
+        foreach ($item in $items) { if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'cleanup-reparse-point' } }
+        return $items
+    }
+    foreach ($top in (Get-Level $evidenceDir 16)) {
+        if (-not $top.PSIsContainer) { if ($top.Name -ne 'Task50-HostEvidence.ps1') { Stop-Probe 'cleanup-unexpected-file' }; continue }
+        if ($top.Name -notmatch $runPattern) { Stop-Probe 'cleanup-unexpected-directory' }
+        foreach ($inRun in (Get-Level $top.FullName 16)) {
+            if (-not $inRun.PSIsContainer) { if ($runFiles -notcontains $inRun.Name) { Stop-Probe 'cleanup-unexpected-file' }; continue }
+            if ($inRun.Name -ne 'tmp') { Stop-Probe 'cleanup-unexpected-directory' }
+            foreach ($inScratch in (Get-Level $inRun.FullName 256)) { if ($inScratch.PSIsContainer) { Stop-Probe 'cleanup-unexpected-directory' } }
+        }
+    }
+    Remove-Item -LiteralPath $evidenceDir -Recurse -Force   # reached only when every level was checked and no reparse point exists
+    'CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed'
+    return
+}
+
+# ---- Run mode setup -------------------------------------------------------------------
+$scriptSha256 = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash
+$runName = 'run-' + [DateTime]::UtcNow.ToString('yyyyMMdd\THHmmss\Z') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+$run = Join-Path $evidenceDir $runName
+$scratch = Join-Path $run 'tmp'
+if (Test-Path -LiteralPath $run) { Stop-Probe 'run-directory-exists' }
+[void][IO.Directory]::CreateDirectory($scratch)
+$env:TEMP = $scratch   # process scope only: compiler scratch files stay inside the run directory
+$env:TMP = $scratch
+Import-T50
 # ---- Sanitizing helpers -----------------------------------------------------------------
 $programFiles = [IO.Path]::GetFullPath([Environment]::GetFolderPath('ProgramFiles')).TrimEnd('\')
 $programData = [IO.Path]::GetFullPath([Environment]::GetFolderPath('CommonApplicationData')).TrimEnd('\')
@@ -479,6 +549,7 @@ function Read-Tree([string]$TopName, $KnownSet, [bool]$RecordNames, $Problems) {
         try { $children = @($info.EnumerateFileSystemInfos()) }
         catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$failures.Add('list:' + $code); [void]$Problems.Add($TopName + ':list:' + $code); continue }
         foreach ($child in $children) {
+            Assert-Deadline
             $count++
             if ($count -gt 32768) { $r.overBound = $true; [void]$Problems.Add($TopName + ':over-bound'); break }
             $relative = $child.FullName.Substring($chocoRoot.Length + 1).Replace('\', '/')
@@ -522,8 +593,9 @@ function Invoke-O5 {
     }
     if (@(Get-Process -Name 'choco' -ErrorAction SilentlyContinue).Count -gt 0) { $r.status = 'skipped-choco-running'; return $r }
     $r.status = 'run'
-    $r.rootIdentity = Get-PathFileId $chocoRoot $true
-    if ($r.rootIdentity.StartsWith('error:')) { [void]$problems.Add('root:file-id:' + $r.rootIdentity.Substring(6)) }
+    $rootId = Get-PathFileId $chocoRoot $true   # used only as a readability check; never recorded
+    $r.rootIdentityRead = -not $rootId.StartsWith('error:')
+    if (-not $r.rootIdentityRead) { [void]$problems.Add('root:file-id:' + $rootId.Substring(6)) }
     try { if (([IO.File]::GetAttributes($chocoRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [void]$findings.Add('root:reparse') } }
     catch { [void]$problems.Add('root:attributes:' + ($_.Exception.HResult -band 0xFFFF)) }
 
@@ -640,6 +712,7 @@ function Invoke-O5 {
 # ---- A-Q1: launch of a synthetic image while read-share holds are held ------------------------
 function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [string[]]$HoldPaths, [bool]$CheckPeer) {
     $r = [ordered]@{ launcher = $Launcher; held = ($HoldPaths.Count -gt 0) }
+    $heldId = $null
     $holds = New-Object System.Collections.ArrayList
     try {
         foreach ($p in $HoldPaths) {
@@ -649,8 +722,10 @@ function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [s
         }
         if ($holds.Count -gt 0) {
             $e = 0
-            $r.heldFileId = [T50]::FileIdOf($holds[0].Handle, [ref]$e)
-            $r.freshFileIdBeforeEqualsHeld = ((Get-PathFileId $HoldPaths[0] $false) -eq $r.heldFileId)
+            $heldId = [T50]::FileIdOf($holds[0].Handle, [ref]$e)   # volume serial + file id; kept in memory only
+            $r.heldFileIdRead = ($null -ne $heldId)
+            if ($null -ne $heldId) { $r.heldFileId128 = $heldId.Split(':')[1] }
+            $r.freshFileIdBeforeEqualsHeld = ($null -ne $heldId) -and ((Get-PathFileId $HoldPaths[0] $false) -eq $heldId)
             $r.replacementWhileHeldBeforeLaunch = Get-Replacement $HoldPaths
         }
         $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -669,7 +744,7 @@ function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [s
                 $r.peerImagePath = San $path
                 $r.peerFileIdRead = ($null -ne $peer)
                 if ($null -eq $peer) { $r.peerError = $e }
-                if ($holds.Count -gt 0) { $r.peerEqualsHeld = ($null -ne $peer) -and ($peer -eq $r.heldFileId) }
+                if ($holds.Count -gt 0) { $r.peerEqualsHeld = ($null -ne $peer) -and ($null -ne $heldId) -and ($peer -eq $heldId) }
             }
             if ($holds.Count -gt 0) { $r.replacementWhileRunning = Get-Replacement $HoldPaths }
             if ($Launcher -eq 'CreateProcessSuspended') { $r.resumeError = [T50]::Resume($child) }
@@ -677,11 +752,22 @@ function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [s
             if ($r.exit -eq 'timeout' -and $Launcher -ne 'RunAs') { $r.terminatedOwnSyntheticChild = [T50]::TerminateOwnSyntheticChild($child); [void][T50]::WaitExit($child, 5000) }
         } finally { [T50]::Release($child) }
         if ($holds.Count -gt 0) {
-            $r.freshFileIdAfterEqualsHeld = ((Get-PathFileId $HoldPaths[0] $false) -eq $r.heldFileId)
+            $r.freshFileIdAfterEqualsHeld = ($null -ne $heldId) -and ((Get-PathFileId $HoldPaths[0] $false) -eq $heldId)
             $r.replacementWhileHeldAfterExit = Get-Replacement $HoldPaths
         }
     } finally { foreach ($h in $holds) { $h.Handle.Dispose() } }
-    if ($HoldPaths.Count -gt 0) { $r.controlAfterRelease = @(foreach ($p in $HoldPaths) { (Split-Path -Leaf $p) + ':DELETE=' + [T50]::ProbeOpen($p, [T50]::Delete, $false) }) }
+    if ($HoldPaths.Count -gt 0) {
+        # Bounded re-probe (at most 3 attempts, 500 ms apart) absorbs a transient scanner open; attempts are recorded.
+        $r.controlAfterRelease = @(foreach ($p in $HoldPaths) {
+            $outcome = $null
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                $outcome = [T50]::ProbeOpen($p, [T50]::Delete, $false)
+                if ($outcome -ne '32') { break }
+                if ($attempt -lt 3) { Start-Sleep -Milliseconds 500 }
+            }
+            (Split-Path -Leaf $p) + ':DELETE=' + $outcome + ';attempts=' + [Math]::Min($attempt, 3)
+        })
+    }
     return $r
 }
 
@@ -693,21 +779,10 @@ function Test-HeldRun($Baseline, $Held, [bool]$PeerRequired) {
     $all = @($Held.replacementWhileHeldBeforeLaunch) + @($Held.replacementWhileHeldAfterExit)
     if (@($all | Where-Object { $_ -match '=handle' }).Count -gt 0) { return 'FAIL-HOLD-NOT-EXCLUSIVE' }
     if (@($all | Where-Object { $_ -notmatch 'DELETE=32,WRITE_DATA=32$' }).Count -gt 0) { return 'INCONCLUSIVE-REPLACEMENT-PROBE' }
-    if (@($Held.controlAfterRelease | Where-Object { $_ -notmatch 'DELETE=handle$' }).Count -gt 0) { return 'INCONCLUSIVE-CONTROL' }
+    if (@($Held.controlAfterRelease | Where-Object { $_ -notmatch 'DELETE=handle;attempts=[123]$' }).Count -gt 0) { return 'INCONCLUSIVE-CONTROL' }
     if (-not ($Held.freshFileIdBeforeEqualsHeld -and $Held.freshFileIdAfterEqualsHeld)) { return 'FAIL-IDENTITY-UNSTABLE' }
     if ($PeerRequired -and -not ($Held.Contains('peerEqualsHeld') -and $Held.peerEqualsHeld)) { return 'FAIL-PEER-IDENTITY' }
     return 'PASS'
-}
-
-function Build-Synthetic([string]$Source, [string]$Output, [bool]$Executable) {
-    $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
-    $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
-    $parameters.GenerateExecutable = $Executable
-    $parameters.GenerateInMemory = $false
-    $parameters.OutputAssembly = $Output
-    $parameters.TempFiles = New-Object System.CodeDom.Compiler.TempFileCollection($scratch, $false)
-    $result = $provider.CompileAssemblyFromSource($parameters, $Source)   # never loaded into this process
-    if ($result.Errors.HasErrors) { Stop-Probe 'synthetic-build-failed' }
 }
 
 function Assert-ImageDirectory {
@@ -798,6 +873,9 @@ function Invoke-A2L3PcSteward {
 }
 
 # ---- Main ----------------------------------------------------------------------------------
+$runVolumeId = Get-PathFileId $run $true
+$programFilesVolumeId = Get-PathFileId $programFiles $true
+$volumeEquality = if ($runVolumeId.StartsWith('error:') -or $programFilesVolumeId.StartsWith('error:')) { 'unknown' } else { $runVolumeId.Split(':')[0] -eq $programFilesVolumeId.Split(':')[0] }
 $evidence = [ordered]@{
     schema = 'pc-steward-task50-host-evidence:1'
     cases = $Cases
@@ -810,7 +888,7 @@ $evidence = [ordered]@{
         clr = [Environment]::Version.ToString()
         tokenElevationType = [T50]::TokenInt(18)
         tokenElevated = [T50]::TokenInt(20)
-        evidenceVolumeEqualsProgramFilesVolume = ((Get-PathFileId $run $true).Split(':')[0] -eq (Get-PathFileId $programFiles $true).Split(':')[0])
+        evidenceVolumeEqualsProgramFilesVolume = $volumeEquality
     }
     results = [ordered]@{}
     verdicts = [ordered]@{}
@@ -831,8 +909,8 @@ try {
         $managed = Join-Path $run 'aq1-managed.exe'
         $lazy = Join-Path $run 'aq1-lazy.dll'
         if ($Cases -eq 'Default') { [IO.File]::Copy((Join-Path $system32 'whoami.exe'), $native, $false) }
-        Build-Synthetic $lazySource $lazy $false
-        Build-Synthetic $managedSource $managed $true
+        Build-Synthetic $lazySource $lazy $false $scratch
+        Build-Synthetic $managedSource $managed $true $scratch
         Assert-ImageDirectory
     }
     if ($Cases -eq 'Default') {
@@ -882,6 +960,7 @@ try {
     $evidence.elapsedMs = $clock.ElapsedMilliseconds
     $null = Redact ($evidence | ConvertTo-Json -Depth 12)   # first pass counts redactions only
     $evidence.redactions = $redactions
+    $script:redactions = 0
     $json = Redact ($evidence | ConvertTo-Json -Depth 12)
     [IO.File]::WriteAllText((Join-Path $run 'evidence.json'), $json, (New-Object Text.UTF8Encoding $false))
     'EVIDENCE: <TEMP>\pcsteward-evidence-task50\' + $runName + '\evidence.json'

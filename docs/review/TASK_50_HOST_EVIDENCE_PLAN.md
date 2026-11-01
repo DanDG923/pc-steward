@@ -1,159 +1,239 @@
-# Task 50 — host-evidence test plan for O5, A-Q1 and A2-L3 (DRAFT, revision 1)
+# Task 50 — host-evidence test plan for O5, A-Q1 and A2-L3 (revision 2)
 
 Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03`, `TM-04`, `TM-07`, `TM-13`.
 
-Status: **planning draft only.** This file authorizes nothing. It prepares one exact, bounded, read-mostly host test that the owner can approve or decline. No host action, script run, commit or push has happened. The probe script in Appendix A has been parse-checked and compile-checked on Linux. It has **not** been executed anywhere.
+Status: **revision 2, submitted for a fresh independent re-review and then for owner approval.** Revision 1 (`18a020f`, script SHA-256 `3babbbb5…233d`) was reviewed in review 15, which returned CONDITIONAL with no host-safety defect. This revision addresses every finding from that review. This file authorizes nothing by itself. Host actions happen only under the exact owner approval in §10, which binds the Final SHA-256 recorded in §4. No host action has happened.
 
-## 0. Source pins (repository HEAD `42a3cee0056853bd590c9e287022e365ad30f211`)
+## Changes from revision 1
+
+| Review 15 finding | Severity | Change in revision 2 |
+|---|---|---|
+| Not frozen for approval (draft header, LF draft hash in §4/§10) | High | Script header is now neutral and names revision 2. §4 has one placeholder, the Final SHA-256, which is the **CRLF** file hash the integrator computes after the fresh re-review. §10 refers to that §4 value. The Appendix-A LF hash has been removed. |
+| No parse gate before the run | High | New H1b: a parse-only `[System.Management.Automation.Language.Parser]::ParseFile` check, run in the H1 window with no execution. Any parse error stops before H2. |
+| R: rehearse 5.1 parse and compile on CI so the single approved run is not wasted | High | New `-Mode SelfCheck -ScratchDirectory <empty dir>`. It reports the host version and refuses anything other than Windows PowerShell 5.1. It runs the same `Import-T50` Add-Type call as Run, plus the two synthetic CodeDom builds into the scratch directory, then prints `SELFCHECK-OK`. It does no location, token, Chocolatey or PC Steward reads, no launches, no probes, and writes nothing outside the scratch directory. New `HostEvidenceScriptRehearsalTests.cs` (Security fixture tests): a portable ASCII/CRLF/`-text` byte check, plus two Windows-only tests (5.1 parser gives 0 errors; SelfCheck gives exit 0 and `SELFCHECK-OK`). |
+| Volume serial in `rootIdentity` and `heldFileId` | Medium (privacy) | `rootIdentity` becomes `rootIdentityRead` (a boolean). `heldFileId` becomes `heldFileIdRead` plus `heldFileId128` (the 32-hex file ID without the volume serial). Full identities are compared in memory only. §7 is corrected. |
+| Recursive `Get-ChildItem` in Cleanup | Medium | Cleanup now walks manually at a fixed depth: evidence directory → `run-*` → `tmp`. Each level is listed non-recursively and every entry is checked for reparse points before descending. Only allowlisted names are accepted at each depth, so anything deeper or unexpected is refused before `Remove-Item`. |
+| Console redaction count doubled | Low | `$script:redactions` is reset before the second `Redact` pass. |
+| PS 5.1 `ConvertTo-Json` escapes `<` and `>` | Low | Noted in §7: path tokens appear as `<RUN>`. JSON readers decode them. |
+| Volume equality was `true` when both FileId lookups failed | Low | It is now `"unknown"` when either lookup fails. |
+| H2/H6 used `cmd` `%TEMP%` | Low | H2, H3, H4 and H6 run from the H1 PowerShell window using `$d`, which is built from `GetTempPath`. |
+| Transient Defender sharing violation could spoil `controlAfterRelease` | Low | The control DELETE probe is retried at most 3 times, 500 ms apart. The attempt count is recorded. |
+| Unbounded csc/CodeDom wait; Read-Tree deadline granularity | Low | `Build-Synthetic` runs in its own runspace with `WaitOne` bounded by min(60 s, remaining deadline), and stops with `synthetic-build-deadline` on timeout. `Assert-Deadline` now runs before and after `Add-Type`, and before every entry in `Read-Tree`. |
+| `\|` in the H1 Markdown table | Low | Commands moved to fenced code blocks (§5). |
+| O5 binding scope unstated | Low | §1 and §12: the O5 evidence binds the eventual desktop file-first reader **only** while that reader reads within the probed O5 file set. |
+
+## 0. Source pins (repository HEAD `47ec55549990282927b50f9ad0deb9e94418b7cb`; unchanged since revision 1)
 
 | Source | SHA-256 (LF checkout) | Used for |
 |---|---|---|
-| `docs/review/TASK_50_ADAPTER_GATES.md` | `3e3063f3b1f4bc95c9ea0e52db41e30b246624e77a408aefcccf7f15633fa71b` | A-Q1 (A.4 step 3, A.7 "Peer identity", A.9), A2-L3 and A2-L5 (§R), and the binding-set list (A.3) |
+| `docs/review/TASK_50_ADAPTER_GATES.md` | `3e3063f3b1f4bc95c9ea0e52db41e30b246624e77a408aefcccf7f15633fa71b` | A-Q1 (A.4 step 3, A.7 "Peer identity", A.9); A2-L3 and A2-L5 (§R); binding set (A.3) |
 | `docs/review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md` | `612d0a498a1db9717fbe64206952b04f8601fe253bbec1a939d9ce40479eba45` | O5 (§4.3, §9 O5 and its contingency, §10 N5) |
-| `src/PCSteward.Execution/WindowsElevatedHelperTransport.cs` | `b6e5c820ab531664f6c13f4b9489402882ccd0b891f9767c3355112c47e4cf2f` | `ProtectedLaunchLayout.TryProbeRights` and its three rights lists. The probe copies these exactly. |
-| `src/PCSteward.Provider.Chocolatey/ChocolateyPostUpdateClientCheck.cs` | `43a4d8ef1ed43553bcf852cffbcdaa6ed8c559d9cdf5cf50fcd13efb77dda0d7` | The `ChocolateyClientStateData` fields: engine, code digest and the two registration digests |
-| `docs/review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json` | `68f0da92026905a14cb49e00f8b208202d107b7c2b303457842ebb6b458cd16b` (Profile V2 cites `869FA2E1…` for a different newline form) | The 56-entry code list, embedded in the script |
-| `docs/requirements/V2_HOST_TEST_PLANS.md`, `V2_TASK_CONTRACT.md`, `AGENTS.md` | — | The reviewable-record, exact-approval and no-implied-retry rules |
+| `src/PCSteward.Execution/WindowsElevatedHelperTransport.cs` | `b6e5c820ab531664f6c13f4b9489402882ccd0b891f9767c3355112c47e4cf2f` | `ProtectedLaunchLayout.TryProbeRights` and its three rights lists, which the probe copies exactly (re-checked for revision 2) |
+| `src/PCSteward.Provider.Chocolatey/ChocolateyPostUpdateClientCheck.cs` | `43a4d8ef1ed43553bcf852cffbcdaa6ed8c559d9cdf5cf50fcd13efb77dda0d7` | The `ChocolateyClientStateData` fields |
+| `docs/review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json` | `68f0da92026905a14cb49e00f8b208202d107b7c2b303457842ebb6b458cd16b` | The 56-entry code list embedded in the script |
+| `tests/PCSteward.Security.FixtureTests/DeploymentCapabilityReaderTests.cs` (`TrustProbeStillReportsAccessDeniedWhileTheShareReadHoldIsOpen`) | — | Existing Windows-CI A2-L3 evidence on a deny-ACE synthetic file. It complements A2L3S/A2L3P but is not owner-host evidence. |
+| `docs/requirements/V2_HOST_TEST_PLANS.md`, `V2_TASK_CONTRACT.md`, `AGENTS.md` | — | Reviewable-record, exact-approval and no-implied-retry rules |
 
 ## 1. Questions and what each step proves
 
 | ID | Spec question | Probe cases | What this evidence can show | What it cannot show |
 |---|---|---|---|---|
-| **O5** | Can the **non-elevated** desktop read every input of its own file-first postcheck (`ChocolateyClientStateData`)? | `O5` | That a standard-user token can read each input as Chocolatey is installed **now**: the root identity, `choco.exe`, all 56 pinned code-list files and their FileIdInfo, any unlisted `helpers`/`tools` files, the `extensions`/`hooks` code trees, the complete `lib` discovery set, the `chocolatey`/`chocolatey.extension` registrations, and the `.chocolatey` store markers for those two identities. | Readability of files that a **future** elevated upgrade writes. These normally inherit their ACLs, but that is unproven. Eligibility of the installed client (separate profile checks). |
-| **A-Q1** | Does a `FileShare.Read`-only hold, plus the FileIdInfo check, still let Windows map and run the image? Does the peer main-module FileIdInfo equal the held handle's? | `AQ1N` (native PE), `AQ1M` (.NET Framework loader and a lazily loaded DLL), `AQ1C` (coreclr through the installed .NET 10 `dotnet exec`). Optional: `AQ1UAC` (`ShellExecuteEx runas`). | Loader compatibility with the hold, peer FileIdInfo equality, FileIdInfo stability before and after the run, and that DELETE/WRITE opens fail with sharing violation 32 while the hold exists (and succeed after release). | Behaviour of the real signed PC Steward apphost and its closure. That still needs the ADR-025 exact-artifact host test. |
-| **A2-L3** | Do the `TryProbeRights` write probes still return ACCESS_DENIED (5), and not sharing violation (32), while read-share holds exist? | `A2L3S`: a System32 protected-file analogue plus a positive control on a file the user owns. Optional: `A2L3P`, read-only holds on the installed PC Steward binding-set files. | Whether NTFS evaluates the access check before the share check for each right the transport probes. | — |
+| **O5** | Can the **non-elevated** desktop read every input of its own file-first postcheck (`ChocolateyClientStateData`)? | `O5` | That a standard-user token can read each input as Chocolatey is installed **now**: the root identity, `choco.exe`, all 56 pinned code-list files and their FileIdInfo, any unlisted `helpers`/`tools` files, the `extensions`/`hooks` code trees, the complete `lib` discovery set, the `chocolatey` and `chocolatey.extension` registrations, and the `.chocolatey` store markers for those two identities. | Readability of files that a **future** elevated upgrade writes. These normally inherit their ACLs, but that is unproven. Eligibility of the installed client. Any input **outside** the probed set (see the binding rule below). |
+| **A-Q1** | Does a `FileShare.Read`-only hold, plus the FileIdInfo check, still let Windows map and run the image? Does the peer main-module FileIdInfo equal the held handle's? | `AQ1N` (native PE), `AQ1M` (.NET Framework loader with a lazily loaded DLL), `AQ1C` (coreclr through the installed .NET 10 `dotnet exec`). Optional: `AQ1UAC` (`ShellExecuteEx runas`). | Loader compatibility with the hold; peer FileIdInfo equality; FileIdInfo stability; DELETE and WRITE opens fail with 32 while held and succeed after release. | The real signed PC Steward apphost and its closure (that needs the ADR-025 exact-artifact host test). |
+| **A2-L3** | Do the `TryProbeRights` write probes still return ACCESS_DENIED (5), not a sharing violation (32), while read-share holds exist? | `A2L3S`: a System32 protected-file analogue plus a positive control on a file the user owns. Optional: `A2L3P`, read-only holds on the installed binding-set files. | Whether NTFS evaluates the access check before the share check for each right the transport probes, on the owner's host. | — |
 
-All synthetic images are self-built in the run directory, or a **copy** of `%SystemRoot%\System32\whoami.exe`. The probe never executes, opens for execution, or modifies any PC Steward or Chocolatey binary. `choco.exe` is only opened for reading.
+**O5 binding rule.** O5 evidence binds the eventual desktop file-first reader only while that reader reads **within the probed O5 file set**: the fixed `CommonApplicationData\chocolatey` root, the 56 pinned paths, the `helpers`, `tools`, `extensions` and `hooks` trees, the `lib` root and the top-level `*.nupkg` files of its immediate directories, all top-level files of `lib\chocolatey` and `lib\chocolatey.extension`, and the top-level files of `.chocolatey\chocolatey[.extension].<digit>*`. The reads use the same access shape: GENERIC_READ with FILE_SHARE_READ (FILE_READ_ATTRIBUTES for the root identity), and no elevation. A reader that adds another input, such as `config\chocolatey.config` or a different root derivation, is **not** covered. Its implementation review must either show that the input lies inside this set or obtain new evidence.
+
+All synthetic images are self-built in the run directory, or a **copy** of `%SystemRoot%\System32\whoami.exe`. No PC Steward or Chocolatey binary is executed, opened for execution, or modified. `choco.exe` is only opened for reading.
 
 ## 2. Preconditions checklist (all must be true before approval is used)
 
-- [ ] **H0 done.** The final script has been generated from Appendix A in a repository task, has passed an independent review, and is committed. Its exact SHA-256 is recorded in §4 and repeated in the approval text.
-- [ ] The owner is on the Windows 11 x64 host, logged in interactively, in a **non-elevated** session. The script stops on an elevated or full-administrator token.
-- [ ] Windows PowerShell 5.1 exists at `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`.
-- [ ] The installed PC Steward `pinned-unsigned-v1` deployment is left as it is. The Default case does not need PC Steward closed, because it never touches its files. The optional `PcStewardHolds` case needs every `PCSteward*` process closed; the script checks this.
-- [ ] No Chocolatey operation is in progress. The script skips O5 if a `choco` process exists.
-- [ ] `%TEMP%` (as returned by `GetTempPath`) is a local path with no reparse ancestor (no OneDrive redirection) and at least 100 MB free. The script checks the reparse condition.
+- [ ] **H0 done:** the revision-2 script is committed as `scripts/evidence/Task50-HostEvidence.ps1` (CRLF, ASCII, `-text`). `HostEvidenceScriptRehearsalTests` passed on Windows CI against that exact commit (5.1 parse with 0 errors, `SELFCHECK-OK`). The fresh independent re-review passed. The integrator has entered the Final SHA-256 in §4.
+- [ ] The owner is on the Windows 11 x64 host, logged in interactively, in a **non-elevated** Windows PowerShell 5.1 window (`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`; the title bar does not say "Administrator"). The script stops on an elevated or full-administrator token.
+- [ ] The installed PC Steward `pinned-unsigned-v1` deployment is left as it is. The Default run does not need PC Steward closed. The optional `PcStewardHolds` run needs every `PCSteward*` process closed; the script checks this.
+- [ ] No Chocolatey operation is in progress. If a `choco` process exists, the script skips O5.
+- [ ] `GetTempPath` is a local path with no reparse ancestor (not OneDrive) and at least 100 MB free. The script checks for a reparse ancestor.
 - [ ] `%TEMP%\pcsteward-evidence-task50` does **not** exist yet.
-- [ ] About 5 minutes are available. For the optional Uac case, the owner is present to answer exactly one UAC prompt for `aq1-managed.exe` (unknown publisher).
+- [ ] About 5 minutes are available. For the optional Uac run, the owner is present to answer exactly one UAC prompt for `aq1-managed.exe` (unknown publisher).
 - [ ] The owner accepts the incidental OS effects in §8.
-- [ ] The exact approval wording in §10 has been given for each run that will be performed.
+- [ ] The exact §10 approval wording has been given for each run to be performed.
 
 ## 3. Bounds
 
-| Run | Overall deadline (enforced) | Expected | Child-process wait | Holds |
+| Run | Enforced overall deadline | Expected | Child wait | Holds |
 |---|---|---|---|---|
-| `-Cases Default` | 240 s | under 90 s | 15 s per synthetic child. Then the script terminates **its own** non-elevated synthetic child and waits 5 s. | Synthetic files only, plus one System32 file for under 1 s |
-| `-Cases Uac` (optional) | 300 s, excluding time the UAC prompt is open | under 30 s | 15 s. An elevated child is never terminated. | Synthetic files only |
-| `-Cases PcStewardHolds` (optional) | 60 s | under 5 s | — | PC Steward binding files, read-only, recorded `holdMs`; a hold over 10 s is flagged |
-| `-Mode Cleanup` | — | under 5 s | — | — |
+| `-Mode Run -Cases Default` | 240 s | under 90 s | 15 s per synthetic child. After that, the script terminates its **own** non-elevated synthetic child and waits 5 s. | Synthetic files; one System32 file for under 1 s |
+| `-Mode Run -Cases Uac` (optional) | 300 s; `ShellExecuteEx` blocks while the UAC prompt is open | under 30 s | 15 s. An elevated child is never terminated. | Synthetic files |
+| `-Mode Run -Cases PcStewardHolds` (optional) | 60 s | under 5 s | — | Binding-set files, read-only; `holdMs` recorded; over 10 s is flagged |
+| `-Mode Cleanup` | 60 s | under 5 s | — | — |
+| `-Mode SelfCheck` (CI only) | 150 s | under 30 s | — | — |
 
-Read bounds follow Profile V2: at most 64 MiB per file, 32,768 tree entries, depth 32, 1,024 `lib` directories, 2,048 `nupkg` files (64 KiB tail reads, except full reads of the two client registrations), 4,096 store directories, and 4 KiB marker reads. A breach is recorded as `over-bound`, which makes the result INCONCLUSIVE; the probe never widens a bound.
+Each synthetic CodeDom build waits at most min(60 s, remaining deadline) and stops with `synthetic-build-deadline` on timeout. A csc.exe orphaned by a timeout can only finish writing inside `<RUN>\tmp` or `<RUN>`. Read bounds follow Profile V2: at most 64 MiB per file; 32,768 tree entries; depth 32; 1,024 `lib` directories; 2,048 `nupkg` files (64 KiB tail reads, full reads only for the two client registrations); 4,096 store directories; 4 KiB marker reads. A breach is recorded as `over-bound`, which gives INCONCLUSIVE. Bounds are never widened.
 
 ## 4. Artifact pinning
 
 | Item | Value |
 |---|---|
-| Final script path in the repository | `scripts/evidence/Task50-HostEvidence.ps1` (proposed). Pure ASCII, CRLF line endings, `.gitattributes` `-text`, so the checked-out bytes equal the hashed bytes. |
-| **Final SHA-256** | **`<computed when the final script file is generated and reviewed; must be entered here and in the approval text>`** |
-| Draft reference only (not approvable) | Appendix A as LF bytes: `1e4ad72cb5f020c5eaf0ab5c784520b2ae4f99898f6879e753ec05b4095888b9`. The same draft is at `/tmp/claude-0/-home-user-pc-steward/c0ac466b-e99b-5f76-9bc9-0b14e91ade26/scratchpad/design/Task50-HostEvidence.draft.ps1`. |
-| Self-binding | The script records `Get-FileHash` of its own file as `scriptSha256` in the evidence. A mismatch with the approved hash invalidates the evidence. |
-| Draft validation already done | The PowerShell 7 language parser reports 0 errors (parse only). The three embedded C# sources compile with `-langversion:5` against .NET 10 reference assemblies (compile only). The Windows PowerShell 5.1 parser, the .NET Framework CodeDom compile and any execution are **not** yet done. |
+| Script path | `scripts/evidence/Task50-HostEvidence.ps1`. Pure ASCII, **CRLF**, `.gitattributes` `-text` (enforced by `HostEvidenceScriptRehearsalTests.ScriptIsAsciiCrlfAndCheckedInWithoutNewlineConversion`). |
+| **Final SHA-256** (the only approvable value) | **`<<FINAL_SHA256: integrator enters the SHA-256 of the committed CRLF file after the fresh re-review>>`** |
+| Appendix A | The revision-2 script as LF text, for review reading. Its LF hash is **not** approvable. Only the committed CRLF bytes above are. |
+| Self-binding | The script records `Get-FileHash` of its own file as `scriptSha256`. A mismatch with the Final SHA-256 invalidates the evidence. |
+| Validation already done (Linux, no Run/Cleanup) | The PowerShell 7 parser reports 0 errors. The three embedded C# sources compile at `-langversion:5` against .NET 10 reference assemblies. SelfCheck under pwsh 7 refuses with `SELFCHECK-FAIL: windows-powershell-5.1-required`, exit 2, and writes nothing. In a **scratch copy with only the version gate disabled**, SelfCheck under pwsh 7 printed `SELFCHECK-RELEASE-ENTRIES: 56`, passed `Import-T50` (Add-Type) and the rights-list check, and then reported `synthetic-build-failed` from the bounded runspace, because CodeDom is unsupported on .NET Core. That failure is expected and shows the runspace returns without hanging. `HostEvidenceScriptRehearsalTests.cs` builds with 0 warnings and 0 errors in an isolated project with the repository's `Directory.Build.props`, `.editorconfig` and central package versions. |
+| Windows CI rehearsal (H0) | `HostEvidenceScriptRehearsalTests`: Windows PowerShell 5.1 `Parser.ParseFile` gives 0 errors, and `-Mode SelfCheck` gives exit 0 and `SELFCHECK-OK`, with outputs only under the GUID temp directory's `scratch`. |
 
-**H0 obligations (repository task; no host).** Copy Appendix A to the final path. Review it statically and confirm it has no `Invoke-Expression`, `Start-Process`, registry provider or cmdlet, `Set-Acl`, `icacls`, web/HTTP/socket API, or path derived from the database or payload. Confirm `Remove-Item` appears only in Cleanup mode, and `choco`/`PCSteward` appear only as read paths and process-name checks. Then get an independent review, commit, and record the hash here. **Optional rehearsal** (needs separate push/CI authority): run `-Cases Default` on a hosted Windows CI runner. That runner has no Chocolatey, so O5 gives `NOT-INSTALLED`. A CI result is rehearsal only, never owner-host evidence.
+**H0 obligations (repository and CI; no owner host).** Integrate the script and test, then convert both to the repository's line-ending conventions. Static check: no `Invoke-Expression`, `Start-Process`, registry provider or cmdlet, `Set-Acl`/`icacls`, or web/socket API. `Remove-Item` appears only in Cleanup, after the fixed-depth walk. Get Windows CI green on the exact commit, then the fresh independent re-review. Then the integrator records the Final SHA-256.
 
 ## 5. Exact step list
 
-Every step runs as the owner's standard user. The agent runs nothing on the host unless it is attached through an approved Remote Control folder and the owner's approval names that route. Stop conditions apply in order. "Stop" means: run no further steps, retry nothing, and report.
+Every step runs as the owner's standard user. The agent runs nothing on the host unless it is attached through an approved Remote Control folder and the owner's approval names that route. "Stop" means: run no further steps, do not retry, and report the exact console token.
 
-| Step | Exact command (`cmd.exe`, non-elevated, unless stated) | Expected outcome | Pass / fail | Recorded | Stop conditions | Cleanup |
+| Step | Command | Expected | Pass / fail | Recorded | Stop conditions | Cleanup |
 |---|---|---|---|---|---|---|
-| **H1** Place and verify the script | In a non-elevated **Windows PowerShell 5.1** window: `$d = Join-Path ([IO.Path]::GetTempPath()) 'pcsteward-evidence-task50'; if (Test-Path -LiteralPath $d) { throw 'STOP: exists' }; New-Item -ItemType Directory -Path $d \| Out-Null; Copy-Item -LiteralPath '<CHECKOUT>\scripts\evidence\Task50-HostEvidence.ps1' -Destination $d; (Get-FileHash -LiteralPath (Join-Path $d 'Task50-HostEvidence.ps1') -Algorithm SHA256).Hash` | The printed hash equals §4 Final SHA-256 | Pass: equal. Fail: anything else. | The hash string | The directory already exists, or the hash differs | If the hash differs, run only `Remove-Item -LiteralPath $d -Recurse -Force` and stop. |
-| **H2** Default run (once) | `"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%TEMP%\pcsteward-evidence-task50\Task50-HostEvidence.ps1" -Mode Run -Cases Default` | Console lines `EVIDENCE: <TEMP>\pcsteward-evidence-task50\run-…\evidence.json`, `REDACTIONS: n`, then `VERDICT O5/AQ1N/AQ1M/AQ1C/A2L3S: …` | See §6 per case | `evidence.json` (§7) | Any `STOP:`/`STOPPED:` line; console error before `EVIDENCE:`; deadline; elevated token; wrong location. Report the token exactly. | None until H5 (evidence must be copied first) |
-| **H3** *(optional; separate approval)* Uac run (once) | Same as H2, with `-Cases Uac` | One UAC prompt for `aq1-managed.exe` in `%TEMP%\pcsteward-evidence-task50\run-…`. The owner chooses Yes or No. `VERDICT AQ1UAC: …` | See §6 | Second `evidence.json` | Any second UAC prompt, or a prompt naming any other program: answer **No** and stop. UAC declined gives `NOT-RUN-UAC-DECLINED`, with no retry. | None until H5 |
-| **H4** *(optional; separate approval)* PcStewardHolds run (once) | Same as H2, with `-Cases PcStewardHolds`, while PC Steward is closed | `VERDICT A2L3P: …` | See §6 | Third `evidence.json` | A `PCSteward*` process is present (the script returns `NOT-RUN-PCSTEWARD-RUNNING`); any `FAIL-UNPROTECTED`: stop **all** further steps except H5/H6 and report a security finding | None until H5 |
-| **H5** Hand over evidence | The owner opens each `evidence.json` in Notepad, checks that it contains no username, computer name or other private text, and pastes or attaches it to the session | JSON matches the §7 shape | Pass: content is sanitized | — | Any unredacted private text: do not share it; delete it in H6 and report | — |
-| **H6** Cleanup (once, last) | `"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%TEMP%\pcsteward-evidence-task50\Task50-HostEvidence.ps1" -Mode Cleanup` | `CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed` | Pass: the directory is gone | The console line | Cleanup refuses (reparse point, unexpected entry or count): leave everything as it is and report | It is the cleanup. It deletes only `%TEMP%\pcsteward-evidence-task50`, after checking that every entry is the script, a `run-*` directory, its `tmp` scratch directory or files inside those. |
+| **H1** Place and verify | Block H1 | Printed hash equals the §4 Final SHA-256 | Equal / anything else | Hash | The directory already exists; hash differs | On a hash mismatch, run only block H1-X and stop |
+| **H1b** Parse-only gate | Block H1b (same window) | `PARSE-OK` | `PARSE-OK` / any error count | Line | Any parse error: run block H1-X and stop | As H1 |
+| **H2** Default run (once) | Block H2 (same window) | `EVIDENCE: <TEMP>\pcsteward-evidence-task50\run-…\evidence.json`, `REDACTIONS: n`, then one `VERDICT …` line each for O5, AQ1N, AQ1M, AQ1C and A2L3S | Per case (§6) | `evidence.json` (§7) | Any `STOP:`/`STOPPED:` line; any error before `EVIDENCE:` | None until H5 |
+| **H3** *(optional; separate approval)* Uac run (once) | Block H3 | One UAC prompt for `aq1-managed.exe` in `…\pcsteward-evidence-task50\run-…`; `VERDICT AQ1UAC: …` | §6 | Second JSON | A second prompt, or a prompt naming any other program: answer **No** and stop. A decline is `NOT-RUN-UAC-DECLINED`, with no retry. | None until H5 |
+| **H4** *(optional; separate approval)* PcStewardHolds run (once) | Block H4, with PC Steward closed | `VERDICT A2L3P: …` | §6 | Third JSON | `NOT-RUN-PCSTEWARD-RUNNING`; any `FAIL-UNPROTECTED` stops everything except H5/H6 and is reported as a security finding | None until H5 |
+| **H5** Hand over evidence | `notepad (Join-Path $d '<run-name>\evidence.json')` for each run | Content matches §7 and has no private text | Sanitized / not | — | Unredacted private text: do not share it; continue with H6 and report | — |
+| **H6** Cleanup (once, last) | Block H6 (same window) | `CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed` | Directory gone | Line | Cleanup refuses: leave everything and report | This step is the cleanup |
 
-The approved count is exact: H2 once, plus H3 once and H4 once if separately approved, then H6 once. A failed, stopped or inconclusive run is **not** re-run without a new exact approval.
+**Block H1** (in a new non-elevated Windows PowerShell 5.1 window; `<CHECKOUT>` is the owner's existing clone at the H0 commit):
+
+```powershell
+$d = Join-Path ([IO.Path]::GetTempPath()) 'pcsteward-evidence-task50'
+if (Test-Path -LiteralPath $d) { throw 'STOP: evidence directory already exists' }
+New-Item -ItemType Directory -Path $d | Out-Null
+Copy-Item -LiteralPath '<CHECKOUT>\scripts\evidence\Task50-HostEvidence.ps1' -Destination $d
+(Get-FileHash -LiteralPath (Join-Path $d 'Task50-HostEvidence.ps1') -Algorithm SHA256).Hash
+```
+
+**Block H1b** (parse only; nothing executes):
+
+```powershell
+$tokens = $null; $parseErrors = $null
+[void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $d 'Task50-HostEvidence.ps1'), [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count -ne 0) { 'STOP: parse errors ' + $parseErrors.Count } else { 'PARSE-OK' }
+```
+
+**Block H1-X** (only after an H1 or H1b failure):
+
+```powershell
+Remove-Item -LiteralPath $d -Recurse -Force
+```
+
+**Block H2** (if the window was closed, first re-run only the first line of block H1 to set `$d` again):
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $d 'Task50-HostEvidence.ps1') -Mode Run -Cases Default
+```
+
+**Block H3** (optional):
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $d 'Task50-HostEvidence.ps1') -Mode Run -Cases Uac
+```
+
+**Block H4** (optional):
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $d 'Task50-HostEvidence.ps1') -Mode Run -Cases PcStewardHolds
+```
+
+**Block H6** (last; only after H5):
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $d 'Task50-HostEvidence.ps1') -Mode Cleanup
+```
+
+The approved count is exact: H2 once, plus H3 once and H4 once if separately approved, then H6 once. A stopped or inconclusive run is not re-run without a new exact approval. `-Mode SelfCheck` is a CI rehearsal and is **not** part of the host steps.
 
 ## 6. Case details
 
 ### O5 — Chocolatey file-first postcheck readability (Default)
 
-Root: `[Environment]::GetFolderPath('CommonApplicationData')\chocolatey`, which is fixed and derived from a native API. `%ChocolateyInstall%` is only compared, and the result is recorded as booleans.
+The root is `[Environment]::GetFolderPath('CommonApplicationData')\chocolatey`, which is fixed and native-derived. `%ChocolateyInstall%` is only compared, and the result is recorded as booleans.
 
-| Sub-step | Action (read-only; GENERIC_READ + FILE_SHARE_READ, OPEN_REPARSE_POINT) | Expected on a healthy admin install | Classified as problem |
+| Sub-step | Action (read-only; GENERIC_READ + FILE_SHARE_READ, OPEN_REPARSE_POINT) | Expected on a healthy admin install | Problem |
 |---|---|---|---|
-| Presence | Open `choco.exe` with FILE_READ_ATTRIBUTES. Error 2 or 3 gives `not-installed` and O5 stops (no install, no further reads). | Present | — |
-| Concurrency | `Get-Process -Name choco`. If present, `skipped-choco-running`. | Absent | — |
-| Root identity | FileIdInfo of the root directory (backup semantics); reparse attribute | Readable; no reparse | Error code; reparse is recorded as a route finding |
-| Engine and code list | Each of the 56 pinned paths: open, FileIdInfo, full SHA-256, length; compared with the pin | Readable; `matchedPin` 56 if the 2.7.5 release is installed | Open, file-id or read failure. A mismatch is a route finding, **not** an O5 failure. |
-| Unlisted code | Walk `helpers` and `tools` (bounded, not following reparse points); fully read any file not in the pin | 0 unlisted | An unlisted file being unreadable is a problem; an unlisted file existing is a route finding |
-| Extension and hook code | Walk `extensions` and `hooks`; fully read every file. Absence (error 2 or 3) is allowed (`MayBeAbsent`). Names are not recorded. | Absent or readable | List or open failure |
-| Registration | List `lib` (top level) and each immediate directory's top-level `*.nupkg`. 64 KiB tail read for other packages (names never recorded). Full read of every top-level file in `lib\chocolatey` and `lib\chocolatey.extension`. `lib\chocolatey\chocolatey.nupkg` is compared with the release asset digest. | Listed; all readable; `chocolatey` present; `chocolatey.extension` usually absent | Any list or open failure |
-| Store markers | List `.chocolatey`. For directories named `chocolatey.<digit>…` or `chocolatey.extension.<digit>…`, 4 KiB tail reads of top-level files | Readable | Any list or open failure |
+| Presence | Open `choco.exe` with FILE_READ_ATTRIBUTES. Error 2 or 3 gives `not-installed`, and O5 ends with no install and no further reads. | Present | — |
+| Concurrency | `Get-Process -Name choco`. A match gives `skipped-choco-running`. | Absent | — |
+| Root identity | FileIdInfo of the root (backup semantics). Recorded as `rootIdentityRead` only. Reparse attribute checked. | Readable; no reparse | Error code. A reparse point is a route finding. |
+| Engine and code list | Each of the 56 pinned paths: open, FileIdInfo, full SHA-256, length, compared with the pin | Readable; `matchedPin` 56 if 2.7.5 is installed | An open, file-id or read failure. A mismatch is a route finding, **not** an O5 failure. |
+| Unlisted code | Bounded walk of `helpers` and `tools` (reparse points not followed; deadline checked per entry); full read of any file outside the pin | 0 unlisted | An unreadable unlisted file. Existence of an unlisted file is a route finding. |
+| Extension and hook code | Walk `extensions` and `hooks`; full read of every file. Absence is allowed (`MayBeAbsent`). Names are not recorded. | Absent or readable | A list or open failure |
+| Registration | List `lib` (top level) and each immediate directory's top-level `*.nupkg`. 64 KiB tail reads of other packages, whose names are never recorded. Full reads of the top-level files in `lib\chocolatey` and `lib\chocolatey.extension`. `chocolatey.nupkg` is compared with the release asset digest. | Listed; readable; `chocolatey` present; extension usually absent | A list, attribute or open failure |
+| Store markers | List `.chocolatey`. For `chocolatey[.extension].<digit>*` directories, 4 KiB tail reads of top-level files | Readable | A list or open failure |
 
-Verdict: **PASS-READABLE** if there are no problems. **FAIL-UNREADABLE** if any problem has Win32 error 5. Otherwise **INCONCLUSIVE** (for example 32, another code, `over-bound` or deadline). `NOT-INSTALLED` and `SKIPPED-CHOCO-RUNNING` are recorded as the verdict. Also recorded: `matchesPinnedRelease`, `routeFindings`, `elapsedMs` (useful for the G3 bounded-I/O expectation).
+Verdict: **PASS-READABLE** when there is no problem. **FAIL-UNREADABLE** when any problem carries Win32 error 5. Otherwise **INCONCLUSIVE**. `NOT-INSTALLED` and `SKIPPED-CHOCO-RUNNING` are recorded as given. Also recorded: `matchesPinnedRelease`, `routeFindings` and `elapsedMs`.
 
 ### AQ1N — native image under a read-share hold (Default)
 
-1. Copy `%SystemRoot%\System32\whoami.exe` to `<RUN>\aq1-native.exe`. Check that the image directory contains only allowlisted names, so no stray DLL can be planted next to it.
-2. **Baseline (no hold).** `CreateProcessW` with an exact application path, `CREATE_SUSPENDED | CREATE_NO_WINDOW` and no inherited handles; argument `/?`. Read the peer FileIdInfo with `QueryFullProcessImageNameW`, then open the image with GENERIC_READ and FILE_SHARE_READ and read `FileIdInfo`. Then `ResumeThread`, wait up to 15 s, and record the exit code.
-3. **Held.** Open `aq1-native.exe` with GENERIC_READ and FILE_SHARE_READ only (the `HeldHelperBinding` shape). Record the held FileIdInfo and compare it with a fresh open. Probe DELETE and FILE_WRITE_DATA opens (open, then close at once; nothing is renamed or written). Then repeat the step 2 launch, the peer FileIdInfo check, resume, wait, and the identity and replacement probes after exit. Release the hold. Control: a DELETE open now returns a handle.
+1. Copy `whoami.exe` to `<RUN>\aq1-native.exe`. The image directory must contain only allowlisted names (no planted DLL).
+2. **Baseline, no hold.** `CreateProcessW` with an exact application path, `CREATE_SUSPENDED | CREATE_NO_WINDOW`, no inherited handles and argument `/?`. Read the peer FileIdInfo (`QueryFullProcessImageNameW`, then open with GENERIC_READ and FILE_SHARE_READ, then `FileIdInfo`). Then `ResumeThread`, wait up to 15 s, and record the exit code.
+3. **Held.** Open the image with GENERIC_READ and FILE_SHARE_READ only (the `HeldHelperBinding` shape). Record `heldFileIdRead`/`heldFileId128` and whether a fresh open gives the same identity. Probe DELETE and FILE_WRITE_DATA opens (open, then close at once). Repeat the step-2 launch, peer comparison, resume and wait, then the post-exit identity and replacement probes. Release the hold. Control: a DELETE open, retried at most 3 times 500 ms apart if it gets 32, should return a handle.
 
-Expected: the held launch succeeds with the baseline exit code; `peerEqualsHeld = true`; FileIdInfo is stable; replacement probes give `DELETE=32,WRITE_DATA=32` before launch and after exit; the control gives `DELETE=handle`. **PASS** only if all of these hold. The fail tokens are listed in §9.
+Expected and PASS: the held launch succeeds with the baseline exit code; `peerEqualsHeld = true`; FileIdInfo is stable; replacement probes give `DELETE=32,WRITE_DATA=32` before launch and after exit; the control gives `DELETE=handle;attempts=1..3`.
 
 ### AQ1M — .NET Framework image and a lazily loaded held DLL (Default)
 
-The script builds `aq1-managed.exe` and `aq1-lazy.dll` with `CSharpCodeProvider` (`GenerateInMemory = false`, so they are never loaded into the probe process). The exe sleeps 1.5 s, then loads `aq1-lazy.dll` with `Assembly.LoadFrom` and calls it. It exits **42** on success (43 for a wrong value, 44 for a load failure) after another 1.5 s. The baseline and held runs follow AQ1N, using plain `CreateProcess`. Both files are held. The peer check runs at about 0.5 s, before the lazy load, so the lazy load happens while the DLL is held. PASS requires baseline exit 42 and held exit 42, plus the AQ1N identity and replacement conditions.
+`aq1-managed.exe` and `aq1-lazy.dll` are built by the bounded runspace CodeDom build (`GenerateInMemory = false`; never loaded into the probe). The exe sleeps 1.5 s, calls `Assembly.LoadFrom` on the DLL, and exits **42** on success (43 for a wrong value, 44 for a load failure) after another 1.5 s. Baseline and held runs follow AQ1N with plain `CreateProcess`. Both files are held. The peer check runs at about 0.5 s, before the lazy load. PASS requires exit 42 in both runs plus the AQ1N conditions.
 
-### AQ1C — coreclr loader (Default; runs only if `%ProgramFiles%\dotnet\dotnet.exe` and `shared\Microsoft.NETCore.App\10.0.*` exist)
+### AQ1C — coreclr loader (Default; only if `%ProgramFiles%\dotnet\dotnet.exe` and `shared\Microsoft.NETCore.App\10.0.*` exist)
 
-The script writes `<RUN>\aq1-managed.runtimeconfig.json` (Microsoft.NETCore.App 10.0.0, `LatestPatch`). It runs `dotnet.exe exec --runtimeconfig "<RUN>\aq1-managed.runtimeconfig.json" "<RUN>\aq1-managed.exe"` without a hold (baseline) and with `aq1-managed.exe` and `aq1-lazy.dll` held. The peer image is `dotnet.exe`, so no peer FileIdInfo is compared. PASS requires exit 42 in both runs, plus the hold conditions. A baseline exit other than 42 gives `INCONCLUSIVE-HARNESS`. If the .NET 10 runtime is absent, the result is `NOT-RUN-NO-DOTNET10-RUNTIME`. The installed runtime is used only as a host for the synthetic assembly. No SDK command, restore or network access is involved.
+The script writes `<RUN>\aq1-managed.runtimeconfig.json` (Microsoft.NETCore.App 10.0.0, `LatestPatch`) and runs `dotnet.exe exec --runtimeconfig <it> <RUN>\aq1-managed.exe`, first without a hold, then with the exe and DLL held. There is no peer comparison, because the peer is `dotnet.exe`. PASS requires exit 42 in both runs plus the hold conditions. A baseline exit other than 42 gives `INCONCLUSIVE-HARNESS`. An absent runtime gives `NOT-RUN-NO-DOTNET10-RUNTIME`. There is no SDK command, restore or network access.
 
-### A2L3S — TryProbeRights while holds exist, analogue (Default)
+### A2L3S — TryProbeRights under holds, analogue (Default)
 
-1. **Unheld baseline.** Mirror `TryProbeRights` exactly (share RWD, OPEN_EXISTING, OPEN_REPARSE_POINT, plus BACKUP for directories). Probe `<SYSTEM32>\whoami.exe` with `FileModificationRights` and `<SYSTEM32>` with `AncestorReplacementRights`. Every right is recorded; the verdict follows the first decisive right, as in production. Expected: every right returns `5`, so `cannot-modify`.
-2. **Held.** Open `<SYSTEM32>\whoami.exe` with GENERIC_READ and FILE_SHARE_READ, repeat step 1, then release. The hold lasts under 1 s and is recorded as `systemFileHoldMs`. Expected: every right still returns `5`.
-3. **Positive control.** Create a 16-byte `<RUN>\a2l3-own.bin`. Unheld, the verdict is expected to be `can-modify`. Held with FILE_SHARE_READ, it is expected to be `probe-failed-closed:32`. This shows the fail-closed branch that a sharing violation takes.
+1. **Unheld.** An exact `TryProbeRights` mirror (share RWD, OPEN_EXISTING, OPEN_REPARSE_POINT, plus BACKUP for directories): `<SYSTEM32>\whoami.exe` with `FileModificationRights`, and `<SYSTEM32>` with `AncestorReplacementRights`. Every right is recorded; the verdict follows the first decisive right. Expected: all `5`.
+2. **Held.** The same while `<SYSTEM32>\whoami.exe` is held with GENERIC_READ and FILE_SHARE_READ (under 1 s, recorded in `systemFileHoldMs`). Expected: all `5`.
+3. **Positive control.** `<RUN>\a2l3-own.bin` (16 bytes). Unheld: `can-modify`. Held: `probe-failed-closed:32`.
 
-Verdict: **PASS** when step 1 and step 2 are all `5` and the control is as expected. **FAIL-SHARING-VIOLATION** when any held protected probe returns `32`. **FAIL-UNPROTECTED** when any protected probe returns a handle. **INCONCLUSIVE-ANALOGUE-NOT-PROTECTED** when the baseline is not all `5`.
+Verdict: **PASS**, **FAIL-SHARING-VIOLATION**, **FAIL-UNPROTECTED**, **INCONCLUSIVE-ANALOGUE-NOT-PROTECTED** or **INCONCLUSIVE-OTHER-ERROR** (§9).
 
 ### AQ1UAC — `ShellExecuteEx runas` (optional; separately approvable)
 
-The script builds the same synthetic managed pair and runs a non-elevated baseline (exit 42). Then, with both files held, it calls `ShellExecuteExW` with verb `runas` exactly once (`SEE_MASK_NOCLOSEPROCESS`). The owner answers the UAC prompt. The peer FileIdInfo is read from the returned handle. The elevated synthetic process only sleeps and loads the held DLL. It runs from the user-writable run directory, which is exactly the pattern the product forbids for real binaries. Here it is acceptable only because the binary is a synthetic no-op that is held against replacement for the whole run. Expected: exit 42 and `peerEqualsHeld = true`. Error 1223 gives `NOT-RUN-UAC-DECLINED`.
+This run builds the synthetic pair, then runs a non-elevated baseline (exit 42). It then makes exactly one `ShellExecuteExW` call with verb `runas` and `SEE_MASK_NOCLOSEPROCESS`, with both files held. The owner answers UAC. The peer FileIdInfo is compared through the returned handle. The elevated synthetic process only sleeps and loads the held DLL from the user-writable run directory. That pattern is forbidden for real binaries; it is acceptable here only because the binary is a synthetic no-op that stays held against replacement for the whole run. Expected: exit 42 and `peerEqualsHeld = true`. Error 1223 gives `NOT-RUN-UAC-DECLINED`.
 
-### A2L3P — real binding-set files (optional; separately approvable)
+### A2L3P — installed binding-set files (optional; separately approvable)
 
-This requires no `PCSteward*` process and an existing `<PF>\PC Steward`. It records which of the 12 binding-set leaves are present (A.3 plus A2-L4 `PCSteward.Desktop.dll`; the capability file is expected to be absent on v1). It mirrors `CallerCannotModify` across every ancestor of the install root and every present leaf, first unheld, then while holding every present leaf with GENERIC_READ and FILE_SHARE_READ (no content read). It then releases the holds. Nothing is hashed, launched or modified. The verdict uses the A2L3S rules. `FAIL-UNPROTECTED` here is a **security finding about the installed deployment**: stop all further steps except H5/H6 and report to the owner.
+This requires no `PCSteward*` process and an existing `<PF>\PC Steward`. It records which of the 12 binding-set leaves are present (A.3 plus A2-L4 `PCSteward.Desktop.dll`; the capability file is expected to be absent on v1). It mirrors `CallerCannotModify` over every ancestor and every present leaf, first unheld, then while all present leaves are held with GENERIC_READ and FILE_SHARE_READ. No content is read, nothing is hashed, launched or modified, and the holds are then released. A2L3S rules apply. `FAIL-UNPROTECTED` is a security finding against the installed deployment.
 
 ## 7. Evidence format (sanitized JSON, UTF-8 without BOM)
 
-The probe writes one `evidence.json` file per run. Paths are reduced to the fixed tokens `<RUN>`, `<EVIDENCE>`, `<CHOCO>`, `<SYSTEM32>`, `<PF>` and `<PROGRAMDATA>`; anything else becomes `<OTHER>`. After serialization, the username, computer name, domain and SID are replaced by `<REDACTED>` (whole-token match, so hex hashes are unaffected), and the count is recorded. Exception messages are never recorded, only the exception type, HRESULT and Win32 codes. Names of non-client packages and of extension or hook files are never recorded. FileIdInfo values appear only for the synthetic images; volume serials appear only as an equality boolean.
+One `evidence.json` file per run.
+
+- **Paths:** reduced to the tokens `<RUN>`, `<EVIDENCE>`, `<CHOCO>`, `<SYSTEM32>`, `<PF>` and `<PROGRAMDATA>`; anything else becomes `<OTHER>`. Windows PowerShell 5.1 `ConvertTo-Json` escapes `<` and `>`, so the file contains `<RUN>` and similar. Any JSON parser decodes these back to `<RUN>`.
+- **Redaction:** after serialization, the username, computer name, domain and SID are replaced with `<REDACTED>` (whole-token match, so hex values are unaffected). The count of the first pass is stored in `redactions`. The counter is reset before the final pass, so the console count equals that stored count.
+- **Errors:** only exception type names, HRESULTs and Win32 codes are recorded, never messages.
+- **Names:** non-client package names and extension or hook file names are never recorded.
+- **Identities:** **no volume serial appears anywhere.** O5 records `rootIdentityRead` (a boolean) and `fileIdRead` per file. A-Q1 records `heldFileIdRead` and `heldFileId128` (the 128-bit file ID of a synthetic image in the run directory, as 32 hex digits), plus the equality booleans `freshFileIdBeforeEqualsHeld`, `freshFileIdAfterEqualsHeld` and `peerEqualsHeld`. The full volume-plus-ID identities are compared only in memory. `evidenceVolumeEqualsProgramFilesVolume` is `true`, `false` or `"unknown"` (if either lookup failed).
 
 ```json
 {
   "schema": "pc-steward-task50-host-evidence:1",
   "cases": "Default",
-  "scriptSha256": "<64 hex; must equal the approved hash>",
+  "scriptSha256": "<64 hex; must equal the §4 Final SHA-256>",
   "runDirectory": "<EVIDENCE>\\run-20261102T101500Z-1a2b3c4d",
   "startedUtc": "2026-11-02T10:15:00Z",
   "hostFacts": { "osVersion": "10.0.26100.0", "powerShell": "5.1.26100.1", "clr": "4.0.30319.42000",
                  "tokenElevationType": 3, "tokenElevated": 0, "evidenceVolumeEqualsProgramFilesVolume": true,
                  "evidenceFileSystem": "NTFS" },
   "results": {
-    "O5": { "case": "O5", "status": "run", "rootIdentity": "<id or error:n>", "engine": { "path": "choco.exe", "ok": true, "error": 0, "length": 12022880, "fileIdRead": true, "reparse": false, "sha256": "…", "matchesPin": true },
+    "O5": { "case": "O5", "status": "run", "fixedRoot": "<PROGRAMDATA>\\chocolatey", "rootIdentityRead": true,
+            "engine": { "path": "choco.exe", "ok": true, "error": 0, "length": 12022880, "fileIdRead": true, "reparse": false, "sha256": "…", "matchesPin": true },
             "codeList": { "expected": 56, "readable": 56, "matchedPin": 56, "bytesRead": 15258758, "failures": [] },
-            "helpersTree": { "…": "…" }, "toolsTree": { }, "extensionsTree": { }, "hooksTree": { },
-            "registration": { "libListed": true, "directories": 0, "nupkgFiles": 0, "nupkgReadable": 0, "chocolatey": "present", "chocolateyFiles": [ ], "extension": "absent", "errorCodes": [] },
-            "store": { "present": true, "clientDirectories": 1, "markerFiles": 0, "markerReadable": 0, "errorCodes": [] },
+            "helpersTree": { }, "toolsTree": { }, "extensionsTree": { }, "hooksTree": { },
+            "registration": { "libListed": true, "chocolatey": "present", "extension": "absent", "errorCodes": [] },
+            "store": { "present": true, "clientDirectories": 1, "errorCodes": [] },
             "problems": [], "routeFindings": [], "matchesPinnedRelease": true, "elapsedMs": 0, "verdict": "PASS-READABLE" },
     "AQ1N": { "baseline": { "launcher": "CreateProcessSuspended", "held": false, "exit": "0", "peerImagePath": "<RUN>\\aq1-native.exe", "peerFileIdRead": true },
-              "held": { "held": true, "heldFileId": "…", "freshFileIdBeforeEqualsHeld": true, "replacementWhileHeldBeforeLaunch": ["aq1-native.exe:DELETE=32,WRITE_DATA=32"],
-                        "peerEqualsHeld": true, "exit": "0", "freshFileIdAfterEqualsHeld": true, "replacementWhileHeldAfterExit": ["…"], "controlAfterRelease": ["aq1-native.exe:DELETE=handle"] },
+              "held": { "held": true, "heldFileIdRead": true, "heldFileId128": "<32 hex>", "freshFileIdBeforeEqualsHeld": true,
+                        "replacementWhileHeldBeforeLaunch": ["aq1-native.exe:DELETE=32,WRITE_DATA=32"], "peerEqualsHeld": true, "exit": "0",
+                        "freshFileIdAfterEqualsHeld": true, "replacementWhileHeldAfterExit": ["aq1-native.exe:DELETE=32,WRITE_DATA=32"],
+                        "controlAfterRelease": ["aq1-native.exe:DELETE=handle;attempts=1"] },
               "verdict": "PASS" },
-    "AQ1M": { "…": "…" }, "AQ1C": { "…": "…" },
-    "A2L3S": { "case": "A2L3-S", "unheld": [ { "path": "<SYSTEM32>\\whoami.exe", "outcomes": ["00000002=5", "…"], "verdict": "cannot-modify" } ],
+    "AQ1M": { }, "AQ1C": { },
+    "A2L3S": { "case": "A2L3-S", "unheld": [ { "path": "<SYSTEM32>\\whoami.exe", "outcomes": ["00000002=5"], "verdict": "cannot-modify" } ],
                "held": [ ], "ownUnheld": { }, "ownHeld": { }, "positiveControl": "as-expected", "systemFileHoldMs": 3, "verdict": "PASS" }
   },
   "verdicts": { "O5": "PASS-READABLE", "AQ1N": "PASS", "AQ1M": "PASS", "AQ1C": "PASS", "A2L3S": "PASS" },
@@ -163,85 +243,87 @@ The probe writes one `evidence.json` file per run. Paths are reduced to the fixe
 }
 ```
 
-The later repository record (a separate task, not authorized here) would commit the pasted JSON with the run date, the approved hash and the interpretation under `docs/review/`, and update `docs/STATUS.md` and `TRACEABILITY.md`.
+A later repository task (not authorized here) commits the pasted JSON with the run date, the Final SHA-256 and the interpretation, and updates `docs/STATUS.md` and `TRACEABILITY.md`.
 
-## 8. Incidental effects disclosed (not written by the script; not avoidable when running any script)
+## 8. Incidental effects disclosed (not written by the script; inherent to running PowerShell and executables)
 
-- Windows PowerShell engine housekeeping under `%LOCALAPPDATA%\Microsoft\Windows\PowerShell` (`StartupProfileData-NonInteractive`, module analysis cache). PowerShell operational event-log entries, and script-block logging of the script text if the host enables it. The script contains no secrets.
-- `csc.exe`/`cvtres.exe` (.NET Framework) run to build the synthetic files. Their scratch files are redirected into `<RUN>\tmp`.
-- Windows records execution of `aq1-native.exe`, `aq1-managed.exe`, `csc.exe` and `dotnet.exe` in Prefetch, AmCache or BAM. Microsoft Defender may scan the new binaries, possibly with an OS-initiated cloud lookup. The script makes no network call.
-- A FILE_SHARE_READ hold on `<SYSTEM32>\whoami.exe` lasts under 1 s. It blocks only writers or deleters of that file, such as servicing, during that window.
-- The Uac case produces a UAC consent event. The PcStewardHolds case blocks writers to the installed PC Steward files for at most a few seconds. No such writer runs while PC Steward is closed and no redeploy is happening.
+- Windows PowerShell housekeeping under `%LOCALAPPDATA%\Microsoft\Windows\PowerShell` (startup profile data, module analysis cache). PowerShell event-log entries, and script-block logging of the script text if the host enables it. The script contains no secrets.
+- `csc.exe`/`cvtres.exe` run for the synthetic builds. Their scratch files go to `<RUN>\tmp`.
+- Prefetch, AmCache and BAM execution records for `aq1-native.exe`, `aq1-managed.exe`, `csc.exe` and `dotnet.exe`. Defender may scan the new binaries, possibly with an OS-initiated cloud lookup. The script makes no network call.
+- A FILE_SHARE_READ hold on `<SYSTEM32>\whoami.exe` for under 1 s. It blocks only writers and deleters of that file during the window.
+- The Uac run produces a UAC consent event. The PcStewardHolds run blocks writers to the installed PC Steward files for a few seconds; none runs while PC Steward is closed and no redeploy is happening.
 
 ## 9. Interpretation table (outcome → spec decision)
 
 | Case | Outcome | Decision under the reviewed specs |
 |---|---|---|
-| O5 | **PASS-READABLE** | O5 native evidence is satisfied **for this host and the current Chocolatey state** (fact extension §10 N5). The O5 owner contingency is not triggered. Record it as closing N5's "O5 native readability evidence". If `matchesPinnedRelease = false` or `routeFindings` is non-empty, the route would still refuse on this host (profile mismatch). That is a separate eligibility fact. No Chocolatey change is authorized. |
-| O5 | **FAIL-UNREADABLE** (any error 5) | Every update on this route would end `ClientUnverifiable`, giving the outcome **Unverified** (§4.3). The owner contingency in §9 is triggered: **(a)** accept the route as permanently unusable, or **(b)** approve a helper-side, negative-only client-check field, which needs a new protocol version, a new spec and a review. Changing Chocolatey ACLs is not an option, and this plan never does it. The adapter must not be admitted until the owner chooses. |
-| O5 | **INCONCLUSIVE** (32, other codes, over-bound, deadline) | O5 stays open and admission stays blocked. Find the cause from the recorded codes. A re-run needs a new exact approval. A persistent sharing violation is treated like FAIL for the design: the desktop would end Unverifiable, which is safe but leaves the route unusable. |
-| O5 | **NOT-INSTALLED** | O5 cannot be tested on this host. The route cannot be admitted on evidence here. **No install** follows. Any future Chocolatey install would be a separate, out-of-scope owner action with its own approval. |
-| O5 | **SKIPPED-CHOCO-RUNNING** | Nothing is learned. Re-run later only with a new approval. |
-| A-Q1 | AQ1N, AQ1M and AQ1C all **PASS** | The hold design in adapter gates A.4 step 3 (`TryHold` → trust → launch → `VerifyPeer` + FileIdInfo equality, binding held until exit and seal) is viable for direct process creation with the native, .NET Framework and coreclr loaders. The runas sub-question is closed only if AQ1UAC passes. Otherwise it remains an inference: the same kernel image mapping runs on behalf of the AppInfo service. Admission still needs the ADR-025 exact-artifact host test. |
-| A-Q1 | Any **FAIL-LAUNCH:n**, or **FAIL-EXIT:n** (for example 44 = lazy-load failure while held) | The hold is incompatible with that loader. Use the **spec fallback** (A.4, A2-L5): no hold across launch; ACL plus `VerifyPeer`, then re-hash the binding set and run the FileIdInfo check **after** peer verification and **before** writing the request. The reference identity is the FileIdInfo captured before launch, and the fallback detects replacement only. Record a spec amendment for review; no code follows from this plan. |
-| A-Q1 | **FAIL-PEER-IDENTITY** or **FAIL-IDENTITY-UNSTABLE** | The FileIdInfo equality (A-M1) cannot serve as the identity binding on this host. The fallback is limited to ACL plus `VerifyPeer` (path and signer) plus re-hash. The A.4 step 3.4 design needs re-review before the adapter. |
-| A-Q1 | **FAIL-HOLD-NOT-EXCLUSIVE** (a DELETE/WRITE open succeeds under the hold) | A `FileShare.Read` hold gives no replacement protection. Use the fallback as above. The A.7 statement "a lazily loaded closure file cannot be replaced while held" is false and must be corrected. |
-| A-Q1 | **INCONCLUSIVE-*** (baseline, hold, control, harness) | A-Q1 stays open, and admission stays blocked (A.9: "native evidence required before admission"). No retry without approval. Likely causes, such as AppLocker/WDAC blocking `%TEMP%` executables or a Defender quarantine, are recorded. Policy is not changed. |
-| A-Q1 | **AQ1C NOT-RUN** | The coreclr loader is unproven. The owner either accepts the exact-artifact test as the coreclr evidence, or the fallback is adopted for the managed closure. |
-| A-Q1 | **AQ1UAC PASS** / **NOT-RUN-UAC-DECLINED** / **FAIL** | PASS closes the runas sub-question for a synthetic image. Declined: no evidence and no retry. FAIL: the fallback applies, because runas is the only launch path the helper uses. |
-| A2-L3 | **PASS** | The `TryProbeRights` probes return ACCESS_DENIED under read-share holds, so the order in A.4 step 3.1–3.2 (`TryHold`, then `validatePreLaunchTrust`) is acceptable. This closes §R A2-L3 for this host: analogue evidence only, unless A2L3P also passes. |
-| A2-L3 | **FAIL-SHARING-VIOLATION** | The probes fail closed (`LaunchRefusedBeforeElevation`, giving NotStarted with no UAC). Every protocol-2 launch would be refused while holds exist: safe, but unusable. A spec amendment and review are needed. For example: run `validatePreLaunchTrust` before `TryHold`, then re-verify FileIdInfo and hashes under the hold, or restrict the probe while held to the non-share-checked rights. Record it; no code follows. |
-| A2-L3 | **FAIL-UNPROTECTED** | A protected file is caller-modifiable. Stop. For A2L3P this is a High security finding against the installed deployment. Report it to the owner; take no further host action. |
-| A2-L3 | **INCONCLUSIVE-ANALOGUE-NOT-PROTECTED** / **-OTHER-ERROR** | A2-L3 stays open. Consider the optional A2L3P case under its own approval. |
-| A2-L3 | A2L3S PASS, A2L3P not run | This is analogue evidence. The System32 file is TrustedInstaller-owned and the PC Steward files are Administrators-owned, but share-access semantics are file-system-level and identical. The owner decides whether it is sufficient. The exact-artifact test remains required. |
+| O5 | **PASS-READABLE** | O5 native evidence is satisfied **for this host and the current Chocolatey state** (fact extension §10 N5), subject to the §1 binding rule. The O5 contingency is not triggered. If `matchesPinnedRelease = false` or `routeFindings` is non-empty, the route would still refuse on this host (an eligibility fact). No Chocolatey change is authorized. |
+| O5 | **FAIL-UNREADABLE** | Every update would end `ClientUnverifiable`, giving the outcome **Unverified** (§4.3). The §9 owner contingency is triggered: **(a)** accept the route as permanently unusable, or **(b)** approve a helper-side, negative-only client-check field, which needs a new protocol version, a spec and a review. Changing Chocolatey ACLs is not an option. There is no adapter admission until the owner decides. |
+| O5 | **INCONCLUSIVE** | O5 stays open and admission is blocked. Diagnose from the recorded codes. A re-run needs a new approval. A persistent sharing violation is treated as FAIL for the design (safe, because the result is Unverifiable, but the route is unusable). |
+| O5 | **NOT-INSTALLED** | O5 cannot be tested here, and the route cannot be admitted on this host on evidence. No install follows. Any install would be a separate, out-of-scope approval. |
+| O5 | **SKIPPED-CHOCO-RUNNING** | Nothing is learned. Re-run only under a new approval. |
+| A-Q1 | AQ1N, AQ1M and AQ1C all **PASS** | The A.4 step-3 hold design is viable for direct process creation with the native, .NET Framework and coreclr loaders. runas is closed only by an AQ1UAC PASS; otherwise it remains an inference. Admission still needs the ADR-025 exact-artifact host test. |
+| A-Q1 | **FAIL-LAUNCH:n** / **FAIL-EXIT:n** | The hold is incompatible with that loader. Use the **spec fallback** (A.4, A2-L5): no hold across launch; ACL plus `VerifyPeer`, then re-hash the binding set and run the FileIdInfo check after peer verification and before writing the request. The reference identity is the FileIdInfo captured before launch; the fallback detects replacement only. Record a spec amendment for review. |
+| A-Q1 | **FAIL-PEER-IDENTITY** / **FAIL-IDENTITY-UNSTABLE** | FileIdInfo equality (A-M1) is unusable as the binding on this host. The fallback is limited to ACL plus `VerifyPeer` plus re-hash, and A.4 step 3.4 needs re-review. |
+| A-Q1 | **FAIL-HOLD-NOT-EXCLUSIVE** | A `FileShare.Read` hold gives no replacement protection. Use the fallback, and correct the A.7 lazy-load claim. |
+| A-Q1 | **INCONCLUSIVE-*** | A-Q1 stays open and admission is blocked. Causes such as AppLocker/WDAC or a Defender quarantine are recorded. No policy change and no retry without approval. |
+| A-Q1 | **AQ1C NOT-RUN** | coreclr is unproven. The owner either accepts the exact-artifact test as the coreclr evidence, or the fallback is adopted for the managed closure. |
+| A-Q1 | **AQ1UAC** PASS / NOT-RUN-UAC-DECLINED / FAIL | PASS closes runas for a synthetic image. Declined: no evidence and no retry. FAIL: the fallback applies, because runas is the helper's only launch path. |
+| A2-L3 | **PASS** | `TryHold` followed by `validatePreLaunchTrust` (A.4 step 3.1–3.2) is acceptable. This closes §R A2-L3 for this host (as analogue evidence unless A2L3P also passes). It is consistent with the existing Windows-CI deny-ACE test. |
+| A2-L3 | **FAIL-SHARING-VIOLATION** | The probes fail closed (`LaunchRefusedBeforeElevation` → NotStarted, no UAC), so every launch would be refused while held: safe but unusable. A spec amendment and review are needed, for example running trust validation before `TryHold` and then re-verifying FileIdInfo and hashes under the hold. |
+| A2-L3 | **FAIL-UNPROTECTED** | Stop. For A2L3P this is a High security finding against the deployment. Report it; take no further host action. |
+| A2-L3 | **INCONCLUSIVE-ANALOGUE-NOT-PROTECTED** / **-OTHER-ERROR** | A2-L3 stays open. Consider A2L3P under its own approval. |
+| A2-L3 | A2L3S PASS, A2L3P not run | Analogue evidence only. Share-access semantics are file-system-level; ownership differs (TrustedInstaller versus Administrators). The owner decides whether it is sufficient. The exact-artifact test is still required. |
 
 ## 10. Owner approval wording to request
 
-The owner may give the default approval alone, or together with either or both optional approvals. Each must quote the final hash.
+Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§4 Final SHA-256]`. No other hash is valid.
 
 **Default (required for any run):**
-> I approve, on my Windows 11 PC as my normal non-elevated user: creating `%TEMP%\pcsteward-evidence-task50`, copying `Task50-HostEvidence.ps1` with SHA-256 `<FINAL_SHA256>` into it and verifying that hash; running exactly once `"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%TEMP%\pcsteward-evidence-task50\Task50-HostEvidence.ps1" -Mode Run -Cases Default` (read-only Chocolatey file reads for O5, the synthetic A-Q1 native/.NET Framework/.NET 10 launches, and the A2-L3 System32 analogue probes); and, after I have shared the evidence, running the same script once with `-Mode Cleanup`. No UAC, no PC Steward files, no running of Chocolatey, no retries, nothing else.
+> I approve, on my Windows 11 PC as my normal non-elevated user, in one Windows PowerShell 5.1 window: blocks H1 and H1b exactly as written in revision 2 of the Task 50 host-evidence plan (creating `%TEMP%\pcsteward-evidence-task50`, copying `Task50-HostEvidence.ps1`, requiring SHA-256 `[§4 Final SHA-256]`, and a parse-only check), with block H1-X only if H1 or H1b fails; block H2 exactly once (`-Mode Run -Cases Default`: read-only Chocolatey file reads for O5, the synthetic A-Q1 native/.NET Framework/.NET 10 launches, and the A2-L3 System32 analogue probes); and, after I have shared the evidence, block H6 exactly once (`-Mode Cleanup`). No UAC, no PC Steward files, no running of Chocolatey, no retries, nothing else.
 
 **Optional — UAC sub-case:**
-> I also approve exactly one additional run of the same script (same SHA-256) with `-Mode Run -Cases Uac`, before the cleanup run. It will show one UAC prompt for the synthetic `aq1-managed.exe` in its run directory, which I will answer myself. No other elevation.
+> I also approve block H3 exactly once, before the cleanup, with the same script (SHA-256 `[§4 Final SHA-256]`): one UAC prompt for the synthetic `aq1-managed.exe` in its run directory, which I will answer myself. No other elevation.
 
-**Optional — real PC Steward binding files:**
-> I also approve exactly one additional run of the same script (same SHA-256) with `-Mode Run -Cases PcStewardHolds`, before the cleanup run, while PC Steward is closed. It opens the installed PC Steward binding-set files read-only with read-share holds for a few seconds and probes their write rights, without reading their content, launching, or modifying anything.
+**Optional — installed binding files:**
+> I also approve block H4 exactly once, before the cleanup, with the same script (SHA-256 `[§4 Final SHA-256]`), while PC Steward is closed. It opens the installed PC Steward binding-set files read-only with read-share holds for a few seconds and probes their write rights, without reading content, launching or modifying anything.
 
 ## 11. Explicitly NOT authorized by this plan or by any approval above
 
 - Executing `choco.exe` or any Chocolatey script or shim; changing Chocolatey configuration, cache, ACLs or packages; installing, repairing or upgrading Chocolatey.
-- Launching, scanning, refreshing or updating PC Steward; any UAC for PC Steward; redeploying, removing or validating the deployment with the elevated scripts; reading the PC Steward database or `%LOCALAPPDATA%\PCSteward`.
-- Any registry write, ACL or owner change, service or scheduled-task change, policy change (AppLocker, WDAC, Defender exclusions), or installation (SDK, runtime, package or module).
-- Any network access by the probe; downloading the script on the host as part of the test (the owner's choice of transport to `<CHECKOUT>` is outside it, and the hash binds the bytes).
-- Writes or deletes outside `%TEMP%\pcsteward-evidence-task50`; deleting anything except through H1's hash-mismatch branch or H6.
-- Extra runs, retries, other `-Cases` values, edits to the script after hashing, or running it elevated.
+- Launching, scanning, refreshing or updating PC Steward; any UAC for PC Steward; redeploying, removing or elevated validation of the deployment; reading the PC Steward database or `%LOCALAPPDATA%\PCSteward`.
+- Registry writes; ACL or owner changes; service, scheduled-task or policy changes (AppLocker, WDAC, Defender exclusions); installs (SDK, runtime, package, module).
+- Network access by the probe. Fetching the script is outside the test; the Final SHA-256 binds the bytes however they arrive.
+- Writes or deletes outside `%TEMP%\pcsteward-evidence-task50`; deletion except through H1-X or H6.
+- Running `-Mode SelfCheck` on the owner host (CI only), extra runs, retries, other `-Cases` values, edits after hashing, or running elevated.
 - Treating any result as route admission, success, a gate pass, or acceptance of a spec amendment. The results feed an independent review and owner decisions only.
-- Copying evidence to any external service other than this session; push, merge, tag or publication.
+- Sending the evidence anywhere other than this session; push, merge, tag or publication.
 
 ## 12. Residual limits
 
-- A-Q1 uses synthetic images. A pass shows OS and loader semantics, not the signed apphost, its WinVerifyTrust path or the real helper closure. The ADR-025 exact-artifact host test is still required before admission.
-- O5 shows readability of the current state only. Files that an elevated upgrade rewrites inherit their ACLs from their parents. A future unreadable file still fails safe as `ClientUnverifiable` → Unverified.
-- A2L3S is an analogue unless A2L3P passes.
-- Same-user races against the evidence directory (TOCTOU) are outside the threat model. The directory is fresh, user-private by inheritance, and checked for reparse points and an exact allowlist before any launch.
-- The Windows PowerShell 5.1 parser and the CodeDom compile have not been run on the draft. The H0 review or the optional CI rehearsal must confirm both before the hash is fixed.
+- A-Q1 uses synthetic images. A pass shows OS and loader semantics, not the signed apphost, its WinVerifyTrust path, or the real closure. The ADR-025 exact-artifact host test is still required.
+- O5 covers the current state only. Files that an elevated upgrade rewrites inherit their parents' ACLs, and a future unreadable file still fails safe as `ClientUnverifiable` → Unverified. **O5 binds the desktop file-first reader only while that reader stays within the probed O5 file set and access shape (§1).** Any extra input needs a coverage argument in its implementation review or new evidence.
+- A2L3S is analogue evidence unless A2L3P passes. The existing Windows-CI deny-ACE test is hosted-runner evidence, not owner-host evidence.
+- **Windows CI supplies the 5.1 parse and compile rehearsal** (`HostEvidenceScriptRehearsalTests`: `Parser.ParseFile` gives 0 errors; `-Mode SelfCheck` compiles the Run-mode Add-Type source and both CodeDom synthetics). The rehearsal runs as the CI runner's (typically administrator) user under Windows Server. It does not exercise the Run probes, the token or location gates, or Windows 11 specifics. H1b repeats the parse on the owner host.
+- Same-user races (TOCTOU) against the evidence directory are outside the threat model. The directory is fresh and inherits user-private ACLs; reparse points are refused and the image directory is allowlisted before any launch, and Cleanup re-checks every level.
+- A csc.exe orphaned by a `synthetic-build-deadline` stop can outlive the probe briefly. It only writes into the run directory, which Cleanup's allowlist accepts.
 
-## Appendix A — probe script draft (pre-finalization; becomes `scripts/evidence/Task50-HostEvidence.ps1`)
+## Appendix A — probe script, revision 2 (LF text for review; the approvable bytes are the committed CRLF file in §4)
 
 ```powershell
 #Requires -Version 5.1
 <#
-  Task 50 host-evidence probe for O5, A-Q1 and A2-L3. DRAFT revision 1.
-  Do not run until the final file is reviewed, its SHA-256 is recorded and the owner approves exactly that hash.
-  Writes only inside %TEMP%\pcsteward-evidence-task50. Never runs choco.exe or any PC Steward binary.
-  No registry writes, ACL changes, installs, network calls or elevation (except the separately approved Uac case).
-  Pure ASCII, CRLF line endings.
+  Task 50 host-evidence probe for O5, A-Q1 and A2-L3 -- revision 2.
+  Plan: docs/review/TASK_50_HOST_EVIDENCE_PLAN.md (revision 2). Approval binds the CRLF file SHA-256 recorded in plan section 4.
+  Run and Cleanup write only inside %TEMP%\pcsteward-evidence-task50. SelfCheck writes only compiler output under -ScratchDirectory.
+  Never runs choco.exe or any PC Steward binary. No registry writes, ACL changes, installs, network calls or elevation
+  (except the separately approved Uac case). Pure ASCII.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('Run', 'Cleanup')][string]$Mode,
-    [ValidateSet('Default', 'Uac', 'PcStewardHolds')][string]$Cases = 'Default'
+    [Parameter(Mandatory = $true)][ValidateSet('Run', 'Cleanup', 'SelfCheck')][string]$Mode,
+    [ValidateSet('Default', 'Uac', 'PcStewardHolds')][string]$Cases = 'Default',
+    [string]$ScratchDirectory   # SelfCheck only: caller-supplied, existing, empty directory for compiler output
 )
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
@@ -249,55 +331,9 @@ $ProgressPreference = 'SilentlyContinue'
 
 function Stop-Probe([string]$Reason) { throw ('STOP: ' + $Reason) }
 
-# ---- S0: interpreter, platform, fixed location and token preconditions ----------------
-if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { Stop-Probe 'windows-powershell-5.1-required' }
-if (-not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { Stop-Probe 'x64-process-required' }
-if ([Environment]::OSVersion.Version.Major -ne 10 -or [Environment]::OSVersion.Version.Build -lt 22000) { Stop-Probe 'windows-11-required' }
-$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
-$evidenceDir = Join-Path $tempRoot 'pcsteward-evidence-task50'
-$scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
-if (-not [string]::Equals([IO.Path]::GetDirectoryName($scriptPath), $evidenceDir, [StringComparison]::OrdinalIgnoreCase)) { Stop-Probe 'script-not-in-dedicated-evidence-directory' }
-$cursor = New-Object IO.DirectoryInfo $evidenceDir
-while ($null -ne $cursor) {
-    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'reparse-point-in-evidence-ancestry' }
-    $cursor = $cursor.Parent
-}
-$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-if ((New-Object Security.Principal.WindowsPrincipal $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Stop-Probe 'elevated-or-full-administrator-token' }
-
-# ---- Cleanup mode: removes only the dedicated evidence directory after strict shape checks ----
-if ($Mode -eq 'Cleanup') {
-    $entries = @(Get-ChildItem -LiteralPath $evidenceDir -Force -Recurse)
-    if ($entries.Count -gt 256) { Stop-Probe 'cleanup-unexpected-entry-count' }
-    foreach ($entry in $entries) {
-        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'cleanup-reparse-point' }
-        $parent = if ($entry.PSIsContainer) { $entry.Parent.FullName } else { $entry.DirectoryName }
-        $parentName = Split-Path -Leaf $parent
-        $grandParent = Split-Path -Parent $parent
-        $inEvidence = $parent -eq $evidenceDir
-        $inRun = ($grandParent -eq $evidenceDir) -and ($parentName -match '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$')
-        $inScratch = ($parentName -eq 'tmp') -and ((Split-Path -Parent $grandParent) -eq $evidenceDir) -and ((Split-Path -Leaf $grandParent) -match '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$')
-        if ($entry.PSIsContainer) {
-            if (-not (($inEvidence -and $entry.Name -match '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$') -or ($inRun -and $entry.Name -eq 'tmp'))) { Stop-Probe 'cleanup-unexpected-directory' }
-        } elseif (-not (($inEvidence -and $entry.Name -eq 'Task50-HostEvidence.ps1') -or $inRun -or $inScratch)) { Stop-Probe 'cleanup-unexpected-file' }
-    }
-    Remove-Item -LiteralPath $evidenceDir -Recurse -Force
-    'CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed'
-    return
-}
-
-# ---- Run mode setup -------------------------------------------------------------------
-$deadlineSeconds = @{ Default = 240; Uac = 300; PcStewardHolds = 60 }[$Cases]
+$deadlineSeconds = @{ Run = @{ Default = 240; Uac = 300; PcStewardHolds = 60 }[$Cases]; Cleanup = 60; SelfCheck = 150 }[$Mode]
 $clock = [Diagnostics.Stopwatch]::StartNew()
 function Assert-Deadline { if ($clock.Elapsed.TotalSeconds -gt $deadlineSeconds) { Stop-Probe 'overall-deadline' } }
-$scriptSha256 = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash
-$runName = 'run-' + [DateTime]::UtcNow.ToString('yyyyMMdd\THHmmss\Z') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
-$run = Join-Path $evidenceDir $runName
-$scratch = Join-Path $run 'tmp'
-if (Test-Path -LiteralPath $run) { Stop-Probe 'run-directory-exists' }
-[void][IO.Directory]::CreateDirectory($scratch)
-$env:TEMP = $scratch   # process scope only: compiler scratch files stay inside the run directory
-$env:TMP = $scratch
 
 $nativeSource = @'
 using System;
@@ -649,8 +685,123 @@ if ($release.Count -ne 56) { Stop-Probe 'embedded-release-list-count' }
 $engineSha256 = '4AB5785C91D6CB3CC0E9890BCA29077F7D6BAAC0DFC935DBE2DA37047ED761C0'
 $assetSha256 = 'F86F99A18D236C2F99E6F67A20BE7ADC65C6C7756BF6CF3B43759E7EC0AA5839'
 
-Add-Type -TypeDefinition $nativeSource -Language CSharp
+# ---- Shared by Run and SelfCheck: the one Add-Type call and the bounded synthetic build -----------
+function Import-T50 {
+    Assert-Deadline
+    Add-Type -TypeDefinition $nativeSource -Language CSharp   # the same call in Run and SelfCheck
+    Assert-Deadline
+}
 
+# CodeDom (csc.exe) build in a separate runspace so that the wait is bounded. Outputs are never loaded into this process.
+# On timeout the probe stops; an orphaned csc.exe can only finish writing into the given scratch/output directory.
+$compileScript = @'
+param($Source, $Output, $Executable, $Scratch)
+$provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+$parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+$parameters.GenerateExecutable = $Executable
+$parameters.GenerateInMemory = $false
+$parameters.OutputAssembly = $Output
+$parameters.TempFiles = New-Object System.CodeDom.Compiler.TempFileCollection($Scratch, $false)
+$result = $provider.CompileAssemblyFromSource($parameters, $Source)
+-not $result.Errors.HasErrors
+'@
+function Build-Synthetic([string]$Source, [string]$Output, [bool]$Executable, [string]$Scratch) {
+    Assert-Deadline
+    $shell = [PowerShell]::Create()
+    $async = $null
+    try {
+        [void]$shell.AddScript($compileScript).AddArgument($Source).AddArgument($Output).AddArgument($Executable).AddArgument($Scratch)
+        $async = $shell.BeginInvoke()
+        $remaining = [int][Math]::Max(1000, [Math]::Min(60000, ($deadlineSeconds - $clock.Elapsed.TotalSeconds) * 1000))
+        if (-not $async.AsyncWaitHandle.WaitOne($remaining)) { Stop-Probe 'synthetic-build-deadline' }
+        $ok = @($shell.EndInvoke($async))
+        if ($shell.HadErrors -or $ok.Count -ne 1 -or -not $ok[0]) { Stop-Probe 'synthetic-build-failed' }
+    } finally {
+        if ($null -ne $async -and $async.IsCompleted) { $shell.Dispose() }
+    }
+}
+
+# ---- SelfCheck (CI rehearsal): host version, the Run-mode Add-Type compile and the synthetic compiles only -------
+# No reads outside this script's own directory (other than .NET/compiler binaries), no launches, no probes; writes only
+# compiler output and scratch under -ScratchDirectory.
+if ($Mode -eq 'SelfCheck') {
+    'SELFCHECK-HOST: ' + $PSVersionTable.PSEdition + ' ' + $PSVersionTable.PSVersion.ToString()
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        'SELFCHECK-FAIL: windows-powershell-5.1-required'; exit 2
+    }
+    if ([string]::IsNullOrEmpty($ScratchDirectory) -or -not [IO.Path]::IsPathRooted($ScratchDirectory)) { 'SELFCHECK-FAIL: absolute-scratch-directory-required'; exit 2 }
+    $scratchInfo = New-Object IO.DirectoryInfo $ScratchDirectory
+    if (-not $scratchInfo.Exists -or ($scratchInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or @($scratchInfo.GetFileSystemInfos()).Count -ne 0) {
+        'SELFCHECK-FAIL: scratch-directory-must-exist-empty-and-not-be-a-reparse-point'; exit 2
+    }
+    $env:TEMP = $scratchInfo.FullName   # process scope only
+    $env:TMP = $scratchInfo.FullName
+    try {
+        'SELFCHECK-SHA256: ' + (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+        'SELFCHECK-RELEASE-ENTRIES: ' + $release.Count
+        Import-T50
+        if ([T50]::FileModificationRights.Length -ne 7 -or [T50]::DirectoryModificationRights.Length -ne 6 -or [T50]::AncestorReplacementRights.Length -ne 4) { Stop-Probe 'rights-lists' }
+        Build-Synthetic $lazySource (Join-Path $scratchInfo.FullName 'aq1-lazy.dll') $false $scratchInfo.FullName
+        Build-Synthetic $managedSource (Join-Path $scratchInfo.FullName 'aq1-managed.exe') $true $scratchInfo.FullName
+    } catch {
+        $message = [string]$_.Exception.Message
+        if ($message.StartsWith('STOP: ')) { 'SELFCHECK-FAIL: ' + $message.Substring(6) } else { 'SELFCHECK-FAIL: ' + $_.Exception.GetType().Name }
+        exit 1
+    }
+    'SELFCHECK-OK'
+    exit 0
+}
+
+# ---- S0: interpreter, platform, fixed location and token preconditions ----------------
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { Stop-Probe 'windows-powershell-5.1-required' }
+if (-not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { Stop-Probe 'x64-process-required' }
+if ([Environment]::OSVersion.Version.Major -ne 10 -or [Environment]::OSVersion.Version.Build -lt 22000) { Stop-Probe 'windows-11-required' }
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+$evidenceDir = Join-Path $tempRoot 'pcsteward-evidence-task50'
+$scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
+if (-not [string]::Equals([IO.Path]::GetDirectoryName($scriptPath), $evidenceDir, [StringComparison]::OrdinalIgnoreCase)) { Stop-Probe 'script-not-in-dedicated-evidence-directory' }
+$cursor = New-Object IO.DirectoryInfo $evidenceDir
+while ($null -ne $cursor) {
+    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'reparse-point-in-evidence-ancestry' }
+    $cursor = $cursor.Parent
+}
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+if ((New-Object Security.Principal.WindowsPrincipal $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Stop-Probe 'elevated-or-full-administrator-token' }
+
+# ---- Cleanup mode: fixed-depth manual walk (evidence dir -> run-* -> tmp), reparse refused at every level ----
+if ($Mode -eq 'Cleanup') {
+    $runPattern = '^run-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$'
+    $runFiles = @('aq1-native.exe', 'aq1-managed.exe', 'aq1-lazy.dll', 'aq1-managed.runtimeconfig.json', 'a2l3-own.bin', 'evidence.json')
+    function Get-Level([string]$Directory, [int]$Limit) {
+        $items = @(Get-ChildItem -LiteralPath $Directory -Force)   # one level only; never -Recurse
+        if ($items.Count -gt $Limit) { Stop-Probe 'cleanup-unexpected-entry-count' }
+        foreach ($item in $items) { if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-Probe 'cleanup-reparse-point' } }
+        return $items
+    }
+    foreach ($top in (Get-Level $evidenceDir 16)) {
+        if (-not $top.PSIsContainer) { if ($top.Name -ne 'Task50-HostEvidence.ps1') { Stop-Probe 'cleanup-unexpected-file' }; continue }
+        if ($top.Name -notmatch $runPattern) { Stop-Probe 'cleanup-unexpected-directory' }
+        foreach ($inRun in (Get-Level $top.FullName 16)) {
+            if (-not $inRun.PSIsContainer) { if ($runFiles -notcontains $inRun.Name) { Stop-Probe 'cleanup-unexpected-file' }; continue }
+            if ($inRun.Name -ne 'tmp') { Stop-Probe 'cleanup-unexpected-directory' }
+            foreach ($inScratch in (Get-Level $inRun.FullName 256)) { if ($inScratch.PSIsContainer) { Stop-Probe 'cleanup-unexpected-directory' } }
+        }
+    }
+    Remove-Item -LiteralPath $evidenceDir -Recurse -Force   # reached only when every level was checked and no reparse point exists
+    'CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed'
+    return
+}
+
+# ---- Run mode setup -------------------------------------------------------------------
+$scriptSha256 = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash
+$runName = 'run-' + [DateTime]::UtcNow.ToString('yyyyMMdd\THHmmss\Z') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+$run = Join-Path $evidenceDir $runName
+$scratch = Join-Path $run 'tmp'
+if (Test-Path -LiteralPath $run) { Stop-Probe 'run-directory-exists' }
+[void][IO.Directory]::CreateDirectory($scratch)
+$env:TEMP = $scratch   # process scope only: compiler scratch files stay inside the run directory
+$env:TMP = $scratch
+Import-T50
 # ---- Sanitizing helpers -----------------------------------------------------------------
 $programFiles = [IO.Path]::GetFullPath([Environment]::GetFolderPath('ProgramFiles')).TrimEnd('\')
 $programData = [IO.Path]::GetFullPath([Environment]::GetFolderPath('CommonApplicationData')).TrimEnd('\')
@@ -711,6 +862,7 @@ function Read-Tree([string]$TopName, $KnownSet, [bool]$RecordNames, $Problems) {
         try { $children = @($info.EnumerateFileSystemInfos()) }
         catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$failures.Add('list:' + $code); [void]$Problems.Add($TopName + ':list:' + $code); continue }
         foreach ($child in $children) {
+            Assert-Deadline
             $count++
             if ($count -gt 32768) { $r.overBound = $true; [void]$Problems.Add($TopName + ':over-bound'); break }
             $relative = $child.FullName.Substring($chocoRoot.Length + 1).Replace('\', '/')
@@ -754,8 +906,9 @@ function Invoke-O5 {
     }
     if (@(Get-Process -Name 'choco' -ErrorAction SilentlyContinue).Count -gt 0) { $r.status = 'skipped-choco-running'; return $r }
     $r.status = 'run'
-    $r.rootIdentity = Get-PathFileId $chocoRoot $true
-    if ($r.rootIdentity.StartsWith('error:')) { [void]$problems.Add('root:file-id:' + $r.rootIdentity.Substring(6)) }
+    $rootId = Get-PathFileId $chocoRoot $true   # used only as a readability check; never recorded
+    $r.rootIdentityRead = -not $rootId.StartsWith('error:')
+    if (-not $r.rootIdentityRead) { [void]$problems.Add('root:file-id:' + $rootId.Substring(6)) }
     try { if (([IO.File]::GetAttributes($chocoRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [void]$findings.Add('root:reparse') } }
     catch { [void]$problems.Add('root:attributes:' + ($_.Exception.HResult -band 0xFFFF)) }
 
@@ -872,6 +1025,7 @@ function Invoke-O5 {
 # ---- A-Q1: launch of a synthetic image while read-share holds are held ------------------------
 function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [string[]]$HoldPaths, [bool]$CheckPeer) {
     $r = [ordered]@{ launcher = $Launcher; held = ($HoldPaths.Count -gt 0) }
+    $heldId = $null
     $holds = New-Object System.Collections.ArrayList
     try {
         foreach ($p in $HoldPaths) {
@@ -881,8 +1035,10 @@ function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [s
         }
         if ($holds.Count -gt 0) {
             $e = 0
-            $r.heldFileId = [T50]::FileIdOf($holds[0].Handle, [ref]$e)
-            $r.freshFileIdBeforeEqualsHeld = ((Get-PathFileId $HoldPaths[0] $false) -eq $r.heldFileId)
+            $heldId = [T50]::FileIdOf($holds[0].Handle, [ref]$e)   # volume serial + file id; kept in memory only
+            $r.heldFileIdRead = ($null -ne $heldId)
+            if ($null -ne $heldId) { $r.heldFileId128 = $heldId.Split(':')[1] }
+            $r.freshFileIdBeforeEqualsHeld = ($null -ne $heldId) -and ((Get-PathFileId $HoldPaths[0] $false) -eq $heldId)
             $r.replacementWhileHeldBeforeLaunch = Get-Replacement $HoldPaths
         }
         $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -901,7 +1057,7 @@ function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [s
                 $r.peerImagePath = San $path
                 $r.peerFileIdRead = ($null -ne $peer)
                 if ($null -eq $peer) { $r.peerError = $e }
-                if ($holds.Count -gt 0) { $r.peerEqualsHeld = ($null -ne $peer) -and ($peer -eq $r.heldFileId) }
+                if ($holds.Count -gt 0) { $r.peerEqualsHeld = ($null -ne $peer) -and ($null -ne $heldId) -and ($peer -eq $heldId) }
             }
             if ($holds.Count -gt 0) { $r.replacementWhileRunning = Get-Replacement $HoldPaths }
             if ($Launcher -eq 'CreateProcessSuspended') { $r.resumeError = [T50]::Resume($child) }
@@ -909,11 +1065,22 @@ function Invoke-Aq1Run([string]$Launcher, [string]$Image, [string]$Arguments, [s
             if ($r.exit -eq 'timeout' -and $Launcher -ne 'RunAs') { $r.terminatedOwnSyntheticChild = [T50]::TerminateOwnSyntheticChild($child); [void][T50]::WaitExit($child, 5000) }
         } finally { [T50]::Release($child) }
         if ($holds.Count -gt 0) {
-            $r.freshFileIdAfterEqualsHeld = ((Get-PathFileId $HoldPaths[0] $false) -eq $r.heldFileId)
+            $r.freshFileIdAfterEqualsHeld = ($null -ne $heldId) -and ((Get-PathFileId $HoldPaths[0] $false) -eq $heldId)
             $r.replacementWhileHeldAfterExit = Get-Replacement $HoldPaths
         }
     } finally { foreach ($h in $holds) { $h.Handle.Dispose() } }
-    if ($HoldPaths.Count -gt 0) { $r.controlAfterRelease = @(foreach ($p in $HoldPaths) { (Split-Path -Leaf $p) + ':DELETE=' + [T50]::ProbeOpen($p, [T50]::Delete, $false) }) }
+    if ($HoldPaths.Count -gt 0) {
+        # Bounded re-probe (at most 3 attempts, 500 ms apart) absorbs a transient scanner open; attempts are recorded.
+        $r.controlAfterRelease = @(foreach ($p in $HoldPaths) {
+            $outcome = $null
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                $outcome = [T50]::ProbeOpen($p, [T50]::Delete, $false)
+                if ($outcome -ne '32') { break }
+                if ($attempt -lt 3) { Start-Sleep -Milliseconds 500 }
+            }
+            (Split-Path -Leaf $p) + ':DELETE=' + $outcome + ';attempts=' + [Math]::Min($attempt, 3)
+        })
+    }
     return $r
 }
 
@@ -925,21 +1092,10 @@ function Test-HeldRun($Baseline, $Held, [bool]$PeerRequired) {
     $all = @($Held.replacementWhileHeldBeforeLaunch) + @($Held.replacementWhileHeldAfterExit)
     if (@($all | Where-Object { $_ -match '=handle' }).Count -gt 0) { return 'FAIL-HOLD-NOT-EXCLUSIVE' }
     if (@($all | Where-Object { $_ -notmatch 'DELETE=32,WRITE_DATA=32$' }).Count -gt 0) { return 'INCONCLUSIVE-REPLACEMENT-PROBE' }
-    if (@($Held.controlAfterRelease | Where-Object { $_ -notmatch 'DELETE=handle$' }).Count -gt 0) { return 'INCONCLUSIVE-CONTROL' }
+    if (@($Held.controlAfterRelease | Where-Object { $_ -notmatch 'DELETE=handle;attempts=[123]$' }).Count -gt 0) { return 'INCONCLUSIVE-CONTROL' }
     if (-not ($Held.freshFileIdBeforeEqualsHeld -and $Held.freshFileIdAfterEqualsHeld)) { return 'FAIL-IDENTITY-UNSTABLE' }
     if ($PeerRequired -and -not ($Held.Contains('peerEqualsHeld') -and $Held.peerEqualsHeld)) { return 'FAIL-PEER-IDENTITY' }
     return 'PASS'
-}
-
-function Build-Synthetic([string]$Source, [string]$Output, [bool]$Executable) {
-    $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
-    $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
-    $parameters.GenerateExecutable = $Executable
-    $parameters.GenerateInMemory = $false
-    $parameters.OutputAssembly = $Output
-    $parameters.TempFiles = New-Object System.CodeDom.Compiler.TempFileCollection($scratch, $false)
-    $result = $provider.CompileAssemblyFromSource($parameters, $Source)   # never loaded into this process
-    if ($result.Errors.HasErrors) { Stop-Probe 'synthetic-build-failed' }
 }
 
 function Assert-ImageDirectory {
@@ -1030,6 +1186,9 @@ function Invoke-A2L3PcSteward {
 }
 
 # ---- Main ----------------------------------------------------------------------------------
+$runVolumeId = Get-PathFileId $run $true
+$programFilesVolumeId = Get-PathFileId $programFiles $true
+$volumeEquality = if ($runVolumeId.StartsWith('error:') -or $programFilesVolumeId.StartsWith('error:')) { 'unknown' } else { $runVolumeId.Split(':')[0] -eq $programFilesVolumeId.Split(':')[0] }
 $evidence = [ordered]@{
     schema = 'pc-steward-task50-host-evidence:1'
     cases = $Cases
@@ -1042,7 +1201,7 @@ $evidence = [ordered]@{
         clr = [Environment]::Version.ToString()
         tokenElevationType = [T50]::TokenInt(18)
         tokenElevated = [T50]::TokenInt(20)
-        evidenceVolumeEqualsProgramFilesVolume = ((Get-PathFileId $run $true).Split(':')[0] -eq (Get-PathFileId $programFiles $true).Split(':')[0])
+        evidenceVolumeEqualsProgramFilesVolume = $volumeEquality
     }
     results = [ordered]@{}
     verdicts = [ordered]@{}
@@ -1063,8 +1222,8 @@ try {
         $managed = Join-Path $run 'aq1-managed.exe'
         $lazy = Join-Path $run 'aq1-lazy.dll'
         if ($Cases -eq 'Default') { [IO.File]::Copy((Join-Path $system32 'whoami.exe'), $native, $false) }
-        Build-Synthetic $lazySource $lazy $false
-        Build-Synthetic $managedSource $managed $true
+        Build-Synthetic $lazySource $lazy $false $scratch
+        Build-Synthetic $managedSource $managed $true $scratch
         Assert-ImageDirectory
     }
     if ($Cases -eq 'Default') {
@@ -1114,6 +1273,7 @@ try {
     $evidence.elapsedMs = $clock.ElapsedMilliseconds
     $null = Redact ($evidence | ConvertTo-Json -Depth 12)   # first pass counts redactions only
     $evidence.redactions = $redactions
+    $script:redactions = 0
     $json = Redact ($evidence | ConvertTo-Json -Depth 12)
     [IO.File]::WriteAllText((Join-Path $run 'evidence.json'), $json, (New-Object Text.UTF8Encoding $false))
     'EVIDENCE: <TEMP>\pcsteward-evidence-task50\' + $runName + '\evidence.json'
