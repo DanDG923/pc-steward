@@ -198,16 +198,19 @@ public sealed class DeploymentCapabilityBoundaryTests
     [TestMethod]
     public void FreshEvidenceProducersNeverReadTheFrozenEvidenceId()
     {
-        // No production producer exists yet (the Profile V2 observer is deferred); the guard applies as soon as one is added.
+        // N5 added the Chocolatey Profile V2 producer; the guard covers it and any later producer.
         Assert.IsTrue(Regex.IsMatch("internal sealed class P : IReviewedUpdateDispatchEvidenceSource",
             @"\b(class|record|struct)\s+\w+[^{;]*:[^{;]*\bIReviewedUpdateDispatchEvidenceSource\b"));
         string src = Path.Combine(FindRepositoryRoot(), "src");
+        List<string> producers = [];
         foreach (string path in Sources(src))
         {
             string source = File.ReadAllText(path);
             if (!Regex.IsMatch(source, @"\b(class|record|struct)\s+\w+[^{;]*:[^{;]*\bIReviewedUpdateDispatchEvidenceSource\b")) continue;
+            producers.Add(Path.GetFileName(path));
             Assert.IsFalse(Regex.IsMatch(source, @"\.\s*EvidenceId\b"), $"{path} reads an EvidenceId; F′ must come from fresh observation");
         }
+        CollectionAssert.Contains(producers, "ChocolateyProfileEvidenceSource.cs", "the scan is not vacuous");
     }
 
     private static IEnumerable<string> Sources(string src) => Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
