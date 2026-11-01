@@ -6,20 +6,38 @@ using PCSteward.Application;
 
 namespace PCSteward.Desktop;
 
+/// <summary>
+/// FR-UI-01/05, AC-UX-03 (Task 73 Phase 1): the Desktop status chip. Label, glyph and tone come only from the portable
+/// <see cref="StatusVocabulary"/>, so every list, badge and filter uses the same words; colour is never the only signal.
+/// </summary>
 public sealed record StewardStatus(string Label, string Glyph, string Tone)
 {
-    public static StewardStatus From(string status) => status switch
+    public static StewardStatus From(string status)
     {
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.Current) => new("Up to date", "\uE73E", "success"),
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate) => new("Update ready to review", "\uE896", "information"),
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) => new("Needs your decision", "\uE7BA", "attention"),
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged) => new("Inventoried only", "\uE946", "neutral"),
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.Pinned) => new("Version pinned", "\uE718", "neutral"),
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.Ignored) => new("Ignored by you", "\uE74D", "neutral"),
-        nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable) => new("Update evidence unavailable", "\uEA39", "blocked"),
-        "Installed" => new("Installed · source not checked", "\uE946", "neutral"),
-        _ => new("Status unavailable", "\uE783", "neutral")
+        StatusChipPresentation chip = StatusVocabulary.For(status);
+        return new(chip.Label, chip.Glyph, ToneName(chip.Tone));
+    }
+
+    public static string ToneName(StatusTone tone) => tone switch
+    {
+        StatusTone.Success => "success",
+        StatusTone.Information => "information",
+        StatusTone.Attention => "attention",
+        StatusTone.Critical => "blocked",
+        _ => "neutral"
     };
+}
+
+/// <summary>Spacing tokens on the 4 px grid, mirroring <c>Resources/ThemeResources.xaml</c>.</summary>
+internal static class StewardSpacing
+{
+    public const double XSmall = 4;
+    public const double Small = 8;
+    public const double Medium = 12;
+    public const double Large = 16;
+    public const double XLarge = 24;
+    public const double XXLarge = 32;
+    public const double TitleBarHeight = 32;
 }
 
 public sealed class ApplicationListItem
@@ -34,6 +52,7 @@ public sealed class ApplicationListItem
         StewardStatus status = StewardStatus.From(row.Status);
         StatusLabel = status.Label;
         StatusGlyph = status.Glyph;
+        (StatusForeground, StatusBackground) = StewardVisuals.ToneBrushes(status.Tone);
         Initials = StewardPresentation.Initials(row.Name);
         AccessibleSummary = $"{Name}, {Publisher}, version {Version}, {StatusLabel}, {ScopeAndProvider}";
     }
@@ -45,6 +64,8 @@ public sealed class ApplicationListItem
     public string ScopeAndProvider { get; }
     public string StatusLabel { get; }
     public string StatusGlyph { get; }
+    public Brush StatusForeground { get; }
+    public Brush StatusBackground { get; }
     public string Initials { get; }
     public string AccessibleSummary { get; }
 
@@ -87,10 +108,10 @@ internal static class StewardVisuals
 
     public static Grid PageHeader(string title, string description, string? eyebrow = null, FrameworkElement? action = null)
     {
-        Grid grid = new() { ColumnSpacing = 24 };
+        Grid grid = new() { ColumnSpacing = StewardSpacing.XLarge };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        StackPanel copy = new() { Spacing = 5 };
+        StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
         if (!string.IsNullOrWhiteSpace(eyebrow)) copy.Children.Add(new TextBlock { Text = eyebrow.ToUpperInvariant(), Style = Style("StewardEyebrowStyle") });
         copy.Children.Add(new TextBlock { Text = title, Style = Style("StewardPageTitleStyle") });
         copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardBodyLargeStyle"), MaxWidth = 760 });
@@ -117,28 +138,23 @@ internal static class StewardVisuals
         return Badge(presentation.Label, presentation.Glyph, presentation.Tone, automationName);
     }
 
+    /// <summary>The one tone-to-brush mapping shared by code-built chips and the inventory row template.</summary>
+    public static (Brush Foreground, Brush Background) ToneBrushes(string tone) => tone switch
+    {
+        "success" => (Brush("StewardSuccessBrush"), Brush("StewardSuccessSurfaceBrush")),
+        "attention" => (Brush("StewardWarningBrush"), Brush("StewardWarningSurfaceBrush")),
+        "blocked" => (Brush("StewardDangerBrush"), Brush("StewardDangerSurfaceBrush")),
+        "information" => (Brush("StewardBrandTextBrush"), Brush("StewardBrandSubtleBrush")),
+        _ => (Brush("StewardSecondaryTextBrush"), Brush("StewardSurfaceSubtleBrush"))
+    };
+
     public static Border Badge(string label, string glyph, string tone = "neutral", string? automationName = null)
     {
-        string foreground = tone switch
-        {
-            "success" => "StewardSuccessBrush",
-            "attention" => "StewardWarningBrush",
-            "blocked" => "StewardDangerBrush",
-            "information" => "StewardBrandTextBrush",
-            _ => "StewardSecondaryTextBrush"
-        };
-        string background = tone switch
-        {
-            "success" => "StewardSuccessSurfaceBrush",
-            "attention" => "StewardWarningSurfaceBrush",
-            "blocked" => "StewardDangerSurfaceBrush",
-            "information" => "StewardBrandSubtleBrush",
-            _ => "StewardSurfaceSubtleBrush"
-        };
-        StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12, Foreground = Brush(foreground) });
-        content.Children.Add(new TextBlock { Text = label, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(foreground), TextWrapping = TextWrapping.Wrap });
-        Border badge = new() { Style = Style("StewardStatusChipStyle"), Background = Brush(background), BorderBrush = Brush(foreground), Child = content };
+        (Brush foreground, Brush background) = ToneBrushes(tone);
+        StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12, Foreground = foreground });
+        content.Children.Add(new TextBlock { Text = label, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap });
+        Border badge = new() { Style = Style("StewardStatusChipStyle"), Background = background, BorderBrush = foreground, Child = content };
         AutomationProperties.SetName(badge, automationName ?? label);
         return badge;
     }
@@ -152,19 +168,19 @@ internal static class StewardVisuals
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.Children.Add(new FontIcon { Glyph = glyph, FontSize = 18, Foreground = Brush(foreground), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
-        StackPanel copy = new() { Spacing = 3 };
+        StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
         copy.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(foreground), TextWrapping = TextWrapping.Wrap });
         copy.Children.Add(new TextBlock { Text = message, Style = Style("StewardBodyStyle") });
         Grid.SetColumn(copy, 1);
         grid.Children.Add(copy);
-        Border banner = new() { Background = Brush(background), BorderBrush = Brush(foreground), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 12, 14, 12), Child = grid };
+        Border banner = new() { Background = Brush(background), BorderBrush = Brush(foreground), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(StewardSpacing.Large, StewardSpacing.Medium, StewardSpacing.Large, StewardSpacing.Medium), Child = grid };
         AutomationProperties.SetName(banner, $"{title}. {message}");
         return banner;
     }
 
     public static Border EmptyState(string glyph, string title, string message, Button? action = null)
     {
-        StackPanel content = new() { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };
+        StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 30, Foreground = Brush("StewardBrandBrush"), HorizontalAlignment = HorizontalAlignment.Center });
         content.Children.Add(new TextBlock { Text = title, Style = Style("StewardSectionTitleStyle"), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
         content.Children.Add(new TextBlock { Text = message, Style = Style("StewardBodyStyle"), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
@@ -174,25 +190,24 @@ internal static class StewardVisuals
         return empty;
     }
 
-    public static Border MetricCard(int value, string label, string detail, string status)
+    /// <summary>A count with its status chip; the label is the chip's vocabulary label, so cards and rows use the same words.</summary>
+    public static Border MetricCard(int value, string detail, string status)
     {
-        StackPanel content = new() { Spacing = 5 };
-        Grid heading = new() { ColumnSpacing = 8 };
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        heading.Children.Add(new TextBlock { Text = value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture), Style = Style("StewardDisplayStyle") });
+        string label = StewardStatus.From(status).Label;
+        StackPanel content = new() { Spacing = StewardSpacing.XSmall };
+        content.Children.Add(new TextBlock { Text = value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture), Style = Style("StewardDisplayStyle") });
         Border badge = StatusBadge(status);
-        Grid.SetColumn(badge, 1);
-        heading.Children.Add(badge);
-        content.Children.Add(heading);
-        content.Children.Add(new TextBlock { Text = label, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("StewardTextBrush") });
+        badge.HorizontalAlignment = HorizontalAlignment.Left;
+        content.Children.Add(badge);
         content.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle") });
-        return new Border { Style = Style("StewardCardStyle"), Child = content };
+        Border card = new() { Style = Style("StewardCardStyle"), Child = content };
+        AutomationProperties.SetName(card, $"{value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture)} {label}. {detail}");
+        return card;
     }
 
     public static Grid EvidenceRow(string label, string value)
     {
-        Grid row = new() { ColumnSpacing = 16, Padding = new Thickness(0, 5, 0, 5) };
+        Grid row = new() { ColumnSpacing = StewardSpacing.Large, Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.Children.Add(new TextBlock { Text = label, Style = Style("StewardCaptionStyle") });
@@ -210,7 +225,7 @@ internal static class StewardVisuals
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Foreground = Brush("StewardBrandBrush"), Margin = new Thickness(0, 2, 0, 0) });
-        StackPanel copy = new() { Spacing = 2 };
+        StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
         copy.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
         copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle") });
         Grid.SetColumn(copy, 1);

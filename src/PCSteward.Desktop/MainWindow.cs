@@ -1,7 +1,10 @@
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Dispatching;
 using System.Globalization;
@@ -35,8 +38,14 @@ public sealed class MainWindow : Window
     private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
     private ScheduledCheckSettings scheduledSettings = ScheduledCheckSettings.Manual;
     private ScheduledCheckStatus scheduledStatus = ScheduledCheckStatus.NotScheduled;
-    private string destination = "overview";
-    private string detailReturnDestination = "applications";
+    private readonly ShellNavigation navigation;
+    private Windows.UI.ViewManagement.AccessibilitySettings? accessibilitySettings;
+    private Grid? windowRoot;
+    private Button? titleBarBack;
+    private NavigationView? navigationView;
+    private ScrollViewer? pageHost;
+    private ShellPage? renderedPage;
+    private Button? operationCancel;
     private InventoryRow? detailRow;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
@@ -67,7 +76,9 @@ public sealed class MainWindow : Window
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
-        destination = showPostResetOnboarding ? "onboarding" : "overview";
+        navigation = new ShellNavigation(showPostResetOnboarding ? ShellPage.Onboarding : ShellPage.Home);
+        navigation.PropertyChanged += (_, _) => SyncNavigationChrome();
+        BuildWindowChrome();
         if (!showPostResetOnboarding) startupStateLoadFailed = !LoadSavedInventory();
         Render();
     }
@@ -94,37 +105,65 @@ public sealed class MainWindow : Window
         await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Action unavailable", Content = "Factory reset recovery or another PC Steward data operation is active. Wait for it to finish, then try again.", CloseButtonText = "Close" }.ShowAsync();
     }
 
+    /// <summary>
+    /// Refreshes the current page only. The window chrome, navigation pane and operation band are created once and persist,
+    /// so focus in them survives; the page keeps its scroll position and, where it still exists, the focused control.
+    /// </summary>
     private void Render()
     {
         if (startupStateLoadFailed) { RenderStartupStateLoadFailure(); return; }
-        if (destination == "settings") { RenderSettings(); return; }
-        if (destination == "scan") { RenderScanPage(); return; }
-        if (destination == "updates") { RenderUpdatesPage(); return; }
-        if (destination == "detail") { RenderProductDetailPage(); return; }
-        if (destination == "current") { RenderCurrentPage(); return; }
-        if (destination == "results") { RenderResultsPage(); return; }
-        if (destination == "review") { RenderReviewPage(); return; }
-        if (destination == "overview") { RenderOverviewPage(); return; }
-        if (destination == "applications") { RenderApplicationsPage(); return; }
-        if (destination == "activity") { RenderActivityPage(); return; }
-        if (destination == "privacy") { RenderPrivacyPage(); return; }
-        if (destination == "storage") { RenderStoragePage(); return; }
-        if (destination == "onboarding") { RenderOnboardingPage(); return; }
-        if (destination == "about") { RenderAboutPage(); return; }
-        RenderPlaceholder();
+        if (navigation.Current == ShellPage.Onboarding) { ShowBarePage(BuildOnboardingPage()); return; }
+        EnsureShell();
+        ShowCurrentPage(preserveViewState: true);
     }
+
+    /// <summary>FR-UI-02 (audit P-H1/P-H2): opens a page through the back stack. Re-opening the current page refreshes it.</summary>
+    private void NavigateTo(ShellPage page)
+    {
+        if (!navigation.Navigate(page)) { Render(); return; }
+        if (page == ShellPage.Onboarding) { Render(); return; }
+        EnsureShell();
+        ShowCurrentPage(preserveViewState: false);
+    }
+
+    private void GoBack()
+    {
+        if (!navigation.GoBack()) return;
+        EnsureShell();
+        ShowCurrentPage(preserveViewState: false);
+    }
+
+    private StackPanel BuildPage(ShellPage page) => page switch
+    {
+        ShellPage.Home => BuildHomePage(),
+        ShellPage.Updates => BuildUpdatesPage(),
+        ShellPage.InstalledApps => BuildInstalledAppsPage(),
+        ShellPage.Activity => BuildActivityPage(),
+        ShellPage.Decisions => BuildDecisionsPage(),
+        ShellPage.Settings => BuildSettingsPage(),
+        ShellPage.About => BuildAboutPage(),
+        ShellPage.Scan => BuildScanPage(),
+        ShellPage.Results => BuildResultsPage(),
+        ShellPage.Review => BuildReviewPage(),
+        ShellPage.RepositoryApps => BuildRepositoryAppsPage(),
+        ShellPage.Detail => BuildProductDetailPage(),
+        ShellPage.Storage => BuildStoragePage(),
+        ShellPage.Privacy => BuildPrivacyPage(),
+        ShellPage.Onboarding => BuildOnboardingPage(),
+        _ => BuildHomePage()
+    };
 
     private void RenderStartupStateLoadFailure()
     {
         StackPanel panel = CreatePagePanel(760);
         panel.Children.Add(new TextBlock { Text = "PC Steward could not open local state", Style = AppStyle("StewardPageTitleStyle") });
         panel.Children.Add(PageCopy("A local data operation is still active or reset recovery is in progress. No scan or state-changing action was started. Close PC Steward and try again after the other operation finishes."));
-        Content = panel;
+        ShowBarePage(panel);
     }
 
     private static StackPanel CreatePagePanel(double maxWidth = 1040)
     {
-        StackPanel panel = new() { Spacing = 16, Padding = new Thickness(24), MaxWidth = maxWidth };
+        StackPanel panel = new() { Spacing = StewardSpacing.Large, Padding = new Thickness(StewardSpacing.XLarge), MaxWidth = maxWidth };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
         panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
         panel.Resources[typeof(TextBox)] = AppStyle("StewardInputStyle");
@@ -154,10 +193,11 @@ public sealed class MainWindow : Window
     {
         if (operationBand is not null) operationBand.Visibility = HasActiveOperation ? Visibility.Visible : Visibility.Collapsed;
         if (operationStatusText is not null) operationStatusText.Text = CurrentOperationLabel;
+        if (operationCancel is not null) operationCancel.Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (scanPageStatusText is not null) scanPageStatusText.Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}";
     }
 
-    private void RenderOnboardingPage()
+    private StackPanel BuildOnboardingPage()
     {
         StackPanel panel = CreatePagePanel(760);
         panel.Children.Add(StewardVisuals.PageHeader("Start fresh with PC Steward", "Factory reset is complete. No scan or source connection was started automatically.", "Fresh local state"));
@@ -197,20 +237,21 @@ public sealed class MainWindow : Window
                 continueButton.IsEnabled = true;
                 return;
             }
-            destination = "scan"; Render();
+            navigation.Reset(ShellPage.Scan); Render();
         };
         panel.Children.Add(continueButton);
-        Content = panel;
+        return panel;
     }
 
-    private void RenderAboutPage()
+    private static StackPanel BuildAboutPage()
     {
         StackPanel panel = CreatePagePanel(820);
-        panel.Children.Add(StewardVisuals.PageHeader("About & support", "PC Steward is a local-first Windows 11 application inventory and evidence-review tool.", "Quiet authority"));
+        panel.Children.Add(StewardVisuals.PageHeader("About", "PC Steward is a local-first Windows 11 application inventory and evidence-review tool."));
         panel.Children.Add(StewardVisuals.InformationBanner("Private and user-directed", "No account, cloud sync, telemetry, resident background service, or automatic updates."));
         StackPanel scope = new() { Spacing = 8 };
-        scope.Children.Add(new TextBlock { Text = "Update scope", Style = AppStyle("StewardSectionTitleStyle") });
-        scope.Children.Add(PageCopy("This standalone package can review and run only explicitly approved current-user WinGet updates. Machine-scope updates are not actionable here. PC Steward does not use elevation or an elevated helper in this package."));
+        scope.Children.Add(new TextBlock { Text = "Updates and administrator permission", Style = AppStyle("StewardSectionTitleStyle") });
+        scope.Children.Add(PageCopy(ElevationStory.Summary));
+        scope.Children.Add(PageCopy(ElevationStory.HelperRequirement));
         panel.Children.Add(Card(scope));
         StackPanel data = new() { Spacing = 8 };
         data.Children.Add(new TextBlock { Text = "Data and removal", Style = AppStyle("StewardSectionTitleStyle") });
@@ -221,10 +262,10 @@ public sealed class MainWindow : Window
         support.Children.Add(new TextBlock { Text = "Support and rollback", Style = AppStyle("StewardSectionTitleStyle") });
         support.Children.Add(PageCopy("Use only the approved private release channel and its published checksum. If a supported update or package replacement fails, stop, preserve the diagnostic export, and use the product-owner-approved rollback package. Do not download installers from mirrors or third-party portals."));
         panel.Children.Add(Card(support));
-        Content = BuildShell(panel);
+        return panel;
     }
 
-    private void RenderOverviewPage()
+    private StackPanel BuildHomePage()
     {
         int ready = viewModel.UpdateStatusCounts.GetValueOrDefault(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate);
         int review = viewModel.UpdateStatusCounts.GetValueOrDefault(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired);
@@ -238,38 +279,41 @@ public sealed class MainWindow : Window
                 : review > 0
                     ? $"{review} application{(review == 1 ? " needs" : "s need")} your decision; no action is preselected."
                     : "Your latest local inventory has no verified update waiting for approval.";
-        panel.Children.Add(StewardVisuals.PageHeader("Overview", description, "Evidence before action"));
+        panel.Children.Add(StewardVisuals.PageHeader("Home", description));
 
         if (viewModel.LastScanAt is null && viewModel.AllRows.Count == 0)
         {
             Button start = StewardVisuals.PrimaryButton("Start local inventory", "Start a read-only local application inventory");
             start.IsEnabled = !HasActiveOperation;
-            start.Click += async (_, _) => { destination = "scan"; await StartScanAsync(); };
+            start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
             panel.Children.Add(StewardVisuals.EmptyState("\uE721", "See what is installed", "The first scan reads Windows application records on this PC. It does not request administrator access, connect to package sources, or change software.", start));
             panel.Children.Add(StewardVisuals.InformationBanner("Private by default", "Inventory and decisions stay on this PC. Package sources remain off until you approve their disclosure."));
-            Content = BuildShell(panel);
-            return;
+            return panel;
         }
 
-        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
         Button primary = StewardVisuals.PrimaryButton(ready > 0 ? $"Review {ready} update{(ready == 1 ? string.Empty : "s")}" : review > 0 ? $"Review {review} decision{(review == 1 ? string.Empty : "s")}" : "Open applications", ready > 0 ? "Review verified update evidence" : review > 0 ? "Review application decisions" : "Open installed applications");
         primary.IsEnabled = !isExecuting;
-        primary.Click += (_, _) => { destination = ready > 0 ? "updates" : review > 0 ? "review" : "applications"; Render(); };
+        primary.Click += (_, _) => NavigateTo(ready > 0 ? ShellPage.Updates : review > 0 ? ShellPage.Review : ShellPage.InstalledApps);
         Button scan = new() { Content = viewModel.IsScanning ? "Scan in progress" : "Scan again", IsEnabled = !HasActiveOperation };
         AutomationProperties.SetName(scan, viewModel.IsScanning ? "Inventory scan in progress" : "Start another local inventory scan");
-        scan.Click += async (_, _) => { destination = "scan"; await StartScanAsync(); };
+        scan.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
+        Button results = new() { Content = "View scan results" };
+        AutomationProperties.SetName(results, "View scan results");
+        results.Click += (_, _) => NavigateTo(ShellPage.Results);
         actions.Children.Add(primary);
         actions.Children.Add(scan);
+        actions.Children.Add(results);
 
-        Grid hero = new() { ColumnSpacing = 28 };
+        Grid hero = new() { ColumnSpacing = StewardSpacing.XLarge };
         hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
         hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.8, GridUnitType.Star) });
-        StackPanel heroCopy = new() { Spacing = 10 };
+        StackPanel heroCopy = new() { Spacing = StewardSpacing.Medium };
         heroCopy.Children.Add(new TextBlock { Text = ready > 0 ? "Updates wait for you" : review > 0 ? "Decisions wait for you" : "No action is waiting", Style = AppStyle("StewardDisplayStyle") });
         heroCopy.Children.Add(PageCopy($"PC Steward found {viewModel.AllRows.Count:N0} installed application{(viewModel.AllRows.Count == 1 ? string.Empty : "s")}. It keeps observation, source evidence, your decisions, approval, and verification as separate stages."));
         heroCopy.Children.Add(actions);
         hero.Children.Add(heroCopy);
-        StackPanel evidence = new() { Spacing = 2 };
+        StackPanel evidence = new() { Spacing = StewardSpacing.XSmall };
         evidence.Children.Add(StewardVisuals.EvidenceRow("Inventory", viewModel.LastScanCompletedLabel));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Scope", viewModel.ScanModeLabel));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Automatic changes", "None"));
@@ -287,42 +331,51 @@ public sealed class MainWindow : Window
         metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         metrics.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         metrics.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        (int count, string label, string detail, string status)[] values =
+        (int count, string detail, string status)[] values =
         [
-            (ready, "Ready to review", "Fresh, exact package evidence", "VerifiedUpdate"),
-            (review, "Need a decision", "Review-only; no automatic action", "ReviewRequired"),
-            (current, "Up to date", "Based on the latest source evidence", "Current"),
-            (unmanaged, "Inventoried only", "Visible without being labelled unsafe", "Unmanaged")
+            (ready, "Fresh, exact package evidence", "VerifiedUpdate"),
+            (review, "Review-only; no automatic action", "ReviewRequired"),
+            (current, "Based on the latest source evidence", "Current"),
+            (unmanaged, "Visible without being labelled unsafe", "Unmanaged")
         ];
         for (int index = 0; index < values.Length; index++)
         {
-            Border metric = StewardVisuals.MetricCard(values[index].count, values[index].label, values[index].detail, values[index].status);
+            Border metric = StewardVisuals.MetricCard(values[index].count, values[index].detail, values[index].status);
             Grid.SetColumn(metric, index % 2); Grid.SetRow(metric, index / 2); metrics.Children.Add(metric);
         }
         panel.Children.Add(metrics);
-        Content = BuildShell(panel);
+        return panel;
     }
 
-    private void RenderApplicationsPage()
+    private StackPanel BuildInstalledAppsPage()
     {
         StackPanel panel = CreatePagePanel();
         Button scan = new() { Content = "Scan again", IsEnabled = !HasActiveOperation };
         AutomationProperties.SetName(scan, "Start another local inventory scan");
-        scan.Click += async (_, _) => { destination = "scan"; await StartScanAsync(); };
-        panel.Children.Add(StewardVisuals.PageHeader("Applications", "Search and inspect the canonical local inventory. Filtering never changes saved data.", "Installed software", scan));
+        scan.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
+        Button repositoryApps = new() { Content = "Repository apps" };
+        AutomationProperties.SetName(repositoryApps, "Repository apps");
+        repositoryApps.Click += (_, _) => NavigateTo(ShellPage.RepositoryApps);
+        StackPanel headerActions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+        headerActions.Children.Add(repositoryApps);
+        headerActions.Children.Add(scan);
+        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", "Search and inspect the local inventory. Filtering never changes saved data.", null, headerActions));
         panel.Children.Add(StewardVisuals.InformationBanner("Inventory freshness", viewModel.FreshnessLabel, viewModel.LastScanAt is null ? "attention" : "information"));
         TextBox search = new() { Header = "Search", PlaceholderText = "Name or publisher", Text = viewModel.SearchText };
         AutomationProperties.SetName(search, "Search applications");
-        ComboBox status = FilterBox(viewModel.StatusFilter, ["All statuses", "Installed", .. Enum.GetNames<PCSteward.Domain.UpdateIntelligenceStatus>()]);
+        // Filters show the labels the rows show (StatusVocabulary, StewardPresentation), never raw enum or provider values.
+        (string Raw, string Label)[] sourceOptions = LabelledFilterOptions(viewModel.AllRows.Select(row => row.Provider), StewardPresentation.Provider);
+        (string Raw, string Label)[] scopeOptions = LabelledFilterOptions(viewModel.AllRows.Select(row => row.Scope), StewardPresentation.Scope);
+        ComboBox status = FilterBox(StatusVocabulary.FilterLabelForKey(viewModel.StatusFilter), StatusVocabulary.FilterLabels);
         ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", .. viewModel.AvailablePublishers]);
-        ComboBox source = FilterBox(viewModel.SourceFilter, ["All sources", .. viewModel.AllRows.Select(row => row.Provider).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.OrdinalIgnoreCase)]);
-        ComboBox scope = FilterBox(viewModel.ScopeFilter, ["All scopes", .. viewModel.AllRows.Select(row => row.Scope).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.OrdinalIgnoreCase)]);
+        ComboBox source = FilterBox(FilterLabelFor(viewModel.SourceFilter, sourceOptions), ["All sources", .. sourceOptions.Select(option => option.Label)]);
+        ComboBox scope = FilterBox(FilterLabelFor(viewModel.ScopeFilter, scopeOptions), ["All scopes", .. scopeOptions.Select(option => option.Label)]);
         ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
         status.Header = "Status"; publisher.Header = "Publisher"; source.Header = "Source"; scope.Header = "Scope"; sort.Header = "Sort by";
         AutomationProperties.SetName(status, "Filter applications by status"); AutomationProperties.SetName(publisher, "Filter applications by publisher"); AutomationProperties.SetName(source, "Filter applications by source"); AutomationProperties.SetName(scope, "Filter applications by scope"); AutomationProperties.SetName(sort, "Sort applications");
-        StackPanel filterContent = new() { Spacing = 12 };
+        StackPanel filterContent = new() { Spacing = StewardSpacing.Medium };
         filterContent.Children.Add(search);
-        Grid filters = new() { ColumnSpacing = 10, RowSpacing = 10 };
+        Grid filters = new() { ColumnSpacing = StewardSpacing.Medium, RowSpacing = StewardSpacing.Medium };
         filters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         filters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         filters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -342,7 +395,7 @@ public sealed class MainWindow : Window
         Border empty = StewardVisuals.EmptyState("\uE711", "No applications match", "Adjust the search or filters. The saved inventory has not changed.");
         void ApplyFilters()
         {
-            viewModel.SetFilters(search.Text, status.SelectedItem?.ToString(), publisher.SelectedItem?.ToString(), source.SelectedItem?.ToString(), scope.SelectedItem?.ToString(), sort.SelectedItem?.ToString());
+            viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
             RenderInventory(list);
             matching.Text = $"{viewModel.VisibleRows.Count:N0} application{(viewModel.VisibleRows.Count == 1 ? string.Empty : "s")} match the current filters.";
             list.Visibility = viewModel.VisibleRows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -363,10 +416,24 @@ public sealed class MainWindow : Window
         panel.Children.Add(columns);
         panel.Children.Add(list);
         panel.Children.Add(empty);
-        Content = BuildShell(panel);
+        return panel;
     }
 
-    private void RenderCurrentPage()
+    private static (string Raw, string Label)[] LabelledFilterOptions(IEnumerable<string> rawValues, Func<string, string> label) => rawValues
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Select(raw => (Raw: raw, Label: label(raw)))
+        .GroupBy(option => option.Label, StringComparer.Ordinal)
+        .Select(group => group.First())
+        .OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase)
+        .ToArray();
+
+    private static string FilterLabelFor(string raw, (string Raw, string Label)[] options) =>
+        options.FirstOrDefault(option => string.Equals(option.Raw, raw, StringComparison.OrdinalIgnoreCase)).Label ?? raw;
+
+    private static string FilterRawFor(string? label, (string Raw, string Label)[] options, string all) =>
+        options.FirstOrDefault(option => string.Equals(option.Label, label, StringComparison.Ordinal)).Raw ?? all;
+
+    private StackPanel BuildRepositoryAppsPage()
     {
         StackPanel panel = CreatePagePanel(960);
         IReadOnlyList<InventoryRow> managedRows = viewModel.RepositoryManagedRows;
@@ -374,7 +441,7 @@ public sealed class MainWindow : Window
         int updatesAvailable = managedRows.Count(row => row.Status == "VerifiedUpdate");
         int reviewRequired = managedRows.Count(row => row.Status == "ReviewRequired");
         int unavailable = managedRows.Count(row => row.Status == "FailedUnavailable");
-        panel.Children.Add(StewardVisuals.PageHeader("Repository apps", "Installed applications with a concrete identity from an enabled, approved package source.", "Contextual view"));
+        panel.Children.Add(StewardVisuals.PageHeader("Repository apps", "Installed applications with a concrete identity from an enabled, approved package source."));
         panel.Children.Add(StewardVisuals.InformationBanner("Repository evidence", viewModel.UpdateFreshnessLabel, viewModel.IsUpdateSourceEnabled ? "information" : "attention"));
 
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -390,7 +457,7 @@ public sealed class MainWindow : Window
         {
             Button settings = new() { Content = "Open source settings" };
             AutomationProperties.SetName(settings, "Open source settings");
-            settings.Click += (_, _) => { destination = "settings"; Render(); };
+            settings.Click += (_, _) => NavigateTo(ShellPage.Settings);
             actions.Children.Add(settings);
         }
         panel.Children.Add(actions);
@@ -408,7 +475,7 @@ public sealed class MainWindow : Window
             foreach (InventoryRow row in managedRows)
             {
                 UpdateDetail detail = viewModel.UpdateDetails[row.StableProductKey];
-                StackPanel current = new() { Spacing = 5 };
+                StackPanel current = new() { Spacing = StewardSpacing.XSmall };
                 Grid heading = new() { ColumnSpacing = 12 };
                 heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -426,19 +493,10 @@ public sealed class MainWindow : Window
                 panel.Children.Add(Card(current));
             }
         }
-        Content = BuildShell(panel);
+        return panel;
     }
 
-    private static string RepositoryManagementStatus(string status) => status switch
-    {
-        "Current" => "Managed · up to date",
-        "VerifiedUpdate" => "Managed · update available",
-        "ReviewRequired" => "Repository match · review required",
-        "FailedUnavailable" => "Repository match · update evidence unavailable",
-        _ => "Repository status unavailable"
-    };
-
-    private void RenderResultsPage()
+    private StackPanel BuildResultsPage()
     {
         StackPanel panel = CreatePagePanel();
         int actionable = viewModel.AllRows.Count(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString());
@@ -447,18 +505,18 @@ public sealed class MainWindow : Window
         int unmanaged = viewModel.AllRows.Count(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged.ToString());
         panel.Children.Add(StewardVisuals.PageHeader("Inventory results", "Verified opportunities, decisions, unavailable update evidence, and inventoried-only software stay visibly separate. No update starts from this summary.", "Completed inventory"));
         panel.Children.Add(StewardVisuals.InformationBanner("Saved snapshot", viewModel.FreshnessLabel, viewModel.LastScanAt is null ? "attention" : "success"));
-        StackPanel filters = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+        StackPanel filters = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
         foreach ((ResultsFilter option, string label) in new[]
         {
-            (ResultsFilter.All, $"All {actionable + decisions + unavailable + unmanaged}"),
-            (ResultsFilter.Actionable, $"Actionable {actionable}"),
-            (ResultsFilter.NeedsDecision, $"Needs decision {decisions}"),
-            (ResultsFilter.Unavailable, $"Unavailable {unavailable}"),
-            (ResultsFilter.Unmanaged, $"Unmanaged {unmanaged}")
+            (ResultsFilter.All, $"All results {actionable + decisions + unavailable + unmanaged}"),
+            (ResultsFilter.Actionable, $"{StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate).Label} {actionable}"),
+            (ResultsFilter.NeedsDecision, $"{StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired).Label} {decisions}"),
+            (ResultsFilter.Unavailable, $"{StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable).Label} {unavailable}"),
+            (ResultsFilter.Unmanaged, $"{StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged).Label} {unmanaged}")
         })
         {
             Button filter = new() { Content = label, IsEnabled = resultsFilter != option };
-            AutomationProperties.SetName(filter, $"Show {option} scan results");
+            AutomationProperties.SetName(filter, $"Show {label} scan results");
             filter.Click += (_, _) => { resultsFilter = option; Render(); };
             filters.Children.Add(filter);
         }
@@ -489,7 +547,7 @@ public sealed class MainWindow : Window
         foreach (InventoryRow row in resultRows)
         {
             UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
-            StackPanel finding = new() { Spacing = 5 };
+            StackPanel finding = new() { Spacing = StewardSpacing.XSmall };
             finding.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
             finding.Children.Add(StewardVisuals.StatusBadge(row.Status, $"{row.Name}: {StewardStatus.From(row.Status).Label}"));
             finding.Children.Add(PageCopy($"{StewardPresentation.Provider(row.Provider)} · {StewardPresentation.Scope(row.Scope)}"));
@@ -520,25 +578,25 @@ public sealed class MainWindow : Window
         }
         if (downloadCache.RecoverableBytes > 0)
         {
-            Button storage = new() { Content = $"Review {downloadCache.RecoverableBytes:N0} bytes of app-owned downloads" }; storage.Click += (_, _) => { destination = "storage"; Render(); }; panel.Children.Add(storage);
+            Button storage = new() { Content = $"Review {downloadCache.RecoverableBytes:N0} bytes of app-owned downloads" }; storage.Click += (_, _) => NavigateTo(ShellPage.Storage); panel.Children.Add(storage);
         }
-        Button review = new() { Content = "Review available actions" }; review.Click += (_, _) => { destination = "review"; Render(); }; panel.Children.Add(review);
-        Content = BuildShell(panel);
+        Button review = new() { Content = "Review available actions" }; review.Click += (_, _) => NavigateTo(ShellPage.Review); panel.Children.Add(review);
+        return panel;
     }
 
-    private void RenderReviewPage()
+    private StackPanel BuildReviewPage()
     {
         StackPanel panel = CreatePagePanel();
         InventoryRow[] ready = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString()).ToArray();
         InventoryRow[] decisions = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired.ToString()).ToArray();
-        panel.Children.Add(StewardVisuals.PageHeader("Review actions", "Resolve package-identity decisions first. Verified updates remain separate and still require an exact final confirmation.", "Decision checkpoint"));
+        panel.Children.Add(StewardVisuals.PageHeader("Review decisions", "Resolve package-identity decisions first. Verified updates remain separate and still require an exact final confirmation."));
         panel.Children.Add(StewardVisuals.InformationBanner("Review is not approval", "Opening evidence or recording a reversible package mapping does not start an update."));
         panel.Children.Add(new TextBlock { Text = "Needs a decision", Style = AppStyle("StewardSectionTitleStyle") });
         panel.Children.Add(PageCopy(decisions.Length == 0 ? "No source-matched items currently need a decision." : $"{decisions.Length} item{(decisions.Length == 1 ? string.Empty : "s")} need a decision. These are not approved updates."));
         foreach (InventoryRow row in decisions)
         {
             UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
-            StackPanel decision = new() { Spacing = 5 };
+            StackPanel decision = new() { Spacing = StewardSpacing.XSmall };
             decision.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
             decision.Children.Add(StewardVisuals.StatusBadge(row.Status));
             decision.Children.Add(PageCopy($"{detail?.SourceId ?? row.Provider} · {detail?.PackageId ?? "package identity unavailable"}"));
@@ -562,7 +620,7 @@ public sealed class MainWindow : Window
         foreach (InventoryRow row in ready)
         {
             UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
-            StackPanel action = new() { Spacing = 5 };
+            StackPanel action = new() { Spacing = StewardSpacing.XSmall };
             action.Children.Add(new TextBlock { Text = $"{row.Name} {row.Version} → {detail?.CandidateVersion ?? "candidate unavailable"}", Style = AppStyle("StewardSectionTitleStyle") });
             action.Children.Add(StewardVisuals.StatusBadge(row.Status));
             action.Children.Add(PageCopy($"{detail?.SourceId ?? "Unknown source"} · exact identity required · {row.Scope} scope · {detail?.Architecture ?? "Unknown architecture"}"));
@@ -570,7 +628,7 @@ public sealed class MainWindow : Window
             panel.Children.Add(Card(action));
         }
         panel.Children.Add(PageCopy("Sequential and verified: PC Steward rechecks the installed version before recording an update as successful."));
-        Content = BuildShell(panel);
+        return panel;
     }
 
     private void AddReviewDecisionActions(StackPanel container, InventoryRow row, UpdateDetail? detail)
@@ -622,7 +680,7 @@ public sealed class MainWindow : Window
     private async Task PromptAndConfirmPackageIdentityAsync(InventoryRow row, UpdateDetail detail)
     {
         TextBox reason = DecisionReasonBox("Optional reason for confirming this package identity");
-        StackPanel content = new() { Spacing = 10 };
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
         content.Children.Add(PageCopy($"Confirm only if you recognise {detail.PackageId} from {detail.SourceId} as {row.Name}. This records a reversible mapping. It does not approve or start an update."));
         content.Children.Add(reason);
         ContentDialog confirmation = new()
@@ -648,8 +706,8 @@ public sealed class MainWindow : Window
     private async Task PromptAndPinCurrentVersionAsync(InventoryRow row)
     {
         TextBox reason = DecisionReasonBox("Optional reason for pinning this version");
-        StackPanel content = new() { Spacing = 10 };
-        content.Children.Add(PageCopy($"Pin {row.Name} at the installed version {row.Version}? PC Steward will stop offering a different version until you reverse this decision in Settings. No application is changed."));
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        content.Children.Add(PageCopy($"Pin {row.Name} at the installed version {row.Version}? PC Steward will stop offering a different version until you reverse this decision on the Decisions page. No application is changed."));
         content.Children.Add(reason);
         ContentDialog confirmation = new()
         {
@@ -676,8 +734,8 @@ public sealed class MainWindow : Window
         untilEnabled.Checked += (_, _) => until.IsEnabled = true;
         untilEnabled.Unchecked += (_, _) => until.IsEnabled = false;
         TextBox reason = DecisionReasonBox("Optional reason for ignoring this product");
-        StackPanel content = new() { Spacing = 10 };
-        content.Children.Add(PageCopy($"Ignore {row.Name} indefinitely, or select an end date below. You can reverse this decision in Settings. No application is changed."));
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        content.Children.Add(PageCopy($"Ignore {row.Name} indefinitely, or select an end date below. You can reverse this decision on the Decisions page. No application is changed."));
         content.Children.Add(untilEnabled);
         content.Children.Add(until);
         content.Children.Add(reason);
@@ -722,7 +780,7 @@ public sealed class MainWindow : Window
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
     }
 
-    private void RenderStoragePage()
+    private StackPanel BuildStoragePage()
     {
         StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Storage", "Review space used by PC Steward-owned records and downloaded update files.", "App-owned data"));
@@ -733,17 +791,17 @@ public sealed class MainWindow : Window
         summary.Children.Add(PageCopy($"Downloaded update files: {downloadCache.TotalBytes:N0} bytes total; {downloadCache.RecoverableBytes:N0} bytes recoverable."));
         summary.Children.Add(PageCopy("Source metadata, logs, and update history are controlled separately in Privacy & data."));
         panel.Children.Add(Card(summary));
-        Button privacy = new() { Content = "Manage privacy and data" }; privacy.Click += (_, _) => { destination = "privacy"; Render(); }; panel.Children.Add(privacy);
-        Content = BuildShell(panel);
+        Button privacy = new() { Content = "Manage privacy and data" }; privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy); panel.Children.Add(privacy);
+        return panel;
     }
 
-    private void RenderActivityPage()
+    private StackPanel BuildActivityPage()
     {
         StackPanel panel = CreatePagePanel();
         Button privacy = new() { Content = "Privacy & data" };
         AutomationProperties.SetName(privacy, "View privacy and local data controls");
-        privacy.Click += (_, _) => { destination = "privacy"; Render(); };
-        panel.Children.Add(StewardVisuals.PageHeader("Activity", "A local ledger of completed inventory and reversible decisions. PC Steward does not upload activity telemetry.", "Local record", privacy));
+        privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy);
+        panel.Children.Add(StewardVisuals.PageHeader("Activity", "A local ledger of completed inventory and reversible decisions. PC Steward does not upload activity telemetry.", null, privacy));
 
         List<(DateTimeOffset OccurredAt, string Glyph, string Title, string Detail)> activity = [];
         if (viewModel.LastScanAt is { } lastScan)
@@ -756,7 +814,7 @@ public sealed class MainWindow : Window
         if (activity.Count == 0)
         {
             Button start = StewardVisuals.PrimaryButton("Start local inventory", "Start a read-only local application inventory");
-            start.Click += async (_, _) => { destination = "scan"; await StartScanAsync(); };
+            start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
             panel.Children.Add(StewardVisuals.EmptyState("\uE823", "No local activity yet", "Complete an inventory or save a decision and its timestamped record will appear here.", start));
         }
         else
@@ -769,7 +827,7 @@ public sealed class MainWindow : Window
         }
         AddReviewedUpdateOutcomesSection(panel);
         panel.Children.Add(StewardVisuals.InformationBanner("Current source evidence", viewModel.UpdateFreshnessLabel, viewModel.IsUpdateSourceEnabled ? "information" : "neutral"));
-        Content = BuildShell(panel);
+        return panel;
     }
 
     /// <summary>Admission obligation 5: the read-only reviewed-update outcomes (route, verification, lingering processes, helper report).</summary>
@@ -792,56 +850,137 @@ public sealed class MainWindow : Window
         };
     }
 
-    private void RenderPrivacyPage()
+    private StackPanel BuildPrivacyPage()
     {
         StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Privacy & data", "Export or remove PC Steward-owned information with explicit, category-specific controls.", "Stored locally"));
         panel.Children.Add(StewardVisuals.InformationBanner("Installed applications are preserved", "Routine cleanup affects only the named PC Steward category. Factory reset is separate and also preserves installed applications and provider caches."));
         AddDataAndResetSection(panel);
-        Content = BuildShell(panel);
+        return panel;
+    }
+
+    /// <summary>FR-POL-01–05 (ADR-030 foundation 7): pins, ignores and confirmed package identities in one reversible view.</summary>
+    private StackPanel BuildDecisionsPage()
+    {
+        StackPanel panel = CreatePagePanel(900);
+        panel.Children.Add(StewardVisuals.PageHeader("Decisions", "Pins, ignores and package identities you confirmed. Each one is reversible, and none of them starts an update."));
+        StackPanel decisions = new() { Spacing = StewardSpacing.Medium };
+        AddDecisionsSection(decisions);
+        panel.Children.Add(Card(decisions));
+        return panel;
     }
 
     private static Style AppStyle(string key) => (Style)global::Microsoft.UI.Xaml.Application.Current.Resources[key];
 
-    private NavigationView BuildShell(StackPanel panel)
+    /// <summary>
+    /// FR-UI-01/02 (ADR-030 foundation 11; audit P-L1): the window chrome, built once. Content extends into a 32 px custom title
+    /// bar with a Back button, the app mark and name; the drag region excludes Back so it stays clickable. Mica is the base
+    /// layer where supported (Desktop Acrylic, then the opaque canvas brush, as fallbacks); high contrast always uses the
+    /// opaque system-mapped canvas brush.
+    /// </summary>
+    private void BuildWindowChrome()
     {
-        Grid shell = new() { Background = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardCanvasBrush"] };
-        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        ExtendsContentIntoTitleBar = true;
+        if (Microsoft.UI.Windowing.AppWindowTitleBar.IsCustomizationSupported())
+        {
+            AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Standard;
+            AppWindow.TitleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            AppWindow.TitleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+        }
+
+        windowRoot = new Grid();
+        windowRoot.RowDefinitions.Add(new RowDefinition { Height = new GridLength(StewardSpacing.TitleBarHeight) });
+        windowRoot.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        Grid titleBar = new() { Height = StewardSpacing.TitleBarHeight };
+        titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleBarBack = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 },
+            Width = 40,
+            Height = StewardSpacing.TitleBarHeight,
+            Padding = new Thickness(0),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(StewardSpacing.XSmall),
+            VerticalAlignment = VerticalAlignment.Top,
+            IsEnabled = false,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetName(titleBarBack, "Back");
+        ToolTipService.SetToolTip(titleBarBack, "Back (Alt+Left)");
+        titleBarBack.KeyboardAccelerators.Add(new KeyboardAccelerator { Key = Windows.System.VirtualKey.Left, Modifiers = Windows.System.VirtualKeyModifiers.Menu });
+        titleBarBack.KeyboardAccelerators.Add(new KeyboardAccelerator { Key = Windows.System.VirtualKey.GoBack });
+        titleBarBack.Click += (_, _) => GoBack();
+        titleBar.Children.Add(titleBarBack);
+
+        Grid dragRegion = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        StackPanel brand = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(StewardSpacing.Medium, 0, 0, 0) };
+        Image mark = new() { Width = 16, Height = 16, Source = new BitmapImage(new Uri("ms-appx:///Assets/logo-mark-64.png")) };
+        AutomationProperties.SetAccessibilityView(mark, AccessibilityView.Raw);
+        brand.Children.Add(mark);
+        brand.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardCaptionStyle"), VerticalAlignment = VerticalAlignment.Center });
+        dragRegion.Children.Add(brand);
+        Grid.SetColumn(dragRegion, 1);
+        titleBar.Children.Add(dragRegion);
+        windowRoot.Children.Add(titleBar);
+        Content = windowRoot;
+        SetTitleBar(dragRegion);
+
+        try
+        {
+            accessibilitySettings = new Windows.UI.ViewManagement.AccessibilitySettings();
+            accessibilitySettings.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { if (!windowClosed) ApplyBackdrop(); });
+        }
+        catch (Exception) { accessibilitySettings = null; }
+        ApplyBackdrop();
+    }
+
+    private void ApplyBackdrop()
+    {
+        if (windowRoot is null) return;
+        // MicaBackdrop also falls back to a solid colour in high contrast; the explicit check keeps the system-mapped canvas brush.
+        bool highContrast = accessibilitySettings?.HighContrast == true;
+        SystemBackdrop = highContrast ? null
+            : MicaController.IsSupported() ? new MicaBackdrop()
+            : DesktopAcrylicController.IsSupported() ? new DesktopAcrylicBackdrop()
+            : null;
+        windowRoot.Background = SystemBackdrop is null ? StewardVisuals.Brush("StewardCanvasBrush") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+    }
+
+    /// <summary>Shows a page without the navigation shell (startup failure, post-reset onboarding).</summary>
+    private void ShowBarePage(StackPanel panel)
+    {
+        if (windowRoot is null) return;
+        if (navigationView is not null) { windowRoot.Children.Remove(navigationView); navigationView = null; pageHost = null; renderedPage = null; }
+        foreach (UIElement bare in windowRoot.Children.Where(child => Grid.GetRow((FrameworkElement)child) == 1).ToArray()) windowRoot.Children.Remove(bare);
+        ScrollViewer host = new() { Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        Grid.SetRow(host, 1);
+        windowRoot.Children.Add(host);
+        SyncNavigationChrome();
+    }
+
+    /// <summary>
+    /// FR-UI-01/02, AC-UX-01/02 (ADR-030; audit P-H1/P-H7): the persistent shell, created once. The NavigationView, the operation
+    /// band and the page host survive page changes and refreshes; only the hosted page is rebuilt. Navigation reacts to
+    /// <c>ItemInvoked</c>, so invoking the highlighted parent of a contextual page navigates to it.
+    /// </summary>
+    private void EnsureShell()
+    {
+        if (navigationView is not null || windowRoot is null) return;
+        foreach (UIElement bare in windowRoot.Children.Where(child => Grid.GetRow((FrameworkElement)child) == 1).ToArray()) windowRoot.Children.Remove(bare);
+
+        Grid shell = new();
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        Border header = new()
-        {
-            Background = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardSurfaceBrush"],
-            BorderBrush = (Microsoft.UI.Xaml.Media.Brush)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardBorderBrush"],
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(24, 12, 24, 12)
-        };
-        Grid headerContents = new() { ColumnSpacing = 20 };
-        headerContents.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        headerContents.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        StackPanel brand = new() { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
-        Image mark = new() { Width = 32, Height = 32, Source = new BitmapImage(new Uri("ms-appx:///Assets/logo-mark-64.png")) };
-        AutomationProperties.SetName(mark, AppIdentity.DisplayName);
-        brand.Children.Add(mark);
-        StackPanel copy = new() { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
-        copy.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardSectionTitleStyle") });
-        copy.Children.Add(new TextBlock { Text = "Evidence before action", Style = AppStyle("StewardCaptionStyle") });
-        brand.Children.Add(copy);
-        headerContents.Children.Add(brand);
-        StackPanel trust = new() { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
-        trust.Children.Add(StewardVisuals.Badge("Stored locally", "\uE72E", "success", "PC Steward data is stored locally"));
-        trust.Children.Add(new TextBlock { Text = HasActiveOperation ? "Work in progress" : "Ready", Style = AppStyle("StewardCaptionStyle"), VerticalAlignment = VerticalAlignment.Center });
-        Grid.SetColumn(trust, 1);
-        headerContents.Children.Add(trust);
-        header.Child = headerContents;
-        shell.Children.Add(header);
-
-        Grid operation = new() { ColumnSpacing = 16 };
+        Grid operation = new() { ColumnSpacing = StewardSpacing.Large };
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         operationStatusText = new TextBlock { Text = CurrentOperationLabel, Foreground = StewardVisuals.Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetLiveSetting(operationStatusText, AutomationLiveSetting.Polite);
         TextBlock progressLabel = operationStatusText;
         progressLabel.Loaded += (_, _) => { if (ReferenceEquals(operationStatusText, progressLabel) && isExecuting) StartUpdateProgressPolling(); };
         progressLabel.Unloaded += (_, _) => { if (ReferenceEquals(updateProgressTarget, progressLabel)) StopUpdateProgressPolling(); };
@@ -855,31 +994,32 @@ public sealed class MainWindow : Window
         cancel.Click += (_, _) => scanCancellation?.Cancel();
         Grid.SetColumn(cancel, 2);
         operation.Children.Add(cancel);
+        operationCancel = cancel;
         operationBand = new Border
         {
             Background = StewardVisuals.Brush("StewardBrandSubtleBrush"),
             BorderBrush = StewardVisuals.Brush("StewardBorderBrush"),
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(24, 10, 24, 10),
+            Padding = new Thickness(StewardSpacing.XLarge, StewardSpacing.Small, StewardSpacing.XLarge, StewardSpacing.Small),
             Visibility = HasActiveOperation ? Visibility.Visible : Visibility.Collapsed,
             Child = operation
         };
-        Grid.SetRow(operationBand, 1);
         shell.Children.Add(operationBand);
 
-        ScrollViewer content = new()
+        pageHost = new ScrollViewer
         {
-            Content = panel,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
-        Grid.SetRow(content, 2);
-        shell.Children.Add(content);
-        NavigationView navigation = new()
+        Grid.SetRow(pageHost, 1);
+        shell.Children.Add(pageHost);
+
+        navigationView = new NavigationView
         {
             PaneDisplayMode = NavigationViewPaneDisplayMode.Auto,
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
+            IsTitleBarAutoPaddingEnabled = false,
             OpenPaneLength = 232,
             CompactPaneLength = 56,
             CompactModeThresholdWidth = 900,
@@ -888,45 +1028,109 @@ public sealed class MainWindow : Window
             SelectionFollowsFocus = NavigationViewSelectionFollowsFocus.Disabled,
             Content = shell
         };
-        AddNavigationItem(navigation, "Overview", "overview", "\uE80F");
-        AddNavigationItem(navigation, "Applications", "applications", "\uE71D");
-        AddNavigationItem(navigation, "Updates", "updates", "\uE896");
-        AddNavigationItem(navigation, "Activity", "activity", "\uE823");
-        AddNavigationItem(navigation, "About & support", "about", "\uE897", true);
-        AddNavigationItem(navigation, "Settings", "settings", "\uE713", true);
-        string principalDestination = destination switch
+        foreach (ShellNavigationItem item in ShellNavigation.Items) AddNavigationItem(navigationView, item);
+        navigationView.ItemInvoked += (_, args) =>
         {
-            "scan" or "results" or "onboarding" => "overview",
-            "current" or "detail" => "applications",
-            "review" => "updates",
-            _ => destination
+            if (args.InvokedItemContainer?.Tag is string tag && Enum.TryParse(tag, out ShellPage page)) NavigateTo(page);
         };
-        navigation.SelectedItem = navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(item => string.Equals(item.Tag as string, principalDestination, StringComparison.Ordinal));
-        navigation.SelectionChanged += (_, args) =>
+        Grid.SetRow(navigationView, 1);
+        windowRoot.Children.Add(navigationView);
+        SyncNavigationChrome();
+    }
+
+    private static void AddNavigationItem(NavigationView navigation, ShellNavigationItem item)
+    {
+        NavigationViewItem entry = new() { Content = item.Label, Tag = item.Page.ToString(), Icon = new FontIcon { Glyph = item.Glyph } };
+        AutomationProperties.SetName(entry, item.Label);
+        if (item.IsFooter) navigation.FooterMenuItems.Add(entry); else navigation.MenuItems.Add(entry);
+    }
+
+    /// <summary>Highlights the navigation item that owns the current page and enables Back only when there is history.</summary>
+    private void SyncNavigationChrome()
+    {
+        if (titleBarBack is not null)
         {
-            string? selected = (args.SelectedItem as NavigationViewItem)?.Tag as string;
-            if (selected is not null && !string.Equals(selected, destination, StringComparison.Ordinal)) { destination = selected; Render(); }
+            titleBarBack.Visibility = navigationView is null ? Visibility.Collapsed : Visibility.Visible;
+            titleBarBack.IsEnabled = navigationView is not null && navigation.CanGoBack;
+        }
+        if (navigationView is null) return;
+        string selected = navigation.SelectedItem.ToString();
+        navigationView.SelectedItem = navigationView.MenuItems.Concat(navigationView.FooterMenuItems).OfType<NavigationViewItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag as string, selected, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Rebuilds only the hosted page. On a refresh of the same page the scroll offset and, when it still exists, the focused
+    /// control are restored, so keyboard and screen-reader users are not thrown back to the top (AC-UX-02; audit P-H7).
+    /// </summary>
+    private void ShowCurrentPage(bool preserveViewState)
+    {
+        if (pageHost is null) return;
+        bool sameView = preserveViewState && renderedPage == navigation.Current;
+        double offset = sameView ? pageHost.VerticalOffset : 0;
+        bool focusWasInPage = IsFocusInside(pageHost, out string? focusKey);
+        StackPanel page = BuildPage(navigation.Current);
+        renderedPage = navigation.Current;
+        pageHost.Content = page;
+        if (!sameView) pageHost.ChangeView(null, 0, null, true);
+        void Restore(object sender, RoutedEventArgs args)
+        {
+            page.Loaded -= Restore;
+            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+            {
+                if (windowClosed || !ReferenceEquals(pageHost?.Content, page)) return;
+                if (offset > 0) pageHost.ChangeView(null, offset, null, true);
+                if (!focusWasInPage) return;
+                Control? target = (sameView && focusKey is not null ? FindFocusTarget(page, focusKey) : null)
+                    ?? FocusManager.FindFirstFocusableElement(page) as Control;
+                target?.Focus(FocusState.Programmatic);
+            });
+        }
+        page.Loaded += Restore;
+        RefreshOperationVisuals();
+        SyncNavigationChrome();
+    }
+
+    private bool IsFocusInside(DependencyObject container, out string? key)
+    {
+        key = null;
+        if (Content?.XamlRoot is null || FocusManager.GetFocusedElement(Content.XamlRoot) is not DependencyObject focused) return false;
+        key = FocusKey(focused);
+        for (DependencyObject? current = focused; current is not null; current = VisualTreeHelper.GetParent(current))
+            if (ReferenceEquals(current, container)) return true;
+        return false;
+    }
+
+    private static string? FocusKey(DependencyObject element)
+    {
+        string name = AutomationProperties.GetName(element);
+        if (!string.IsNullOrWhiteSpace(name)) return name;
+        return element switch
+        {
+            ContentControl { Content: string content } => content,
+            TextBox { Header: string header } => header,
+            ComboBox { Header: string header } => header,
+            _ => null
         };
-        return navigation;
     }
 
-    private static void AddNavigationItem(NavigationView navigation, string label, string tag, string glyph, bool footer = false)
+    private static Control? FindFocusTarget(DependencyObject root, string key)
     {
-        NavigationViewItem item = new() { Content = label, Tag = tag, Icon = new FontIcon { Glyph = glyph } };
-        AutomationProperties.SetName(item, label);
-        if (footer) navigation.FooterMenuItems.Add(item); else navigation.MenuItems.Add(item);
+        if (root is Control { IsEnabled: true } control && string.Equals(FocusKey(control), key, StringComparison.Ordinal)) return control;
+        IEnumerable<DependencyObject> children = root switch
+        {
+            Panel panel => panel.Children,
+            Border { Child: { } child } => [child],
+            Expander { Content: DependencyObject content } => [content],
+            ContentControl { Content: DependencyObject content } => [content],
+            _ => []
+        };
+        foreach (DependencyObject child in children)
+            if (FindFocusTarget(child, key) is { } match) return match;
+        return null;
     }
 
-    private void RenderPlaceholder()
-    {
-        string pageTitle = destination switch { "about" => "About & support", _ => AppIdentity.DisplayName };
-        StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24), MaxWidth = 1040 };
-        panel.Children.Add(new TextBlock { Text = pageTitle, Style = AppStyle("StewardPageTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = "This destination preserves the approved navigation structure.", TextWrapping = TextWrapping.Wrap });
-        Content = BuildShell(panel);
-    }
-
-    private void RenderScanPage()
+    private StackPanel BuildScanPage()
     {
         StackPanel panel = CreatePagePanel(900);
         panel.Children.Add(StewardVisuals.PageHeader("Inventory scan", viewModel.IsScanning || scanCancellation is not null ? "PC Steward is reading installed-application records. Your prior completed snapshot remains available until a replacement completes." : viewModel.LastScanAt is null ? "Start a private, read-only inventory. Nothing is installed, removed, or elevated." : "Review the current inventory scope before replacing the saved snapshot.", "Read only"));
@@ -945,7 +1149,7 @@ public sealed class MainWindow : Window
             scope.Children.Add(new CheckBox { Content = "Windows application inventory (required · read-only)", IsChecked = true, IsEnabled = false });
             ToggleSwitch winget = new() { Header = "WinGet and Chocolatey trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Local only", OnContent = "Enabled after disclosure" };
             AutomationProperties.SetName(winget, "Enable WinGet and Chocolatey trusted sources"); winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn); scope.Children.Add(winget);
-            scope.Children.Add(PageCopy("Enabling these sources may disclose installed package identifiers to WinGet and Chocolatey Community. Scanning remains read-only; an update still needs its own review and confirmation."));
+            scope.Children.Add(PageCopy("Enabling these sources may disclose installed package identifiers to WinGet and Chocolatey Community. Scanning remains read-only and never asks for administrator permission; an update still needs its own review and confirmation."));
             panel.Children.Add(Card(scope));
         }
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -955,10 +1159,10 @@ public sealed class MainWindow : Window
         if (viewModel.IsScanning || scanCancellation is not null) { Button cancel = new() { Content = "Cancel scan", AccessKey = "C" }; AutomationProperties.SetName(cancel, "Cancel scan"); cancel.Click += (_, _) => scanCancellation?.Cancel(); actions.Children.Add(cancel); }
         panel.Children.Add(actions);
         panel.Children.Add(StewardVisuals.InformationBanner("No action is implied", "A scan never approves, downloads, or installs an update. Connected package sources remain separately consented."));
-        Content = BuildShell(panel);
+        return panel;
     }
 
-    private void RenderUpdatesPage()
+    private StackPanel BuildUpdatesPage()
     {
         StackPanel panel = CreatePagePanel(960);
         int ready = viewModel.AllRows.Count(row => row.Status == "VerifiedUpdate");
@@ -967,16 +1171,22 @@ public sealed class MainWindow : Window
         Button refresh = new() { Content = viewModel.IsCheckingUpdates ? "Checking sources" : "Refresh evidence", IsEnabled = viewModel.IsUpdateSourceEnabled && !HasActiveOperation };
         AutomationProperties.SetName(refresh, "Refresh approved package source evidence");
         refresh.Click += async (_, _) => await CheckUpdateSourcesAsync();
-        panel.Children.Add(StewardVisuals.PageHeader("Updates", "Fresh, compatible, exact package evidence can be reviewed here. Approval and execution remain separate.", "Your approval is required", refresh));
+        Button reviewDecisions = new() { Content = "Review decisions" };
+        AutomationProperties.SetName(reviewDecisions, "Review decisions");
+        reviewDecisions.Click += (_, _) => NavigateTo(ShellPage.Review);
+        StackPanel headerActions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+        headerActions.Children.Add(reviewDecisions);
+        headerActions.Children.Add(refresh);
+        panel.Children.Add(StewardVisuals.PageHeader("Updates", "Fresh, compatible, exact package evidence can be reviewed here. Approval and execution remain separate.", "Your approval is required", headerActions));
         panel.Children.Add(StewardVisuals.InformationBanner(viewModel.IsUpdateSourceEnabled ? "Package-source freshness" : "Package sources are off", viewModel.UpdateFreshnessLabel, viewModel.IsUpdateSourceEnabled ? "information" : "attention"));
 
         Grid summary = new() { ColumnSpacing = 12 };
         summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Border readyCard = StewardVisuals.MetricCard(ready, "Ready to review", "A final confirmation is still required", "VerifiedUpdate"); summary.Children.Add(readyCard);
-        Border decisionCard = StewardVisuals.MetricCard(decisions, "Need a decision", "Not eligible for execution", "ReviewRequired"); Grid.SetColumn(decisionCard, 1); summary.Children.Add(decisionCard);
-        Border unavailableCard = StewardVisuals.MetricCard(unavailable, "Update evidence unavailable", "The repository did not provide usable availability evidence", "FailedUnavailable"); Grid.SetColumn(unavailableCard, 2); summary.Children.Add(unavailableCard);
+        Border readyCard = StewardVisuals.MetricCard(ready, "A final confirmation is still required", "VerifiedUpdate"); summary.Children.Add(readyCard);
+        Border decisionCard = StewardVisuals.MetricCard(decisions, "Not eligible for execution", "ReviewRequired"); Grid.SetColumn(decisionCard, 1); summary.Children.Add(decisionCard);
+        Border unavailableCard = StewardVisuals.MetricCard(unavailable, "The repository did not provide usable availability evidence", "FailedUnavailable"); Grid.SetColumn(unavailableCard, 2); summary.Children.Add(unavailableCard);
         panel.Children.Add(summary);
 
         bool hasEvidence = false;
@@ -986,15 +1196,15 @@ public sealed class MainWindow : Window
             UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
             string action = row.Status switch
             {
-                "VerifiedUpdate" when detail is not null => "Open evidence review from Applications before any update can start.",
+                "VerifiedUpdate" when detail is not null => "Open the update evidence to review it before any update can start.",
                 "FailedUnavailable" => "Refresh source evidence to retry. This is not a decision or an approved update.",
                 _ => "No update action is available: evidence is review-only, stale, or not an exact match."
             };
-            StackPanel update = new() { Spacing = 5 };
+            StackPanel update = new() { Spacing = StewardSpacing.XSmall };
             Grid heading = new() { ColumnSpacing = 12 };
             heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            StackPanel identity = new() { Spacing = 2 };
+            StackPanel identity = new() { Spacing = StewardSpacing.XSmall };
             identity.Children.Add(new TextBlock { Text = row.Name, Style = AppStyle("StewardSectionTitleStyle") });
             identity.Children.Add(PageCopy(row.Publisher));
             heading.Children.Add(identity);
@@ -1009,14 +1219,14 @@ public sealed class MainWindow : Window
         }
         if (!hasEvidence)
         {
-            Button applications = new() { Content = "View applications" };
-            applications.Click += (_, _) => { destination = "applications"; Render(); };
+            Button applications = new() { Content = "View installed apps" };
+            applications.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
             panel.Children.Add(StewardVisuals.EmptyState("\uE73E", "Nothing needs update review", "Local-only, stale, unavailable, and low-confidence evidence never creates an install action.", applications));
         }
-        Content = BuildShell(panel);
+        return panel;
     }
 
-    private void RenderSettings()
+    private StackPanel BuildSettingsPage()
     {
         StackPanel panel = CreatePagePanel(900);
         panel.Children.Add(StewardVisuals.PageHeader("Settings", "Manage inventory scope, package-source consent, scheduled checks, reversible decisions, and local data.", "Preferences"));
@@ -1066,21 +1276,26 @@ public sealed class MainWindow : Window
         schedule.Children.Add(StewardVisuals.EvidenceRow("Last completed", scheduledStatus.LastCompletedAt is null ? "Not yet" : scheduledStatus.LastCompletedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)));
         panel.Children.Add(Card(schedule));
 
-        StackPanel decisions = new() { Spacing = 12 };
-        AddDecisionsSection(decisions);
+        StackPanel decisions = new() { Spacing = StewardSpacing.Small };
+        decisions.Children.Add(new TextBlock { Text = "Update decisions", Style = AppStyle("StewardSectionTitleStyle") });
+        decisions.Children.Add(PageCopy(activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or confirmed package identities." : $"{activeDecisions.Count + manualMappings.Count:N0} active decision{(activeDecisions.Count + manualMappings.Count == 1 ? string.Empty : "s")}. Review or reverse them on the Decisions page."));
+        Button openDecisions = new() { Content = "Open Decisions" };
+        AutomationProperties.SetName(openDecisions, "Open Decisions");
+        openDecisions.Click += (_, _) => NavigateTo(ShellPage.Decisions);
+        decisions.Children.Add(openDecisions);
         panel.Children.Add(Card(decisions));
 
-        StackPanel data = new() { Spacing = 10 };
+        StackPanel data = new() { Spacing = StewardSpacing.Medium };
         data.Children.Add(new TextBlock { Text = "Storage, privacy & reset", Style = AppStyle("StewardSectionTitleStyle") });
         data.Children.Add(PageCopy("Review app-owned storage, export inventory, clear individual data categories, or perform the separately protected factory-reset flow."));
         data.Children.Add(StewardVisuals.EvidenceRow("Scan records", $"{scanData.ItemCount:N0} items"));
         data.Children.Add(StewardVisuals.EvidenceRow("Downloaded files", $"{downloadCache.TotalBytes:N0} bytes"));
         StackPanel dataActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        Button storage = new() { Content = "View storage" }; storage.Click += (_, _) => { destination = "storage"; Render(); }; dataActions.Children.Add(storage);
-        Button privacy = new() { Content = "Privacy & data controls" }; privacy.Click += (_, _) => { destination = "privacy"; Render(); }; dataActions.Children.Add(privacy);
+        Button storage = new() { Content = "View storage" }; storage.Click += (_, _) => NavigateTo(ShellPage.Storage); dataActions.Children.Add(storage);
+        Button privacy = new() { Content = "Privacy & data controls" }; privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy); dataActions.Children.Add(privacy);
         data.Children.Add(dataActions);
         panel.Children.Add(Card(data));
-        Content = BuildShell(panel);
+        return panel;
     }
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);
@@ -1096,7 +1311,7 @@ public sealed class MainWindow : Window
             {
                 XamlRoot = Content.XamlRoot,
                 Title = "Enable WinGet and Chocolatey trusted sources?",
-                Content = "WinGet and Chocolatey Community may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update. Scanning remains read-only; an update is machine-scope only and requires separate review, confirmation, and elevation.",
+                Content = "WinGet and Chocolatey Community may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update; Chocolatey updates are machine-wide and cannot be started in this version. Scanning remains read-only. " + ElevationStory.SourceConsent,
                 PrimaryButtonText = "I approve",
                 CloseButtonText = "Keep local-only",
                 DefaultButton = ContentDialogButton.Close
@@ -1129,7 +1344,7 @@ public sealed class MainWindow : Window
         ConnectorOption connector = viewModel.Connectors.Single(option => option.Name == connectorName);
         if (connector.RequiresSourceDisclosure && enabled)
         {
-            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "Package sources may disclose installed-software identifiers. Scanning remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only" };
+            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "Package sources may disclose installed-software identifiers. Scanning remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only", DefaultButton = ContentDialogButton.Close };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
             if (!approved) enabled = false;
         }
@@ -1147,12 +1362,12 @@ public sealed class MainWindow : Window
         ScanResult? completed = null;
         try { completed = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), scanCancellation.Token); viewModel.CompleteScan(completed, DateTimeOffset.UtcNow); LoadSavedInventory(); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-        finally { scanCancellation?.Dispose(); scanCancellation = null; if (completed?.Succeeded == true) destination = "results"; Render(); }
+        finally { scanCancellation?.Dispose(); scanCancellation = null; if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.Results); else Render(); }
     }
 
     private async Task CheckUpdateSourcesAsync()
     {
-        string? detailStableProductKey = destination == "detail" ? detailRow?.StableProductKey : null;
+        string? detailStableProductKey = navigation.Current == ShellPage.Detail ? detailRow?.StableProductKey : null;
         viewModel.BeginUpdateCheck(); Render();
         try
         {
@@ -1271,22 +1486,22 @@ public sealed class MainWindow : Window
         ContentDialog outcome = new() { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? "Downloaded files cleared" : "Downloaded files were only partly cleared", Content = result.Message + (result.Residuals.Count == 0 ? string.Empty : " Remaining items: " + string.Join(", ", result.Residuals.Select(residual => $"{residual.RelativePath} ({residual.Reason})"))), CloseButtonText = "Close" }; await outcome.ShowAsync();
     }
 
-    private void RenderProductDetailPage()
+    private StackPanel BuildProductDetailPage()
     {
-        if (detailRow is null) { destination = detailReturnDestination; Render(); return; }
+        if (detailRow is null)
+        {
+            StackPanel missing = CreatePagePanel(760);
+            Button leave = new() { Content = "Open installed apps" };
+            leave.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
+            missing.Children.Add(StewardVisuals.EmptyState("\uE711", "App details are no longer open", "Open an app from Installed apps, Updates or the scan results to see its details.", leave));
+            return missing;
+        }
 
         InventoryRow row = detailRow;
         UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
         bool cachedCurrent = row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.Current) && detail?.Freshness.Contains("cached", StringComparison.OrdinalIgnoreCase) == true;
-        string status = row.Status switch
-        {
-            nameof(PCSteward.Domain.UpdateIntelligenceStatus.Current) when cachedCurrent => "Managed · current in cached evidence",
-            nameof(PCSteward.Domain.UpdateIntelligenceStatus.Current) => "Managed · up to date",
-            nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate) => "Managed · update available",
-            nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) => "Repository match · review required",
-            nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable) => "Repository match · update evidence unavailable",
-            _ => "Unmanaged · local inventory only"
-        };
+        // One status vocabulary (StatusVocabulary); cached evidence stays visibly distinct in text (FR-UI-05).
+        string status = cachedCurrent ? $"{StatusVocabulary.For(row.Status).Label} · cached evidence" : StatusVocabulary.For(row.Status).Label;
 
         StackPanel panel = CreatePagePanel(1000);
         Grid heading = new() { ColumnSpacing = 16 };
@@ -1298,19 +1513,19 @@ public sealed class MainWindow : Window
         StewardStatus statusPresentation = StewardStatus.From(row.Status);
         title.Children.Add(StewardVisuals.Badge(status, statusPresentation.Glyph, statusPresentation.Tone, $"{row.Name}: {status}"));
         heading.Children.Add(title);
-        Button back = new() { Content = "Back" }; AutomationProperties.SetName(back, "Back to previous application view"); back.Click += (_, _) => { destination = detailReturnDestination; detailRow = null; Render(); }; Grid.SetColumn(back, 1); heading.Children.Add(back);
+        Button back = new() { Content = "Back" }; AutomationProperties.SetName(back, "Back to previous application view"); back.Click += (_, _) => { detailRow = null; if (navigation.CanGoBack) GoBack(); else NavigateTo(ShellPage.InstalledApps); }; Grid.SetColumn(back, 1); heading.Children.Add(back);
         panel.Children.Add(heading);
 
         Grid comparison = new() { ColumnSpacing = 12, RowSpacing = 12 };
         comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        StackPanel installed = new() { Spacing = 6 };
+        StackPanel installed = new() { Spacing = StewardSpacing.Small };
         installed.Children.Add(new TextBlock { Text = "Installed", Style = AppStyle("StewardSectionTitleStyle") });
         installed.Children.Add(StewardVisuals.EvidenceRow("Version", row.Version));
         installed.Children.Add(StewardVisuals.EvidenceRow("Publisher", row.Publisher));
         installed.Children.Add(StewardVisuals.EvidenceRow("Location", $"{StewardPresentation.Scope(row.Scope)} · {StewardPresentation.Provider(row.Provider)}"));
         comparison.Children.Add(Card(installed));
-        StackPanel evidence = new() { Spacing = 6 };
+        StackPanel evidence = new() { Spacing = StewardSpacing.Small };
         evidence.Children.Add(new TextBlock { Text = "Repository evidence", Style = AppStyle("StewardSectionTitleStyle") });
         evidence.Children.Add(StewardVisuals.EvidenceRow("Package ID", detail?.PackageId ?? "No managed package identity"));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Repository", detail?.SourceId ?? "No enabled source match"));
@@ -1319,12 +1534,12 @@ public sealed class MainWindow : Window
         Grid.SetColumn(evidence, 1); comparison.Children.Add(Card(evidence));
         panel.Children.Add(comparison);
 
-        StackPanel why = new() { Spacing = 6 };
+        StackPanel why = new() { Spacing = StewardSpacing.Small };
         why.Children.Add(new TextBlock { Text = "Why this appears", Style = AppStyle("StewardSectionTitleStyle") });
         why.Children.Add(PageCopy(detail?.Explanation ?? "This application is present in the local inventory. No concrete repository package identity is currently available."));
         panel.Children.Add(Card(why));
 
-        StackPanel capability = new() { Spacing = 6 };
+        StackPanel capability = new() { Spacing = StewardSpacing.Small };
         capability.Children.Add(new TextBlock { Text = "What PC Steward can do", Style = AppStyle("StewardSectionTitleStyle") });
         capability.Children.Add(PageCopy(detail?.ActionState ?? "No automatic action is available. You can record a decision or review available source evidence."));
         capability.Children.Add(PageCopy("What is preserved: this page does not install, remove, or change the application."));
@@ -1432,7 +1647,7 @@ public sealed class MainWindow : Window
 
         if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId))
         {
-            StackPanel reviewedRoute = new() { Spacing = 6 };
+            StackPanel reviewedRoute = new() { Spacing = StewardSpacing.Small };
             reviewedRoute.Children.Add(new TextBlock { Text = "Chocolatey reviewed update", Style = AppStyle("StewardSectionTitleStyle") });
             reviewedRoute.Children.Add(PageCopy("PC Steward does not allow this Chocolatey update route yet. You can read what it would disclose before any confirmation; it cannot start an update."));
             Button openReviewedRoute = ReviewedRouteSurfaces.ChocolateyReviewEntryButton();
@@ -1453,7 +1668,7 @@ public sealed class MainWindow : Window
         technical.Children.Add(PageCopy($"Bounded raw diagnostic records: {detailRaw.Count}."));
         Expander disclosure = new() { Header = "Technical details", Content = technical };
         panel.Children.Add(disclosure);
-        Content = BuildShell(panel);
+        return panel;
     }
 
     /// <summary>
@@ -1475,11 +1690,9 @@ public sealed class MainWindow : Window
     private async Task ShowDetailsAsync(InventoryRow row)
     {
         detailRow = row;
-        detailReturnDestination = destination;
         try { detailRaw = await DataOperationLease.RunReadAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunReadAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
-        destination = "detail";
-        Render();
+        NavigateTo(ShellPage.Detail);
     }
 
     private void StartUpdateProgressPolling()
@@ -1586,7 +1799,7 @@ public sealed class MainWindow : Window
             Status: PCSteward.Application.UpdateHistoryStatus.ProductFailed,
             Diagnostic: "elevated-helper-fixed-installed-path-invalid"
         }
-            ? "The update was blocked before it could run. This standalone PC Steward beta is not installed alongside its trusted elevated helper in the protected PC Steward location. No application was changed."
+            ? ElevationStory.HelperMissingOutcome
             : result.Message;
 
     private Task<ContentDialogResult> ShowUpdateOutcomeAsync(string title, string message) => new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = message, CloseButtonText = "Close" }.ShowAsync().AsTask();
