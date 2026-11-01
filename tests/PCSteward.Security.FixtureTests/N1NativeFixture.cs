@@ -131,8 +131,12 @@ internal sealed class N1NativeFixture : IDisposable
             ? AdministratorsMembership.DenyOnly : AdministratorsMembership.Absent;
         Assert.AreEqual(expected, token.Facts.Administrators);
         Assert.IsTrue(NativeTokenReader.TryReadGroups(token.Handle, out IReadOnlyList<NativeTokenGroup> groups));
-        IEnumerable<NativeTokenGroup> logon = groups.Where(group => (group.Attributes & Win32.SeGroupLogonId) == Win32.SeGroupLogonId);
-        Assert.IsTrue(logon.Any() && logon.All(group => (group.Attributes & Win32.SeGroupUseForDenyOnly) != 0), "logon SID must be deny-only");
+        string[] logonSids = [.. processGroups.Where(group => (group.Attributes & Win32.SeGroupLogonId) == Win32.SeGroupLogonId).Select(group => group.Sid)];
+        Assert.AreNotEqual(0, logonSids.Length, "the process token has no logon SID");
+        foreach (string logon in logonSids)
+            Assert.IsTrue(groups.Any(group => group.Sid == logon) &&
+                groups.Where(group => group.Sid == logon).All(group => (group.Attributes & Win32.SeGroupUseForDenyOnly) != 0),
+                "the logon SID must be deny-only in the derived token");
         return token;
     }
 

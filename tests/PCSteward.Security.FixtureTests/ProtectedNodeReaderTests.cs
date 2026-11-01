@@ -115,8 +115,9 @@ public sealed class ProtectedNodeReaderTests
         Assert.IsNull(ProtectedNodeReader.TryOpen(link, true, out NativeNode node, out ProtectedOpenFailure failure));
         Assert.AreEqual(ProtectedOpenFailure.Reparse, failure);
         Assert.AreEqual(default, node);
+        // Without backup semantics the directory junction either fails to open or is seen as a reparse point; never opened.
         Assert.IsNull(ProtectedNodeReader.TryOpen(link, false, out _, out failure));
-        Assert.AreEqual(ProtectedOpenFailure.Reparse, failure);
+        Assert.IsTrue(failure is ProtectedOpenFailure.OpenFailed or ProtectedOpenFailure.Reparse, failure.ToString());
 
         Assert.IsNull(ProtectedNodeReader.TryOpen(Path.Combine(link, "f.txt"), false, out _, out failure));
         Assert.AreEqual(ProtectedOpenFailure.FinalPathMismatch, failure);

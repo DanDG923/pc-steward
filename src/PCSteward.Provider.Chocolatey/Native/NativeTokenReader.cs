@@ -28,9 +28,9 @@ internal static class NativeTokenReader
             !TryReadIntegrityRid(token, out uint integrity) || !TryReadInt32(token, Win32.TokenIsAppContainerClass, out int appContainer) ||
             !TryReadPrivilegeNames(token, out IReadOnlyList<string> privileges))
             return false;
-        bool restricted;
-        try { restricted = Win32.IsTokenRestricted(token); }
-        catch (Exception exception) when (exception is EntryPointNotFoundException or DllNotFoundException) { return false; }
+        // IsTokenRestricted returns FALSE both for "not restricted" and for a failure; a failure refuses.
+        bool restricted = Win32.IsTokenRestricted(token);
+        if (!restricted && Marshal.GetLastWin32Error() != 0) return false;
 
         TokenElevationKind elevationKind = elevation is >= 1 and <= 3 ? (TokenElevationKind)elevation : TokenElevationKind.Unknown;
         AdministratorsMembership administrators = AdministratorsMembership.Absent;
