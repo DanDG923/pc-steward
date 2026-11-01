@@ -1,3 +1,7 @@
+# Task 50 — common-gate caller conversion
+
+`FR-UPD-15`, `TM-04/06/07`, reset design §4.3: `DataOperationLeaseTests` covers mutation needing a clear reconciliation while reads proceed, an unreadable barrier blocking mutation only, pending reset refusing before reconciliation, missing configuration failing closed, reset-control semantics, concurrent-holder busy/release, and bootstrap session reuse without recursive acquisition. The rewritten `AsyncDataOperationLeaseBlocksResetUntilTheOperationCompletes` uses test gates. `DesktopBootstrapAndResetUseTheCommonGateWithReconciliation` checks the ordering marker → SQLite → reconcile → MainWindow. Windows CI is authoritative for the native gate and Desktop build.
+
 # Task 90 — Task 50 dispatch review remediation
 
 `FR-UPD-15`, `AC-UPD-05`, retained `FR-UPD-01/14`, `TM-03/04/06/13`: [remediation](../review/TASK_90_TASK_50_DISPATCH_REVIEW_REMEDIATION.md) maps each independent finding to its fix and test. Covered: ElevationDenied/Refused distinct outcomes, started-timeout/failure as Unverified, RestartReported verification, a 20,000-char diagnostic bound, committed-without-permit finalized NotInvoked (expired/stale/cancelled), unreadable state as retained, gate-exit failure preserving the result, unreconciled ownership, Chocolatey routes unreachable, and store rejection of NotInvoked Unverified. Linux focused 124/124; Windows CI and fresh re-review pending.

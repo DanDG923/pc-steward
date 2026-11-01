@@ -216,6 +216,27 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void DesktopBootstrapAndResetUseTheCommonGateWithReconciliation()
+    {
+        string root = FindRepositoryRoot();
+        string app = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "App.xaml.cs"));
+        string window = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "MainWindow.cs"));
+        Assert.IsFalse(app.Contains("new(false, FactoryReset.DataOperationMutexName)", StringComparison.Ordinal));
+        StringAssert.Contains(app, "CurrentUserDataOperationSession.TryAcquire(TimeSpan.Zero, CancellationToken.None)");
+        StringAssert.Contains(app, "DataOperationLease.EnterBootstrap(session)");
+        StringAssert.Contains(app, "DataOperationLease.ConfigureReconciliation(new UpdateDispatchReconciliation(database).ReconcileAsync)");
+        // Reset marker recovery precedes SQLite; reconciliation follows migration and precedes the initial UI load.
+        Assert.IsLessThan(app.IndexOf("SqliteDatabase database", StringComparison.Ordinal),
+            app.IndexOf("FactoryReset.GetMarkerState(stateDirectory)", StringComparison.Ordinal));
+        Assert.IsLessThan(app.IndexOf("DataOperationLease.ReconcileBootstrap(", StringComparison.Ordinal), app.IndexOf("MigrateAsync(", StringComparison.Ordinal));
+        Assert.IsLessThan(app.IndexOf("new(workflow, viewModel", StringComparison.Ordinal), app.IndexOf("DataOperationLease.ReconcileBootstrap(", StringComparison.Ordinal));
+        StringAssert.Contains(app, "DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory))");
+        StringAssert.Contains(window, "DataOperationLease.RunSynchronous(() => FactoryReset.Arm())");
+        Assert.IsFalse(window.Contains("try { FactoryReset.Arm();", StringComparison.Ordinal));
+        StringAssert.Contains(window, "DataOperationLease.RunReadSynchronous(() =>");
+    }
+
+    [TestMethod]
     public void DesktopComposesProtectedMachineUpdatesOnlyThroughTheExistingElevatedHelper()
     {
         string root = FindRepositoryRoot();

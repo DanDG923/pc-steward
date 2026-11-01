@@ -71,7 +71,7 @@ public sealed class MainWindow : Window
 
     private bool LoadSavedInventory()
     {
-        try { DataOperationLease.RunSynchronous(() =>
+        try { DataOperationLease.RunReadSynchronous(() =>
         {
             InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
             foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
@@ -1133,8 +1133,8 @@ public sealed class MainWindow : Window
         try
         {
             viewModel.LoadUpdateIntelligence(await DataOperationLease.RunAsync(token => workflow.RefreshUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, token), CancellationToken.None));
-            activeDecisions = await DataOperationLease.RunAsync(token => workflow.GetActiveDecisionsAsync(token), CancellationToken.None);
-            manualMappings = await DataOperationLease.RunAsync(token => workflow.GetManualMappingsAsync(token), CancellationToken.None);
+            activeDecisions = await DataOperationLease.RunReadAsync(token => workflow.GetActiveDecisionsAsync(token), CancellationToken.None);
+            manualMappings = await DataOperationLease.RunReadAsync(token => workflow.GetManualMappingsAsync(token), CancellationToken.None);
             if (detailStableProductKey is not null)
             {
                 detailRow = viewModel.AllRows.SingleOrDefault(row => row.StableProductKey == detailStableProductKey) ?? detailRow;
@@ -1196,7 +1196,7 @@ public sealed class MainWindow : Window
         phrase.TextChanged += (_, _) => final.IsPrimaryButtonEnabled = string.Equals(phrase.Text, "RESET", StringComparison.Ordinal);
         if (await final.ShowAsync() != ContentDialogResult.Primary) { invoker.Focus(FocusState.Programmatic); return; }
         if (viewModel.IsScanning || isExecuting || isClearing || downloads.IsCleaning) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset unavailable", Content = "Cancel or wait for active work to finish, then try again.", CloseButtonText = "Close" }.ShowAsync(); return; }
-        try { FactoryReset.Arm(); Close(); }
+        try { DataOperationLease.RunSynchronous(() => FactoryReset.Arm()); Close(); }
         catch (Exception exception)
         {
             if (FactoryReset.IsPending()) { Close(); return; }
@@ -1224,7 +1224,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    private async Task SaveExportAsync(bool json) { try { InventoryExport export = await DataOperationLease.RunAsync(token => workflow.CreateExportAsync(json, token), CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }
+    private async Task SaveExportAsync(bool json) { try { InventoryExport export = await DataOperationLease.RunReadAsync(token => workflow.CreateExportAsync(json, token), CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }
 
     private async Task ConfirmAndClearScanDataAsync()
     {
@@ -1425,7 +1425,7 @@ public sealed class MainWindow : Window
     {
         detailRow = row;
         detailReturnDestination = destination;
-        try { detailRaw = await DataOperationLease.RunAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
+        try { detailRaw = await DataOperationLease.RunReadAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunReadAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         destination = "detail";
         Render();
