@@ -13,7 +13,8 @@ public enum DecisionKind
 
 /// <summary>
 /// One reversible decision on the Decisions page. <see cref="RemoveLabel"/> is the visible button text and
-/// <see cref="RemoveAccessibleName"/> starts with it and names the product (Phase 1 focus rule; label-in-name).
+/// <see cref="RemoveAccessibleName"/> starts with it and names the decision kind and the product, so each Remove button for an
+/// app is unique and focus can be restored to it (Phase 1 focus rule; label-in-name; independent review L5).
 /// </summary>
 public sealed record DecisionRow(
     Guid Id,
@@ -57,13 +58,13 @@ public static class DecisionsPresenter
                 "Ignore" => new(decision.Id, DecisionKind.Ignore, decision.StableProductKey, product,
                     decision.ExpiresAt is { } until ? $"Ignored until {DisplayFormat.Date(until, culture, zone)}" : "Ignored indefinitely",
                     $"Updates for this app aren't shown. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE74F",
-                    "Remove ignore", PageFocusRestore.RemoveDecisionName(product, "ignore")),
+                    "Remove ignore", PageFocusRestore.RemoveDecisionName(product, decision.ExpiresAt is { } ignoreUntil ? $"ignore until {DisplayFormat.Date(ignoreUntil, culture, zone)}" : "ignore indefinitely")),
                 "PinSourcePackage" => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
                     $"Pinned to package {decision.Value}", $"No other package is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE718",
-                    "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin")),
+                    "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin source package")),
                 _ => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
                     $"Pinned at version {decision.Value}", $"No other version is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE718",
-                    "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin")),
+                    "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin current version")),
             };
             result.Add(row);
         }

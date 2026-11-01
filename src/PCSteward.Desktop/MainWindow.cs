@@ -398,7 +398,8 @@ public sealed class MainWindow : Window
         StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
         Button review = StewardVisuals.PrimaryButton(home.PrimaryLabel, home.PrimaryAccessibleName);
         review.Click += (_, _) => NavigateTo(ShellPage.Updates);
-        Button check = new() { Content = viewModel.IsScanning || viewModel.IsCheckingUpdates ? "Checking…" : home.SecondaryLabel, IsEnabled = !HasActiveOperation };
+        // Independent review L1: with sources off this is "Scan again" (CheckForUpdatesAsync then scans only).
+        Button check = new() { Content = viewModel.IsScanning ? "Scanning…" : viewModel.IsCheckingUpdates ? "Checking…" : home.SecondaryLabel, IsEnabled = !HasActiveOperation };
         AutomationProperties.SetName(check, home.SecondaryAccessibleName);
         AutomationProperties.SetHelpText(check, home.SecondaryHelpText);
         ToolTipService.SetToolTip(check, home.SecondaryHelpText);
@@ -411,6 +412,8 @@ public sealed class MainWindow : Window
         results.Click += (_, _) => NavigateTo(ShellPage.Results);
         actions.Children.Add(results);
         hero.Children.Add(actions);
+        if (home.SecondaryCaption.Length != 0)
+            hero.Children.Add(new TextBlock { Text = home.SecondaryCaption, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(Card(hero));
 
         // FR-UI-06: the compact attention view — failed or unverified updates and pending restarts, newest first.
@@ -426,18 +429,22 @@ public sealed class MainWindow : Window
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
-                copy.Children.Add(new TextBlock { Text = item.AppName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+                // Independent review L6 (ADR-021 best effort): a Grid has no automation peer, so the line's name goes on its first TextBlock.
+                TextBlock appName = new() { Text = item.AppName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+                AutomationProperties.SetName(appName, item.AccessibleName);
+                copy.Children.Add(appName);
                 copy.Children.Add(new TextBlock { Text = $"{item.Summary} · {item.When}", Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
                 line.Children.Add(copy);
                 Border chip = StewardVisuals.Badge(item.OutcomeLabel, item.Glyph, StewardStatus.ToneName(item.Tone), $"{item.AppName}: {item.OutcomeLabel}");
                 chip.VerticalAlignment = VerticalAlignment.Top;
                 Grid.SetColumn(chip, 1); line.Children.Add(chip);
-                AutomationProperties.SetName(line, item.AccessibleName);
                 attention.Children.Add(line);
             }
+            // Independent review L3: the filter opened includes every kind of item listed (Updates when a restart is pending).
             Button openActivity = new() { Content = "View in Activity" };
-            AutomationProperties.SetName(openActivity, "View in Activity: update problems");
-            openActivity.Click += (_, _) => { activityFilter = ActivityFilter.Problems; NavigateTo(ShellPage.Activity); };
+            AutomationProperties.SetName(openActivity, home.AttentionLinkAccessibleName);
+            ActivityFilter attentionFilter = home.AttentionActivityFilter;
+            openActivity.Click += (_, _) => { activityFilter = attentionFilter; NavigateTo(ShellPage.Activity); };
             attention.Children.Add(openActivity);
             panel.Children.Add(Card(attention));
         }
@@ -1048,7 +1055,10 @@ public sealed class MainWindow : Window
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         StackPanel titles = new() { Spacing = StewardSpacing.XSmall };
-        titles.Children.Add(new TextBlock { Text = entry.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        // Independent review L6 (ADR-021 best effort): a Border has no automation peer, so the entry's name goes on its title TextBlock.
+        TextBlock title = new() { Text = entry.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetName(title, entry.AccessibleName);
+        titles.Children.Add(title);
         titles.Children.Add(new TextBlock { Text = entry.TimeText, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
         heading.Children.Add(titles);
         Border chip = StewardVisuals.Badge(entry.OutcomeLabel, entry.Glyph, StewardStatus.ToneName(entry.Tone), $"{entry.Title}: {entry.OutcomeLabel}");
@@ -1069,9 +1079,7 @@ public sealed class MainWindow : Window
             }
             content.Children.Add(new Expander { Header = "Details", Content = details, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
         }
-        Border row = new() { BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, StewardSpacing.Medium, 0, StewardSpacing.Medium), Child = content };
-        AutomationProperties.SetName(row, entry.AccessibleName);
-        return row;
+        return new Border { BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, StewardSpacing.Medium, 0, StewardSpacing.Medium), Child = content };
     }
 
     /// <summary>Admission obligation 5: the read-only reviewed-update outcomes (route, verification, lingering processes, helper report).</summary>
@@ -2019,6 +2027,8 @@ public sealed class MainWindow : Window
     private async Task CheckUpdateSourcesAsync()
     {
         string? detailStableProductKey = navigation.Current == ShellPage.Detail ? detailRow?.StableProductKey : null;
+        // Independent review L2: this method takes no cancellation token and the band's Cancel only cancels a scan, so the source
+        // refresh keeps its existing non-cancellable behaviour (bounded by the refresh service's own timeouts). Not changed here.
         viewModel.BeginUpdateCheck(); Render();
         try
         {

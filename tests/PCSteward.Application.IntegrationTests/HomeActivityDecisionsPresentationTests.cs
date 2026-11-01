@@ -82,6 +82,7 @@ public sealed class HomeActivityDecisionsPresentationTests
             [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Cached, Now.AddDays(-2))], Now, Culture, Utc);
         Assert.AreEqual(EvidenceFreshness.Cached, mixed.Freshness, "a cached source is never summarised as live");
         StringAssert.Contains(mixed.Sentence, "may be out of date");
+        StringAssert.Contains(mixed.Sentence, "last successful check was 2 days ago", "the age is the least fresh source's (independent review M1)");
 
         Assert.AreEqual(EvidenceFreshness.Offline, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now, "source:offline")], Now, Culture, Utc).Freshness);
         Assert.AreEqual(EvidenceFreshness.Unavailable, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Unavailable, null)], Now, Culture, Utc).Freshness);
@@ -115,13 +116,14 @@ public sealed class HomeActivityDecisionsPresentationTests
             [], jobs, activity, Now.AddHours(-5), Now), Culture, Utc);
 
         Assert.IsTrue(home.HasInventory);
-        Assert.AreEqual("2 updates ready · last checked 10 minutes ago", home.Hero);
+        Assert.AreEqual("2 updates ready · scanned 5 hours ago · sources checked 10 minutes ago", home.Hero, "the scan time is shown even with sources on (independent review L4)");
         Assert.AreEqual("Live", home.Freshness.Word);
         Assert.AreEqual("Review updates", home.PrimaryLabel);
         StringAssert.StartsWith(home.PrimaryAccessibleName, home.PrimaryLabel, "label-in-name");
         Assert.AreEqual("Check for updates", home.SecondaryLabel);
         StringAssert.StartsWith(home.SecondaryAccessibleName, home.SecondaryLabel);
         StringAssert.Contains(home.SecondaryHelpText, "never asks for administrator permission");
+        Assert.AreEqual("Scans this PC, then checks your enabled update sources.", home.SecondaryCaption, "independent review L1");
 
         Assert.AreEqual(new HomeCounts(rows.Length, 2, 1, 1, 4, 1, 1, 1, 1, 1), home.Counts, "FR-UI-01 counts include pinned, ignored and failed; a later scan resolves an old attempt");
 
@@ -148,6 +150,10 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("Failed", home.Attention[0].OutcomeLabel);
         Assert.AreEqual("Restart required", home.Attention[1].OutcomeLabel);
         Assert.IsTrue(home.Attention.Count <= HomePresenter.MaximumAttentionItems);
+        Assert.AreEqual(ActivityFilter.Updates, home.AttentionActivityFilter, "a listed restart opens a filter that includes it (independent review L3)");
+        Assert.IsTrue(ActivityPresenter.Matches(home.AttentionActivityFilter, activity.Single(entry => entry.OutcomeLabel == "Restart required")));
+        Assert.IsTrue(ActivityPresenter.Matches(home.AttentionActivityFilter, activity.Single(entry => entry.OutcomeLabel == "Failed")));
+        StringAssert.StartsWith(home.AttentionLinkAccessibleName, "View in Activity", "label-in-name");
     }
 
     [TestMethod]
@@ -163,8 +169,94 @@ public sealed class HomeActivityDecisionsPresentationTests
         InventoryRow[] rows = [Row("ready", "VerifiedUpdate", "1.0")];
         HomePresentation sourcesOff = HomePresenter.Build(new HomeInputs(rows,
             new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, false, [], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
-        Assert.AreEqual("No updates ready · last scanned 30 minutes ago", sourcesOff.Hero, "the ready count is the Updates page's Ready group, which fails closed with sources off");
+        Assert.AreEqual("No updates ready · scanned 30 minutes ago", sourcesOff.Hero, "the ready count is the Updates page's Ready group, which fails closed with sources off");
         Assert.AreEqual(0, sourcesOff.Counts.Verified);
+        Assert.AreEqual("Scan again", sourcesOff.SecondaryLabel, "with sources off the secondary action is a scan only (independent review L1)");
+        StringAssert.StartsWith(sourcesOff.SecondaryAccessibleName, sourcesOff.SecondaryLabel);
+        Assert.AreEqual(HomePresenter.ScanAgainHelp, sourcesOff.SecondaryHelpText);
+        Assert.AreEqual(string.Empty, sourcesOff.SecondaryCaption);
+    }
+
+    [TestMethod]
+    [Description("FR-UI-05 (independent review M1, L4, L7): the freshness age and the hero's source age come from the least fresh source; Live lasts only the live window.")]
+    public void FreshnessAgeComesFromTheLeastFreshSourceAndLiveExpires()
+    {
+        FreshnessPresentation unavailable = FreshnessPresenter.Describe(true,
+            [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Unavailable, Now.AddDays(-9))], Now, Culture, Utc);
+        Assert.AreEqual("Unavailable", unavailable.Word);
+        Assert.AreEqual("Unavailable: a package source couldn't complete its check. The least fresh source's last successful check was on 23 Oct 2026.", unavailable.Sentence,
+            "9 days ago is shown as a date by the one app-wide format; never the live source's 'just now'");
+        FreshnessPresentation fiveDays = FreshnessPresenter.Describe(true,
+            [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Unavailable, Now.AddDays(-5))], Now, Culture, Utc);
+        StringAssert.Contains(fiveDays.Sentence, "last successful check was 5 days ago");
+        Assert.IsFalse(fiveDays.Sentence.Contains("just now", StringComparison.Ordinal));
+        FreshnessPresentation never = FreshnessPresenter.Describe(true,
+            [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Unavailable, null)], Now, Culture, Utc);
+        StringAssert.Contains(never.Sentence, "One source has never completed a successful check.");
+
+        Assert.AreEqual(TimeSpan.FromMinutes(15), FreshnessPresenter.LiveWindow);
+        Assert.AreEqual(EvidenceFreshness.Live, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-14))], Now, Culture, Utc).Freshness);
+        FreshnessPresentation expired = FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-16))], Now, Culture, Utc);
+        Assert.AreEqual(EvidenceFreshness.Cached, expired.Freshness, "a live result older than the live window reads as Cached at render time");
+        StringAssert.Contains(expired.Sentence, "The last successful check was 16 minutes ago.");
+        Assert.AreEqual(EvidenceFreshness.Cached, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Live, null)], Now, Culture, Utc).Freshness);
+
+        InventoryRow[] rows = [Row("current", "Current", "1.0")];
+        HomePresentation home = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
+            [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-2)), Source("msstore", SourceSnapshotState.Unavailable, Now.AddDays(-5))],
+            [], [], [], Now.AddMinutes(-10), Now), Culture, Utc);
+        Assert.AreEqual("No updates ready · scanned 10 minutes ago · sources checked 5 days ago", home.Hero);
+        Assert.AreEqual("Unavailable", home.Freshness.Word);
+        HomePresentation neverChecked = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
+            [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-2)), Source("msstore", SourceSnapshotState.Unavailable, null)],
+            [], [], [], Now.AddMinutes(-10), Now), Culture, Utc);
+        Assert.AreEqual("No updates ready · scanned 10 minutes ago · a source hasn't been checked successfully", neverChecked.Hero);
+    }
+
+    [TestMethod]
+    [Description("FR-UI-06, FR-HIS-01 (independent review M2): an attempt drops off Home's attention list once a completed inventory shows it moved on; it is never relabelled Verified.")]
+    public void AttentionAttemptsResolveByVersionComparisonOrAbsenceButKeepTheirOutcome()
+    {
+        UpdateJobRecord Job(UpdateHistoryStatus status, string installed = "1.0", string target = "2.0") =>
+            UpdateJobHistory.Group([History("app", status, Now.AddHours(-1), target: target, installed: installed)]).Single();
+        UpdateJobRecord failed = Job(UpdateHistoryStatus.InstallerFailed);
+
+        Assert.IsTrue(UpdateJobHistory.NeedsAttention(failed, "1.0", Now), "unchanged installed version: still needs attention");
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(failed, "2.0", Now), "installed equals target");
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(Job(UpdateHistoryStatus.InstallerFailed, target: "2.0"), "2.0.0.0", Now), "equal by the domain comparer, not by string");
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(Job(UpdateHistoryStatus.Inconclusive, target: "2.0.0.0"), "2.0", Now));
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(failed, "2.1", Now), "installed is newer than the target");
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(failed, "1.5", Now), "installed version changed since the attempt");
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(failed, "0.9", Now), "a downgrade is also a change since the attempt");
+        Assert.IsTrue(UpdateJobHistory.NeedsAttention(Job(UpdateHistoryStatus.InstallerFailed, installed: "1.0"), "1.0.0", Now), "the same version written differently is not a change");
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(failed, null, Now), "absent from a completed inventory taken after the attempt");
+        Assert.IsTrue(UpdateJobHistory.NeedsAttention(failed, null, Now.AddHours(-2)), "absence in an inventory taken before the attempt proves nothing");
+        Assert.IsTrue(UpdateJobHistory.NeedsAttention(failed, null, null), "no completed inventory: still needs attention");
+
+        UpdateJobRecord restart = Job(UpdateHistoryStatus.RestartRequired);
+        Assert.IsTrue(UpdateJobHistory.RestartPending(restart, "1.0", Now));
+        Assert.IsFalse(UpdateJobHistory.RestartPending(restart, "2.0.0", Now), "a restart finished: the target is installed");
+        Assert.IsFalse(UpdateJobHistory.RestartPending(restart, null, Now));
+        Assert.IsFalse(UpdateJobHistory.NeedsAttention(Job(UpdateHistoryStatus.Success), "1.0", Now), "a verified attempt never needs attention");
+
+        InventoryRow[] rows = [Row("same", "Current", "1.0"), Row("equal", "Current", "2.0.0.0"), Row("newer", "Current", "3.0"), Row("changed", "Current", "1.5")];
+        UpdateJobRecord[] jobs = [.. UpdateJobHistory.Group(
+        [
+            History("same", UpdateHistoryStatus.InstallerFailed, Now.AddHours(-1)),
+            History("equal", UpdateHistoryStatus.Inconclusive, Now.AddHours(-2)),
+            History("newer", UpdateHistoryStatus.RestartRequired, Now.AddHours(-3)),
+            History("changed", UpdateHistoryStatus.VerificationFailed, Now.AddHours(-4)),
+            History("removed", UpdateHistoryStatus.InstallerFailed, Now.AddHours(-5)),
+        ])];
+        IReadOnlyList<ActivityEntry> activity = ActivityPresenter.Entries(jobs, [], [], [], rows, Culture, Utc);
+        HomePresentation home = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), false, [], [], jobs, activity, Now.AddMinutes(-30), Now), Culture, Utc);
+        Assert.AreEqual("same", home.Attention.Single().StableProductKey, "resolved attempts drop off Home's attention list");
+        Assert.AreEqual(1, home.Counts.Failed);
+        Assert.AreEqual(0, home.Counts.RestartRequired);
+        Assert.AreEqual(ActivityFilter.Problems, home.AttentionActivityFilter, "no restart listed: the problems filter is enough");
+        Assert.AreEqual(HomePresenter.AttentionProblemsLinkName, home.AttentionLinkAccessibleName);
+        Assert.IsFalse(activity.Any(entry => entry.OutcomeLabel == "Verified"), "resolution never relabels an attempt as Verified");
+        Assert.AreEqual(4, activity.Count(entry => entry.IsProblem), "Activity keeps every recorded outcome");
     }
 
     [TestMethod]
@@ -357,7 +449,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("Pinned at version 1.0", pin.Title);
         Assert.AreEqual("Work laptop", pin.Reason);
         Assert.AreEqual("Remove pin", pin.RemoveLabel);
-        Assert.AreEqual(PageFocusRestore.RemoveDecisionName("App alpha", "pin"), pin.RemoveAccessibleName);
+        Assert.AreEqual(PageFocusRestore.RemoveDecisionName("App alpha", "pin current version"), pin.RemoveAccessibleName);
         Assert.AreEqual("Ignored indefinitely", view.Single(row => row.Kind == DecisionKind.Ignore && row.Reason is null).Title);
         DecisionRow until = view.Single(row => row.Kind == DecisionKind.Ignore && row.Reason is not null);
         Assert.AreEqual("Ignored until 6 Nov 2026", until.Title);
@@ -369,8 +461,14 @@ public sealed class HomeActivityDecisionsPresentationTests
             StringAssert.StartsWith(row.RemoveAccessibleName, row.RemoveLabel, "label-in-name");
             StringAssert.Contains(row.RemoveAccessibleName, row.ProductName, "the product is named (Phase 1 focus rule)");
         }
-        Assert.AreEqual(view.Count, view.Select(row => row.RemoveAccessibleName).Distinct(StringComparer.Ordinal).Count() + 1,
-            "only the two ignores of the same app share a name; every other remove button is unique");
+        foreach (DecisionRow row in view)
+            Assert.AreSame(row, PageFocusRestore.UniqueMatch(view.Where(other => other.RemoveAccessibleName == row.RemoveAccessibleName)),
+                $"every Remove name is unique, including two ignores of one app (independent review L5): {row.RemoveAccessibleName}");
+        Assert.AreEqual("Remove ignore indefinitely decision for App beta", view.Single(row => row.Kind == DecisionKind.Ignore && row.Reason is null).RemoveAccessibleName);
+        Assert.AreEqual("Remove ignore until 6 Nov 2026 decision for App beta", until.RemoveAccessibleName);
+        DecisionRow sourcePin = DecisionsPresenter.Build([new(Guid.NewGuid(), "alpha", "PinSourcePackage", "Contoso.Alpha", Now, null)], [], rows, Culture, Utc).Single();
+        Assert.AreEqual("Remove pin source package decision for App alpha", sourcePin.RemoveAccessibleName);
+        Assert.AreNotEqual(pin.RemoveAccessibleName, sourcePin.RemoveAccessibleName, "the two pin kinds of one app are told apart");
         Assert.AreEqual("Pins (2)", DecisionsPresenter.GroupHeading(DecisionKind.Pin, 2));
         Assert.IsTrue(view.All(row => row.Glyph.Length == 1));
     }
@@ -389,6 +487,6 @@ public sealed class HomeActivityDecisionsPresentationTests
         new(id, "1.0", lastSuccess, state, [], warnings);
 
     private static UpdateHistoryEntry History(string key, UpdateHistoryStatus status, DateTimeOffset at, Guid? job = null, int? exitCode = null,
-        string diagnostic = "recorded", string target = "2.0") =>
-        new(Guid.NewGuid(), job ?? Guid.NewGuid(), Guid.NewGuid(), key, UpdateProvider.WinGet, "Contoso.App", "1.0", target, at, status, exitCode, diagnostic);
+        string diagnostic = "recorded", string target = "2.0", string installed = "1.0") =>
+        new(Guid.NewGuid(), job ?? Guid.NewGuid(), Guid.NewGuid(), key, UpdateProvider.WinGet, "Contoso.App", installed, target, at, status, exitCode, diagnostic);
 }

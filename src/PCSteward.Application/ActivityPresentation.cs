@@ -54,22 +54,43 @@ public static class UpdateJobHistory
             .ToArray();
     }
 
-    /// <summary>
-    /// The newest job per app. A job's attempt counts as resolved when the app's installed version now equals the job's target
-    /// version (a later scan found it), so it no longer needs attention. Resolving never relabels the job as Verified.
-    /// </summary>
+    /// <summary>The newest job per app. Whether its attempt still needs attention is decided by <see cref="Resolved"/>.</summary>
     public static IReadOnlyDictionary<string, UpdateJobRecord> LatestPerProduct(IEnumerable<UpdateJobRecord> jobs) => jobs
         .GroupBy(job => job.StableProductKey, StringComparer.Ordinal)
         .ToDictionary(group => group.Key, group => group.OrderByDescending(job => job.EndedAt).First(), StringComparer.Ordinal);
 
     /// <summary>True when the recorded attempt still needs the user's attention (failed or not verified, and not since resolved).</summary>
-    public static bool NeedsAttention(UpdateJobRecord job, string? installedVersion) =>
+    public static bool NeedsAttention(UpdateJobRecord job, string? installedVersion, DateTimeOffset? lastCompletedScanAt = null) =>
         job.Outcome.Kind is UpdateOutcomeKind.Failed or UpdateOutcomeKind.InstalledNotVerified or UpdateOutcomeKind.ResultNotVerified
-        && !Resolved(job, installedVersion);
+        && !Resolved(job, installedVersion, lastCompletedScanAt);
 
     /// <summary>True when the recorded attempt reported a reliable restart-pending state that a later scan has not yet resolved.</summary>
-    public static bool RestartPending(UpdateJobRecord job, string? installedVersion) =>
-        job.Outcome.Kind == UpdateOutcomeKind.RestartRequired && !Resolved(job, installedVersion);
+    public static bool RestartPending(UpdateJobRecord job, string? installedVersion, DateTimeOffset? lastCompletedScanAt = null) =>
+        job.Outcome.Kind == UpdateOutcomeKind.RestartRequired && !Resolved(job, installedVersion, lastCompletedScanAt);
+
+    /// <summary>
+    /// FR-UI-06, FR-HIS-01 (Task 73 Phase 3; independent review M2): an attempt no longer needs attention when the latest completed
+    /// inventory shows that something has moved on — the installed version equals the target (by the domain version comparer, so
+    /// "2.0" equals "2.0.0.0") or is newer than it, the installed version changed since the attempt, or the app is absent from a
+    /// completed inventory taken after the attempt. Resolving only drops the attempt from Home's attention list: it never relabels
+    /// the attempt as Verified, and Activity keeps its recorded outcome.
+    /// </summary>
+    public static bool Resolved(UpdateJobRecord job, string? installedVersion, DateTimeOffset? lastCompletedScanAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (string.IsNullOrWhiteSpace(installedVersion))
+            return lastCompletedScanAt is { } scannedAt && scannedAt > job.EndedAt;
+        VersionComparisonOutcome toTarget = VersionComparison.Compare(new VersionComparisonRequest(installedVersion, job.TargetVersion, AllowPrereleaseCandidate: true)).Outcome;
+        if (toTarget is VersionComparisonOutcome.Equal or VersionComparisonOutcome.Older) return true;
+        if (toTarget == VersionComparisonOutcome.Incomparable && SameText(installedVersion, job.TargetVersion)) return true;
+        if (string.IsNullOrWhiteSpace(job.InstalledVersion)) return false;
+        return VersionComparison.Compare(new VersionComparisonRequest(installedVersion, job.InstalledVersion, AllowPrereleaseCandidate: true)).Outcome switch
+        {
+            VersionComparisonOutcome.Newer or VersionComparisonOutcome.Older => true,
+            VersionComparisonOutcome.Equal => false,
+            _ => !SameText(installedVersion, job.InstalledVersion)
+        };
+    }
 
     /// <summary>The failure class in words (FR-HIS-03: source, download, installer, elevation, timeout and verification stay distinct).</summary>
     public static string FailureClass(UpdateHistoryStatus status) => status switch
@@ -92,8 +113,7 @@ public static class UpdateJobHistory
         _ => "Unknown"
     };
 
-    private static bool Resolved(UpdateJobRecord job, string? installedVersion) =>
-        !string.IsNullOrWhiteSpace(installedVersion) && string.Equals(installedVersion, job.TargetVersion, StringComparison.Ordinal);
+    private static bool SameText(string left, string? right) => string.Equals(left.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
 
     // Ties on time: a terminal status outranks verification-required, which outranks queued/running.
     private static int Rank(UpdateHistoryStatus status) => status switch

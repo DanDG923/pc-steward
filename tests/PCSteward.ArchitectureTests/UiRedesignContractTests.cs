@@ -114,8 +114,9 @@ public sealed class UiRedesignContractTests
         string decisionsPresenter = ApplicationSource("DecisionsPresentation.cs");
         StringAssert.Contains(decisionsPresenter, "string product = PageFocusRestore.ProductName(rows, decision.StableProductKey);");
         StringAssert.Contains(decisionsPresenter, "string product = PageFocusRestore.ProductName(rows, mapping.StableProductKey);");
-        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveDecisionName(product, \"pin\")");
-        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveDecisionName(product, \"ignore\")");
+        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveDecisionName(product, \"pin current version\")");
+        StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveDecisionName(product, \"pin source package\")");
+        StringAssert.Contains(decisionsPresenter, "\"ignore indefinitely\"");
         StringAssert.Contains(decisionsPresenter, "PageFocusRestore.RemoveManualMappingName(product, mapping.SourceId, mapping.PackageId)");
 
         // Every per-row action button created inside a loop over rows, decisions or mappings carries the row's product name.
@@ -617,6 +618,36 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(homePresenter, "Inventoried only: no approved update source is mapped. This is not a safety warning.");
         StringAssert.Contains(homePresenter, "UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now).Ready.Count", "Home's ready count is the Updates Ready group with nothing selected");
         Assert.IsFalse(homePresenter.Contains("unsafe", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Task 73 Phase 3 independent review (FR-UI-05/06, FR-HIS-01; L1, L3, L6): Home binds the presenter's secondary label, caption and
+    /// attention-list filter rather than hard-coding them, and row names sit on elements that have an automation peer (best effort per
+    /// ADR-021), not on a Grid or Border.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UI-05/06; FR-HIS-01 (independent review L1/L3/L6): Home binds the scan-only label, caption and attention filter; row names are on TextBlocks.")]
+    public void HomeBindsItsReviewFixesAndRowNamesHaveAnAutomationPeer()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string home = Between(source, "private StackPanel BuildHomePage()", "private Button HomeTileButton(");
+        StringAssert.Contains(home, ": home.SecondaryLabel");
+        StringAssert.Contains(home, "home.SecondaryCaption");
+        StringAssert.Contains(home, "AutomationProperties.SetName(openActivity, home.AttentionLinkAccessibleName);");
+        StringAssert.Contains(home, "ActivityFilter attentionFilter = home.AttentionActivityFilter;");
+        Assert.IsFalse(home.Contains("activityFilter = ActivityFilter.Problems;", StringComparison.Ordinal), "the attention link's filter comes from the presenter");
+        StringAssert.Contains(home, "AutomationProperties.SetName(appName, item.AccessibleName);");
+        Assert.IsFalse(home.Contains("AutomationProperties.SetName(line, item.AccessibleName);", StringComparison.Ordinal), "a Grid has no automation peer");
+        string row = Between(source, "private static Border ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection(");
+        StringAssert.Contains(row, "AutomationProperties.SetName(title, entry.AccessibleName);");
+        Assert.IsFalse(row.Contains("AutomationProperties.SetName(row,", StringComparison.Ordinal), "a Border has no automation peer");
+
+        string homePresenter = ApplicationSource("HomePresentation.cs");
+        StringAssert.Contains(homePresenter, "string secondary = inputs.SourcesEnabled ? \"Check for updates\" : \"Scan again\";");
+        StringAssert.Contains(homePresenter, "public static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(15);");
+        string activity = ApplicationSource("ActivityPresentation.cs");
+        StringAssert.Contains(activity, "VersionComparison.Compare(new VersionComparisonRequest(installedVersion, job.TargetVersion, AllowPrereleaseCandidate: true))", "resolution uses the domain comparer");
+        Assert.IsFalse(activity.Contains("string.Equals(installedVersion, job.TargetVersion, StringComparison.Ordinal)", StringComparison.Ordinal), "no string-equality version check");
     }
 
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
