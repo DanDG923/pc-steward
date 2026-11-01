@@ -515,8 +515,10 @@ public sealed class MainWindow : Window
             (ResultsFilter.Unmanaged, $"{StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged).Label} {unmanaged}")
         })
         {
-            Button filter = new() { Content = label, IsEnabled = resultsFilter != option };
+            // The selected filter stays focusable (accent style plus "Selected" item status) so a refresh can restore focus to it.
+            Button filter = resultsFilter == option ? StewardVisuals.PrimaryButton(label, $"Show {label} scan results") : new Button { Content = label };
             AutomationProperties.SetName(filter, $"Show {label} scan results");
+            if (resultsFilter == option) AutomationProperties.SetItemStatus(filter, "Selected");
             filter.Click += (_, _) => { resultsFilter = option; Render(); };
             filters.Children.Add(filter);
         }
