@@ -1,8 +1,17 @@
-# Task 50 — host-evidence test plan for O5, A-Q1 and A2-L3 (revision 2)
+# Task 50 — host-evidence test plan for O5, A-Q1 and A2-L3 (revision 2.2)
 
 Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03`, `TM-04`, `TM-07`, `TM-13`.
 
-Status: **revision 2, submitted for a fresh independent re-review and then for owner approval.** Revision 1 (`18a020f`, script SHA-256 `3babbbb5…233d`) was reviewed in review 15, which returned CONDITIONAL with no host-safety defect. This revision addresses every finding from that review. This file authorizes nothing by itself. Host actions happen only under the exact owner approval in §10, which binds the Final SHA-256 recorded in §4. No host action has happened.
+Status: **revision 2.2, ready for owner approval.** The probe script is unchanged since revision 2.1 (`e133d2b`). Review 18 (a fresh delta re-review of `e133d2b`) closed review 17's M2 and M3 and found no host-safety defect in the script; its H1-guard and wording findings are fixed below without touching the script, so the Final SHA-256 is unchanged. Revision 1 (`18a020f`, script SHA-256 `3babbbb5…233d`) was reviewed in review 15, which returned CONDITIONAL with no host-safety defect. This revision addresses every finding from that review. This file authorizes nothing by itself. Host actions happen only under the exact owner approval in §10, which binds the Final SHA-256 recorded in §4. No host action has happened.
+
+## Changes in revision 2.2 (review 18; plan text only, script bytes unchanged)
+
+| Review 18 finding | Severity | Change |
+|---|---|---|
+| The H1 guard only works if the block runs as one unit. Windows 11's PSReadLine 2.0 has no bracketed paste, so a multi-line paste runs line by line: after the `throw`, Copy-Item and the hash still ran into a pre-existing directory, and H1-X was an unconditional `Remove-Item` | Medium | Block H1 is now one `if/else` statement on one line, plus a one-line preamble. `$created` becomes `$true` only after `New-Item -ErrorAction Stop` succeeds. H1 compares the hash itself against the §4 value and prints `HASH-OK` or `STOP: hash differs`. H1b runs only if `$created -and $hashOk`. H1-X deletes only if `$created`; otherwise it prints `STOP: not created by H1; delete nothing`. Each block is a single line, so line-by-line paste cannot split it. |
+| The rule that H5/H6 stay authorized after a STOP covered only H2 | Low | It now covers any STOP in H2, H3 or H4 (§5 preamble). |
+| §12 told the owner to "run H6 again", which contradicts H6 "exactly once" and the no-retries rule | Low | §12 now says stop and report; a second H6 needs a separate approval. |
+| The §5 preamble still mentioned a Remote Control route | Low | Replaced with "The owner runs every step; the agent runs nothing on the host." |
 
 ## Changes in revision 2.1 (review 17)
 
@@ -84,8 +93,8 @@ Each synthetic CodeDom build waits at most min(60 s, remaining deadline) and sto
 | Item | Value |
 |---|---|
 | Script path | `scripts/evidence/Task50-HostEvidence.ps1`. Pure ASCII, **CRLF**, `.gitattributes` `-text` (enforced by `HostEvidenceScriptRehearsalTests.ScriptIsAsciiCrlfAndCheckedInWithoutNewlineConversion`). |
-| H0 implementation commit | `<<IMPLEMENTATION_COMMIT: integrator enters the commit that carries the final script>>` |
-| **Final SHA-256** (the only approvable value) | **`<<FINAL_SHA256: integrator enters the SHA-256 of the committed CRLF file after the fresh re-review>>`** |
+| H0 implementation commit | `e133d2b0ef7d8fd02c84509692aa71b4f48a999d` (`e133d2b`). Windows CI run 81 on this exact commit: Architecture 44, Domain 167, Application 883, Security 481 passed, 0 failed, 0 skipped, including the 5.1 parse (0 errors) and SelfCheck (`SELFCHECK-OK`) rehearsals. Review 18 confirmed the committed bytes. |
+| **Final SHA-256** (the only approvable value) | **`0A1C4377D3A0EBF5ED2778A38AA9BA4C05BB477F3AEA9F54B03790BD930584D4`** |
 | Appendix A | The revision-2 script as LF text, for review reading. Its LF hash is **not** approvable. Only the committed CRLF bytes above are. |
 | Self-binding | The script records `Get-FileHash` of its own file as `scriptSha256`. A mismatch with the Final SHA-256 invalidates the evidence. |
 | Validation already done (Linux, no Run/Cleanup) | The PowerShell 7 parser reports 0 errors. The three embedded C# sources compile at `-langversion:5` against .NET 10 reference assemblies. SelfCheck under pwsh 7 refuses with `SELFCHECK-FAIL: windows-powershell-5.1-required`, exit 2, and writes nothing. In a **scratch copy with only the version gate disabled**, SelfCheck under pwsh 7 printed `SELFCHECK-RELEASE-ENTRIES: 56`, passed `Import-T50` (Add-Type) and the rights-list check, and then reported `synthetic-build-failed` from the bounded runspace, because CodeDom is unsupported on .NET Core. That failure is expected and shows the runspace returns without hanging. `HostEvidenceScriptRehearsalTests.cs` builds with 0 warnings and 0 errors in an isolated project with the repository's `Directory.Build.props`, `.editorconfig` and central package versions. |
@@ -95,43 +104,40 @@ Each synthetic CodeDom build waits at most min(60 s, remaining deadline) and sto
 
 ## 5. Exact step list
 
-Every step runs as the owner's standard user. The agent runs nothing on the host unless it is attached through an approved Remote Control folder and the owner's approval names that route. "Stop" means: run no further steps, do not retry, and report the exact console token. After an H2 `STOPPED:`/`STOP:` result or an error before `EVIDENCE:`, H5 (share evidence, if written) and H6 (cleanup) **remain authorized**; paste only the STOP token, never other console text, because pre-`EVIDENCE` console errors can contain paths.
+Every step runs as the owner's standard user. The owner runs every step; the agent runs nothing on the host. "Stop" means: run no further steps, do not retry, and report the exact console token. After any `STOPPED:`/`STOP:` result or error in H2, H3 or H4 (including a declined or unexpected UAC prompt and `NOT-RUN-PCSTEWARD-RUNNING`), H5 (share evidence, if written) and H6 (cleanup) **remain authorized**; paste only the STOP token, never other console text, because pre-`EVIDENCE` console errors can contain paths.
 
 | Step | Command | Expected | Pass / fail | Recorded | Stop conditions | Cleanup |
 |---|---|---|---|---|---|---|
-| **H1** Place and verify | Block H1 | Printed hash equals the §4 Final SHA-256 | Equal / anything else | Hash | The directory already exists (stop, delete nothing); hash differs | Only if H1 itself created the directory and the hash differs, or H1b reports parse errors: run block H1-X and stop. If the directory already existed, stop and delete nothing. |
-| **H1b** Parse-only gate | Block H1b (same window) | `PARSE-OK` | `PARSE-OK` / any error count | Line | Any parse error: run block H1-X and stop | As H1 |
+| **H1** Place and verify | Block H1 (two single-line statements) | Hash line, then `HASH-OK` | `HASH-OK` / anything else | Hash | `STOP: evidence directory already exists` (delete nothing); `STOP: hash differs`; any error | On `STOP: hash differs` or an error after the directory was created: run block H1-X (it deletes only if `$created`) and stop. On `STOP: evidence directory already exists`: stop and delete nothing. |
+| **H1b** Parse-only gate | Block H1b (same window) | `PARSE-OK` | `PARSE-OK` / anything else | Line | `STOP: parse errors n`: run block H1-X and stop. `STOP: H1 did not pass`: stop (run H1-X only if H1 printed `STOP: hash differs`) | As H1 |
 | **H2** Default run (once) | Block H2 (same window) | `EVIDENCE: <TEMP>\pcsteward-evidence-task50\run-…\evidence.json`, `REDACTIONS: n`, then one `VERDICT …` line each for O5, AQ1N, AQ1M, AQ1C and A2L3S | Per case (§6) | `evidence.json` (§7) | Any `STOP:`/`STOPPED:` line; any error before `EVIDENCE:` | None until H5 |
 | **H3** *(optional; separate approval)* Uac run (once) | Block H3 | One UAC prompt for `aq1-managed.exe` in `…\pcsteward-evidence-task50\run-…`; `VERDICT AQ1UAC: …` | §6 | Second JSON | A second prompt, or a prompt naming any other program: answer **No** and stop. A decline is `NOT-RUN-UAC-DECLINED`, with no retry. | None until H5 |
 | **H4** *(optional; separate approval)* PcStewardHolds run (once) | Block H4, with PC Steward closed | `VERDICT A2L3P: …` | §6 | Third JSON | `NOT-RUN-PCSTEWARD-RUNNING`; any `FAIL-UNPROTECTED` stops everything except H5/H6 and is reported as a security finding | None until H5 |
 | **H5** Hand over evidence | `notepad (Join-Path $d '<run-name>\evidence.json')` for each run | Content matches §7 and has no private text | Sanitized / not | — | Unredacted private text: do not share it; continue with H6 and report | — |
 | **H6** Cleanup (once, last) | Block H6 (same window) | `CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed` | Directory gone | Line | Cleanup refuses: leave everything and report | This step is the cleanup |
 
-**Block H1** (in a new non-elevated Windows PowerShell 5.1 window; `<CHECKOUT>` is the owner's existing clone at the H0 commit):
+**Block H1** (in a new non-elevated Windows PowerShell 5.1 window; `<CHECKOUT>` is the owner's existing clone at the H0 commit). Each line is one complete statement, so pasting line by line cannot split a guard from the work it protects. Do not re-wrap the lines:
 
 ```powershell
-$d = Join-Path ([IO.Path]::GetTempPath()) 'pcsteward-evidence-task50'
-if (Test-Path -LiteralPath $d) { throw 'STOP: evidence directory already exists' }
-New-Item -ItemType Directory -Path $d | Out-Null
-Copy-Item -LiteralPath '<CHECKOUT>\scripts\evidence\Task50-HostEvidence.ps1' -Destination $d
-(Get-FileHash -LiteralPath (Join-Path $d 'Task50-HostEvidence.ps1') -Algorithm SHA256).Hash
+$d = Join-Path ([IO.Path]::GetTempPath()) 'pcsteward-evidence-task50'; $created = $false; $hashOk = $false; $expected = '0A1C4377D3A0EBF5ED2778A38AA9BA4C05BB477F3AEA9F54B03790BD930584D4'
+if (Test-Path -LiteralPath $d) { 'STOP: evidence directory already exists' } else { New-Item -ItemType Directory -Path $d -ErrorAction Stop | Out-Null; $created = $true; Copy-Item -LiteralPath '<CHECKOUT>\scripts\evidence\Task50-HostEvidence.ps1' -Destination $d -ErrorAction Stop; $h = (Get-FileHash -LiteralPath (Join-Path $d 'Task50-HostEvidence.ps1') -Algorithm SHA256 -ErrorAction Stop).Hash; $h; if ($h -eq $expected) { $hashOk = $true; 'HASH-OK' } else { 'STOP: hash differs' } }
 ```
 
-**Block H1b** (parse only; nothing executes):
+`$expected` is the §4 Final SHA-256. A terminating error inside the `else` ends the whole statement: if `New-Item` fails, `$created` stays `$false`; if a later step fails, `$hashOk` stays `$false`.
+
+**Block H1b** (parse only; nothing executes; one line):
 
 ```powershell
-$tokens = $null; $parseErrors = $null
-[void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $d 'Task50-HostEvidence.ps1'), [ref]$tokens, [ref]$parseErrors)
-if ($parseErrors.Count -ne 0) { 'STOP: parse errors ' + $parseErrors.Count } else { 'PARSE-OK' }
+if ($created -and $hashOk) { $tokens = $null; $parseErrors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $d 'Task50-HostEvidence.ps1'), [ref]$tokens, [ref]$parseErrors); if ($parseErrors.Count -ne 0) { 'STOP: parse errors ' + $parseErrors.Count } else { 'PARSE-OK' } } else { 'STOP: H1 did not pass' }
 ```
 
-**Block H1-X** (only if H1 itself created the directory and the printed hash differs, or H1b reports parse errors; never if the directory already existed):
+**Block H1-X** (only after `STOP: hash differs`, an error in H1 after the directory was created, or `STOP: parse errors n`; one line). It deletes nothing unless H1 created the directory in this window:
 
 ```powershell
-Remove-Item -LiteralPath $d -Recurse -Force
+if ($created) { Remove-Item -LiteralPath $d -Recurse -Force; 'H1X-REMOVED' } else { 'STOP: not created by H1; delete nothing' }
 ```
 
-**Block H2** (if the window was closed, first re-run only the first line of block H1 to set `$d` again):
+**Block H2** (if the window was closed after H1b printed `PARSE-OK`, first re-run only the first line of block H1 to set `$d` again; never re-run its second line):
 
 ```powershell
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $d 'Task50-HostEvidence.ps1') -Mode Run -Cases Default
@@ -290,7 +296,7 @@ A later repository task (not authorized here) commits the pasted JSON with the r
 Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§4 Final SHA-256]`. No other hash is valid.
 
 **Default (required for any run):**
-> I approve, on my Windows 11 PC as my normal non-elevated user, in one Windows PowerShell 5.1 window: blocks H1 and H1b exactly as written in revision 2 of the Task 50 host-evidence plan (creating `%TEMP%\pcsteward-evidence-task50`, copying `Task50-HostEvidence.ps1`, requiring SHA-256 `[§4 Final SHA-256]`, and a parse-only check), with block H1-X only if H1 itself created the directory and the hash differs or H1b reports parse errors (never when the directory already existed); block H2 exactly once (`-Mode Run -Cases Default`: read-only Chocolatey file reads for O5, the synthetic A-Q1 native/.NET Framework/.NET 10 launches, and the A2-L3 System32 analogue probes); and, after I have shared the evidence, block H6 exactly once (`-Mode Cleanup`). No UAC, no PC Steward files, no running of Chocolatey, no retries, nothing else.
+> I approve, on my Windows 11 PC as my normal non-elevated user, in one Windows PowerShell 5.1 window: blocks H1 and H1b exactly as written in revision 2.2 of the Task 50 host-evidence plan (creating `%TEMP%\pcsteward-evidence-task50`, copying `Task50-HostEvidence.ps1`, requiring SHA-256 `[§4 Final SHA-256]`, and a parse-only check), with block H1-X only after `STOP: hash differs`, an error in H1 after it created the directory, or `STOP: parse errors` (H1-X itself deletes nothing unless H1 created the directory; never when the directory already existed); block H2 exactly once (`-Mode Run -Cases Default`: read-only Chocolatey file reads for O5, the synthetic A-Q1 native/.NET Framework/.NET 10 launches, and the A2-L3 System32 analogue probes); and, after I have shared the evidence, block H6 exactly once (`-Mode Cleanup`). No UAC, no PC Steward files, no running of Chocolatey, no retries, nothing else.
 
 **Optional — UAC sub-case:**
 > I also approve block H3 exactly once, before the cleanup, with the same script (SHA-256 `[§4 Final SHA-256]`): one UAC prompt for the synthetic `aq1-managed.exe` in its run directory, which I will answer myself. No other elevation.
@@ -317,7 +323,7 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 - A2L3S is analogue evidence unless A2L3P passes. The existing Windows-CI deny-ACE test is hosted-runner evidence, not owner-host evidence.
 - **Windows CI supplies the 5.1 parse and compile rehearsal** (`HostEvidenceScriptRehearsalTests`: `Parser.ParseFile` gives 0 errors; `-Mode SelfCheck` compiles the Run-mode Add-Type source and both CodeDom synthetics). The rehearsal runs as the CI runner's (typically administrator) user under Windows Server. It does not exercise the Run probes, the token or location gates, or Windows 11 specifics. H1b repeats the parse on the owner host.
 - Same-user races (TOCTOU) against the evidence directory are outside the threat model. The directory is fresh and inherits user-private ACLs; reparse points are refused and the image directory is allowlisted before any launch, and Cleanup re-checks every level.
-- If an exception or Ctrl+C lands between `CreateProcessSuspended` and `Resume` for `aq1-native.exe`, the suspended child can remain until log-off and Cleanup then refuses partway. This is unlikely; end the process in Task Manager and run H6 again.
+- If an exception or Ctrl+C lands between `CreateProcessSuspended` and `Resume` for `aq1-native.exe`, the suspended child can remain until log-off and Cleanup then refuses partway. This is unlikely. Stop and report; do not end processes or run H6 a second time without a separate approval.
 - Listing and attribute failures record the underlying Windows error code (`GetBaseException().HResult & 0xFFFF`, e.g. 5 = access denied, 3 = path not found), not the PowerShell wrapper code 5377.
 - A csc.exe orphaned by a `synthetic-build-deadline` stop can outlive the probe briefly. It only writes into the run directory, which Cleanup's allowlist accepts.
 
