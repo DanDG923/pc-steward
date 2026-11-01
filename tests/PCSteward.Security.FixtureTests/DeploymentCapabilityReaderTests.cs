@@ -133,6 +133,7 @@ public sealed class DeploymentCapabilityReaderTests
         Assert.AreEqual(replacementIdentity, afterReplace, "a same-volume move keeps the moved file's identity");
 
         Assert.IsFalse(DeploymentFileAccess.TryReadIdentity(Path.Combine(fixture.Root, "missing.exe"), out _));
+        Assert.IsFalse(DeploymentFileAccess.TryReadIdentity(Path.GetFileName(target), out _), "relative paths are refused, never resolved against the current directory");
     }
 
     [TestMethod]
@@ -159,7 +160,8 @@ public sealed class DeploymentCapabilityReaderTests
             Assert.IsNotNull(writableHold);
             Assert.AreEqual(ErrorAccessDenied, ProbeWriteData(protectedFile));
             Assert.AreEqual(ErrorSharingViolation, ProbeWriteData(writable));
-            Assert.IsFalse(ProtectedLaunchLayout.CallerCannotModify(fixture.Root, writable), "a held caller-writable file is never reported protected");
+            // The ProbeWriteData results above are the A2-L3 evidence (review 16 L4: a CallerCannotModify assertion here would
+            // fail at the caller-writable ancestor before probing the held file, so it proved nothing about the hold).
         }
         finally
         {
@@ -220,6 +222,17 @@ public sealed class DeploymentCapabilityReaderTests
 
             // A second, overlapping evaluation still reads (share-read handles are compatible with each other).
             Assert.AreEqual(Status.Supported, reader.Evaluate(Route).Status);
+
+            // Review 16 M1: the A2-L5 fallback must still work after the handles are released for launch.
+            Assert.IsTrue(binding.IsHolding);
+            binding.ReleaseHandles();
+            Assert.IsFalse(binding.IsHolding);
+            Assert.IsFalse(binding.IsDisposed);
+            Assert.IsTrue(binding.PeerImageMatchesHelper(helper), "released handles keep the pre-launch reference identity");
+            Assert.IsTrue(binding.RevalidateAfterPeer(helper));
+            Assert.IsFalse(binding.RevalidateAfterPeer(helperCopy));
+            File.WriteAllText(lazyClosure, "replaced while released");
+            Assert.IsFalse(binding.RevalidateAfterPeer(helper), "the fallback detects a replaced leaf by re-hashing");
         }
         finally { binding.Dispose(); }
 

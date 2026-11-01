@@ -194,3 +194,21 @@ Deferred (not in this slice):
 - route admission.
 
 A-Q1 remains native evidence required before admission. The CI fixtures show read-share compatibility, not a `runas` launch under a hold on the exact artifact, which needs a separately authorized host test.
+
+### Windows capability binding: independent review (`6014d85`) and remediation
+
+A fresh-context reviewer (Opus) returned **CONDITIONAL PASS**, with no safety defect. It confirmed:
+
+- the `FILE_ID_INFO` layout and class, and the final-path handling;
+- single ownership of each `SafeFileHandle`, with leak-checked failure paths;
+- read-share-only opens, reparse refusal both before and after open, and hashing through the held handle (no hash-to-hold gap);
+- fail-closed bounds, no cache, and no DB/env/wire input;
+- all 12 leaves are held, including Desktop.dll and the lazy closure, and nothing in `src` uses the new types yet.
+
+Windows CI on `6014d85`: Security **478/478, zero skipped**, so all 32 Windows-only cases ran and passed; Application 883/883.
+
+- **M1, fixed.** The A2-L5 fallback could never succeed: releasing the hold for launch was only possible via `Dispose`, which disabled verification. `ReleaseHandles()` now closes the handles but keeps `HelperIdentity`/`VerifiedHashes`, so the peer check and re-hash revalidation still work. Only `Dispose` ends verification. The test now proves the post-release fallback detects a replaced leaf.
+- **L4, fixed.** A vacuous A2-L3 assertion was removed; the `ProbeWriteData` results are the evidence.
+- **Info items, fixed.** A zero file ID is unreadable on its own; relative paths are refused rather than resolved against the current directory.
+- **L2, transport-slice obligations.** Add an architecture test that `HeldHelperBinding.TryCreate` is called only by the reader and `Dispose` only after the exit/seal point. The transport must keep a strong reference to the binding until seal.
+- **L3, recorded.** The symlink test can be Inconclusive on a host without link privilege; it ran on CI. A junction variant is optional hardening.

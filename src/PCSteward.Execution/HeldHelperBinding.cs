@@ -14,12 +14,19 @@ namespace PCSteward.Execution;
 /// sealed, or, on the no-exit/termination-failure path, after teardown completes. Disposing earlier would reopen a
 /// replacement window for lazily loaded files. After disposal every check fails closed. It is never persisted or cached.
 /// </para>
+/// <para>
+/// A2-L5 fallback path (only if A-Q1 evidence shows the hold blocks the launch): the transport calls
+/// <see cref="ReleaseHandles"/> before starting the helper. That closes the handles but keeps <see cref="HelperIdentity"/>
+/// and <see cref="VerifiedHashes"/>, so <see cref="PeerImageMatchesHelper"/> and <see cref="RevalidateAfterPeer"/> still
+/// work against the pre-launch reference identity. Only <see cref="Dispose"/> ends verification.
+/// </para>
 /// </summary>
 internal sealed class HeldHelperBinding : IDisposable
 {
     private readonly IReadOnlyDictionary<string, SafeFileHandle> handles;
     private readonly IReadOnlyDictionary<string, string> paths;
     private int disposed;
+    private int released;
 
     private HeldHelperBinding(
         IReadOnlyDictionary<string, SafeFileHandle> handles,
@@ -48,6 +55,19 @@ internal sealed class HeldHelperBinding : IDisposable
     internal WindowsFileIdentity HelperIdentity { get; }
 
     internal bool IsDisposed => Volatile.Read(ref disposed) != 0;
+
+    /// <summary>True while every binding-set leaf is still held (neither released nor disposed).</summary>
+    internal bool IsHolding => Volatile.Read(ref released) == 0 && !IsDisposed;
+
+    /// <summary>
+    /// Fallback only (A2-L5): closes the held handles before launch while keeping the reference identity and verified
+    /// hashes for <see cref="RevalidateAfterPeer"/>. Idempotent. The primary path never calls this.
+    /// </summary>
+    internal void ReleaseHandles()
+    {
+        if (Interlocked.Exchange(ref released, 1) != 0) return;
+        foreach (SafeFileHandle handle in handles.Values) handle.Dispose();
+    }
 
     /// <summary>
     /// Takes ownership of the open handles. Called only by <see cref="OwnerOnlyDeploymentCapabilityReader"/> after the full
@@ -108,6 +128,6 @@ internal sealed class HeldHelperBinding : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        foreach (SafeFileHandle handle in handles.Values) handle.Dispose();
+        ReleaseHandles();
     }
 }

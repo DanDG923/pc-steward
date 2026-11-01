@@ -47,7 +47,7 @@ internal static class DeploymentFileAccess
     /// </summary>
     internal static SafeFileHandle? TryOpenShareReadAnyPath(string path)
     {
-        if (!OperatingSystem.IsWindows() || string.IsNullOrEmpty(path)) return null;
+        if (!OperatingSystem.IsWindows() || string.IsNullOrEmpty(path) || !Path.IsPathFullyQualified(path)) return null;
         try
         {
             return File.OpenHandle(Path.GetFullPath(path), FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.None);
@@ -83,7 +83,8 @@ internal static class DeploymentFileAccess
                 (uint)Marshal.SizeOf<NativeMethods.FileIdInformation>()))
             return false;
         UInt128 fileId = new(information.FileIdHigh, information.FileIdLow);
-        if (information.VolumeSerialNumber == 0 && fileId == UInt128.Zero) return false;
+        // A zero file ID cannot identify a file uniquely (possible on some non-NTFS volumes): treat it as unreadable.
+        if (fileId == UInt128.Zero) return false;
         identity = new(information.VolumeSerialNumber, fileId);
         return true;
     }
