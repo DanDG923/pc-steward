@@ -183,16 +183,7 @@ public static class UpdateJobCleanupText
     public const string Heading = "Delete downloaded files";
 
     /// <summary>A human-readable size (audit P-M6: no raw byte counts).</summary>
-    public static string Size(long bytes)
-    {
-        if (bytes < 0) bytes = 0;
-        if (bytes < 1024) return bytes == 1 ? "1 byte" : $"{bytes.ToString(System.Globalization.CultureInfo.CurrentCulture)} bytes";
-        string[] units = ["KB", "MB", "GB", "TB"];
-        double value = bytes;
-        int unit = -1;
-        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
-        return $"{value.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture)} {units[unit]}";
-    }
+    public static string Size(long bytes) => DisplayFormat.Size(bytes);
 
     public static string Recoverable(long recoverableBytes) => recoverableBytes > 0
         ? $"{Size(recoverableBytes)} of downloaded update files can be deleted. This doesn't affect installed apps or the update you just ran."

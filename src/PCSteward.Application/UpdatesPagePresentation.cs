@@ -233,7 +233,7 @@ public static class UpdatesPagePresenter
                 case nameof(UpdateIntelligenceStatus.Ignored):
                     StableDecision? ignore = Latest(decisions, row.StableProductKey, "Ignore");
                     string until = ignore?.ExpiresAt is { } expires && expires > now
-                        ? $"You chose not to be told about updates for this app until {expires.ToLocalTime().ToString("d MMMM yyyy", CultureInfo.CurrentCulture)}."
+                        ? $"You chose not to be told about updates for this app until {DisplayFormat.Date(expires)}."
                         : "You chose not to be told about updates for this app.";
                     ignored.Add(Row(row, detail, UpdateGroup.IgnoredAndSkipped, [until],
                         ignore is null ? [Details] : [new(UpdateRowAction.Reverse, "Stop ignoring this app", ""), Details], ignore?.Id));

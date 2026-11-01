@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using PCSteward.Domain;
 
 namespace PCSteward.Application;
@@ -40,6 +39,10 @@ public sealed class InventoryExperienceViewModel
     public string ScopeFilter { get; private set; } = "All scopes";
     public string StatusFilter { get; private set; } = "All statuses";
     public string SortField { get; private set; } = "Name";
+    /// <summary>Task 73 Phase 3: the saved Installed apps filter (All, Updates, Needs review, Unmanaged, Pinned &amp; ignored).</summary>
+    public InstalledAppsFilter SavedFilter { get; private set; } = InstalledAppsFilter.All;
+    /// <summary>The package-source snapshots from the latest assessment, for freshness in words (FR-UI-05). Presentation only.</summary>
+    public IReadOnlyCollection<SourceSnapshot> Sources { get; private set; } = [];
     public string ScanPhase { get; private set; } = "Ready for a local-only scan";
     public TimeSpan Elapsed { get; private set; }
     public bool IsScanning { get; private set; }
@@ -80,6 +83,12 @@ public sealed class InventoryExperienceViewModel
     }
     public void SetFilters(string? search, string? status, string? source, string? scope, string? sortField) => SetFilters(search, status, PublisherFilter, source, scope, sortField);
 
+    /// <summary>Applies a saved Installed apps filter. It combines with search and the other filters; saved data never changes.</summary>
+    public void SetSavedFilter(InstalledAppsFilter filter)
+    {
+        SavedFilter = Enum.IsDefined(filter) ? filter : InstalledAppsFilter.All; ApplyFilters();
+    }
+
     public void LoadInventory(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, DateTimeOffset? lastScanAt = null)
     {
         allRows.Clear();
@@ -100,7 +109,7 @@ public sealed class InventoryExperienceViewModel
     public void CompleteUpdateCheck() => IsCheckingUpdates = false;
     public void LoadUpdateIntelligence(UpdateIntelligenceSummary summary)
     {
-        ArgumentNullException.ThrowIfNull(summary); UpdateStatusCounts = summary.Counts; AttentionNeeded = summary.AttentionNeeded;
+        ArgumentNullException.ThrowIfNull(summary); UpdateStatusCounts = summary.Counts; AttentionNeeded = summary.AttentionNeeded; Sources = summary.Sources.ToArray();
         Dictionary<string, UpdateIntelligenceItem> items = summary.Items.ToDictionary(item => item.StableProductKey, StringComparer.Ordinal);
         for (int index = 0; index < allRows.Count; index++) if (items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item)) allRows[index] = allRows[index] with { Status = item.Status.ToString() };
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
@@ -226,11 +235,11 @@ public sealed class InventoryExperienceViewModel
     }
 
     private static string FriendlyLocalTime(DateTimeOffset? value) => value is null ? "an unknown time" : FriendlyLocalTime(value.Value);
-    private static string FriendlyLocalTime(DateTimeOffset value) => value.ToLocalTime().ToString("dddd, d MMMM yyyy 'at' HH:mm", CultureInfo.CurrentCulture);
+    private static string FriendlyLocalTime(DateTimeOffset value) => DisplayFormat.DateTime(value);
 
     private void ApplyFilters()
     {
-        IEnumerable<InventoryRow> rows = allRows;
+        IEnumerable<InventoryRow> rows = allRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));
         if (!string.IsNullOrWhiteSpace(SearchText)) rows = rows.Where(row => row.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || row.Publisher.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
         if (StatusFilter != "All statuses") rows = rows.Where(row => row.Status == StatusFilter);
         if (PublisherFilter != "All publishers") rows = rows.Where(row => row.Publisher == PublisherFilter);

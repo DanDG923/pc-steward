@@ -321,6 +321,37 @@ public sealed class SqliteDatabaseTests
         Assert.IsTrue((await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None)).Count <= 2);
     }
 
+    [TestMethod]
+    [Description("FR-HIS-01 (Task 73 Phase 3): the Activity reader returns recorded update events and scan runs newest first, bounded, read-only, and skips rows that do not parse.")]
+    public async Task ActivityHistoryReaderReturnsBoundedNewestFirstRecordsWithoutWriting()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        DateTimeOffset now = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
+        Guid job = Guid.NewGuid();
+        UpdateHistoryEntry started = new(Guid.NewGuid(), job, Guid.NewGuid(), "winget:contoso.widget", UpdateProvider.WinGet, "Contoso.Widget", "1.0.0", "1.1.0", now, UpdateHistoryStatus.Running, null, "running");
+        await database.Store.RecordAsync(started, CancellationToken.None);
+        await database.Store.RecordAsync(started with { EventId = Guid.NewGuid(), OccurredAt = now.AddMinutes(2), Status = UpdateHistoryStatus.InstallerFailed, ExitCode = 1603, Diagnostic = "installer exit 1603" }, CancellationToken.None);
+        await database.Store.RecordScanAsync(new ScanRun(Guid.NewGuid(), now.AddHours(-2), now.AddHours(-2).AddSeconds(40), "Completed", Guid.NewGuid()), [], CancellationToken.None);
+        await database.Store.RecordScanAsync(new ScanRun(Guid.NewGuid(), now.AddHours(-1), now.AddHours(-1).AddSeconds(5), "Cancelled", Guid.NewGuid()), [], CancellationToken.None);
+
+        IReadOnlyList<UpdateHistoryEntry> history = await database.Store.GetRecentUpdateHistoryAsync(10, CancellationToken.None);
+        IReadOnlyList<UpdateHistoryEntry> bounded = await database.Store.GetRecentUpdateHistoryAsync(1, CancellationToken.None);
+        IReadOnlyList<ScanRun> scans = await database.Store.GetRecentScanRunsAsync(10, CancellationToken.None);
+
+        Assert.HasCount(2, history);
+        Assert.AreEqual(UpdateHistoryStatus.InstallerFailed, history[0].Status);
+        Assert.AreEqual(1603, history[0].ExitCode);
+        Assert.HasCount(1, bounded);
+        Assert.AreEqual(UpdateHistoryStatus.InstallerFailed, bounded[0].Status);
+        Assert.HasCount(2, scans);
+        Assert.AreEqual("Cancelled", scans[0].Status);
+        Assert.AreEqual("Completed", scans[1].Status);
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => database.Store.GetRecentUpdateHistoryAsync(0, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => database.Store.GetRecentScanRunsAsync(SqliteDatabase.MaximumActivityRecords + 1, CancellationToken.None));
+        // Reading changes nothing.
+        Assert.HasCount(2, await database.Store.GetHistoryForProductAsync("winget:contoso.widget", CancellationToken.None));
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;
