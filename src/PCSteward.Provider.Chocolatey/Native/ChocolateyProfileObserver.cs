@@ -13,7 +13,8 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// requester-owned profile ancestor); a release table for fixture contents (production uses only
 /// <see cref="ChocolateyReleaseManifest2_7_5"/>); and an engine-trust check for an unsigned fixture engine (production uses
 /// only <see cref="ChocolateyEngineTrust.IsTrustedEngine"/>). The HTTP cache need not be the fixed concatenation, because a
-/// standard-user runner cannot create a tree that it does not own; every other observer rule is unchanged.
+/// standard-user runner cannot create a tree that it does not own (N3 launch-path resolution, for which the HTTP cache is not
+/// an input, is then given the fixed concatenation); every other observer rule is unchanged.
 /// </summary>
 internal sealed class ChocolateyObserverTestSeam
 {
