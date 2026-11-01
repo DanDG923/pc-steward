@@ -23,7 +23,16 @@ The re-review of revision 3 was CONDITIONAL (3 Medium, 4 Low, no Blocker or High
 - a one-use launch permission;
 - the recorded `NotStarted` interpretation.
 
-A fresh re-review is pending. No code, host action or admission.
+The re-review of revision 4 closed every rev-3 finding (2 Medium, 5 Low remained; no Blocker or High). Revision 5 resolves them:
+- an N0 launch spec with a test-only factory;
+- `PreflightQueryFailed` for disagreeing client queries;
+- the architecture allow-list and state-root ancestry;
+- private nested command constructors;
+- observer interrupt arms;
+- disclosure of terminated installers;
+- the pre-I/O refusal signal.
+
+Slice N0 may start, with a delta re-review alongside it. No host action or admission.
 
 **Task 50 — protocol-2 desktop transport and Chocolatey route dispatcher (2026-11-01):** `WindowsReviewedHelperTransport` follows the reviewed pre-launch order: `TryHold`, final trust, then `runas --protocol 2`. After `VerifyPeer` it checks the peer image's file identity against the held binding. `ReviewedHelperExchangeSession` maps every phase to the interpreter's closed outcomes: one frame then EOF, H, no retry. `ChocolateyRuntimeLimitsRouteDispatcher` checks support via profile digest and capability seam (never throws) and dispatches through the interpreter. The binding is released only when no helper exists, or after observed exit and seal (review-16 L2). Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`. See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). **Not composed**: route not admitted; helper endpoint (stages A–D, G1) and Profile V2 observer not implemented. Linux: Architecture 46/46, Domain 167/167. Application failures are unchanged (103, platform). Security has 29 new portable tests passing and 13 Windows-only tests pending Windows CI. Independent review of `953ad78` returned FAIL with no safety defect: the protocol-2 pipe locator was rejected by the restricted-pipe factory, so the transport always refused safely. That and the Medium/Low findings are remediated, with a Windows peer-check test added. A test-harness pipe-buffer hang on Windows was fixed. **Windows CI on `52e81e4` is green**: Security 523/523 (all 13 Windows-only transport tests ran), Application 883, Domain 167, Architecture 46, with nothing skipped. The delta re-review returned **PASS**; its Lows are recorded.
 
