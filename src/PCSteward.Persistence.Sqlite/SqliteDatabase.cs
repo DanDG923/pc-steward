@@ -9,11 +9,22 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
 {
     private const int MaxTextLength = 1024;
     private readonly string connectionString;
+    private readonly IReviewedHelperVersionGrammar? helperVersionGrammar;
 
-    public SqliteDatabase(string databasePath)
+    /// <summary>
+    /// Tests only (adapter gates §B.2, §R B2-L1). Without a grammar every version-3 terminal reads as an integrity failure
+    /// and none can be written. Production composition roots use the grammar overload.
+    /// </summary>
+    internal SqliteDatabase(string databasePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false, ForeignKeys = true }.ToString();
+    }
+
+    /// <summary>Production constructor: the injected grammar validates persisted helper-reported versions on write readback and read.</summary>
+    public SqliteDatabase(string databasePath, IReviewedHelperVersionGrammar helperVersionGrammar) : this(databasePath)
+    {
+        this.helperVersionGrammar = helperVersionGrammar ?? throw new ArgumentNullException(nameof(helperVersionGrammar));
     }
 
     public async Task MigrateAsync(CancellationToken cancellationToken)

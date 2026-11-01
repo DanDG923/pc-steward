@@ -43,7 +43,7 @@ internal static class Program
             if (FactoryReset.GetMarkerState() != FactoryResetMarkerState.None) return 0;
             string stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), StateDirectoryName);
             Directory.CreateDirectory(stateDirectory);
-            SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"));
+            SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"), new ChocolateyHelperVersionGrammar());
             database.MigrateAsync(timeout.Token).GetAwaiter().GetResult();
             if (!session.Reconcile(new UpdateDispatchReconciliation(database).ReconcileAsync, timeout.Token)) return UnresolvedOperationExitCode;
             timeout.Token.ThrowIfCancellationRequested();

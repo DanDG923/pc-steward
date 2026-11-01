@@ -78,6 +78,50 @@ public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
         }
     }
 
+    /// <summary>
+    /// Adapter gates §B.2/§B.7: the observation carrying the history-only helper check reaches exactly the same disposition,
+    /// outcome and settlement as the bare observation. The WinGet carrier can never hold a check (O-route), so every
+    /// non-NotObserved value is recorded as NotObserved with the fixed marker, which also proves the inconsistent path.
+    /// </summary>
+    [TestMethod]
+    [DataRow("matched-completed")]
+    [DataRow("matched-fingerprint-mismatch")]
+    [DataRow("settled-without-h")]
+    [DataRow("refused-unsettled")]
+    [DataRow("refused-stage-c-candidate-mismatch")]
+    [DataRow("refused-preflight-output-limit")]
+    [DataRow("started-exit0-cancelled")]
+    [DataRow("started-exit3010")]
+    [DataRow("undetermined-timed-out")]
+    [DataRow("matched-not-started-cancelled")]
+    [DataRow("matched-not-started-launch-failure")]
+    [DataRow("elevation-declined")]
+    public async Task HelperCheckCarriedToFinalizationNeverChangesTheOutcome(string scenario)
+    {
+        ReviewedUpdateProtocol2Interpretation interpretation = Interpret(Protocol2InterpreterFixture.Operation(), scenario);
+        (ReviewedUpdateDispatchResult plain, MemoryStore plainStore) = await RunCarrierAsync(interpretation.Observation);
+        (ReviewedUpdateDispatchResult carried, MemoryStore carriedStore) = await RunCarrierAsync(interpretation.WorkflowObservation);
+        Assert.AreEqual(plain.Disposition, carried.Disposition);
+        Assert.AreEqual(plain.Outcome, carried.Outcome);
+        Assert.AreEqual(plainStore.State, carriedStore.State);
+        Assert.AreEqual(plainStore.Terminal!.Outcome, carriedStore.Terminal!.Outcome);
+        Assert.AreSame(RecordedHelperCandidateCheck.NotObserved, carriedStore.Terminal.HelperCheck);
+        Assert.IsNull(carried.HelperCheck);
+        bool hadCheck = interpretation.CandidateCheck.Kind != ReviewedHelperCandidateCheckKind.NotObserved;
+        Assert.AreEqual(hadCheck, carried.Message.StartsWith(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " ", StringComparison.Ordinal), carried.Message);
+        Assert.IsFalse(plain.Message.Contains(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, StringComparison.Ordinal));
+    }
+
+    private static async Task<(ReviewedUpdateDispatchResult, MemoryStore)> RunCarrierAsync(ReviewedUpdateDispatchObservation observation)
+    {
+        ReviewedUpdateDraft draft = new(CarrierOperation(), Guid.NewGuid());
+        Clock clock = new();
+        MemoryStore store = new();
+        ReviewedUpdateDispatchWorkflow workflow = new((work, _, ct) => work(Owner(), ct), new Evidence(), new Dispatcher(observation),
+            new Verifier(new(true, false)), store, clock);
+        return (await workflow.RunAsync(new ReviewedUpdateReview(draft, clock).Confirm(), CancellationToken.None), store);
+    }
+
     private static ReviewedUpdateProtocol2Interpretation Interpret(ReviewedUpdateOperation frozen, string scenario)
     {
         ReviewedHelperDesktopObservation desktop = Protocol2InterpreterFixture.SettledDesktop;

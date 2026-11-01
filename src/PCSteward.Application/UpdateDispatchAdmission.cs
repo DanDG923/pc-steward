@@ -65,40 +65,6 @@ public enum UpdateDispatchState { DispatchClaimed, Final, Uncertain }
 /// </summary>
 public enum UpdateDispatchOutcome { Success, RestartRequired, Failed, Cancelled, Uncertain, Unverified, ElevationDenied, Refused }
 
-public sealed class UpdateDispatchTerminal
-{
-    public const int ReservedBytes = 16 * 1024;
-    public UpdateDispatchTerminal(UpdateDispatchOutcome outcome, DateTimeOffset occurredAt, int? exitCode, string diagnostic)
-    {
-        if (!Enum.IsDefined(outcome) || occurredAt == default || diagnostic is null || diagnostic.Length > 4096)
-            throw new ArgumentException("A bounded terminal outcome is required.");
-        Outcome = outcome;
-        OccurredAt = occurredAt.ToUniversalTime();
-        ExitCode = exitCode;
-        Diagnostic = SanitizedDiagnosticBundle.Sanitize(diagnostic);
-        if (Diagnostic.Length > 4096) throw new ArgumentException("Sanitized diagnostic exceeds the terminal reservation.");
-        try { _ = new UTF8Encoding(false, true).GetByteCount(Diagnostic); }
-        catch (EncoderFallbackException exception) { throw new ArgumentException("Sanitized diagnostic is not valid UTF-16 text.", exception); }
-    }
-    public UpdateDispatchOutcome Outcome { get; }
-    public DateTimeOffset OccurredAt { get; }
-    public int? ExitCode { get; }
-    public string Diagnostic { get; }
-    public byte[] GetReservedPayload(UpdateDispatchSettlement? settlement = null)
-    {
-        byte[] diagnostic = new UTF8Encoding(false, true).GetBytes(Diagnostic);
-        byte[] header = Encoding.ASCII.GetBytes(string.Join('\n', "pc-steward-update-terminal:2", Outcome.ToString(),
-            OccurredAt.ToString("O", CultureInfo.InvariantCulture), ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "None",
-            settlement?.State.ToString() ?? "InvocationUnknown", settlement?.Facts ?? "None",
-            diagnostic.Length.ToString(CultureInfo.InvariantCulture)) + "\n");
-        if (header.Length + diagnostic.Length > ReservedBytes) throw new InvalidOperationException("Terminal representation exceeds its reservation.");
-        byte[] reserved = new byte[ReservedBytes];
-        header.CopyTo(reserved, 0);
-        diagnostic.CopyTo(reserved, header.Length);
-        return reserved;
-    }
-}
-
 /// <summary>Passive committed identity. Restoring or constructing a receipt never produces a dispatch permit.</summary>
 public sealed record UpdateDispatchClaim(Guid ClaimId, Guid TerminalEventId, ReviewedUpdateDraft Draft,
     FreshUpdateDispatchEvidence Evidence, DateTimeOffset ClaimedAt);

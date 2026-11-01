@@ -10,6 +10,8 @@ public enum ReviewedUpdateProviderStatus { Completed, ProviderFailed, Refused, E
 /// <summary>
 /// Native observations returned by a route dispatcher. The owned root is an immutable snapshot that the workflow never
 /// awaits again; unknown invocation is always unsettled. No member is execution authority or a verified outcome.
+/// <see cref="HelperCheck"/> (null means NotObserved) is desktop-derived history data only: the workflow records it when
+/// consistent and never lets it change status, settlement or outcome.
 /// </summary>
 public sealed record ReviewedUpdateDispatchObservation(
     ReviewedUpdateInvocation Invocation,
@@ -22,7 +24,8 @@ public sealed record ReviewedUpdateDispatchObservation(
     bool PipeEndOfFile,
     bool TerminationFailed,
     bool ExecutionUncertain,
-    bool RestartReported = false)
+    bool RestartReported = false,
+    RecordedHelperCandidateCheck? HelperCheck = null)
 {
     /// <summary>Maximum diagnostic characters carried into a terminal record (the wire diagnostic bound).</summary>
     public const int MaximumDiagnosticLength = 2048;
@@ -71,7 +74,10 @@ public interface IReviewedUpdateVerifier
 
 public enum ReviewedUpdateDispatchDisposition { NotStarted, NotStartedClaimRetained, Finalized, Uncertain }
 
-/// <summary>Presentation-safe result that keeps the frozen reviewed mode/guard/disclosure with the outcome.</summary>
+/// <summary>
+/// Presentation-safe result that keeps the frozen reviewed mode/guard/disclosure with the outcome. <see cref="HelperCheck"/>
+/// is set only to a helper check that was actually persisted (null otherwise), so live text equals history.
+/// </summary>
 public sealed record ReviewedUpdateDispatchResult(
     ReviewedUpdateDispatchDisposition Disposition,
     UpdateDispatchOutcome? Outcome,
@@ -79,7 +85,8 @@ public sealed record ReviewedUpdateDispatchResult(
     ReviewedInstallerMode Mode,
     UpdateRouteContract Route,
     ReviewedProviderGuardContract GuardContract,
-    string? Disclosure);
+    string? Disclosure,
+    RecordedHelperCandidateCheck? HelperCheck = null);
 
 /// <summary>Runs work under the common current-user gate with mandatory reconciliation, bounded by the review deadline.</summary>
 public delegate Task<ReviewedUpdateDispatchResult> ReviewedUpdateGateRunner(
@@ -96,6 +103,8 @@ public sealed class ReviewedUpdateDispatchWorkflow
 {
     private static readonly TimeSpan MaximumReviewAge = TimeSpan.FromMinutes(30);
     private const int MaximumTerminalMessageLength = 4000;
+    /// <summary>Fixed marker recorded when a helper check failed <see cref="RecordedHelperCandidateCheck.IsConsistentWith"/>.</summary>
+    public const string HelperCheckNotRecordedDiagnostic = "helper-check-not-recorded";
     private readonly ReviewedUpdateGateRunner runUnderGate;
     private readonly IReviewedUpdateDispatchEvidenceSource evidence;
     private readonly IReviewedUpdateRouteDispatcher dispatcher;
@@ -177,17 +186,20 @@ public sealed class ReviewedUpdateDispatchWorkflow
         UpdateDispatchAdmissionResult admitted = await admission.ClaimAsync(approval, fresh, ownership, cancellationToken).ConfigureAwait(false);
         if (admitted is { Permit: null, CommittedClaim: { } orphan })
             return await FinalizeAsync(orphan, ownership, UpdateDispatchSettlement.BeforeInvocation(orphan, ownership), UpdateDispatchOutcome.Cancelled,
-                null, "Review, ownership, fresh evidence or cancellation lapsed right after the claim committed; nothing was invoked.").ConfigureAwait(false);
+                null, "Review, ownership, fresh evidence or cancellation lapsed right after the claim committed; nothing was invoked.",
+                RecordedHelperCandidateCheck.NotObserved).ConfigureAwait(false);
         if (admitted.Permit is not { } permit)
             return await AfterGateFailureAsync(operation, "The fresh evidence no longer matches the frozen review, or the one-use claim was not granted.").ConfigureAwait(false);
 
         UpdateDispatchClaim claim = permit.Claim;
         if (!permit.TryConsume(approval, ownership))
             return await FinalizeAsync(claim, ownership, UpdateDispatchSettlement.BeforeInvocation(claim, ownership), UpdateDispatchOutcome.Cancelled,
-                null, "Review, ownership or fresh evidence lapsed immediately before launch; nothing was invoked.").ConfigureAwait(false);
+                null, "Review, ownership or fresh evidence lapsed immediately before launch; nothing was invoked.",
+                RecordedHelperCandidateCheck.NotObserved).ConfigureAwait(false);
         if (!StillSupported(operation))
             return await FinalizeAsync(claim, ownership, UpdateDispatchSettlement.BeforeInvocation(claim, ownership), UpdateDispatchOutcome.Cancelled,
-                null, "The provider route became unavailable immediately before launch; nothing was invoked.").ConfigureAwait(false);
+                null, "The provider route became unavailable immediately before launch; nothing was invoked.",
+                RecordedHelperCandidateCheck.NotObserved).ConfigureAwait(false);
 
         ReviewedUpdateDispatchObservation observation;
         try
@@ -202,9 +214,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
         }
 
         UpdateDispatchSettlement settlement = Settle(claim, ownership, observation);
+        // Desktop-derived history data only; it is chosen after, and never feeds, settlement or classification.
+        RecordedHelperCandidateCheck helperCheck = observation.HelperCheck ?? RecordedHelperCandidateCheck.NotObserved;
         if (!settlement.ProvesSettlement)
             return await FinalizeAsync(claim, ownership, settlement, UpdateDispatchOutcome.Uncertain, observation.ExitCode,
-                $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}").ConfigureAwait(false);
+                $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}",
+                helperCheck).ConfigureAwait(false);
         if (settlement.State == UpdateDispatchSettlementState.NotInvoked)
             return await FinalizeAsync(claim, ownership, settlement, observation.Status switch
             {
@@ -212,10 +227,10 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 ReviewedUpdateProviderStatus.ElevationDenied => UpdateDispatchOutcome.ElevationDenied,
                 ReviewedUpdateProviderStatus.Refused => UpdateDispatchOutcome.Refused,
                 _ => UpdateDispatchOutcome.Failed,
-            }, null, $"Nothing was invoked. {Bounded(observation.Diagnostic)}").ConfigureAwait(false);
+            }, null, $"Nothing was invoked. {Bounded(observation.Diagnostic)}", helperCheck).ConfigureAwait(false);
 
         (UpdateDispatchOutcome outcome, string message) = await ClassifySettledAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
-        return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, message).ConfigureAwait(false);
+        return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, message, helperCheck).ConfigureAwait(false);
     }
 
     private bool StillSupported(ReviewedUpdateOperation operation)
@@ -282,17 +297,25 @@ public sealed class ReviewedUpdateDispatchWorkflow
     }
 
     private async Task<ReviewedUpdateDispatchResult> FinalizeAsync(UpdateDispatchClaim claim, OperationOwnership ownership,
-        UpdateDispatchSettlement settlement, UpdateDispatchOutcome outcome, int? exitCode, string message)
+        UpdateDispatchSettlement settlement, UpdateDispatchOutcome outcome, int? exitCode, string message, RecordedHelperCandidateCheck helperCheck)
     {
         ReviewedUpdateOperation operation = claim.Draft.Operation;
         try
         {
             DateTimeOffset now = clock.GetUtcNow();
+            // An inconsistent helper check is never written and never fails the write (which would change the outcome to
+            // Uncertain); the fixed marker is a prefix so the truncation below can never drop it.
+            RecordedHelperCandidateCheck recorded = helperCheck;
+            if (!helperCheck.IsConsistentWith(operation, outcome, settlement.State))
+            {
+                recorded = RecordedHelperCandidateCheck.NotObserved;
+                message = HelperCheckNotRecordedDiagnostic + " " + message;
+            }
             string bounded = SanitizedDiagnosticBundle.Truncate(SanitizedDiagnosticBundle.Sanitize(message), MaximumTerminalMessageLength);
-            UpdateDispatchTerminal terminal = new(outcome, now < claim.ClaimedAt ? claim.ClaimedAt : now, exitCode, bounded);
+            UpdateDispatchTerminal terminal = new(outcome, now < claim.ClaimedAt ? claim.ClaimedAt : now, exitCode, bounded, recorded);
             await store.RecordFinalAsync(claim, ownership, terminal, settlement, CancellationToken.None).ConfigureAwait(false);
             return Result(operation, outcome == UpdateDispatchOutcome.Uncertain ? ReviewedUpdateDispatchDisposition.Uncertain : ReviewedUpdateDispatchDisposition.Finalized,
-                outcome, terminal.Diagnostic);
+                outcome, terminal.Diagnostic) with { HelperCheck = recorded.Kind == RecordedHelperCheckKind.NotObserved ? null : recorded };
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {

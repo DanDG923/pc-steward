@@ -472,6 +472,97 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
         Assert.IsEmpty(typeof(ReviewedUpdateDispatchTicket).GetConstructors());
     }
 
+    // ---- Task 50 adapter gates Part B (§B.2, §B.7 Workflow): the helper check never changes the outcome ----
+
+    [TestMethod]
+    [DataRow("completed")]
+    [DataRow("refused")]
+    [DataRow("unsettled")]
+    public async Task HelperCheckOfAnyKindLeavesOutcomeAndSettlementIdenticalAndInconsistentChecksAreNotRecorded(string scenario)
+    {
+        UpdateDispatchOutcome? baselineOutcome = null;
+        UpdateDispatchSettlementState? baselineSettlement = null;
+        foreach (RecordedHelperCandidateCheck? check in new RecordedHelperCandidateCheck?[]
+        {
+            null,
+            RecordedHelperCandidateCheck.NotObserved,
+            RecordedHelperCandidateCheck.FromDesktopDerived(RecordedHelperCheckKind.Confirmed, RecordedHelperRefusalReason.None, "1.0.0", "1.1.0"),
+            RecordedHelperCandidateCheck.FromDesktopDerived(RecordedHelperCheckKind.Refused, RecordedHelperRefusalReason.CandidateMismatch, "1.0.0", "1.2.0"),
+            RecordedHelperCandidateCheck.FromDesktopDerived(RecordedHelperCheckKind.Unconfirmed, RecordedHelperRefusalReason.None, null, null),
+        })
+        {
+            await using Fixture fixture = await Fixture.CreateAsync();
+            ReviewedUpdateDraft draft = await fixture.SaveAsync();
+            ReviewedUpdateDispatchObservation observation = (scenario switch
+            {
+                "completed" => Settled(ReviewedUpdateProviderStatus.Completed, 0),
+                "refused" => ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Refused, "refused"),
+                _ => new(ReviewedUpdateInvocation.Started, ReviewedUpdateProviderStatus.Completed, 0, "pending", new TaskCompletionSource().Task, true, true, true, false, false),
+            }) with { HelperCheck = check };
+            ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => observation)).RunAsync(fixture.Confirm(draft), CancellationToken.None);
+            ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
+            baselineOutcome ??= result.Outcome;
+            baselineSettlement ??= record.Terminal!.Settlement;
+            Assert.AreEqual(baselineOutcome, result.Outcome);
+            Assert.AreEqual(baselineOutcome, record.Terminal!.Outcome);
+            Assert.AreEqual(baselineSettlement, record.Terminal.Settlement);
+            Assert.IsTrue(record.IntegrityVerified);
+            // The WinGet carrier route can never hold a helper check (O-route), so any value is recorded as NotObserved.
+            Assert.AreSame(RecordedHelperCandidateCheck.NotObserved, record.Terminal.HelperCheck);
+            Assert.IsNull(result.HelperCheck);
+            Assert.IsNull(ReviewedUpdateHistoryPresentation.Present(record).HelperReport);
+            bool inconsistent = check is { Kind: not RecordedHelperCheckKind.NotObserved };
+            Assert.AreEqual(inconsistent, result.Message.StartsWith(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " ", StringComparison.Ordinal), result.Message);
+            Assert.AreEqual(inconsistent, record.Terminal.Diagnostic.StartsWith(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, StringComparison.Ordinal));
+        }
+        Assert.AreEqual(scenario switch { "completed" => UpdateDispatchOutcome.Success, "refused" => UpdateDispatchOutcome.Refused, _ => UpdateDispatchOutcome.Uncertain }, baselineOutcome);
+    }
+
+    [TestMethod]
+    public async Task HelperCheckNotRecordedMarkerSurvivesTruncationOfAVeryLongDiagnostic()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        ReviewedUpdateDispatchObservation observation = ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Refused, new string('d', 20_000)) with
+        {
+            HelperCheck = RecordedHelperCandidateCheck.FromDesktopDerived(RecordedHelperCheckKind.Refused, RecordedHelperRefusalReason.ApprovalExpired, null, null),
+        };
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => observation)).RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(UpdateDispatchOutcome.Refused, result.Outcome);
+        ReviewedUpdateTerminalRecord terminal = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single().Terminal!;
+        StringAssert.StartsWith(terminal.Diagnostic, ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " ");
+        Assert.IsLessThanOrEqualTo(4000, terminal.Diagnostic.Length);
+    }
+
+    [TestMethod]
+    public async Task DiagnosticTextAndDispatcherExceptionsNeverProduceAHelperCheck()
+    {
+        await using (Fixture fixture = await Fixture.CreateAsync())
+        {
+            ReviewedUpdateDraft draft = await fixture.SaveAsync();
+            ReviewedUpdateDispatchObservation observation = Settled(ReviewedUpdateProviderStatus.Completed, 0) with
+            {
+                Diagnostic = "Reported by PC Steward's administrator helper: the exact reviewed version matched its protected machine checks.",
+            };
+            ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => observation)).RunAsync(fixture.Confirm(draft), CancellationToken.None);
+            Assert.IsNull(result.HelperCheck);
+            ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
+            Assert.AreSame(RecordedHelperCandidateCheck.NotObserved, record.Terminal!.HelperCheck);
+            Assert.IsNull(ReviewedUpdateHistoryPresentation.Present(record).HelperReport);
+            Assert.IsFalse(result.Message.Contains(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, StringComparison.Ordinal));
+        }
+        await using (Fixture fixture = await Fixture.CreateAsync())
+        {
+            ReviewedUpdateDraft draft = await fixture.SaveAsync();
+            ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => throw new IOException("pipe broke"))).RunAsync(fixture.Confirm(draft), CancellationToken.None);
+            Assert.AreEqual(UpdateDispatchOutcome.Uncertain, result.Outcome);
+            Assert.IsNull(result.HelperCheck);
+            ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
+            Assert.AreSame(RecordedHelperCandidateCheck.NotObserved, record.Terminal!.HelperCheck);
+            Assert.IsFalse(result.Message.Contains(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, StringComparison.Ordinal));
+        }
+    }
+
     private static ReviewedUpdateDispatchObservation Settled(ReviewedUpdateProviderStatus status, int? exit) =>
         new(ReviewedUpdateInvocation.Started, status, exit, "fixture", Task.CompletedTask, true, true, true, false, false);
 

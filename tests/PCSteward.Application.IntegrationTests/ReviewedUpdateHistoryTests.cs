@@ -162,7 +162,7 @@ public sealed class ReviewedUpdateHistoryTests
     public void TerminalParserRoundTripsTheWriterAndRejectsMalformedSlots()
     {
         UpdateDispatchTerminal terminal = new(UpdateDispatchOutcome.Unverified, ReviewedAt, -5, "naïve diagnostic ✓");
-        Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(terminal.GetReservedPayload(), out ReviewedUpdateTerminalRecord? parsed));
+        Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(terminal.GetReservedPayload(), null, out ReviewedUpdateTerminalRecord? parsed));
         Assert.AreEqual(UpdateDispatchOutcome.Unverified, parsed!.Outcome);
         Assert.AreEqual(-5, parsed.ExitCode);
         Assert.AreEqual(UpdateDispatchSettlementState.InvocationUnknown, parsed.Settlement);
@@ -177,7 +177,7 @@ public sealed class ReviewedUpdateHistoryTests
             bytes => System.Text.Encoding.ASCII.GetBytes("pc-steward-update-terminal:2\nSuccess2\n").Concat(new byte[16384]).Take(16384).ToArray(),
             _ => new byte[16384],
         })
-            Assert.IsFalse(ReviewedUpdateTerminalRecord.TryParse(mutate(good), out _));
+            Assert.IsFalse(ReviewedUpdateTerminalRecord.TryParse(mutate(good), null, out _));
     }
 
     private static void AssertNeverClaimsHelperQualification(ReviewedUpdateHistoryView view)

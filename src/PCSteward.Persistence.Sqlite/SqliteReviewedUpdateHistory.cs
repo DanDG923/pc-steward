@@ -38,7 +38,7 @@ public sealed partial class SqliteDatabase : IReviewedUpdateHistoryReader
         return records.AsReadOnly();
     }
 
-    private static ReviewedUpdateHistoryRecord ReadHistoryRow(SqliteDataReader reader)
+    private ReviewedUpdateHistoryRecord ReadHistoryRow(SqliteDataReader reader)
     {
         Guid jobId = reader.GetValue(0) is string jobText && Guid.TryParseExact(jobText, "D", out Guid parsedJob) && parsedJob != Guid.Empty ? parsedJob : Guid.Empty;
         // An unreadable state is presented as unresolved, matching the barrier predicate.
@@ -62,13 +62,25 @@ public sealed partial class SqliteDatabase : IReviewedUpdateHistoryReader
         }
         else if (reserved is not null && reader.GetValue(6) is string terminalDigest &&
             terminalDigest == Convert.ToHexString(SHA256.HashData(reserved)) &&
-            ReviewedUpdateTerminalRecord.TryParse(reserved, out ReviewedUpdateTerminalRecord? parsedTerminal) && parsedTerminal is not null &&
-            (parsedTerminal.Outcome == UpdateDispatchOutcome.Uncertain) == (state == UpdateDispatchState.Uncertain) &&
-            SatisfiesWriteInvariants(parsedTerminal) && (claimedAt == default || parsedTerminal.OccurredAt >= claimedAt))
+            ReviewedUpdateTerminalRecord.TryParse(reserved, helperVersionGrammar, out ReviewedUpdateTerminalRecord? parsedTerminal) && parsedTerminal is not null &&
+            AgreesWithRow(parsedTerminal, integrity ? operation : null, state, claimedAt))
             terminal = parsedTerminal;
         else integrity = false;
         return new(jobId, operation, state, claimedAt, terminal, integrity);
     }
+
+    // B2-L2: the store refuses to commit a version-3 terminal that this same history reader would reject.
+    private bool IsReadableHelperTerminal(byte[] reserved, ReviewedUpdateOperation operation, UpdateDispatchState state, DateTimeOffset claimedAt) =>
+        helperVersionGrammar is not null &&
+        ReviewedUpdateTerminalRecord.TryParse(reserved, helperVersionGrammar, out ReviewedUpdateTerminalRecord? parsed) && parsed is not null &&
+        parsed.HelperCheck.Kind != RecordedHelperCheckKind.NotObserved && AgreesWithRow(parsed, operation, state, claimedAt);
+
+    // A recorded helper check needs the restored, integrity-verified operation (O-none); NotObserved keeps the v2 rules.
+    private static bool AgreesWithRow(ReviewedUpdateTerminalRecord terminal, ReviewedUpdateOperation? operation, UpdateDispatchState state,
+        DateTimeOffset claimedAt) =>
+        (terminal.Outcome == UpdateDispatchOutcome.Uncertain) == (state == UpdateDispatchState.Uncertain) &&
+        SatisfiesWriteInvariants(terminal) && (claimedAt == default || terminal.OccurredAt >= claimedAt) &&
+        terminal.HelperCheck.IsConsistentWith(operation, terminal.Outcome, terminal.Settlement);
 
     // Mirrors RecordFinalAsync: a row the store could never have written is corruption, not history. This detects
     // corruption only; an unkeyed digest cannot stop a same-user writer from forging a consistent row.

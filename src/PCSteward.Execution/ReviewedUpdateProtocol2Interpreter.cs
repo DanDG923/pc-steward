@@ -72,10 +72,45 @@ internal sealed class ReviewedHelperCandidateCheck
         ReviewedHelperQualification.Undetermined => new(ReviewedHelperCandidateCheckKind.Unconfirmed, ReviewedHelperRefusalReason.None, null, null),
         _ => NotObserved,
     };
+
+    /// <summary>
+    /// The single adapter function to the Application history type (adapter gates §B.2): explicit exhaustive mapping by
+    /// name (no numeric cast) and fields 16/17 copied verbatim. The only <c>FromDesktopDerived</c> call site in <c>src</c>.
+    /// </summary>
+    internal RecordedHelperCandidateCheck ToRecorded() => RecordedHelperCandidateCheck.FromDesktopDerived(
+        Kind switch
+        {
+            ReviewedHelperCandidateCheckKind.NotObserved => RecordedHelperCheckKind.NotObserved,
+            ReviewedHelperCandidateCheckKind.Confirmed => RecordedHelperCheckKind.Confirmed,
+            ReviewedHelperCandidateCheckKind.Refused => RecordedHelperCheckKind.Refused,
+            ReviewedHelperCandidateCheckKind.Unconfirmed => RecordedHelperCheckKind.Unconfirmed,
+            _ => throw new InvalidOperationException("Undefined candidate-check kind."),
+        },
+        RefusalReason switch
+        {
+            ReviewedHelperRefusalReason.None => RecordedHelperRefusalReason.None,
+            ReviewedHelperRefusalReason.RequestNotAdmitted => RecordedHelperRefusalReason.RequestNotAdmitted,
+            ReviewedHelperRefusalReason.MachineInputsUnsupported => RecordedHelperRefusalReason.MachineInputsUnsupported,
+            ReviewedHelperRefusalReason.SourceNotCommunity => RecordedHelperRefusalReason.SourceNotCommunity,
+            ReviewedHelperRefusalReason.InstalledMismatch => RecordedHelperRefusalReason.InstalledMismatch,
+            ReviewedHelperRefusalReason.ProfileMismatch => RecordedHelperRefusalReason.ProfileMismatch,
+            ReviewedHelperRefusalReason.PreflightQueryFailed => RecordedHelperRefusalReason.PreflightQueryFailed,
+            ReviewedHelperRefusalReason.CandidateMismatch => RecordedHelperRefusalReason.CandidateMismatch,
+            ReviewedHelperRefusalReason.ApprovalExpired => RecordedHelperRefusalReason.ApprovalExpired,
+            _ => throw new InvalidOperationException("Undefined refusal reason."),
+        },
+        ReportedInstalledVersion, ReportedCandidateVersion);
 }
 
 /// <summary>Interpreter result: the native observation for the workflow plus the desktop-derived candidate check.</summary>
-internal sealed record ReviewedUpdateProtocol2Interpretation(ReviewedUpdateDispatchObservation Observation, ReviewedHelperCandidateCheck CandidateCheck);
+internal sealed record ReviewedUpdateProtocol2Interpretation(ReviewedUpdateDispatchObservation Observation, ReviewedHelperCandidateCheck CandidateCheck)
+{
+    /// <summary>
+    /// What the future route dispatcher returns to the workflow: <see cref="Observation"/> with the appended, history-only
+    /// helper check (§4.1, adapter gates §B.2). Every other member is unchanged, so the outcome cannot depend on the check.
+    /// </summary>
+    internal ReviewedUpdateDispatchObservation WorkflowObservation => Observation with { HelperCheck = CandidateCheck.ToRecorded() };
+}
 
 /// <summary>
 /// FR-UPD-15, FR-UPD-01, TM-03/04/07/13: pure desktop interpretation of one protocol-2 helper exchange for the single

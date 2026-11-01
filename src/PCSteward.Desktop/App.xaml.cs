@@ -69,7 +69,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             }
         }
         Directory.CreateDirectory(stateDirectory);
-        SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"));
+        SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"), new ChocolateyHelperVersionGrammar());
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
         DataOperationLease.ConfigureReconciliation(new UpdateDispatchReconciliation(database).ReconcileAsync);
         // An unresolved update barrier keeps read-only UI available; every mutating operation fails closed until reconciled.

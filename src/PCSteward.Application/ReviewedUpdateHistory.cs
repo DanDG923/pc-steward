@@ -4,37 +4,53 @@ using PCSteward.Domain;
 
 namespace PCSteward.Application;
 
-/// <summary>Parsed reserved terminal slot. Passive history data only; it never recreates a settlement or approval.</summary>
+/// <summary>
+/// Parsed reserved terminal slot. Passive history data only; it never recreates a settlement or approval.
+/// <see cref="HelperCheck"/> is NotObserved for every version-2 terminal.
+/// </summary>
 public sealed record ReviewedUpdateTerminalRecord(UpdateDispatchOutcome Outcome, DateTimeOffset OccurredAt, int? ExitCode,
     UpdateDispatchSettlementState Settlement, string Diagnostic)
 {
-    private const string Header = "pc-steward-update-terminal:2";
+    private const int MaximumV2DiagnosticBytes = 4096 * 4;
+    private const int MaximumV3DiagnosticBytes = 4096 * 3;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-    /// <summary>Strictly parses the version-2 reserved payload written by <see cref="UpdateDispatchTerminal"/>; anything else is unreadable.</summary>
-    public static bool TryParse(ReadOnlySpan<byte> reserved, out ReviewedUpdateTerminalRecord? record)
+    public ReviewedUpdateTerminalRecord(UpdateDispatchOutcome outcome, DateTimeOffset occurredAt, int? exitCode,
+        UpdateDispatchSettlementState settlement, string diagnostic, RecordedHelperCandidateCheck helperCheck)
+        : this(outcome, occurredAt, exitCode, settlement, diagnostic)
+    {
+        HelperCheck = helperCheck ?? throw new ArgumentNullException(nameof(helperCheck));
+    }
+
+    /// <summary>Desktop-derived, recorded at the time; display only, never authority.</summary>
+    public RecordedHelperCandidateCheck HelperCheck { get; private init; } = RecordedHelperCandidateCheck.NotObserved;
+
+    /// <summary>
+    /// Strictly parses the version-2 or version-3 reserved payload written by <see cref="UpdateDispatchTerminal"/>; anything
+    /// else is unreadable. A version-3 payload needs <paramref name="grammar"/> and a recorded (never NotObserved) helper check.
+    /// Operation-bound helper rules are checked separately by the history reader.
+    /// </summary>
+    public static bool TryParse(ReadOnlySpan<byte> reserved, IReviewedHelperVersionGrammar? grammar, out ReviewedUpdateTerminalRecord? record)
     {
         record = null;
         if (reserved.Length != UpdateDispatchTerminal.ReservedBytes) return false;
         try
         {
             int offset = 0;
-            string[] fields = new string[7];
-            for (int index = 0; index < fields.Length; index++)
-            {
-                int newline = reserved[offset..].IndexOf((byte)'\n');
-                if (newline < 0 || newline > 256) return false;
-                ReadOnlySpan<byte> field = reserved.Slice(offset, newline);
-                foreach (byte value in field) if (value is < 0x20 or > 0x7E) return false;
-                fields[index] = Encoding.ASCII.GetString(field);
-                offset += newline + 1;
-            }
-            if (fields[0] != Header ||
-                !Enum.TryParse(fields[1], false, out UpdateDispatchOutcome outcome) || !Enum.IsDefined(outcome) || outcome.ToString() != fields[1] ||
+            if (!TryReadLine(reserved, ref offset, out string header)) return false;
+            bool v3 = header == UpdateDispatchTerminal.HeaderV3;
+            if (!v3 && header != UpdateDispatchTerminal.HeaderV2) return false;
+            string[] fields = new string[v3 ? 11 : 7];
+            fields[0] = header;
+            for (int index = 1; index < fields.Length; index++)
+                if (!TryReadLine(reserved, ref offset, out fields[index])) return false;
+            string lengthText = fields[^1];
+            if (!Enum.TryParse(fields[1], false, out UpdateDispatchOutcome outcome) || !Enum.IsDefined(outcome) || outcome.ToString() != fields[1] ||
                 !DateTimeOffset.TryParseExact(fields[2], "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset occurredAt) ||
                 !Enum.TryParse(fields[4], false, out UpdateDispatchSettlementState settlement) || !Enum.IsDefined(settlement) || settlement.ToString() != fields[4] ||
-                !int.TryParse(fields[6], NumberStyles.None, CultureInfo.InvariantCulture, out int length) ||
-                length.ToString(CultureInfo.InvariantCulture) != fields[6] || length > 4096 * 4 || offset + length > reserved.Length)
+                !int.TryParse(lengthText, NumberStyles.None, CultureInfo.InvariantCulture, out int length) ||
+                length.ToString(CultureInfo.InvariantCulture) != lengthText || length > (v3 ? MaximumV3DiagnosticBytes : MaximumV2DiagnosticBytes) ||
+                offset + length > reserved.Length)
                 return false;
             int? exitCode = null;
             if (fields[3] != "None")
@@ -43,12 +59,53 @@ public sealed record ReviewedUpdateTerminalRecord(UpdateDispatchOutcome Outcome,
                     exit.ToString(CultureInfo.InvariantCulture) != fields[3]) return false;
                 exitCode = exit;
             }
+            RecordedHelperCandidateCheck helperCheck = RecordedHelperCandidateCheck.NotObserved;
+            if (v3)
+            {
+                if (!IsSettlementFacts(fields[5], settlement) ||
+                    !TryStrip(fields[6], UpdateDispatchTerminal.HelperCheckPrefix, out string kind) ||
+                    !TryStrip(fields[7], UpdateDispatchTerminal.HelperRefusalPrefix, out string reason) ||
+                    !TryStrip(fields[8], UpdateDispatchTerminal.HelperInstalledPrefix, out string installed) ||
+                    !TryStrip(fields[9], UpdateDispatchTerminal.HelperCandidatePrefix, out string candidate) ||
+                    !RecordedHelperCandidateCheck.TryRestore(kind, reason, installed, candidate, grammar, out RecordedHelperCandidateCheck? restored) ||
+                    restored is null)
+                    return false;
+                helperCheck = restored;
+            }
             foreach (byte value in reserved[(offset + length)..]) if (value != 0) return false;
             string diagnostic = StrictUtf8.GetString(reserved.Slice(offset, length));
-            record = new(outcome, occurredAt, exitCode, settlement, diagnostic);
+            if (v3 && diagnostic.Length > 4096) return false;
+            record = new(outcome, occurredAt, exitCode, settlement, diagnostic, helperCheck);
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException or DecoderFallbackException) { return false; }
+    }
+
+    // One header line: at most 256 bytes before its LF, printable ASCII only.
+    private static bool TryReadLine(ReadOnlySpan<byte> reserved, ref int offset, out string line)
+    {
+        line = string.Empty;
+        int newline = reserved[offset..].IndexOf((byte)'\n');
+        if (newline < 0 || newline > 256) return false;
+        ReadOnlySpan<byte> field = reserved.Slice(offset, newline);
+        foreach (byte value in field) if (value is < 0x20 or > 0x7E) return false;
+        line = Encoding.ASCII.GetString(field);
+        offset += newline + 1;
+        return true;
+    }
+
+    private static bool TryStrip(string field, string prefix, out string value)
+    {
+        value = field.StartsWith(prefix, StringComparison.Ordinal) ? field[prefix.Length..] : string.Empty;
+        return value.Length != 0;
+    }
+
+    // Version 3 only: exactly what the writer emits ("None" only without a live settlement, otherwise six Booleans).
+    private static bool IsSettlementFacts(string facts, UpdateDispatchSettlementState settlement)
+    {
+        if (facts == "None") return settlement == UpdateDispatchSettlementState.InvocationUnknown;
+        string[] parts = facts.Split('/');
+        return settlement != UpdateDispatchSettlementState.InvocationUnknown && parts.Length == 6 && parts.All(part => part is "True" or "False");
     }
 }
 
@@ -64,9 +121,13 @@ public interface IReviewedUpdateHistoryReader
     Task<IReadOnlyList<ReviewedUpdateHistoryRecord>> GetReviewedUpdateHistoryAsync(int maximumRecords, CancellationToken cancellationToken);
 }
 
-/// <summary>Presentation-safe history row. Every string is fixed or derived from frozen review data; none asserts helper qualification.</summary>
+/// <summary>
+/// Presentation-safe history row. Every string is fixed or derived from frozen review data; none asserts helper qualification.
+/// <see cref="HelperReport"/> is the separate, desktop-derived helper report for the candidate-evidence area (never beside
+/// the status line); it is never concatenated into <see cref="Status"/>.
+/// </summary>
 public sealed record ReviewedUpdateHistoryView(string Title, string Status, string InstallerMode, string CandidateEvidence,
-    string? Disclosure, bool BlocksOtherUpdates, string Diagnostic);
+    string? Disclosure, bool BlocksOtherUpdates, string Diagnostic, string? HelperReport = null);
 
 /// <summary>
 /// FR-HIS-01/FR-UPD-15: keeps what the user reviewed (mode, route, guard contract, disclosure, candidate intent) with the
@@ -95,8 +156,33 @@ public static class ReviewedUpdateHistoryPresentation
             };
         return new(title, status, operation is null ? "Unknown" : Mode(operation.Mode), operation is null ? "Unknown" : Candidate(operation),
             operation is null ? null : ReviewedUpdateProviderDisclosure.GetRiskText(operation), blocks,
-            record.Terminal is null ? string.Empty : SanitizedDiagnosticBundle.Sanitize(record.Terminal.Diagnostic));
+            record.Terminal is null ? string.Empty : SanitizedDiagnosticBundle.Sanitize(record.Terminal.Diagnostic),
+            record.IntegrityVerified && record.Terminal is { } recorded ? HelperReport(recorded.HelperCheck) : null);
     }
+
+    internal const string HelperReportPrefix = "Recorded at the time: reported by PC Steward's administrator helper: ";
+
+    // §B.6: fixed texts only. The diagnostic never produces a report; Unconfirmed and NotObserved have none.
+    private static string? HelperReport(RecordedHelperCandidateCheck check) => check.Kind switch
+    {
+        RecordedHelperCheckKind.Confirmed => HelperReportPrefix + "the exact reviewed version matched its protected machine checks.",
+        RecordedHelperCheckKind.Refused => HelperReportPrefix + $"it refused before updating because {RefusalText(check.RefusalReason)}. " +
+            $"Versions it reported: installed {check.ReportedInstalledVersion ?? "not reported"}; available {check.ReportedCandidateVersion ?? "not reported"}.",
+        _ => null,
+    };
+
+    private static string RefusalText(RecordedHelperRefusalReason reason) => reason switch
+    {
+        RecordedHelperRefusalReason.RequestNotAdmitted => "the request was not accepted (for example, it was no longer fresh or did not come from your account)",
+        RecordedHelperRefusalReason.MachineInputsUnsupported => "Chocolatey's protected machine files or settings could not be confirmed as supported",
+        RecordedHelperRefusalReason.SourceNotCommunity => "Chocolatey could not be confirmed to use only the official Community repository",
+        RecordedHelperRefusalReason.InstalledMismatch => "the installed version it found differed from the reviewed version",
+        RecordedHelperRefusalReason.ProfileMismatch => "Chocolatey's configuration changed after the review",
+        RecordedHelperRefusalReason.PreflightQueryFailed => "its check for the available version did not complete cleanly",
+        RecordedHelperRefusalReason.CandidateMismatch => "the available version it found differed from the reviewed version",
+        RecordedHelperRefusalReason.ApprovalExpired => "the review's time limit passed before the update could start",
+        _ => throw new InvalidOperationException("A refused helper check always has a defined reason."),
+    };
 
     private static string Outcome(ReviewedUpdateTerminalRecord terminal) => terminal.Outcome switch
     {

@@ -1,3 +1,37 @@
+# Task 50 — adapter gates Part B (helper-check history)
+
+`FR-HIS-01`, `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §B.2–§B.7, B-M1, B-L1–B-L3, §R B2-L1/B2-L2. Three suites cover this slice:
+
+- `ReviewedHelperCheckHistoryTests` covers:
+  - factory R1–R4 and the version form;
+  - v2 byte identity against a frozen writer;
+  - the maximal v3 frame round trip;
+  - every allowed (kind, outcome, settlement), written through the store and read back byte-exactly;
+  - store refusal of P-rule, outcome-matrix, WinGet-route and no-grammar writes;
+  - forged rows: enumerations, R/P rules, outcome matrix, facts, missing, partial and corrupt;
+  - O-none;
+  - single-byte tampering with and without a recomputed digest;
+  - the version corpus;
+  - frozen-v2-parser rollback;
+  - store rollback (state, recovery, barrier);
+  - exact texts and whole-word forbidden words.
+- `ReviewedUpdateDispatchWorkflowTests` (three added) shows that every kind gives an identical outcome and settlement, that the marker survives truncation, and that diagnostics or dispatcher exceptions give NotObserved.
+- Security `ReviewedHelperCheckAdapterTests` and the added composition test cover:
+  - name mapping;
+  - verbatim versions;
+  - `WorkflowObservation` appending only the check;
+  - the O9 codec/reader differential plus writer/reader agreement;
+  - a reflection check that nothing converts to or from provenance;
+  - unchanged outcomes through the real workflow.
+
+`HelperCheckHistoryBoundaryTests` checks:
+- a single `FromDesktopDerived` call site;
+- that `TryRestore` and the terminal record stay in history files;
+- that no review, admission, evidence, reconciliation or Domain file references the check;
+- grammar injection in every production `SqliteDatabase` and an internal no-grammar constructor.
+
+The existing interpreter boundary test is unchanged. Part A is not covered.
+
 # Task 50 — protocol-2 desktop interpreter (passive)
 
 `FR-UPD-15`, `FR-UPD-01`, `AC-UPD-05/07`, `TM-03/04/07/13`: `ReviewedUpdateProtocol2InterpreterTests` and `ReviewedUpdateProtocol2WorkflowCompositionTests` cover each P-predicate violation (including recomputed values), Matched with each mismatching field, refusal predicates, flag precedence, settled-without-H, Unknown invocation, launch failure, N1–N4, the "confirmed" phrase in a diagnostic, RestartReported always false, correlation, pre-request phases, and Success only after verification. `Protocol2CandidateCheckBoundaryTests` checks construction confinement. Interpreter only; no endpoint, history format, verifier or admission.

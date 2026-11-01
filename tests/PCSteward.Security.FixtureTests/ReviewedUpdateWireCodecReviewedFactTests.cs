@@ -429,6 +429,24 @@ public sealed class ReviewedUpdateWireCodecReviewedFactTests
     public void CodecVersionGrammarMatchesChocolateyNativeVersionOverAGeneratedCorpus()
     {
         // O9 differential (choice (a): the codec delegates to ChocolateyNativeVersion; this test pins that acceptance never diverges).
+        HashSet<string> corpus = O9VersionCorpus();
+        int accepted = 0, rejected = 0;
+        foreach (string text in corpus)
+        {
+            bool native = ChocolateyNativeVersion.TryParse(text, out ChocolateyNativeVersion? version) &&
+                string.Equals(version!.Normalized, text, StringComparison.Ordinal);
+            Assert.AreEqual(native, ReviewedUpdateWireCodec.IsNormalizedVersion(text), text);
+            if (native) accepted++;
+            else rejected++;
+        }
+        Assert.IsFalse(ReviewedUpdateWireCodec.IsNormalizedVersion(null));
+        Assert.IsGreaterThan(1_000, accepted);
+        Assert.IsGreaterThan(1_000, rejected);
+    }
+
+    /// <summary>The shared O9 version corpus (also used by the helper-check history reader differential, adapter gates §B.7).</summary>
+    internal static HashSet<string> O9VersionCorpus()
+    {
         HashSet<string> corpus = new(StringComparer.Ordinal)
         {
             "", "0", "1", "1.0", "1.0.0", "1.0.0.0", "1.0.0.1", "01.0.0", "1.00.0", "1.0.0-", "-1.0.0", "1.0.0-a", "1.0.0-a.", "1.0.0-.a",
@@ -477,19 +495,7 @@ public sealed class ReviewedUpdateWireCodecReviewedFactTests
         }
         foreach (string text in corpus.ToArray())
             if (ChocolateyNativeVersion.TryParse(text, out ChocolateyNativeVersion? parsed)) corpus.Add(parsed!.Normalized);
-
-        int accepted = 0, rejected = 0;
-        foreach (string text in corpus)
-        {
-            bool native = ChocolateyNativeVersion.TryParse(text, out ChocolateyNativeVersion? version) &&
-                string.Equals(version!.Normalized, text, StringComparison.Ordinal);
-            Assert.AreEqual(native, ReviewedUpdateWireCodec.IsNormalizedVersion(text), text);
-            if (native) accepted++;
-            else rejected++;
-        }
-        Assert.IsFalse(ReviewedUpdateWireCodec.IsNormalizedVersion(null));
-        Assert.IsGreaterThan(1_000, accepted);
-        Assert.IsGreaterThan(1_000, rejected);
+        return corpus;
     }
 
     private static readonly Dictionary<string, (UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, string[] Expected)> NegativeCases = new(StringComparer.Ordinal)

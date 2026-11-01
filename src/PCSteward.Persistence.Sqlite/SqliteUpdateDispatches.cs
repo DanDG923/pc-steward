@@ -106,7 +106,14 @@ public sealed partial class SqliteDatabase : IUpdateDispatchStore
             throw new InvalidOperationException("Final state requires matching live ownership and positive native settlement; unresolved work remains conflicting.");
         if (!ownership.CanDispatchFor(claim.Draft.Operation) || terminal.OccurredAt < claim.ClaimedAt)
             throw new InvalidOperationException("Final recording requires current ownership and a valid result time.");
+        // Defence in depth for the desktop-derived helper check (history data only): the workflow already recorded
+        // NotObserved for an inconsistent value, so a violation here is a caller defect and nothing is written.
+        if (!terminal.HelperCheck.IsConsistentWith(claim.Draft.Operation, terminal.Outcome, settlement.State))
+            throw new InvalidOperationException("The recorded helper check is inconsistent with the frozen operation, outcome or settlement.");
         byte[] payload = terminal.GetReservedPayload(settlement);
+        if (terminal.HelperCheck.Kind != RecordedHelperCheckKind.NotObserved &&
+            !IsReadableHelperTerminal(payload, claim.Draft.Operation, terminal.Outcome == UpdateDispatchOutcome.Uncertain ? UpdateDispatchState.Uncertain : UpdateDispatchState.Final, claim.ClaimedAt))
+            throw new InvalidOperationException("The helper-check terminal would not be readable by history; nothing was written.");
         await using SqliteConnection connection = await OpenDispatchConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
         await using SqliteCommand command = ClaimCommand(connection, transaction, claim);
