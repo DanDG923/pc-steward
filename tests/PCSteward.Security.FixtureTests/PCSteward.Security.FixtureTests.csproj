@@ -9,5 +9,7 @@
     <PackageReference Include="MSTest.TestFramework" />
     <ProjectReference Include="../../src/PCSteward.Execution/PCSteward.Execution.csproj" />
     <ProjectReference Include="../../src/PCSteward.Storage/PCSteward.Storage.csproj" />
+    <!-- Build ordering only: DeploymentCapabilityScriptTests reads the built helper deps.json and capability statement. -->
+    <ProjectReference Include="../../src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 </Project>

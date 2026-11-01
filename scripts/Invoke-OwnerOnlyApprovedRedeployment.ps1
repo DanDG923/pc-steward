@@ -5,7 +5,17 @@ $env:PSModulePath=[IO.Path]::Combine($PSHOME,'Modules')
 $env:PATH=[IO.Path]::Combine($env:SystemRoot,'System32')
 if(!$OwnerOnlyPlanJson){throw 'The exact embedded approval record is required.'}
 $OwnerOnlyPlan=ConvertFrom-Json -InputObject $OwnerOnlyPlanJson
-if($null -eq $OwnerOnlyPlan -or $OwnerOnlyPlan.schema -cne 'pc-steward-exact-redeploy-v1'){throw 'An exact embedded owner-approved redeployment plan is required.'}
+if($null -eq $OwnerOnlyPlan -or $OwnerOnlyPlan.schema -cnotin @('pc-steward-exact-redeploy-v1','pc-steward-exact-redeploy-v2')){throw 'An exact embedded owner-approved redeployment plan is required.'}
+# Expected payload origins (Task 50 adapter gates A2-L2). Plan schema v1 is the existing approved plan: it fixes the legacy-v6
+# preflight and the pinned-unsigned-v1 postcondition and cannot name origins, so it can still deploy only v1. Schema v2 must
+# name both origins from closed lists. Executing ANY new plan (v1 or v2) needs its own separate exact owner approval.
+if($OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v1'){
+    if($null -ne $OwnerOnlyPlan.PSObject.Properties['expectedOldOrigin'] -or $null -ne $OwnerOnlyPlan.PSObject.Properties['expectedNewOrigin']){throw 'Plan schema v1 cannot name payload origins.'}
+    $expectedOldOrigin='legacy-v6';$expectedNewOrigin='pinned-unsigned-v1'
+}else{
+    $expectedOldOrigin=$OwnerOnlyPlan.expectedOldOrigin;$expectedNewOrigin=$OwnerOnlyPlan.expectedNewOrigin
+    if($expectedOldOrigin -isnot [string] -or $expectedOldOrigin -cnotin @('legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2') -or $expectedNewOrigin -isnot [string] -or $expectedNewOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2')){throw 'Plan schema v2 must name an allowlisted expected old and new payload origin.'}
+}
 $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if(!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $OwnerOnlyPlan.installerSid){throw 'Exact installing SID and elevation required.'}
 $programFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -56,9 +66,11 @@ try{
     if((Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $OwnerOnlyPlan.oldLedgerSha256 -or (Test-Path -LiteralPath $data) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'Approved old deployment/data/process baseline changed.'}
     $old=Get-Content -LiteralPath $ledger -Raw|ConvertFrom-Json
     if($old.certificateThumbprint -cne $OwnerOnlyPlan.oldThumbprint){throw 'Old signer changed.'}
-    $legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -AllowLegacyPayload
-    $legacy=$legacyText|ConvertFrom-Json;if($legacy.validation -cne 'Pass' -or $legacy.payloadOrigin -cne 'legacy-v6'){throw 'Exact legacy preflight failed.'}
-    $candidate=Read-OwnerOnlyCandidateManifest -Path $OwnerOnlyPlan.candidateManifestPath -ExpectedSha256 $OwnerOnlyPlan.candidateManifestSha256
+    if($expectedOldOrigin -ceq 'legacy-v6'){$legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -AllowLegacyPayload}
+    else{$legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -RequirePinnedPayload}
+    $legacy=$legacyText|ConvertFrom-Json;if($legacy.validation -cne 'Pass' -or $legacy.payloadOrigin -cne $expectedOldOrigin){if($expectedOldOrigin -ceq 'legacy-v6'){throw 'Exact legacy preflight failed.'};throw 'Exact old-deployment preflight failed.'}
+    $candidate=Read-OwnerOnlyCandidateManifest -Path $OwnerOnlyPlan.candidateManifestPath -ExpectedSha256 $OwnerOnlyPlan.candidateManifestSha256 -PayloadRoot $OwnerOnlyPlan.candidateRoot
+    if($candidate.PayloadOrigin -cne $expectedNewOrigin){throw 'The pinned candidate payload origin differs from the plan.'}
     [PCSteward.Deployment.PayloadIntegrity]::AssertTree($OwnerOnlyPlan.candidateRoot,$candidate.Files)
     $phase='approved-removal'
     $removal=& (Join-Path $scripts 'Remove-OwnerOnlyProtectedTestDeployment.ps1') -Remove
@@ -71,7 +83,7 @@ try{
     $phase='independent-pinned-validation'
     $validated=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -RequirePinnedPayload
     $proof=$validated|ConvertFrom-Json
-    if($proof.validation -cne 'Pass' -or $proof.payloadOrigin -cne 'pinned-unsigned-v1' -or $proof.candidateManifestSha256 -cne $OwnerOnlyPlan.candidateManifestSha256 -or (Test-Path -LiteralPath $data) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'New exact identity/preservation postconditions failed.'}
+    if($proof.validation -cne 'Pass' -or $proof.payloadOrigin -cne $expectedNewOrigin -or ($expectedNewOrigin -ceq 'pinned-unsigned-v2' -and $proof.helperProtocol -cne '2') -or $proof.candidateManifestSha256 -cne $OwnerOnlyPlan.candidateManifestSha256 -or (Test-Path -LiteralPath $data) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'New exact identity/preservation postconditions failed.'}
     Write-OwnerOnlyProtectedJson -Path (Join-Path $execution 'independent-validator.json') -Value $proof
     $result=[ordered]@{exitCode=0;phase='validated';payloadOrigin=$proof.payloadOrigin;candidateManifestSha256=$proof.candidateManifestSha256;certificateThumbprint=$proof.certificateThumbprint;launched=$false;applicationUpdates=0;userDataRootAbsent=$true;executionRoot=$execution}
 }catch{

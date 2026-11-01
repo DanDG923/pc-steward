@@ -1,5 +1,16 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — deployment capability scripts (ADR-022 alignment note follow-up, 2026-11-01):** Implements follow-up items 1–7 of the [ADR-022 note record](review/TASK_50_ADR022_ALIGNMENT_NOTE_PROPOSED.md). Details are in the [implementation record](review/TASK_50_DEPLOYMENT_CAPABILITY_SCRIPTS.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; A2-L1/A2-L2.
+- **Scripts.** A v2 manifest pins a root `PCSteward.DeploymentCapability.txt`. The script parser mirrors `TryParseCapability` byte for byte. A malformed v2 capability fails before any installer effect or signing.
+- **Provenance and validator.** Provenance recognises `pinned-unsigned-v2` only with a valid pinned capability file. The installer writes the manifest-implied origin and checks it after install. The validator reports `helperProtocol` for v2.
+- **Redeploy template.** It gains plan schema v2, which names the expected old and new origins. The existing v1 plan is unchanged in behaviour: v1 only, with the `legacy-v6` preflight.
+- **Payload.** The 103-B capability file is checked in (`-text`) and published from the helper project.
+- **Tests.** A pwsh/5.1 real-writer fixture feeds `TryReadLedger`/`Evaluate`: pending, rollback with 0/1/several stores, v1 Absent, v2 **Supported**. 30 capability vectors give the same results from both parsers, and the frozen pre-change validator throws on a v2 ledger. The built helper deps.json closure equals `BindingSet`.
+- **Ledger and policy.** The ledger schema, the per-writer key sets and the C# policy are unchanged.
+- **Linux results.** Zero warnings. Domain 167/167; Architecture 42/42; Security 415 passed, 9 failed, 1 Inconclusive of 425; Application 780 passed, 103 failed of 883. Both failed sets are identical to the `8496850` baseline.
+- **Windows-CI or host evidence only.** The Windows PowerShell 5.1 fixture row, the `PayloadIntegrity.ps1` v2 file, hold and provenance cases, publish-time deps.json, and anything on a host.
+- **No authority.** No host action. Running any changed script, or any v1 or v2 redeploy plan, needs separate exact owner approval.
+
 **Task 50 — adapter gates Part A, portable slice (2026-11-01):** Implements the pure/portable parts of [adapter gates](review/TASK_50_ADAPTER_GATES.md) Part A and §R A2-L1/A2-L4/A2-L6 (`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`); interfaces are listed first in the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).
 - **O2 (A.6).** The shared `ReviewedUpdateOperation` constructor (and so `TryRestore`) now requires `choco-profile-v2:` + 64 uppercase hex for `ChocolateyMachineRuntimeLimitsV3`. The interpreter uses `ReviewedUpdateOperation.ProfileEvidencePrefix`. Stored non-conforming rows behave as A.6.2 states: drafts are corrupt; DispatchClaimed and Uncertain rows stay barriers; Final rows are untrusted and do not block.
 - **A.6.1.** `FreshUpdateDispatchEvidence.Matches` adds a fixed-time profile-digest conjunct for this route only. It is the same pure check at all three sites. WinGet `fresh:1` is unaffected.

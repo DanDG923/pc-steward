@@ -14,8 +14,8 @@ namespace PCSteward.Security.FixtureTests;
 /// <para>
 /// Ledger fixtures are transcribed key-for-key from the real writers (<c>Install-OwnerOnlyProtectedTestDeployment.ps1</c>
 /// <c>Write-PendingLedger</c>, the failure-path rollback ledger and <c>$completedState</c>, and the pre-Task-48 legacy writer
-/// at <c>e99bc8a^</c>) and rendered in the PowerShell 7 <c>ConvertTo-Json</c> shape (two-space indent, CRLF). pwsh is not
-/// available in this Linux environment, so byte-exact generation by the scripts themselves is a Windows CI follow-up.
+/// at <c>e99bc8a^</c>) and rendered in the PowerShell 7 <c>ConvertTo-Json</c> shape (two-space indent, CRLF). Ledgers generated
+/// by the real current writers (pwsh 7, and Windows PowerShell 5.1 on Windows CI) are covered by <see cref="DeploymentCapabilityScriptTests"/>.
 /// </para>
 /// </summary>
 [TestClass]
@@ -382,23 +382,36 @@ public sealed class DeploymentCapabilityPolicyTests
         Assert.AreEqual(Status.Supported, Evaluate(scenario));
     }
 
-    // ---- Rollback with the unchanged v1-only scripts (A.7 "Rollback", A-L2), expressed over the real script text ----
+    // ---- Rollback and the existing plan (A.7 "Rollback", A-L2, A2-L2), expressed over the real script text ----
 
     [TestMethod]
-    public void UnchangedV1OnlyScriptsFailClosedOnAV2Ledger()
+    public void ExistingV1PlanStaysV1OnlyAndThePreChangeValidatorFailsClosedOnAV2Ledger()
     {
-        string scripts = Path.Combine(FindRepositoryRoot(), "scripts");
-        string integrity = File.ReadAllText(Path.Combine(scripts, "OwnerOnlyPayloadIntegrity.ps1"));
-        // Assert-OwnerOnlyPayloadProvenance: any payloadOrigin other than pinned-unsigned-v1 throws.
-        StringAssert.Contains(integrity, "if ($State.payloadOrigin -cne 'pinned-unsigned-v1' -or !$hasOtherFields) { throw 'Unrecognised pinned-payload provenance.' }");
-        Assert.IsFalse(integrity.Contains(DeploymentCapabilityPolicy.PayloadOriginV2, StringComparison.Ordinal));
+        string root = FindRepositoryRoot();
+        string scripts = Path.Combine(root, "scripts");
+        // The frozen pre-change validator (what existing hosts carry) throws for any origin other than pinned-unsigned-v1;
+        // DeploymentCapabilityScriptTests executes it against a real-writer v2 ledger.
+        string frozen = File.ReadAllText(Path.Combine(root, "tests", "PCSteward.Security.FixtureTests", "Fixtures", "PreV2PayloadValidator.ps1.txt"));
+        StringAssert.Contains(frozen, "if ($State.payloadOrigin -cne 'pinned-unsigned-v1' -or !$hasOtherFields) { throw 'Unrecognised pinned-payload provenance.' }");
+        Assert.IsFalse(frozen.Contains(DeploymentCapabilityPolicy.PayloadOriginV2, StringComparison.Ordinal));
+        // Plan schema v1 (the existing approved plan) fixes the legacy-v6 preflight and the v1 postcondition and cannot name origins.
         string redeploy = File.ReadAllText(Path.Combine(scripts, "Invoke-OwnerOnlyApprovedRedeployment.ps1"));
-        StringAssert.Contains(redeploy, "$proof.payloadOrigin -cne 'pinned-unsigned-v1'");
-        StringAssert.Contains(redeploy, "$legacy.payloadOrigin -cne 'legacy-v6'");
+        StringAssert.Contains(redeploy, "if($OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v1'){");
+        StringAssert.Contains(redeploy, "{throw 'Plan schema v1 cannot name payload origins.'}");
+        StringAssert.Contains(redeploy, "$expectedOldOrigin='legacy-v6';$expectedNewOrigin='pinned-unsigned-v1'");
+        StringAssert.Contains(redeploy, "$legacy.payloadOrigin -cne $expectedOldOrigin");
+        StringAssert.Contains(redeploy, "if($candidate.PayloadOrigin -cne $expectedNewOrigin){throw");
+        StringAssert.Contains(redeploy, "$proof.payloadOrigin -cne $expectedNewOrigin");
+        StringAssert.Contains(redeploy, "Executing ANY new plan (v1 or v2) needs its own separate exact owner approval.");
+        // The installer derives the origin from the pinned manifest and validates the capability bytes before any certificate mutation.
         string install = File.ReadAllText(Path.Combine(scripts, "Install-OwnerOnlyProtectedTestDeployment.ps1"));
-        StringAssert.Contains(install, "payloadOrigin = 'pinned-unsigned-v1'");
-        Assert.IsFalse(install.Contains(DeploymentCapabilityPolicy.CapabilityFileName, StringComparison.Ordinal));
-        // The v2 ledger this policy supports is exactly the shape those validators reject by origin.
+        StringAssert.Contains(install, "payloadOrigin = $candidate.PayloadOrigin;");
+        StringAssert.Contains(install, "if ($origin -cne $candidate.PayloadOrigin) {");
+        Assert.IsFalse(install.Contains("'pinned-unsigned-v1'", StringComparison.Ordinal));
+        int validated = install.IndexOf("-ExpectedSha256 $CandidateManifestSha256 -PayloadRoot $CandidateRoot", StringComparison.Ordinal);
+        int certificate = install.IndexOf("New-OwnerOnlyCertificate ([ref]$certificateState)", StringComparison.Ordinal);
+        Assert.IsTrue(validated > 0 && certificate > validated, "capability validated before any certificate mutation or signing");
+        // The v2 ledger this policy supports is exactly the shape the pre-change validator rejects by origin.
         byte[] v2 = Encoding.UTF8.GetBytes(Ps7Json.Render(Ledgers.Completed(DeploymentCapabilityPolicy.PayloadOriginV2)));
         Assert.IsTrue(DeploymentCapabilityPolicy.TryReadLedger(v2, out DeploymentLedger? ledger));
         Assert.AreNotEqual(DeploymentCapabilityPolicy.PayloadOriginV1, ledger!.PayloadOrigin);

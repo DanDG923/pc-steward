@@ -35,4 +35,7 @@ if (((Get-DeploymentFiles $installRoot | ConvertTo-Json -Depth 4 -Compress) -ne 
 . (Join-Path $PSScriptRoot 'OwnerOnlyPayloadIntegrity.ps1')
 $origin = Assert-OwnerOnlyPayloadProvenance -InstallRoot $installRoot -StateRoot $stateRoot -State $state
 Assert-OwnerOnlyPayloadProfile -Origin $origin -AllowLegacyPayload:$AllowLegacyPayload
-[pscustomobject]@{ deployment = 'owner-only-protected-test'; installRoot = $installRoot; certificateThumbprint = $state.certificateThumbprint; validation = 'Pass'; payloadOrigin = $origin; candidateManifestSha256 = $state.candidateManifestSha256; launched = $false; applicationUpdates = 0 } | ConvertTo-Json
+$report = [ordered]@{ deployment = 'owner-only-protected-test'; installRoot = $installRoot; certificateThumbprint = $state.certificateThumbprint; validation = 'Pass'; payloadOrigin = $origin; candidateManifestSha256 = $state.candidateManifestSha256; launched = $false; applicationUpdates = 0 }
+# ADR-022 alignment note item 2: a protocol-2 deployment also reports the helper protocol of its pinned capability statement.
+if ($origin -ceq 'pinned-unsigned-v2') { $report.helperProtocol = (Read-OwnerOnlyCandidateManifest -Path (Join-Path $stateRoot 'candidate-manifest.json') -ExpectedSha256 $state.candidateManifestSha256 -PayloadRoot $installRoot).HelperProtocol }
+[pscustomobject]$report | ConvertTo-Json

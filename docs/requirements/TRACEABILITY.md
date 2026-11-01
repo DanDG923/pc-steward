@@ -1,3 +1,21 @@
+# Task 50 — deployment capability scripts (ADR-022 alignment note follow-up)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; ADR-022 alignment note; adapter gates §A.3, §A.7, §R A2-L1/A2-L2; follow-up items 1–7.
+
+- Security `DeploymentCapabilityScriptTests` covers:
+  - the checked-in capability file equals `CanonicalCapabilityBytes()` and is published at the root as `-text`;
+  - the built helper deps.json project closure equals `BindingSet`;
+  - the real-writer fixture (pwsh 7; Windows PowerShell 5.1 on Windows CI): every pending, rollback (0/1/several stores), v1 and v2 ledger parses, and they evaluate as Incomplete, Absent and Supported;
+  - 30 capability vectors agree between the script parser and `TryParseCapability`;
+  - manifest-implied origin and refusals;
+  - the profile and provenance refusals;
+  - the frozen pre-change validator throws on v2;
+  - zero parse errors.
+- `DeploymentCapabilityPolicyTests.ExistingV1PlanStaysV1OnlyAndThePreChangeValidatorFailsClosedOnAV2Ledger` covers the A2-L2 template and the installer ordering.
+- Windows-only `Fixtures/PayloadIntegrity.ps1` covers v2 read, hold and provenance with real files.
+- Record: [TASK_50_DEPLOYMENT_CAPABILITY_SCRIPTS.md](../review/TASK_50_DEPLOYMENT_CAPABILITY_SCRIPTS.md).
+- No host or redeploy evidence is claimed.
+
 # Task 50 — adapter gates Part A (portable slice)
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.3, §A.4 steps 3–6 (pure part), §A.6, §A.6.1, §A.6.2, §A.7, and §R A2-L1/A2-L4/A2-L6.
@@ -13,7 +31,7 @@
   - the binding set against the helper `ProjectReference` closure;
   - fixed diagnostics;
   - no caching;
-  - the v1-only scripts failing closed on a v2 ledger.
+  - the v1-only scripts failing closed on a v2 ledger (superseded by the deployment capability scripts entry above: now the frozen pre-change validator).
 - Security interpreter tests now show that a malformed runtime-limit EvidenceId cannot be constructed.
 - Application `AdapterGatesPartATests` covers:
   - a throwing `Supports` giving NotStarted with no gate or claim;

@@ -1,0 +1,2 @@
+# Exact bytes are pinned (ADR-022 alignment note): never convert line endings of the deployment capability statement.
+src/PCSteward.ElevatedHelper/PCSteward.DeploymentCapability.txt -text

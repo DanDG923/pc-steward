@@ -1,0 +1,37 @@
+# FROZEN, verbatim: Assert-OwnerOnlyPayloadProvenance and Assert-OwnerOnlyPayloadProfile from scripts/OwnerOnlyPayloadIntegrity.ps1
+# at 8496850 (blob 44af7c917a5b870c152122f4a23c295041475d88, lines 329-356 and 375-380), i.e. the v1-only validator that
+# existing hosts still carry. Fixture input only (A.7 Rollback): never dot-sourced by production code.
+function Assert-OwnerOnlyPayloadProvenance {
+    param([Parameter(Mandatory)][string]$InstallRoot, [Parameter(Mandatory)][string]$StateRoot, [Parameter(Mandatory)]$State)
+    $origin = $State.PSObject.Properties['payloadOrigin']
+    $hasOtherFields = $null -ne $State.PSObject.Properties['candidateManifestSha256'] -or $null -ne $State.PSObject.Properties['executableImages']
+    if (!$origin) { if ($hasOtherFields -or (Test-Path -LiteralPath (Join-Path $StateRoot 'candidate-manifest.json'))) { throw 'Incomplete pinned-payload provenance.' }; return 'legacy-v6' }
+    if ($State.payloadOrigin -cne 'pinned-unsigned-v1' -or !$hasOtherFields) { throw 'Unrecognised pinned-payload provenance.' }
+    $manifest = Read-OwnerOnlyCandidateManifest -Path (Join-Path $StateRoot 'candidate-manifest.json') -ExpectedSha256 $State.candidateManifestSha256
+    $signedLeaves = @('PCSteward.Desktop.exe','PCSteward.ElevatedHelper.exe')
+    $images = @($State.executableImages)
+    if ($images.Count -ne 2) { throw 'Exactly two original executable identities are required.' }
+    # Keep complete paths/lengths and all non-signed hashes exact. Signed apphost lengths change.
+    $installed = [Collections.Generic.List[PCSteward.Deployment.PayloadFile]]::new()
+    foreach ($file in $manifest.Files) {
+        if ($file.path -cin $signedLeaves) {
+            $image = @($images | Where-Object { $_.path -ceq $file.path })
+            if ($image.Count -ne 1 -or $image[0].bytes -ne $file.bytes) { throw 'Original executable identity is absent or inconsistent.' }
+            if (($image[0].originalChecksum -isnot [int] -and $image[0].originalChecksum -isnot [long]) -or $image[0].originalChecksum -lt 0 -or $image[0].originalChecksum -gt [uint32]::MaxValue) { throw 'Invalid original executable checksum.' }
+            $identity = [PCSteward.Deployment.ImageIdentity]::new($file.bytes,$file.sha256,[uint32]$image[0].originalChecksum)
+            $path = Join-Path $InstallRoot $file.path
+            $verified = Test-OwnerOnlySignedExecutable -Path $path -Identity $identity -ExpectedThumbprint $State.certificateThumbprint
+            $ledger = @($State.files | Where-Object { $_.path -ceq $file.path })
+            if ($ledger.Count -ne 1 -or $ledger[0].sha256 -cne $verified.sha256) { throw 'Held signed-executable hash differs from protected ledger.' }
+            $installed.Add($verified)
+        } else { $installed.Add($file) }
+    }
+    [PCSteward.Deployment.PayloadIntegrity]::AssertTree($InstallRoot,$installed.ToArray())
+    return 'pinned-unsigned-v1'
+}
+function Assert-OwnerOnlyPayloadProfile {
+    param([Parameter(Mandatory)][string]$Origin,[switch]$AllowLegacyPayload)
+    if ($Origin -ceq 'pinned-unsigned-v1') { return }
+    if ($AllowLegacyPayload -and $Origin -ceq 'legacy-v6') { return }
+    throw 'The installed deployment is legacy or unsupported; pinned-payload evidence is required.'
+}
