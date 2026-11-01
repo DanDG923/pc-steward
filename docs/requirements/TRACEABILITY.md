@@ -1,3 +1,34 @@
+# Task 50 — adapter gates Part A (portable slice)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.3, §A.4 steps 3–6 (pure part), §A.6, §A.6.1, §A.6.2, §A.7, and §R A2-L1/A2-L4/A2-L6.
+
+- Domain `ReviewedOperationProfileEvidenceTests` covers the O2 constructor and `TryRestore` negatives (63/65 digits, lowercase, mixed case, v1 prefix, prefix only, trailing character, non-hex, opaque), the 81-character positive, and other routes unchanged.
+- Security `DeploymentCapabilityPolicyTests` covers:
+  - writer-variant ledger fixtures (pending with a null thumbprint, pending with a certificate, rollback with null/one/several stores, legacy-v6, v1, v2), each with a closed key set and the expected Incomplete, Absent or Supported;
+  - ledger negatives, giving Unreadable or Mismatch;
+  - manifest and capability pinning, and 22 malformed capability statements;
+  - generator bytes (103 B);
+  - binding leaves, including Desktop.dll, giving Mismatch or Unreadable;
+  - size bounds;
+  - the binding set against the helper `ProjectReference` closure;
+  - fixed diagnostics;
+  - no caching;
+  - the v1-only scripts failing closed on a v2 ledger.
+- Security interpreter tests now show that a malformed runtime-limit EvidenceId cannot be constructed.
+- Application `AdapterGatesPartATests` covers:
+  - a throwing `Supports` giving NotStarted with no gate or claim;
+  - two fresh `Supports` evaluations;
+  - post-claim removal giving Cancelled;
+  - the A.6.1 matrix, with WinGet `fresh:1` accepted;
+  - three-site agreement;
+  - A.6.2 stored-row behaviour (draft corrupt; DispatchClaimed and Uncertain block; Final untrusted and non-blocking).
+- Architecture `DeploymentCapabilityBoundaryTests` covers:
+  - capability types appear only in Execution;
+  - pure policy sources that the helper can reuse;
+  - every workflow `Supports` call is wrapped;
+  - the `Matches` conjunct;
+  - no evidence producer reads `.EvidenceId`.
+
 # Task 50 — adapter gates Part B (helper-check history)
 
 `FR-HIS-01`, `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §B.2–§B.7, B-M1, B-L1–B-L3, §R B2-L1/B2-L2. Three suites cover this slice:

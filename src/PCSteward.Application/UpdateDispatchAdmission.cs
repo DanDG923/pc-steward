@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using PCSteward.Domain;
 
@@ -35,12 +36,33 @@ public sealed class FreshUpdateDispatchEvidence
     public bool Actionable { get; }
     public bool SourceIsFresh { get; }
 
+    /// <summary>
+    /// Pure comparison with the frozen review, used unchanged at all three admission sites (pre-claim, store claim CAS and
+    /// <see cref="UpdateDispatchPermit.TryConsume"/>). Evidence and operation are immutable, so the sites agree. Fresh
+    /// <see cref="EvidenceId"/> is compared only for the route that requires it (<see cref="ProfileEvidenceMatches"/>).
+    /// </summary>
     public bool Matches(ReviewedUpdateOperation operation, DateTimeOffset now) => operation is not null &&
         Actionable && SourceIsFresh && ObservedAt >= operation.ReviewedAt && ObservedAt <= now && now - ObservedAt <= TimeSpan.FromMinutes(2) &&
         now >= operation.ReviewedAt && now - operation.ReviewedAt <= TimeSpan.FromMinutes(30) &&
         RequestingUserSid == operation.RequestingUserSid && NativeInstanceId == operation.NativeInstanceId &&
         InstallationContextId == operation.InstallationContextId && Selection.EqualsEvidence(operation.Selection) &&
-        Route == operation.RouteContract && Mode == operation.Mode && ReviewedUpdateReview.HasSupportedMode(operation);
+        Route == operation.RouteContract && Mode == operation.Mode && ProfileEvidenceMatches(operation) &&
+        ReviewedUpdateReview.HasSupportedMode(operation);
+
+    /// <summary>
+    /// Adapter gates §A.6.1. For <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/> only, the fresh
+    /// <see cref="EvidenceId"/> must be the exact profile form <c>choco-profile-v2:</c> + F′ and F′ must equal the frozen F,
+    /// compared in fixed time; anything else fails closed. Other routes keep their own fresh identity (for example
+    /// <c>fresh:1</c>), so no global equality is imposed. Equality never qualifies anything: the helper still compares its
+    /// own fingerprint with F.
+    /// </summary>
+    internal bool ProfileEvidenceMatches(ReviewedUpdateOperation operation)
+    {
+        if (operation.RouteContract != UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3) return true;
+        if (!ReviewedUpdateOperation.TryGetProfileEvidenceDigest(operation.EvidenceId, out string frozen) ||
+            !ReviewedUpdateOperation.TryGetProfileEvidenceDigest(EvidenceId, out string fresh)) return false;
+        return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(fresh), Encoding.ASCII.GetBytes(frozen));
+    }
 
     public byte[] GetCanonicalBytes() => Encoding.UTF8.GetBytes(string.Join('\n', "pc-steward-dispatch-evidence:2",
         Selection.StableProductKey, Selection.Provider.ToString(), Selection.Source.ToString(), Selection.PackageId,

@@ -71,6 +71,8 @@ internal sealed record FramedUpdateResponse(UpdateWireFacts Facts, ReviewedHelpe
 /// </summary>
 internal static class ReviewedUpdateWireCodec
 {
+    /// <summary>The single compiled protocol value (adapter gates §A.1/§A.2); the codec and capability policy compare only against it.</summary>
+    internal const string ProtocolVersion = "2";
     internal const int MaximumFrameBytes = 16 * 1024;
     internal const int MaximumPayloadBytes = ReviewedUpdateOperation.MaximumCanonicalBytes;
     internal const int MaximumDiagnosticBytes = 2048;
@@ -101,7 +103,7 @@ internal static class ReviewedUpdateWireCodec
         using (Utf8JsonWriter writer = new(stream, WriterOptions))
         {
             writer.WriteStartObject();
-            writer.WriteString("protocolVersion", "2");
+            writer.WriteString("protocolVersion", ProtocolVersion);
             writer.WriteString("operation", "UpdatePackage");
             writer.WriteString("operationPayload", Convert.ToBase64String(payload));
             writer.WriteString("operationDigest", digest);
@@ -118,7 +120,7 @@ internal static class ReviewedUpdateWireCodec
         if (!TryReadObject(frame, RequestFields, out Dictionary<string, JsonElement> fields)) return false;
         try
         {
-            if (String(fields, "protocolVersion") != "2" || String(fields, "operation") != "UpdatePackage") return false;
+            if (String(fields, "protocolVersion") != ProtocolVersion || String(fields, "operation") != "UpdatePackage") return false;
             string payloadText = String(fields, "operationPayload");
             if (payloadText.Length > ((MaximumPayloadBytes + 2) / 3) * 4) return false;
             byte[] payload = Convert.FromBase64String(payloadText);
@@ -144,7 +146,7 @@ internal static class ReviewedUpdateWireCodec
         using (Utf8JsonWriter writer = new(stream, WriterOptions))
         {
             writer.WriteStartObject();
-            writer.WriteString("protocolVersion", "2");
+            writer.WriteString("protocolVersion", ProtocolVersion);
             writer.WriteString("jobId", jobId.ToString("D", CultureInfo.InvariantCulture));
             writer.WriteString("operationDigest", digest);
             writer.WriteString("nonce", nonce);
@@ -178,7 +180,7 @@ internal static class ReviewedUpdateWireCodec
             !TryReadObject(frame, ResponseFields, out Dictionary<string, JsonElement> fields)) return false;
         try
         {
-            if (String(fields, "protocolVersion") != "2" ||
+            if (String(fields, "protocolVersion") != ProtocolVersion ||
                 String(fields, "jobId") != expectedJob.ToString("D", CultureInfo.InvariantCulture) ||
                 !FixedEquals(String(fields, "operationDigest"), expectedDigest) || !FixedEquals(String(fields, "nonce"), expectedNonce)) return false;
             if (!TryExactEnum(String(fields, "invocation"), out UpdateWireInvocation invocation) ||

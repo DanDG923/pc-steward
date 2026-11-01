@@ -51,8 +51,9 @@ public sealed class ReviewedUpdateDispatchTicket
 }
 
 /// <summary>
-/// One closed route adapter. <see cref="Supports"/> is a compiled route/guard/mode/provider/source/scope check, never
-/// eligibility evidence; the native runner or helper behind <see cref="DispatchAsync"/> must independently revalidate.
+/// One closed route adapter. <see cref="Supports"/> is the compiled route check plus, for helper routes, the adapter's
+/// protected deployment-capability seam; never eligibility evidence; must not throw (the workflow nevertheless treats an
+/// exception as unsupported). The native runner or helper behind <see cref="DispatchAsync"/> must independently revalidate.
 /// </summary>
 public interface IReviewedUpdateRouteDispatcher
 {
@@ -125,13 +126,19 @@ public sealed class ReviewedUpdateDispatchWorkflow
         admission = new(store, this.clock);
     }
 
+    /// <summary>
+    /// Runs one reviewed dispatch. Callers must invoke this off the UI thread: <see cref="IReviewedUpdateRouteDispatcher.Supports"/>
+    /// may perform bounded synchronous I/O before the claim and again after the permit (adapter gates G3).
+    /// </summary>
     public async Task<ReviewedUpdateDispatchResult> RunAsync(LiveApprovedUpdate approval, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approval);
         ReviewedUpdateOperation operation = approval.Operation;
         if (!approval.IsCurrent)
             return Result(operation, ReviewedUpdateDispatchDisposition.NotStarted, null, "The review expired or was cancelled. Open a new review; no update was started.");
-        if (!ReviewedUpdateReview.HasSupportedMode(operation) || !dispatcher.Supports(operation))
+        // Adapter gates §A.2: the pre-claim route/capability seam uses the same exception-to-false wrapper as the post-permit
+        // recheck, so a throwing seam gives NotStarted with no claim instead of escaping RunAsync.
+        if (!ReviewedUpdateReview.HasSupportedMode(operation) || !StillSupported(operation))
             return Result(operation, ReviewedUpdateDispatchDisposition.NotStarted, null, "This reviewed provider, mode or route is unavailable. No update was started.");
         ReviewedUpdateDispatchResult? completed = null;
         try
@@ -233,6 +240,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, message, helperCheck).ConfigureAwait(false);
     }
 
+    /// <summary>Every <see cref="IReviewedUpdateRouteDispatcher.Supports"/> call goes through here; any exception means unsupported.</summary>
     private bool StillSupported(ReviewedUpdateOperation operation)
     {
         try { return dispatcher.Supports(operation); }

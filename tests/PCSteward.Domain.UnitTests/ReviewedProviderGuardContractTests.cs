@@ -46,14 +46,17 @@ public sealed class ReviewedProviderGuardContractTests
         Assert.AreEqual(ReviewedProviderGuardContract.LegacyUnqualified, Operation(UpdateRouteContract.ChocolateyMachineRegistrationV2).ProviderGuardContract);
     }
 
-    private static ReviewedUpdateOperation Operation(UpdateRouteContract route)
+    internal static readonly string ProfileEvidence = ReviewedUpdateOperation.ProfileEvidencePrefix + Convert.ToHexString(SHA256.HashData("profile-v2 fixture"u8));
+
+    internal static ReviewedUpdateOperation Operation(UpdateRouteContract route, string? evidenceId = null)
     {
         DateTimeOffset at = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
         ImmutableUpdateJob job = new UpdateJobReview(Guid.Parse("70000000-0000-0000-0000-000000000001"),
             Guid.Parse("70000000-0000-0000-0000-000000000002"), new UpdateJobSelection("choco:git",
                 UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git", "1.0.0", "2.0.0", UpdateScope.Machine,
                 UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(at);
-        return new(job, "S-1-5-21-11-22-33-1001", "choco:git", "machine:choco", "evidence:1", at, route,
+        return new(job, "S-1-5-21-11-22-33-1001", "choco:git", "machine:choco",
+            evidenceId ?? (route == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 ? ProfileEvidence : "evidence:1"), at, route,
             ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled), ReviewedUpdateArchitecture.ProviderScriptSelected());
     }
 }

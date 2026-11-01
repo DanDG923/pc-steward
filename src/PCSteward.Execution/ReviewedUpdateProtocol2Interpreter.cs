@@ -126,7 +126,6 @@ internal static class ReviewedUpdateProtocol2Interpreter
     internal const string ElevationDeclinedDiagnostic = "helper-elevation-declined";
     internal const string RequestNotWrittenDiagnostic = "helper-request-not-written";
     internal const string RequestNotWrittenUnsettledDiagnostic = "helper-request-not-written; helper-exit-unobserved";
-    internal const string ProfileEvidencePrefix = "choco-profile-v2:";
     private static readonly Task Pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously).Task;
 
     internal static ReviewedUpdateProtocol2Interpretation Interpret(ReviewedUpdateOperation operation, ReviewedHelperTransportOutcome outcome,
@@ -240,8 +239,9 @@ internal static class ReviewedUpdateProtocol2Interpreter
             selection.Scope != UpdateScope.Machine || selection.Channel != UpdateChannel.Stable ||
             selection.Architecture.Binding != ReviewedArchitectureBinding.ProviderScriptSelected ||
             operation.Mode != ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled) ||
-            !operation.EvidenceId.StartsWith(ProfileEvidencePrefix, StringComparison.Ordinal)) return false;
-        string digest = operation.EvidenceId[ProfileEvidencePrefix.Length..];
+            !operation.EvidenceId.StartsWith(ReviewedUpdateOperation.ProfileEvidencePrefix, StringComparison.Ordinal)) return false;
+        // Defence in depth: the Domain constructor already enforces this form for the route (adapter gates §A.6).
+        string digest = operation.EvidenceId[ReviewedUpdateOperation.ProfileEvidencePrefix.Length..];
         if (!IsUpperHex64(digest)) return false;
         profileDigest = digest;
         return true;

@@ -341,7 +341,8 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
             ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git.install",
                 UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git.install", "1.0.0", "2.0.0", UpdateScope.Machine,
                 UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(ReviewedAt);
-            ReviewedUpdateDraft draft = await fixture.Store.SaveReviewedOperationAsync(new(job, User, "choco:git.install", "machine:choco", "evidence:1", ReviewedAt, route,
+            ReviewedUpdateDraft draft = await fixture.Store.SaveReviewedOperationAsync(new(job, User, "choco:git.install", "machine:choco",
+                route == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 ? "choco-profile-v2:" + new string('A', 64) : "evidence:1", ReviewedAt, route,
                 ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled), ReviewedUpdateArchitecture.ProviderScriptSelected()), CancellationToken.None);
             Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(draft.Operation));
             Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Confirm(draft));

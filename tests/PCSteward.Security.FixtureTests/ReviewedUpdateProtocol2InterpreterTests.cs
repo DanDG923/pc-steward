@@ -451,18 +451,12 @@ public sealed class ReviewedUpdateProtocol2InterpreterTests
     [TestMethod]
     [DataRow("winget-route")]
     [DataRow("provisional-route")]
-    [DataRow("evidence-without-profile-prefix")]
-    [DataRow("evidence-lowercase-digest")]
-    [DataRow("evidence-short-digest")]
     public void OperationsOutsideTheSingleRouteOrWithoutProfileDigestAreRejected(string change)
     {
         ReviewedUpdateOperation operation = change switch
         {
             "winget-route" => WinGetOperation(),
-            "provisional-route" => Protocol2InterpreterFixture.Operation(route: UpdateRouteContract.ChocolateyMachineProvisionalV3),
-            "evidence-without-profile-prefix" => Protocol2InterpreterFixture.Operation(evidenceId: "evidence:" + Fingerprint),
-            "evidence-lowercase-digest" => Protocol2InterpreterFixture.Operation(evidenceId: "choco-profile-v2:" + Fingerprint.ToLowerInvariant()),
-            _ => Protocol2InterpreterFixture.Operation(evidenceId: "choco-profile-v2:" + Fingerprint[..63]),
+            _ => Protocol2InterpreterFixture.Operation(route: UpdateRouteContract.ChocolateyMachineProvisionalV3),
         };
         Assert.IsFalse(ReviewedUpdateProtocol2Interpreter.TryGetProfileDigest(operation, out _));
         byte[] frame = Protocol2InterpreterFixture.Frame(operation, Protocol2InterpreterFixture.Started(), Protocol2InterpreterFixture.Matched());
@@ -471,6 +465,25 @@ public sealed class ReviewedUpdateProtocol2InterpreterTests
             ReviewedHelperTransportOutcome.ElevationDeclined, [], Nonce, Protocol2InterpreterFixture.SettledDesktop));
         Assert.IsTrue(ReviewedUpdateProtocol2Interpreter.TryGetProfileDigest(Protocol2InterpreterFixture.Operation(), out string digest));
         Assert.AreEqual(Fingerprint, digest);
+    }
+
+    /// <summary>
+    /// Adapter gates §A.6 (O2, review-9 L3): a runtime-limit operation without the exact profile evidence can no longer be
+    /// constructed or restored, so it never reaches the interpreter; TryGetProfileDigest keeps its own check as defence in depth.
+    /// </summary>
+    [TestMethod]
+    [DataRow("evidence-without-profile-prefix")]
+    [DataRow("evidence-lowercase-digest")]
+    [DataRow("evidence-short-digest")]
+    public void RuntimeLimitOperationsWithoutExactProfileEvidenceCannotBeConstructed(string change)
+    {
+        string evidenceId = change switch
+        {
+            "evidence-without-profile-prefix" => "evidence:" + Fingerprint,
+            "evidence-lowercase-digest" => ReviewedUpdateOperation.ProfileEvidencePrefix + Fingerprint.ToLowerInvariant(),
+            _ => ReviewedUpdateOperation.ProfileEvidencePrefix + Fingerprint[..63],
+        };
+        Assert.ThrowsExactly<ArgumentException>(() => Protocol2InterpreterFixture.Operation(evidenceId: evidenceId));
     }
 
     [TestMethod]

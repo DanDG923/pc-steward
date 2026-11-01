@@ -28,6 +28,9 @@ public sealed partial class ReviewedUpdateOperation
 {
     public const int SchemaVersion = 3;
     public const int MaximumCanonicalBytes = 4096;
+    /// <summary>O2 (adapter gates §A.6): runtime-limit route evidence is exactly this prefix plus 64 uppercase hex (81 characters).</summary>
+    public const string ProfileEvidencePrefix = "choco-profile-v2:";
+    private const int ProfileDigestLength = 64;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public ReviewedUpdateOperation(ImmutableUpdateJob job, string requestingUserSid, string nativeInstanceId,
@@ -62,6 +65,9 @@ public sealed partial class ReviewedUpdateOperation
         NativeInstanceId = ValidateIdentity(nativeInstanceId, nameof(nativeInstanceId));
         InstallationContextId = ValidateIdentity(installationContextId, nameof(installationContextId));
         EvidenceId = ValidateIdentity(evidenceId, nameof(evidenceId));
+        // Shared by construction and TryRestore, so a non-conforming stored row restores as false (adapter gates §A.6/§A.6.2).
+        if (routeContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 && !TryGetProfileEvidenceDigest(EvidenceId, out _))
+            throw new ArgumentException("Runtime-limit review evidence must be the exact Chocolatey profile v2 identity.", nameof(evidenceId));
         EvidenceObservedAt = evidenceObservedAt.ToUniversalTime();
         RouteContract = routeContract;
         Mode = mode;
@@ -178,6 +184,22 @@ public sealed partial class ReviewedUpdateOperation
     /// <summary>Complete data comparison only. The caller still needs live consent and a one-use permit.</summary>
     public bool HasSameIdentity(ReviewedUpdateOperation? other) =>
         other is not null && CryptographicOperations.FixedTimeEquals(GetCanonicalBytes(), other.GetCanonicalBytes());
+
+    /// <summary>
+    /// Format check only (adapter gates §A.6): <c>choco-profile-v2:</c> followed by exactly 64 uppercase hex digits. The digest
+    /// is comparison data; it never proves a native profile, qualification or consent.
+    /// </summary>
+    public static bool TryGetProfileEvidenceDigest(string? evidenceId, out string digest)
+    {
+        digest = string.Empty;
+        if (evidenceId is null || evidenceId.Length != ProfileEvidencePrefix.Length + ProfileDigestLength ||
+            !evidenceId.StartsWith(ProfileEvidencePrefix, StringComparison.Ordinal)) return false;
+        string candidate = evidenceId[ProfileEvidencePrefix.Length..];
+        foreach (char c in candidate)
+            if (c is not ((>= '0' and <= '9') or (>= 'A' and <= 'F'))) return false;
+        digest = candidate;
+        return true;
+    }
 
     private static bool IsUserCacheIntentRoute(UpdateRouteContract route) =>
         route is UpdateRouteContract.ChocolateyMachineProvisionalV3 or UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3;
