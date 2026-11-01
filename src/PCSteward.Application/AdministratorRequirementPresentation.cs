@@ -38,7 +38,7 @@ public static class AdministratorRequirementPresenter
     private static AdministratorRequirementPresentation NotExpected() => new(
         AdministratorRequirementStatus.NotExpected,
         "Administrator approval not expected",
-        "This is a current-user update, so Windows will not ask for administrator permission.");
+        "This is a current-user update. PC Steward will not request administrator permission for this current-user update. The app's own installer can still ask Windows for permission.");
 
     private static AdministratorRequirementPresentation Unknown() => new(
         AdministratorRequirementStatus.Unknown,

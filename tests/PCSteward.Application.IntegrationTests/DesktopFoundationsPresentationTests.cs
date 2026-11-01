@@ -178,10 +178,12 @@ public sealed class DesktopFoundationsPresentationTests
     }
 
     [TestMethod]
-    [Description("FR-UPD-04; FR-UI-03; audit P-H5: one elevation story — the desktop never elevates; Windows asks once per approved job only for a machine-wide update; checking never asks.")]
+    [Description("FR-UPD-04; FR-UI-03; audit P-H5: one elevation story — the desktop is designed to run unelevated and never requests elevation for current-user updates; Windows asks once per approved job only for a machine-wide update; checking never asks.")]
     public void ElevationStoryIsConsistentEverywhere()
     {
-        StringAssert.Contains(ElevationStory.Summary, "always runs without administrator rights");
+        StringAssert.Contains(ElevationStory.Summary, "is designed to run without administrator rights");
+        StringAssert.Contains(ElevationStory.Summary, "doesn't request administrator permission for current-user updates");
+        StringAssert.Contains(ElevationStory.Summary, "An app's own installer can still ask Windows for permission.");
         StringAssert.Contains(ElevationStory.Summary, "Checking for updates never asks for administrator permission");
         StringAssert.Contains(ElevationStory.Summary, "once for that job");
         StringAssert.Contains(ElevationStory.Summary, "machine-wide");
@@ -195,6 +197,8 @@ public sealed class DesktopFoundationsPresentationTests
         {
             Assert.IsFalse(copy.Contains("does not use elevation", StringComparison.OrdinalIgnoreCase), "contradicts the composed elevated helper");
             Assert.IsFalse(copy.Contains("machine-scope only", StringComparison.OrdinalIgnoreCase), "contradicts current-user updates");
+            Assert.IsFalse(copy.Contains("always runs without administrator", StringComparison.OrdinalIgnoreCase), "no startup guard enforces it");
+            Assert.IsFalse(copy.Contains("updates do not ask", StringComparison.OrdinalIgnoreCase), "an app's own installer can still prompt");
         }
 
         UpdateJobSelection machine = new("product:machine", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Machine", "1.0", "1.1", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1");
@@ -205,7 +209,9 @@ public sealed class DesktopFoundationsPresentationTests
         StringAssert.Contains(required.Explanation, "once for this update job");
         StringAssert.Contains(required.Explanation, "After you confirm it");
         StringAssert.Contains(required.Explanation, "keeps running without administrator rights");
-        StringAssert.Contains(notExpected.Explanation, "will not ask for administrator permission");
+        StringAssert.Contains(notExpected.Explanation, "PC Steward will not request administrator permission for this current-user update.");
+        StringAssert.Contains(notExpected.Explanation, "installer can still ask Windows for permission");
+        Assert.IsFalse(notExpected.Explanation.Contains("Windows will not ask", StringComparison.OrdinalIgnoreCase), "PC Steward cannot promise Windows will not prompt");
         StringAssert.Contains(unknown.Explanation, "never ask for administrator permission");
     }
 }
