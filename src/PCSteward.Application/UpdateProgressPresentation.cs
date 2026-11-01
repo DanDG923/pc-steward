@@ -11,6 +11,8 @@ public sealed class UpdateProgressPresentation(Guid jobId, Guid correlationId, U
     public bool IsUnavailable { get; private set; }
     public bool IsFinal { get; private set; }
     public bool IsIndeterminate { get; } = true;
+    /// <summary>The last accepted phase, for per-item progress words (Task 73 Phase 2). Read-only; it never advances anything.</summary>
+    public UpdateProgressPhase Phase => phase;
 
     public void MarkUnavailable() { IsUnavailable = true; Label = "Progress unavailable"; }
 

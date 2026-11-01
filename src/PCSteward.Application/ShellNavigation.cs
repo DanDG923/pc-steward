@@ -19,7 +19,8 @@ public enum ShellPage
     Detail,
     Storage,
     Privacy,
-    Onboarding
+    Onboarding,
+    UpdateJob
 }
 
 /// <summary>One navigation pane item. <see cref="IsFooter"/> items sit at the bottom of the pane.</summary>
@@ -101,16 +102,17 @@ public sealed class ShellNavigation : INotifyPropertyChanged
     public static bool IsNavigationItem(ShellPage page) => Items.Any(item => item.Page == page);
 
     /// <summary>
-    /// Pages that are never returned to with Back once left: onboarding (its acknowledgement must not be repeated) and app
-    /// details (they depend on the row that opened them and are reopened from a list instead).
+    /// Pages that are never returned to with Back once left: onboarding (its acknowledgement must not be repeated), app
+    /// details (they depend on the row that opened them and are reopened from a list instead) and the update job (Task 73
+    /// Phase 2; it is reopened from Updates while it runs, and leaving its Review step cancels that review).
     /// </summary>
-    public static bool IsTransient(ShellPage page) => page is ShellPage.Onboarding or ShellPage.Detail;
+    public static bool IsTransient(ShellPage page) => page is ShellPage.Onboarding or ShellPage.Detail or ShellPage.UpdateJob;
 
     /// <summary>The navigation item that owns a contextual page.</summary>
     public static ShellPage ParentOf(ShellPage page) => page switch
     {
         ShellPage.Scan or ShellPage.Results or ShellPage.Onboarding => ShellPage.Home,
-        ShellPage.Review => ShellPage.Updates,
+        ShellPage.Review or ShellPage.UpdateJob => ShellPage.Updates,
         ShellPage.RepositoryApps or ShellPage.Detail => ShellPage.InstalledApps,
         ShellPage.Storage or ShellPage.Privacy => ShellPage.Settings,
         _ => page
@@ -134,6 +136,7 @@ public sealed class ShellNavigation : INotifyPropertyChanged
         ShellPage.Storage => "Storage",
         ShellPage.Privacy => "Privacy & data",
         ShellPage.Onboarding => "Start fresh",
+        ShellPage.UpdateJob => "Update job",
         _ => throw new ArgumentOutOfRangeException(nameof(page))
     };
 
