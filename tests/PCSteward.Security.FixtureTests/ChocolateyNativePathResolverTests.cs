@@ -15,6 +15,20 @@ public sealed class ChocolateyNativePathResolverTests
     [System.Runtime.InteropServices.DllImport("userenv.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
     private static extern bool GetUserProfileDirectory(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token, char[]? buffer, ref uint size);
 
+    [System.Runtime.InteropServices.DllImport("shell32.dll")]
+    private static extern int SHGetKnownFolderPath(in Guid folderId, uint flags, IntPtr token, out IntPtr path);
+
+    private static string KnownFolderResults(Guid folder)
+    {
+        string Probe(uint flags)
+        {
+            int result = SHGetKnownFolderPath(folder, flags, IntPtr.Zero, out IntPtr pointer);
+            if (pointer != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(pointer);
+            return $"0x{result:X8}";
+        }
+        return $"verify={Probe(0)},dontVerify={Probe(0x4000)}";
+    }
+
     /// <summary>Names the component that failed, so a CI failure is diagnosable (token SID, profile lookup, known folders).</summary>
     private static string Diagnose(RequesterToken token)
     {
@@ -34,7 +48,9 @@ public sealed class ChocolateyNativePathResolverTests
         string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return $"sidEqual={string.Equals(self.User?.Value, token.Sid, StringComparison.Ordinal)}; profileProbe={first}/{firstError}/size={size}; " +
             $"profile={profile}/{secondError}/canonical={ProtectedNodeReader.IsCanonicalLocalPath(profile)}; " +
-            $"roamingCanonical={ProtectedNodeReader.IsCanonicalLocalPath(roaming)}; localCanonical={ProtectedNodeReader.IsCanonicalLocalPath(local)}";
+            $"roamingCanonical={ProtectedNodeReader.IsCanonicalLocalPath(roaming)}; localCanonical={ProtectedNodeReader.IsCanonicalLocalPath(local)}; " +
+            $"roamingKnownFolder={KnownFolderResults(new Guid("3EB685DB-65F9-4CF6-A03A-E3EF65729F3D"))}; " +
+            $"localKnownFolder={KnownFolderResults(new Guid("F1B32785-6FBA-4FCF-9D55-7B8E7F157091"))}";
     }
 
     [TestMethod]

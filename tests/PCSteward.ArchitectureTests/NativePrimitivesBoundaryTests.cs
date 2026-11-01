@@ -107,9 +107,15 @@ public sealed class NativePrimitivesBoundaryTests
                 Assert.IsFalse(source.Contains(token, StringComparison.Ordinal), $"{path} uses {token}");
             Assert.IsFalse(source.Contains("sqlite", StringComparison.OrdinalIgnoreCase), $"{path} uses SQLite");
         }
-        // Covers N0's files too: the whole Native/ folder is free of SQLite.
+        // N1 review L3: the whole Native/ folder (N0's files too) is free of environment, registry and SQLite access.
+        string[] ambient = ["GetEnvironmentVariable", "ExpandEnvironmentVariables", "EnvironmentVariableTarget", "GetEnvironmentStrings",
+            "Registry", "RegOpenKey", "RegQueryValue", "RegGetValue"];
         foreach ((string path, string source) in SourceFiles(NativeDirectory()))
+        {
+            foreach (string token in ambient)
+                Assert.IsFalse(source.Contains(token, StringComparison.Ordinal), $"{path} uses {token}");
             Assert.IsFalse(source.Contains("sqlite", StringComparison.OrdinalIgnoreCase), $"{path} uses SQLite");
+        }
     }
 
     [TestMethod]

@@ -148,7 +148,21 @@ public sealed class RequesterAccessNativeTests
             Assert.AreEqual(directory, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Node), sddl);
             Assert.AreEqual(ancestor, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Ancestor), sddl);
         }
-        // A descriptor without an owner cannot be evaluated: Unreadable, never Denied.
+        // N1 review H1: a conditional (callback) ACE depending on a resource attribute, or an object ACE, is never evaluated
+        // without its inputs: Unreadable, never Denied. The OWNER RIGHTS entry removes the owner's implied WRITE_DAC.
+        foreach (string conditional in new[]
+        {
+            $"O:{user}G:{user}D:P(A;;{ReadExecute};;;OW)(XA;;FA;;;{user};(Exists @Resource.x))",
+            $"O:SYG:SYD:P(A;;{ReadExecute};;;{user})(XA;;FA;;;{user};(Exists @User.x))",
+            $"O:SYG:SYD:P(XD;;FA;;;{user};(Exists @Resource.x))(A;;{ReadExecute};;;{user})",
+            $"O:SYG:SYD:P(OA;;CC;bf967a86-0de6-11d0-a285-00aa003049e2;;{user})(A;;{ReadExecute};;;{user})",
+        })
+        {
+            byte[] descriptor = Binary(conditional);
+            Assert.AreEqual(RequesterModification.Unreadable, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, false, AccessMode.Node), conditional);
+            Assert.AreEqual(RequesterModification.Unreadable, RequesterAccess.EvaluateDescriptorForTests(token, descriptor, true, AccessMode.Ancestor), conditional);
+        }
+                // A descriptor without an owner cannot be evaluated: Unreadable, never Denied.
         Assert.AreEqual(RequesterModification.Unreadable,
             RequesterAccess.EvaluateDescriptorForTests(token, Binary($"D:P(A;;{ReadExecute};;;{user})"), false, AccessMode.Node));
     }

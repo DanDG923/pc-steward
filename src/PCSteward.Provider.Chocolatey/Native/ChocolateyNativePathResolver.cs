@@ -22,6 +22,7 @@ internal static class ChocolateyNativePathResolver
     private static readonly Guid WindowsFolder = new("F38BF404-1D43-42F2-9305-67DE0B28FC23");
     private static readonly Guid ProgramFilesFolder = new("905E63B6-C1BF-494E-B29C-65B732D3D21A");
     private static readonly Guid ProgramFilesX86Folder = new("7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E");
+    private const uint KnownFolderDontVerify = 0x00004000;
     private static readonly Guid RoamingAppDataFolder = new("3EB685DB-65F9-4CF6-A03A-E3EF65729F3D");
     private static readonly Guid LocalAppDataFolder = new("F1B32785-6FBA-4FCF-9D55-7B8E7F157091");
 
@@ -45,6 +46,10 @@ internal static class ChocolateyNativePathResolver
         if (!OperatingSystem.IsWindows() || !ProtectedNodeReader.IsCanonicalLocalPath(protectedCache)) return null;
         if (!new[] { roots.ProgramData, roots.Root, roots.HttpCache, roots.WindowsRoot, roots.ProgramFiles, roots.ProgramFilesX86 }
                 .All(ProtectedNodeReader.IsCanonicalLocalPath))
+            return null;
+        // N1 review L2: the Chocolatey roots are the fixed native concatenations, whatever constructed the record.
+        if (!string.Equals(roots.Root, roots.ProgramData + @"\chocolatey", StringComparison.Ordinal) ||
+            !string.Equals(roots.HttpCache, roots.ProgramData + @"\ChocolateyHttpCache", StringComparison.Ordinal))
             return null;
         using (WindowsIdentity self = WindowsIdentity.GetCurrent())
         {
@@ -72,7 +77,9 @@ internal static class ChocolateyNativePathResolver
 
     private static string? TryKnownFolder(Guid folder)
     {
-        int result = Win32.SHGetKnownFolderPath(folder, 0, IntPtr.Zero, out IntPtr pointer);
+        // KF_FLAG_DONT_VERIFY, as the .NET folder API does: a profile folder that does not exist yet (a fresh profile)
+        // must not fail resolution. These paths only feed the compiled launch environment; nothing here asserts protection.
+        int result = Win32.SHGetKnownFolderPath(folder, KnownFolderDontVerify, IntPtr.Zero, out IntPtr pointer);
         try
         {
             if (result != 0 || pointer == IntPtr.Zero) return null;

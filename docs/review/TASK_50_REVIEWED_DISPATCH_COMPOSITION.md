@@ -337,3 +337,46 @@ Linux results after remediation:
 - the N0 portable tests: 41/41;
 - 14 Windows-only launcher tests, pending Windows CI.
 
+## Slice N1: native requester-token, access and walker primitives (`c840ef1..ce4839d`) and remediation
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §2–§2.4 and §8 N1. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+
+Implemented in `PCSteward.Provider.Chocolatey.Native`, all internal and with no `src` caller:
+- `NativeFileIdentity`/`NativeObservedFile`;
+- `PeerProcess`;
+- `TokenFacts`/`RequesterTokenPolicy` (pure, specific verdicts) and `RequesterToken`;
+- `RequesterAccess`: AccessCheck in Node and Ancestor modes, `EvaluateAncestry`, `IsRequesterOwned`;
+- `ProtectedNodeReader`, `ProtectedTreeWalker`, `ChocolateyNativePathResolver`.
+
+Implementer deviations accepted by the reviewer:
+- the test-only derived token also makes the logon SID deny-only, because the runner is a standard user;
+- SYSTEM-owner and High-label cases run on in-memory descriptors through the test-only `EvaluateDescriptorForTests`;
+- verdict-returning signatures;
+- two stricter rules: the evaluation token must be Limited, and Administrators must not be usable for allow ACEs;
+- parent identity uses the enumeration's 64-bit file ID, and a wider ID refuses;
+- `IsRequesterOwned` is true when the owner is unreadable.
+
+Windows CI on `ce4839d` failed 7 tests, all in test setup:
+- six walker tests: `LockTree` locked parents first, stripping the children's inherited WRITE_OWNER. Fixed in `e924d7e` with a children-first lock order, after which all walker tests pass on Windows;
+- the launch-path resolver test: diagnostics in `e924d7e` showed `GetUserProfileDirectory` succeeds on the identification-level token, so the §2.4 L1 design is feasible. The remaining cause was `SHGetKnownFolderPath` with flags 0, which verifies existence on a fresh CI profile. It now uses `KF_FLAG_DONT_VERIFY`, as the .NET folder API does; these paths only feed the compiled launch environment.
+
+An independent code review (Opus, `ce4839d`) returned **CONDITIONAL**. It verified:
+- AccessCheck flags, mapping and identification token;
+- the Node, Ancestor and parent-delete-child masks;
+- the token policy against §2.1;
+- the single held `PeerProcess` handle;
+- the node reader;
+- the `FILE_ID_BOTH_DIR_INFO` parsing, absence rule, parent identity, bounds and cancellation;
+- the resolver inputs;
+- the IL bans;
+- the CI assumptions for the runner's ACLs, the share-read open of `C:\`, and junctions.
+
+| # | Severity | Finding | Remediation |
+|---|---|---|---|
+| H1 | High | Conditional ACEs depending on resource attributes were evaluated without those attributes. A requester-controlled node (OWNER RIGHTS plus `XA … (Exists @Resource.x)` plus a resource attribute settable with WRITE_DAC) would be judged Denied while Windows grants write. | `ATTRIBUTE_SECURITY_INFORMATION` is requested, and `TryAccessCheck` refuses (Unreadable) any DACL containing an ACE type other than ACCESS_ALLOWED (0) or ACCESS_DENIED (1), or an unparsable ACL. This applies to both the handle path and the test descriptor path. Tests cover conditional allow and deny ACEs on resource and user claims, plus an object ACE, all giving Unreadable. |
+| M1 | Medium | Windows N1 evidence not yet green | Fixture and resolver fixes above; Windows CI pending on the remediation commit |
+| L1 | Low | Ancestor opens are share-read only, which briefly conflicts with renames in `C:\`, ProgramData or Windows | Recorded as availability only: the handles are held for milliseconds and the result fails closed. Not changed, so the reader's single read-only open path stays as is. |
+| L2 | Low | `ChocolateyNativeRoots` could be constructed freely | `TryResolveLaunchPaths` requires `Root`/`HttpCache` to equal ProgramData plus `\chocolatey` / `\ChocolateyHttpCache` |
+| L3 | Low | The environment/registry ban covered only the N1 files | The ban now covers the whole `Native/` folder |
+| Info | — | ReFS wide IDs and WOF, dedup or OneDrive reparse tags refuse, so GAC roots may be unavailable on CompactOS machines | Recorded (fail closed) |
+

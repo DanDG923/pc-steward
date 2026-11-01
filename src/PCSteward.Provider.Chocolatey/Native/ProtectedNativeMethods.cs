@@ -61,6 +61,8 @@ internal static class ProtectedNativeMethods
     internal const uint GroupSecurityInformation = 0x00000002;
     internal const uint DaclSecurityInformation = 0x00000004;
     internal const uint LabelSecurityInformation = 0x00000010;
+    /// <summary>ATTRIBUTE_SECURITY_INFORMATION: resource attributes, which conditional ACEs can reference (needs READ_CONTROL).</summary>
+    internal const uint AttributeSecurityInformation = 0x00000020;
     internal const uint MaximumAllowed = 0x02000000;
 
     /// <summary>Same layout as Execution's <c>FILE_ID_INFO</c> declaration (architecture-tested).</summary>
@@ -237,6 +239,12 @@ internal static class ProtectedNativeMethods
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsValidSecurityDescriptor(IntPtr securityDescriptor);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetSecurityDescriptorDacl(IntPtr securityDescriptor, [MarshalAs(UnmanagedType.Bool)] out bool daclPresent,
+        out IntPtr dacl, [MarshalAs(UnmanagedType.Bool)] out bool daclDefaulted);
 
     [DllImport("kernel32.dll")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

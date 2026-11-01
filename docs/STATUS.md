@@ -1,5 +1,15 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N1 native primitives (2026-11-01):** Requester token policy and factories, AccessCheck in Node and Ancestor modes, the protected node reader, the bounded tree walker and native path resolution. Design rev 6 §2. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+
+The independent review was CONDITIONAL. Its **H1** finding is fixed: conditional or object ACEs are now Unreadable, and resource attributes are read. L2 and L3 are fixed, and L1 is recorded.
+
+Windows CI fixture issues are fixed:
+- children-first locking;
+- `KF_FLAG_DONT_VERIFY` for known folders.
+
+`GetUserProfileDirectory` on the identification token is confirmed to work on CI. See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Windows CI on the remediation commit is pending. No `src` caller.
+
 **Task 50 — host evidence run completed (2026-11-01):** The owner ran the approved Default steps (H1, H1b, H2, H5, H6; cleanup complete). The results are in the [result JSON](review/TASK_50_HOST_EVIDENCE_RESULT.json) and the [interpretation](review/TASK_50_HOST_EVIDENCE_INTERPRETATION.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 
 Verdicts:

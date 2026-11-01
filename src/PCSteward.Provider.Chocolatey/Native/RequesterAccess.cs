@@ -163,8 +163,10 @@ internal static class RequesterAccess
     {
         granted = 0;
         if (handle.IsInvalid || handle.IsClosed) return false;
+        // N1 review H1: resource attributes are read too, and TryAccessCheck refuses any DACL entry that is not a plain
+        // allow/deny ACE, so a conditional ACE can never be evaluated without the attributes it depends on.
         const uint Information = Win32.OwnerSecurityInformation | Win32.GroupSecurityInformation | Win32.DaclSecurityInformation |
-            Win32.LabelSecurityInformation;
+            Win32.LabelSecurityInformation | Win32.AttributeSecurityInformation;
         uint error = Win32.GetSecurityInfo(handle, Win32.SeFileObject, Information, out _, out _, out _, out _, out IntPtr descriptor);
         if (error != 0 || descriptor == IntPtr.Zero) return false;
         try
@@ -177,10 +179,35 @@ internal static class RequesterAccess
         }
     }
 
+    /// <summary>
+    /// N1 review H1: only ACCESS_ALLOWED_ACE_TYPE (0) and ACCESS_DENIED_ACE_TYPE (1) are evaluated. Conditional (callback),
+    /// object or any other ACE type, or an unparsable ACL, is Unreadable, because the verdict could depend on claims or
+    /// resource attributes. A NULL DACL (grants everything) has no entries and is left to AccessCheck.
+    /// </summary>
+    private static bool DaclHasOnlyPlainAces(IntPtr descriptor)
+    {
+        if (!Win32.GetSecurityDescriptorDacl(descriptor, out bool present, out IntPtr dacl, out _)) return false;
+        if (!present || dacl == IntPtr.Zero) return true;
+        // ACL header: AclRevision (1), Sbz1 (1), AclSize (2), AceCount (2), Sbz2 (2).
+        int aclSize = (ushort)Marshal.ReadInt16(dacl, 2);
+        int aceCount = (ushort)Marshal.ReadInt16(dacl, 4);
+        int offset = 8;
+        for (int index = 0; index < aceCount; index++)
+        {
+            if (offset + 4 > aclSize) return false;
+            byte aceType = Marshal.ReadByte(dacl, offset);
+            int aceSize = (ushort)Marshal.ReadInt16(dacl, offset + 2);
+            if (aceType is not (0 or 1) || aceSize < 4 || offset + aceSize > aclSize) return false;
+            offset += aceSize;
+        }
+        return true;
+    }
+
     private static bool TryAccessCheck(RequesterToken token, IntPtr descriptor, out uint granted)
     {
         granted = 0;
         if (token.Handle.IsInvalid || token.Handle.IsClosed || !Win32.IsValidSecurityDescriptor(descriptor)) return false;
+        if (!DaclHasOnlyPlainAces(descriptor)) return false;
         Win32.GenericMapping mapping = new()
         {
             GenericRead = 0x00120089,    // FILE_GENERIC_READ
