@@ -39,7 +39,7 @@ public sealed class ChocolateyProfileObserverTests
 
         using ChocolateyProfileObservation observation = Observed(result);
         Assert.AreEqual(fixture.RootPath("choco.exe"), trustedPath, "engine trust runs on the root engine's held handle, never the bin shim");
-        Assert.IsNull(observation.HeldFiles, "the Desktop role holds nothing");
+        Assert.IsNull(observation.HeldClient, "the Desktop role holds nothing");
         Assert.AreEqual("1.2.0", observation.InstalledVersion.Normalized);
         Assert.IsFalse(observation.TargetLibBadResidue);
         ChocolateyCommonProfileData common = observation.Common;
@@ -92,8 +92,14 @@ public sealed class ChocolateyProfileObserverTests
         ChocolateyProfileResult result = Observe(token, fixture, ChocolateyObserverRole.Helper);
         using (ChocolateyProfileObservation observation = Observed(result))
         {
-            ChocolateyHeldProfileFiles held = observation.HeldFiles ?? throw new AssertFailedException("the helper holds its files");
+            ChocolateyHeldClientBinding held = observation.HeldClient ?? throw new AssertFailedException("the helper holds its files");
             Assert.AreEqual(engine, held.Engine.Node.FullPath);
+            // N3: the binding launches the held root engine from the root, with TEMP/TMP = the observed protected cache.
+            Assert.AreEqual(engine, held.EnginePath);
+            Assert.AreEqual(fixture.Root, held.LaunchPaths.ChocolateyRoot);
+            Assert.AreEqual(fixture.Cache, held.LaunchPaths.ProtectedCache);
+            Assert.AreEqual(N2ProfileFixture.Target, held.TargetId);
+            Assert.IsTrue(held.CanLaunch && held.CodeHeld);
             Assert.AreEqual(N2ProfileFixture.ReleasePaths.Length, held.ReleaseFiles.Count);
             Assert.AreEqual(2, held.CodeFiles.Count);
             Assert.ThrowsExactly<IOException>(() => OpenForWrite(engine), "a held release file cannot be opened for write");

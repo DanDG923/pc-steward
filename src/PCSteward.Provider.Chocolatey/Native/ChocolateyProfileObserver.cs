@@ -157,6 +157,7 @@ internal static class ChocolateyProfileObserver
         private string codeDigest = string.Empty;
         private ChocolateyConfigurationObservation configuration = null!;
         private string cacheIdentity = string.Empty;
+        private ChocolateyLaunchPaths? launchPaths;
         private ChocolateyRegistrationRecord target = null!;
         private string? storeIdentity;
         private bool libBadResidue;
@@ -191,9 +192,15 @@ internal static class ChocolateyProfileObserver
             ChocolateyClientStateData clientState = new(engineSha256, codeDigest,
                 ChocolateyProfileRules.ComputeRegistrationDigest(clientRecords), ChocolateyProfileRules.ComputeRegistrationDigest(extensionRecords));
             if (run.Interrupted) return run.Interrupt();
-            held?.Seal();
+            ChocolateyHeldClientBinding? client = null;
+            if (held is not null)
+            {
+                // N3: the binding takes the sealed holder over; its launch paths were resolved and validated in step 6.
+                held.Seal();
+                client = ChocolateyHeldClientBinding.Create(held, launchPaths!, targetId);
+            }
             return ChocolateyProfileResult.Observed.Create(
-                ChocolateyProfileObservation.Create(common, fingerprint, clientState, installed, libBadResidue, held));
+                ChocolateyProfileObservation.Create(common, fingerprint, clientState, installed, libBadResidue, client));
         }
 
         /// <summary>The observation took ownership of the held files.</summary>
@@ -410,6 +417,16 @@ internal static class ChocolateyProfileObserver
                 RequesterAccess.Evaluate(token, cacheHandle, directory: true, parentDirectory: null, AccessMode.Node) != RequesterModification.Denied)
                 return false;
             cacheIdentity = ChocolateyProfileRules.FormatIdentity(cacheNode.Identity);
+
+            // Helper only (N3, §4): the compiled launch environment's paths, with TEMP/TMP = this protected cacheLocation.
+            // An unresolvable or unformattable path set refuses here, inside the MachineInputsUnsupported steps. The HTTP
+            // cache is not a launch path; under the test seam (which may substitute it) the fixed concatenation is supplied.
+            if (held is not null)
+            {
+                ChocolateyNativeRoots launchRoots = seam is null ? roots : roots with { HttpCache = roots.ProgramData + @"\ChocolateyHttpCache" };
+                launchPaths = ChocolateyNativePathResolver.TryResolveLaunchPaths(token, launchRoots, cache);
+                if (launchPaths is null || !ChocolateyHeldClientBinding.IsLaunchable(launchPaths, roots.Root)) return false;
+            }
             return !run.Interrupted;
         }
 

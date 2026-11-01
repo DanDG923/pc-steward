@@ -4,9 +4,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace PCSteward.ArchitectureTests;
 
 /// <summary>
-/// FR-UPD-15, TM-03/07/13; Task 50 design rev 5 §4.1 and §8 N0 (rev-4 M1): the N0 launcher core, its test-only spec
-/// factory and its test-only fault hook have no <c>src</c> caller until the typed N3 wrapper exists; the native launcher
-/// code reads no ambient environment or registry state, declares only internal types and permits no job breakaway.
+/// FR-UPD-15, TM-03/07/13; Task 50 design rev 6 §4.1, §8 N0 and N3 (rev-4 M1, rev-5 F3): the N0 launcher core's only
+/// <c>src</c> caller is the typed N3 wrapper <c>LaunchJob.RunAsync</c> (the compiled-IL rule is in
+/// <see cref="NativeLauncherCompiledReferenceTests"/>); its test-only spec factory and test-only fault hook have no
+/// <c>src</c> caller; the native launcher code reads no ambient environment or registry state, declares only internal
+/// types and permits no job breakaway.
 /// </summary>
 [TestClass]
 public sealed class NativeLauncherBoundaryTests
@@ -21,8 +23,10 @@ public sealed class NativeLauncherBoundaryTests
         string launchJob = sources.Keys.Single(path => IsNativeFile(path, LaunchJobFile));
         string spec = sources.Keys.Single(path => IsNativeFile(path, SpecFile));
 
-        // Definitions only: one declaration each, no internal call.
-        Assert.AreEqual(1, Count(sources[launchJob], @"\bRunCoreAsync\b"), "LaunchJob.cs may only declare the core");
+        // N3: the core is declared once and called once (by RunAsync); documentation lines are not code.
+        Assert.AreEqual(2, Count(Code(sources[launchJob]), @"\bRunCoreAsync\b"), "LaunchJob.cs may only declare the core and call it from RunAsync");
+        Assert.AreEqual(1, Count(Code(sources[launchJob]), @"return\s+RunCoreAsync\(spec,\s*deadline,\s*cancellationToken\);"),
+            "the one core call is RunAsync's");
         Assert.AreEqual(1, Count(sources[launchJob], @"\bRunCoreWithFaultForTestsAsync\b"), "LaunchJob.cs may only declare the fault entry");
         Assert.AreEqual(1, Count(sources[spec], @"\bForTests\b"), "NativeLaunchSpec.cs may only declare the test factory");
 
@@ -120,6 +124,10 @@ public sealed class NativeLauncherBoundaryTests
             .ToDictionary(path => path, File.ReadAllText);
 
     private static int Count(string source, string pattern) => Regex.Count(source, pattern);
+
+    /// <summary>The source without <c>///</c> documentation lines.</summary>
+    private static string Code(string source) =>
+        string.Join('\n', source.Split('\n').Where(line => !line.TrimStart().StartsWith("///", StringComparison.Ordinal)));
 
     private static string FindRepositoryRoot()
     {

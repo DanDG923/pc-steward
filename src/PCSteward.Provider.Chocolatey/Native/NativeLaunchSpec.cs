@@ -3,16 +3,24 @@ using System.Collections.ObjectModel;
 namespace PCSteward.Provider.Chocolatey.Native;
 
 /// <summary>
-/// Immutable, validated input to the N0 launcher (Task 50 design rev 5 §4.1, rev-4 M1). Construction is private: in N0
-/// the only factory is the test-only factory below, which an architecture test bans from every <c>src</c> caller. The
-/// typed N3 wrapper builds specs from a held client binding and a sealed compiled command. The environment is the
-/// complete child environment; it is never merged with the current process environment.
+/// Immutable, validated input to the N0 launcher (Task 50 design rev 6 §4.1, rev-4 M1, rev-5 F3). Construction is
+/// private. The only production factory is <see cref="FromBinding"/>, whose only call site is
+/// <see cref="LaunchJob.RunAsync"/>; the test-only factory is banned from every <c>src</c> caller (both
+/// checked on compiled IL). The environment is the complete child environment; it is never merged with the current
+/// process environment. A spec from <see cref="FromBinding"/> also carries its binding, so the launcher refuses to create
+/// a process once the binding no longer holds the engine, and releases the code holds after an upgrade's resume (§4 L2).
 /// </summary>
 internal sealed class NativeLaunchSpec
 {
+    private readonly ChocolateyHeldClientBinding? client;
+    private readonly bool releaseCodeAfterResume;
+
     private NativeLaunchSpec(string imagePath, IReadOnlyList<string> arguments,
-        IReadOnlyDictionary<string, string> environment, string workingDirectory)
+        IReadOnlyDictionary<string, string> environment, string workingDirectory, ChocolateyHeldClientBinding? client = null,
+        bool releaseCodeAfterResume = false)
     {
+        this.client = client;
+        this.releaseCodeAfterResume = releaseCodeAfterResume;
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(environment);
         ImagePath = NativeCommandLine.ValidateImagePath(imagePath, nameof(imagePath));
@@ -39,8 +47,52 @@ internal sealed class NativeLaunchSpec
     internal IReadOnlyDictionary<string, string> Environment { get; }
     internal string WorkingDirectory { get; }
 
+    /// <summary>
+    /// The launcher's pre-creation check: a binding spec may create a process only while its binding is undisposed and its
+    /// code holds are in place. A test-only spec has no binding.
+    /// </summary>
+    internal bool MayCreateProcess => client is null || client.CanLaunch;
+
+    /// <summary>
+    /// Called by the launcher once <c>CreateProcessW</c>, <c>AssignProcessToJobObject</c> and <c>ResumeThread</c> have all
+    /// succeeded: an upgrade spec releases its binding's code holds (§4 L2); every other spec does nothing.
+    /// </summary>
+    internal void OnResumed()
+    {
+        if (releaseCodeAfterResume) client!.ReleaseCodeAfterResume();
+    }
+
+    /// <summary>
+    /// N3 (rev-5 F3): the only production factory; its only call site is <see cref="LaunchJob.RunAsync"/> (architecture
+    /// test). No string comes from the caller: the image is the held engine, argv[1..] is the sealed command's fixed list,
+    /// the environment is <see cref="ChocolateyCompiledEnvironment.Create"/> over the binding's launch paths, and the working
+    /// directory is the Chocolatey root. A list or upgrade command must name the binding's target exactly.
+    /// </summary>
+    internal static NativeLaunchSpec FromBinding(ChocolateyHeldClientBinding client, ChocolateyCompiledCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(command);
+        if (!client.CanLaunch) throw new InvalidOperationException("The held client binding can no longer launch.");
+        IReadOnlyList<string> arguments = command.Arguments;
+        bool upgrade = command switch
+        {
+            ChocolateyCompiledCommand.ListExact list when IsTarget(client, list.PackageId) && arguments.Count == 5 &&
+                arguments[0] == "list" && arguments[1] == list.PackageId => false,
+            ChocolateyCompiledCommand.Outdated when arguments.Count > 0 && arguments[0] == "outdated" => false,
+            ChocolateyCompiledCommand.Upgrade update when IsTarget(client, update.PackageId) && arguments.Count > 3 &&
+                arguments[0] == "upgrade" && arguments[1] == update.PackageId && arguments[3] == update.CandidateVersion => true,
+            _ => throw new ArgumentException("The command is not a compiled command for this binding.", nameof(command)),
+        };
+        ChocolateyLaunchPaths paths = client.LaunchPaths;
+        return new NativeLaunchSpec(client.EnginePath, arguments, ChocolateyCompiledEnvironment.Create(paths), paths.ChocolateyRoot,
+            client, upgrade);
+    }
+
     /// <summary>Test-only factory (rev-4 M1). Any <c>src</c> caller fails the architecture tests.</summary>
     internal static NativeLaunchSpec ForTests(string imagePath, IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string> environment, string workingDirectory) =>
         new(imagePath, arguments, environment, workingDirectory);
+
+    private static bool IsTarget(ChocolateyHeldClientBinding client, string packageId) =>
+        string.Equals(client.TargetId, packageId, StringComparison.Ordinal);
 }

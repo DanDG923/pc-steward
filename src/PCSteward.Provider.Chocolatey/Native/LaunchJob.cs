@@ -70,6 +70,34 @@ internal sealed class LaunchJob : IDisposable
     internal static Task<NativeProcessObservation> RunCoreAsync(NativeLaunchSpec spec, TimeSpan deadline,
         CancellationToken cancellationToken) => StartAsync(spec, deadline, LaunchJobFault.None, cancellationToken);
 
+    /// <summary>
+    /// N3 (§4.1, rev-2 M4): the typed launcher entry. It takes no path or argument string: the spec comes only from
+    /// <see cref="NativeLaunchSpec.FromBinding"/> over the held binding and the sealed command. The launch deadline is
+    /// <see cref="CapDeadline"/>: the command's existing item budget capped by <paramref name="remaining"/> (§4 M5). An
+    /// already-cancelled token, or nothing left of the budget, creates no process and reports a settled
+    /// <see cref="NativeInvocation.NotStarted"/> with the matching flag. Called only by the three
+    /// <c>ChocolateyClientQueries</c> methods (architecture test); this is the only <c>src</c> caller of
+    /// <see cref="RunCoreAsync"/>.
+    /// </summary>
+    internal static Task<NativeProcessObservation> RunAsync(ChocolateyHeldClientBinding client, ChocolateyCompiledCommand command,
+        TimeSpan remaining, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(command);
+        NativeLaunchSpec spec = NativeLaunchSpec.FromBinding(client, command);
+        if (cancellationToken.IsCancellationRequested) return Task.FromResult(NotStarted(cancelled: true));
+        TimeSpan deadline = CapDeadline(command, remaining);
+        if (deadline <= TimeSpan.Zero) return Task.FromResult(NotStarted(cancelled: false, timedOut: true));
+        return RunCoreAsync(spec, deadline, cancellationToken);
+    }
+
+    /// <summary>min(the command's existing budget, <paramref name="remaining"/>); never longer than the budget (§4 M5).</summary>
+    internal static TimeSpan CapDeadline(ChocolateyCompiledCommand command, TimeSpan remaining)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        return remaining < command.Budget ? remaining : command.Budget;
+    }
+
     /// <summary>Test-only entry with an injected fault. Any <c>src</c> caller fails the architecture tests.</summary>
     internal static Task<NativeProcessObservation> RunCoreWithFaultForTestsAsync(NativeLaunchSpec spec, TimeSpan deadline,
         LaunchJobFault fault, CancellationToken cancellationToken) => StartAsync(spec, deadline, fault, cancellationToken);
@@ -131,7 +159,9 @@ internal sealed class LaunchJob : IDisposable
                     return NotStarted(cancelled: false);
                 }
 
-                created = TryCreateSuspended(spec, commandLine, environment, input, outputPipe, errorPipe, out process, out thread);
+                // N3: a binding that no longer holds its engine (disposed, or already released by an upgrade) launches nothing.
+                created = spec.MayCreateProcess &&
+                    TryCreateSuspended(spec, commandLine, environment, input, outputPipe, errorPipe, out process, out thread);
                 try
                 {
                     // Drop every parent-side inheritable copy before leaving the gate; the child holds its own.
@@ -169,6 +199,10 @@ internal sealed class LaunchJob : IDisposable
                 // L1: a never-resumed process is NotStarted only once its termination is confirmed.
                 return TerminateAndConfirm(process, fault) ? NotStarted(cancelled: false) : Unknown(terminationFailed: true);
             }
+            // §4 L2: CreateProcessW, assignment and resume all succeeded; an upgrade now releases the code holds. A failed
+            // release only keeps the holds longer (until the binding is disposed), so it never changes the outcome.
+            try { spec.OnResumed(); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { }
             return launch.Supervise(process, output, error, budget, deadline, clock, fault, cancellationToken);
         }
         finally
@@ -399,9 +433,9 @@ internal sealed class LaunchJob : IDisposable
         }
     }
 
-    private static NativeProcessObservation NotStarted(bool cancelled) =>
+    private static NativeProcessObservation NotStarted(bool cancelled, bool timedOut = false) =>
         new(NativeInvocation.NotStarted, ExitCode: null, DirectExitObserved: false, OwnedIoCompleted: false,
-            PipeEofObserved: false, TerminationFailed: false, AggregateSettled: true, cancelled, TimedOut: false,
+            PipeEofObserved: false, TerminationFailed: false, AggregateSettled: true, cancelled, timedOut,
             OutputLimitExceeded: false, LingeringTerminated: false, string.Empty, string.Empty);
 
     private static NativeProcessObservation Unknown(bool terminationFailed) =>

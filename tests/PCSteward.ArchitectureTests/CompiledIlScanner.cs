@@ -15,7 +15,42 @@ internal static class CompiledIlScanner
 {
     internal enum ReferenceKind { Method, Field, Type }
 
-    internal readonly record struct IlReference(string Caller, string TargetType, string TargetMember, ReferenceKind Kind);
+    internal readonly record struct IlReference(string Caller, string TargetType, string TargetMember, ReferenceKind Kind)
+    {
+        /// <summary>The innermost declaring type of the calling method (may be a compiler-generated nested type).</summary>
+        internal string? CallerType { get; init; }
+
+        /// <summary>The calling method's metadata name (for example <c>MoveNext</c> or <c>&lt;M&gt;b__0_0</c>).</summary>
+        internal string? CallerMethod { get; init; }
+
+        /// <summary>
+        /// The source-level caller "Type.Method": compiler-generated nested types (async/iterator state machines, display
+        /// classes, <c>&lt;&gt;c</c>) and lambda/local-function names are mapped back to the declaring source method.
+        /// </summary>
+        internal string LogicalCaller
+        {
+            get
+            {
+                List<string> segments = [.. (CallerType ?? Caller).Split('+')];
+                string? generatedMethod = null;
+                while (segments.Count > 1 && segments[^1].StartsWith('<'))
+                {
+                    string segment = segments[^1];
+                    if (!segment.StartsWith("<>", StringComparison.Ordinal)) generatedMethod ??= Between(segment);
+                    segments.RemoveAt(segments.Count - 1);
+                }
+                string method = CallerMethod ?? string.Empty;
+                string name = method.StartsWith('<') ? Between(method) : generatedMethod ?? method;
+                return string.Join('+', segments) + "." + name;
+            }
+        }
+
+        private static string Between(string generated)
+        {
+            int close = generated.IndexOf('>', StringComparison.Ordinal);
+            return close > 1 ? generated[1..close] : generated;
+        }
+    }
 
     internal sealed record StructLayoutFacts(TypeAttributes Layout, int Packing, int Size, IReadOnlyList<(string Name, byte[] Signature)> Fields);
 
@@ -34,9 +69,11 @@ internal static class CompiledIlScanner
         foreach (TypeDefinitionHandle typeHandle in md.TypeDefinitions)
         {
             string caller = OutermostName(md, typeHandle);
+            string callerType = FullName(md, typeHandle);
             foreach (MethodDefinitionHandle methodHandle in md.GetTypeDefinition(typeHandle).GetMethods())
             {
                 MethodDefinition method = md.GetMethodDefinition(methodHandle);
+                string callerMethod = md.GetString(method.Name);
                 if (method.RelativeVirtualAddress == 0) continue;
                 BlobReader il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILReader();
                 while (il.RemainingBytes > 0)
@@ -49,7 +86,7 @@ internal static class CompiledIlScanner
                     {
                         case OperandType.InlineMethod or OperandType.InlineTok or OperandType.InlineField or OperandType.InlineType:
                             if (TryResolve(md, MetadataTokens.EntityHandle(il.ReadInt32()), out string type, out string member, out ReferenceKind kind))
-                                yield return new IlReference(caller, type, member, kind);
+                                yield return new IlReference(caller, type, member, kind) { CallerType = callerType, CallerMethod = callerMethod };
                             break;
                         case OperandType.InlineSwitch:
                             // Read the count first: "il.Offset += 4 * il.ReadInt32()" would read Offset before the count.
@@ -156,6 +193,9 @@ internal static class CompiledIlScanner
                 {
                     HandleKind.TypeReference => FullName(md, (TypeReferenceHandle)reference.Parent),
                     HandleKind.TypeDefinition => FullName(md, (TypeDefinitionHandle)reference.Parent),
+                    // N3: a member of a generic instantiation (for example ChocolateyQueryOutcome<T>.Create) resolves to
+                    // its generic type definition, so its call sites are visible to the boundary tests.
+                    HandleKind.TypeSpecification => GenericDefinitionName(md, (TypeSpecificationHandle)reference.Parent),
                     _ => string.Empty,
                 };
                 return type.Length != 0;
@@ -172,6 +212,21 @@ internal static class CompiledIlScanner
             default:
                 return false;
         }
+    }
+
+    /// <summary>The generic type definition of a <c>GENERICINST</c> type specification, or empty for any other specification.</summary>
+    private static string GenericDefinitionName(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        BlobReader blob = md.GetBlobReader(md.GetTypeSpecification(handle).Signature);
+        if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance) return string.Empty;
+        _ = blob.ReadSignatureTypeCode(); // CLASS or VALUETYPE
+        EntityHandle definition = blob.ReadTypeHandle();
+        return definition.Kind switch
+        {
+            HandleKind.TypeDefinition => FullName(md, (TypeDefinitionHandle)definition),
+            HandleKind.TypeReference => FullName(md, (TypeReferenceHandle)definition),
+            _ => string.Empty,
+        };
     }
 
     private static string OutermostName(MetadataReader md, TypeDefinitionHandle handle)

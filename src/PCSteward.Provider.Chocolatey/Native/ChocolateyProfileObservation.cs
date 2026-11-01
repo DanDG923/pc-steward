@@ -24,16 +24,18 @@ internal readonly record struct ChocolateyHeldFile(string RelativePath, NativeNo
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §3 and §4 (M4, L2): the read-share-only handles the helper keeps on the
 /// root engine, every release-tree file and every <c>hooks</c>/<c>extensions</c> code file it observed, so none of them can
-/// be written, renamed, deleted or replaced while held. This is an interim internal holder: N3 owns
-/// <c>ChocolateyHeldClientBinding</c>, which will take these handles over (and release the code holds after process
-/// creation). Private construction; only <see cref="ChocolateyProfileObserver"/> creates and fills one, and it is sealed
-/// before an observation carries it. Disposing it closes every handle.
+/// be written, renamed, deleted or replaced while held. Private construction; only <see cref="ChocolateyProfileObserver"/>
+/// creates and fills one, and it is sealed before <see cref="ChocolateyHeldClientBinding"/> takes it over (N3). The binding
+/// releases only the code holds, once, after the upgrade's process creation, assignment and resume all succeeded
+/// (<see cref="ReleaseCode"/>); disposing closes every remaining handle.
 /// </summary>
 internal sealed class ChocolateyHeldProfileFiles : IDisposable
 {
     private readonly List<ChocolateyHeldFile> release = [];
     private readonly List<ChocolateyHeldFile> code = [];
+    private readonly Lock gate = new();
     private bool sealedForUse;
+    private bool codeReleased;
     private bool disposed;
 
     private ChocolateyHeldProfileFiles() { }
@@ -47,7 +49,21 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
     /// <summary>Every regular file under <c>hooks</c> and <c>extensions</c>, in walk order.</summary>
     internal IReadOnlyList<ChocolateyHeldFile> CodeFiles => code.AsReadOnly();
 
-    internal bool IsDisposed => disposed;
+    internal bool IsDisposed
+    {
+        get { lock (gate) return disposed; }
+    }
+
+    internal bool IsSealed
+    {
+        get { lock (gate) return sealedForUse; }
+    }
+
+    /// <summary>True once <see cref="ReleaseCode"/> closed the code handles (or the holder was disposed).</summary>
+    internal bool CodeReleased
+    {
+        get { lock (gate) return codeReleased || disposed; }
+    }
 
     /// <summary>Observer only (an architecture test pins the call site).</summary>
     internal static ChocolateyHeldProfileFiles Begin() => new();
@@ -72,17 +88,38 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
     /// <summary>Ends filling; requires the engine to be held.</summary>
     internal void Seal()
     {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (Engine.Handle is null) throw new InvalidOperationException("No engine is held.");
-        sealedForUse = true;
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (Engine.Handle is null) throw new InvalidOperationException("No engine is held.");
+            sealedForUse = true;
+        }
+    }
+
+    /// <summary>
+    /// Closes the <c>hooks</c>/<c>extensions</c> handles only (§4 L2); the engine and release-tree holds stay until
+    /// <see cref="Dispose"/>. Binding only (an architecture test pins the call site). Idempotent.
+    /// </summary>
+    internal void ReleaseCode()
+    {
+        lock (gate)
+        {
+            if (!sealedForUse) throw new InvalidOperationException("The held file set is not sealed.");
+            if (codeReleased || disposed) return;
+            codeReleased = true;
+            foreach (ChocolateyHeldFile file in code) file.Handle.Dispose();
+        }
     }
 
     public void Dispose()
     {
-        if (disposed) return;
-        disposed = true;
-        foreach (ChocolateyHeldFile file in release) file.Handle.Dispose();
-        foreach (ChocolateyHeldFile file in code) file.Handle.Dispose();
+        lock (gate)
+        {
+            if (disposed) return;
+            disposed = true;
+            foreach (ChocolateyHeldFile file in release) file.Handle.Dispose();
+            foreach (ChocolateyHeldFile file in code) file.Handle.Dispose();
+        }
     }
 
     private void Require(ChocolateyHeldFile file)
@@ -98,20 +135,20 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §3: one complete static profile observation. Private construction;
 /// produced only by <see cref="ChocolateyProfileObserver"/> after every §3 step passed. <see cref="Common"/> feeds
 /// <see cref="ChocolateyCommonProfileFingerprint.Compute"/>, whose result is <see cref="Fingerprint"/>; <see cref="ClientState"/>
-/// is the Task 90 M2 file-first baseline from the same reads. <see cref="HeldFiles"/> is non-null only for the Helper role.
+/// is the Task 90 M2 file-first baseline from the same reads. <see cref="HeldClient"/> is non-null only for the Helper role.
 /// This is comparison data, not a dispatch permit.
 /// </summary>
 internal sealed class ChocolateyProfileObservation : IDisposable
 {
     private ChocolateyProfileObservation(ChocolateyCommonProfileData common, string fingerprint, ChocolateyClientStateData clientState,
-        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldProfileFiles? heldFiles)
+        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient)
     {
         Common = common;
         Fingerprint = fingerprint;
         ClientState = clientState;
         InstalledVersion = installedVersion;
         TargetLibBadResidue = targetLibBadResidue;
-        HeldFiles = heldFiles;
+        HeldClient = heldClient;
     }
 
     internal ChocolateyCommonProfileData Common { get; }
@@ -125,21 +162,24 @@ internal sealed class ChocolateyProfileObservation : IDisposable
     /// <summary>Disclosure only: <c>lib-bad</c> holds an entry starting with the target ID. It never establishes installed state.</summary>
     internal bool TargetLibBadResidue { get; }
 
-    /// <summary>Helper role only (§4 M4, L2): the held engine, release-tree and code files. Null for the Desktop role.</summary>
-    internal ChocolateyHeldProfileFiles? HeldFiles { get; }
+    /// <summary>
+    /// Helper role only (§4 M4, L2, L6): the retained root-engine binding over the held engine, release-tree and code files.
+    /// Null for the Desktop role. Disposing the observation disposes the binding.
+    /// </summary>
+    internal ChocolateyHeldClientBinding? HeldClient { get; }
 
     /// <summary>Observer only (an architecture test pins the call site).</summary>
     internal static ChocolateyProfileObservation Create(ChocolateyCommonProfileData common, string fingerprint, ChocolateyClientStateData clientState,
-        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldProfileFiles? heldFiles)
+        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient)
     {
         ArgumentNullException.ThrowIfNull(common);
         ArgumentException.ThrowIfNullOrEmpty(fingerprint);
         ArgumentNullException.ThrowIfNull(clientState);
         ArgumentNullException.ThrowIfNull(installedVersion);
-        return new ChocolateyProfileObservation(common, fingerprint, clientState, installedVersion, targetLibBadResidue, heldFiles);
+        return new ChocolateyProfileObservation(common, fingerprint, clientState, installedVersion, targetLibBadResidue, heldClient);
     }
 
-    public void Dispose() => HeldFiles?.Dispose();
+    public void Dispose() => HeldClient?.Dispose();
 }
 
 /// <summary>

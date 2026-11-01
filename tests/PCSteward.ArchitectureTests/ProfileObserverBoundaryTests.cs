@@ -21,6 +21,7 @@ public sealed class ProfileObserverBoundaryTests
     private const string Result = Native + "ChocolateyProfileResult";
     private const string Held = Native + "ChocolateyHeldProfileFiles";
     private const string Seam = Native + "ChocolateyObserverTestSeam";
+    private const string Binding = Native + "ChocolateyHeldClientBinding";
 
     private const string ManifestFile = "ChocolateyReleaseManifest2_7_5.cs";
 
@@ -49,6 +50,8 @@ public sealed class ProfileObserverBoundaryTests
     [
         (Observation, "Create", Observer),
         (Held, "Begin", Observer),
+        // N3: the retained binding is built only by the observer, from the holder it sealed.
+        (Binding, "Create", Observer),
         (Result + "+Observed", "Create", Observer),
         (Result + "+Refused", "Create", Observer),
         (Result + "+TimedOut", "Create", Observer),
@@ -59,7 +62,7 @@ public sealed class ProfileObserverBoundaryTests
 
     private static readonly string[] PrivatelyConstructed =
     [
-        Observation, Held, Seam, Result, Result + "+Observed", Result + "+Refused", Result + "+TimedOut", Result + "+Cancelled",
+        Observation, Held, Binding, Seam, Result, Result + "+Observed", Result + "+Refused", Result + "+TimedOut", Result + "+Cancelled",
     ];
 
     [TestMethod]
