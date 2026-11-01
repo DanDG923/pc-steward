@@ -15,6 +15,8 @@ public sealed class DeploymentCapabilityBoundaryTests
         ["IHelperProtocolCapability", "HelperProtocolCapabilityStatus", "HelperProtocolCapabilityResult", "DeploymentCapabilityPolicy",
          "DeploymentCapabilityInputs", "DeploymentObservedFile", "DeploymentLedger", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader",
          "DeploymentCapabilityLayout", "DeploymentLayoutProtectionCheck", "DeploymentCapabilityStage", "DeploymentFileAccess", "WindowsFileIdentity"];
+    private static readonly string[] BindingReferencingFiles =
+        ["HeldHelperBinding.cs", "IHelperProtocolCapability.cs", "OwnerOnlyDeploymentCapabilityReader.cs", "ReviewedHelperProtocol2Transport.cs"];
     private static readonly string[] ReaderSources =
         ["OwnerOnlyDeploymentCapabilityReader.cs", "HeldHelperBinding.cs", "DeploymentFileAccess.cs"];
 
@@ -68,8 +70,8 @@ public sealed class DeploymentCapabilityBoundaryTests
     [TestMethod]
     public void ProtocolOneTransportIsNotWiredToTheCapabilitySeamYet()
     {
-        // This slice adds no protocol-2 dispatcher, endpoint or route admission: the protocol-1 transport and every
-        // Application/Desktop file stay free of the reader and the held binding.
+        // The protocol-2 transport is a separate type; the protocol-1 transport stays free of the seam, and no file
+        // constructs the reader (no production caller until route admission).
         string src = Path.Combine(FindRepositoryRoot(), "src");
         string transport = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
         foreach (string type in new[] { "IHelperProtocolCapability", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader", "DeploymentFileAccess", "TryHold" })
@@ -79,6 +81,72 @@ public sealed class DeploymentCapabilityBoundaryTests
             if (path.EndsWith("OwnerOnlyDeploymentCapabilityReader.cs", StringComparison.Ordinal)) continue;
             Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\s*\("), $"{path} constructs the reader (no production caller yet)");
         }
+    }
+
+    [TestMethod]
+    public void HeldBindingIsCreatedOnlyByTheReaderAndReleasedOnlyAtTheOwnershipPoint()
+    {
+        // Review-16 L2: TryCreate is called only by the reader; outside the reader's own refusal paths, the binding is
+        // disposed only when no helper process exists or by the continuation of the ownership task (exit observed and
+        // transport sealed); the transport keeps a strong reference until after seal.
+        string src = Path.Combine(FindRepositoryRoot(), "src");
+        string execution = Path.Combine(src, "PCSteward.Execution");
+        string[] referencing = [.. Sources(src).Where(path => Regex.IsMatch(File.ReadAllText(path), @"\bHeldHelperBinding\b"))
+            .Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)];
+        CollectionAssert.AreEqual(BindingReferencingFiles, referencing);
+        foreach (string path in Sources(src))
+            if (Path.GetFileName(path) is not ("OwnerOnlyDeploymentCapabilityReader.cs" or "HeldHelperBinding.cs"))
+                Assert.IsFalse(File.ReadAllText(path).Contains("HeldHelperBinding.TryCreate", StringComparison.Ordinal), $"{path} creates a binding");
+        Assert.AreEqual(1, Regex.Count(File.ReadAllText(Path.Combine(execution, "OwnerOnlyDeploymentCapabilityReader.cs")), @"HeldHelperBinding\.TryCreate\("));
+
+        string transport = File.ReadAllText(Path.Combine(execution, "ReviewedHelperProtocol2Transport.cs"));
+        Assert.AreEqual(2, Regex.Count(transport, @"\.Dispose\(\)"), "the only two release points");
+        Assert.IsTrue(Regex.IsMatch(transport, @"private static void ReleaseWithoutHelper\(HeldHelperBinding binding\) => binding\.Dispose\(\);"));
+        Assert.IsTrue(Regex.IsMatch(transport,
+            @"private static void ReleaseAfterOwnership\(Task ownedCompletion, HeldHelperBinding binding\) =>\s+_ = ownedCompletion\.ContinueWith\(static \(_, state\) => \(\(HeldHelperBinding\)state!\)\.Dispose\(\)"));
+        Assert.AreEqual(1, Regex.Count(transport, @"ReleaseAfterOwnership\(owned\.OwnedCompletion, binding\);"));
+        int release = transport.IndexOf("ReleaseAfterOwnership(owned.OwnedCompletion, binding);", StringComparison.Ordinal);
+        int run = transport.IndexOf("await ReviewedHelperExchangeSession.RunAsync(", StringComparison.Ordinal);
+        int keepAlive = transport.IndexOf("GC.KeepAlive(binding);", StringComparison.Ordinal);
+        Assert.IsTrue(release > 0 && run > release && keepAlive > run, "release is registered before the exchange; the strong reference outlives it");
+        // The ownership task completes only after HelperProcessWork.SealTransport and an observed exit.
+        StringAssert.Contains(File.ReadAllText(Path.Combine(execution, "HelperProcessWork.cs")), "await Task.WhenAll(exit, finished)");
+        Assert.IsTrue(Regex.IsMatch(File.ReadAllText(Path.Combine(execution, "ReviewedHelperProtocol2Transport.cs")),
+            @"finally\s*\{\s*owned\.SealTransport\(\);\s*\}"), "the session seals the transport in a finally block");
+    }
+
+    [TestMethod]
+    public void ProtocolTwoTransportAndDispatcherAreNotComposedAndNeverFallBackToProtocolOne()
+    {
+        string src = Path.Combine(FindRepositoryRoot(), "src");
+        string execution = Path.Combine(src, "PCSteward.Execution");
+        foreach (string path in Sources(src))
+        {
+            string source = File.ReadAllText(path);
+            Assert.IsFalse(Regex.IsMatch(source, @"new\s+WindowsReviewedHelperTransport\s*\("), $"{path} composes the protocol-2 transport (route not admitted)");
+            Assert.IsFalse(Regex.IsMatch(source, @"new\s+ChocolateyRuntimeLimitsRouteDispatcher\s*\("), $"{path} composes the route dispatcher (route not admitted)");
+        }
+        string transport = File.ReadAllText(Path.Combine(execution, "ReviewedHelperProtocol2Transport.cs"));
+        string dispatcher = File.ReadAllText(Path.Combine(execution, "ChocolateyRuntimeLimitsRouteDispatcher.cs"));
+        StringAssert.Contains(transport, "\"--protocol\", ReviewedUpdateWireCodec.ProtocolVersion,");
+        foreach (string source in new[] { transport, dispatcher })
+        {
+            foreach (string forbidden in new[]
+            {
+                "ElevatedHelperProtocol.Version", "ElevatedHelperProtocol.CreateRequest", "ElevatedHelperProtocol.TryReadResponse", "ImmutableUpdateJob",
+                "Sqlite", "Registry", "GetEnvironmentVariable", "ExpandEnvironmentVariables", "HttpClient", "CurrentDirectory", "MemoryCache", "Lazy<",
+            })
+                Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal), $"protocol-2 adapter contains {forbidden}");
+            foreach (Match member in Regex.Matches(source, @"\bEnvironment\.\w+"))
+                Assert.AreEqual("Environment.ProcessId", member.Value);
+        }
+        // The dispatcher performs no I/O of its own: only the capability seam and the transport.
+        foreach (string forbidden in new[] { "System.IO", "File.", "Directory.", "Process", "NamedPipe", "SafeFileHandle", "HeldHelperBinding" })
+            Assert.IsFalse(dispatcher.Contains(forbidden, StringComparison.Ordinal), $"dispatcher contains {forbidden}");
+        // Supports checks route shape and EvidenceId before the seam (A.4 step 1: no file I/O first).
+        int digest = dispatcher.IndexOf("TryGetProfileDigest(operation, out _) &&", StringComparison.Ordinal);
+        int evaluate = dispatcher.IndexOf("capability.Evaluate(operation.RouteContract)", StringComparison.Ordinal);
+        Assert.IsTrue(digest > 0 && evaluate > digest);
     }
 
     [TestMethod]

@@ -41,8 +41,9 @@ internal sealed record HelperProtocolCapabilityResult
 /// <para>
 /// Both members perform bounded synchronous reads (at most 64 MiB) on every call; the Desktop must call
 /// <c>ReviewedUpdateDispatchWorkflow.RunAsync</c> off the UI thread (G3). The Windows producer is
-/// <see cref="OwnerOnlyDeploymentCapabilityReader"/>. No production caller exists yet: the route dispatcher and the
-/// protocol-2 transport that consume it arrive with the protocol-2 transport slice.
+/// <see cref="OwnerOnlyDeploymentCapabilityReader"/>. Its consumers are <see cref="ChocolateyRuntimeLimitsRouteDispatcher"/>
+/// (<c>Supports</c>) and <see cref="WindowsReviewedHelperTransport"/> (<c>TryHold</c>); no production composition constructs
+/// them until route admission.
 /// </para>
 /// </summary>
 internal interface IHelperProtocolCapability

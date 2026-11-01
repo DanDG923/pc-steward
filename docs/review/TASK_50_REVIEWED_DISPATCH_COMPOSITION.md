@@ -212,3 +212,36 @@ Windows CI on `6014d85`: Security **478/478, zero skipped**, so all 32 Windows-o
 - **Info items, fixed.** A zero file ID is unreadable on its own; relative paths are refused rather than resolved against the current directory.
 - **L2, transport-slice obligations.** Add an architecture test that `HeldHelperBinding.TryCreate` is called only by the reader and `Dispose` only after the exit/seal point. The transport must keep a strong reference to the binding until seal.
 - **L3, recorded.** The symlink test can be Inconclusive on a host without link privilege; it ran on CI. A junction variant is optional hardening.
+
+## Protocol-2 desktop transport and Chocolatey route dispatcher
+
+Contract:
+- adapter gates rev 2 §A.2 (`ChocolateyRuntimeLimitsRouteDispatcher`) and §A.4 steps 1–3;
+- reviewed fact extension rev 3 §4.1 (three phases, H) and §6 (budgets 30 s / 11 min / 5 s, one frame then pipe EOF, no retry);
+- the review-16 L2 transport obligations.
+
+Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`. All new types are `internal` in Execution. **No production composition constructs them.** `HasSupportedMode` still admits only WinGet, the helper endpoint does not exist, and route admission waits for host evidence (O5, A-Q1, A2-L3).
+
+| Type / member | Role |
+|---|---|
+| `IReviewedHelperTransport.ExchangeAsync(operation, nonce, ct)` → `ReviewedHelperExchange(Outcome, ResponseFrame, Desktop)` | One exchange. It returns only the interpreter's closed `ReviewedHelperTransportOutcome`, the single frame, and desktop-observed facts. It interprets nothing. |
+| `ReviewedHelperExchangeSession.RunAsync` (portable) | The post-launch part. Connection races the helper's exit, the connection budget and cancellation. Then `VerifyPeer`, then the request is built (so its 2-minute freshness starts after UAC). No connection, a failed or throwing peer check, cancellation, or a request-build failure gives **`HelperStartedRequestNotWritten`**: nothing written, helper terminated, exit awaited for H. From the first write, everything is **`RequestWrittenNoValidResponse`** unless exactly one frame (at most 16 KiB) is read and a further read returns EOF within the execution budget, giving **`ResponseFrameReceived`**. The exit wait (5 s) follows; a missing exit is torn down and leaves H false. The transport is always sealed in `finally` before reporting. `TerminationFailed` records a failed kill. `OwnedIoComplete`/`PipeEndOfFile` are set only after the desktop's own write, read and EOF read complete. |
+| `WindowsReviewedHelperTransport` | Pre-launch order (A.4 step 3): route/EvidenceId check, request-build validation, Chocolatey desktop caller trust, fixed paths, initial launch trust, restricted per-request pipe (`pcsteward-reviewed-…`), **`TryHold`**, helper-path equality with the binding, **final launch trust**, cancellation, then one `runas` launch with `--protocol 2 --desktop-pid --pipe --nonce`. Any failure before launch is `LaunchRefusedBeforeElevation` with no UAC; `ERROR_CANCELLED` is `ElevationDeclined`. The channel's peer check is the client-PID check, then `WindowsPeerIdentityVerifier.VerifyPeer`, then the peer's main-module image path, then `binding.IsHolding && binding.PeerImageMatchesHelper(path)` (A.4 step 3.4, A-M1). |
+| Binding lifetime (A-M2, L2) | Exactly two release points: `ReleaseWithoutHelper` when no helper process exists (refusal, declined, no process, launcher exception), and `ReleaseAfterOwnership`, a continuation on `HelperProcessWork.OwnedCompletion`, which completes only after an observed exit **and** `SealTransport`. A helper whose exit is never observed keeps the binding held. The release is registered before the exchange starts, and `GC.KeepAlive(binding)` follows the exchange, so the strong reference outlives the seal. The A2-L5 fallback (`ReleaseHandles` plus `RevalidateAfterPeer`) is **not** used: it applies only if A-Q1 evidence shows the hold blocks the launch. |
+| `ChocolateyRuntimeLimitsRouteDispatcher` | `Supports` = `TryGetProfileDigest` (route shape plus O2) and only then `capability.Evaluate(route).IsSupported`; any exception gives false. It is also the workflow's `StillSupported`. `DispatchAsync` draws one fresh nonce, runs one exchange and returns `Interpret(…).WorkflowObservation`. An off-route ticket gives `NotStarted(Failed)` with no exchange. A transport exception propagates to the workflow, which records Unknown, i.e. Uncertain. |
+
+Decisions recorded for review:
+- **Pre-launch cancellation** maps to `LaunchRefusedBeforeElevation`, i.e. `NotStarted(Failed)` and "nothing was started", because the interpreter's closed set has no pre-launch Cancelled row. This is truthful (NotInvoked) but labelled Failed rather than Cancelled.
+- **Request build** happens after `VerifyPeer`, as in protocol 1, so a slow UAC answer cannot spend the helper's 2-minute freshness window. It is also validated once before launch, so an unbuildable request never prompts.
+- **The helper endpoint is deferred.** `HelperBootstrap` still accepts only protocol 1, so a real helper given `--protocol 2` exits before connecting. The exchange then records `HelperStartedRequestNotWritten` with H, i.e. NotStarted, and never Uncertain. Stages A–D, G1 and the Profile V2 observer belong to the native qualification slice.
+
+Tests: Security `ReviewedHelperProtocol2TransportTests` (28 portable, 12 Windows-only) and Architecture `DeploymentCapabilityBoundaryTests` (two new tests), detailed in the [traceability entry](../requirements/TRACEABILITY.md).
+
+Linux results:
+- Release build has zero warnings;
+- Architecture 46/46, Domain 167/167;
+- Application 780 passed, 103 failed of 883, the same platform failure set as before;
+- Security 465 passed, 55 failed and 1 skipped of 521. The 55 failures are the 43 previous Windows-native failures plus the 12 new Windows-only cases.
+
+Independent review and Windows CI are pending.
+

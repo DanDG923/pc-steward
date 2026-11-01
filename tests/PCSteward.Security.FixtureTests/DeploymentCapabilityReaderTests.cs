@@ -423,7 +423,7 @@ public sealed class DeploymentCapabilityReaderTests
     }
 
     /// <summary>A GUID-named temp directory, canonicalized to its final path so short (8.3) temp names cannot differ from it.</summary>
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         internal Fixture()
         {
@@ -459,7 +459,7 @@ public sealed class DeploymentCapabilityReaderTests
     /// A consistent v2 deployment on disk: binding-set leaves with synthetic content, the statement's real bytes, a pinned
     /// candidate manifest and a ledger rendered from the real-writer key lists of <see cref="DeploymentCapabilityPolicyTests.Ledgers"/>.
     /// </summary>
-    private sealed class DeploymentTree
+    internal sealed class DeploymentTree
     {
         private DeploymentTree(string root)
         {
