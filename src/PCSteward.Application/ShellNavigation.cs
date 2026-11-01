@@ -18,6 +18,7 @@ public enum ShellPage
     RepositoryApps,
     Detail,
     Storage,
+    /// <summary>The Data &amp; reset subpage under Settings (Task 73 Phase 4); the enum name is unchanged.</summary>
     Privacy,
     Onboarding,
     UpdateJob
@@ -134,7 +135,7 @@ public sealed class ShellNavigation : INotifyPropertyChanged
         ShellPage.RepositoryApps => "Repository apps",
         ShellPage.Detail => "App details",
         ShellPage.Storage => "Storage",
-        ShellPage.Privacy => "Privacy & data",
+        ShellPage.Privacy => "Data & reset",
         ShellPage.Onboarding => "Start fresh",
         ShellPage.UpdateJob => "Update job",
         _ => throw new ArgumentOutOfRangeException(nameof(page))

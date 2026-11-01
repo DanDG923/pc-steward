@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PCSteward.Application;
@@ -215,6 +216,50 @@ internal static class StewardVisuals
         Grid.SetColumn(valueText, 1);
         row.Children.Add(valueText);
         AutomationProperties.SetName(row, $"{label}: {value}");
+        return row;
+    }
+
+    /// <summary>
+    /// Task 73 Phase 4 (ADR-030 concept A): a Windows 11 SettingsCard-style group — icon, a level-2 heading, an optional description,
+    /// then its rows. <paramref name="danger"/> draws the separated destructive-action card (border and heading in the danger colour;
+    /// the meaning is also carried by the "Danger zone" text and the warning icon, never by colour alone).
+    /// </summary>
+    public static Border SettingsCard(string glyph, string title, string? description, FrameworkElement body, bool danger = false)
+    {
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        Grid header = new() { ColumnSpacing = StewardSpacing.Medium };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.Children.Add(new FontIcon { Glyph = glyph, FontSize = 20, Foreground = Brush(danger ? "StewardDangerBrush" : "StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
+        StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
+        TextBlock heading = new() { Text = title, Style = Style("StewardSectionTitleStyle"), TextWrapping = TextWrapping.Wrap };
+        if (danger) heading.Foreground = Brush("StewardDangerBrush");
+        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
+        copy.Children.Add(heading);
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        Grid.SetColumn(copy, 1);
+        header.Children.Add(copy);
+        content.Children.Add(header);
+        content.Children.Add(body);
+        Border card = new() { Style = Style("StewardCardStyle"), Child = content };
+        if (danger) { card.BorderBrush = Brush("StewardDangerBrush"); card.BorderThickness = new Thickness(2); }
+        return card;
+    }
+
+    /// <summary>One SettingsCard row: a label and description on the left, its control on the right.</summary>
+    public static Grid SettingsRow(string title, string? description, FrameworkElement control)
+    {
+        Grid row = new() { ColumnSpacing = StewardSpacing.Large, Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        StackPanel copy = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
+        copy.Children.Add(new TextBlock { Text = title, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        row.Children.Add(copy);
+        control.VerticalAlignment = VerticalAlignment.Center;
+        control.HorizontalAlignment = HorizontalAlignment.Right;
+        Grid.SetColumn(control, 1);
+        row.Children.Add(control);
         return row;
     }
 

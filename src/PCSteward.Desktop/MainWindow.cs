@@ -42,6 +42,7 @@ public sealed class MainWindow : Window
     private const int ActivityHistoryLimit = 500;
     private bool moreAppFiltersExpanded;
     private bool isClearing;
+    private bool isSavingSchedule;
     private bool isExecuting;
     private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
     private ScheduledCheckSettings scheduledSettings = ScheduledCheckSettings.Manual;
@@ -975,16 +976,17 @@ public sealed class MainWindow : Window
 
     private StackPanel BuildStoragePage()
     {
-        StackPanel panel = CreatePagePanel();
-        panel.Children.Add(StewardVisuals.PageHeader("Storage", "Review space used by PC Steward-owned records and downloaded update files.", "App-owned data"));
+        StackPanel panel = CreatePagePanel(1000);
+        panel.Children.Add(StewardVisuals.PageHeader("Storage", "Space used by PC Steward's own records and downloaded update files.", "App-owned data"));
         panel.Children.Add(StewardVisuals.InformationBanner("Bounded scope", "Windows temporary files, provider caches, documents, drivers, firmware, and installed applications are outside this screen's scope."));
-        StackPanel summary = new() { Spacing = 8 };
-        summary.Children.Add(new TextBlock { Text = "App-owned storage", Style = AppStyle("StewardSectionTitleStyle") });
-        summary.Children.Add(PageCopy($"Scan data: {scanData.ItemCount:N0} items; estimated size about {DisplayFormat.Size(scanData.SizeBytes)}."));
-        summary.Children.Add(PageCopy($"Downloaded update files: {DisplayFormat.Size(downloadCache.TotalBytes)} total; {DisplayFormat.Size(downloadCache.RecoverableBytes)} recoverable."));
-        summary.Children.Add(PageCopy("Source metadata, logs, and update history are controlled separately in Privacy & data."));
-        panel.Children.Add(Card(summary));
-        Button privacy = new() { Content = "Manage privacy and data" }; privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy); panel.Children.Add(privacy);
+        StackPanel summary = new() { Spacing = StewardSpacing.Small };
+        foreach (DetailFact fact in DataResetPresenter.StorageSummary(DataResetInputsNow())) summary.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        summary.Children.Add(PageCopy("Source metadata, logs and update history have their own cards in Data & reset."));
+        Button privacy = new() { Content = "Open Data & reset" };
+        AutomationProperties.SetName(privacy, "Open Data & reset");
+        privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy);
+        summary.Children.Add(privacy);
+        panel.Children.Add(StewardVisuals.SettingsCard("\uEDA2", "App-owned storage", null, summary));
         return panel;
     }
 
@@ -997,8 +999,8 @@ public sealed class MainWindow : Window
     private StackPanel BuildActivityPage()
     {
         StackPanel panel = CreatePagePanel();
-        Button privacy = new() { Content = "Privacy & data" };
-        AutomationProperties.SetName(privacy, "View privacy and local data controls");
+        Button privacy = new() { Content = "Data & reset" };
+        AutomationProperties.SetName(privacy, "Data & reset: view and clear local data");
         privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy);
         panel.Children.Add(StewardVisuals.PageHeader("Activity", "Scans, updates and decisions recorded on this PC. PC Steward does not upload activity telemetry.", null, privacy));
         if (activityHistoryUnavailable)
@@ -1102,11 +1104,11 @@ public sealed class MainWindow : Window
         };
     }
 
+    /// <summary>The Data &amp; reset subpage under Settings (Task 73 Phase 4; SPEC §17.3).</summary>
     private StackPanel BuildPrivacyPage()
     {
-        StackPanel panel = CreatePagePanel();
-        panel.Children.Add(StewardVisuals.PageHeader("Privacy & data", "Export or remove PC Steward-owned information with explicit, category-specific controls.", "Stored locally"));
-        panel.Children.Add(StewardVisuals.InformationBanner("Installed applications are preserved", "Routine cleanup affects only the named PC Steward category. Factory reset is separate and also preserves installed applications and provider caches."));
+        StackPanel panel = CreatePagePanel(1000);
+        panel.Children.Add(StewardVisuals.PageHeader("Data & reset", "What PC Steward stores on this PC, how much space it uses, and separate controls to remove it. Exports are in Settings › Privacy & exports.", "Settings"));
         AddDataAndResetSection(panel);
         return panel;
     }
@@ -1867,77 +1869,156 @@ public sealed class MainWindow : Window
         panel.Children.Add(done);
     }
 
+    /// <summary>
+    /// Task 73 Phase 4 (ADR-030 concept A; audit P-M7, §6 items 9–10; FR-DAT-01/03, FR-HIS-05): Settings as SettingsCard groups in one
+    /// column (Update sources, Scan scope, Schedule, Decisions, Privacy &amp; exports, Data &amp; reset, About) with one save model —
+    /// every control saves as soon as it changes (<see cref="SettingsPresenter.SaveModel"/>). The source consent toggle keeps its
+    /// own disclosure and turning it on starts nothing; data controls live on the Data &amp; reset subpage.
+    /// </summary>
     private StackPanel BuildSettingsPage()
     {
-        StackPanel panel = CreatePagePanel(900);
-        panel.Children.Add(StewardVisuals.PageHeader("Settings", "Manage inventory scope, package-source consent, scheduled checks, reversible decisions, and local data.", "Preferences"));
-        panel.Children.Add(StewardVisuals.InformationBanner("Source consent stays separate", "Enabling a source never starts a scan, source refresh, download, or update."));
+        StackPanel panel = CreatePagePanel(1000);
+        panel.Children.Add(StewardVisuals.PageHeader("Settings", "Choose what PC Steward looks at, when it checks, and what it keeps on this PC.", "Preferences"));
+        panel.Children.Add(PageCopy(SettingsPresenter.SaveModelText));
 
-        StackPanel sources = new() { Spacing = 12 };
-        sources.Children.Add(new TextBlock { Text = "Inventory and update sources", Style = AppStyle("StewardSectionTitleStyle") });
-        sources.Children.Add(PageCopy("Local Windows inventory is required. Network-backed package sources remain optional and show a disclosure before first use."));
-        sources.Children.Add(new CheckBox { Content = "Windows local inventory (required · local only)", IsChecked = true, IsEnabled = false });
-        ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
-        CheckBox includeAppx = new() { Content = "Include current-user AppX/MSIX catalog", IsChecked = appx.IsEnabled };
-        AutomationProperties.SetName(includeAppx, "Include current-user AppX/MSIX catalog");
-        includeAppx.Checked += async (_, _) => await ChangeConnectorAsync(appx.Name, true);
-        includeAppx.Unchecked += async (_, _) => await ChangeConnectorAsync(appx.Name, false);
-        sources.Children.Add(includeAppx);
-        ToggleSwitch winget = new() { Header = "WinGet and Chocolatey trusted sources", IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Disabled", OnContent = "Enabled after disclosure" };
+        // Update sources: the consent toggle stays separate, with its existing disclosure dialog before first use.
+        StackPanel sources = new() { Spacing = StewardSpacing.Small };
+        ToggleSwitch winget = new() { IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Off", OnContent = "On" };
         AutomationProperties.SetName(winget, "Enable WinGet and Chocolatey trusted sources");
         winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);
-        sources.Children.Add(winget);
-        panel.Children.Add(Card(sources));
+        sources.Children.Add(StewardVisuals.SettingsRow("WinGet and Chocolatey trusted sources", SettingsPresenter.SourceConsentNote, winget));
+        sources.Children.Add(StewardVisuals.EvidenceRow("Current evidence", viewModel.UpdateFreshnessLabel));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Update sources", "Optional package sources that tell PC Steward which updates exist. They are off until you approve them.", sources));
 
-        StackPanel schedule = new() { Spacing = 12 };
-        schedule.Children.Add(new TextBlock { Text = "Schedule & notifications", Style = AppStyle("StewardSectionTitleStyle") });
-        schedule.Children.Add(PageCopy("Scheduled work checks inventory only. It never approves or installs updates and does not leave a resident service or tray process."));
-        RadioButtons cadence = new() { Header = "Check cadence", SelectedIndex = scheduledSettings.Cadence switch { ScheduleCadence.Daily => 1, ScheduleCadence.Weekly => 2, _ => 0 } };
-        cadence.Items.Add("Manual only"); cadence.Items.Add("Daily"); cadence.Items.Add("Weekly");
+        // Scan scope / AppX.
+        StackPanel scope = new() { Spacing = StewardSpacing.Small };
+        CheckBox local = new() { Content = "On (required · local only)", IsChecked = true, IsEnabled = false };
+        AutomationProperties.SetName(local, "Windows local inventory (required · local only)");
+        scope.Children.Add(StewardVisuals.SettingsRow("Windows local inventory", "Installed apps that Windows reports for this PC. Always on, read-only and never shared.", local));
+        ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
+        ToggleSwitch includeAppx = new() { IsOn = appx.IsEnabled, OffContent = "Off", OnContent = "On" };
+        AutomationProperties.SetName(includeAppx, "Include current-user AppX/MSIX catalog");
+        includeAppx.Toggled += async (_, _) => await ChangeConnectorAsync(appx.Name, includeAppx.IsOn);
+        scope.Children.Add(StewardVisuals.SettingsRow("Include current-user AppX/MSIX catalog", "Store and packaged apps installed for your account. Read locally; nothing is shared.", includeAppx));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Scan scope", "What a scan reads. Scanning never asks for administrator permission and never changes anything.", scope));
+
+        // Schedule: each change saves the whole record through the existing register-then-save operation.
+        ScheduleCardPresentation plan = SettingsPresenter.Schedule(scheduledSettings, scheduledStatus, isSavingSchedule);
+        StackPanel schedule = new() { Spacing = StewardSpacing.Small };
+        RadioButtons cadence = new() { SelectedIndex = plan.CadenceIndex, IsEnabled = plan.IsCadenceEnabled };
+        foreach (string option in SettingsPresenter.CadenceOptions) cadence.Items.Add(option);
         AutomationProperties.SetName(cadence, "Scheduled check cadence");
-        TimePicker startTime = new() { Header = "Local start time", Time = scheduledSettings.LocalStartTime.ToTimeSpan() };
-        ComboBox weeklyDay = new() { Header = "Weekly day", IsEnabled = scheduledSettings.Cadence == ScheduleCadence.Weekly };
+        TimePicker startTime = new() { Time = plan.LocalStartTime.ToTimeSpan(), IsEnabled = plan.IsTimeEnabled };
+        AutomationProperties.SetName(startTime, "Local start time");
+        ComboBox weeklyDay = new() { IsEnabled = plan.IsWeekdayEnabled, MinWidth = 160 };
         foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>()) weeklyDay.Items.Add(day);
-        weeklyDay.SelectedItem = scheduledSettings.WeeklyDay;
-        cadence.SelectionChanged += (_, _) => weeklyDay.IsEnabled = cadence.SelectedIndex == 2;
-        ToggleSwitch scheduleEnabled = new() { Header = "Enable scheduled checks", IsOn = scheduledSettings.IsEnabled, OffContent = "Not scheduled", OnContent = "Current-user task · no resident service" };
-        ToggleSwitch notifications = new() { Header = "Windows notifications", IsOn = scheduledSettings.NotificationsEnabled, OffContent = "Off", OnContent = "Attention and repeated scan failures only" };
-        Button save = new() { Content = "Save schedule" };
-        AutomationProperties.SetName(save, "Save scheduled check settings");
-        save.Click += async (_, _) =>
+        weeklyDay.SelectedItem = plan.WeeklyDay;
+        AutomationProperties.SetName(weeklyDay, "Weekly day");
+        ToggleSwitch scheduleEnabled = new() { IsOn = plan.IsEnabled, IsEnabled = plan.IsEnableToggleEnabled, OffContent = "Not scheduled", OnContent = "Current-user task · no resident service" };
+        AutomationProperties.SetName(scheduleEnabled, "Enable scheduled checks");
+        ToggleSwitch notifications = new() { IsOn = plan.NotificationsEnabled, IsEnabled = plan.IsNotificationsToggleEnabled, OffContent = "Off", OnContent = "Attention and repeated scan failures only" };
+        AutomationProperties.SetName(notifications, "Windows notifications");
+        TextBlock scheduleSummary = new() { Text = isSavingSchedule ? "Saving…" : plan.Summary, TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetLiveSetting(scheduleSummary, AutomationLiveSetting.Polite);
+        Control[] scheduleControls = [cadence, startTime, weeklyDay, scheduleEnabled, notifications];
+        async Task SaveScheduleAsync()
         {
-            ScheduleCadence selectedCadence = cadence.SelectedIndex switch { 1 => ScheduleCadence.Daily, 2 => ScheduleCadence.Weekly, _ => ScheduleCadence.Manual };
-            ScheduledCheckSettings requested = new ScheduledCheckSettings(selectedCadence, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem is DayOfWeek day ? day : DayOfWeek.Monday, TimeOnly.FromTimeSpan(startTime.Time)).Normalize();
-            try { scheduledStatus = await DataOperationLease.RunAsync(async token => { await scheduleRegistration.ApplyAsync(requested, token); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, token); return await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }, CancellationToken.None); scheduledSettings = requested; Render(); }
-            catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-            catch (Exception) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Schedule was not changed", Content = "Windows could not create the current-user scan-only task. Your saved settings were left unchanged.", CloseButtonText = "Close" }.ShowAsync(); }
-        };
-        schedule.Children.Add(cadence); schedule.Children.Add(startTime); schedule.Children.Add(weeklyDay); schedule.Children.Add(scheduleEnabled); schedule.Children.Add(notifications); schedule.Children.Add(save);
-        schedule.Children.Add(StewardVisuals.EvidenceRow("Task status", scheduledStatus.LastResult));
-        schedule.Children.Add(StewardVisuals.EvidenceRow("Last completed", scheduledStatus.LastCompletedAt is null ? "Not yet" : DisplayFormat.DateTime(scheduledStatus.LastCompletedAt.Value)));
-        panel.Children.Add(Card(schedule));
+            ScheduledCheckSettings requested = SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedItem as DayOfWeek?, startTime.Time);
+            if (isSavingSchedule || requested == scheduledSettings.Normalize()) return;
+            foreach (Control control in scheduleControls) control.IsEnabled = false;
+            scheduleSummary.Text = "Saving…";
+            await ApplyScheduleAsync(requested);
+        }
+        // Handlers are attached after the saved values are set, so building the page never saves anything.
+        cadence.SelectionChanged += async (_, _) => await SaveScheduleAsync();
+        startTime.TimeChanged += async (_, _) => await SaveScheduleAsync();
+        weeklyDay.SelectionChanged += async (_, _) => await SaveScheduleAsync();
+        scheduleEnabled.Toggled += async (_, _) => await SaveScheduleAsync();
+        notifications.Toggled += async (_, _) => await SaveScheduleAsync();
+        schedule.Children.Add(scheduleSummary);
+        schedule.Children.Add(StewardVisuals.SettingsRow("Check cadence", "Manual only means PC Steward checks only when you start a scan.", cadence));
+        schedule.Children.Add(StewardVisuals.SettingsRow("Local start time", "Used for daily and weekly checks.", startTime));
+        schedule.Children.Add(StewardVisuals.SettingsRow("Weekly day", "Used for weekly checks.", weeklyDay));
+        schedule.Children.Add(StewardVisuals.SettingsRow("Enable scheduled checks", "Creates a current-user scheduled check. Unavailable with Manual only.", scheduleEnabled));
+        schedule.Children.Add(StewardVisuals.SettingsRow("Windows notifications", "Only when something needs your attention or scans keep failing.", notifications));
+        foreach (DetailFact fact in plan.Status) schedule.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Schedule", "Scheduled work checks inventory only. It never approves or installs updates and does not leave a resident service or tray process.", schedule));
 
         StackPanel decisions = new() { Spacing = StewardSpacing.Small };
-        decisions.Children.Add(new TextBlock { Text = "Update decisions", Style = AppStyle("StewardSectionTitleStyle") });
-        decisions.Children.Add(PageCopy(activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or confirmed package identities." : $"{activeDecisions.Count + manualMappings.Count:N0} active decision{(activeDecisions.Count + manualMappings.Count == 1 ? string.Empty : "s")}. Review or reverse them on the Decisions page."));
         Button openDecisions = new() { Content = "Open Decisions" };
         AutomationProperties.SetName(openDecisions, "Open Decisions");
         openDecisions.Click += (_, _) => NavigateTo(ShellPage.Decisions);
-        decisions.Children.Add(openDecisions);
-        panel.Children.Add(Card(decisions));
+        decisions.Children.Add(StewardVisuals.SettingsRow(activeDecisions.Count == 0 && manualMappings.Count == 0 ? "No active pins, ignores or confirmed package identities." : $"{activeDecisions.Count + manualMappings.Count:N0} active decision{(activeDecisions.Count + manualMappings.Count == 1 ? string.Empty : "s")}", "Review or reverse them on the Decisions page.", openDecisions));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Decisions", "Pins, ignores and package identities you confirmed. Each one is reversible.", decisions));
 
-        StackPanel data = new() { Spacing = StewardSpacing.Medium };
-        data.Children.Add(new TextBlock { Text = "Storage, privacy & reset", Style = AppStyle("StewardSectionTitleStyle") });
-        data.Children.Add(PageCopy("Review app-owned storage, export inventory, clear individual data categories, or perform the separately protected factory-reset flow."));
-        data.Children.Add(StewardVisuals.EvidenceRow("Scan records", $"{scanData.ItemCount:N0} items"));
-        data.Children.Add(StewardVisuals.EvidenceRow("Downloaded files", DisplayFormat.Size(downloadCache.TotalBytes)));
-        StackPanel dataActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        Button storage = new() { Content = "View storage" }; storage.Click += (_, _) => NavigateTo(ShellPage.Storage); dataActions.Children.Add(storage);
-        Button privacy = new() { Content = "Privacy & data controls" }; privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy); dataActions.Children.Add(privacy);
-        data.Children.Add(dataActions);
-        panel.Children.Add(Card(data));
+        // Privacy & exports (FR-DAT-01/03) and Copy diagnostic (FR-HIS-05).
+        StackPanel privacy = new() { Spacing = StewardSpacing.Small };
+        privacy.Children.Add(StewardVisuals.InformationBanner("Exports can identify this PC", SettingsPresenter.ExportWarning, "attention"));
+        StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+        Button exportCsv = new() { Content = "Export inventory CSV" }; AutomationProperties.SetName(exportCsv, "Export inventory CSV"); exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv);
+        Button exportJson = new() { Content = "Export inventory JSON" }; AutomationProperties.SetName(exportJson, "Export inventory JSON"); exportJson.Click += async (_, _) => await SaveExportAsync(true); exportActions.Children.Add(exportJson);
+        privacy.Children.Add(StewardVisuals.SettingsRow("Export inventory", "Saves a file only where you choose. Nothing is uploaded.", exportActions));
+        DiagnosticCopyPresentation diagnostic = SettingsPresenter.DiagnosticCopy(activityHistoryUnavailable);
+        Button copyDiagnostic = new() { Content = diagnostic.Label, IsEnabled = diagnostic.IsEnabled };
+        AutomationProperties.SetName(copyDiagnostic, diagnostic.AccessibleName);
+        TextBlock copied = new() { Text = diagnostic.UnavailableReason ?? string.Empty, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetLiveSetting(copied, AutomationLiveSetting.Polite);
+        copyDiagnostic.Click += (_, _) => CopyDiagnostic(copied);
+        privacy.Children.Add(StewardVisuals.SettingsRow(diagnostic.Label, diagnostic.Description, copyDiagnostic));
+        privacy.Children.Add(copied);
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Privacy & exports", "PC Steward keeps everything on this PC. You decide what leaves it.", privacy));
+
+        // Data & reset subpage (SPEC §17.3).
+        StackPanel data = new() { Spacing = StewardSpacing.Small };
+        foreach (DetailFact fact in DataResetPresenter.StorageSummary(DataResetInputsNow())) data.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        Button openData = new() { Content = "Open Data & reset" };
+        AutomationProperties.SetName(openData, "Open Data & reset");
+        openData.Click += (_, _) => NavigateTo(ShellPage.Privacy);
+        data.Children.Add(StewardVisuals.SettingsRow("Clear data or reset PC Steward", "Separate controls for scan data, downloaded files, source metadata, logs and history, and factory reset.", openData));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "Data & reset", "What PC Steward stores, how much space it uses, and how to remove it.", data));
+
+        StackPanel about = new() { Spacing = StewardSpacing.Small };
+        Button openAbout = new() { Content = "About PC Steward" };
+        AutomationProperties.SetName(openAbout, "About PC Steward");
+        openAbout.Click += (_, _) => NavigateTo(ShellPage.About);
+        about.Children.Add(StewardVisuals.SettingsRow(AppIdentity.DisplayName, "Version, privacy and how updates and administrator permission work.", openAbout));
+        panel.Children.Add(StewardVisuals.SettingsCard("", "About", null, about));
         return panel;
     }
+
+    /// <summary>
+    /// Audit P-M7: saves the whole schedule record exactly as the old "Save schedule" button did — register (or remove) the
+    /// current-user scan-only task, then save the settings, inside the data-operation lease. A failure leaves the saved schedule
+    /// unchanged and the page shows the saved values again.
+    /// </summary>
+    private async Task ApplyScheduleAsync(ScheduledCheckSettings requested)
+    {
+        isSavingSchedule = true;
+        try { scheduledStatus = await DataOperationLease.RunAsync(async token => { await scheduleRegistration.ApplyAsync(requested, token); await scheduleSettingsStore.SaveScheduledCheckSettingsAsync(requested, token); return await scheduleSettingsStore.GetScheduledCheckStatusAsync(token); }, CancellationToken.None); scheduledSettings = requested; }
+        catch (InvalidOperationException) { isSavingSchedule = false; Render(); await ShowDataOperationUnavailableAsync(); return; }
+        catch (Exception) { isSavingSchedule = false; Render(); await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Schedule was not changed", Content = "Windows could not create the current-user scan-only task. Your saved settings were left unchanged.", CloseButtonText = "Close" }.ShowAsync(); return; }
+        isSavingSchedule = false;
+        Render();
+    }
+
+    /// <summary>FR-HIS-05: copies the existing sanitized diagnostic bundle of recent update outcomes and confirms in text.</summary>
+    private void CopyDiagnostic(TextBlock confirmation)
+    {
+        try
+        {
+            Windows.ApplicationModel.DataTransfer.DataPackage package = new();
+            package.SetText(SanitizedDiagnosticBundle.Create(updateHistory));
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            confirmation.Text = SettingsPresenter.DiagnosticCopied(updateHistory.Count);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { confirmation.Text = SettingsPresenter.DiagnosticCopyFailed; }
+    }
+
+    /// <summary>The Data &amp; reset inputs from the state loaded for this window; controls are unavailable during any active work.</summary>
+    private DataResetInputs DataResetInputsNow() => new(
+        scanData, downloadCache.TotalBytes, downloadCache.RecoverableBytes, downloadCache.ArtifactCount, downloadCache.ActiveCount, downloadCache.LastCleanedAt,
+        viewModel.UpdateFreshnessLabel, updateHistory.Count, ActivityHistoryLimit, activityHistoryUnavailable,
+        activeDecisions.Count + manualMappings.Count, HasActiveWork: HasActiveOperation);
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);
     private static ComboBox FilterBox(string selected, IReadOnlyCollection<string> values) { ComboBox box = new(); foreach (string value in values.Distinct(StringComparer.OrdinalIgnoreCase)) box.Items.Add(value); box.SelectedItem = values.FirstOrDefault(value => string.Equals(value, selected, StringComparison.OrdinalIgnoreCase)) ?? values.First(); return box; }
@@ -2045,35 +2126,70 @@ public sealed class MainWindow : Window
         Render();
     }
 
+    /// <summary>
+    /// FR-DAT-06–15, AC-UX-07/08, SPEC §12.5/§17.3 (Task 73 Phase 4, ADR-030 foundation 6; audit P-H4): separate cards — scan data,
+    /// downloaded files, source metadata, logs and history, and decisions — each with its size and last-cleaned time where recorded and
+    /// explicit Deletes/Keeps text, then Factory reset in a separated danger-zone card. Every button runs its existing operation through
+    /// its existing confirmation dialog; every control is unavailable during active work.
+    /// </summary>
     private void AddDataAndResetSection(StackPanel panel)
     {
-        panel.Children.Add(new TextBlock { Text = "Data & reset", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = $"Scan data: {scanData.ItemCount} items, estimated size about {DisplayFormat.Size(scanData.SizeBytes)}. Last cleared: {(scanData.LastClearedAt is null ? "never" : DisplayFormat.DateTime(scanData.LastClearedAt.Value))}. Clear scan data removes inventory, raw provider records, candidates and scan-run records; it preserves settings, connectors, schedules, update history, downloads, mappings, pins and ignores.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", TextWrapping = TextWrapping.Wrap });
-        StackPanel exportActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 }; Button exportCsv = new() { Content = "Export inventory CSV" }; exportCsv.Click += async (_, _) => await SaveExportAsync(false); exportActions.Children.Add(exportCsv); Button exportJson = new() { Content = "Export inventory JSON" }; exportJson.Click += async (_, _) => await SaveExportAsync(true); exportActions.Children.Add(exportJson); panel.Children.Add(exportActions);
-        bool available = !viewModel.IsScanning && !isExecuting && !isClearing && !downloads.IsCleaning; Button clear = new() { Content = "Clear scan data", IsEnabled = available }; AutomationProperties.SetName(clear, "Clear scan data"); clear.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); panel.Children.Add(clear);
-        panel.Children.Add(new TextBlock { Text = $"Downloaded update files: {downloadCache.ArtifactCount} tracked item(s), {DisplayFormat.Size(downloadCache.TotalBytes)} total, {DisplayFormat.Size(downloadCache.RecoverableBytes)} recoverable. Last cleaned: {(downloadCache.LastCleanedAt is null ? "never" : DisplayFormat.DateTime(downloadCache.LastCleanedAt.Value))}. Clear downloaded files removes only inactive files under PC Steward's app-owned download cache; it preserves active update files, installed applications, scan data, source metadata, update history and all Windows, WinGet, Microsoft Store and other provider caches.", TextWrapping = TextWrapping.Wrap });
-        Button clearDownloads = new() { Content = "Clear downloaded files", IsEnabled = available && downloadCache.RecoverableBytes > 0 }; AutomationProperties.SetName(clearDownloads, "Clear downloaded files"); clearDownloads.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Clear downloaded files?"); panel.Children.Add(clearDownloads);
-        if (downloadCache.RecoverableBytes > 0)
+        DataResetPagePresentation page = DataResetPresenter.Build(DataResetInputsNow());
+        panel.Children.Add(StewardVisuals.InformationBanner("Installed apps and provider caches are never touched", page.ProviderCacheBoundary));
+        TextBlock availability = PageCopy(page.Availability);
+        AutomationProperties.SetLiveSetting(availability, AutomationLiveSetting.Polite);
+        panel.Children.Add(availability);
+        foreach (DataCardPresentation card in page.Cards)
         {
-            panel.Children.Add(new TextBlock { Text = $"Update completion cleanup: {DisplayFormat.Size(downloadCache.RecoverableBytes)} of app-owned downloaded files remain. You can recover this space without affecting the installed update.", TextWrapping = TextWrapping.Wrap });
-            Button completionDelete = new() { Content = "Delete downloaded files", IsEnabled = available }; AutomationProperties.SetName(completionDelete, "Delete downloaded files after update completion"); completionDelete.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Delete downloaded files after update completion?"); panel.Children.Add(completionDelete);
+            StackPanel body = new() { Spacing = StewardSpacing.Small };
+            foreach (DetailFact fact in card.Facts) body.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+            body.Children.Add(StewardVisuals.EvidenceRow("Deletes", card.Deletes));
+            body.Children.Add(StewardVisuals.EvidenceRow("Keeps", card.Keeps));
+            StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+            foreach (DataActionPresentation action in card.Actions) actions.Children.Add(DataActionButton(action));
+            body.Children.Add(actions);
+            string? reason = card.Actions.Select(action => action.UnavailableReason).FirstOrDefault(text => text is not null);
+            if (reason is not null) body.Children.Add(new TextBlock { Text = reason, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(StewardVisuals.SettingsCard(card.Glyph, card.Title, null, body));
         }
-        panel.Children.Add(new TextBlock { Text = available ? "Routine cleanup is available without administrator elevation." : "Cleanup is unavailable while a scan, update, or cleanup is active. Cancel or wait for it to finish.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Advanced data controls", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = "Each control removes only its stated PC Steward category. Provider caches, exports, installed applications and settings not named below are preserved.", TextWrapping = TextWrapping.Wrap });
-        AddAdvancedClearButton(panel, "Clear source metadata", "Deletes cached package-source metadata and freshness records. Preserves inventory, connector consent, schedule, history, decisions and downloads.", () => workflow.ClearSourceMetadataAsync(CancellationToken.None), available);
-        AddAdvancedClearButton(panel, "Clear logs", "Deletes only PC Steward file logs. It preserves inventory, source metadata, settings, decisions, history, downloads and provider caches.", async () => { FactoryResetResult result = await FactoryReset.ClearLogsAsync(CancellationToken.None); return new AdvancedDataClearResult("Logs", result.Succeeded, 0, result.Succeeded ? "PC Steward logs were cleared." : "Logs were only partly cleared: " + string.Join(", ", result.Residuals.Select(item => item.Reason))); }, available);
-        AddAdvancedClearButton(panel, "Clear update history", "Deletes recorded update outcomes only. Preserves inventory, settings, decisions, source metadata and downloads.", () => workflow.ClearUpdateHistoryAsync(CancellationToken.None), available);
-        AddAdvancedClearButton(panel, "Clear mappings and policies", "Deletes manual mappings, pins and ignores. Preserves inventory, settings, consent, source metadata, history and downloads.", () => workflow.ClearMappingsAndPoliciesAsync(CancellationToken.None), available);
-        panel.Children.Add(new TextBlock { Text = "Factory reset PC Steward", Style = AppStyle("StewardSectionTitleStyle") });
-        panel.Children.Add(new TextBlock { Text = "Danger zone — deletes all local PC Steward data, settings, consent, decisions, logs, downloads and the current-user scheduled check. It preserves PC Steward binaries, installed applications, provider caches and exports. PC Steward closes and verifies cleanup at the next launch before onboarding.", TextWrapping = TextWrapping.Wrap });
-        Button factoryReset = new() { Content = "Factory reset PC Steward", IsEnabled = available }; AutomationProperties.SetName(factoryReset, "Factory reset PC Steward"); factoryReset.Click += async (_, _) => await ConfirmAndArmFactoryResetAsync(factoryReset); panel.Children.Add(factoryReset);
+
+        // Danger zone: visually separated from routine cleanup, with the existing two confirmations (exact RESET, Cancel default).
+        FactoryResetCardPresentation reset = page.FactoryReset;
+        StackPanel danger = new() { Spacing = StewardSpacing.Small };
+        danger.Children.Add(new TextBlock { Text = reset.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        danger.Children.Add(StewardVisuals.EvidenceRow("Deletes", reset.Deletes));
+        danger.Children.Add(StewardVisuals.EvidenceRow("Keeps", reset.Keeps));
+        danger.Children.Add(PageCopy(reset.Afterwards));
+        Button factoryReset = new() { Content = reset.Label, IsEnabled = reset.IsEnabled, Margin = new Thickness(0, StewardSpacing.Small, 0, 0) };
+        AutomationProperties.SetName(factoryReset, reset.AccessibleName);
+        factoryReset.Click += async (_, _) => await ConfirmAndArmFactoryResetAsync(factoryReset);
+        danger.Children.Add(factoryReset);
+        if (reset.UnavailableReason is { } resetReason) danger.Children.Add(new TextBlock { Text = resetReason, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        Border dangerZone = StewardVisuals.SettingsCard("", reset.Heading, "Separate from routine cleanup. This cannot be undone.", danger, danger: true);
+        dangerZone.Margin = new Thickness(0, StewardSpacing.XLarge, 0, 0);
+        panel.Children.Add(dangerZone);
     }
 
-    private void AddAdvancedClearButton(StackPanel panel, string label, string scope, Func<Task<AdvancedDataClearResult>> clear, bool available)
+    /// <summary>One Data &amp; reset button, wired to its existing operation and confirmation (labels from the view model).</summary>
+    private Button DataActionButton(DataActionPresentation action)
     {
-        Button button = new() { Content = label, IsEnabled = available }; AutomationProperties.SetName(button, label);
+        Button button = new() { Content = action.Label, IsEnabled = action.IsEnabled };
+        AutomationProperties.SetName(button, action.AccessibleName);
+        switch (action.Action)
+        {
+            case DataAction.ClearScanData: button.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); break;
+            case DataAction.ClearDownloadedFiles: button.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Clear downloaded files?"); break;
+            case DataAction.ClearSourceMetadata: WireAdvancedClear(button, "Clear source metadata", "Deletes cached package-source metadata and freshness records. Preserves inventory, connector consent, schedule, history, decisions and downloads.", () => workflow.ClearSourceMetadataAsync(CancellationToken.None)); break;
+            case DataAction.ClearLogs: WireAdvancedClear(button, "Clear logs", "Deletes only PC Steward file logs. It preserves inventory, source metadata, settings, decisions, history, downloads and provider caches.", async () => { FactoryResetResult result = await FactoryReset.ClearLogsAsync(CancellationToken.None); return new AdvancedDataClearResult("Logs", result.Succeeded, 0, result.Succeeded ? "PC Steward logs were cleared." : "Logs were only partly cleared: " + string.Join(", ", result.Residuals.Select(item => item.Reason))); }); break;
+            case DataAction.ClearUpdateHistory: WireAdvancedClear(button, "Clear update history", "Deletes recorded update outcomes only. Preserves inventory, settings, decisions, source metadata and downloads.", () => workflow.ClearUpdateHistoryAsync(CancellationToken.None)); break;
+            case DataAction.ClearMappingsAndPolicies: WireAdvancedClear(button, "Clear mappings and policies", "Deletes manual mappings, pins and ignores. Preserves inventory, settings, consent, source metadata, history and downloads.", () => workflow.ClearMappingsAndPoliciesAsync(CancellationToken.None)); break;
+            default: button.IsEnabled = false; break;
+        }
+        return button;
+    }
+
+    private void WireAdvancedClear(Button button, string label, string scope, Func<Task<AdvancedDataClearResult>> clear)
+    {
         button.Click += async (_, _) =>
         {
             ContentDialog confirmation = new() { XamlRoot = Content.XamlRoot, Title = label + "?", Content = scope, PrimaryButtonText = label, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
@@ -2084,7 +2200,6 @@ public sealed class MainWindow : Window
             finally { isClearing = false; Render(); }
             await new ContentDialog { XamlRoot = Content.XamlRoot, Title = result.Succeeded ? label + " complete" : label + " was not completed", Content = result.Message, CloseButtonText = "Close" }.ShowAsync();
         };
-        panel.Children.Add(new TextBlock { Text = scope, TextWrapping = TextWrapping.Wrap }); panel.Children.Add(button);
     }
 
     private async Task ConfirmAndArmFactoryResetAsync(Button invoker)
