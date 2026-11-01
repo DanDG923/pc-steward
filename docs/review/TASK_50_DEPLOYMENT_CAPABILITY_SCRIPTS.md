@@ -78,3 +78,4 @@ The reviewer confirmed the following:
 
 It reported one Medium finding: the Linux pwsh row masked the 5.1 `{}` serialization. That is fixed in `0f5b54a` (narrow and fail-closed, with unit tests). Its conditions are Windows CI green on `0f5b54a`, which proves the remaining 5.1 ledgers, and these corrected doc statements. Info items: a downgrade expressed by a new exact v2 plan is not forbidden by the accepted note; a v1 ledger with a v2 manifest fails with a capability error before the "Unrecognised" error, which is still fail-closed.
 
+**Conditions met:** Windows CI on `0f5b54a` ([run 41289600248](https://github.com/DanDG923/pc-steward/actions/runs/41289600248)) passed. Security was **430/430 with zero skipped**, so the Windows PowerShell 5.1 real-writer row ran and every generated ledger parsed: pending, rollback with 0/1/several stores, and completed v1/v2. Domain 167/167; Application 883/883. The review conditions are satisfied, so this slice is accepted.
