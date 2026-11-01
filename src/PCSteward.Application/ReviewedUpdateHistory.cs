@@ -160,23 +160,61 @@ public static class ReviewedUpdateHistoryPresentation
                 _ => record.Terminal is { } terminal ? Outcome(terminal) : "Finished, but the recorded result is unreadable.",
             };
         ReviewedUpdateTerminalRecord? trusted = record.IntegrityVerified ? record.Terminal : null;
+        int lingeringAt = 0;
+        bool lingering = trusted is not null && LingeringRecorded(trusted.Diagnostic, out lingeringAt);
         return new(title, status, operation is null ? "Unknown" : Mode(operation.Mode), operation is null ? "Unknown" : Candidate(operation),
             operation is null ? null : ReviewedUpdateProviderDisclosure.GetRiskText(operation), blocks,
-            record.Terminal is null ? string.Empty : SanitizedDiagnosticBundle.Sanitize(record.Terminal.Diagnostic),
+            record.Terminal is null ? string.Empty
+                : SanitizedDiagnosticBundle.Sanitize(lingering ? WithoutLingeringMarker(trusted!.Diagnostic, lingeringAt) : record.Terminal.Diagnostic),
             trusted is null ? null : HelperReport(trusted.HelperCheck),
             operation is null ? "Unknown" : Route(operation.RouteContract),
             trusted is null || record.State != UpdateDispatchState.Final ? null : VerificationDetail(trusted),
-            trusted is not null && ReviewedUpdateLingeringProcesses.IsReported(trusted.Diagnostic) ? ReviewedUpdateLingeringProcesses.HistoryNote : null);
+            lingering ? ReviewedUpdateLingeringProcesses.HistoryNote : null);
     }
 
-    /// <summary>Fixed route text; earlier Chocolatey routes are historical and never inherit the current route's meaning.</summary>
+    internal const string EarlierChocolateyRouteText = "Earlier Chocolatey machine route (historical record).";
+    internal const string UnknownRouteText = "Unknown route";
+
+    /// <summary>
+    /// Fixed route text; the three earlier Chocolatey routes are historical and never inherit the current route's meaning.
+    /// Any other value, including an undefined one, is an unknown route.
+    /// </summary>
     internal static string Route(UpdateRouteContract route) => route switch
     {
         UpdateRouteContract.WinGetUserExactV2 or UpdateRouteContract.WinGetUserExactV3 => "WinGet exact package update for your account (user scope).",
         UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 =>
             "Chocolatey Community machine update through PC Steward's administrator helper; package scripts run with administrator rights.",
-        _ => "Earlier Chocolatey machine route (historical record).",
+        UpdateRouteContract.ChocolateyMachineRegistrationV2 or UpdateRouteContract.ChocolateyMachineRegistrationV3 or
+            UpdateRouteContract.ChocolateyMachineProvisionalV3 => EarlierChocolateyRouteText,
+        _ => UnknownRouteText,
     };
+
+    /// <summary>
+    /// Design rev 6 rev-4 L4 (N6): true only when the recorded diagnostic carries the lingering-process token where the
+    /// workflow writes it: leading, after at most one leading <see cref="ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic"/>
+    /// marker (which the workflow prefixes afterwards). <paramref name="tokenAt"/> is the token's index. The token anywhere
+    /// else is not the workflow's marker.
+    /// </summary>
+    internal static bool LingeringRecorded(string? diagnostic, out int tokenAt)
+    {
+        tokenAt = 0;
+        if (diagnostic is null) return false;
+        string helperMarker = ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " ";
+        if (diagnostic.StartsWith(helperMarker, StringComparison.Ordinal)) tokenAt = helperMarker.Length;
+        ReadOnlySpan<char> rest = diagnostic.AsSpan(tokenAt);
+        string token = ReviewedUpdateLingeringProcesses.Token;
+        return rest.SequenceEqual(token) || (rest.StartsWith(token, StringComparison.Ordinal) && rest.Length > token.Length && rest[token.Length] == ' ');
+    }
+
+    /// <summary>
+    /// Display only: the user-visible diagnostic without the leading lingering-process marker at <paramref name="tokenAt"/>,
+    /// which the fixed note already shows. A leading helper-check marker stays (it has no note). Persisted data is unchanged.
+    /// </summary>
+    private static string WithoutLingeringMarker(string diagnostic, int tokenAt)
+    {
+        int end = Math.Min(diagnostic.Length, tokenAt + ReviewedUpdateLingeringProcesses.Token.Length + 1);
+        return diagnostic[..tokenAt] + diagnostic[end..];
+    }
 
     internal const string TargetVerifiedText = "Verification: the target version was detected after the update.";
     internal const string TargetNotDetectedText = "Verification: the update finished, but the target version was not detected.";

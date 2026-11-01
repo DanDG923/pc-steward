@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Provider.Chocolatey;
 using PCSteward.Provider.Chocolatey.Native;
@@ -74,6 +75,16 @@ internal static class ReviewedHelperEndpoint
     /// whole exit margin) and a genuine settled <c>TimedOut</c> observation fit inside the cap.
     /// </summary>
     internal static readonly TimeSpan LaunchDeadlineReserve = TimeSpan.FromSeconds(1);
+
+    /// <summary>The Started-launch diagnostic.</summary>
+    internal const string LaunchStartedDiagnostic = "launch-started";
+
+    /// <summary>
+    /// Design rev 6 settle window (rev-4 L4): the Started-launch diagnostic when the launch job terminated lingering
+    /// descendants. It carries the desktop's shared <see cref="ReviewedUpdateLingeringProcesses.Token"/> (a compile-time
+    /// constant), which the workflow records for the history note.
+    /// </summary>
+    internal const string LaunchStartedLingeringDiagnostic = LaunchStartedDiagnostic + "; " + ReviewedUpdateLingeringProcesses.Token;
 
     internal static Task<ReviewedHelperEndpointResult> RunAsync(Stream pipe, IChocolateyPeer peer, IChocolateyHelperQualificationPort port,
         IReviewedHelperCapabilityCheck capability, TimeProvider clock, long connectedTimestamp, string bootstrapNonce,
@@ -397,11 +408,13 @@ internal static class ReviewedHelperEndpoint
                     return Unknown(observation.TerminationFailed, observation.Cancelled, observation.TimedOut, observation.OutputLimitExceeded,
                         "launch-not-started-unsettled");
                 case NativeInvocation.Started:
-                    // Facts 4–13 as observed; an inconsistent set makes CreateResponse throw, so nothing is written.
+                    // Facts 4–13 as observed; an inconsistent set makes CreateResponse throw, so nothing is written. Design rev 6
+                    // settle window (rev-4 L4): when the launch job closed lingering descendants, the diagnostic carries the fixed
+                    // token the desktop records for history. Diagnostic only; it never changes a fact.
                     return Matched(new(UpdateWireInvocation.Started, observation.ExitCode, observation.DirectExitObserved,
                         observation.OwnedIoCompleted, observation.PipeEofObserved, observation.TerminationFailed,
                         observation.AggregateSettled && itemSettled, observation.Cancelled, observation.TimedOut,
-                        observation.OutputLimitExceeded), "launch-started");
+                        observation.OutputLimitExceeded), observation.LingeringTerminated ? LaunchStartedLingeringDiagnostic : LaunchStartedDiagnostic);
                 default:
                     return Unknown(observation.TerminationFailed, observation.Cancelled, observation.TimedOut, observation.OutputLimitExceeded,
                         "launch-unknown");

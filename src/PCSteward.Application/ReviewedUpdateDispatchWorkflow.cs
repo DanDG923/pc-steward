@@ -241,7 +241,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         RecordedHelperCandidateCheck helperCheck = observation.HelperCheck ?? RecordedHelperCandidateCheck.NotObserved;
         if (!settlement.ProvesSettlement)
             return await FinalizeAsync(claim, ownership, settlement, UpdateDispatchOutcome.Uncertain, observation.ExitCode,
-                WithLingeringMarker(observation, $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}"),
+                WithLingeringMarker(operation, observation, $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}"),
                 helperCheck).ConfigureAwait(false);
         if (settlement.State == UpdateDispatchSettlementState.NotInvoked)
             return await FinalizeAsync(claim, ownership, settlement, observation.Status switch
@@ -250,20 +250,24 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 ReviewedUpdateProviderStatus.ElevationDenied => UpdateDispatchOutcome.ElevationDenied,
                 ReviewedUpdateProviderStatus.Refused => UpdateDispatchOutcome.Refused,
                 _ => UpdateDispatchOutcome.Failed,
-            }, null, WithLingeringMarker(observation, $"Nothing was invoked. {Bounded(observation.Diagnostic)}"), helperCheck).ConfigureAwait(false);
+            }, null, $"Nothing was invoked. {Bounded(observation.Diagnostic)}", helperCheck).ConfigureAwait(false);
 
         (UpdateDispatchOutcome outcome, string message) = await ClassifySettledAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
-        return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, WithLingeringMarker(observation, message), helperCheck)
+        return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, WithLingeringMarker(operation, observation, message), helperCheck)
             .ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Design rev 6 rev-4 L4 (N6): when the observation's diagnostic carries the helper's fixed
-    /// <see cref="ReviewedUpdateLingeringProcesses.Token"/>, the recorded message starts with it, so history can show the
-    /// fixed note beside every outcome and truncation never drops it (the verified path otherwise drops the diagnostic).
-    /// Recorded text only; it never changes the outcome, settlement or barrier.
+    /// Design rev 6 rev-4 L4 (N6): when the frozen route is <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/>
+    /// (the only route whose helper reports the settle window), the observation says the update was started, and its
+    /// diagnostic carries the helper's fixed <see cref="ReviewedUpdateLingeringProcesses.Token"/>, the recorded message
+    /// starts with it, so history can show the fixed note beside every outcome and truncation never drops it (the verified
+    /// path otherwise drops the diagnostic). A not-started path never carries it. Recorded text only; it never changes the
+    /// outcome, settlement or barrier.
     /// </summary>
-    private static string WithLingeringMarker(ReviewedUpdateDispatchObservation observation, string message) =>
+    internal static string WithLingeringMarker(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation, string message) =>
+        operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&
+        observation.Invocation == ReviewedUpdateInvocation.Started &&
         ReviewedUpdateLingeringProcesses.IsReported(observation.Diagnostic)
             ? ReviewedUpdateLingeringProcesses.Token + " " + message
             : message;

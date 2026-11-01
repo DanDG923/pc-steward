@@ -84,6 +84,7 @@ public sealed class ChocolateyReviewDisclosureTests
     [DataRow("observed-after-review")]
     [DataRow("default-resolved")]
     [DataRow("older-route")]
+    [DataRow("resolved-too-long-before-review")]
     public void AnIntentThatDoesNotMatchTheFrozenReviewIsAMismatchWithoutItsTime(string change)
     {
         ReviewedUpdateOperation operation = Chocolatey(change == "older-route" ? UpdateRouteContract.ChocolateyMachineProvisionalV3 : UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3);
@@ -100,6 +101,12 @@ public sealed class ChocolateyReviewDisclosureTests
             "resolved-after-observed" => facts with { IntentResolvedAt = facts.ObservedAt.AddTicks(1) },
             "observed-after-review" => facts with { ObservedAt = ReviewedAt.AddTicks(1) },
             "default-resolved" => facts with { IntentResolvedAt = default },
+            // L4: observed promptly but reviewed more than IntentMaxAge after the intent was resolved.
+            "resolved-too-long-before-review" => facts with
+            {
+                IntentResolvedAt = ReviewedAt - ChocolateyReviewDisclosurePresentation.IntentMaxAge - TimeSpan.FromTicks(1),
+                ObservedAt = ReviewedAt - ChocolateyReviewDisclosurePresentation.IntentMaxAge,
+            },
             _ => facts,
         };
         ChocolateyReviewDisclosureView view = ChocolateyReviewDisclosurePresentation.Present(operation, changed, ReviewedRouteSplitTokenState.SplitTokenLimited);
@@ -111,6 +118,33 @@ public sealed class ChocolateyReviewDisclosureTests
         // The fixed pre-review disclosures are still shown.
         Assert.AreEqual(ChocolateyReviewDisclosurePresentation.UserCacheDisclosure, view.UserCacheDisclosure);
         Assert.AreEqual(ReviewedUpdateLingeringProcesses.ReviewDisclosure, view.LingeringProcesses);
+    }
+
+    /// <summary>L4: the review may follow the intent's own resolved time by at most IntentMaxAge, the producer's bound.</summary>
+    [TestMethod]
+    public void TheReviewMayFollowTheResolvedIntentByAtMostTheProducersIntentMaxAge()
+    {
+        Assert.AreEqual(PCSteward.Provider.Chocolatey.Native.ChocolateyProfileEvidenceSource.IntentMaxAge, ChocolateyReviewDisclosurePresentation.IntentMaxAge);
+        ReviewedUpdateOperation operation = Chocolatey(UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3);
+        DateTimeOffset oldest = ReviewedAt - ChocolateyReviewDisclosurePresentation.IntentMaxAge;
+        foreach ((DateTimeOffset resolved, DateTimeOffset observed, bool matches) in new[]
+                 {
+                     (oldest, oldest, true),
+                     (oldest, ReviewedAt, true),
+                     (ReviewedAt, ReviewedAt, true),
+                     (oldest.AddTicks(-1), oldest, false),
+                     (oldest.AddTicks(-1), ReviewedAt, false),
+                 })
+        {
+            ChocolateyReviewDisclosureView view = ChocolateyReviewDisclosurePresentation.Present(operation,
+                Facts() with { IntentResolvedAt = resolved, ObservedAt = observed }, ReviewedRouteSplitTokenState.SplitTokenLimited);
+            Assert.AreEqual(!matches, view.UnavailableReasons.Contains(ReviewedRouteUnavailableReason.ReviewDataMismatch), $"{resolved:O} {observed:O}");
+            Assert.AreEqual(matches ? resolved : null, view.IntentResolvedAt);
+        }
+        // Resolved after the review (negative age) never matches.
+        ChocolateyReviewDisclosureView future = ChocolateyReviewDisclosurePresentation.Present(operation,
+            Facts() with { IntentResolvedAt = ReviewedAt.AddTicks(1), ObservedAt = ReviewedAt.AddTicks(1) }, ReviewedRouteSplitTokenState.SplitTokenLimited);
+        CollectionAssert.Contains(future.UnavailableReasons.ToArray(), ReviewedRouteUnavailableReason.ReviewDataMismatch);
     }
 
     [TestMethod]
@@ -139,8 +173,14 @@ public sealed class ChocolateyReviewDisclosureTests
         Assert.AreEqual("WinGet exact package update for your account (user scope).", Present(WinGet(), UpdateDispatchOutcome.Success, "x").Route);
         StringAssert.Contains(Present(Chocolatey(UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3), UpdateDispatchOutcome.Unverified, "x").Route,
             "administrator helper");
-        foreach (UpdateRouteContract older in new[] { UpdateRouteContract.ChocolateyMachineProvisionalV3, UpdateRouteContract.ChocolateyMachineRegistrationV3 })
+        foreach (UpdateRouteContract older in new[] { UpdateRouteContract.ChocolateyMachineProvisionalV3, UpdateRouteContract.ChocolateyMachineRegistrationV3,
+                     UpdateRouteContract.ChocolateyMachineRegistrationV2 })
             Assert.AreEqual("Earlier Chocolatey machine route (historical record).", ReviewedUpdateHistoryPresentation.Route(older));
+        // L3: anything else, including an undefined value, is an unknown route, never an earlier Chocolatey route.
+        foreach (UpdateRouteContract undefined in new[] { (UpdateRouteContract)(-1), (UpdateRouteContract)6, (UpdateRouteContract)99 })
+            Assert.AreEqual("Unknown route", ReviewedUpdateHistoryPresentation.Route(undefined));
+        foreach (UpdateRouteContract defined in Enum.GetValues<UpdateRouteContract>())
+            Assert.AreNotEqual("Unknown route", ReviewedUpdateHistoryPresentation.Route(defined), defined.ToString());
         ReviewedUpdateHistoryView unreadable = ReviewedUpdateHistoryPresentation.Present(new(Guid.NewGuid(), null, UpdateDispatchState.Final, ReviewedAt,
             Terminal(UpdateDispatchOutcome.Success, ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage), false));
         Assert.AreEqual("Unknown", unreadable.Route);
@@ -187,10 +227,38 @@ public sealed class ChocolateyReviewDisclosureTests
         Assert.IsNull(Present(operation, outcome, "fixture").LingeringProcessesNote);
         Assert.IsNull(Present(operation, outcome, "xlingering-descendants-terminated").LingeringProcessesNote, "only the whole token");
         Assert.IsNull(Present(operation, outcome, "lingering-descendants-terminated-extra").LingeringProcessesNote, "only the whole token");
-        Assert.IsNotNull(Present(operation, outcome, "helper: settle; lingering-descendants-terminated; done").LingeringProcessesNote);
+        // L2: only the position the workflow writes (leading, after an optional leading helper-check marker).
+        Assert.IsNull(Present(operation, outcome, "helper: settle; lingering-descendants-terminated; done").LingeringProcessesNote, "an embedded token");
+        Assert.IsNull(Present(operation, outcome, "Nothing was invoked. lingering-descendants-terminated").LingeringProcessesNote, "an embedded token");
+        Assert.IsNull(Present(operation, outcome, " lingering-descendants-terminated x").LingeringProcessesNote, "not leading");
+        Assert.IsNull(Present(operation, outcome, "lingering-descendants-terminated;x").LingeringProcessesNote, "not the marker's separator");
+        Assert.IsNull(Present(operation, outcome, "helper-check-not-recorded helper-check-not-recorded lingering-descendants-terminated x").LingeringProcessesNote);
+        Assert.IsNotNull(Present(operation, outcome, "helper-check-not-recorded lingering-descendants-terminated x").LingeringProcessesNote);
+        Assert.IsNotNull(Present(operation, outcome, "lingering-descendants-terminated").LingeringProcessesNote);
         // An integrity failure shows nothing recorded.
         Assert.IsNull(ReviewedUpdateHistoryPresentation.Present(new(operation.JobId, operation, UpdateDispatchState.Final, ReviewedAt,
             Terminal(outcome, ReviewedUpdateLingeringProcesses.Token), false)).LingeringProcessesNote);
+    }
+
+    /// <summary>Info: the note already shows the marker, so the visible diagnostic drops it; the helper-check marker (no note) stays.</summary>
+    [TestMethod]
+    [DataRow("lingering-descendants-terminated Target version verified by post-update inventory.", "Target version verified by post-update inventory.")]
+    [DataRow("helper-check-not-recorded lingering-descendants-terminated Nothing new.", "helper-check-not-recorded Nothing new.")]
+    [DataRow("lingering-descendants-terminated", "")]
+    [DataRow("helper-check-not-recorded Nothing new.", "helper-check-not-recorded Nothing new.")]
+    [DataRow("helper: settle; lingering-descendants-terminated; done", "helper: settle; lingering-descendants-terminated; done")]
+    public void TheVisibleDiagnosticDropsOnlyTheLeadingLingeringMarker(string recorded, string shown)
+    {
+        ReviewedUpdateOperation operation = Chocolatey(UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3);
+        ReviewedUpdateHistoryRecord record = new(operation.JobId, operation, UpdateDispatchState.Final, ReviewedAt,
+            Terminal(UpdateDispatchOutcome.Unverified, recorded), true);
+        ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(record);
+        Assert.AreEqual(shown, view.Diagnostic);
+        Assert.AreEqual(recorded, record.Terminal!.Diagnostic, "persisted data is unchanged");
+        // An integrity failure shows the recorded text unchanged (no note either).
+        ReviewedUpdateHistoryView untrusted = ReviewedUpdateHistoryPresentation.Present(record with { IntegrityVerified = false });
+        Assert.AreEqual(recorded, untrusted.Diagnostic);
+        Assert.IsNull(untrusted.LingeringProcessesNote);
     }
 
     [TestMethod]

@@ -24,7 +24,10 @@ public static partial class ReviewedUpdateLingeringProcesses
         "Recorded at the time: processes started by the update, such as installers, were still running when it finished and were closed. " +
         "Check the application before relying on it.";
 
-    /// <summary>True when <paramref name="diagnostic"/> carries <see cref="Token"/> as a whole token.</summary>
+    /// <summary>
+    /// True when the helper's observation <paramref name="diagnostic"/> carries <see cref="Token"/> as a whole token (the workflow's
+    /// input). History recognises only the workflow's leading marker (<c>ReviewedUpdateHistoryPresentation.LingeringRecorded</c>).
+    /// </summary>
     public static bool IsReported(string? diagnostic) => diagnostic is not null && TokenPattern().IsMatch(diagnostic);
 
     [GeneratedRegex(@"(?<![A-Za-z0-9_-])lingering-descendants-terminated(?![A-Za-z0-9_-])", RegexOptions.CultureInvariant)]
@@ -171,7 +174,10 @@ public static class ChocolateyReviewDisclosurePresentation
         _ => throw new ArgumentOutOfRangeException(nameof(reason)),
     };
 
-    /// <summary>The intent must be the same provisional candidate, requester and profile identity the review froze, with consistent times.</summary>
+    /// <summary>
+    /// The intent must be the same provisional candidate, requester and profile identity the review froze, with consistent times:
+    /// resolved, then observed, then reviewed, and reviewed at most <see cref="IntentMaxAge"/> after it was resolved.
+    /// </summary>
     private static bool Matches(ReviewedUpdateOperation operation, ChocolateyReviewIntentFacts intent) =>
         operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&
         operation.CandidateProvenance == ReviewedCandidateProvenance.UserCacheIntent &&
@@ -182,5 +188,12 @@ public static class ChocolateyReviewDisclosurePresentation
         string.Equals(intent.RequestingUserSid, operation.RequestingUserSid, StringComparison.Ordinal) &&
         string.Equals(intent.ProfileEvidenceId, operation.EvidenceId, StringComparison.Ordinal) &&
         intent.IntentResolvedAt != default && intent.ObservedAt != default && intent.IntentResolvedAt <= intent.ObservedAt &&
-        intent.ObservedAt <= operation.ReviewedAt;
+        intent.ObservedAt <= operation.ReviewedAt &&
+        operation.ReviewedAt - intent.IntentResolvedAt >= TimeSpan.Zero && operation.ReviewedAt - intent.IntentResolvedAt <= IntentMaxAge;
+
+    /// <summary>
+    /// The longest a review may follow the intent's own resolved time. It equals the producer's intent freshness bound
+    /// (<c>ChocolateyProfileEvidenceSource.IntentMaxAge</c>, which Application cannot reference; a test pins equality).
+    /// </summary>
+    internal static readonly TimeSpan IntentMaxAge = TimeSpan.FromMinutes(2);
 }

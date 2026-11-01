@@ -77,13 +77,14 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
         Assert.IsNull(ReviewedUpdateDispatchWorkflow.RejectVerification(winget, new(false, true)), "other routes keep their restart semantics");
     }
 
-    private static ReviewedUpdateOperation Chocolatey()
+    private static ReviewedUpdateOperation Chocolatey(UpdateRouteContract route = UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3)
     {
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git.install",
             UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git.install", "1.0.0", "2.0.0", UpdateScope.Machine,
             UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(ReviewedAt);
-        return new(job, User, "choco:git.install", "machine:choco", "choco-profile-v2:" + new string('A', 64), ReviewedAt,
-            UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled),
+        return new(job, User, "choco:git.install", "machine:choco",
+            route == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 ? "choco-profile-v2:" + new string('A', 64) : "evidence:1", ReviewedAt,
+            route, ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled),
             ReviewedUpdateArchitecture.ProviderScriptSelected());
     }
 
@@ -619,8 +620,9 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
 
     /// <summary>
     /// N6 (design rev 6 rev-4 L4; fact extension rev 3 §4.3): what the workflow records reaches history as the fixed
-    /// verification text, and the helper's lingering-process token is kept on every path, including the verified one that
-    /// otherwise drops the diagnostic, without changing the outcome.
+    /// verification text without changing the outcome. The admitted WinGet route never carries the Chocolatey helper's
+    /// lingering-process marker (L1), even when its diagnostic contains the token, and an embedded token is never a note
+    /// (L2). The marker itself is covered by <see cref="TheLingeringMarkerIsAddedOnlyForAStartedRuntimeLimitChocolateyInvocation"/>.
     /// </summary>
     [TestMethod]
     [DataRow("verified", false)]
@@ -677,9 +679,54 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
             Assert.AreEqual(outcome, record.Terminal!.Outcome);
             ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(record);
             Assert.AreEqual(verification, view.VerificationDetail, $"{scenario} token={withToken}");
-            Assert.AreEqual(withToken ? ReviewedUpdateLingeringProcesses.HistoryNote : null, view.LingeringProcessesNote, $"{scenario} token={withToken}");
-            Assert.AreEqual(withToken, record.Terminal.Diagnostic.StartsWith(ReviewedUpdateLingeringProcesses.Token + " ", StringComparison.Ordinal));
+            Assert.IsNull(view.LingeringProcessesNote, $"{scenario} token={withToken}");
+            Assert.IsFalse(record.Terminal.Diagnostic.StartsWith(ReviewedUpdateLingeringProcesses.Token, StringComparison.Ordinal));
         }
+    }
+
+    /// <summary>
+    /// L1 (design rev 6 rev-4 L4): the marker is added only for the runtime-limit Chocolatey route, only for a Started
+    /// invocation, and only when the helper's diagnostic carries the whole token; history then shows the note, also behind
+    /// the helper-check marker the workflow may prefix afterwards. The live workflow cannot run that route while
+    /// <c>HasSupportedMode</c> admits only WinGet, so the marker rule is exercised directly.
+    /// </summary>
+    [TestMethod]
+    public void TheLingeringMarkerIsAddedOnlyForAStartedRuntimeLimitChocolateyInvocation()
+    {
+        ReviewedUpdateOperation chocolatey = Chocolatey();
+        const string Message = ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage;
+        string token = ReviewedUpdateLingeringProcesses.Token;
+        ReviewedUpdateDispatchObservation started = Settled(ReviewedUpdateProviderStatus.Completed, 0) with { Diagnostic = "launch-started; " + token };
+
+        string marked = ReviewedUpdateDispatchWorkflow.WithLingeringMarker(chocolatey, started, Message);
+        Assert.AreEqual(token + " " + Message, marked);
+        foreach (ReviewedUpdateOperation other in new[]
+                 {
+                     WinGetOperation(), Chocolatey(UpdateRouteContract.ChocolateyMachineProvisionalV3),
+                     Chocolatey(UpdateRouteContract.ChocolateyMachineRegistrationV3), Chocolatey(UpdateRouteContract.ChocolateyMachineRegistrationV2),
+                 })
+            Assert.AreEqual(Message, ReviewedUpdateDispatchWorkflow.WithLingeringMarker(other, started, Message), other.RouteContract.ToString());
+        Assert.AreEqual(Message, ReviewedUpdateDispatchWorkflow.WithLingeringMarker(chocolatey, started with { Invocation = ReviewedUpdateInvocation.NotStarted }, Message));
+        Assert.AreEqual(Message, ReviewedUpdateDispatchWorkflow.WithLingeringMarker(chocolatey, started with { Invocation = ReviewedUpdateInvocation.Unknown }, Message));
+        Assert.AreEqual(Message, ReviewedUpdateDispatchWorkflow.WithLingeringMarker(chocolatey, started with { Diagnostic = "launch-started" }, Message));
+        Assert.AreEqual(Message, ReviewedUpdateDispatchWorkflow.WithLingeringMarker(chocolatey, started with { Diagnostic = "launch-started; " + token + "-x" }, Message));
+
+        foreach (string recorded in new[] { marked, ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " " + marked })
+        {
+            ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(new(chocolatey.JobId, chocolatey, UpdateDispatchState.Final, ReviewedAt,
+                new(UpdateDispatchOutcome.Success, ReviewedAt.AddMinutes(1), 0, UpdateDispatchSettlementState.OwnedWorkStopped, recorded), true));
+            Assert.AreEqual(ReviewedUpdateLingeringProcesses.HistoryNote, view.LingeringProcessesNote, recorded);
+            Assert.AreEqual(ReviewedUpdateHistoryPresentation.TargetVerifiedText, view.VerificationDetail, recorded);
+            Assert.IsFalse(view.Diagnostic.Contains(token, StringComparison.Ordinal), "the note replaces the visible marker");
+        }
+    }
+
+    private static ReviewedUpdateOperation WinGetOperation()
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet,
+            "Contoso.Widget", "1.0", "1.1", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1")).Confirm(ReviewedAt);
+        return new(job, User, "native:1", "context:1", "review:1", ReviewedAt.AddSeconds(-1),
+            UpdateRouteContract.WinGetUserExactV3, ReviewedInstallerMode.Selected(InstallerMode.Silent));
     }
 
     private static ReviewedUpdateDispatchObservation Settled(ReviewedUpdateProviderStatus status, int? exit) =>
