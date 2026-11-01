@@ -9,7 +9,7 @@ public sealed class UiRedesignContractTests
     private static readonly string[] SupportedThemes = ["Default", "Light", "Dark", "HighContrast"];
     private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions"];
     private static readonly string[] FooterNavigationLabels = ["Settings", "About"];
-    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Onboarding"];
+    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
     private static readonly string[] PerRowActionNames =
     [
         "$\"Pin {row.Name} at installed version {row.Version}\"",
@@ -18,9 +18,12 @@ public sealed class UiRedesignContractTests
         "$\"Review {row.Name} evidence",
         "$\"Open {row.Name} evidence\"",
         "$\"Open unavailable source evidence for {row.Name}\"",
-        "$\"Open repository evidence for {row.Name}\""
+        "$\"Open repository evidence for {row.Name}\"",
+        "$\"More options for {presentation.Name}\"",
+        "$\"Choose {ready.Name} to review",
+        "$\"Why {needsReview.Name} needs review: {needsReview.ReasonText}\""
     ];
-    private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Decisions", "InstalledApps", "Settings"];
+    private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Decisions", "InstalledApps", "Settings", "UpdateJob"];
 
     /// <summary>
     /// Task 73 Phase 1 (ADR-030, FR-UI-01/02, AC-UX-01/02). Deliberately replaces the Task 35 pin of six literal
@@ -309,6 +312,121 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(refresh, "detailStableProductKey");
         StringAssert.Contains(refresh, "detailRow = viewModel.AllRows.SingleOrDefault");
         Assert.IsFalse(refresh.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Task 73 Phase 2 (ADR-030 decision 2; SPEC §7.3; audit §6.3–6.4): the Updates page is grouped by the portable presenter; only
+    /// Ready rows get a selection control, nothing is preselected, Needs review and Ignored rows have no update control at all, and
+    /// a selection only opens the review. Replaces the Phase 1 flat card list deliberately.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-01; FR-UI-04; FR-POL-01–05: grouped Updates, nothing preselected, no update control for needs-review rows.")]
+    public void UpdatesPageGroupsEvidenceAndNeedsReviewRowsHaveNoUpdateControl()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string page = Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow(");
+        StringAssert.Contains(page, "UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKey, DateTimeOffset.UtcNow)");
+        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "if (page.Ready.Count > 0)");
+        string needsReview = Between(page, "foreach (UpdateRowPresentation needsReview in page.NeedsReview)", "// Ignored and skipped");
+        string ignored = Between(page, "foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)", "Expander ignoredGroup");
+        StringAssert.Contains(ready, "RadioButton choose = new() { GroupName = \"ready-updates\", IsChecked = ready.StableProductKey == page.SelectedKey");
+        Assert.AreEqual(1, Count(source, "new RadioButton") + Count(source, "RadioButton choose = new()"), "the only selection control is on Ready rows");
+        foreach (string group in new[] { needsReview, ignored })
+            foreach (string control in new[] { "RadioButton", "CheckBox", "ReviewAndExecuteAsync", "PrimaryButton", "IsEnabled = false" })
+                Assert.IsFalse(group.Contains(control, StringComparison.Ordinal), $"no update control (not even a disabled one): {control}");
+        StringAssert.Contains(needsReview, "needsReview.ReasonText");
+        StringAssert.Contains(page, "IsExpanded = ignoredGroupExpanded");
+        Assert.IsFalse(source.Contains("private bool ignoredGroupExpanded = true", StringComparison.Ordinal), "Ignored and skipped starts collapsed");
+        Assert.AreEqual(1, Count(page, "ReviewAndExecuteAsync("), "only the review button opens a review");
+        StringAssert.Contains(page, "review.IsEnabled = page.CanReview && !HasActiveOperation && reviewDecision is null");
+        Assert.IsFalse(source.Contains("private string? selectedReadyKey =", StringComparison.Ordinal), "nothing is preselected");
+        string presenter = ApplicationSource("UpdatesPagePresentation.cs");
+        StringAssert.Contains(presenter, "case nameof(UpdateIntelligenceStatus.VerifiedUpdate):");
+        StringAssert.Contains(presenter, "public bool HasUpdateControl => Group == UpdateGroup.Ready;");
+        Assert.IsFalse(presenter.Contains("\"Skip", StringComparison.Ordinal) || presenter.Contains("SkipVersion", StringComparison.Ordinal), "no invented skip-version decision");
+
+        string overflow = Between(source, "private Button UpdateRowOverflow(", "/// FR-UPD-01/04–09, FR-UI-03/04, FR-DAT-09, UJ-04");
+        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row)", "PromptAndPinCurrentVersionAsync(row)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)" })
+            StringAssert.Contains(overflow, operation);
+        Assert.IsFalse(overflow.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Task 73 Phase 2 (ADR-030 decision 3; FR-UPD-01/04; audit P-H6, P-M3): the job stepper keeps the existing review → explicit
+    /// confirmation → execution order exactly, with Cancel as the default, the UAC shield only when administrator approval is
+    /// required, and leaving the page (or closing the window) cancelling the review.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-01/04/05/06; FR-UI-03/04: review sheet replaces the wall-of-text dialog; ordering and Cancel default are kept.")]
+    public void UpdateJobReviewKeepsTheOrderingCancelDefaultAndNeverApprovesByNavigation()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string review = source[source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal)..];
+        string[] ordered =
+        [
+            "if (HasActiveOperation || windowClosed || reviewDecision is not null) return;",
+            "updates.BeginReviewAsync(row.StableProductKey, token)",
+            "AdministratorRequirementPresenter.ForSelection(selection)",
+            "UpdateReviewSheet.Create(selection,",
+            "NavigateTo(ShellPage.UpdateJob);",
+            "bool confirmed = await decision.Task;",
+            "if (!confirmed || windowClosed)",
+            "isExecuting = true;",
+            "updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token, preparation.Progress)"
+        ];
+        int previous = -1;
+        foreach (string step in ordered)
+        {
+            int index = review.IndexOf(step, StringComparison.Ordinal);
+            Assert.IsTrue(index > previous, $"out of order or missing: {step}");
+            previous = index;
+        }
+        Assert.IsFalse(source.Contains("Title = \"Review approved update\"", StringComparison.Ordinal), "the wall-of-text dialog is gone");
+        Assert.IsFalse(source.Contains("Install approved update", StringComparison.Ordinal), "never 'approved' before approval");
+        StringAssert.Contains(source, "if (navigation.Current != ShellPage.UpdateJob) reviewDecision?.TrySetResult(false);");
+        StringAssert.Contains(source, "Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false);");
+
+        string reviewStep = Between(source, "private void AddReviewStep(", "private void AddUpdateStep(");
+        int cancel = reviewStep.IndexOf("actions.Children.Add(cancel);", StringComparison.Ordinal);
+        int confirm = reviewStep.IndexOf("actions.Children.Add(confirm);", StringComparison.Ordinal);
+        Assert.IsTrue(cancel >= 0 && confirm > cancel, "Cancel comes first");
+        StringAssert.Contains(reviewStep, "pageInitialFocus = cancel;");
+        StringAssert.Contains(reviewStep, "Content = UpdateReviewSheet.CancelButtonLabel");
+        StringAssert.Contains(reviewStep, "decision.TrySetResult(true);");
+        Assert.AreEqual(1, Count(reviewStep, "decision.TrySetResult(true);"), "only the specific primary button confirms");
+        Assert.IsFalse(reviewStep.Contains("KeyboardAccelerator", StringComparison.Ordinal), "no Enter accelerator on the update button");
+        StringAssert.Contains(reviewStep, "foreach (ReviewFact fact in sheet.Facts)");
+        StringAssert.Contains(reviewStep, "sheet.ConfidenceSummary");
+        StringAssert.Contains(reviewStep, "foreach (ReviewRiskCallout risk in sheet.Risks)");
+        StringAssert.Contains(reviewStep, "sheet.Attestation");
+        StringAssert.Contains(source, "?? initialFocus");
+    }
+
+    /// <summary>
+    /// Task 73 Phase 2 (ADR-030 decision 3; FR-UPD-08/09; FR-DAT-09; audit P-H3/P-H4): Verify shows the mapped per-item outcome,
+    /// its evidence, restart guidance and Delete downloaded files through the existing cleanup; a refused UAC prompt returns to
+    /// Review instead of reading as a failure.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-07–09; FR-DAT-09; UJ-04: four honest outcomes, refusal returns to Review, completion cleanup.")]
+    public void VerifyStepShowsHonestOutcomesRestartGuidanceAndCleanup()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string verify = Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()");
+        StringAssert.Contains(verify, "foreach (UpdateJobItemOutcome item in completion.Items)");
+        StringAssert.Contains(verify, "outcome.Label");
+        StringAssert.Contains(verify, "outcome.Summary");
+        StringAssert.Contains(verify, "outcome.TechnicalDetail");
+        StringAssert.Contains(verify, "completion.RestartGuidance");
+        StringAssert.Contains(verify, "ConfirmAndClearDownloadedFilesAsync(\"Delete downloaded files after update completion?\")");
+        StringAssert.Contains(verify, "UpdateJobCleanupText.Recoverable(downloadCache.RecoverableBytes)");
+        StringAssert.Contains(verify, "IsEnabled = downloadCache.RecoverableBytes > 0 && !HasActiveOperation");
+        Assert.IsFalse(verify.Contains("Update failed", StringComparison.Ordinal), "no flattened failure title in the Desktop");
+        StringAssert.Contains(source, "job.Step = job.Completion.ReturnsToReview ? UpdateJobStep.Review : UpdateJobStep.Verify;");
+        string presenter = ApplicationSource("UpdateJobPresentation.cs");
+        foreach (string label in new[] { "VerifiedLabel = \"Verified\"", "RestartRequiredLabel = \"Restart required\"", "InstalledNotVerifiedLabel = \"Installed, not verified\"", "FailedLabel = \"Failed\"" })
+            StringAssert.Contains(presenter, label);
+        StringAssert.Contains(presenter, "NeverRestartsNote = \"PC Steward never restarts your PC.\"");
     }
 
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));

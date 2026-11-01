@@ -379,6 +379,21 @@ public sealed class UpdatesAndJobPresentationTests
     }
 
     [TestMethod]
+    [Description("FR-DAT-09; UJ-04 step 9 (audit P-H4, P-M6): the completion view shows the recoverable download size in human-readable words.")]
+    public void CleanupTextShowsAHumanReadableRecoverableSize()
+    {
+        Assert.AreEqual("0 bytes", UpdateJobCleanupText.Size(0));
+        Assert.AreEqual("1 byte", UpdateJobCleanupText.Size(1));
+        Assert.AreEqual("0 bytes", UpdateJobCleanupText.Size(-5));
+        StringAssert.Contains(UpdateJobCleanupText.Size(1536), "KB");
+        StringAssert.Contains(UpdateJobCleanupText.Size(5L * 1024 * 1024), "5 MB");
+        StringAssert.Contains(UpdateJobCleanupText.Size(3L * 1024 * 1024 * 1024), "3 GB");
+        StringAssert.Contains(UpdateJobCleanupText.Recoverable(5L * 1024 * 1024), "5 MB of downloaded update files can be deleted");
+        Assert.AreEqual("There are no downloaded update files to delete.", UpdateJobCleanupText.Recoverable(0));
+        Assert.AreEqual("Delete downloaded files", UpdateJobCleanupText.Heading, "the exact data-control label is kept");
+    }
+
+    [TestMethod]
     [Description("FR-UI-01/02: the update job is a contextual page under Updates and is not returned to with Back once left.")]
     public void UpdateJobPageSitsUnderUpdatesAndIsTransient()
     {

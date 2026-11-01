@@ -126,7 +126,7 @@ public static class ReviewReasonText
     };
 }
 
-/// <summary>An action in a row's overflow menu. There is no "Skip this version": no domain operation exists for it.</summary>
+/// <summary>An action in a row's overflow menu. There is no skip-this-version action: no domain operation exists for it, so none is invented.</summary>
 public enum UpdateRowAction
 {
     IgnoreApp,
