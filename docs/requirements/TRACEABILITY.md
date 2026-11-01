@@ -11,6 +11,15 @@
 - Eligibility: the installed Chocolatey does not match the pinned 2.7.5 release.
 - Still open before admission: the items in the interpretation's open list.
 
+# Task 50 — N5 desktop producers
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`, `AC-UPD-07`; [design rev 6](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §7 and §8 N5; adapter gates §A.6.1 (A2-L6); fact extension rev 3 §4.3 (L5); Task 90 M2.
+
+- Security `ChocolateyDesktopProducersTests` (portable 61): F′ null for every observer refusal kind and inconsistent observation, evidence identity from the fresh fingerprint; review intent as UserCacheIntent with the Profile V2 disclosure; verifier file-first ordering, ClientChanged/Unverifiable details, Success only for the proven expected version, never restart-pending. `ChocolateyProfileRulesTests.TheRegistrationDigestMatchesTheIndependentGoldenVector` (portable). `ChocolateyDesktopProducersNativeTests` (Windows-only 5) over `N2ProfileFixture`.
+- Integration `ReviewedUpdateDispatchWorkflowTests`: verification detail → Unverified with the fixed message; the runtime-limit route's restart guard.
+- Architecture `DesktopProducersBoundaryTests` (5) and the extended `HelperEndpointBoundaryTests` pins (`Observe`, `TryFromCurrentProcess`).
+- Not claimed: Desktop composition, route admission, or Windows CI evidence for the 5 Windows-only tests.
+
 # Task 50 — N4b native port, Helper-role G1 and protocol-2 bootstrap
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; [design rev 6](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4, §7, §8, §10 and §11–§15; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N4b.
