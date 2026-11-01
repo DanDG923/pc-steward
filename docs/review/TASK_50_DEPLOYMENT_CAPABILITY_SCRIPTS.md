@@ -2,7 +2,7 @@
 
 **Authority.** [ADR-022](../adr/ADR-022-OWNER-ONLY-PROTECTED-TEST-DEPLOYMENT.md), last section: "Alignment note — protocol-2 capability statement", accepted by the owner on 2026-11-01. The work list is items 1–7 under "Follow-up script changes" in the [proposal record](TASK_50_ADR022_ALIGNMENT_NOTE_PROPOSED.md). The design comes from [adapter gates](TASK_50_ADAPTER_GATES.md) Part A, §A.3, §A.7 and §R A2-L1/A2-L2. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 
-**Boundary.** These are script, payload and test changes only. No script was run against a host, a Program Files path, a certificate store or an installed root. The ledger schema (`pc-steward-owner-only-protected-test-v6`) and every writer's key set are unchanged, and the C# `DeploymentCapabilityPolicy` is unchanged. Running any changed script on a host, and executing any redeploy plan, needs separate exact owner approval.
+**Boundary.** These are script, payload and test changes only. No script was run against a host, a Program Files path, a certificate store or an installed root. The ledger schema (`pc-steward-owner-only-protected-test-v6`) and every writer's key set are unchanged, The C# `DeploymentCapabilityPolicy` changed in exactly one place, follow-up commit `0f5b54a`: Windows CI showed that Windows PowerShell 5.1 serializes the rollback writer's empty store list as `{}`, so `ValidStores` now accepts exactly an empty object for the Rollback variant only. Running any changed script on a host, and executing any redeploy plan, needs separate exact owner approval.
 
 ## What changed, item by item
 
@@ -29,7 +29,7 @@
   - v2 with the v1 manifest, or with no capability file, evaluates to Mismatch.
 
   The same run also checks:
-  - 30 capability vectors give identical results from the script parser and `TryParseCapability`;
+  - 29 capability vectors give identical results from the script parser and `TryParseCapability`;
   - the v1 manifest gives v1, the v2 manifest gives v2, and the nested, case-variant, empty and oversize entries are refused;
   - the profile and early provenance refusals;
   - the frozen pre-change validator throws `Unrecognised pinned-payload provenance.` on the real-writer v2 ledger;
@@ -65,3 +65,16 @@ The Release builds of all four test projects have zero warnings and zero errors.
 - Application: 780 passed, 103 failed of 883. The failed set is identical to the baseline.
 
 The build has zero warnings. pwsh 7.x is at `/usr/bin/pwsh`. In this session the worktree isolation guard refused direct `pwsh` invocations, so the parse check and fixtures ran inside the test-spawned pwsh process.
+
+## Independent review (Fable 5.1, scope `8496850..db64a7e`): CONDITIONAL, no safety defect
+
+The reviewer confirmed the following:
+
+- **Approved-plan safety.** A schema-v1 plan keeps the legacy-v6 preflight and the v1 postcondition. It refuses origin fields and cannot reach a v2 candidate, which is strictly tighter than before. The existing plan also pins the old script hashes.
+- **Script/C# parser parity.** The script and C# capability parsers agree check for check across 29 shared vectors.
+- **Ordering.** Validation runs before any effect or signing.
+- **Provenance and validator.** Provenance, the validator's `helperProtocol` output and the capability-file bytes and attributes are correct.
+- **No silent skip.** The Windows PowerShell 5.1 row really runs on Windows.
+
+It reported one Medium finding: the Linux pwsh row masked the 5.1 `{}` serialization. That is fixed in `0f5b54a` (narrow and fail-closed, with unit tests). Its conditions are Windows CI green on `0f5b54a`, which proves the remaining 5.1 ledgers, and these corrected doc statements. Info items: a downgrade expressed by a new exact v2 plan is not forbidden by the accepted note; a v1 ledger with a v2 manifest fails with a capability error before the "Unrecognised" error, which is still fail-closed.
+

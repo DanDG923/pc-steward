@@ -5,8 +5,8 @@
 - **Provenance and validator.** Provenance recognises `pinned-unsigned-v2` only with a valid pinned capability file. The installer writes the manifest-implied origin and checks it after install. The validator reports `helperProtocol` for v2.
 - **Redeploy template.** It gains plan schema v2, which names the expected old and new origins. The existing v1 plan is unchanged in behaviour: v1 only, with the `legacy-v6` preflight.
 - **Payload.** The 103-B capability file is checked in (`-text`) and published from the helper project.
-- **Tests.** A pwsh/5.1 real-writer fixture feeds `TryReadLedger`/`Evaluate`: pending, rollback with 0/1/several stores, v1 Absent, v2 **Supported**. 30 capability vectors give the same results from both parsers, and the frozen pre-change validator throws on a v2 ledger. The built helper deps.json closure equals `BindingSet`.
-- **Ledger and policy.** The ledger schema, the per-writer key sets and the C# policy are unchanged.
+- **Tests.** A pwsh/5.1 real-writer fixture feeds `TryReadLedger`/`Evaluate`: pending, rollback with 0/1/several stores, v1 Absent, v2 **Supported**. 29 capability vectors give the same results from both parsers, and the frozen pre-change validator throws on a v2 ledger. The built helper deps.json closure equals `BindingSet`.
+- **Ledger and policy.** The ledger schema and the per-writer key sets are unchanged. The C# policy now also accepts the Windows PowerShell 5.1 empty-object rollback store list (`0f5b54a`), which Windows CI exposed. Independent review: CONDITIONAL with no safety defect, pending Windows CI on `0f5b54a`.
 - **Linux results.** Zero warnings. Domain 167/167; Architecture 42/42; Security 415 passed, 9 failed, 1 Inconclusive of 425; Application 780 passed, 103 failed of 883. Both failed sets are identical to the `8496850` baseline.
 - **Windows-CI or host evidence only.** The Windows PowerShell 5.1 fixture row, the `PayloadIntegrity.ps1` v2 file, hold and provenance cases, publish-time deps.json, and anything on a host.
 - **No authority.** No host action. Running any changed script, or any v1 or v2 redeploy plan, needs separate exact owner approval.
