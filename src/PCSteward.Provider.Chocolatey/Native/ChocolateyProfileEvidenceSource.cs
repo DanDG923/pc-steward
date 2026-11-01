@@ -40,8 +40,7 @@ internal sealed record ChocolateyReviewIntent(string PackageId, string Installed
 internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchEvidenceSource
 {
     /// <summary>Profile V2 "UI must disclose before review" (fixed text).</summary>
-    internal const string UserCacheDisclosure =
-        "Candidate shown from your user cache; PC Steward confirms the exact version with protected machine data before updating.";
+    internal const string UserCacheDisclosure = ChocolateyReviewDisclosurePresentation.UserCacheDisclosure;
 
     private readonly ChocolateyDesktopObserve observe;
     private readonly ChocolateyDispatchBaselines baselines;

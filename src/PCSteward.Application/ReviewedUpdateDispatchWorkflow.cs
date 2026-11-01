@@ -112,6 +112,16 @@ public sealed class ReviewedUpdateDispatchWorkflow
     /// <summary>Fact extension rev 3 §4.3 (L5): the runtime-limit Chocolatey route never infers a restart.</summary>
     public const string RestartContractViolationMessage =
         "The verifier reported a restart-pending state, which this Chocolatey route never infers; the result is unverified.";
+    /// <summary>Fixed verification messages, recognised by history (N6) to show fixed verification text.</summary>
+    public const string TargetVerifiedMessage = "Target version verified by post-update inventory.";
+    public const string TargetNotDetectedMessage = "Provider completed but the target version was not detected.";
+    public const string VerificationDidNotFinishMessage = "Provider completed but post-update verification did not finish.";
+    public const string ExitCodeNotObservedMessage = "The provider ran but its exit code was not observed; the resulting version is unverified.";
+
+    /// <summary>The fixed prefix recorded when started work was cancelled, timed out or failed before verification.</summary>
+    public static string StoppedAfterStartMessage(ReviewedUpdateProviderStatus status) =>
+        $"{status} after the provider started; the resulting version is unverified.";
+
     private readonly ReviewedUpdateGateRunner runUnderGate;
     private readonly IReviewedUpdateDispatchEvidenceSource evidence;
     private readonly IReviewedUpdateRouteDispatcher dispatcher;
@@ -231,7 +241,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         RecordedHelperCandidateCheck helperCheck = observation.HelperCheck ?? RecordedHelperCandidateCheck.NotObserved;
         if (!settlement.ProvesSettlement)
             return await FinalizeAsync(claim, ownership, settlement, UpdateDispatchOutcome.Uncertain, observation.ExitCode,
-                $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}",
+                WithLingeringMarker(observation, $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}"),
                 helperCheck).ConfigureAwait(false);
         if (settlement.State == UpdateDispatchSettlementState.NotInvoked)
             return await FinalizeAsync(claim, ownership, settlement, observation.Status switch
@@ -240,11 +250,23 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 ReviewedUpdateProviderStatus.ElevationDenied => UpdateDispatchOutcome.ElevationDenied,
                 ReviewedUpdateProviderStatus.Refused => UpdateDispatchOutcome.Refused,
                 _ => UpdateDispatchOutcome.Failed,
-            }, null, $"Nothing was invoked. {Bounded(observation.Diagnostic)}", helperCheck).ConfigureAwait(false);
+            }, null, WithLingeringMarker(observation, $"Nothing was invoked. {Bounded(observation.Diagnostic)}"), helperCheck).ConfigureAwait(false);
 
         (UpdateDispatchOutcome outcome, string message) = await ClassifySettledAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
-        return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, message, helperCheck).ConfigureAwait(false);
+        return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, WithLingeringMarker(observation, message), helperCheck)
+            .ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Design rev 6 rev-4 L4 (N6): when the observation's diagnostic carries the helper's fixed
+    /// <see cref="ReviewedUpdateLingeringProcesses.Token"/>, the recorded message starts with it, so history can show the
+    /// fixed note beside every outcome and truncation never drops it (the verified path otherwise drops the diagnostic).
+    /// Recorded text only; it never changes the outcome, settlement or barrier.
+    /// </summary>
+    private static string WithLingeringMarker(ReviewedUpdateDispatchObservation observation, string message) =>
+        ReviewedUpdateLingeringProcesses.IsReported(observation.Diagnostic)
+            ? ReviewedUpdateLingeringProcesses.Token + " " + message
+            : message;
 
     /// <summary>Every <see cref="IReviewedUpdateRouteDispatcher.Supports"/> call goes through here; any exception means unsupported.</summary>
     private bool StillSupported(ReviewedUpdateOperation operation)
@@ -278,14 +300,14 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 return (UpdateDispatchOutcome.Failed, $"The provider reported failure (exit {exit}). {diagnostic}");
             case ReviewedUpdateProviderStatus.Cancelled or ReviewedUpdateProviderStatus.TimedOut or ReviewedUpdateProviderStatus.Failed:
                 // Started work may have partly applied; never report it as not updated.
-                return (UpdateDispatchOutcome.Unverified, $"{observation.Status} after the provider started; the resulting version is unverified. {diagnostic}");
+                return (UpdateDispatchOutcome.Unverified, $"{StoppedAfterStartMessage(observation.Status)} {diagnostic}");
         }
         // A restart report is honoured only with the standard reboot-required codes; any other non-zero exit is failure.
         bool restartReported = observation.RestartReported && observation.ExitCode is 3010 or 1641;
         if (observation.RestartReported && !restartReported && observation.ExitCode == 0)
             return (UpdateDispatchOutcome.Unverified, $"The provider reported a restart with a success exit code; the inconsistent result is unverified. {diagnostic}");
         if (observation.ExitCode is null)
-            return (UpdateDispatchOutcome.Unverified, $"The provider ran but its exit code was not observed; the resulting version is unverified. {diagnostic}");
+            return (UpdateDispatchOutcome.Unverified, $"{ExitCodeNotObservedMessage} {diagnostic}");
         if (observation.ExitCode != 0 && !restartReported)
             return (UpdateDispatchOutcome.Failed, $"The provider exited with code {exit}. {diagnostic}");
         try
@@ -300,14 +322,14 @@ public sealed class ReviewedUpdateDispatchWorkflow
                         ? "The target version was detected, but the installer's restart request could not be confirmed as a reliable restart-pending state."
                         : "The installer reported that a restart is needed, but neither the target version nor a reliable restart-pending state was verified.");
             return verification.ExpectedVersionDetected
-                ? (UpdateDispatchOutcome.Success, "Target version verified by post-update inventory.")
+                ? (UpdateDispatchOutcome.Success, TargetVerifiedMessage)
                 : verification.RestartPending
                     ? (UpdateDispatchOutcome.RestartRequired, "Provider completed; a reliable restart-pending state was detected.")
-                    : (UpdateDispatchOutcome.Unverified, "Provider completed but the target version was not detected.");
+                    : (UpdateDispatchOutcome.Unverified, TargetNotDetectedMessage);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return (UpdateDispatchOutcome.Unverified, "Provider completed but post-update verification did not finish.");
+            return (UpdateDispatchOutcome.Unverified, VerificationDidNotFinishMessage);
         }
     }
 
@@ -321,7 +343,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         PostUpdateInventoryResult? verification)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        if (verification is null) return (UpdateDispatchOutcome.Unverified, "Provider completed but post-update verification did not finish.");
+        if (verification is null) return (UpdateDispatchOutcome.Unverified, VerificationDidNotFinishMessage);
         if (verification.Detail != PostUpdateVerificationDetail.None) return (UpdateDispatchOutcome.Unverified, ClientNotVerifiedMessage);
         if (operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 && verification.RestartPending)
             return (UpdateDispatchOutcome.Unverified, RestartContractViolationMessage);

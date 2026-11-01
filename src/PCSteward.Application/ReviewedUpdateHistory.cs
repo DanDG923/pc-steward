@@ -126,9 +126,13 @@ public interface IReviewedUpdateHistoryReader
 /// Presentation-safe history row. Every string is fixed or derived from frozen review data; none asserts helper qualification.
 /// <see cref="HelperReport"/> is the separate, desktop-derived helper report for the candidate-evidence area (never beside
 /// the status line); it is never concatenated into <see cref="Status"/>.
+/// <see cref="Route"/> names the frozen route; <see cref="VerificationDetail"/> is the fixed post-update verification text
+/// recognised from the workflow's own recorded message; <see cref="LingeringProcessesNote"/> is the fixed note shown beside
+/// the outcome when the helper recorded that lingering processes were closed (N6). All are display only.
 /// </summary>
 public sealed record ReviewedUpdateHistoryView(string Title, string Status, string InstallerMode, string CandidateEvidence,
-    string? Disclosure, bool BlocksOtherUpdates, string Diagnostic, string? HelperReport = null);
+    string? Disclosure, bool BlocksOtherUpdates, string Diagnostic, string? HelperReport = null, string Route = "Unknown",
+    string? VerificationDetail = null, string? LingeringProcessesNote = null);
 
 /// <summary>
 /// FR-HIS-01/FR-UPD-15: keeps what the user reviewed (mode, route, guard contract, disclosure, candidate intent) with the
@@ -155,10 +159,74 @@ public static class ReviewedUpdateHistoryPresentation
                 UpdateDispatchState.Uncertain => "Uncertain: whether the update ran or finished is unknown. Other updates stay blocked until safe reconciliation; it is never retried automatically.",
                 _ => record.Terminal is { } terminal ? Outcome(terminal) : "Finished, but the recorded result is unreadable.",
             };
+        ReviewedUpdateTerminalRecord? trusted = record.IntegrityVerified ? record.Terminal : null;
         return new(title, status, operation is null ? "Unknown" : Mode(operation.Mode), operation is null ? "Unknown" : Candidate(operation),
             operation is null ? null : ReviewedUpdateProviderDisclosure.GetRiskText(operation), blocks,
             record.Terminal is null ? string.Empty : SanitizedDiagnosticBundle.Sanitize(record.Terminal.Diagnostic),
-            record.IntegrityVerified && record.Terminal is { } recorded ? HelperReport(recorded.HelperCheck) : null);
+            trusted is null ? null : HelperReport(trusted.HelperCheck),
+            operation is null ? "Unknown" : Route(operation.RouteContract),
+            trusted is null || record.State != UpdateDispatchState.Final ? null : VerificationDetail(trusted),
+            trusted is not null && ReviewedUpdateLingeringProcesses.IsReported(trusted.Diagnostic) ? ReviewedUpdateLingeringProcesses.HistoryNote : null);
+    }
+
+    /// <summary>Fixed route text; earlier Chocolatey routes are historical and never inherit the current route's meaning.</summary>
+    internal static string Route(UpdateRouteContract route) => route switch
+    {
+        UpdateRouteContract.WinGetUserExactV2 or UpdateRouteContract.WinGetUserExactV3 => "WinGet exact package update for your account (user scope).",
+        UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 =>
+            "Chocolatey Community machine update through PC Steward's administrator helper; package scripts run with administrator rights.",
+        _ => "Earlier Chocolatey machine route (historical record).",
+    };
+
+    internal const string TargetVerifiedText = "Verification: the target version was detected after the update.";
+    internal const string TargetNotDetectedText = "Verification: the update finished, but the target version was not detected.";
+    internal const string VerificationDidNotFinishText = "Verification did not finish, so the resulting version is unknown.";
+    internal const string StoppedAfterStartText =
+        "Verification was not attempted: the update stopped or failed after it started, so the resulting version is unknown.";
+    internal const string ExitCodeNotObservedText =
+        "Verification was not attempted: the update's exit code was not observed, so the resulting version is unknown.";
+
+    /// <summary>
+    /// Fact extension rev 3 §4.3 and N5: classifies the workflow's own fixed verification messages (after the fixed leading
+    /// markers it may prefix) into fixed text. Only a message consistent with the recorded outcome is shown; any other
+    /// diagnostic has no verification text. Display only; it never changes the recorded outcome.
+    /// </summary>
+    internal static string? VerificationDetail(ReviewedUpdateTerminalRecord terminal)
+    {
+        string message = StripLeadingMarkers(terminal.Diagnostic);
+        if (terminal.Outcome == UpdateDispatchOutcome.Success)
+            return message == ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage ? TargetVerifiedText : null;
+        if (terminal.Outcome != UpdateDispatchOutcome.Unverified) return null;
+        if (message == ReviewedUpdateDispatchWorkflow.TargetNotDetectedMessage) return TargetNotDetectedText;
+        if (message == ReviewedUpdateDispatchWorkflow.VerificationDidNotFinishMessage) return VerificationDidNotFinishText;
+        if (message == ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage) return ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage;
+        if (message == ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage) return ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage;
+        if (message.StartsWith(ReviewedUpdateDispatchWorkflow.ExitCodeNotObservedMessage, StringComparison.Ordinal)) return ExitCodeNotObservedText;
+        foreach (ReviewedUpdateProviderStatus stopped in StoppedStatuses)
+            if (message.StartsWith(ReviewedUpdateDispatchWorkflow.StoppedAfterStartMessage(stopped), StringComparison.Ordinal)) return StoppedAfterStartText;
+        return null;
+    }
+
+    private static readonly ReviewedUpdateProviderStatus[] StoppedStatuses =
+        [ReviewedUpdateProviderStatus.Cancelled, ReviewedUpdateProviderStatus.TimedOut, ReviewedUpdateProviderStatus.Failed];
+
+    private static readonly string[] LeadingMarkers = [ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, ReviewedUpdateLingeringProcesses.Token];
+
+    // The workflow may prefix its fixed markers (in either order) so truncation never drops them.
+    private static string StripLeadingMarkers(string diagnostic)
+    {
+        string message = diagnostic;
+        for (bool stripped = true; stripped;)
+        {
+            stripped = false;
+            foreach (string marker in LeadingMarkers)
+                if (message.StartsWith(marker + " ", StringComparison.Ordinal))
+                {
+                    message = message[(marker.Length + 1)..];
+                    stripped = true;
+                }
+        }
+        return message;
     }
 
     internal const string HelperReportPrefix = "Recorded at the time: reported by PC Steward's administrator helper: ";
@@ -199,7 +267,7 @@ public static class ReviewedUpdateHistoryPresentation
         _ => "Uncertain: whether the update ran or finished is unknown.",
     };
 
-    private static string Mode(ReviewedInstallerMode mode) => mode.Binding == InstallerModeBinding.Selected
+    internal static string Mode(ReviewedInstallerMode mode) => mode.Binding == InstallerModeBinding.Selected
         ? $"Installer mode reviewed as {mode.Mode}."
         : "Installer mode is controlled by the package's own scripts; PC Steward cannot choose silent or interactive.";
 
