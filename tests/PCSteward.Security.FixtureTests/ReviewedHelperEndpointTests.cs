@@ -21,6 +21,7 @@ public sealed class ReviewedHelperEndpointTests
 {
     private static readonly string[] ThroughB = ["protect", "observe"];
     private static readonly string[] ThroughC = ["protect", "observe", "query"];
+    private static readonly string[] ThroughD = ["protect", "observe", "query", "revalidate"];
     private static readonly string[] AllStages = ["protect", "observe", "query", "revalidate", "upgrade"];
     // ---- A0: uncorrelatable requests get no response ----
 
@@ -269,8 +270,9 @@ public sealed class ReviewedHelperEndpointTests
 
         Assert.AreEqual(ReviewedHelperQualification.Matched, run.Response.Reviewed.Qualification);
         TimeSpan initial = TimeSpan.FromMinutes(11) - TimeSpan.FromSeconds(20) - TimeSpan.FromSeconds(10);
-        CollectionAssert.AreEqual(new[] { initial, initial - TimeSpan.FromSeconds(7), initial - TimeSpan.FromSeconds(18), initial - TimeSpan.FromSeconds(18) },
-            harness.Item.Bounds);
+        // Review finding 2: the upgrade deadline keeps a 1 s reserve inside the real-time cap of remaining + exit margin.
+        CollectionAssert.AreEqual(new[] { initial, initial - TimeSpan.FromSeconds(7), initial - TimeSpan.FromSeconds(18),
+            initial - TimeSpan.FromSeconds(18) - ReviewedHelperEndpoint.LaunchDeadlineReserve }, harness.Item.Bounds);
     }
 
     [TestMethod]
@@ -332,7 +334,7 @@ public sealed class ReviewedHelperEndpointTests
         {
             "timed-out" => new ChocolateyStageValues.TimedOut(),
             "cancelled" => new ChocolateyStageValues.Cancelled(),
-            _ => throw new OperationCanceledException(),
+            _ => CancelThenThrow(harness),
         };
         EndpointRun run = await harness.ExchangeAsync();
         AssertUndetermined(run, cancelled: scenario != "timed-out", timedOut: scenario == "timed-out", settled: true);
@@ -443,11 +445,7 @@ public sealed class ReviewedHelperEndpointTests
     [TestMethod]
     public async Task AnUnresponsiveStageCIsUndeterminedTimedOutAndUnsettled()
     {
-        EndpointHarness harness = new()
-        {
-            Budgets = ReviewedHelperEndpointBudgets.Production with { ExitMargin = TimeSpan.FromMilliseconds(100), ResponseMargin = TimeSpan.FromMilliseconds(100) },
-        };
-        harness.PreElapsed = harness.Budgets.Execution - TimeSpan.FromMilliseconds(500);
+        EndpointHarness harness = HungStageHarness();
         TaskCompletionSource<ChocolateyCandidateValues> never = new(TaskCreationOptions.RunContinuationsAsynchronously);
         harness.Item.Query = (_, _) => never.Task;
 
@@ -455,6 +453,81 @@ public sealed class ReviewedHelperEndpointTests
 
         Assert.AreEqual("c-unresponsive", run.Result.Diagnostic);
         AssertUndetermined(run, cancelled: false, timedOut: true, settled: false);
+    }
+
+    [TestMethod]
+    [DataRow("b")]
+    [DataRow("d")]
+    public async Task AnUnresponsiveSynchronousStageIsCappedUndeterminedTimedOutUnsettledAndTheItemIsDisposedInFlight(string stage)
+    {
+        // Review finding 1: stages B and D run under a real-time cap of remaining + exit margin.
+        EndpointHarness harness = HungStageHarness();
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ChocolateyStageValues Hang()
+        {
+            release.Task.Wait(F.Wait);
+            return F.ObservedB();
+        }
+        if (stage == "b") harness.Item.Observe = (_, _, _, _) => Hang();
+        else harness.Item.Revalidate = (_, _) => Hang();
+
+        try
+        {
+            EndpointRun run = await harness.ExchangeAsync();
+
+            Assert.AreEqual(stage + "-unresponsive", run.Result.Diagnostic);
+            AssertUndetermined(run, cancelled: false, timedOut: true, settled: false);
+            CollectionAssert.AreEqual(stage == "b" ? ThroughB : ThroughD, harness.Item.Calls);
+            Assert.IsTrue(harness.Item.Disposed, "the item is disposed while the capped call is still in flight (N4b obligation)");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
+
+    [TestMethod]
+    [DataRow("b")]
+    [DataRow("c")]
+    [DataRow("d")]
+    [DataRow("launch")]
+    public async Task AnItemCancellationWithoutEndpointCancellationIsAnInternalFaultNotCancelled(string stage)
+    {
+        // Review finding 5: settled item, endpoint token never cancelled, yet the item throws OperationCanceledException.
+        EndpointHarness harness = new();
+        switch (stage)
+        {
+            case "b":
+                harness.Item.Observe = (_, _, _, _) => throw new OperationCanceledException();
+                break;
+            case "c":
+                harness.Item.Query = (_, _) => Task.FromCanceled<ChocolateyCandidateValues>(new CancellationToken(true));
+                break;
+            case "d":
+                harness.Item.Revalidate = (_, _) => throw new OperationCanceledException();
+                break;
+            default:
+                harness.Item.Upgrade = (_, _) => throw new OperationCanceledException();
+                break;
+        }
+
+        EndpointRun run = await harness.ExchangeAsync();
+
+        Assert.IsFalse(harness.HelperCancellation.IsCancellationRequested);
+        if (stage != "launch")
+        {
+            Assert.AreEqual(stage + "-unexpected-cancellation", run.Result.Diagnostic);
+            AssertUndetermined(run, cancelled: false, timedOut: false, settled: false);
+            Assert.AreEqual(0, harness.Item.UpgradeCalls);
+            return;
+        }
+        // After launch was entered: Unknown, not cancelled, not settled.
+        FramedUpdateResponse response = run.Response;
+        Assert.AreEqual(ReviewedHelperQualification.Matched, response.Reviewed.Qualification);
+        Assert.AreEqual(UpdateWireInvocation.Unknown, response.Facts.Invocation);
+        Assert.IsFalse(response.Facts.Cancelled || response.Facts.AggregateSettlementConfirmed);
+        Assert.IsTrue(run.Interpretation.Observation.ExecutionUncertain);
+        Assert.AreEqual(1, harness.Item.UpgradeCalls);
     }
 
     // ---- Stage D ----
@@ -709,6 +782,31 @@ public sealed class ReviewedHelperEndpointTests
     }
 
     [TestMethod]
+    public async Task AnUnresponsiveLaunchIsCappedMatchedUnknownUnsettledAndUncertainAtTheDesktop()
+    {
+        // Review findings 2 and 3: the cap stays remaining + exit margin; the upgrade deadline is remaining − 1 s, floored.
+        EndpointHarness harness = HungStageHarness();
+        TaskCompletionSource<ChocolateyUpgradeResult> never = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Item.Upgrade = (_, _) => never.Task;
+
+        EndpointRun run = await harness.ExchangeAsync();
+
+        Assert.AreEqual("launch-unresponsive", run.Result.Diagnostic);
+        Assert.AreEqual(1, harness.Item.UpgradeCalls, "exactly one upgrade, never retried");
+        Assert.AreEqual(harness.Budgets.LaunchFloor, harness.Item.Bounds[^1], "remaining − 1 s is below the floor, so the floor applies");
+        FramedUpdateResponse response = run.Response;
+        Assert.AreEqual(ReviewedHelperQualification.Matched, response.Reviewed.Qualification);
+        Assert.AreEqual(UpdateWireInvocation.Unknown, response.Facts.Invocation);
+        Assert.IsFalse(response.Facts.AggregateSettlementConfirmed);
+        Assert.IsFalse(response.Facts.Cancelled || response.Facts.TimedOut);
+        ReviewedUpdateDispatchObservation observation = run.Interpretation.Observation;
+        Assert.AreEqual(ReviewedUpdateInvocation.Unknown, observation.Invocation);
+        Assert.IsTrue(observation.ExecutionUncertain, "the desktop records Uncertain");
+        Assert.IsFalse(Protocol2InterpreterFixture.IsSettled(observation));
+        Assert.IsTrue(harness.Item.Disposed);
+    }
+
+    [TestMethod]
     [DataRow("exit-without-direct-exit")]
     [DataRow("settled-with-termination-failure")]
     public async Task AnInconsistentObservationMakesCreateResponseThrowSoNothingIsWritten(string scenario)
@@ -779,6 +877,36 @@ public sealed class ReviewedHelperEndpointTests
         Assert.AreEqual(ReviewedHelperQualification.Matched, run.Response.Reviewed.Qualification);
     }
 
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task TheMonitorStopAndTheResponseWriteShareOneWindowFromTheResponseMargin(bool monitorHangs)
+    {
+        // Review finding 6: a monitor that ignores its stop and a write that never completes together take at most
+        // min(ResponseWrite, ResponseMargin), not one budget each.
+        TimeSpan window = TimeSpan.FromSeconds(2);
+        EndpointHarness harness = new()
+        {
+            Budgets = ReviewedHelperEndpointBudgets.Production with { ResponseMargin = window, ResponseWrite = TimeSpan.FromSeconds(5) },
+            WrapHelperPipe = pipe => new StubbornPipe(pipe, ignoreReadCancellation: monitorHangs, neverCompleteWrites: true),
+        };
+        long stagesDone = 0;
+        harness.Item.Upgrade = (_, _) =>
+        {
+            stagesDone = System.Diagnostics.Stopwatch.GetTimestamp();
+            return Task.FromResult<ChocolateyUpgradeResult>(new ChocolateyUpgradeResult.Observed(F.Started()));
+        };
+
+        EndpointRun run = await harness.ExchangeAsync();
+        TimeSpan responsePhase = System.Diagnostics.Stopwatch.GetElapsedTime(stagesDone);
+
+        Assert.AreEqual(ReviewedHelperEndpointExit.ResponseWriteFailed, run.Result.Exit, run.Result.Diagnostic);
+        Assert.AreNotEqual(ReviewedHelperTransportOutcome.ResponseFrameReceived, run.Exchange!.Outcome);
+        Assert.IsTrue(responsePhase < window + TimeSpan.FromSeconds(1), $"response phase {responsePhase} exceeds the shared window");
+        Assert.IsTrue(responsePhase >= window - TimeSpan.FromMilliseconds(200), $"response phase {responsePhase} ended before the window");
+        Assert.IsTrue(harness.Item.Disposed);
+    }
+
     // ---- No entry-point wiring (N4b) ----
 
     [TestMethod]
@@ -792,6 +920,26 @@ public sealed class ReviewedHelperEndpointTests
     }
 
     // ---- Assertions ----
+
+    /// <summary>Remaining 400 ms, exit margin 100 ms and launch floor 200 ms on the fake clock, so the caps fire in real time.</summary>
+    private static EndpointHarness HungStageHarness()
+    {
+        EndpointHarness harness = new()
+        {
+            Budgets = ReviewedHelperEndpointBudgets.Production with
+            {
+                ExitMargin = TimeSpan.FromMilliseconds(100), ResponseMargin = TimeSpan.FromSeconds(2), LaunchFloor = TimeSpan.FromMilliseconds(200),
+            },
+        };
+        harness.PreElapsed = harness.Budgets.Execution - harness.Budgets.ExitMargin - harness.Budgets.ResponseMargin - TimeSpan.FromMilliseconds(400);
+        return harness;
+    }
+
+    private static ChocolateyStageValues CancelThenThrow(EndpointHarness harness)
+    {
+        harness.HelperCancellation.Cancel();
+        throw new OperationCanceledException(harness.HelperCancellation.Token);
+    }
 
     private static void AssertNotAdmitted(EndpointRun run, string? diagnosticPrefix)
     {

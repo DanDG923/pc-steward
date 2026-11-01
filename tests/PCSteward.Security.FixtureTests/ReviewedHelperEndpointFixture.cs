@@ -235,6 +235,8 @@ internal sealed class EndpointHarness
     /// <summary>Time already elapsed since the pipe connected (t0) when the endpoint starts.</summary>
     internal TimeSpan PreElapsed { get; set; }
     internal CancellationTokenSource HelperCancellation { get; } = new();
+    /// <summary>Optionally wraps the helper's pipe end, for example in a <see cref="StubbornPipe"/>.</summary>
+    internal Func<Stream, Stream>? WrapHelperPipe { get; set; }
 
     internal EndpointHarness() => Port = new(Item);
 
@@ -296,7 +298,8 @@ internal sealed class EndpointHarness
             await using NamedPipeClientStream client = new(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
             await client.ConnectAsync(10_000);
             long connected = Clock.GetTimestamp() - PreElapsed.Ticks;
-            return await ReviewedHelperEndpoint.RunAsync(client, Peer, Port, Capability, Clock, connected, EndpointFixture.Nonce, Budgets,
+            Stream pipe = WrapHelperPipe?.Invoke(client) ?? client;
+            return await ReviewedHelperEndpoint.RunAsync(pipe, Peer, Port, Capability, Clock, connected, EndpointFixture.Nonce, Budgets,
                 HelperCancellation.Token);
         }
         finally
@@ -315,6 +318,45 @@ internal sealed class EndpointHarness
         public Task WaitForConnectionAsync(CancellationToken cancellationToken) => server.WaitForConnectionAsync(cancellationToken);
         public bool VerifyPeer() => true;
     }
+}
+
+/// <summary>
+/// A helper pipe end that can ignore read cancellation (a monitor that does not stop) and never complete a write, flush
+/// included, whatever its token (a stuck response write). It never owns the inner stream.
+/// </summary>
+internal sealed class StubbornPipe(Stream inner, bool ignoreReadCancellation, bool neverCompleteWrites) : Stream
+{
+    private static readonly Task Never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously).Task;
+
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => true;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+        inner.ReadAsync(buffer, ignoreReadCancellation ? CancellationToken.None : cancellationToken);
+
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+    public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+        neverCompleteWrites ? new(Never) : inner.WriteAsync(buffer, cancellationToken);
+
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    public override Task FlushAsync(CancellationToken cancellationToken) => neverCompleteWrites ? Never : inner.FlushAsync(cancellationToken);
+
+    public override void Flush() => inner.Flush();
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
 }
 
 /// <summary>Hand-built request frames that the codec would refuse to create.</summary>

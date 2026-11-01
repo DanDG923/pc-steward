@@ -20,8 +20,10 @@ internal interface IReviewedHelperCapabilityCheck
 /// <summary>
 /// Endpoint budgets (design rev 6 §4, fact extension rev 3 §6). <see cref="Execution"/> is the desktop's 11-minute execution
 /// budget; <c>remaining = Execution − (now − t0) − ExitMargin − ResponseMargin</c> with t0 taken at pipe connection.
-/// <see cref="LaunchFloor"/> is the Launch-row minimum before process creation. <see cref="FrameRead"/> bounds the A0 read
-/// and <see cref="ResponseWrite"/> the single response write and the monitor stop.
+/// <see cref="LaunchFloor"/> is the Launch-row minimum before process creation. <see cref="FrameRead"/> bounds the A0 read.
+/// The monitor stop and the single response write share one window of <c>min(</c><see cref="ResponseWrite"/><c>,</c>
+/// <see cref="ResponseMargin"/><c>)</c> taken from the response margin, so a stage that runs to its real-time cap of
+/// <c>remaining + ExitMargin</c> still ends the whole run within <c>remaining + ExitMargin + ResponseMargin</c>.
 /// </summary>
 internal sealed record ReviewedHelperEndpointBudgets(TimeSpan FrameRead, TimeSpan Execution, TimeSpan ExitMargin, TimeSpan ResponseMargin,
     TimeSpan LaunchFloor, TimeSpan ResponseWrite)
@@ -66,6 +68,13 @@ internal static class ReviewedHelperEndpoint
     /// <summary>The review ceiling (fact extension rev 3 §6).</summary>
     internal static readonly TimeSpan ReviewCeiling = TimeSpan.FromMinutes(30);
 
+    /// <summary>
+    /// Launch deadline reserve (review finding 2): <c>UpgradeAsync</c> gets <c>remaining − 1 s</c>, never below the launch
+    /// floor, while the endpoint's real-time cap stays <c>remaining + ExitMargin</c>, so the launcher's own teardown (up to the
+    /// whole exit margin) and a genuine settled <c>TimedOut</c> observation fit inside the cap.
+    /// </summary>
+    internal static readonly TimeSpan LaunchDeadlineReserve = TimeSpan.FromSeconds(1);
+
     internal static Task<ReviewedHelperEndpointResult> RunAsync(Stream pipe, IChocolateyPeer peer, IChocolateyHelperQualificationPort port,
         IReviewedHelperCapabilityCheck capability, TimeProvider clock, long connectedTimestamp, string bootstrapNonce,
         CancellationToken cancellationToken) =>
@@ -90,6 +99,9 @@ internal static class ReviewedHelperEndpoint
         using CancellationTokenSource stopMonitor = new();
         Task monitor = MonitorDesktopDisconnectAsync(pipe, provider, stopMonitor.Token);
         using Stages stages = new(request, peer, port, capability, clock, connectedTimestamp, budgets, provider.Token);
+        // One response window on the injected clock, armed when the stages end: the monitor stop and the single write draw on
+        // it together, so neither adds its own budget after a stage cap (review finding 6).
+        using CancellationTokenSource window = new(Timeout.InfiniteTimeSpan, clock);
         Decision decision;
         try
         {
@@ -101,8 +113,9 @@ internal static class ReviewedHelperEndpoint
         }
         finally
         {
+            window.CancelAfter(ResponseWindow(budgets));
             await stopMonitor.CancelAsync().ConfigureAwait(false);
-            await ObserveMonitorAsync(monitor, budgets.ResponseWrite).ConfigureAwait(false);
+            await ObserveMonitorAsync(monitor, window.Token).ConfigureAwait(false);
         }
 
         byte[] frame;
@@ -117,10 +130,11 @@ internal static class ReviewedHelperEndpoint
             return new(ReviewedHelperEndpointExit.NoResponse, "response-refused-by-codec; " + decision.Diagnostic);
         }
 
-        using CancellationTokenSource write = new(budgets.ResponseWrite);
+        if (window.IsCancellationRequested) return new(ReviewedHelperEndpointExit.ResponseWriteFailed, "response-window-spent; " + decision.Diagnostic);
         try
         {
-            await PipeMessageFraming.WriteAsync(pipe, frame, write.Token).ConfigureAwait(false);
+            // The window also bounds a write that does not observe its token.
+            await PipeMessageFraming.WriteAsync(pipe, frame, window.Token).WaitAsync(window.Token).ConfigureAwait(false);
             return new(ReviewedHelperEndpointExit.ResponseWritten, decision.Diagnostic);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -171,11 +185,15 @@ internal static class ReviewedHelperEndpoint
         }
     }
 
-    private static async Task ObserveMonitorAsync(Task monitor, TimeSpan budget)
+    private static async Task ObserveMonitorAsync(Task monitor, CancellationToken window)
     {
-        try { await monitor.WaitAsync(budget).ConfigureAwait(false); }
+        try { await monitor.WaitAsync(window).ConfigureAwait(false); }
         catch (Exception exception) when (exception is not OutOfMemoryException) { }
     }
+
+    /// <summary>The shared monitor-stop and response-write window, drawn from the response margin.</summary>
+    private static TimeSpan ResponseWindow(ReviewedHelperEndpointBudgets budgets) =>
+        budgets.ResponseWrite < budgets.ResponseMargin ? budgets.ResponseWrite : budgets.ResponseMargin;
 
     private static bool IsUpperHex64(string? value) => value is { Length: 64 } && value.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F');
 
@@ -229,9 +247,20 @@ internal static class ReviewedHelperEndpoint
         private async Task<Decision> StageBAsync(IChocolateyHelperItem current)
         {
             if (InterruptBefore("b") is { } interrupted) return interrupted;
+            TimeSpan remaining = Remaining();
             ChocolateyStageValues values;
-            try { values = current.ObserveProfile(operation, profileDigest, Remaining(), token); }
-            catch (OperationCanceledException) { return Undetermined(true, false, Settled(), false, "b-cancelled"); }
+            // The synchronous observation runs off this thread under a real-time cap (review finding 1). When the cap fires the
+            // call may still be running as the item is disposed after the response. N4b obligation: the item must tolerate
+            // Dispose while ObserveProfile, QueryCandidateAsync, RevalidateBeforeLaunch or UpgradeAsync is in flight, and must not
+            // start anything on the machine after Dispose.
+            try
+            {
+                values = await Task.Run(() => current.ObserveProfile(operation, profileDigest, remaining, token), CancellationToken.None)
+                    .WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException) { return Undetermined(false, true, false, false, "b-unresponsive"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return Undetermined(true, false, Settled(), false, "b-cancelled"); }
+            catch (OperationCanceledException) { return UnexpectedCancellation("b-unexpected-cancellation"); }
             catch (Exception exception) when (exception is not OutOfMemoryException) { return Fault(null, null, null, "b-fault"); }
             switch (values)
             {
@@ -260,9 +289,10 @@ internal static class ReviewedHelperEndpoint
             if (InterruptBefore("c") is { } interrupted) return interrupted;
             TimeSpan remaining = Remaining();
             ChocolateyCandidateValues values;
-            try { values = await current.QueryCandidateAsync(remaining, token).WaitAsync(remaining + budgets.ExitMargin).ConfigureAwait(false); }
+            try { values = await current.QueryCandidateAsync(remaining, token).WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false); }
             catch (TimeoutException) { return Undetermined(false, true, false, false, "c-unresponsive"); }
-            catch (OperationCanceledException) { return Undetermined(true, false, Settled(), false, "c-cancelled"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return Undetermined(true, false, Settled(), false, "c-cancelled"); }
+            catch (OperationCanceledException) { return UnexpectedCancellation("c-unexpected-cancellation"); }
             catch (Exception exception) when (exception is not OutOfMemoryException) { return Fault(stageBInstalled, null, stageBFingerprint, "c-fault"); }
             switch (values)
             {
@@ -289,10 +319,18 @@ internal static class ReviewedHelperEndpoint
             // Rechecks in order: cancellation, the 2-minute and 30-minute limits, then the budget (N4).
             if (token.IsCancellationRequested) return Undetermined(true, false, Settled(), false, "d-cancelled");
             if (ApprovalLapsed(clock.GetUtcNow())) return Refused(ReviewedHelperRefusalReason.ApprovalExpired, null, null, null, "d-approval-expired");
-            if (Remaining() <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, "d-timed-out");
+            TimeSpan remaining = Remaining();
+            if (remaining <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, "d-timed-out");
             ChocolateyStageValues values;
-            try { values = current.RevalidateBeforeLaunch(Remaining(), token); }
-            catch (OperationCanceledException) { return Undetermined(true, false, Settled(), false, "d-cancelled"); }
+            // Real-time cap as for stage B (review finding 1); the same N4b in-flight disposal obligation applies.
+            try
+            {
+                values = await Task.Run(() => current.RevalidateBeforeLaunch(remaining, token), CancellationToken.None)
+                    .WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException) { return Undetermined(false, true, false, false, "d-unresponsive"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return Undetermined(true, false, Settled(), false, "d-cancelled"); }
+            catch (OperationCanceledException) { return UnexpectedCancellation("d-unexpected-cancellation"); }
             catch (Exception exception) when (exception is not OutOfMemoryException) { return Fault(null, null, null, "d-fault"); }
             switch (values)
             {
@@ -327,8 +365,11 @@ internal static class ReviewedHelperEndpoint
 
             // From here any fault follows the Launch row: Unknown (N2).
             launchEntered = true;
+            TimeSpan deadline = remaining - LaunchDeadlineReserve;
+            if (deadline < budgets.LaunchFloor) deadline = budgets.LaunchFloor;
             ChocolateyUpgradeResult result;
-            try { result = await current.UpgradeAsync(remaining, token).WaitAsync(remaining + budgets.ExitMargin).ConfigureAwait(false); }
+            try { result = await current.UpgradeAsync(deadline, token).WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false); }
+            catch (TimeoutException) { return Unknown(false, false, false, false, "launch-unresponsive"); }
             catch (Exception exception) when (exception is not OutOfMemoryException) { return Unknown(false, false, false, false, "launch-unknown"); }
             switch (result)
             {
@@ -446,6 +487,13 @@ internal static class ReviewedHelperEndpoint
             if (token.IsCancellationRequested) return Undetermined(true, false, Settled(), false, diagnostic);
             return Refused(ReviewedHelperRefusalReason.MachineInputsUnsupported, installed, candidate, fingerprint, diagnostic);
         }
+
+        /// <summary>
+        /// An <see cref="OperationCanceledException"/> from the item while the endpoint token is not cancelled (review finding 5)
+        /// is an internal fault, never reported as cancelled: before process creation it is Undetermined with
+        /// ¬aggregateSettlementConfirmed. The Launch row already reports any exception as Unknown.
+        /// </summary>
+        private static Decision UnexpectedCancellation(string diagnostic) => Undetermined(false, false, false, false, diagnostic);
 
         private Decision NotAdmitted(string diagnostic) =>
             Refused(ReviewedHelperRefusalReason.RequestNotAdmitted, null, null, null, diagnostic);
