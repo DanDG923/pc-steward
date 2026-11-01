@@ -1,10 +1,16 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N4b native port and protocol-2 wiring (2026-11-01):** `NativeChocolateyHelperQualification`, the native item and peer, the Helper-role G1 reader (`HelperDeploymentCapabilityCheck`) and `ReviewedHelperBootstrap`; `--protocol 2` now reaches the endpoint, and protocol 1 is unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+- **Windows CI on `c91a0e0` is green on the first attempt**, including the 23 Windows-only N4b tests (Security fixtures 1023/1023).
+- **Independent review: PASS with fixes**, no Blocker or High. Fixes are in progress for M1 (no test of the real native positive path), M2 (no real-time cap on G1 or WinVerifyTrust) and Lows 3–6 and 8. L7 (the PID window before `OpenProcess`) is an accepted residual.
+- A 63-test ACL-fixture failure on `011a3df` was environmental: the unchanged re-run was green. It is recorded in the composition record.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: the N4b fixes, then N5 (desktop producers).
+
 **Task 50 — slice N4a helper stage machine (2026-11-01):** The port interfaces and value records, plus `ReviewedHelperEndpoint`, which implements A0–A3, B, C, D and Launch with deadlines, the launch floor, N2 faults, the OutOfOrder mapping, single-response emission and the disconnect monitor. Tests use fakes, run against the real desktop session and interpreter. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `7066d76` is green.**
 - **Independent review: PASS**, with no reachable critical failure. Its Lows and Info items are fixed in `1866662`: real-time caps on stages B and D, a 1 s launch-deadline reserve, hung B/D/Launch tests, injected-clock waits, a foreign OCE treated as a fault, and a bounded response window.
-- Not wired: protocol 2 still exits with code 20.
-- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N4b (native port and item, Helper-role G1 reader, and bootstrap wiring).
+- Not wired in N4a; N4b wires it.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). N4b is done (see above).
 
 **Task 50 — slice N3 fixed client queries (2026-11-01):** Held root-engine binding, the exact-list builder, sealed compiled commands, `FromBinding` with the typed `RunAsync`, strict queries and stage-C mapping. Design rev 6 §4. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
 - **Windows CI:** all six held-binding launch tests pass. A stand-in engine launches while held read-share-only, which is CI-level support for A-Q1.

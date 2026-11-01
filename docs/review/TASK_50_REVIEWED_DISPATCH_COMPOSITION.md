@@ -490,3 +490,39 @@ N4b obligations recorded:
 - the native item tolerates disposal while a call is in flight;
 - the observer honours `remaining` and the token.
 
+
+## Slice N4b: native port, item and peer, Helper-role G1 reader and protocol-2 bootstrap (`f0f12d5..c91a0e0`)
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §4, §7, §8, §10 and §11–§15, with the N4a obligations above. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
+
+What it adds:
+- `NativeChocolateyHelperQualification` (the port) and `NativeChocolateyPeer`, plus `NativeChocolateyHelperItem`, in Provider.Chocolatey. The item runs stage B (observe and hold), stage C (the fixed list/outdated queries), stage D (the identity re-check) and Launch over the held binding.
+- `HelperDeploymentCapabilityCheck`, plus the Helper role (with requester-access protection) of `OwnerOnlyDeploymentCapabilityReader` and `ResolveHelperLayout`: G1 for the installed helper.
+- `ReviewedHelperBootstrap`, in Execution: the protocol-2 grammar, connect, held-handle peer verification and the protocol-2 composition root. `--protocol 2` now reaches the endpoint. Protocol 1 is unchanged apart from the dispatch, and an IL architecture test confirms its path names no protocol-2 type.
+
+Host facts (`ReviewedHelperHost`) come only from `Environment.ProcessPath`, `AppContext.BaseDirectory`, `WindowsIdentity.GetCurrent()` and `Process.SessionId`, the same as protocol 1. Values from argv are used only for PID equality, the regex-checked pipe name and the fixed-time nonce comparison. The package ID and version reach execution only through `ChocolateyCompiledCommand.TryListExact`/`TryUpgrade` after the stage-B observation, and the engine path comes only from the held binding.
+
+Exit codes: 20 not elevated (as protocol 1), 21 helper paths unavailable, 22 connect failed, 23 peer not verified, 24 no response, 26 write failed.
+
+Implementer deviations, all fail-closed and accepted by review:
+- The end-to-end tests replace only the two stage-C queries (architecture-banned test seam), because the stand-in engine prints no records. The real native stage C is tested separately to a settled refusal.
+- The positive Helper-role fixture test starts ancestry checks at the fixture root through an architecture-banned test factory; production starts at the drive root.
+- The peer image path read from the held handle must equal the installed `PCSteward.Desktop.exe`, which is then hashed through a read-share handle and compared with the ledger. G1 has just proven the requester cannot modify that root, and read-share blocks writers while held.
+- Stage-D identity drift is `MachineInputsUnsupported` with null values; unsettled launch jobs keep the stage-B holds until helper exit; G1 is answered only before stage B.
+
+**Windows CI on `c91a0e0` is green on the first attempt**, including the 23 Windows-only N4b tests: Security fixtures 1023/1023, integration 883, domain 167, architecture 79.
+
+An independent fresh-context review of `011a3df..c91a0e0` returned **PASS with fixes**: no Blocker or High, every traced refusal path fails closed, and no argv, pipe, database or remote value reaches execution unvalidated. Both N4a obligations hold: the in-flight count defers release on Dispose mid-call, and the observer uses `CancelAfter(remaining)`. Findings:
+- **M1:** the real native positive path (parsed `Matched`, then stage D after real child processes under the stage-B holds, then Launch) has no test.
+- **M2:** A3 (G1 hashing and ACL walks) and WinVerifyTrust in peer verification have no real-time cap.
+- **L3:** G1 is not exclusive with stage B inside the item; the ordering relies on the sequential endpoint.
+- **L4:** the protocol-2 pipe-name regex accepts a trailing newline (`$`).
+- **L5:** the architecture pins match constructors by name only, and some construction sites are not pinned.
+- **L6:** exceptions before the endpoint (for example from `OpenPeer`) exit with 26 instead of 23.
+- **L7 (accepted residual):** a PID can be reused between `GetNamedPipeServerProcessId` and `OpenProcess`; reuse is closed only after the open. Exploiting it needs a same-user attacker with UAC consent who engineers PID reuse onto a genuine desktop, and the impact is still bounded by stages B–D.
+- **L8:** the item's lifetime CTS is never disposed.
+- **Info (accepted residual):** G1 hashes the installed desktop file, not the mapped image of the running peer, so an old desktop still running after an administrator redeploy would pass. Administrator-only.
+
+### CI intermittent on `011a3df` (environmental)
+
+The first Windows CI attempt on `011a3df` (docs plus the `1866662` endpoint fixes, no fixture or ACL changes) failed 63 Security fixture tests, all with `UnauthorizedAccessException` from `SetSecurityInfo` in `N1NativeFixture.Lock` during `LockTree`. The same image (`win25-vs2026/20261021.278`) was green on `06c83d5`, and the unchanged re-run (attempt 2) was green. Suspected cause: `Test-CI.ps1` places the CI user's TEMP under the checkout, where that user is granted only `(OI)(CI)M`, so setting the owner depends on what the runner's inherited ACL provides. If this recurs, give the fixture root an explicit owner-grant, or move CI TEMP under the CI user's profile.

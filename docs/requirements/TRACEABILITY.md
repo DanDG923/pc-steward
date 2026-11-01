@@ -11,6 +11,14 @@
 - Eligibility: the installed Chocolatey does not match the pinned 2.7.5 release.
 - Still open before admission: the items in the interpretation's open list.
 
+# Task 50 — N4b native port, Helper-role G1 and protocol-2 bootstrap
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; [design rev 6](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4, §7, §8, §10 and §11–§15; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N4b.
+
+- Security `NativeHelperItemTests` (portable 24), `ReviewedHelperBootstrapTests` (portable 26, Windows-only 7), `HelperDeploymentCapabilityCheckTests` (portable 8, Windows-only 12), `NativeHelperItemEndToEndTests` (Windows-only 4). Architecture `HelperEndpointBoundaryTests` and `ClientQueriesBoundaryTests` pin the native port, the composition root and protocol-2 dispatch.
+- Windows CI on `c91a0e0` is green (Security 1023/1023, including the 23 Windows-only N4b tests). Independent review: PASS with fixes.
+- Not claimed: a test of the real native positive path (review M1), real-time caps on G1 and peer trust (M2), host evidence, or admission.
+
 # Task 50 — N0 native launcher
 
 `FR-UPD-15`, `TM-03/07/13`; [design rev 5](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4.1 (H4, L1, rev-3 M-C, rev-4 M1/L4) and §8 N0.
