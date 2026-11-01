@@ -1,3 +1,7 @@
+# Task 50 — protocol-2 desktop interpreter (passive)
+
+`FR-UPD-15`, `FR-UPD-01`, `AC-UPD-05/07`, `TM-03/04/07/13`: `ReviewedUpdateProtocol2InterpreterTests` and `ReviewedUpdateProtocol2WorkflowCompositionTests` cover each P-predicate violation (including recomputed values), Matched with each mismatching field, refusal predicates, flag precedence, settled-without-H, Unknown invocation, launch failure, N1–N4, the "confirmed" phrase in a diagnostic, RestartReported always false, correlation, pre-request phases, and Success only after verification. `Protocol2CandidateCheckBoundaryTests` checks construction confinement. Interpreter only; no endpoint, history format, verifier or admission.
+
 # Task 50 — protocol-2 reviewed fact extension: passive codec slice
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`: `ReviewedUpdateWireCodecReviewedFactTests` (126 cases) and the updated `ReviewedUpdateWireCodecTests` (23) cover the codec-level §8 cases of the [specification](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md):
