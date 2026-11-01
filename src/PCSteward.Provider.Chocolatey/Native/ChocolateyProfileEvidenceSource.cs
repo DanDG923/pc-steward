@@ -38,22 +38,25 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
     private readonly ChocolateyDesktopObserve observe;
     private readonly ChocolateyDispatchBaselines baselines;
     private readonly TimeProvider time;
+    private readonly TimeSpan budget;
 
     internal ChocolateyProfileEvidenceSource(ChocolateyDispatchBaselines baselines)
-        : this(ChocolateyDesktopObservation.ProductionObserve, baselines, TimeProvider.System)
+        : this(ChocolateyDesktopObservation.ProductionObserve, baselines, TimeProvider.System, ChocolateyDesktopObservation.Budget)
     {
     }
 
-    private ChocolateyProfileEvidenceSource(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines, TimeProvider time)
+    private ChocolateyProfileEvidenceSource(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines, TimeProvider time,
+        TimeSpan budget)
     {
         this.observe = observe ?? throw new ArgumentNullException(nameof(observe));
         this.baselines = baselines ?? throw new ArgumentNullException(nameof(baselines));
         this.time = time ?? throw new ArgumentNullException(nameof(time));
+        this.budget = budget;
     }
 
-    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the source over a supplied observation.</summary>
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the source over a supplied observation and budget.</summary>
     internal static ChocolateyProfileEvidenceSource CreateForTests(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines,
-        TimeProvider time) => new(observe, baselines, time);
+        TimeProvider time, TimeSpan budget) => new(observe, baselines, time, budget);
 
     public async Task<FreshUpdateDispatchEvidence?> ObserveAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
         CancellationToken cancellationToken)
@@ -62,7 +65,7 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
             !ChocolateyDesktopObservation.TryGetRouteTarget(operation, out string? targetId, out ChocolateyNativeVersion? installed, out _))
             return null;
         using ChocolateyProfileObservation? observation =
-            await ChocolateyDesktopObservation.TryObserveAsync(observe, targetId, installed, time, cancellationToken).ConfigureAwait(false);
+            await ChocolateyDesktopObservation.TryObserveAsync(observe, targetId, installed, budget, time, cancellationToken).ConfigureAwait(false);
         if (observation is null || cancellationToken.IsCancellationRequested) return null;
         string requester = observation.Common.RequestingUserSid;
         if (!string.Equals(requester, operation.RequestingUserSid, StringComparison.Ordinal)) return null;
@@ -98,7 +101,7 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
             VersionComparison.Compare(new(installed.Normalized, candidate.Normalized)).Outcome != VersionComparisonOutcome.Newer)
             return null;
         using ChocolateyProfileObservation? observation =
-            await ChocolateyDesktopObservation.TryObserveAsync(observe, intent.PackageId, installed, time, cancellationToken).ConfigureAwait(false);
+            await ChocolateyDesktopObservation.TryObserveAsync(observe, intent.PackageId, installed, budget, time, cancellationToken).ConfigureAwait(false);
         if (observation is null || cancellationToken.IsCancellationRequested) return null;
         return new ChocolateyReviewIntent(intent.PackageId, installed.Normalized, candidate.Normalized, observation.Common.RequestingUserSid,
             ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint, ReviewedCandidateProvenance.UserCacheIntent,

@@ -25,22 +25,25 @@ internal sealed class ChocolateyReviewedUpdateVerifier : IReviewedUpdateVerifier
     private readonly ChocolateyDesktopObserve observe;
     private readonly ChocolateyDispatchBaselines baselines;
     private readonly TimeProvider time;
+    private readonly TimeSpan budget;
 
     internal ChocolateyReviewedUpdateVerifier(ChocolateyDispatchBaselines baselines)
-        : this(ChocolateyDesktopObservation.ProductionObserve, baselines, TimeProvider.System)
+        : this(ChocolateyDesktopObservation.ProductionObserve, baselines, TimeProvider.System, ChocolateyDesktopObservation.Budget)
     {
     }
 
-    private ChocolateyReviewedUpdateVerifier(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines, TimeProvider time)
+    private ChocolateyReviewedUpdateVerifier(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines, TimeProvider time,
+        TimeSpan budget)
     {
         this.observe = observe ?? throw new ArgumentNullException(nameof(observe));
         this.baselines = baselines ?? throw new ArgumentNullException(nameof(baselines));
         this.time = time ?? throw new ArgumentNullException(nameof(time));
+        this.budget = budget;
     }
 
-    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the verifier over a supplied observation.</summary>
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the verifier over a supplied observation and budget.</summary>
     internal static ChocolateyReviewedUpdateVerifier CreateForTests(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines,
-        TimeProvider time) => new(observe, baselines, time);
+        TimeProvider time, TimeSpan budget) => new(observe, baselines, time, budget);
 
     public async Task<PostUpdateInventoryResult> VerifyAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
         CancellationToken cancellationToken)
@@ -72,8 +75,8 @@ internal sealed class ChocolateyReviewedUpdateVerifier : IReviewedUpdateVerifier
     private async Task<ChocolateyClientStateData?> CaptureFilesAsync(string targetId, ChocolateyNativeVersion expected,
         ChocolateyDispatchBaseline baseline, CancellationToken cancellationToken)
     {
-        using ChocolateyProfileObservation? capture =
-            await ChocolateyDesktopObservation.TryObserveAsync(observe, targetId, expected, time, cancellationToken).ConfigureAwait(false);
+        using ChocolateyProfileObservation? capture = await ChocolateyDesktopObservation
+            .TryObserveAsync(observe, targetId, expected, budget, time, cancellationToken).ConfigureAwait(false);
         if (capture is null || !string.Equals(capture.Common.RequestingUserSid, baseline.RequestingUserSid, StringComparison.Ordinal)) return null;
         return capture.ClientState;
     }
@@ -82,8 +85,8 @@ internal sealed class ChocolateyReviewedUpdateVerifier : IReviewedUpdateVerifier
     private async Task<bool> ReobserveTargetAsync(string targetId, ChocolateyNativeVersion expected, ChocolateyDispatchBaseline baseline,
         CancellationToken cancellationToken)
     {
-        using ChocolateyProfileObservation? reobserved =
-            await ChocolateyDesktopObservation.TryObserveAsync(observe, targetId, expected, time, cancellationToken).ConfigureAwait(false);
+        using ChocolateyProfileObservation? reobserved = await ChocolateyDesktopObservation
+            .TryObserveAsync(observe, targetId, expected, budget, time, cancellationToken).ConfigureAwait(false);
         return reobserved is not null && !cancellationToken.IsCancellationRequested &&
             string.Equals(reobserved.Common.RequestingUserSid, baseline.RequestingUserSid, StringComparison.Ordinal) &&
             ChocolateyPostUpdateClientCheck.Compare(baseline.ClientState, reobserved.ClientState) == ChocolateyClientComparison.Unchanged;

@@ -74,16 +74,16 @@ internal static class ChocolateyDesktopObservation
     /// or the real-time cap give null; an observation that arrives after the cap is disposed unused.
     /// </summary>
     internal static async Task<ChocolateyProfileObservation?> TryObserveAsync(ChocolateyDesktopObserve observe, string targetId,
-        ChocolateyNativeVersion frozenInstalled, TimeProvider time, CancellationToken cancellationToken)
+        ChocolateyNativeVersion frozenInstalled, TimeSpan budget, TimeProvider time, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(observe);
         ArgumentNullException.ThrowIfNull(time);
-        if (cancellationToken.IsCancellationRequested) return null;
-        Task<ChocolateyProfileResult?> work = Task.Run(() => observe(targetId, frozenInstalled, Budget, cancellationToken), CancellationToken.None);
+        if (cancellationToken.IsCancellationRequested || budget <= TimeSpan.Zero || budget > Budget) return null;
+        Task<ChocolateyProfileResult?> work = Task.Run(() => observe(targetId, frozenInstalled, budget, cancellationToken), CancellationToken.None);
         ChocolateyProfileResult? result;
         try
         {
-            result = await work.WaitAsync(Budget + CapMargin, time, cancellationToken).ConfigureAwait(false);
+            result = await work.WaitAsync(budget + CapMargin, time, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
         {
