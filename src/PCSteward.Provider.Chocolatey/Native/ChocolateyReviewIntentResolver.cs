@@ -21,7 +21,11 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// </summary>
 internal sealed class ChocolateyReviewIntentResolver
 {
-    /// <summary>Real-time margin over the connector's own timeout, so the call cannot outlive its bound.</summary>
+    /// <summary>
+    /// Real-time margin over the connector's own timeout. The cap cancels the token; the connector then kills the process tree,
+    /// but it awaits exit and its pipe reads without a bound, so a descendant that escaped the tree and still holds the output
+    /// can delay the call past the cap. That outcome still fails closed (no intent, and the review time check refuses it).
+    /// </summary>
     internal static readonly TimeSpan CapMargin = TimeSpan.FromSeconds(5);
 
     private readonly ChocolateyUpdateSourceConnector connector;

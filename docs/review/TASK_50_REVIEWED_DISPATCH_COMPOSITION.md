@@ -624,8 +624,8 @@ Admission of `ChocolateyMachineRuntimeLimitsV3` requires all of:
 2. the ADR-025 exact-artifact test of the signed helper, including the §2.1 linked-token match and a real `AccessCheck` on the Chocolatey tree;
 3. an approved v2 redeploy;
 4. ~~N6 review H1 (helper emits the lingering token)~~ closed in `94018e8`;
-5. N6 review M1 (Desktop review and history UI);
-6. N5 obligation (a): a production intent resolver called immediately before the observation;
+5. ~~N6 review M1 (Desktop review and history UI)~~ implemented in `a647db6` (see below); the Desktop shows the no-review disclosure until admission;
+6. ~~N5 obligation (a): a production intent resolver~~ implemented in `219a984` (`ChocolateyReviewIntentResolver`); it is unconstructed until admission, when composition must call it;
 7. a decision on the Profile V2 proxy and client-certificate disclosure (N6 Info);
 8. a change to `HasSupportedMode` and the non-admission architecture pins, made only with explicit owner approval after items 1–7.
 
@@ -641,3 +641,19 @@ Admission of `ChocolateyMachineRuntimeLimitsV3` requires all of:
 - **Info:** the lingering marker is removed from the visible history diagnostic; `helper-check-not-recorded` stays visible because it has no fixed note. Stored data is unchanged.
 
 **Windows CI on `08b0e91` is green**: Security 1124/1124 (0 skipped), integration 949, domain 167, architecture 88.
+
+## Admission obligations 5 and 6: Desktop review and history UI and the intent resolver (`b28702c..58a736c`, fixes in the following commit)
+
+Scope: [Desktop review UI scope](TASK_50_DESKTOP_REVIEW_UI_SCOPE.md). Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
+
+- **Obligation 6:** `ChocolateyReviewIntentResolver` resolves the exact selected package only through the existing `ChocolateyUpdateSourceConnector.ResolveAsync`, so no new process is built. It stamps its own resolution time before the query and caps the call at the connector timeout plus 5 s. Every fault, timeout, cancellation, missing, ambiguous or non-newer candidate, non-Community source or case-differing ID gives no intent. `ChocolateyReviewedRouteComposition.ResolveReviewIntentAsync(resolver, packageId, ct)` runs it inside the in-call time check, then observes.
+- **Obligation 5:**
+  - Application `ChocolateyReviewedRouteReviewViewModel` exposes every disclosure field as an ordered line with an accessible name, probes the split token on every `Open`, sets `IsConfirmEnabled == CanConfirm`, and confirms only through `ReviewedUpdateReview.Confirm`. `PresentWithoutReview` (fixed disclosures plus the not-admitted and split-token reasons, `CanConfirm` always false) is what the Desktop shows today.
+  - History view models render `Route`, `VerificationDetail`, `LingeringProcessesNote` and `HelperReport`, failing closed to "unavailable".
+  - Desktop (code-built UI, no XAML): a "Chocolatey reviewed update (unavailable)…" entry on Chocolatey Community details opens a dialog whose Confirm is disabled and whose handler starts nothing; the Activity page has a read-only "Reviewed update outcomes" list.
+  - `ChocolateyReviewedRouteProbe` (public) forwards to the read-only token probe.
+- **Non-admission is unchanged:** `HasSupportedMode` and the three pin files are unchanged; nothing in `src` constructs the resolver, the composition, the workflow or the route dispatcher. New architecture pins cover the resolver and the Desktop surfaces.
+- **Windows CI on `58a736c` is green, including the Desktop build**: Security 1148/1148, integration 961, domain 167, architecture 94.
+- **Independent review: PASS with fixes**, with no Blocker, High or Medium. It confirmed no dispatch or helper path, an inert `TryConfirm`, an acceptable read-only public probe, a correct resolver, and that the dialog sets `XamlRoot` and has guarded handlers.
+  - Lows fixed in the follow-up commit: the entry's accessible name now starts with its visible text (WCAG 2.5.3, ADR-021 best effort, with a test), and the resolver's cap comment no longer overclaims. The connector's post-kill exit and pipe awaits are unbounded, which still fails closed. L1 (docs) is this entry.
+  - Info, accepted: names set on layout panels may not be announced; the resolver cap plus the observation cap (115 s) is close to the 120 s intent age, so a slow but successful run shows a review mismatch (fails closed); one malformed history record makes the whole list "unavailable" (fails closed).

@@ -20,6 +20,13 @@
 - Architecture `DesktopProducersBoundaryTests` (5) and the extended `HelperEndpointBoundaryTests` pins (`Observe`, `TryFromCurrentProcess`).
 - Not claimed: Desktop composition, route admission, or Windows CI evidence for the 5 Windows-only tests.
 
+# Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [scope](../review/TASK_50_DESKTOP_REVIEW_UI_SCOPE.md); [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).
+
+- Application `ReviewedRouteViewModelTests` (portable; includes the disabled-confirm invariant and the accessible-name label rule); Security resolver tests (portable with fakes); architecture pins for the resolver and the Desktop surfaces. Windows CI is green at `58a736c`, including the Desktop build.
+- Not claimed: runtime rendering evidence on a real desktop, host evidence, or admission.
+
 # Task 50 — N5 desktop producers and N6 review disclosure and history
 
 `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N5 and N6; [N6 scope](../review/TASK_50_N6_SCOPE.md).

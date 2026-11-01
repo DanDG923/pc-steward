@@ -22,7 +22,7 @@ public sealed class ChocolateyReviewedRouteReviewViewModel
 {
     /// <summary>The Desktop entry point's text (only on Chocolatey Community rows).</summary>
     public const string EntryText = "Chocolatey reviewed update (unavailable)…";
-    public const string EntryAutomationName = "Open the Chocolatey reviewed update disclosure. This update route is unavailable.";
+    public const string EntryAutomationName = EntryText + " Opens the disclosure. This update route is unavailable.";
     public const string ConfirmText = "Confirm update";
     public const string CloseText = "Close";
     public const string UnavailableHeading = "Why this update cannot be confirmed";

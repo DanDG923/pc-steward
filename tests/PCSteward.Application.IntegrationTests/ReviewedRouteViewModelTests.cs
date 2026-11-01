@@ -151,6 +151,8 @@ public sealed class ReviewedRouteViewModelTests
             Assert.IsFalse(ChocolateyReviewedRouteReviewViewModel.AppliesTo(other), other ?? "null");
         StringAssert.Contains(ChocolateyReviewedRouteReviewViewModel.EntryText, "(unavailable)");
         StringAssert.Contains(ChocolateyReviewedRouteReviewViewModel.EntryAutomationName, "unavailable");
+        // WCAG 2.5.3 (ADR-021 best effort): the accessible name starts with the visible label.
+        StringAssert.StartsWith(ChocolateyReviewedRouteReviewViewModel.EntryAutomationName, ChocolateyReviewedRouteReviewViewModel.EntryText);
         StringAssert.StartsWith(ChocolateyReviewedRouteReviewViewModel.NotStartedText, "No update was started.");
     }
 
