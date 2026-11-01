@@ -2,6 +2,17 @@
 
 **Task 73 — Desktop UI and UX overhaul: direction accepted (2026-11-01).** The owner chose concept A (Calm Native) as the base, with B's Ready / Needs review / Ignored grouping on Updates and D's Review → Update → Verify stepper for the job. Recorded in [ADR-030](adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md), with a five-phase [plan](review/TASK_73_UI_UX_OVERHAUL_PLAN.md); the evidence is the [audit](review/UI_UX_OVERHAUL_AUDIT.md), the [research](review/UI_UX_OVERHAUL_RESEARCH.md) and the [concepts](review/UI_UX_OVERHAUL_CONCEPTS.md). Implementation awaits owner approval of its branch and PR. No code has changed. It is not part of Task 50 admission.
 
+**Task 73 — Phase 1 foundations (2026-11-01), draft PR DanDG923/pc-steward#13 stacked on the Task 50 branch:**
+- What it adds: a persistent shell (navigation items, title bar and progress band created once; Home, Updates, Installed apps, Activity, Decisions, plus Settings and About), `ItemInvoked`, title-bar Back with a portable back stack, entry points for every page, a real Decisions page, one SPEC §7.2 status vocabulary (icon + text + tone), Mica with a custom title bar and tokens, and one elevation story. The UI contract pins were updated deliberately, and none was weakened. Requirements: `FR-UI-01/02/05`, `AC-UX-01–04`.
+- **Windows CI on `887094d` is green, including the Desktop build** (Security 1148, integration 970, architecture 97).
+- **Independent review: PASS with fixes**, with no Blocker or High and no behaviour change beyond presentation. Fixes are in progress:
+  - copy that over-promised "no UAC prompt" and "always unelevated";
+  - focus restore with non-unique names, on a Remove-decision path;
+  - a duplicate Back entry;
+  - scan re-entrancy from the Activity empty state;
+  - high-contrast refresh, scroll-restore timing and title-bar details.
+- The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
+
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
 - **Windows CI on `58a736c` is green, including the Desktop build** (Security 1148/1148, integration 961).
 - **Independent review: PASS with fixes** (Lows only), now fixed: the accessible-name label and the resolver comment.

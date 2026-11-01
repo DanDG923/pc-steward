@@ -20,6 +20,13 @@
 - Architecture `DesktopProducersBoundaryTests` (5) and the extended `HelperEndpointBoundaryTests` pins (`Observe`, `TryFromCurrentProcess`).
 - Not claimed: Desktop composition, route admission, or Windows CI evidence for the 5 Windows-only tests.
 
+# Task 73 — Desktop UI and UX overhaul, Phase 1 foundations
+
+`FR-UI-01/02/05`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md); [plan](../review/TASK_73_UI_UX_OVERHAUL_PLAN.md).
+
+- Application `DesktopFoundationsPresentationTests` (shell navigation and back stack, status vocabulary, elevation story); architecture `UiRedesignContractTests`, `UpdateProgressUiContractTests`, `ReferenceBoundaryTests` and `ReviewedRouteDesktopUiBoundaryTests`, updated deliberately with protections kept. Windows CI is green at `887094d`, including the Desktop build.
+- Not claimed: runtime look and behaviour (Mica, drag region, focus restore, Narrator, high-contrast switching). Those are owner-host evidence.
+
 # Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
 
 `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [scope](../review/TASK_50_DESKTOP_REVIEW_UI_SCOPE.md); [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).
