@@ -41,15 +41,18 @@
     - (a) a read-only SQLite `IActivityHistoryReader`: two parameterised, bounded SELECTs, no schema change and no writes (contract-pinned), run under the existing data-operation read lease;
     - (b) Home "Check for updates" runs a scan and then, only when update sources are already enabled and the scan completed, the existing source refresh. This is an explicit user action, consent is unchanged, and it involves no elevation and no new kind of network traffic.
   - **Windows CI on `81f406f` is green** (architecture 108, integration 994, Security 1148).
-  - **Independent review: PASS with fixes** (no Blocker or High). Fixes are in progress:
+  - **Independent review: PASS with fixes** (no Blocker or High). Fixed in `1f1c729`:
     - the freshness age comes from the least-fresh source;
-    - attention items that stick forever;
-    - the button label and caption when sources are off;
+    - attention items resolve when the installed version meets or passes the target, changes, or the app disappears (never relabelled Verified);
+    - "Scan again" when sources are off, with a visible caption when they are on;
     - restart items reachable from Activity;
-    - the last scan time on Home;
-    - unique Decisions names;
-    - names on panels;
-    - a time limit on "Live".
+    - scan and source times on Home;
+    - unique Decisions names that include the kind;
+    - names moved off panels;
+    - "Live" lasts 15 minutes.
+    - Source refresh still cannot be cancelled; the existing API takes no token, and each source has its own timeout.
+  - **CI intermittent fixed at the cause:** `96cf2db` (on the Task 50 branch, merged here as `97f32d1`). The N1 fixture root grants its creator an inheritable FullControl ACE, so `LockTree`'s owner change no longer depends on the runner's inherited ACL. The failure occurred on `011a3df` and on `1f1c729`; both unchanged re-runs passed. **Windows CI is green on `96cf2db` and on `97f32d1`** (Security 1148).
+- Phase 4 (Settings and Data & reset) is in progress.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
