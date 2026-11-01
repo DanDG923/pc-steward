@@ -4,7 +4,7 @@
 - **Independent review: PASS.** No Blocker, High or Medium, and no false-eligible path.
 - **The logs-directory concern is resolved:** the setup grant applies to files only.
 - Recorded items: L1 (single-walk availability), L2 (rev 3 §8 reconciliation note), and an N5 golden-vector obligation for the registration digest.
-- Windows CI on `70966c0`: 737/738. The one fixture failure is fixed in `8cc8bf8`, with CI pending.
+- Windows CI on `70966c0`: 737/738. The one fixture failure is fixed in `8cc8bf8`; **Windows CI on `8cc8bf8` is green**.
 - No `src` caller. See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N3 (fixed queries and the held client binding).
 
 **Task 50 — slice N1 native primitives (2026-11-01):** Requester token policy and factories, AccessCheck in Node and Ancestor modes, the protected node reader, the bounded tree walker and native path resolution. Design rev 6 §2. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
