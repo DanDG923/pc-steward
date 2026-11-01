@@ -3,7 +3,7 @@
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.4 steps 1–3 (3.1, 3.4, 3.5), §A.5; reviewed fact extension rev 3 §4.1 (three phases, H) and §6 (budgets, single frame then EOF); review-16 L2.
 
 - Security `ReviewedHelperProtocol2TransportTests`:
-  - **Portable** (28): the exchange session over a real named-pipe pair:
+  - **Portable** (29): the protocol-2 pipe locator (accepted by the factory, rejected by the protocol-1 bootstrap), and the exchange session over a real named-pipe pair:
     - one frame, then EOF, then exit gives `ResponseFrameReceived` with H, and the helper receives a codec-valid request bound to the operation digest and nonce;
     - a trailing byte, a second frame, closing without a response, an oversized length or a truncated frame gives `RequestWrittenNoValidResponse` (Uncertain);
     - an execution-budget lapse terminates the helper (Uncertain);
@@ -18,14 +18,15 @@
     - a frame for another nonce is rejected;
     - each pre-request outcome maps correctly;
     - an off-route ticket starts nothing.
-  - **Windows-only** (12; reported as failed off Windows):
+  - **Windows-only** (13; reported as failed off Windows):
     - pre-hold failures never launch;
     - with a real held binding: final-trust rejection, helper-path mismatch, pre-launch cancellation, UAC denial, no process, or a launcher exception all release the binding with no helper running; launch happens only after hold and final trust, with the binding held;
-    - with a real child process, the binding stays held while the child runs and is released only after the ownership task (exit observed and transport sealed).
+    - with a real child process, the binding stays held while the child runs and is released only after the ownership task (exit observed and transport sealed);
+    - a non-helper client (different PID) is refused by the real peer check and receives 0 bytes.
 - Architecture `DeploymentCapabilityBoundaryTests`:
   - `HeldHelperBinding.TryCreate` only in the reader;
   - the binding is referenced only by four Execution files;
-  - exactly two release points in the transport, the ownership-continuation release registered before the exchange, and `GC.KeepAlive` after it;
+  - exactly two release points in the transport, release-without-helper only before ownership, no `ReleaseHandles` or using-scoped binding, the ownership-continuation release registered before the exchange, and `GC.KeepAlive` after it;
   - the transport and dispatcher are not composed in `src`;
   - no protocol-1 or `ImmutableUpdateJob` use, no database, registry, environment-variable or network input;
   - the dispatcher does no I/O, and `Supports` checks route and evidence before the seam.

@@ -365,6 +365,63 @@ public sealed class ReviewedHelperProtocol2TransportTests
         Assert.AreEqual(ReviewedUpdateInvocation.NotStarted, Interpret(Protocol2InterpreterFixture.Operation(), exchange).Observation.Invocation);
     }
 
+    [TestMethod]
+    public void ProtocolTwoPipeLocatorIsAcceptedByThePipeFactoryButNotByTheProtocolOneHelperBootstrap()
+    {
+        string name = WindowsReviewedHelperTransport.CreatePipeName();
+        Assert.IsTrue(WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(name));
+        Assert.IsTrue(RestrictedNamedPipe.IsAcceptedLocator(name), "the restricted pipe factory accepts the protocol-2 locator");
+        Assert.IsTrue(RestrictedNamedPipe.IsAcceptedLocator($"pcsteward-elevated-{Guid.NewGuid():N}"), "protocol 1 is unchanged");
+        foreach (string bad in new[] { "pcsteward-reviewed-", name.ToUpperInvariant(), name + "0", "pcsteward-other-" + new string('a', 32), "" })
+            Assert.IsFalse(RestrictedNamedPipe.IsAcceptedLocator(bad), bad);
+        // The endpoint is deferred: the protocol-1 helper bootstrap accepts neither the protocol-2 locator nor --protocol 2.
+        foreach (string protocol in new[] { ElevatedHelperProtocol.Version, ReviewedUpdateWireCodec.ProtocolVersion })
+            Assert.IsFalse(HelperBootstrap.TryParse(["--protocol", protocol, "--desktop-pid", "42", "--pipe", name, "--nonce", Nonce], out _), protocol);
+    }
+
+    [TestMethod]
+    public async Task ANonHelperClientIsRefusedByThePeerCheckAndTheBindingStaysHeldWhileTheHelperRuns()
+    {
+        RequireWindows("restricted pipe, held binding, peer verification and a real child process");
+        using DeploymentCapabilityReaderTests.Fixture fixture = new();
+        DeploymentCapabilityReaderTests.DeploymentTree tree = DeploymentCapabilityReaderTests.DeploymentTree.Create(fixture);
+        HelperLaunchPaths paths = Paths(tree);
+        CapturingCapability capability = new(tree);
+        Task<(bool HeldMidExchange, int BytesSeen)>? impostor = null;
+        WindowsReviewedHelperTransport transport = new(capability, () => paths, _ => new(true, string.Empty), () => true,
+            (string _, string pipeName, string _, out bool declined) =>
+            {
+                declined = false;
+                // A long-running stand-in "helper" that never connects; this test process connects instead (PID differs).
+                ProcessStartInfo start = new(Path.Combine(Environment.SystemDirectory, "ping.exe")) { UseShellExecute = false, CreateNoWindow = true };
+                start.ArgumentList.Add("-n");
+                start.ArgumentList.Add("30");
+                start.ArgumentList.Add("127.0.0.1");
+                Process child = Process.Start(start)!;
+                impostor = Task.Run(async () =>
+                {
+                    await Task.Delay(200);
+                    bool held = capability.Binding!.IsHolding && !capability.Binding.IsDisposed && !child.HasExited;
+                    using NamedPipeClientStream client = new(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                    await client.ConnectAsync(10_000);
+                    return (held, await client.ReadAsync(new byte[1]));
+                });
+                return child;
+            }, Fast);
+
+        ReviewedHelperExchange exchange = await transport.ExchangeAsync(Protocol2InterpreterFixture.Operation(), Nonce, CancellationToken.None);
+        (bool heldMidExchange, int bytesSeen) = await impostor!.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.IsTrue(heldMidExchange, "the binding is held while the helper process runs");
+        Assert.AreEqual(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, exchange.Outcome);
+        Assert.AreEqual(0, bytesSeen, "the peer check refused the impostor: not one request byte was written");
+        Assert.IsTrue(exchange.Desktop.H, "the stand-in helper was terminated and its exit observed");
+        await exchange.Desktop.OwnedRootSnapshot.WaitAsync(TimeSpan.FromSeconds(10));
+        for (int attempt = 0; attempt < 100 && !capability.Binding!.IsDisposed; attempt++) await Task.Delay(50);
+        Assert.IsTrue(capability.Binding!.IsDisposed, "released only after exit and seal");
+        Assert.AreEqual(ReviewedUpdateInvocation.NotStarted, Interpret(Protocol2InterpreterFixture.Operation(), exchange).Observation.Invocation);
+    }
+
     // ---- Route dispatcher (portable) ----
 
     [TestMethod]

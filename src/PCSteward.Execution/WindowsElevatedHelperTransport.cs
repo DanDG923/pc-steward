@@ -767,7 +767,8 @@ internal static class RestrictedNamedPipe
 {
     internal static NamedPipeServerStream Create(string pipeName, string currentUserSid)
     {
-        if (!WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(pipeName))
+        // Protocol 1 and protocol 2 each use their own fixed locator; the helper bootstrap still accepts only protocol 1's.
+        if (!IsAcceptedLocator(pipeName))
         {
             throw new ArgumentException("The pipe locator is invalid.", nameof(pipeName));
         }
@@ -811,6 +812,9 @@ internal static class RestrictedNamedPipe
             NativeMethods.LocalFree(securityDescriptor);
         }
     }
+
+    internal static bool IsAcceptedLocator(string pipeName) =>
+        WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(pipeName) || WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(pipeName);
 
     internal static string BuildSecurityDescriptorSddl(string currentUserSid)
     {

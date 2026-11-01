@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Text.RegularExpressions;
 using PCSteward.Domain;
 using PCSteward.Provider.Chocolatey;
 
@@ -100,10 +101,9 @@ internal static class ReviewedHelperExchangeSession
                         outcome = ReviewedHelperTransportOutcome.ResponseFrameReceived;
                     }
                 }
-                catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidDataException
-                    or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
+                catch (Exception exception) when (exception is not OutOfMemoryException)
                 {
-                    // Lost, late, oversized, truncated or disconnected: no valid response.
+                    // Lost, late, oversized, truncated, disconnected or any unexpected fault: no valid response.
                 }
 
                 if (outcome == ReviewedHelperTransportOutcome.ResponseFrameReceived)
@@ -188,7 +188,7 @@ internal delegate Process? ReviewedHelperLauncher(string helperPath, string pipe
 /// </para>
 /// No production composition constructs this type yet: the route is not admitted and the helper endpoint does not exist.
 /// </summary>
-internal sealed class WindowsReviewedHelperTransport : IReviewedHelperTransport
+internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTransport
 {
     internal const string PipeNamePrefix = "pcsteward-reviewed-";
     private static readonly ReviewedHelperDesktopObservation NoHelper =
@@ -239,7 +239,7 @@ internal sealed class WindowsReviewedHelperTransport : IReviewedHelperTransport
         catch (Exception exception) when (exception is not OutOfMemoryException) { return Refused(); }
         if (currentSid.Length == 0) return Refused();
 
-        string pipeName = PipeNamePrefix + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        string pipeName = CreatePipeName();
         NamedPipeServerStream pipe;
         try { pipe = RestrictedNamedPipe.Create(pipeName, currentSid); }
         catch (Exception exception) when (exception is not OutOfMemoryException) { return Refused(); }
@@ -270,7 +270,16 @@ internal sealed class WindowsReviewedHelperTransport : IReviewedHelperTransport
                     : Refused();
             }
 
-            HelperProcessWork owned = new(helper);
+            HelperProcessWork owned;
+            try { owned = new(helper); }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // A helper exists but cannot be owned: tear it down, keep the binding unreleased and report unsettled.
+                bool terminated = TryTerminate(helper);
+                return new(ReviewedHelperTransportOutcome.HelperStartedRequestNotWritten, [], new(
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously).Task, HelperExitObserved: false,
+                    TransportSealed: true, TerminationFailed: !terminated, OwnedIoComplete: false, PipeEndOfFile: false));
+            }
             ReleaseAfterOwnership(owned.OwnedCompletion, binding);
             WindowsReviewedHelperChannel channel = new(pipe, helper, paths, currentSession, currentSid, binding);
             ReviewedHelperExchange exchange = await ReviewedHelperExchangeSession.RunAsync(channel, owned, () => TryTerminate(helper),
@@ -292,6 +301,12 @@ internal sealed class WindowsReviewedHelperTransport : IReviewedHelperTransport
     private static void ReleaseAfterOwnership(Task ownedCompletion, HeldHelperBinding binding) =>
         _ = ownedCompletion.ContinueWith(static (_, state) => ((HeldHelperBinding)state!).Dispose(), binding,
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
+    /// <summary>The protocol-2 per-request pipe locator (distinct from the protocol-1 <c>pcsteward-elevated-</c> locator).</summary>
+    [GeneratedRegex("^pcsteward-reviewed-[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
+    internal static partial Regex PipeNamePattern();
+
+    internal static string CreatePipeName() => PipeNamePrefix + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
 
     private static ReviewedHelperExchange Refused() => new(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, [], NoHelper);
 

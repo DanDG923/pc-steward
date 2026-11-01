@@ -105,6 +105,13 @@ public sealed class DeploymentCapabilityBoundaryTests
         Assert.IsTrue(Regex.IsMatch(transport,
             @"private static void ReleaseAfterOwnership\(Task ownedCompletion, HeldHelperBinding binding\) =>\s+_ = ownedCompletion\.ContinueWith\(static \(_, state\) => \(\(HeldHelperBinding\)state!\)\.Dispose\(\)"));
         Assert.AreEqual(1, Regex.Count(transport, @"ReleaseAfterOwnership\(owned\.OwnedCompletion, binding\);"));
+        // Release-without-helper only before ownership exists; no other release route (review-17 L6).
+        int ownership = transport.IndexOf("owned = new(helper);", StringComparison.Ordinal);
+        Assert.IsTrue(ownership > 0);
+        foreach (Match call in Regex.Matches(transport, @"ReleaseWithoutHelper\(binding\);"))
+            Assert.IsTrue(call.Index < ownership, "ReleaseWithoutHelper is called only before the helper is owned");
+        Assert.IsFalse(transport.Contains("ReleaseHandles", StringComparison.Ordinal), "the A2-L5 fallback is not used");
+        Assert.IsFalse(Regex.IsMatch(transport, @"using\s*\(?\s*(HeldHelperBinding|binding\b)"), "no using-scoped binding");
         int release = transport.IndexOf("ReleaseAfterOwnership(owned.OwnedCompletion, binding);", StringComparison.Ordinal);
         int run = transport.IndexOf("await ReviewedHelperExchangeSession.RunAsync(", StringComparison.Ordinal);
         int keepAlive = transport.IndexOf("GC.KeepAlive(binding);", StringComparison.Ordinal);

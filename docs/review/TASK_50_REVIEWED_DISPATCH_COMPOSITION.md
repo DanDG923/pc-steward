@@ -243,5 +243,35 @@ Linux results:
 - Application 780 passed, 103 failed of 883, the same platform failure set as before;
 - Security 465 passed, 55 failed and 1 skipped of 521. The 55 failures are the 43 previous Windows-native failures plus the 12 new Windows-only cases.
 
-Independent review and Windows CI are pending.
+### Independent review (`953ad78`) and remediation
+
+A fresh-context reviewer (Opus), pinned to `953ad78` from start to end, returned **FAIL**. It found no safety defect: every finding failed closed. It verified:
+
+- `RequestWritten` is set before the first write;
+- `ResponseFrameReceived` needs exactly one frame plus EOF within the execution budget;
+- NotStarted settles only with H and a completed ownership task;
+- nothing is written before the connection, cancellation and peer checks pass and the request is built;
+- both release points are correct, and the binding stays rooted;
+- the budgets are correct, and a Windows broken-pipe read gives 0 bytes (EOF);
+- there is no scope creep.
+
+| # | Severity | Finding | Remediation |
+|---|---|---|---|
+| 1 | High | `RestrictedNamedPipe.Create` accepted only the protocol-1 locator `pcsteward-elevated-…`. The transport therefore always refused before `TryHold`, and 9 of the Windows-only tests would fail on Windows CI. | Added the protocol-2 locator pattern `^pcsteward-reviewed-[a-f0-9]{32}$` (`WindowsReviewedHelperTransport.PipeNamePattern`). The factory accepts either locator (`RestrictedNamedPipe.IsAcceptedLocator`). `HelperBootstrap` still accepts only protocol 1 and its locator. New portable test: the generated name passes the factory, malformed names fail, and the protocol-1 bootstrap rejects both the protocol-2 locator and `--protocol 2`. |
+| 2 | Medium | No test covered the Windows channel's peer check. | New Windows test: a long-running stand-in child plus a client from the test process (different PID). The peer check refuses it, it reads 0 bytes, the outcome is `HelperStartedRequestNotWritten` with H, and the binding is released only after exit and seal. (The direct `PeerImageMatchesHelper` mismatch is already covered by `DeploymentCapabilityReaderTests`.) |
+| 3 | Low | The post-write catch was narrower than the rest of the file, so an unexpected exception escaped without `Terminate` or an exit wait. | Post-write catch is now `when (exception is not OutOfMemoryException)`. |
+| 4 | Low | A throwing `new HelperProcessWork(helper)` left the helper unterminated. | Wrapped: on failure, `TryTerminate`, the binding is left unreleased, and the result is `HelperStartedRequestNotWritten` with a pending ownership task and no H, i.e. Uncertain. |
+| 5 | Low | The "held while running" check happened only at launch. | The new test (item 2) asserts `IsHolding && !IsDisposed` mid-exchange while the child runs. |
+| 6 | Low | The source-text release check missed `using`, `ReleaseHandles` and late `ReleaseWithoutHelper` calls. | Architecture checks added: every `ReleaseWithoutHelper(binding)` precedes `owned = new(helper)`, and the transport has no `ReleaseHandles` and no using-scoped binding. |
+| 7 | Info | If `ExitObserved` faults, the pre-existing `HelperProcessWork` parks ownership on an unreferenced task, so the binding can be collected. | Recorded. This is rare and existed before this slice. |
+| 8 | Info | `Process.Start` with `UseShellExecute` could in theory return null after a launch. | Recorded. It is not expected for a direct `runas` `.exe`. |
+
+The reviewer accepted the three recorded decisions. The endpoint wording above is accurate after fix 1: a real helper given `--protocol 2` fails its bootstrap and exits before connecting.
+
+Linux after remediation:
+- Architecture 46/46;
+- the transport class: 29 portable tests pass, and 13 Windows-only tests fail as designed off Windows;
+- the remaining Security and Application failures are the unchanged Windows-native set.
+
+Windows CI on the remediation commit is pending.
 
