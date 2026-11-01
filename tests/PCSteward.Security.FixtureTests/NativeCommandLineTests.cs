@@ -109,6 +109,19 @@ public sealed class NativeCommandLineTests
     }
 
     [TestMethod]
+    [DataRow(@"C:\Windows\System32\evil.bat")]
+    [DataRow(@"C:\Windows\System32\evil.cmd")]
+    [DataRow(@"C:\Windows\System32\evil.com")]
+    [DataRow(@"C:\Windows\System32\evil")]
+    [DataRow(@"C:\Windows\System32\")]
+    public void OnlyLocalExeImagesAreAcceptedSoCmdMetacharactersNeverApply(string image)
+    {
+        // Review L2 (BatBadBut): a .bat/.cmd image would make CreateProcessW run cmd.exe over the quoted line.
+        Assert.ThrowsExactly<ArgumentException>(() => NativeLaunchSpec.ForTests(image, [], new Dictionary<string, string>(), @"C:\Windows"));
+        Assert.AreEqual(Image, NativeLaunchSpec.ForTests(Image, [], new Dictionary<string, string>(), @"C:\Windows").ImagePath);
+    }
+
+    [TestMethod]
     [DataRow("cmd.exe")]
     [DataRow(@"\\server\share\cmd.exe")]
     [DataRow(@"\\?\C:\Windows\cmd.exe")]

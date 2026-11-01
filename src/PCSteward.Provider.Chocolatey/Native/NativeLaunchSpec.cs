@@ -15,7 +15,7 @@ internal sealed class NativeLaunchSpec
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(environment);
-        ImagePath = NativeCommandLine.ValidateLocalPath(imagePath, nameof(imagePath));
+        ImagePath = NativeCommandLine.ValidateImagePath(imagePath, nameof(imagePath));
         WorkingDirectory = NativeCommandLine.ValidateLocalPath(workingDirectory, nameof(workingDirectory));
         string[] copiedArguments = [.. arguments];
         if (copiedArguments.Any(static argument => argument is null || argument.Any(char.IsControl)))

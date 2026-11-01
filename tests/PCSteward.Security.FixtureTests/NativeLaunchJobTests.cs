@@ -243,6 +243,25 @@ public sealed class NativeLaunchJobTests
     }
 
     [TestMethod]
+    public async Task AnUnconfirmedTerminationOfANeverResumedProcessIsUnknownNotNotStarted()
+    {
+        // L1 / review I3: without confirmed termination the never-resumed process cannot be reported NotStarted.
+        RequireWindows("suspended process termination unconfirmed (L1)");
+        using LaunchFixture fixture = new();
+        NativeLaunchSpec spec = NativeLaunchSpec.ForTests(LaunchFixture.Cmd, ["/d", "/c", "echo", "ran>ran.txt"],
+            fixture.Environment, fixture.Directory);
+
+        NativeProcessObservation observation = await LaunchJob.RunCoreWithFaultForTestsAsync(spec, Long,
+            LaunchJobFault.AssignFailsTerminationUnconfirmed, CancellationToken.None);
+
+        Assert.AreEqual(NativeInvocation.Unknown, observation.Invocation);
+        Assert.IsTrue(observation.TerminationFailed);
+        Assert.IsFalse(observation.AggregateSettled);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        Assert.IsFalse(File.Exists(fixture.PathOf("ran.txt")), "TerminateProcess is still called; nothing ran");
+    }
+
+    [TestMethod]
     public async Task ATeardownFailureIsReportedAsTerminationFailedAndUnsettled()
     {
         RequireWindows("teardown failure and kill-on-close backstop");

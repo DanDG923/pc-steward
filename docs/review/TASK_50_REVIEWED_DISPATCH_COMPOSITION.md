@@ -296,3 +296,44 @@ Recorded, non-blocking:
 - **I1.** Only the PID check of the channel's peer verification is exercised. The signer and image-identity checks need the protocol-2 helper endpoint for an end-to-end test. `PeerImageMatchesHelper` itself is covered by `DeploymentCapabilityReaderTests`.
 - **I2.** The late-release architecture check matches the literal `ReleaseWithoutHelper(binding);`; the exact two-`.Dispose()` count still guards direct disposal.
 
+## Slice N0: native job-object launcher (`fca8837`) and review remediation
+
+Contract: [helper endpoint and native observer design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §4.1 and §8 N0. Requirements: `FR-UPD-15`, `TM-03/07/13`.
+
+Implemented in `PCSteward.Provider.Chocolatey.Native`, all internal:
+- `NativeLaunchSpec`: private construction; test-only `ForTests`;
+- `LaunchJob.RunCoreAsync`;
+- `NativeProcessObservation`/`NativeInvocation`;
+- `NativeCommandLine`: MSVCRT quoting, the environment block, and path and argument checks.
+
+There is no `src` caller; the typed `RunAsync` and the compiled commands land with N3. Windows CI on `fca8837` was green: Security 572/572, including the 13 Windows-only launcher tests; Application 883; Domain 167.
+
+The implementer's refinements, accepted by the reviewer:
+- a started launch is settled only with zero active processes, the observed primary exit and both pipe EOFs;
+- a settle window clipped by the deadline also sets `TimedOut`, so lingering descendants in that case end as `TimedOut` rather than leaving the outcome unchanged.
+
+An independent code review (Opus, pinned `fca8837`) returned **CONDITIONAL** with no Blocker or High. It verified:
+- P/Invoke layouts and the handle list;
+- the environment block;
+- the exact kill-on-close job and its readback;
+- §4.1 classification, including L1;
+- settlement and teardown;
+- that every wait is bounded;
+- that the pipes cannot be squatted.
+
+| # | Severity | Finding | Remediation |
+|---|---|---|---|
+| M1 | Medium | The bans were text regexes, while rev 6 F4 requires compiled symbol references | New `NativeLauncherCompiledReferenceTests`: decodes the IL of every built `src` assembly (System.Reflection.Metadata plus an `OpCodes`-derived operand table) and fails on any call to `LaunchJob.RunCoreAsync`, `RunCoreWithFaultForTestsAsync` or `NativeLaunchSpec.ForTests` from outside the declaring type, nested types included. It requires the Provider.Chocolatey, Execution and ElevatedHelper assemblies to be present. Self-checks: more than 1,000 resolved calls, and exactly the two internal `StartAsync` calls. The text test is kept as a secondary check. |
+| M2 | Medium | `OutputLimitExceeded` could be lost when a final over-budget chunk is dropped just before EOF, or drained during teardown | The settled return re-checks `budget.Exceeded` and otherwise falls through to teardown; the final result uses `overflow \|\| budget.Exceeded` |
+| L1 | Low | A zero-byte pipe read was treated as EOF, but a zero-length write by the child also produces one | A zero read with the pipe still connected continues reading. At most 64 consecutive empty reads are allowed, so the reader cannot spin. |
+| L2 | Low | Any image extension was accepted (BatBadBut) | `ValidateImagePath`: a local `.exe` only, no trailing separator; portable test for `.bat`/`.cmd`/`.com`/extensionless/directory |
+| L3 | Low | Inheritable handles were visible to a concurrent launch | A process-wide gate spans handle creation through `ReleaseChildEnd`, and the NUL handle is closed inside it. Residual (documented): an unrelated `Process.Start` elsewhere in the same process. The helper runs one item at a time and launches only through this launcher. |
+| I1 | Info | Zero active processes but no EOF after teardown gives `AggregateSettled=false` with `TerminationFailed=false` | Recorded. This is outside §4.1's binary teardown rule, but truthful and S11-safe. |
+| I2 | Info | No Win32 error codes captured; brief window before job assignment | Recorded. `PROC_THREAD_ATTRIBUTE_JOB_LIST` is possible later hardening. |
+| I3 | Info | No test for the unconfirmed-termination Unknown branch | New fault `AssignFailsTerminationUnconfirmed`, which still calls `TerminateProcess`; Windows test asserts `Unknown` plus `TerminationFailed` |
+
+Linux results after remediation:
+- Architecture 52/52;
+- the N0 portable tests: 41/41;
+- 14 Windows-only launcher tests, pending Windows CI.
+

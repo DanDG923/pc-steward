@@ -1,5 +1,17 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N0 native job-object launcher (2026-11-01):** Implemented per design rev 6 §4.1 (`fca8837`; Windows CI green, Security 572/572 including the 13 Windows-only launcher tests). Requirements: `FR-UPD-15`, `TM-03/07/13`.
+
+An independent code review was CONDITIONAL with no Blocker or High; all findings are remediated:
+- compiled-IL symbol-reference bans (M1);
+- the late-overflow flag (M2);
+- zero-byte pipe reads (L1);
+- `.exe`-only images (L2);
+- an inheritable-handle gate (L3);
+- an unconfirmed-termination test (I3).
+
+See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). No `src` caller; route not admitted. Next: N1 (requester token, access evaluator, walker).
+
 **Task 50 — slice N0 native launcher (2026-11-01):** `PCSteward.Provider.Chocolatey.Native` now has the N0 core of [design rev 5](review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4.1: `NativeLaunchSpec` (private construction, test-only `ForTests`), `LaunchJob.RunCoreAsync`, `NativeProcessObservation` and `NativeInvocation`. Each launch gets a fresh kill-on-close job (no breakaway, read back) with its own completion port. The process is created suspended with a three-handle inheritance list (NUL stdin and the two pipe write ends) and an environment block built only from the spec, then assigned and resumed. A failed assign or resume is `NotStarted` only after confirmed termination; otherwise `Unknown`. `ActiveProcesses == 0` from the job query is the settlement authority, and completion-port messages only wake the observer. The settle window is min(10 s, time left), followed by the M2 teardown (`LingeringTerminated`/`TerminationFailed`). Output is bounded at 1,000,000 characters. Requirements: `FR-UPD-15`, `TM-03/07/13`. There is no `src` caller, as enforced by the architecture tests. N3 adds the typed wrapper. Linux results: Security portable 36/36 new; 13 Windows-only tests are pending Windows CI; Architecture 51/51; Domain 167/167. One fail-closed refinement: a started launch is reported settled only if it has zero active processes **and** the primary exit and both pipe EOFs were observed, which keeps the wire-fact invariant.
 
 **Task 50 — helper endpoint and native Profile V2 observer design, revision 1 (2026-11-01):** The [design record](review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) fixes, before any code, the parts Profile V2 requires to be fixed in review:

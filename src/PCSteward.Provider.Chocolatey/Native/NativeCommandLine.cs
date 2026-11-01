@@ -99,6 +99,18 @@ internal static class NativeCommandLine
         return path;
     }
 
+    /// <summary>
+    /// The image must be a local path (above) naming a <c>.exe</c> file, with no trailing separator. A <c>.bat</c>/<c>.cmd</c>
+    /// image would make CreateProcessW run cmd.exe over the MSVCRT-quoted line, where cmd metacharacters apply (review L2).
+    /// </summary>
+    internal static string ValidateImagePath(string path, string parameterName)
+    {
+        ValidateLocalPath(path, parameterName);
+        if (path.EndsWith('\\') || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("The image must be a local .exe file path.", parameterName);
+        return path;
+    }
+
     internal static void ValidateVariable(string name, string value)
     {
         if (string.IsNullOrEmpty(name) || name.Contains('=') || name.Any(char.IsControl))

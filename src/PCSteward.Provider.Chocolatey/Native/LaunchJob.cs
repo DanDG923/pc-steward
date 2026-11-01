@@ -19,7 +19,10 @@ internal enum LaunchJobFault
     /// <summary>ResumeThread is treated as failed and is not called.</summary>
     ResumeFails,
     /// <summary>TerminateJobObject is treated as failed and is not called.</summary>
-    TeardownFails
+    TeardownFails,
+    /// <summary>AssignProcessToJobObject is treated as failed, and the bounded termination wait is treated as unconfirmed
+    /// (TerminateProcess is still called, so no process is left behind).</summary>
+    AssignFailsTerminationUnconfirmed
 }
 
 /// <summary>
@@ -40,7 +43,15 @@ internal sealed class LaunchJob : IDisposable
     internal static readonly TimeSpan TerminationBudget = TimeSpan.FromSeconds(5);
     private const int PollMilliseconds = 50;
     private const int ReadBufferBytes = 16 * 1024;
+    private const int MaximumConsecutiveEmptyReads = 64;
     private static readonly TimeSpan PipeConnectTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// Serializes the window in which this launcher's inheritable handles exist (creation through ReleaseChildEnd), so
+    /// two launches never inherit each other's pipe ends (review L3). Residual: an unrelated Process.Start elsewhere in
+    /// the same process during that window could still inherit them; the helper runs one item at a time and starts
+    /// processes only through this launcher (design §4.1).
+    /// </summary>
+    private static readonly object InheritableHandleGate = new();
 
     private readonly SafeKernelHandle job;
     private readonly SafeKernelHandle completionPort;
@@ -99,47 +110,64 @@ internal sealed class LaunchJob : IDisposable
         using CancellationTokenSource readerStop = new();
         try
         {
-            try
+            bool created;
+            bool releaseFailed = false;
+            // Review L3: every inheritable handle of this launch exists only inside the gate.
+            lock (InheritableHandleGate)
             {
-                launch = TryCreate();
-                if (launch is null) return NotStarted(cancelled: false);
-                input = OpenNullInput();
-                if (input.IsInvalid) return NotStarted(cancelled: false);
-                outputPipe = OutputPipe.Create();
-                errorPipe = OutputPipe.Create();
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
-                TimeoutException or Win32Exception)
-            {
-                // Nothing has been created that could run.
-                return NotStarted(cancelled: false);
-            }
+                try
+                {
+                    launch = TryCreate();
+                    if (launch is null) return NotStarted(cancelled: false);
+                    input = OpenNullInput();
+                    if (input.IsInvalid) return NotStarted(cancelled: false);
+                    outputPipe = OutputPipe.Create();
+                    errorPipe = OutputPipe.Create();
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                    TimeoutException or Win32Exception)
+                {
+                    // Nothing has been created that could run.
+                    return NotStarted(cancelled: false);
+                }
 
-            if (!TryCreateSuspended(spec, commandLine, environment, input, outputPipe, errorPipe, out process, out thread))
-                return NotStarted(cancelled: false);
-
+                created = TryCreateSuspended(spec, commandLine, environment, input, outputPipe, errorPipe, out process, out thread);
+                try
+                {
+                    // Drop every parent-side inheritable copy before leaving the gate; the child holds its own.
+                    outputPipe.ReleaseChildEnd();
+                    errorPipe.ReleaseChildEnd();
+                    input.Dispose();
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    releaseFailed = true;
+                }
+            }
+            if (!created || process is null || thread is null) return NotStarted(cancelled: false);
             // A suspended process exists from here on; it cannot have run user code until ResumeThread succeeds.
+            if (releaseFailed) return Unknown(terminationFailed: !TerminateAndConfirm(process, fault));
+
             bool resumed;
             try
             {
-                outputPipe.ReleaseChildEnd();
-                errorPipe.ReleaseChildEnd();
                 output.Start(outputPipe.Server, readerStop.Token);
                 error.Start(errorPipe.Server, readerStop.Token);
-                bool assigned = fault != LaunchJobFault.AssignFails && Win32.AssignProcessToJobObject(launch.job, process);
+                bool assigned = fault is not (LaunchJobFault.AssignFails or LaunchJobFault.AssignFailsTerminationUnconfirmed) &&
+                    Win32.AssignProcessToJobObject(launch.job, process);
                 resumed = assigned && fault != LaunchJobFault.ResumeFails &&
                     Win32.ResumeThread(thread) != Win32.ResumeThreadFailed;
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {
                 // The resume outcome is unknown, so termination cannot make this NotStarted.
-                return Unknown(terminationFailed: !TerminateAndConfirm(process));
+                return Unknown(terminationFailed: !TerminateAndConfirm(process, fault));
             }
 
             if (!resumed)
             {
                 // L1: a never-resumed process is NotStarted only once its termination is confirmed.
-                return TerminateAndConfirm(process) ? NotStarted(cancelled: false) : Unknown(terminationFailed: true);
+                return TerminateAndConfirm(process, fault) ? NotStarted(cancelled: false) : Unknown(terminationFailed: true);
             }
             return launch.Supervise(process, output, error, budget, deadline, clock, fault, cancellationToken);
         }
@@ -192,6 +220,8 @@ internal sealed class LaunchJob : IDisposable
                 if (cancellationToken.IsCancellationRequested) { cancelled = true; break; }
                 if (output.AtEndOfFile && error.AtEndOfFile && ActiveProcessesAreZero())
                 {
+                    // An over-budget final chunk can be dropped between the check above and end of file (review M2).
+                    if (budget.Exceeded) { overflow = true; break; }
                     return new(NativeInvocation.Started, exitCode, DirectExitObserved: true, OwnedIoCompleted: true,
                         PipeEofObserved: true, TerminationFailed: false, AggregateSettled: true, Cancelled: false,
                         TimedOut: false, OutputLimitExceeded: false, LingeringTerminated: false, output.Snapshot(),
@@ -216,7 +246,7 @@ internal sealed class LaunchJob : IDisposable
         bool settled = zero && exitCode.HasValue && endOfFile;
         return new(NativeInvocation.Started, exitCode, DirectExitObserved: exitCode.HasValue,
             OwnedIoCompleted: output.Completed && error.Completed, PipeEofObserved: endOfFile, TerminationFailed: !zero,
-            AggregateSettled: settled, cancelled, timedOut, overflow, LingeringTerminated: windowExpired && settled,
+            AggregateSettled: settled, cancelled, timedOut, overflow || budget.Exceeded, LingeringTerminated: windowExpired && settled,
             output.Snapshot(), error.Snapshot());
     }
 
@@ -252,10 +282,11 @@ internal sealed class LaunchJob : IDisposable
     private static int? TryReadExitCode(SafeProcessHandle process) =>
         Win32.GetExitCodeProcess(process, out uint exitCode) ? unchecked((int)exitCode) : null;
 
-    private static bool TerminateAndConfirm(SafeProcessHandle process)
+    private static bool TerminateAndConfirm(SafeProcessHandle process, LaunchJobFault fault)
     {
         _ = Win32.TerminateProcess(process, TerminationExitCode);
-        return Win32.WaitForSingleObject(process, (uint)TerminationBudget.TotalMilliseconds) == Win32.WaitObject0;
+        bool confirmed = Win32.WaitForSingleObject(process, (uint)TerminationBudget.TotalMilliseconds) == Win32.WaitObject0;
+        return confirmed && fault != LaunchJobFault.AssignFailsTerminationUnconfirmed;
     }
 
     private static LaunchJob? TryCreate()
@@ -498,9 +529,16 @@ internal sealed class LaunchJob : IDisposable
             char[] characters = new char[ReadBufferBytes + 8];
             try
             {
+                int consecutiveEmpty = 0;
                 while (true)
                 {
                     int read = await source.ReadAsync(bytes, cancellationToken).ConfigureAwait(false);
+                    // Review L1: a zero-length write by the child also completes a pipe read with 0 bytes. Only a broken
+                    // (disconnected) pipe is end of file. The bounded count guards against a stream that never reports the
+                    // break, so the reader cannot spin.
+                    if (read == 0 && source is PipeStream { IsConnected: true } && ++consecutiveEmpty < MaximumConsecutiveEmptyReads)
+                        continue;
+                    if (read != 0) consecutiveEmpty = 0;
                     int decoded = decoder.GetChars(bytes, 0, read, characters, 0, flush: read == 0);
                     Append(characters, decoded);
                     if (read == 0) return true;
