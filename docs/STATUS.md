@@ -13,7 +13,25 @@
   - high-contrast and theme changes refresh the page;
   - scroll restore runs after layout;
   - title-bar caption colours follow the theme, and XButton1 goes back.
-- Phase 2 (Updates grouping and the job stepper) is in progress.
+- **Phase 2 (`c9617c6..bccfbbc`, fixes `76ed54c..a34691b`): Updates grouping and the job stepper.**
+  - Updates: Ready (exactly VerifiedUpdate, nothing preselected), Needs review (the reason in words, no update control) and Ignored/skipped; Patch/Minor/Major badges.
+  - The job: Review (a structured sheet; Cancel default; shield only when admin is needed), Update (non-modal, no cancel), Verify (honest outcomes, Delete downloaded files).
+  - Unchanged: the review → confirm → execute ordering. Pin moved from the old outcome dialog to the sheet.
+  - Outcome display:
+    - Verified comes only from Success, and Restart required only from RestartRequired;
+    - Installed, not verified covers inconclusive, failed verification, timed out, and verification required with provider-completed evidence;
+    - Result not verified means no evidence;
+    - then Failed and Not started (a refused UAC prompt returns to Review).
+  - Omitted: Skip this version (no domain operation), and update-all (the workflow reviews one app per job).
+  - **Independent review: PASS with fixes** (no Blocker). Fixed:
+    - the review button stuck after Cancel;
+    - a missing guard while a review is being prepared;
+    - TimedOut shown as Failed;
+    - an unevidenced "Installed" headline;
+    - focus, selection-persistence and auto-navigation details;
+    - the confirmation expander now starts open.
+  - **Windows CI on `a34691b` is green** (architecture 105, integration 984, Security 1148).
+- Phase 3 (Home, Installed apps, Activity and Decisions) is in progress.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
