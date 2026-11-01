@@ -217,7 +217,9 @@ public sealed class HelperEndpointBoundaryTests
             (NativePort, "BeginItemWithVerdict", [NativePort + ".BeginItem"]),
             (Native + "RequesterToken", "TryForVerifiedPeer", [NativePeer + ".TryAcquireRequesterToken"]),
             (Native + "PeerProcess", "TryOpen", [NativePeer + ".TryOpen"]),
-            (Native + "ChocolateyProfileObserver", "Observe", [NativeItem + ".ProductionObserve"]),
+            // N5 (design rev 6 §7): the Desktop-role producers observe only through their single production observation.
+            (Native + "ChocolateyProfileObserver", "Observe", [NativeItem + ".ProductionObserve", Native + "ChocolateyDesktopObservation.ProductionObserve"]),
+            (Native + "RequesterToken", "TryFromCurrentProcess", [Native + "ChocolateyDesktopObservation.ProductionObserve"]),
         ];
         foreach ((string type, string member, _) in pinned)
             Assert.IsTrue(defined.Contains((type, member)), $"{type}.{member} is not defined; update the pin list");
