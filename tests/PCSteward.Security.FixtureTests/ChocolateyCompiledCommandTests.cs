@@ -221,7 +221,10 @@ public sealed class ChocolateyHeldFilesTests
             Assert.IsTrue(files.CodeReleased);
             Assert.IsTrue(hook.Handle.IsClosed);
             Assert.IsFalse(engine.Handle.IsClosed || helper.Handle.IsClosed, "the engine and release tree stay held");
-            Assert.ThrowsExactly<InvalidOperationException>(() => files.AddCode(Held(directory, @"extensions\b.psm1")));
+            // The refused file is never taken by the holder, so the test closes its own handle (else the temp tree stays in use).
+            ChocolateyHeldFile late = Held(directory, @"extensions\b.psm1");
+            Assert.ThrowsExactly<InvalidOperationException>(() => files.AddCode(late));
+            late.Handle.Dispose();
             files.Dispose();
             Assert.IsTrue(engine.Handle.IsClosed && helper.Handle.IsClosed && files.IsDisposed);
         }
