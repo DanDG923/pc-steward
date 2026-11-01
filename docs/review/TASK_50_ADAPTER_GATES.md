@@ -1,10 +1,27 @@
-# Task 50 — protocol-2 adapter gates: manifest capability seam (L-4) and helper-check history (§4.2)
+# Task 50 — protocol-2 adapter gates: manifest capability seam (L-4) and helper-check history (§4.2), revision 2
 
 Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `AC-UPD-01–11`, `TM-03/04/07/13`; retained `FR-UPD-08/09/14`, `TM-06`.
 
-Status: **draft for independent review.** It discharges two of the four N5 items in [protocol-2 fact extension rev 3](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) §10. It also covers O2 / review-9 L3 (the `EvidenceId` format). It adds no code and grants no route admission, deployment, redeploy, host read, UAC or update authority. `ReviewedUpdateReview.HasSupportedMode` still admits only `WinGetUserExactV3`.
+Status: **revision 2, for re-review.** Revision 1 (`c95fc34`, SHA-256 `4f8373fd…e312`) was CONDITIONAL on both parts: Part A had 2 Medium and 3 Low findings, Part B had 1 Medium and 3 Low, and neither had a Blocker or High. This revision discharges two of the four N5 items in [protocol-2 fact extension rev 3](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) §10. It also covers O2 / review-9 L3 (the `EvidenceId` format). It adds no code and grants no route admission, deployment, redeploy, host read, UAC or update authority. `ReviewedUpdateReview.HasSupportedMode` still admits only `WinGetUserExactV3`.
 
 Sources read: AGENTS.md; fact extension rev 3 (all sections); dispatch composition and its Task 90 remediation; ADR-025 (protocol boundary and the ADR-022 row of the amendment map); ADR-022 including the Task 48 pinned-payload amendment; handover §3–§4; Profile V2; V2 task contract (validation and migration rule). Code read at `aad760e`: `ReviewedUpdateDispatchWorkflow.cs`, `UpdateDispatchAdmission.cs`, `ReviewedUpdateHistory.cs`, `SqliteReviewedUpdateHistory.cs`, `SqliteUpdateDispatches.cs`, `SqliteReviewedOperations.cs`, `ReviewedUpdateOperation.cs`, `ReviewedUpdateProtocol2Interpreter.cs`, `ReviewedUpdateWireCodec.cs`, `WindowsElevatedHelperTransport.cs` (`InstalledHelperLaunchTrust`, `ProtectedLaunchLayout`), `ChocolateyVersionGrammar.cs`, `ChocolateyNativeVersion.cs`, `scripts/Install-`/`Test-OwnerOnlyProtectedTestDeployment.ps1`, `scripts/OwnerOnlyPayloadIntegrity.ps1`, and the architecture tests.
+
+## 0. Changes from revision 1
+
+| Finding | Edit |
+|---|---|
+| A-M1 — peer path check adds nothing | §A.4 step 3.4. `VerifyPeer` already compares the peer image path string (`WindowsElevatedHelperTransport.cs:851`). The new check compares **file identity** instead: the volume serial number plus the 128-bit file ID, read with `GetFileInformationByHandleEx(FileIdInfo)`, for the peer's main-module image against the held `HeldHelperBinding` helper handle. Windows behaviour of a `FileShare.Read` handle during image mapping is marked **Windows evidence required**. The ACL plus re-hash fallback is kept (A-Q1). |
+| A-M2 — hold lifetime | §A.4 step 3.5. The binding, including lazily loaded closure files such as `Provider.Chocolatey.dll`, is held through helper exit **and** transport seal, not only until peer verification. |
+| A-L1 — redeploy script and v1 host | §A.3 adds `Invoke-OwnerOnlyApprovedRedeployment.ps1` to the script table and the hard-coded `pinned-unsigned-v1` pin in `Install-…ps1`. New §A.3.1 states the consequence: the current host is `pinned-unsigned-v1`, and the existing exact plan cannot deploy v2. Protocol-2 therefore stays `Absent` until a separately approved new exact redeploy plan exists. |
+| A-L2 — rollback fixtures | §A.7 adds two fixtures. The old `Test-` script on a v2 ledger throws "Unrecognised pinned-payload provenance" (fail closed). An old desktop, which has no seam, is unaffected by a v2 ledger. |
+| A-L3 — helper-side check | §A.4 step 4 is now recorded in §A.10 as integrating obligation **G1**, which extends rev 3 §3.1 stage A. It is not a silent change to rev 3. |
+| A-Q2 / A-Q3 / A-Q5 resolved | Runtime files stay out of the binding set: the ACL plus the ADR-022 validator suffice. `Supports` stays synchronous; the Desktop must call `RunAsync` off the UI thread (G3). Bounds are tightened to 32 MiB per file and 64 MiB per set. An ADR-022 alignment note is required, and the owner accepts its wording (G2). |
+| B-M1 — grammar injection | §B.2 and §B.7. Production must inject `IReviewedHelperVersionGrammar`; otherwise every v3 row reads as an integrity failure. A composition test requires Desktop's `SqliteDatabase` to be built with the grammar. The constructor without a grammar is test-only. B-Q1 is resolved: one injected grammar. |
+| B-L1 — no operation | §B.5. `HelperCheck != NotObserved` with a null or unrestored operation makes the row unreadable. |
+| B-L2 — store rollback | §B.7 adds a fixture: an older build's `GetDispatchStateAsync` and `RecoverUnfinishedDispatchesAsync` check only the digest, so they still succeed on a database with v3 rows. Barriers and reconciliation survive rollback. |
+| B-L3 — truncation, `TryRestore`, wording tests | §B.2: "helper-check-not-recorded" is appended **before** the 4,000-character truncation. §B.7: an architecture assertion that `RecordedHelperCandidateCheck.TryRestore(` is referenced only in `ReviewedUpdateHistory.cs`, and wording tests match whole words. B-Q2 is resolved (Unconfirmed stays `null`) and B-Q3 is resolved (texts accepted). |
+| Reviewer recommendation — fresh `EvidenceId` | New §A.6.1: a route-specific rule. For `ChocolateyMachineRuntimeLimitsV3`, the fresh dispatch evidence must carry the same profile digest as the frozen `EvidenceId`, checked before the claim and failing closed. Other routes keep their own fresh `EvidenceId` (for example `fresh:1`), and equality is **not** required globally. |
+| Authority | ADR-025's accepted ADR-022 row covers the design, so no new owner decision is needed. The implementation task must present the ADR-022 alignment-note wording for owner acceptance (G2). Any v2 redeploy needs separate exact approval. |
 
 ---
 
@@ -33,11 +50,12 @@ This is a **compatibility and consistency gate**, not a new security boundary ag
 | `DeploymentCapabilityPolicy.Evaluate(DeploymentCapabilityInputs inputs, UpdateRouteContract route)` | Execution | internal static, **pure** | All parsing and comparison over bytes and hashes already read. Testable on Linux. The helper reuses it (A.4 step 4). |
 | `DeploymentCapabilityInputs` | Execution | internal sealed record | Fields: `LedgerBytes`, `CandidateManifestBytes`, `CapabilityBytes`, `CurrentUserSid`, `ExpectedInstallRoot`, and `ObservedHashes` (read-only map: fixed leaf → `(bytes, SHA-256)`). |
 | `IHelperProtocolCapability` | Execution | internal interface | `HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route);` and `HelperProtocolCapabilityResult TryHold(UpdateRouteContract route, out HeldHelperBinding? binding);`. The protocol version is **not** a parameter, so a caller cannot choose it. |
-| `HeldHelperBinding : IDisposable` | Execution | internal sealed | Share-read handles on the binding set, opened with `FileShare.Read` only (no write and no delete share), plus the verified hashes. Used only by the protocol-2 transport (A.4 step 3). |
+| `HeldHelperBinding : IDisposable` | Execution | internal sealed | Share-read handles on the binding set, opened with `FileShare.Read` only (no write and no delete share), plus the verified hashes and the helper `.exe`'s `FileIdInfo` (volume serial number and 128-bit file ID). Used only by the protocol-2 transport (A.4 step 3). Disposed only after helper exit and transport seal. |
 | `OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapability` | Execution | internal sealed | Windows producer. Uses fixed paths derived only from `SpecialFolder.ProgramFiles` and `Environment.ProcessPath`. Reuses `InstalledHelperLaunchTrust.ResolveFixedPaths` and the `ProtectedLaunchLayout` no-reparse and caller-cannot-modify primitives. |
 | `ChocolateyRuntimeLimitsRouteDispatcher : IReviewedUpdateRouteDispatcher` (future adapter) | Execution | internal | `Supports(op) = TryGetProfileDigest(op, out _) && capability.Evaluate(op.RouteContract).Status == Supported`, wrapped so that **any** exception returns `false`. |
 | `IReviewedUpdateRouteDispatcher.Supports` doc | Application | — | Doc text becomes: "compiled route check plus, for helper routes, the adapter's protected deployment-capability seam; never eligibility evidence; must not throw". Application never sees a capability type. |
-| `ReviewedUpdateDispatchWorkflow.RunAsync` | Application | — | Small robustness change: the pre-claim `Supports` goes through the same `StillSupported`-style catch. An exception means NotStarted with no claim. |
+| `ReviewedUpdateDispatchWorkflow.RunAsync` | Application | — | Small robustness change: the pre-claim `Supports` goes through the same `StillSupported`-style catch. An exception means NotStarted with no claim. The doc comment states that callers must invoke `RunAsync` off the UI thread, because `Supports` performs bounded synchronous I/O (G3). |
+| `FreshUpdateDispatchEvidence.Matches` | Application | — | Adds the route-specific profile-digest equality (A.6.1). |
 | `ReviewedUpdateOperation` (O2) | Domain | — | See A.6. |
 
 Architecture tests (`tests/PCSteward.ArchitectureTests`):
@@ -67,10 +85,15 @@ Rules:
 | Script | Change |
 |---|---|
 | `OwnerOnlyPayloadIntegrity.ps1` `Read-OwnerOnlyCandidateManifest` | A manifest that contains `PCSteward.DeploymentCapability.txt` is a v2 payload. Validate its exact bytes. |
-| `Install-OwnerOnlyProtectedTestDeployment.ps1` | Write `payloadOrigin = 'pinned-unsigned-v2'` iff the capability file is in the pinned manifest. Otherwise keep `pinned-unsigned-v1`. Ledger schema stays v6, so the removal script is unchanged. |
+| `Install-OwnerOnlyProtectedTestDeployment.ps1` | Write `payloadOrigin = 'pinned-unsigned-v2'` iff the capability file is in the pinned manifest. Otherwise keep `pinned-unsigned-v1`. The post-install check at line 179, which hard-pins `pinned-unsigned-v1`, becomes "the origin implied by the pinned manifest". Ledger schema stays v6, so the removal script is unchanged. |
+| `Invoke-OwnerOnlyApprovedRedeployment.ps1` | The postcondition at line 74 hard-pins `payloadOrigin -cne 'pinned-unsigned-v1'`. A v2 redeploy needs a **new embedded exact plan** that names the expected origin. The existing plan is left unchanged, so it can still deploy only v1. |
 | `Assert-OwnerOnlyPayloadProvenance` / `Test-OwnerOnlyProtectedTestDeployment.ps1` | Recognise `pinned-unsigned-v2`, which requires a valid capability file. Report `helperProtocol` in the output. |
 
 Existing v6, `legacy-v6` and `pinned-unsigned-v1` deployments gain nothing: no capability means `Absent`.
+
+### A.3.1 Consequence for the current host
+
+The owner's host is `pinned-unsigned-v1`, and the existing exact plan cannot produce v2. **Protocol-2 is therefore `Absent` on that host until a separately approved new exact redeploy plan has run.** This design grants no redeploy, signing or certificate authority.
 
 **Binding set.** A compiled closed list of fixed leaves, each of which must appear exactly once in `ledger.files` with a matching hash:
 - `PCSteward.Desktop.exe` (it must equal `Environment.ProcessPath`);
@@ -78,7 +101,7 @@ Existing v6, `legacy-v6` and `pinned-unsigned-v1` deployments gain nothing: no c
 - `PCSteward.Execution.dll`, `PCSteward.Application.dll`, `PCSteward.Domain.dll`, `PCSteward.Provider.Chocolatey.dll` and `PCSteward.Provider.WinGet.dll`;
 - `PCSteward.DeploymentCapability.txt`.
 
-A build test asserts that the list equals the project-assembly closure in the published helper `deps.json`. Size bounds: each file ≤ 64 MiB and the whole set ≤ 128 MiB, otherwise `Unreadable`.
+A build test asserts that the list equals the project-assembly closure in the published helper `deps.json`. Runtime files (`hostfxr`, `coreclr` and so on, if the payload is ever self-contained) are **not** in the binding set; the protected ACL and the ADR-022 validator cover them. Size bounds: each file ≤ 32 MiB and the whole set ≤ 64 MiB, otherwise `Unreadable`.
 
 ## A.4 What the seam reads, and evaluation order
 
@@ -100,12 +123,19 @@ A build test asserts that the list equals the project-assembly closure in the pu
 1. Call `TryHold(route, out binding)`. This repeats steps 2–6 and keeps the share-read handles open.
 2. Run the existing `validatePreLaunchTrust`.
 3. Call `Process.Start(runas)`.
-4. After connecting, run `VerifyPeer`. It now also requires the peer image path to be the held helper path.
-5. Dispose the binding only after peer verification succeeds, or after the helper exits.
+4. After connecting, run `VerifyPeer` (path, session, SID and signer, as today), then the new **file-identity check**:
+   - open the peer's main-module image from its process path with no write or delete share;
+   - read `FileIdInfo` (`VolumeSerialNumber` plus the 128-bit `FileId`) with `GetFileInformationByHandleEx`;
+   - require it to equal the `FileIdInfo` of the held helper handle.
+
+   A mismatch, or a failure to read either identity, is treated like a `VerifyPeer` failure: the request is not written, giving `HelperStartedRequestNotWritten` (NotStarted only with H, otherwise Uncertain). The scripts already hold-then-check a path (`AssertHeldPath`, which compares the final path); this check compares the stronger file ID.
+5. Keep the binding held, including closure files the helper loads lazily such as `Provider.Chocolatey.dll`, **until the helper exit has been observed and the transport is sealed**. On the no-exit or termination-failure path, keep it until teardown completes. Disposing it earlier would reopen a replacement window for lazily loaded files.
+
+**Windows evidence required (A-Q1):** whether the image loader can map a file while another process holds a `FileShare.Read`-only handle to it (`FILE_EXECUTE` is expected to fall under read sharing), and whether the file ID of the peer's main module is stable as read. If either fails, the fallback is ACL plus `VerifyPeer`, plus re-hashing the binding set and running the file-identity check after peer verification and before writing the request.
 
 A `TryHold` failure is `ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation`. The interpreter turns it into `NotStarted(Failed)`, a NotInvoked settlement, and the history text "Not updated: nothing was started." There is no UAC prompt.
 
-**Step 4 — helper side (proposed for confirmation; ADR-025 requires "both endpoints prove matching capability").** In stage A, after correlation, the helper runs `DeploymentCapabilityPolicy.Evaluate` over the same protected files using its own reads. It also checks its own image and the peer desktop image hashes against the ledger. A failure is `Refused/RequestNotAdmitted`, with fields 16–18 null. That is settled, NotInvoked, and recorded as `Refused`. The helper bootstrap accepts only `--protocol ProtocolVersion`, so there is no protocol-1 fallback.
+**Step 4 — helper side (integrating obligation G1, A.10; ADR-025 requires "both endpoints prove matching capability").** In stage A, after correlation, the helper runs `DeploymentCapabilityPolicy.Evaluate` over the same protected files using its own reads. It also checks its own image and the peer desktop image hashes against the ledger. A failure is `Refused/RequestNotAdmitted`, with fields 16–18 null. That is settled, NotInvoked, and recorded as `Refused`. The helper bootstrap accepts only `--protocol ProtocolVersion`, so there is no protocol-1 fallback.
 
 ## A.5 Trust boundaries and failure semantics
 
@@ -130,7 +160,31 @@ A `TryHold` failure is `ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevat
 
 There is no format or digest change: `EvidenceId` is already a canonical field. There is no migration and no schema bump.
 
-Back-compatibility for stored rows. Production cannot hold a runtime-limit schema-3 row, because the route is not admitted and review confirmation refuses Chocolatey. A non-conforming row could exist only through forgery or a test fixture:
+### A.6.1 Fresh dispatch evidence for this route (reviewer recommendation)
+
+`FreshUpdateDispatchEvidence.Matches` (`UpdateDispatchAdmission.cs:38`) does not compare `EvidenceId`. That is intended for the other routes, whose fresh evidence carries its own new identity (for example `fresh:1`), and it stays unchanged for them.
+
+For `op.RouteContract == ChocolateyMachineRuntimeLimitsV3`, `Matches` additionally requires:
+- `fresh.EvidenceId` has the exact profile form `choco-profile-v2:` + 64 uppercase hex. This uses the Domain helper from A.6.
+- Its digest equals `F` from `op.EvidenceId`, compared in fixed time.
+
+**Representation.** No new field: the fresh evidence's existing `EvidenceId` carries `"choco-profile-v2:" + F′`.
+- `F′` is `ChocolateyCommonProfileFingerprint.Compute` over the desktop's **fresh** non-elevated observation at dispatch preparation, using the same L3 normal form and the authenticated requester SID.
+- `EvidenceId` is already in the evidence's canonical bytes (`pc-steward-dispatch-evidence:2`) and in the `fresh_evidence` blob, so there is no format or schema change.
+- The 81-character value satisfies `FreshUpdateDispatchEvidence.Identity` (≤ 256 characters, `:` and `-` allowed).
+
+**Producer rule.** The route's `IReviewedUpdateDispatchEvidenceSource` computes `F′` from fresh observation. It must never copy `op.EvidenceId`. An architecture test checks that the evidence-source file does not read the operation's `EvidenceId`. If `F′` cannot be computed, the source returns `null`.
+
+**Effect.** A mismatch or missing digest makes `Matches` false:
+- at `ClaimAsync`, before the claim → `NotStarted` ("Fresh update evidence … no longer matches"), with no claim;
+- at the store `TryClaimAsync` → no row;
+- at `TryConsume` → `Cancelled`/NotInvoked.
+
+It never qualifies anything: the helper still compares its own fingerprint with `F` (P1/P3/P4).
+
+### A.6.2 Back-compatibility for stored rows
+
+Production cannot hold a runtime-limit schema-3 row, because the route is not admitted and review confirmation refuses Chocolatey. A non-conforming row could exist only through forgery or a test fixture:
 
 | Stored location | Behaviour after the change (existing code paths) |
 |---|---|
@@ -150,6 +204,9 @@ Back-compatibility for stored rows. Production cannot hold a runtime-limit schem
 | Phases | Capability valid before the claim, then removed → `Cancelled`/NotInvoked, dispatcher not called. Valid through `StillSupported`, then the helper is replaced → `LaunchRefusedBeforeElevation` → `Failed`/NotInvoked, and `launchHelper` is never invoked. A seam that throws before the claim → `NotStarted` with no claim (new workflow catch). Two `Supports` calls → two full reads (no cache). |
 | Helper side | A ledger mismatch observed by the helper → `Refused/RequestNotAdmitted` with null fields → settled `Refused`. Bootstrap `--protocol 1` → no response. |
 | Stored O2 rows | Each A.6 row has its stated behaviour, and `HasUnresolvedDispatchesAsync` agrees with history `BlocksOtherUpdates`. |
+| Peer identity | The peer image path is equal but the `FileIdInfo` differs (a replaced or hard-linked file) → request not written. `FileIdInfo` cannot be read → request not written. The binding is still held after peer verification and is released only after helper exit and seal. A lazily loaded closure file cannot be replaced while the binding is held (Windows evidence). |
+| Fresh evidence (A.6.1) | Runtime-limit route with fresh `EvidenceId` `fresh:1`, a lowercase digest, 63 or 65 digits, or a different `F′` → `Matches` false → NotStarted with no claim. A mismatch introduced between claim and `TryConsume` → `Cancelled`/NotInvoked. A WinGet route with `fresh:1` is still accepted (no global equality). The evidence source never copies `op.EvidenceId` (architecture test). |
+| Rollback | The old `Test-OwnerOnlyProtectedTestDeployment.ps1` (v1-only `Assert-OwnerOnlyPayloadProvenance`) on a v2 ledger throws "Unrecognised pinned-payload provenance", so it fails closed. The old `Invoke-…Redeployment.ps1` postcondition rejects a v2 result. An old desktop build (no seam) with a v2 ledger is unaffected, because it never reads the ledger. |
 | Regression | Protocol-1 transport tests are unchanged. The capability file's bytes equal the bytes generated from the compiled constants. The binding set equals the helper `deps.json` closure. Script fixtures: v1 manifest → `pinned-unsigned-v1`; v2 manifest → `pinned-unsigned-v2`; a malformed v2 capability makes the install fail before signing. |
 
 ## A.8 Non-goals
@@ -160,11 +217,16 @@ Route admission (`HasSupportedMode`); the protocol-2 transport itself; any redep
 
 | # | Question | Who |
 |---|---|---|
-| A-Q1 | Can a `FileShare.Read`-only handle on the helper code files be held across `ShellExecute runas` without breaking the image loader? This needs native evidence. If the answer is no, the fallback is ACL plus `VerifyPeer`, plus re-hashing the binding set immediately after peer verification and before writing the request. | Reviewer and native evidence |
-| A-Q2 | If the payload becomes self-contained, must the runtime files (`hostfxr`, `coreclr` and so on) join the binding set, or do the ACL and the ADR-022 validator suffice? | Reviewer |
-| A-Q3 | `Supports` stays a synchronous `bool` with bounded I/O of about 10 files and at most 128 MiB. The alternatives are an async `SupportsAsync` or requiring desktop callers to invoke `RunAsync` off the UI thread. | Reviewer |
-| A-Q4 | Confirm helper-side step 4 (stage-A `RequestNotAdmitted`) as consistent with rev 3 §3.1, or defer it as a separate obligation. | Reviewer |
-| A-Q5 | Is a short ADR-022 note needed for `payloadOrigin = pinned-unsigned-v2`? It sits inside ADR-025's accepted ADR-022 row, and no host action follows. | Reviewer, then owner only if the reviewer says an ADR change is needed |
+| A-Q1 | Whether a `FileShare.Read`-only hold on the binding set survives `ShellExecute runas` and the image loader, and whether the peer main-module file ID is stable. The fallback is stated in A.4 step 3. | **Windows evidence** |
+| A-Q2, A-Q3, A-Q4, A-Q5 | Resolved in revision 2; see §0 and G1–G3. | — |
+
+## A.10 Integrating obligations (binding on the adapter slice, like rev 3 N5)
+
+| # | Obligation |
+|---|---|
+| G1 | **Extension of rev 3 §3.1 stage A.** After correlation, the helper evaluates `DeploymentCapabilityPolicy` over its own protected reads and checks its own image hash and the peer desktop image hash against the ledger. A failure gives `Refused/RequestNotAdmitted` with fields 16–18 null (S6 holds). The integrating record must annotate rev 3 §3.1, without rewriting the pinned artifact, and the §8 tests gain this case. |
+| G2 | **ADR-022 alignment note.** The implementation task adds a short note recording `payloadOrigin = pinned-unsigned-v2` and the pinned capability file as the ADR-025 ADR-022-row manifest fact. Its **wording is presented for owner acceptance.** It grants no redeploy authority. A v2 redeploy requires a separately approved new exact plan (A.3.1). |
+| G3 | **Desktop threading.** Desktop callers invoke `ReviewedUpdateDispatchWorkflow.RunAsync` off the UI thread, because `Supports` and `StillSupported` perform bounded synchronous I/O (at most 64 MiB). Covered by a Desktop architecture or UI-contract test. |
 
 ---
 
@@ -198,12 +260,12 @@ The value never changes `Status`, settlement or outcome, and it is never authori
 | `ReviewedUpdateTerminalRecord` | Application | Gains `RecordedHelperCandidateCheck HelperCheck`. `TryParse(reserved, IReviewedHelperVersionGrammar? grammar, out record)`. |
 | `ReviewedUpdateDispatchResult(..., RecordedHelperCandidateCheck? HelperCheck = null)` | Application | Set only to the value actually persisted, so live text equals history. |
 | `ReviewedUpdateHistoryView(..., string? HelperReport)` | Application | A separate field, never concatenated into `Status`. |
-| `SqliteDatabase(string path, IReviewedHelperVersionGrammar? helperVersionGrammar)` | Persistence.Sqlite | New overload. Without a grammar, **every v3 terminal is unreadable** (fail closed). The existing constructor is unchanged. |
+| `SqliteDatabase(string path, IReviewedHelperVersionGrammar helperVersionGrammar)` | Persistence.Sqlite | New overload; the grammar must be non-null. **Production must use this overload.** Without a grammar, every v3 terminal reads as an integrity failure (fail closed). The existing constructor without a grammar is kept **for tests and non-history callers only**. A composition test requires that the Desktop composition root building the history `SqliteDatabase` passes `ChocolateyHelperVersionGrammar`. |
 
 Workflow flow: `FinalizeAsync` gains a `RecordedHelperCandidateCheck` argument.
 - The Uncertain, NotInvoked and settled-classification paths pass `observation.HelperCheck ?? NotObserved`.
 - The orphan-claim path, the `TryConsume`/`StillSupported` paths and the dispatcher-exception path pass `NotObserved`.
-- Before building the terminal, the workflow calls `IsConsistentWith`. If the check is inconsistent, it records `NotObserved` and appends the fixed diagnostic "helper-check-not-recorded". It **never** fails the write over the check, because a failed write would turn the outcome into Uncertain and so change the outcome.
+- Before building the terminal, the workflow calls `IsConsistentWith`. If the check is inconsistent, it records `NotObserved` and adds the fixed diagnostic "helper-check-not-recorded" to the message **before** the 4,000-character `Truncate`, as a prefix, so truncation can never drop it. It **never** fails the write over the check, because a failed write would turn the outcome into Uncertain and so change the outcome.
 - `IUpdateDispatchStore.RecordFinalAsync` keeps its signature. The store re-checks `terminal.HelperCheck.IsConsistentWith(claim.Draft.Operation, …)` and throws on a violation, as defence in depth.
 
 ## B.3 Storage choice: terminal header version 3 in the existing reserved slot
@@ -257,6 +319,7 @@ ASCII header lines, each ending in LF, each ≤ 256 B, bytes 0x20–0x7E only. T
 **Version rule.** Each version has 1–128 characters from `[0-9A-Za-z.-]` and starts with a digit; this is the structural form, a superset of `ChocolateyNativeVersion.Normalized`. On read it **also** requires `grammar.IsNormalized(v)`.
 
 **Operation-bound rules (against the restored frozen operation)**
+- O-none: `Kind != NotObserved` with a null, unrestored or integrity-failed operation ⇒ unreadable.
 - O-route: `Kind != NotObserved` ⇒ `op.HasCurrentSchema && op.RouteContract == ChocolateyMachineRuntimeLimitsV3`.
 - P1: `Confirmed` ⇒ installed and candidate equal the frozen versions (ordinal comparison).
 - P2: `InstalledMismatch` ⇒ installed is null or differs from frozen.
@@ -311,14 +374,15 @@ Presentation rules:
 
 | Group | Case → expected |
 |---|---|
-| Fixtures (V2 contract) | **Old:** a v2 row read by the new reader gives NotObserved and identical text. **New:** every allowed (kind, outcome, settlement) round-trips byte-exactly, and the maximal frame (509 B header + 12,288 B diagnostic) round-trips. **Missing:** a v3 header with 7 lines, or a v2 header with 11 lines, is unreadable. **Corrupt:** single-byte tampering, with and without a recomputed digest, is unreadable. **Partial:** a missing length line, a header without its final LF, or non-zero padding is unreadable. **Rollback:** a frozen copy of the v2 parser returns `false` on v3 without throwing; on an older build a Final v3 row is non-blocking and an Uncertain v3 row blocks. |
+| Fixtures (V2 contract) | **Old:** a v2 row read by the new reader gives NotObserved and identical text. **New:** every allowed (kind, outcome, settlement) round-trips byte-exactly, and the maximal frame (509 B header + 12,288 B diagnostic) round-trips. **Missing:** a v3 header with 7 lines, or a v2 header with 11 lines, is unreadable. **Corrupt:** single-byte tampering, with and without a recomputed digest, is unreadable. **Partial:** a missing length line, a header without its final LF, or non-zero padding is unreadable. **Rollback:** a frozen copy of the v2 parser returns `false` on v3 without throwing; on an older build a Final v3 row is non-blocking and an Uncertain v3 row blocks. **Store rollback:** on a database containing v3 Final, v3 Uncertain and DispatchClaimed rows, the older build's `GetDispatchStateAsync` and `RecoverUnfinishedDispatchesAsync`, which check only the terminal digest, still succeed. Barriers, `HasUnresolvedDispatchesAsync` and reconciliation behave as before. |
 | Enumerations | Wrong case, numeric `1`, an unknown kind or reason, a reason ≠ None with Confirmed or Unconfirmed, `None` with Refused, `NotObserved` in v3 → unreadable. |
-| Versions | Empty, `None `, `none`, 129 characters, `1.0+meta`, `01.0`, `1.0`, `1.0.0.0`, `1.0.0-`, non-ASCII → unreadable. A differential test runs the codec and the history reader over the shared O9 corpus. No grammar injected → all v3 terminals are unreadable. |
+| Versions | Empty, `None `, `none`, 129 characters, `1.0+meta`, `01.0`, `1.0`, `1.0.0.0`, `1.0.0-`, non-ASCII → unreadable. A differential test runs the codec and the history reader over the shared O9 corpus. No grammar injected → all v3 terminals are unreadable. **Composition:** Desktop's history `SqliteDatabase` is constructed with `ChocolateyHelperVersionGrammar`; a test fails if the no-grammar constructor is used outside tests. |
+| Operation | A v3 Confirmed or Refused row whose canonical operation fails restore or digest checks → terminal unreadable (O-none). |
 | R and P rules | Confirmed with a null version or a version ≠ frozen. `RequestNotAdmitted` with values. A candidate without an installed version. A candidate with `PreflightQueryFailed`. `ProfileMismatch` with installed null or ≠ frozen. `CandidateMismatch` with candidate = frozen. Another reason with candidate ≠ frozen. `InstalledMismatch` with installed = frozen. Each → the store throws on write and the reader marks the row unreadable. |
 | Outcome matrix | Confirmed with Refused, ElevationDenied or RestartRequired. Refused with Success, Failed, Cancelled or OwnedWorkStopped. Unconfirmed with Success, Unverified or Refused. A non-NotObserved check on a WinGet or schema-2 row. Each → the store throws and the reader marks the row unreadable. |
-| Workflow | An inconsistent check (test-only factory call) gives NotObserved plus "helper-check-not-recorded", and the outcome, settlement and message prefix are unchanged. Parameterising the same observation over every kind yields identical outcome and settlement. A diagnostic containing "matched its protected machine checks" yields NotObserved. A dispatcher exception gives NotObserved. |
-| Presentation | Exact texts. A Success row with Confirmed has a separate `HelperReport` and Status text unchanged. An integrity failure gives null. Candidate text for each provenance is independent of the helper kind (behavioural test). |
-| Architecture | `FromDesktopDerived(` has exactly one call site in `src` (the interpreter file). `ReviewedUpdateTerminalRecord` is referenced only by history files. `RecordedHelperCandidateCheck` is not referenced by `ReviewedUpdateReview*`, `UpdateDispatchAdmission` (admission and permit types), dispatch-evidence or reconciliation sources. Reflection finds no method that takes either `RecordedHelperCandidateCheck` or `ReviewedCandidateProvenance` and returns the other. The existing interpreter boundary test is unchanged. |
+| Workflow | An inconsistent check (test-only factory call) gives NotObserved plus "helper-check-not-recorded", and the outcome and settlement are unchanged. With a 20,000-character diagnostic, the marker survives the 4,000-character truncation. Parameterising the same observation over every kind yields identical outcome and settlement. A diagnostic containing "matched its protected machine checks" yields NotObserved. A dispatcher exception gives NotObserved. |
+| Presentation | Exact texts. Forbidden-word assertions match **whole words**, case-insensitive (`\b(updated|success|verified|completed)\b`), so "refused before updating" passes. A Success row with Confirmed has a separate `HelperReport` and Status text unchanged. An integrity failure gives null. Candidate text for each provenance is independent of the helper kind (behavioural test). |
+| Architecture | `FromDesktopDerived(` has exactly one call site in `src` (the interpreter file). `RecordedHelperCandidateCheck.TryRestore(` is referenced only in `ReviewedUpdateHistory.cs`. `ReviewedUpdateTerminalRecord` is referenced only by history files. `RecordedHelperCandidateCheck` is not referenced by `ReviewedUpdateReview*`, `UpdateDispatchAdmission` (admission and permit types), dispatch-evidence or reconciliation sources. Reflection finds no method that takes either `RecordedHelperCandidateCheck` or `ReviewedCandidateProvenance` and returns the other. The existing interpreter boundary test is unchanged. |
 
 ## B.8 Non-goals
 
@@ -328,11 +392,11 @@ Storing the fingerprint or the diagnostic as a fact; any change to `Status`, set
 
 | # | Question | Who |
 |---|---|---|
-| B-Q1 | Inject the grammar (chosen: one implementation, fail closed when absent), or keep an Application-local equivalent grammar checked by the differential test? O9 permits both. | Reviewer |
-| B-Q2 | Should Unconfirmed have neutral history text, or none (chosen)? | Reviewer |
-| B-Q3 | Wording of the per-reason refusal texts in B.6. | Reviewer (UX) |
+| B-Q1 | Resolved: one injected grammar (B-M1). | — |
+| B-Q2 | Resolved: Unconfirmed has `null` history text. | — |
+| B-Q3 | Resolved: the B.6 texts are accepted. | — |
 | B-Q4 | Write v2 for NotObserved (chosen: no byte change to existing paths), or always write v3? | Reviewer |
 
-Outside scope, for the reviewer's attention: `FreshUpdateDispatchEvidence.Matches` does not compare `EvidenceId` with the operation. It is noted here only so the adapter review can confirm that this is intended for the UserCacheIntent route, where the helper compares fingerprints.
+The fresh-`EvidenceId` observation from revision 1 is now the route-specific rule in A.6.1.
 
-No owner question arises in either part beyond the existing O5 contingency and the standing rule that any redeploy needs exact owner approval.
+Owner actions: accept the ADR-022 alignment-note wording (G2) during the implementation task, and give separate exact approval for any v2 redeploy. Beyond that, no owner question arises other than the existing O5 contingency.
