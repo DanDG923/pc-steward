@@ -1,6 +1,6 @@
 # Task 50 — ADR-022 alignment note (G2), proposed wording
 
-> **Proposed — requires owner acceptance; not applied to ADR-022.** This file only drafts the note that [adapter gates rev 2](TASK_50_ADAPTER_GATES.md) §A.10 G2 and §R "Authority" (a) require. ADR-022 is unchanged. Under ADR-025, effective ADRs change only through the owner's accepted amendment process. Nothing here grants redeploy, signing, certificate, host-read, UAC or update authority.
+> **Accepted on 2026-11-01 by the owner (“Approved”) and appended to ADR-022 as written.** Originally proposed for owner acceptance. This file only drafts the note that [adapter gates rev 2](TASK_50_ADAPTER_GATES.md) §A.10 G2 and §R "Authority" (a) require. ADR-022 is unchanged. Under ADR-025, effective ADRs change only through the owner's accepted amendment process. Nothing here grants redeploy, signing, certificate, host-read, UAC or update authority.
 
 Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; ADR-025's ADR-022 amendment row ("exact future payload manifest must identify supported operations/protocol").
 
@@ -8,7 +8,7 @@ Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; ADR-025's ADR-022 amen
 
 > ### Alignment note — protocol-2 capability statement (ADR-025 ADR-022 row)
 >
-> **Status: Proposed for owner acceptance.** This note records how the owner-accepted ADR-025 amendment to ADR-022 is met. It does not change the Task 48 pinned-payload amendment, which still governs installation, and it is not itself deployment approval.
+> **Status: Accepted on 2026-11-01 by owner: “Approved”.** This note records how the owner-accepted ADR-025 amendment to ADR-022 is met. It does not change the Task 48 pinned-payload amendment, which still governs installation, and it is not itself deployment approval.
 >
 > 1. **Manifest fact.** A future payload identifies its helper protocol and supported operations with one pinned file, `PCSteward.DeploymentCapability.txt`, at the payload root. It contains exactly `pc-steward-deployment-capability:1`, `helper-protocol:2`, and one to eight allowlisted `operation:` lines (today only `operation:Update/ChocolateyMachineRuntimeLimitsV3`): printable ASCII with LF line endings and at most 1,024 bytes. A unit test generates the file from the compiled protocol value and route allowlist. Its SHA-256 appears in the owner-approved candidate manifest, so the approved manifest hash pins it.
 > 2. **Ledger provenance.** When the pinned manifest contains that file, the installer records `payloadOrigin = "pinned-unsigned-v2"`; otherwise it keeps `pinned-unsigned-v1`. The ledger schema stays `pc-steward-owner-only-protected-test-v6`, and its key sets per writer are unchanged, so removal and recovery are unchanged. The independent validator recognises `pinned-unsigned-v2` only together with a valid capability file, and it reports `helperProtocol`.
@@ -41,3 +41,5 @@ These come from §A.3, §A.7 "Regression"/"Rollback" and §R A2-L1/A2-L2. They c
 ## Owner decision requested
 
 Accept, amend or reject the note text above for appending to ADR-022. Acceptance does not approve any redeploy. A v2 redeploy still needs the follow-up script review and a separate exact plan approval (A.3.1).
+
+**Owner decision recorded:** accepted as written on 2026-11-01 (“Approved”). This acceptance grants no redeploy, signing, certificate or host authority.
