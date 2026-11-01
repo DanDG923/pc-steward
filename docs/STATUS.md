@@ -52,7 +52,15 @@
     - "Live" lasts 15 minutes.
     - Source refresh still cannot be cancelled; the existing API takes no token, and each source has its own timeout.
   - **CI intermittent fixed at the cause:** `96cf2db` (on the Task 50 branch, merged here as `97f32d1`). The N1 fixture root grants its creator an inheritable FullControl ACE, so `LockTree`'s owner change no longer depends on the runner's inherited ACL. The failure occurred on `011a3df` and on `1f1c729`; both unchanged re-runs passed. **Windows CI is green on `96cf2db` and on `97f32d1`** (Security 1148).
-- Phase 4 (Settings and Data & reset) is in progress.
+- **Phase 4 (`0573d18..bd44359`, fixes `e16125e`): Settings and Data & reset.**
+  - Settings: single-column cards; source consent is unchanged and starts nothing. Every setting applies immediately except the **schedule**, which keeps an explicit **Save schedule**: it registers a Windows scheduled task, and WinUI spurious-selection behaviour could not be validated without a Windows runtime.
+  - Schedule saving fails closed on an incomplete choice, separates Task Scheduler refusal from a busy gate, rolls back a half-applied change, and counts as active work.
+  - Data & reset: separate cards with sizes, last-cleaned times and Deletes/Keeps text ("Not measured separately" where no honest size exists), the exact labels, and Factory reset in a danger zone. The RESET flow and the clear operations are byte-identical.
+  - Copy diagnostic uses the sanitized bundle.
+  - Startup and recovery windows: styled, with selectable details that are sanitized (profile and user name redacted) and copied with a clipboard flush.
+  - **Independent review: PASS with fixes; fixes in `e16125e`. Windows CI is green** (architecture 113, integration 1007, Security 1148).
+  - Residual: the shared sanitizer misses Windows paths containing spaces outside the profile folder.
+- Phase 5 (accessibility and copy pass, then the final integrated review) is in progress.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
