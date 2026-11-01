@@ -478,7 +478,15 @@ An independent code review (Opus, pinned `81608fe..1f0e13e`) returned **PASS**, 
 - a single `CreateResponse` call site and a single write;
 - the field 16–18 values for every row against S6–S10 and P1–P6.
 
-Its Lows (no real-time cap on synchronous stages B and D, a Launch cap without teardown slack, no hung-Launch test) and Info items (TimeProvider in waits, an item OCE that is not the endpoint's own, post-cap monitor and write waits) are being fixed in a follow-up commit. N4b obligations recorded:
+Its Lows (no real-time cap on synchronous stages B and D, a Launch cap without teardown slack, no hung-Launch test) and Info items (TimeProvider in waits, an item OCE that is not the endpoint's own, post-cap monitor and write waits) are fixed in `1866662`, with endpoint tests now 112/112:
+- B and D run under `Task.Run(...).WaitAsync(remaining + ExitMargin, clock)`; on expiry the result is Undetermined + timedOut + ¬settled;
+- `UpgradeAsync` gets `remaining − 1 s`, never below the floor;
+- new tests for hung B, D and Launch;
+- every wait uses the injected TimeProvider;
+- an item OCE that is not the endpoint's own is a fault (Undetermined + ¬settled before launch, Unknown after);
+- the monitor stop and the response write share one bounded window within `ResponseMargin`. That test is timing-sensitive.
+
+N4b obligations recorded:
 - the native item tolerates disposal while a call is in flight;
 - the observer honours `remaining` and the token.
 

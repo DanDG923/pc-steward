@@ -2,7 +2,7 @@
 
 **Task 50 — slice N4a helper stage machine (2026-11-01):** The port interfaces and value records, plus `ReviewedHelperEndpoint`, which implements A0–A3, B, C, D and Launch with deadlines, the launch floor, N2 faults, the OutOfOrder mapping, single-response emission and the disconnect monitor. Tests use fakes, run against the real desktop session and interpreter. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `7066d76` is green.**
-- **Independent review: PASS**, with no reachable critical failure. Its Lows and Info items (cap stages B and D, Launch teardown slack, more tests, wait bounds) are being fixed.
+- **Independent review: PASS**, with no reachable critical failure. Its Lows and Info items are fixed in `1866662`: real-time caps on stages B and D, a 1 s launch-deadline reserve, hung B/D/Launch tests, injected-clock waits, a foreign OCE treated as a fault, and a bounded response window.
 - Not wired: protocol 2 still exits with code 20.
 - See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N4b (native port and item, Helper-role G1 reader, and bootstrap wiring).
 
