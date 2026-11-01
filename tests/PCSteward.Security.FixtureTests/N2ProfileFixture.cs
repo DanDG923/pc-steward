@@ -120,7 +120,9 @@ internal sealed class N2ProfileFixture : IDisposable
     internal N2ProfileFixture Lock()
     {
         Native.LockTree(Native.Root);
-        Native.Protect(RootPath(@"logs\chocolatey.log"), ownerRights: true, FileSystemRights.ReadAndExecute | FileSystemRights.Modify);
+        // Only when present: tests that remove the optional trees (logs among them) have no log file to open up.
+        string log = RootPath(@"logs\chocolatey.log");
+        if (File.Exists(log)) Native.Protect(log, ownerRights: true, FileSystemRights.ReadAndExecute | FileSystemRights.Modify);
         return this;
     }
 
