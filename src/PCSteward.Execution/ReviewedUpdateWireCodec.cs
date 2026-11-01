@@ -244,11 +244,10 @@ internal static class ReviewedUpdateWireCodec
 
     /// <summary>
     /// §2 fields 16/17 grammar: exactly a <c>ChocolateyNativeVersion.Normalized</c> string of at most 128 characters.
-    /// Task 50 O9 choice (a): the codec reuses the pinned native parser through InternalsVisibleTo, not a second grammar.
+    /// Task 50 O9 choice (a): the codec reuses the pinned native parser through the narrow public
+    /// <see cref="ChocolateyVersionGrammar"/> facade (no broad InternalsVisibleTo), not a second grammar.
     /// </summary>
-    internal static bool IsNormalizedVersion(string? value) => value is { Length: > 0 and <= MaximumVersionLength } &&
-        ChocolateyNativeVersion.TryParse(value, out ChocolateyNativeVersion? version) &&
-        string.Equals(version!.Normalized, value, StringComparison.Ordinal);
+    internal static bool IsNormalizedVersion(string? value) => ChocolateyVersionGrammar.IsNormalized(value, MaximumVersionLength);
 
     private static bool IsNullOrNormalizedVersion(string? value) => value is null || IsNormalizedVersion(value);
 

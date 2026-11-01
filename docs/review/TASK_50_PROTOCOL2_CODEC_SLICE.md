@@ -28,3 +28,9 @@ The largest structurally valid frame is exactly 5,083 B, as §5 states. It needs
 - The verifier (L5).
 - The capability seam (L-4).
 - The N5 supersession note.
+
+## Independent review — PASS (`fc7aebb`)
+
+A fresh-context reviewer (Fable 5.1), pinned to `fc7aebb`, returned **PASS** with no Blocker, High or Medium findings. Its independent oracle, written from the spec text, enumerated 983,040 discrete combinations against `StructuralViolations` with zero disagreements. All 478 valid shapes round-trip byte-exactly. A 452,400-frame mutation fuzz produced no uncaught exceptions, and culture probes showed no drift. The largest valid frame is 5,083 B (unsettled) and the settled variant is 5,082 B, as the author reported. The spec's "from stage D" phrase for that fixture is a Low doc nit, recorded here and not otherwise changed.
+
+Low (architecture), now fixed: the blanket `InternalsVisibleTo` from Provider.Chocolatey to Execution is replaced by a narrow public `ChocolateyVersionGrammar.IsNormalized(value, maximumLength)` facade over the pinned parser. Execution no longer sees Chocolatey internals. Codec tests 149/149 and Architecture 32/32 still pass.
