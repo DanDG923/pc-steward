@@ -2,7 +2,7 @@
     "schema":  "pc-steward-task50-host-evidence:1",
     "cases":  "Default",
     "scriptSha256":  "0A1C4377D3A0EBF5ED2778A38AA9BA4C05BB477F3AEA9F54B03790BD930584D4",
-    "runDirectory":  "<EVIDENCE>\\run-20261101T115241Z-dcf42c63",
+    "runDirectory":  "\u003cEVIDENCE\u003e\\run-20261101T115241Z-dcf42c63",
     "startedUtc":  "2026-11-01T11:52:42Z",
     "hostFacts":  {
                       "osVersion":  "10.0.26300.0",
@@ -17,7 +17,7 @@
                     "O5":  {
                                "case":  "O5",
                                "status":  "run",
-                               "fixedRoot":  "<PROGRAMDATA>\\chocolatey",
+                               "fixedRoot":  "\u003cPROGRAMDATA\u003e\\chocolatey",
                                "environmentVariableSet":  true,
                                "environmentVariableEqualsFixedRoot":  true,
                                "rootIdentityRead":  true,
@@ -164,7 +164,7 @@
                                                   "launcher":  "CreateProcessSuspended",
                                                   "held":  false,
                                                   "launchMs":  23,
-                                                  "peerImagePath":  "<RUN>\\aq1-native.exe",
+                                                  "peerImagePath":  "\u003cRUN\u003e\\aq1-native.exe",
                                                   "peerFileIdRead":  true,
                                                   "resumeError":  0,
                                                   "exit":  "0"
@@ -177,7 +177,7 @@
                                               "freshFileIdBeforeEqualsHeld":  true,
                                               "replacementWhileHeldBeforeLaunch":  "aq1-native.exe:DELETE=32,WRITE_DATA=32",
                                               "launchMs":  1,
-                                              "peerImagePath":  "<RUN>\\aq1-native.exe",
+                                              "peerImagePath":  "\u003cRUN\u003e\\aq1-native.exe",
                                               "peerFileIdRead":  true,
                                               "peerEqualsHeld":  true,
                                               "replacementWhileRunning":  "aq1-native.exe:DELETE=32,WRITE_DATA=32",
@@ -196,7 +196,7 @@
                                                   "launcher":  "CreateProcess",
                                                   "held":  false,
                                                   "launchMs":  18,
-                                                  "peerImagePath":  "<RUN>\\aq1-managed.exe",
+                                                  "peerImagePath":  "\u003cRUN\u003e\\aq1-managed.exe",
                                                   "peerFileIdRead":  true,
                                                   "exit":  "42"
                                               },
@@ -211,7 +211,7 @@
                                                                                        "aq1-lazy.dll:DELETE=32,WRITE_DATA=32"
                                                                                    ],
                                               "launchMs":  1,
-                                              "peerImagePath":  "<RUN>\\aq1-managed.exe",
+                                              "peerImagePath":  "\u003cRUN\u003e\\aq1-managed.exe",
                                               "peerFileIdRead":  true,
                                               "peerEqualsHeld":  true,
                                               "replacementWhileRunning":  [
@@ -271,7 +271,7 @@
                                   "systemFileHoldMs":  0,
                                   "unheld":  [
                                                  {
-                                                     "path":  "<SYSTEM32>\\whoami.exe",
+                                                     "path":  "\u003cSYSTEM32\u003e\\whoami.exe",
                                                      "outcomes":  [
                                                                       "00000002=5",
                                                                       "00000004=5",
@@ -284,7 +284,7 @@
                                                      "verdict":  "cannot-modify"
                                                  },
                                                  {
-                                                     "path":  "<SYSTEM32>",
+                                                     "path":  "\u003cSYSTEM32\u003e",
                                                      "outcomes":  [
                                                                       "00000040=5",
                                                                       "00010000=5",
@@ -296,7 +296,7 @@
                                              ],
                                   "held":  [
                                                {
-                                                   "path":  "<SYSTEM32>\\whoami.exe",
+                                                   "path":  "\u003cSYSTEM32\u003e\\whoami.exe",
                                                    "outcomes":  [
                                                                     "00000002=5",
                                                                     "00000004=5",
@@ -309,7 +309,7 @@
                                                    "verdict":  "cannot-modify"
                                                },
                                                {
-                                                   "path":  "<SYSTEM32>",
+                                                   "path":  "\u003cSYSTEM32\u003e",
                                                    "outcomes":  [
                                                                     "00000040=5",
                                                                     "00010000=5",
@@ -320,7 +320,7 @@
                                                }
                                            ],
                                   "ownUnheld":  {
-                                                    "path":  "<RUN>\\a2l3-own.bin",
+                                                    "path":  "\u003cRUN\u003e\\a2l3-own.bin",
                                                     "outcomes":  [
                                                                      "00000002=handle",
                                                                      "00000004=handle",
@@ -333,7 +333,7 @@
                                                     "verdict":  "can-modify"
                                                 },
                                   "ownHeld":  {
-                                                  "path":  "<RUN>\\a2l3-own.bin",
+                                                  "path":  "\u003cRUN\u003e\\a2l3-own.bin",
                                                   "outcomes":  [
                                                                    "00000002=32",
                                                                    "00000004=32",

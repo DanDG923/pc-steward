@@ -1,3 +1,16 @@
+# Task 50 — host evidence (O5, A-Q1, A2-L3)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; fact extension §10 N5 (O5); adapter gates §A.4 (A-Q1) and §R A2-L3.
+
+- Owner-run probe under [plan rev 2.2](../review/TASK_50_HOST_EVIDENCE_PLAN.md) (script SHA-256 `0A1C4377…84D4`).
+- [Raw evidence](../review/TASK_50_HOST_EVIDENCE_RESULT.json) and [interpretation](../review/TASK_50_HOST_EVIDENCE_INTERPRETATION.md).
+- Verdicts:
+  - O5 PASS-READABLE (spec scope);
+  - AQ1N, AQ1M and AQ1C PASS (held main images, managed lazy loads);
+  - A2L3S PASS (analogue).
+- Eligibility: the installed Chocolatey does not match the pinned 2.7.5 release.
+- Still open before admission: the items in the interpretation's open list.
+
 # Task 50 — N0 native launcher
 
 `FR-UPD-15`, `TM-03/07/13`; [design rev 5](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4.1 (H4, L1, rev-3 M-C, rev-4 M1/L4) and §8 N0.

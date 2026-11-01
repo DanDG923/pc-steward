@@ -9,7 +9,9 @@ The owner ran the approved **Default** steps on 2026-11-01 under [plan revision 
 - H5: the evidence was shared;
 - H6 printed `CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed`.
 
-H3 and H4 were not approved and were not run. The agent ran nothing on the host. The raw evidence is [`TASK_50_HOST_EVIDENCE_RESULT.json`](TASK_50_HOST_EVIDENCE_RESULT.json), the owner's console paste of `Get-Content -Raw` on the run's `evidence.json`. It is semantically identical to the file, but the bytes may differ: the paste is not the hashed artifact. `scriptSha256` in the evidence equals the plan's Final SHA-256 `0A1C4377…84D4`.
+H3 and H4 were not approved and were not run. The agent ran nothing on the host. The raw evidence is [`TASK_50_HOST_EVIDENCE_RESULT.json`](TASK_50_HOST_EVIDENCE_RESULT.json), the text of the owner's console paste of `Get-Content -Raw` on the run's `evidence.json`.
+- The paste includes the 5.1 `\u003c`/`\u003e` escapes. A first commit (`7671d98`) had decoded them by mistake, and they are now restored to match the paste.
+- Console copying may still change whitespace. The committed text is semantically identical to the run file, but it is not the hashed artifact. `scriptSha256` in the evidence equals the plan's Final SHA-256 `0A1C4377…84D4`.
 
 ## Host facts
 
@@ -24,9 +26,9 @@ H3 and H4 were not approved and were not run. The agent ran nothing on the host.
 
 | Case | Verdict | Decision |
 |---|---|---|
-| **O5** | **PASS-READABLE** | O5 native evidence is satisfied **for this host and the current Chocolatey state** (fact extension §10 N5), subject to the plan §1 binding rule: it binds the desktop file-first reader only within the probed file set and access shape. **The O5 owner contingency is not triggered.** Probed set, all read with 0 problems, 0 unreadable and 0 reparse: the root engine; all 56 release-tree entries (15,243,398 bytes); `helpers` (1 directory, 41 files, none unlisted) and `tools` (13 files, none unlisted) enumerated; `extensions` and `hooks` absent; `lib` enumerated (1 directory, 1 nupkg, readable); `chocolatey` registration present; `chocolatey.extension` absent; no store directory. |
-| **A-Q1** | AQ1N, AQ1M, AQ1C all **PASS** | The A.4 step-3 hold design is **viable for direct process creation** with the native (suspended creation), .NET Framework and coreclr loaders. In every held case: the launch succeeded; the peer image identity equalled the held identity; FileIdInfo was stable before and after; and DELETE/WRITE_DATA replacement attempts returned **32 (sharing violation)** before launch, while running and after exit, including the lazily loaded `aq1-lazy.dll`. The DELETE control after release succeeded on the first attempt. The A2-L5 fallback is **not needed** on this evidence. This also supports the design rev 6 `ChocolateyHeldClientBinding`, which has no fallback. runas remains an inference (AQ1UAC not run). Admission still needs the ADR-025 exact-artifact host test. |
-| **A2-L3** | A2L3S **PASS** | On `<SYSTEM32>\whoami.exe` and `<SYSTEM32>`, every write-class probe returned **5 (ACCESS_DENIED)** both without and **with** the share-read hold. The hold does not turn a protection result into a sharing violation, so `TryHold` followed by `validatePreLaunchTrust` (A.4 steps 3.1–3.2) is acceptable. The positive control behaved as expected: the run's own file was modifiable unheld, and under the hold the data/delete probes returned 32, giving fail-closed `probe-failed-closed:32`. **Analogue evidence only.** A2L3P (installed PC Steward files, H4) was not run, so the owner decides whether the analogue suffices or an exact-artifact check is required. |
+| **O5** | **PASS-READABLE** | O5 native evidence, the **spec O5** (fact extension §9 O5 / §10 N5: the `ChocolateyClientStateData` inputs of the file-first postcheck), is satisfied **for this host and the current Chocolatey state**. It is subject to the plan §1 binding rule: it binds the desktop file-first reader only within the probed file set and access shape. **The O5 owner contingency is not triggered.** It does **not** show that the desktop role can complete design rev 6 §3 steps 1–3 and 5–9 (see "Still open"). Probed set, all read with 0 problems, 0 unreadable and 0 reparse: the root engine; all 56 release-tree entries (15,243,398 bytes); `helpers` (1 directory, 41 files, none unlisted) and `tools` (13 files, none unlisted) enumerated; `extensions` and `hooks` absent; `lib` enumerated (1 directory, 1 nupkg, readable); `chocolatey` registration present; `chocolatey.extension` absent; no store directory. Because `.chocolatey`, `extensions` and `hooks` were absent, those parts of the probed set were never exercised. The probe read files only; it never ran Chocolatey. |
+| **A-Q1** | AQ1N, AQ1M, AQ1C all **PASS** | The A.4 step-3 hold design is **viable for direct, non-elevated process creation** of a held **main image** with the native (suspended creation), .NET Framework and coreclr loaders. In every held case: the launch succeeded; FileIdInfo was stable before and after; and DELETE/WRITE_DATA replacement attempts on held files returned **32 (sharing violation)** before launch, during the run and after exit. The DELETE control after release succeeded on the first attempt.<br>Details that limit the claim:<br>• AQ1N and AQ1M checked the peer identity (equal to the held identity). AQ1C has no peer check, by design.<br>• AQ1N's "during the run" probe ran while the process was still suspended (before `ResumeThread`).<br>• A held **lazily loaded DLL** (`aq1-lazy.dll`) was exercised only through the **managed** `Assembly.LoadFrom` path (AQ1M, AQ1C), and its probes ran before that load.<br>The A2-L5 fallback is **not triggered by this evidence**. It stays contingent on AQ1UAC (runas is the helper's only launch path; AQ1UAC was not run) or on the ADR-025 exact-artifact test. **Residuals for the real-client or exact-artifact test:** native `LoadLibrary` of a held DLL (for example `7z.exe` loading held `tools/7z.dll`), PowerShell reading or importing held `helpers` files, and an elevated launcher holding the files. These matter because `ChocolateyHeldClientBinding` has no fallback (design rev 6 §9). |
+| **A2-L3** | A2L3S **PASS** | On `<SYSTEM32>\whoami.exe` and `<SYSTEM32>`, every write-class probe returned **5 (ACCESS_DENIED)** both without and **with** the share-read hold. The hold does not turn a protection result into a sharing violation, so `TryHold` followed by `validatePreLaunchTrust` (A.4 steps 3.1–3.2) is acceptable. The positive control behaved as expected: the run's own file was modifiable unheld, and under the hold the data/delete probes returned 32, giving fail-closed `probe-failed-closed:32`. **Analogue evidence only.** Ownership differs: System32 files are owned by TrustedInstaller, while the deployment is Administrators-owned. Per plan §9, the **ADR-025 exact-artifact test remains required**. A2L3P (installed PC Steward files, H4, not run) would be optional extra evidence. |
 
 Observation for the implementation record: under a `FileShare.Read` hold, the metadata-class probes (`FILE_WRITE_EA` 0x10, `FILE_WRITE_ATTRIBUTES` 0x100, `WRITE_DAC`, `WRITE_OWNER`) still **opened** on the caller-writable file. Share modes govern data and delete access only. Protection against metadata or DACL changes therefore rests on the ACL (requester-unmodifiable), which the native observer's `AccessCheck` evaluates (design rev 6 §2.2), not on the hold. This matches the design; it records why the hold is not an ACL substitute.
 
@@ -40,21 +42,50 @@ The probe compared the installed client with the compiled release pins (Chocolat
 | Release tree | 56 entries | 56 present and readable; **50 match**. Mismatches: `choco.exe`, `helpers/Chocolatey.PowerShell.dll`, `tools/7z.dll`, `tools/7z.exe`, `tools/checksum.exe`, `tools/shimgen.exe` |
 | `lib/chocolatey/chocolatey.nupkg` | 2.7.5 asset 5,719,618 B, `F86F99A1…5839` | 5,713,666 B, `AEC2DBD6CE91B7378EB4A0C21524E748D30332EA856E898404999F77328BD504` |
 
-`matchesPinnedRelease = false` and `routeFindings` is empty. Per plan §9, **the route would refuse on this host** with `MachineInputsUnsupported`, which is an eligibility fact. This is safe behaviour: nothing is updated by an unreviewed client. No Chocolatey change is authorized or proposed here. The installed version is not identified by this evidence.
+`matchesPinnedRelease = false` and `routeFindings` is empty. Per plan §9, Profile V2 ("changed content refuses") and design rev 6 §3 step 2, **the route would refuse on this host** with `MachineInputsUnsupported`, which is an eligibility fact.
+
+Other eligibility conditions were **not probed**:
+- the helper HTTP cache (step 4);
+- loader and licensing state (step 5);
+- config features and `cacheLocation` (step 6).
+
+Also, `registration.directories = 1`: `lib` holds only `chocolatey`, and there is no store. So this host currently has **no installed package the route could update**. This is safe behaviour: nothing is updated by an unreviewed client. No Chocolatey change is authorized or proposed here. The installed version is not identified by this evidence.
 
 Owner choices, needed only before route admission and not now:
 1. The owner changes the installed Chocolatey to exactly the pinned 2.7.5. This is an owner action outside PC Steward.
-2. The pin moves to the installed release after a new review: identify the release, pin its published asset and release-tree manifest, and re-check the Profile V2 source-level behaviours (refresh guard, fixed arguments, loader/licensing, store layout) against that release's pinned sources.
+2. The pin moves to the installed release through a **Profile V2 revision with independent review**. That revision must:
+   - identify the release;
+   - pin its published asset and the release-tree manifest;
+   - re-pin the reviewed client source commit and the NuGet fork;
+   - update the engine file-version and signer check (design rev 6 §3 step 2, currently `2.7.5.0`), `ChocolateyClientReleasePolicy` and the compiled manifest table;
+   - re-check the Profile V2 source-level behaviours (refresh guard, fixed arguments and registered options, loader/licensing, store layout) against that release's pinned sources.
 
 ## What this changes
 
-- **O5:** closed for this host and state; the contingency is not triggered. The desktop file-first verifier (design rev 6 §7) is viable here.
-- **A-Q1:** the hold path is viable for synthetic images (all three loaders); the fallback is not required. Still required: the runas inference and the exact signed artifact (ADR-025).
-- **A2-L3:** closed as analogue evidence. The A2L3P exact check needs separate approval if the owner wants it.
-- **Admission prerequisites still open:**
-  - the Chocolatey release eligibility above;
-  - the ADR-025 exact-artifact test (signed helper and desktop, linked-token match, `AccessCheck` on the real tree);
-  - the separately approved v2 redeploy;
-  - implementation slices N1–N6 with review and CI.
+- **O5 (spec scope):** closed for this host and state; the contingency is not triggered. The desktop file-first **postcheck inputs** are readable here.
+- **A-Q1:** the hold is viable for held main images under direct non-elevated creation (native, .NET Framework, coreclr), with managed lazy loads. The fallback is not triggered, but stays contingent on runas evidence.
+- **A2-L3:** closed as analogue evidence; the exact-artifact test remains required.
 
-Independent review of this interpretation: pending.
+**Still open before admission:**
+- the Chocolatey release eligibility above (owner choice 1 or 2);
+- the other unprobed eligibility facts (HTTP cache, loader/licensing, config) and a target package on the host;
+- desktop-role reads outside the spec O5 set: `config\chocolatey.config`, machine.config, the GAC, and `bin`/`logs`/`license` coverage (design rev 6 §3 steps 1–3, 5–9, §7);
+- readability of files written by a future elevated upgrade (plan §1, §12);
+- runas: AQ1UAC, or the exact-artifact test standing in for it;
+- the A-Q1 residuals above (native held DLL loads, PowerShell helper reads, elevated launcher);
+- the ADR-025 exact-artifact test: signed helper and desktop, linked-token match, `AccessCheck` on the real tree, and A2-L3 on the real deployment;
+- the separately approved v2 redeploy;
+- implementation slices N1–N6 with review and CI.
+
+## Review record
+
+An independent review (Opus, pinned `7671d98`) returned **CONDITIONAL** with no Blocker or High. It confirmed:
+- every verdict against the raw fields and the script logic;
+- the decision rows against the plan §9 PASS rows;
+- the metadata-class observation;
+- all eligibility numbers;
+- that the JSON raises no privacy concern.
+
+Its findings are applied above:
+- three Medium overclaims: the fallback is "not triggered" rather than "not needed"; the lazy-load and loader scope is narrowed; O5 is held to the spec scope;
+- Lows: corrected A-Q1 details, A2-L3 exact-artifact wording, re-pin scope, unprobed eligibility facts and no target package, the complete open list, and the provenance and escape restoration.

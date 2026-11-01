@@ -4,12 +4,12 @@
 
 Verdicts:
 - **O5 PASS-READABLE.** The contingency is not triggered.
-- **AQ1N, AQ1M and AQ1C PASS.** The hold is viable for native, .NET Framework and coreclr loaders; no fallback is needed.
+- **AQ1N, AQ1M and AQ1C PASS.** The hold is viable for held main images (native, .NET Framework, coreclr; managed lazy loads). The fallback is not triggered, but stays contingent on runas evidence.
 - **A2L3S PASS**, as analogue evidence.
 
 **Eligibility finding:** the installed Chocolatey does **not** match the pinned 2.7.5 release. The engine hash differs, 6 of 56 release files differ, and so does the nupkg. The route would therefore refuse on this host until the owner aligns Chocolatey with the pin or a reviewed re-pin is done. That choice is needed before admission, not now.
 
-H3 and H4 were not run. Independent review of the interpretation is pending.
+H3 and H4 were not run. The independent review of the interpretation was CONDITIONAL with no Blocker or High; its overclaims are narrowed and the open list completed.
 
 **Task 50 — slice N0 native job-object launcher (2026-11-01):** Implemented per design rev 6 §4.1 (`fca8837`; Windows CI green, Security 572/572 including the 13 Windows-only launcher tests). Requirements: `FR-UPD-15`, `TM-03/07/13`.
 
