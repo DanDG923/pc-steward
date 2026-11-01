@@ -526,3 +526,17 @@ An independent fresh-context review of `011a3df..c91a0e0` returned **PASS with f
 ### CI intermittent on `011a3df` (environmental)
 
 The first Windows CI attempt on `011a3df` (docs plus the `1866662` endpoint fixes, no fixture or ACL changes) failed 63 Security fixture tests, all with `UnauthorizedAccessException` from `SetSecurityInfo` in `N1NativeFixture.Lock` during `LockTree`. The same image (`win25-vs2026/20261021.278`) was green on `06c83d5`, and the unchanged re-run (attempt 2) was green. Suspected cause: `Test-CI.ps1` places the CI user's TEMP under the checkout, where that user is granted only `(OI)(CI)M`, so setting the owner depends on what the runner's inherited ACL provides. If this recurs, give the fixture root an explicit owner-grant, or move CI TEMP under the CI user's profile.
+
+### N4b review remediation (`576063f..10daa47`): Windows CI green
+
+- **M1:** `StandInChocolateyEngine` (test-only) writes a minimal x64 console image into the fixture temp tree. It imports four KERNEL32 functions, reads no file, environment or registry value, and prints fixed `--limit-output` records for `list` and `outdated`. `TheRealNativeChainParsesRealRecordsMatchesRevalidatesAndLaunchesThroughTheHeldBinding` now runs native stage C (real parsing to `Matched`), stage D after real child processes under the stage-B holds, and Launch, with no stage replaced. **It passes on Windows CI.** It does not replace host evidence with a real Chocolatey release.
+- **M2:** A3 runs off the endpoint thread, capped at `Remaining()` on the endpoint clock. Hitting the cap gives RequestNotAdmitted (`a3-unresponsive`); an abandoned check's result is ignored, and later protection calls refuse. A spent budget before A3 gives Undetermined + timedOut (`a3-timed-out`). Peer trust already used `WTD_REVOKE_NONE` with `WTD_CACHE_ONLY_URL_RETRIEVAL` (shared with protocol 1); an architecture test now pins it.
+- **L3:** stage calls require no call in flight, so stage B cannot start while G1 is running.
+- **L4:** the protocol-2 locator is `\Apcsteward-reviewed-[a-f0-9]{32}\z`; LF, CRLF, CR and a leading LF are refused. The protocol-1 pattern is unchanged.
+- **L5:** `CompiledIlScanner` records parameter types; G1 check, Helper-role reader, `ResolveHelperLayout` and `ReviewedHelperHost` construction are pinned by signature, and every pinned edge must exist.
+- **L6:** a fault during the PID check, `OpenPeer` or `VerifyPeer` exits with 23 and closes the unverified peer.
+- **L8:** the item's lifetime source is disposed once, after Dispose and the last in-flight call.
+- **Info:** the bootstrap test comments describe CI accurately (a disposable standard user started from the elevated runner administrator, no UAC split token).
+- L7 and the running-image Info item remain the accepted residuals above.
+
+Linux: changed projects build with 0 warnings, architecture 81/81. **Windows CI on `10daa47` is green**: Security fixtures 1031/1031 (0 skipped), integration 883, domain 167, architecture 81.

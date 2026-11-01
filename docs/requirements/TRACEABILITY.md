@@ -17,7 +17,8 @@
 
 - Security `NativeHelperItemTests` (portable 24), `ReviewedHelperBootstrapTests` (portable 26, Windows-only 7), `HelperDeploymentCapabilityCheckTests` (portable 8, Windows-only 12), `NativeHelperItemEndToEndTests` (Windows-only 4). Architecture `HelperEndpointBoundaryTests` and `ClientQueriesBoundaryTests` pin the native port, the composition root and protocol-2 dispatch.
 - Windows CI on `c91a0e0` is green (Security 1023/1023, including the 23 Windows-only N4b tests). Independent review: PASS with fixes.
-- Not claimed: a test of the real native positive path (review M1), real-time caps on G1 and peer trust (M2), host evidence, or admission.
+- Review remediation `576063f..10daa47` (Windows CI green, Security 1031/1031): `StandInChocolateyEngineTests`, the native-chain end-to-end test (stage C to Launch with no stage replaced), A3 cap tests, anchored-locator tests, and signature pins in `HelperEndpointBoundaryTests`.
+- Not claimed: host evidence with a real Chocolatey release, or admission.
 
 # Task 50 — N0 native launcher
 
