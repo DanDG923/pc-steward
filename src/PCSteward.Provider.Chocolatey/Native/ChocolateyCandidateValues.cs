@@ -46,7 +46,8 @@ internal abstract record ChocolateyCandidateValues
             if (fingerprint is not null && !IsFingerprint(fingerprint)) throw new ArgumentException("A 64-character uppercase hex fingerprint is required.", nameof(fingerprint));
             bool consistent = reason switch
             {
-                ChocolateyCandidateRefusal.InstalledMismatch => candidate is null && installed is not null && !outputLimitExceeded,
+                // installed may be null: a well-formed stage-C list with no record observed the package gone (N3; P2 allows null).
+                ChocolateyCandidateRefusal.InstalledMismatch => candidate is null && !outputLimitExceeded,
                 ChocolateyCandidateRefusal.PreflightQueryFailed => candidate is null,
                 ChocolateyCandidateRefusal.CandidateMismatch => installed is not null && fingerprint is not null && !outputLimitExceeded,
                 _ => false,
@@ -113,8 +114,15 @@ internal abstract record ChocolateyCandidateValues
 /// </summary>
 internal sealed record ChocolateyStageCBaseline
 {
-    internal ChocolateyStageCBaseline(string packageId, string stageBInstalled, string stageBFingerprint, string frozenInstalled, string frozenCandidate)
+    internal ChocolateyStageCBaseline(string packageId, string stageBInstalled, string stageBFingerprint, string expectedFingerprint,
+        string frozenInstalled, string frozenCandidate)
     {
+        // N3 review L3: field 18 of a CandidateMismatch is the stage-B fingerprint, and P4 needs it equal to the frozen
+        // operation's F. Stage B is called with that expected fingerprint; the baseline re-checks it so P4 cannot fail.
+        if (!ChocolateyCandidateValues.IsFingerprint(expectedFingerprint) ||
+            !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.ASCII.GetBytes(stageBFingerprint), System.Text.Encoding.ASCII.GetBytes(expectedFingerprint)))
+            throw new ArgumentException("The stage-B fingerprint must equal the frozen operation's expected fingerprint.", nameof(expectedFingerprint));
         if (!ChocolateyNativePackageId.IsSupported(packageId) || ChocolateyClientReleasePolicy.IsClientTarget(packageId))
             throw new ArgumentException("A supported non-client package ID is required.", nameof(packageId));
         foreach ((string value, string name) in new[] { (stageBInstalled, nameof(stageBInstalled)), (frozenInstalled, nameof(frozenInstalled)), (frozenCandidate, nameof(frozenCandidate)) })
@@ -174,6 +182,10 @@ internal static class ChocolateyStageCMapping
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(list);
         if (Settled(list.Observation, list.Status, baseline, baseline.StageBInstalled) is { } decided) return decided;
+        // N3 review L1: a settled, well-formed list with no record observed the package gone at stage C: InstalledMismatch with
+        // installed null (N3; P2 allows null), not a PreflightQueryFailed carrying a value stage C did not see.
+        if (list.Records.Count == 0)
+            return new ChocolateyCandidateValues.Refused(ChocolateyCandidateRefusal.InstalledMismatch, null, null, baseline.StageBFingerprint, false);
         if (list.Records.Count != 1 || !string.Equals(list.Records[0].Id, baseline.PackageId, StringComparison.OrdinalIgnoreCase) ||
             !ChocolateyQueryParser.IsNormalizedVersion(list.Records[0].Version))
             return QueryFailed(baseline, baseline.StageBInstalled, outputLimitExceeded: false);

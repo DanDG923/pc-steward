@@ -83,6 +83,9 @@ internal sealed class NativeLaunchSpec
                 arguments[0] == "upgrade" && arguments[1] == update.PackageId && arguments[3] == update.CandidateVersion => true,
             _ => throw new ArgumentException("The command is not a compiled command for this binding.", nameof(command)),
         };
+        // N3 review L2: at most one upgrade launch per binding, claimed atomically before any process can exist.
+        if (upgrade && !client.TryClaimUpgradeLaunch())
+            throw new InvalidOperationException("The held client binding has already launched its upgrade.");
         ChocolateyLaunchPaths paths = client.LaunchPaths;
         return new NativeLaunchSpec(client.EnginePath, arguments, ChocolateyCompiledEnvironment.Create(paths), paths.ChocolateyRoot,
             client, upgrade);

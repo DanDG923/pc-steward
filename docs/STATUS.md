@@ -1,5 +1,15 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — slice N3 fixed client queries (2026-11-01):** Held root-engine binding, the exact-list builder, sealed compiled commands, `FromBinding` with the typed `RunAsync`, strict queries and stage-C mapping. Design rev 6 §4. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+- **Windows CI:** all six held-binding launch tests pass. A stand-in engine launches while held read-share-only, which is CI-level support for A-Q1.
+- **Independent review: PASS.** Its four Lows are fixed:
+  - zero-record list gives `InstalledMismatch` with null;
+  - one-shot upgrade claim;
+  - expected-fingerprint check in the baseline;
+  - desktop-predicate test.
+- Windows CI on the fix commit is pending.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N4a (the stage machine and port, with fakes).
+
 **Task 50 — slice N2 static profile observer (2026-11-01):** The design rev 6 §3 observer: the compiled 2.7.5 manifest, steps 1–9 and 8a, held-handle engine trust, and closed results with interrupt arms. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
 - **Independent review: PASS.** No Blocker, High or Medium, and no false-eligible path.
 - **The logs-directory concern is resolved:** the setup grant applies to files only.

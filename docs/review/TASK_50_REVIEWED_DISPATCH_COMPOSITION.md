@@ -418,3 +418,36 @@ Recorded items, none blocking:
 - **Info, an N5 obligation.** The registration-digest encoding is sound, but it needs an independent golden vector before N5 persists or compares digests across builds. Drift would read as ClientChanged, which fails safe. The sort key uses `\` while the hashed paths use `/`; this is deterministic.
 - **Info, N5.** The M2 postcheck passes the expected new version as `frozenInstalled`. Leftover `lib-bkp` or pending state then refuses, giving Unverified.
 
+## Slice N3: retained root-engine binding and fixed client queries (`26e908a..9c3f1a1`) and remediation
+
+Contract: [design](TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) rev 6 §4, §4.1, §5.4 and §8 N3. Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+
+Implemented, all internal and with no `src` caller outside `Native/`:
+- `ChocolateyHeldClientBinding`: built by the Helper-role observer. It holds the engine and release tree through exit, and holds code only until resume after an upgrade.
+- `ChocolateyExactListArguments`: a golden test pins it to the protocol-1 literal.
+- The sealed `ChocolateyCompiledCommand`, with factories on the nested records.
+- `NativeLaunchSpec.FromBinding` and the typed `LaunchJob.RunAsync`. Call sites are pinned in compiled IL, and the scanner now maps compiler-generated callers back to their source methods.
+- `ChocolateyClientQueries`, with a strict parser and the pinned-aware `ChocolateyNativeOutdatedRecord`.
+- `ChocolateyStageCMapping`.
+
+Windows CI on `3cbd47d` passed 829 of 830 Security tests, **including all six held-binding launch tests**: a stand-in engine starts while held read-share-only, through the real typed launch path. The one failure was a test that leaked a refused handle, fixed in `8e878be`.
+
+An independent code review (Opus, pinned `26e908a..9c3f1a1`) returned **PASS**, with no Blocker, High or Medium. It verified:
+- no free-form strings reach the launch path;
+- the compiled-symbol bans and the closed command hierarchy;
+- a query can never upgrade;
+- the golden arguments;
+- binding reuse refusal;
+- the M4/L2 hold scope;
+- the deadline caps;
+- parser strictness;
+- each stage-C row against S6–S10 and P1–P6.
+
+| # | Severity | Finding | Remediation |
+|---|---|---|---|
+| L1 | Low | A well-formed list with zero records reported `PreflightQueryFailed` with the stage-B value, which stage C had not observed | Now `InstalledMismatch` with installed null (N3; P2 allows null). The `Refused` record permits a null installed value for this reason. |
+| L2 | Low | Two overlapping upgrades on one binding could both pass `CanLaunch` before the code release | `TryClaimUpgradeLaunch()` is claimed atomically in `FromBinding` for upgrade specs; a second upgrade spec is refused (Windows test) |
+| L3 | Low | The `CandidateMismatch` field 18 (the stage-B fingerprint) was not checked against F | `ChocolateyStageCBaseline` takes `expectedFingerprint` and requires fixed-time equality with the stage-B fingerprint |
+| L4 | Low | The rows were not asserted against the desktop predicates | A new portable test passes every settled stage-C refusal through `ReviewedUpdateWireCodec.StructuralViolations` and `ReviewedUpdateProtocol2Interpreter.OperationBoundViolations`, with zero violations |
+| Info | — | The strict outdated parser refuses the whole query on any odd record, even for an unrelated package | Recorded as an availability cost; required by Profile V2 ("strict unique records") |
+

@@ -14,7 +14,7 @@ public sealed class ChocolateyStageCQueryTests
 {
     private const string Id = "git";
     private const string Fingerprint = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
-    private static readonly ChocolateyStageCBaseline Baseline = new(Id, "1.2.0", Fingerprint, "1.2.0", "1.3.0");
+    private static readonly ChocolateyStageCBaseline Baseline = new(Id, "1.2.0", Fingerprint, Fingerprint, "1.2.0", "1.3.0");
 
     // ---- Parser: launch facts first ------------------------------------------------------------------------------------
 
@@ -177,7 +177,6 @@ public sealed class ChocolateyStageCQueryTests
     [DataRow("incomplete", DisplayName = "no exit code")]
     [DataRow("malformed", DisplayName = "malformed record")]
     [DataRow("duplicate", DisplayName = "duplicate record")]
-    [DataRow("missing", DisplayName = "no record")]
     public void Row2ASettledListFailureIsPreflightQueryFailedWithStageBValuesAndNoCandidate(string failure)
     {
         NativeProcessObservation list = failure switch
@@ -187,7 +186,7 @@ public sealed class ChocolateyStageCQueryTests
             "incomplete" => Observation("git|1.2.0", exitCode: null),
             "malformed" => Observation("git|1.2"),
             "duplicate" => Observation("git|1.2.0\ngit|1.2.0"),
-            _ => Observation(""),
+            _ => throw new AssertFailedException(failure),
         };
         Assert.IsNull(ChocolateyStageCMapping.AfterList(Baseline, ChocolateyQueryParser.ParseListExact(Observation("git|1.2.0"), Id)),
             "a matching list continues to outdated");
@@ -227,6 +226,54 @@ public sealed class ChocolateyStageCQueryTests
             ?? throw new AssertFailedException("a differing list value is terminal");
         Refused(result, ChocolateyCandidateRefusal.InstalledMismatch, "1.1.0", null, overflow: false);
         Refused(Map(Observation("git|1.3.0"), Observation("git|1.3.0|1.4.0|false")), ChocolateyCandidateRefusal.InstalledMismatch, "1.3.0", null, overflow: false);
+    }
+
+    [TestMethod]
+    public void Row3AWellFormedListWithNoRecordIsInstalledMismatchWithInstalledNull()
+    {
+        // N3 review L1: stage C observed the package gone; report that (null), not the stage-B value.
+        Refused(Map(Observation(""), null), ChocolateyCandidateRefusal.InstalledMismatch, null, null, overflow: false);
+    }
+
+    [TestMethod]
+    public void ABaselineWhoseStageBFingerprintDiffersFromTheExpectedOneIsRefused()
+    {
+        // N3 review L3: P4 needs field 18 (the stage-B fingerprint) equal to the frozen operation's F.
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, new string('A', 64), "1.2.0", "1.3.0"));
+    }
+
+    [TestMethod]
+    public void EverySettledStageCRefusalPassesTheDesktopStructuralAndOperationBoundPredicates()
+    {
+        // N3 review L4: the refusals the mapping produces must settle at the desktop (S1–S13, P1–P6), never become Uncertain.
+        (NativeProcessObservation List, NativeProcessObservation? Outdated)[] cases =
+        [
+            (Observation("git|1.1.0"), null),                                         // InstalledMismatch, stage-C value
+            (Observation(""), null),                                                  // InstalledMismatch, null
+            (Observation("git|1.2.0", exitCode: 1), null),                           // PreflightQueryFailed
+            (Observation("git|1.2.0", overflow: true), null),                        // PreflightQueryFailed + outputLimitExceeded
+            (Observation("git|1.2.0"), Observation("git|1.1.0|1.3.0|false")),       // rev-4 M2
+            (Observation("git|1.2.0"), Observation("")),                             // CandidateMismatch, none
+            (Observation("git|1.2.0"), Observation("git|1.2.0|1.4.0|false")),       // CandidateMismatch, moved on
+            (Observation("git|1.2.0"), Observation("git|1.2.0|1.3.0|true")),        // CandidateMismatch, pinned
+        ];
+        foreach ((NativeProcessObservation list, NativeProcessObservation? outdated) in cases)
+        {
+            ChocolateyCandidateValues.Refused refused = Map(list, outdated) as ChocolateyCandidateValues.Refused
+                ?? throw new AssertFailedException("expected a settled refusal");
+            PCSteward.Execution.ReviewedHelperFacts reviewed = new(PCSteward.Execution.ReviewedHelperQualification.Refused, refused.Reason switch
+            {
+                ChocolateyCandidateRefusal.InstalledMismatch => PCSteward.Execution.ReviewedHelperRefusalReason.InstalledMismatch,
+                ChocolateyCandidateRefusal.PreflightQueryFailed => PCSteward.Execution.ReviewedHelperRefusalReason.PreflightQueryFailed,
+                ChocolateyCandidateRefusal.CandidateMismatch => PCSteward.Execution.ReviewedHelperRefusalReason.CandidateMismatch,
+                _ => throw new AssertFailedException(refused.Reason.ToString()),
+            }, refused.Installed, refused.Candidate, refused.Fingerprint);
+            PCSteward.Execution.UpdateWireFacts facts = Protocol2InterpreterFixture.NotStarted(outputLimit: refused.OutputLimitExceeded);
+            string description = $"{refused.Reason} installed={refused.Installed} candidate={refused.Candidate}";
+            Assert.AreEqual(0, PCSteward.Execution.ReviewedUpdateWireCodec.StructuralViolations(facts, reviewed).Count, description);
+            Assert.AreEqual(0, PCSteward.Execution.ReviewedUpdateProtocol2Interpreter.OperationBoundViolations("1.2.0", "1.3.0", Fingerprint, reviewed).Count,
+                description);
+        }
     }
 
     [TestMethod]
@@ -302,13 +349,13 @@ public sealed class ChocolateyStageCQueryTests
     [TestMethod]
     public void TheBaselineRequiresAPassedStageBAndAStableStrictlyNewerFrozenCandidate()
     {
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.1.0", Fingerprint, "1.2.0", "1.3.0"));
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, "1.2.0", "1.2.0"));
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, "1.2.0", "1.3.0-beta"));
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, "1.2.0", "1.3"));
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", "ABC", "1.2.0", "1.3.0"));
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline("chocolatey", "1.2.0", Fingerprint, "1.2.0", "1.3.0"));
-        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline("a..b", "1.2.0", Fingerprint, "1.2.0", "1.3.0"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.1.0", Fingerprint, Fingerprint, "1.2.0", "1.3.0"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, Fingerprint, "1.2.0", "1.2.0"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, Fingerprint, "1.2.0", "1.3.0-beta"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", Fingerprint, Fingerprint, "1.2.0", "1.3"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline(Id, "1.2.0", "ABC", Fingerprint, "1.2.0", "1.3.0"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline("chocolatey", "1.2.0", Fingerprint, Fingerprint, "1.2.0", "1.3.0"));
+        Assert.ThrowsExactly<ArgumentException>(() => new ChocolateyStageCBaseline("a..b", "1.2.0", Fingerprint, Fingerprint, "1.2.0", "1.3.0"));
     }
 
     // ---- Helpers ------------------------------------------------------------------------------------------------------

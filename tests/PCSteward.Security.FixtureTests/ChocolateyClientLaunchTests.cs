@@ -40,6 +40,8 @@ public sealed class ChocolateyClientLaunchTests
             NativeLaunchSpec.FromBinding(client, ChocolateyCompiledCommand.CreateOutdated()).Arguments.ToArray());
         CollectionAssert.AreEqual(ChocolateyCompiledCommand.TryUpgrade(fixture.Operation)!.Arguments.ToArray(),
             NativeLaunchSpec.FromBinding(client, ChocolateyCompiledCommand.TryUpgrade(fixture.Operation)!).Arguments.ToArray());
+        // N3 review L2: an upgrade spec claims the binding's one-shot upgrade launch; a second one is refused before any process.
+        Assert.ThrowsExactly<InvalidOperationException>(() => NativeLaunchSpec.FromBinding(client, ChocolateyCompiledCommand.TryUpgrade(fixture.Operation)!));
     }
 
     [TestMethod]
@@ -186,7 +188,7 @@ public sealed class ChocolateyClientLaunchTests
                     : throw new AssertFailedException($"expected Observed, got {result}");
                 Client = Observation.HeldClient ?? throw new AssertFailedException("the Helper role must produce a binding");
                 Operation = N3Operations.Create(id: N2ProfileFixture.Target, installed: "1.2.0", candidate: "1.3.0");
-                Baseline = new ChocolateyStageCBaseline(N2ProfileFixture.Target, "1.2.0", Observation.Fingerprint, "1.2.0", "1.3.0");
+                Baseline = new ChocolateyStageCBaseline(N2ProfileFixture.Target, "1.2.0", Observation.Fingerprint, Observation.Fingerprint, "1.2.0", "1.3.0");
             }
             catch
             {

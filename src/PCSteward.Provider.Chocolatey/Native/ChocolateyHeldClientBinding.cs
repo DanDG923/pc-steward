@@ -118,5 +118,13 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
     /// </summary>
     internal void ReleaseCodeAfterResume() => files.ReleaseCode();
 
+    private int upgradeClaimed;
+
+    /// <summary>
+    /// N3 review L2: an upgrade spec claims this one-shot flag atomically when it is built, so two overlapping upgrade
+    /// launches on one binding cannot both pass <see cref="CanLaunch"/> before the code holds are released.
+    /// </summary>
+    internal bool TryClaimUpgradeLaunch() => Interlocked.Exchange(ref upgradeClaimed, 1) == 0;
+
     public void Dispose() => files.Dispose();
 }
