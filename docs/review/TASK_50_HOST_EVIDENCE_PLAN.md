@@ -4,6 +4,15 @@ Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03`, `TM-04`, `TM-07`, `TM-13`.
 
 Status: **revision 2, submitted for a fresh independent re-review and then for owner approval.** Revision 1 (`18a020f`, script SHA-256 `3babbbb5…233d`) was reviewed in review 15, which returned CONDITIONAL with no host-safety defect. This revision addresses every finding from that review. This file authorizes nothing by itself. Host actions happen only under the exact owner approval in §10, which binds the Final SHA-256 recorded in §4. No host action has happened.
 
+## Changes in revision 2.1 (review 17)
+
+| Review 17 finding | Severity | Change |
+|---|---|---|
+| H1-X could delete a pre-existing directory | Medium | H1-X runs only if H1 created the directory and the hash differs, or H1b reports parse errors; if the directory already existed, stop and delete nothing (§5 table, block header, §10). |
+| Listing/attribute failures recorded wrapper code 5377 | Medium | Script uses `GetBaseException().HResult` at all seven sites, so the real Windows error is recorded; §12 notes this. Windows CI re-rehearsed. |
+| Appendix described the pre-`2563a7c` script | Medium | Appendix A regenerated from the final script. It includes the process-scope `PSModulePath` guard added after CI caught `CommandNotFoundException` at `Get-FileHash` under 5.1 launched from pwsh 7. |
+| Lows | Low | H5/H6 stay authorized after a STOP; §7 escaping text corrected; implementation commit recorded in §4; agent/Remote Control execution excluded in §11; suspended-child note in §12. |
+
 ## Changes from revision 1
 
 | Review 15 finding | Severity | Change in revision 2 |
@@ -75,6 +84,7 @@ Each synthetic CodeDom build waits at most min(60 s, remaining deadline) and sto
 | Item | Value |
 |---|---|
 | Script path | `scripts/evidence/Task50-HostEvidence.ps1`. Pure ASCII, **CRLF**, `.gitattributes` `-text` (enforced by `HostEvidenceScriptRehearsalTests.ScriptIsAsciiCrlfAndCheckedInWithoutNewlineConversion`). |
+| H0 implementation commit | `<<IMPLEMENTATION_COMMIT: integrator enters the commit that carries the final script>>` |
 | **Final SHA-256** (the only approvable value) | **`<<FINAL_SHA256: integrator enters the SHA-256 of the committed CRLF file after the fresh re-review>>`** |
 | Appendix A | The revision-2 script as LF text, for review reading. Its LF hash is **not** approvable. Only the committed CRLF bytes above are. |
 | Self-binding | The script records `Get-FileHash` of its own file as `scriptSha256`. A mismatch with the Final SHA-256 invalidates the evidence. |
@@ -85,11 +95,11 @@ Each synthetic CodeDom build waits at most min(60 s, remaining deadline) and sto
 
 ## 5. Exact step list
 
-Every step runs as the owner's standard user. The agent runs nothing on the host unless it is attached through an approved Remote Control folder and the owner's approval names that route. "Stop" means: run no further steps, do not retry, and report the exact console token.
+Every step runs as the owner's standard user. The agent runs nothing on the host unless it is attached through an approved Remote Control folder and the owner's approval names that route. "Stop" means: run no further steps, do not retry, and report the exact console token. After an H2 `STOPPED:`/`STOP:` result or an error before `EVIDENCE:`, H5 (share evidence, if written) and H6 (cleanup) **remain authorized**; paste only the STOP token, never other console text, because pre-`EVIDENCE` console errors can contain paths.
 
 | Step | Command | Expected | Pass / fail | Recorded | Stop conditions | Cleanup |
 |---|---|---|---|---|---|---|
-| **H1** Place and verify | Block H1 | Printed hash equals the §4 Final SHA-256 | Equal / anything else | Hash | The directory already exists; hash differs | On a hash mismatch, run only block H1-X and stop |
+| **H1** Place and verify | Block H1 | Printed hash equals the §4 Final SHA-256 | Equal / anything else | Hash | The directory already exists (stop, delete nothing); hash differs | Only if H1 itself created the directory and the hash differs, or H1b reports parse errors: run block H1-X and stop. If the directory already existed, stop and delete nothing. |
 | **H1b** Parse-only gate | Block H1b (same window) | `PARSE-OK` | `PARSE-OK` / any error count | Line | Any parse error: run block H1-X and stop | As H1 |
 | **H2** Default run (once) | Block H2 (same window) | `EVIDENCE: <TEMP>\pcsteward-evidence-task50\run-…\evidence.json`, `REDACTIONS: n`, then one `VERDICT …` line each for O5, AQ1N, AQ1M, AQ1C and A2L3S | Per case (§6) | `evidence.json` (§7) | Any `STOP:`/`STOPPED:` line; any error before `EVIDENCE:` | None until H5 |
 | **H3** *(optional; separate approval)* Uac run (once) | Block H3 | One UAC prompt for `aq1-managed.exe` in `…\pcsteward-evidence-task50\run-…`; `VERDICT AQ1UAC: …` | §6 | Second JSON | A second prompt, or a prompt naming any other program: answer **No** and stop. A decline is `NOT-RUN-UAC-DECLINED`, with no retry. | None until H5 |
@@ -115,7 +125,7 @@ $tokens = $null; $parseErrors = $null
 if ($parseErrors.Count -ne 0) { 'STOP: parse errors ' + $parseErrors.Count } else { 'PARSE-OK' }
 ```
 
-**Block H1-X** (only after an H1 or H1b failure):
+**Block H1-X** (only if H1 itself created the directory and the printed hash differs, or H1b reports parse errors; never if the directory already existed):
 
 ```powershell
 Remove-Item -LiteralPath $d -Recurse -Force
@@ -202,7 +212,7 @@ This requires no `PCSteward*` process and an existing `<PF>\PC Steward`. It reco
 
 One `evidence.json` file per run.
 
-- **Paths:** reduced to the tokens `<RUN>`, `<EVIDENCE>`, `<CHOCO>`, `<SYSTEM32>`, `<PF>` and `<PROGRAMDATA>`; anything else becomes `<OTHER>`. Windows PowerShell 5.1 `ConvertTo-Json` escapes `<` and `>`, so the file contains `<RUN>` and similar. Any JSON parser decodes these back to `<RUN>`.
+- **Paths:** reduced to the tokens `<RUN>`, `<EVIDENCE>`, `<CHOCO>`, `<SYSTEM32>`, `<PF>` and `<PROGRAMDATA>`; anything else becomes `<OTHER>`. Windows PowerShell 5.1 `ConvertTo-Json` escapes `<` and `>`, so the file contains `\u003cRUN\u003e` and similar. Any JSON parser decodes these back to `<RUN>`.
 - **Redaction:** after serialization, the username, computer name, domain and SID are replaced with `<REDACTED>` (whole-token match, so hex values are unaffected). The count of the first pass is stored in `redactions`. The counter is reset before the final pass, so the console count equals that stored count.
 - **Errors:** only exception type names, HRESULTs and Win32 codes are recorded, never messages.
 - **Names:** non-client package names and extension or hook file names are never recorded.
@@ -280,7 +290,7 @@ A later repository task (not authorized here) commits the pasted JSON with the r
 Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§4 Final SHA-256]`. No other hash is valid.
 
 **Default (required for any run):**
-> I approve, on my Windows 11 PC as my normal non-elevated user, in one Windows PowerShell 5.1 window: blocks H1 and H1b exactly as written in revision 2 of the Task 50 host-evidence plan (creating `%TEMP%\pcsteward-evidence-task50`, copying `Task50-HostEvidence.ps1`, requiring SHA-256 `[§4 Final SHA-256]`, and a parse-only check), with block H1-X only if H1 or H1b fails; block H2 exactly once (`-Mode Run -Cases Default`: read-only Chocolatey file reads for O5, the synthetic A-Q1 native/.NET Framework/.NET 10 launches, and the A2-L3 System32 analogue probes); and, after I have shared the evidence, block H6 exactly once (`-Mode Cleanup`). No UAC, no PC Steward files, no running of Chocolatey, no retries, nothing else.
+> I approve, on my Windows 11 PC as my normal non-elevated user, in one Windows PowerShell 5.1 window: blocks H1 and H1b exactly as written in revision 2 of the Task 50 host-evidence plan (creating `%TEMP%\pcsteward-evidence-task50`, copying `Task50-HostEvidence.ps1`, requiring SHA-256 `[§4 Final SHA-256]`, and a parse-only check), with block H1-X only if H1 itself created the directory and the hash differs or H1b reports parse errors (never when the directory already existed); block H2 exactly once (`-Mode Run -Cases Default`: read-only Chocolatey file reads for O5, the synthetic A-Q1 native/.NET Framework/.NET 10 launches, and the A2-L3 System32 analogue probes); and, after I have shared the evidence, block H6 exactly once (`-Mode Cleanup`). No UAC, no PC Steward files, no running of Chocolatey, no retries, nothing else.
 
 **Optional — UAC sub-case:**
 > I also approve block H3 exactly once, before the cleanup, with the same script (SHA-256 `[§4 Final SHA-256]`): one UAC prompt for the synthetic `aq1-managed.exe` in its run directory, which I will answer myself. No other elevation.
@@ -298,6 +308,7 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 - Running `-Mode SelfCheck` on the owner host (CI only), extra runs, retries, other `-Cases` values, edits after hashing, or running elevated.
 - Treating any result as route admission, success, a gate pass, or acceptance of a spec amendment. The results feed an independent review and owner decisions only.
 - Sending the evidence anywhere other than this session; push, merge, tag or publication.
+- Execution of any step by the agent or through Remote Control. No approval names that route; the owner runs every step.
 
 ## 12. Residual limits
 
@@ -306,6 +317,8 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 - A2L3S is analogue evidence unless A2L3P passes. The existing Windows-CI deny-ACE test is hosted-runner evidence, not owner-host evidence.
 - **Windows CI supplies the 5.1 parse and compile rehearsal** (`HostEvidenceScriptRehearsalTests`: `Parser.ParseFile` gives 0 errors; `-Mode SelfCheck` compiles the Run-mode Add-Type source and both CodeDom synthetics). The rehearsal runs as the CI runner's (typically administrator) user under Windows Server. It does not exercise the Run probes, the token or location gates, or Windows 11 specifics. H1b repeats the parse on the owner host.
 - Same-user races (TOCTOU) against the evidence directory are outside the threat model. The directory is fresh and inherits user-private ACLs; reparse points are refused and the image directory is allowlisted before any launch, and Cleanup re-checks every level.
+- If an exception or Ctrl+C lands between `CreateProcessSuspended` and `Resume` for `aq1-native.exe`, the suspended child can remain until log-off and Cleanup then refuses partway. This is unlikely; end the process in Task Manager and run H6 again.
+- Listing and attribute failures record the underlying Windows error code (`GetBaseException().HResult & 0xFFFF`, e.g. 5 = access denied, 3 = path not found), not the PowerShell wrapper code 5377.
 - A csc.exe orphaned by a `synthetic-build-deadline` stop can outlive the probe briefly. It only writes into the run directory, which Cleanup's allowlist accepts.
 
 ## Appendix A — probe script, revision 2 (LF text for review; the approvable bytes are the committed CRLF file in §4)
@@ -328,6 +341,9 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Process scope only: use Windows PowerShell's own modules even when launched from PowerShell 7, which passes a module
+# path where 5.1 cannot auto-load Get-FileHash, ConvertTo-Json and similar (same guard as the approved redeploy script).
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 
 function Stop-Probe([string]$Reason) { throw ('STOP: ' + $Reason) }
 
@@ -817,7 +833,7 @@ function San([string]$Path) {
 function Get-FailureToken($ErrorRecord) {
     $message = [string]$ErrorRecord.Exception.Message
     if ($message.StartsWith('STOP: ')) { return $message.Substring(6) }
-    return $ErrorRecord.Exception.GetType().Name + ':0x' + ('{0:X8}' -f $ErrorRecord.Exception.HResult)
+    return $ErrorRecord.Exception.GetBaseException().GetType().Name + ':0x' + ('{0:X8}' -f $ErrorRecord.Exception.GetBaseException().HResult)
 }
 $redactions = 0
 function Redact([string]$Text) {
@@ -860,7 +876,7 @@ function Read-Tree([string]$TopName, $KnownSet, [bool]$RecordNames, $Problems) {
         $info = New-Object IO.DirectoryInfo $dir
         if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $r.reparse++; continue }
         try { $children = @($info.EnumerateFileSystemInfos()) }
-        catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$failures.Add('list:' + $code); [void]$Problems.Add($TopName + ':list:' + $code); continue }
+        catch { $code = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$failures.Add('list:' + $code); [void]$Problems.Add($TopName + ':list:' + $code); continue }
         foreach ($child in $children) {
             Assert-Deadline
             $count++
@@ -910,7 +926,7 @@ function Invoke-O5 {
     $r.rootIdentityRead = -not $rootId.StartsWith('error:')
     if (-not $r.rootIdentityRead) { [void]$problems.Add('root:file-id:' + $rootId.Substring(6)) }
     try { if (([IO.File]::GetAttributes($chocoRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [void]$findings.Add('root:reparse') } }
-    catch { [void]$problems.Add('root:attributes:' + ($_.Exception.HResult -band 0xFFFF)) }
+    catch { [void]$problems.Add('root:attributes:' + ($_.Exception.GetBaseException().HResult -band 0xFFFF)) }
 
     # Engine and the pinned 56-file code list (engine is entry 1; read once per entry).
     $known = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -946,7 +962,7 @@ function Invoke-O5 {
         $directories = @([IO.Directory]::EnumerateDirectories($lib) | Select-Object -First 1025)
         $rootPackages = @([IO.Directory]::EnumerateFiles($lib, '*.nupkg') | Where-Object { $_.EndsWith('.nupkg', [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 2049)
         $reg.libListed = $true
-    } catch { $reg.libListError = $_.Exception.HResult -band 0xFFFF; [void]$problems.Add('lib:list:' + $reg.libListError); $directories = @(); $rootPackages = @() }
+    } catch { $reg.libListError = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$problems.Add('lib:list:' + $reg.libListError); $directories = @(); $rootPackages = @() }
     if ($directories.Count -gt 1024 -or $rootPackages.Count -gt 2048) { $reg.overBound = $true; [void]$problems.Add('lib:over-bound') }
     $reg.directories = $directories.Count; $reg.rootNupkg = $rootPackages.Count
     $packageFiles = New-Object System.Collections.ArrayList
@@ -955,7 +971,7 @@ function Invoke-O5 {
         Assert-Deadline
         $name = (Split-Path -Leaf $d).ToLowerInvariant()
         try { $isReparse = ([IO.File]::GetAttributes($d) -band [IO.FileAttributes]::ReparsePoint) -ne 0 }
-        catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:attributes:' + $code); continue }
+        catch { $code = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:attributes:' + $code); continue }
         if ($isReparse) { $reg.reparse++; [void]$findings.Add('lib:reparse'); continue }
         $client = if ($name -eq 'chocolatey' -or $name -eq 'chocolatey.extension') { $name } else { '' }
         if ($client -eq 'chocolatey') { $reg.chocolatey = 'present' } elseif ($client -eq 'chocolatey.extension') { $reg.extension = 'present' }
@@ -964,7 +980,7 @@ function Invoke-O5 {
             foreach ($file in @([IO.Directory]::EnumerateFiles($d, $pattern) | Select-Object -First 65)) {
                 if ($client -or $file.EndsWith('.nupkg', [StringComparison]::OrdinalIgnoreCase)) { [void]$packageFiles.Add(@($file, $client)) }
             }
-        } catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:list:' + $code) }
+        } catch { $code = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:list:' + $code) }
     }
     $chocolateyFiles = New-Object System.Collections.ArrayList; $extensionFiles = New-Object System.Collections.ArrayList
     foreach ($pair in $packageFiles) {
@@ -1008,7 +1024,7 @@ function Invoke-O5 {
                     if ($f.Ok) { $st.markerReadable++ } else { [void]$stCodes.Add($f.Error); [void]$problems.Add('store-file:' + $f.Failure + ':' + $f.Error) }
                 }
             }
-        } catch { $st.listError = $_.Exception.HResult -band 0xFFFF; [void]$problems.Add('store:list:' + $st.listError) }
+        } catch { $st.listError = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$problems.Add('store:list:' + $st.listError) }
     }
     $st.errorCodes = @($stCodes | Sort-Object -Unique)
     $r.store = $st

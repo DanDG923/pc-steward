@@ -507,7 +507,7 @@ function San([string]$Path) {
 function Get-FailureToken($ErrorRecord) {
     $message = [string]$ErrorRecord.Exception.Message
     if ($message.StartsWith('STOP: ')) { return $message.Substring(6) }
-    return $ErrorRecord.Exception.GetType().Name + ':0x' + ('{0:X8}' -f $ErrorRecord.Exception.HResult)
+    return $ErrorRecord.Exception.GetBaseException().GetType().Name + ':0x' + ('{0:X8}' -f $ErrorRecord.Exception.GetBaseException().HResult)
 }
 $redactions = 0
 function Redact([string]$Text) {
@@ -550,7 +550,7 @@ function Read-Tree([string]$TopName, $KnownSet, [bool]$RecordNames, $Problems) {
         $info = New-Object IO.DirectoryInfo $dir
         if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $r.reparse++; continue }
         try { $children = @($info.EnumerateFileSystemInfos()) }
-        catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$failures.Add('list:' + $code); [void]$Problems.Add($TopName + ':list:' + $code); continue }
+        catch { $code = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$failures.Add('list:' + $code); [void]$Problems.Add($TopName + ':list:' + $code); continue }
         foreach ($child in $children) {
             Assert-Deadline
             $count++
@@ -600,7 +600,7 @@ function Invoke-O5 {
     $r.rootIdentityRead = -not $rootId.StartsWith('error:')
     if (-not $r.rootIdentityRead) { [void]$problems.Add('root:file-id:' + $rootId.Substring(6)) }
     try { if (([IO.File]::GetAttributes($chocoRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [void]$findings.Add('root:reparse') } }
-    catch { [void]$problems.Add('root:attributes:' + ($_.Exception.HResult -band 0xFFFF)) }
+    catch { [void]$problems.Add('root:attributes:' + ($_.Exception.GetBaseException().HResult -band 0xFFFF)) }
 
     # Engine and the pinned 56-file code list (engine is entry 1; read once per entry).
     $known = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -636,7 +636,7 @@ function Invoke-O5 {
         $directories = @([IO.Directory]::EnumerateDirectories($lib) | Select-Object -First 1025)
         $rootPackages = @([IO.Directory]::EnumerateFiles($lib, '*.nupkg') | Where-Object { $_.EndsWith('.nupkg', [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 2049)
         $reg.libListed = $true
-    } catch { $reg.libListError = $_.Exception.HResult -band 0xFFFF; [void]$problems.Add('lib:list:' + $reg.libListError); $directories = @(); $rootPackages = @() }
+    } catch { $reg.libListError = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$problems.Add('lib:list:' + $reg.libListError); $directories = @(); $rootPackages = @() }
     if ($directories.Count -gt 1024 -or $rootPackages.Count -gt 2048) { $reg.overBound = $true; [void]$problems.Add('lib:over-bound') }
     $reg.directories = $directories.Count; $reg.rootNupkg = $rootPackages.Count
     $packageFiles = New-Object System.Collections.ArrayList
@@ -645,7 +645,7 @@ function Invoke-O5 {
         Assert-Deadline
         $name = (Split-Path -Leaf $d).ToLowerInvariant()
         try { $isReparse = ([IO.File]::GetAttributes($d) -band [IO.FileAttributes]::ReparsePoint) -ne 0 }
-        catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:attributes:' + $code); continue }
+        catch { $code = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:attributes:' + $code); continue }
         if ($isReparse) { $reg.reparse++; [void]$findings.Add('lib:reparse'); continue }
         $client = if ($name -eq 'chocolatey' -or $name -eq 'chocolatey.extension') { $name } else { '' }
         if ($client -eq 'chocolatey') { $reg.chocolatey = 'present' } elseif ($client -eq 'chocolatey.extension') { $reg.extension = 'present' }
@@ -654,7 +654,7 @@ function Invoke-O5 {
             foreach ($file in @([IO.Directory]::EnumerateFiles($d, $pattern) | Select-Object -First 65)) {
                 if ($client -or $file.EndsWith('.nupkg', [StringComparison]::OrdinalIgnoreCase)) { [void]$packageFiles.Add(@($file, $client)) }
             }
-        } catch { $code = $_.Exception.HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:list:' + $code) }
+        } catch { $code = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$codes.Add($code); [void]$problems.Add('lib-dir:list:' + $code) }
     }
     $chocolateyFiles = New-Object System.Collections.ArrayList; $extensionFiles = New-Object System.Collections.ArrayList
     foreach ($pair in $packageFiles) {
@@ -698,7 +698,7 @@ function Invoke-O5 {
                     if ($f.Ok) { $st.markerReadable++ } else { [void]$stCodes.Add($f.Error); [void]$problems.Add('store-file:' + $f.Failure + ':' + $f.Error) }
                 }
             }
-        } catch { $st.listError = $_.Exception.HResult -band 0xFFFF; [void]$problems.Add('store:list:' + $st.listError) }
+        } catch { $st.listError = $_.Exception.GetBaseException().HResult -band 0xFFFF; [void]$problems.Add('store:list:' + $st.listError) }
     }
     $st.errorCodes = @($stCodes | Sort-Object -Unique)
     $r.store = $st
