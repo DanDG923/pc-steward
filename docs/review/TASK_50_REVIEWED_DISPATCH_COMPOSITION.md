@@ -563,3 +563,14 @@ An independent fresh-context review returned **PASS with fixes**: no false-Succe
 - **L5:** a possible sharing-violation flake in the native test's directory move.
 
 **N6 obligation:** the evidence source and the verifier must share one baseline store instance; separate instances make every result Unverifiable (safe, but the route would be unusable).
+
+### N5 review remediation (`edb1d19`): Windows CI green
+
+- **M1 (code part):** the doc comments say the review intent is a supplied, validated, provisional candidate, never captured. `ObserveReviewIntentAsync` takes `intentResolvedAt`, kept as `ChocolateyReviewIntent.IntentResolvedAt` (UTC), separate from `ObservedAt`. It refuses (null), before observing anything, when that time is default, later than the observation start, or more than `IntentMaxAge` (2 minutes) before it. The 2 minutes match the literal dispatch freshness window in `FreshUpdateDispatchEvidence.Matches`. The N6 composition obligation remains.
+- **L1:** an InstalledMismatch refusal on the file capture gives Unverified with detail None ("target version was not detected"). Every other refusal stays ClientUnverifiable, and none is ever Success.
+- **L2:** the observer runs under a linked token with `CancelAfter(budget + CapMargin)`, so the cap stops the reads and releases their handles.
+- **L3:** cancellation during the re-observation throws `OperationCanceledException`, recorded as "verification did not finish".
+- **L4:** evidence and intent are timestamped before the observation starts (stricter freshness). The architecture test checks the ordering.
+- **L5:** the Windows test retries the package rewrite and the folder rename on sharing violations (up to 5 times, with a growing back-off).
+
+**Windows CI on `edb1d19` is green**: Security 1108/1108, integration 888, domain 167, architecture 86.

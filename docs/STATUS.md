@@ -2,8 +2,8 @@
 
 **Task 50 — slice N5 desktop producers (2026-11-01):** F′ `ChocolateyProfileEvidenceSource` (fresh-fingerprint evidence ID, one-use client-state baseline), review intent (UserCacheIntent with the Profile V2 disclosure), and `ChocolateyReviewedUpdateVerifier` (file-first, then an independent re-observation; never restart-pending). Also the registration-digest golden vector. Nothing is composed, so the route stays non-admitted. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `a749dba` is green on the first attempt** (Security 1098/1098, including the 5 Windows-only producer tests).
-- **Independent review: PASS with fixes.** Fixes are in progress for L1–L5 and the M1 code part. M1 is a recorded scope deferral: the review intent is supplied and validated, not captured by running `outdated`. That, and sharing one baseline store between source and verifier, are N6 obligations.
-- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: the N5 fixes, then N6 (UI and history).
+- **Independent review: PASS with fixes.** The L1–L5 and M1 code fixes are in `edb1d19`, and **Windows CI is green** (Security 1108/1108). M1 is a recorded scope deferral: the review intent is supplied and validated, not captured by running `outdated`. That, and sharing one baseline store between source and verifier, are N6 obligations.
+- See the [composition record](review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). Next: N6 (UI and history), in progress.
 
 **Task 50 — slice N4b native port and protocol-2 wiring (2026-11-01):** `NativeChocolateyHelperQualification`, the native item and peer, the Helper-role G1 reader (`HelperDeploymentCapabilityCheck`) and `ReviewedHelperBootstrap`; `--protocol 2` now reaches the endpoint, and protocol 1 is unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`.
 - **Windows CI on `c91a0e0` is green on the first attempt**, including the 23 Windows-only N4b tests (Security fixtures 1023/1023).
