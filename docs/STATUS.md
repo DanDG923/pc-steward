@@ -31,7 +31,25 @@
     - focus, selection-persistence and auto-navigation details;
     - the confirmation expander now starts open.
   - **Windows CI on `a34691b` is green** (architecture 105, integration 984, Security 1148).
-- Phase 3 (Home, Installed apps, Activity and Decisions) is in progress.
+- **Phase 3 (`48cff2b..81f406f`): Home, Installed apps, Activity and Decisions.**
+  - Home: a status hero, freshness in words, a compact attention view and filtered tiles; FR-UI-01 counts shown once; Unmanaged is "not a safety warning".
+  - Installed apps: saved filters with true counts. App details use the shared confirmation dialogs and show a structured timeline, instances and candidates.
+  - Activity: filterable and grouped by day, with the Phase 2 outcome mapping and sanitized details.
+  - Decisions: one reversible view.
+  - App-wide `DisplayFormat` for dates and sizes.
+  - **Two deviations, accepted by review:**
+    - (a) a read-only SQLite `IActivityHistoryReader`: two parameterised, bounded SELECTs, no schema change and no writes (contract-pinned), run under the existing data-operation read lease;
+    - (b) Home "Check for updates" runs a scan and then, only when update sources are already enabled and the scan completed, the existing source refresh. This is an explicit user action, consent is unchanged, and it involves no elevation and no new kind of network traffic.
+  - **Windows CI on `81f406f` is green** (architecture 108, integration 994, Security 1148).
+  - **Independent review: PASS with fixes** (no Blocker or High). Fixes are in progress:
+    - the freshness age comes from the least-fresh source;
+    - attention items that stick forever;
+    - the button label and caption when sources are off;
+    - restart items reachable from Activity;
+    - the last scan time on Home;
+    - unique Decisions names;
+    - names on panels;
+    - a time limit on "Live".
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.

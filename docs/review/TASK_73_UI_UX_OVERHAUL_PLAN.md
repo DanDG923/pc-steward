@@ -49,3 +49,9 @@ Scope rules:
 ## Branching
 
 Implementation goes on its own branch and PR, separate from the Task 50 PR (DanDG923/pc-steward#12). The branch name and base need owner approval; the proposal is to stack on the Task 50 branch so Task 50's Desktop surfaces are included.
+
+## Recorded deviations
+
+- **Phase 1:** the navigation host is a persistent `ScrollViewer` with a portable back stack instead of `Frame`/`Page` (see ADR-030 implementation notes).
+- **Phase 2:** omitted "Skip this version", because no domain operation exists for it. Update-all is not offered, because the existing workflow reviews one app per job, so the commit button reads "Update 1 app".
+- **Phase 3:** a read-only SQLite activity reader was added, because no query existed across all products. Home "Check for updates" chains the existing source refresh after a completed scan when sources are already enabled. The plan said scan only. Both were accepted by independent review.
