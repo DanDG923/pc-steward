@@ -593,6 +593,29 @@ public sealed class ChocolateyDesktopProducersTests
         if (!OperatingSystem.IsWindows()) Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, probed);
     }
 
+    /// <summary>
+    /// Design rev 6 §(L6) on the runner's real token. CI (scripts/Test-CI.ps1) runs the tests as a disposable local standard
+    /// user started from the elevated runner: no linked token, elevation type Default, so §2.1 refuses it as PeerNotLimited
+    /// and the route is unavailable as NoSplitToken. An elevated run (Full) is also NoSplitToken. A non-elevated split-token
+    /// administrator (Limited) depends on that host's token shape, so the test is inconclusive there. Windows-only.
+    /// </summary>
+    [TestMethod]
+    public void TheRunnersOwnTokenWithoutASplitTokenIsNoSplitToken()
+    {
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("Windows-native test (desktop split-token probe): it runs on Windows CI and is reported as failed on other platforms.");
+        TokenElevationKind elevation;
+        using (System.Security.Principal.WindowsIdentity identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+        {
+            Assert.IsTrue(NativeTokenReader.TryReadInt32(identity.AccessToken, ProtectedNativeMethods.TokenElevationTypeClass, out int value));
+            elevation = (TokenElevationKind)value;
+        }
+        if (elevation is not (TokenElevationKind.Default or TokenElevationKind.Full))
+            Assert.Inconclusive($"Elevation type {elevation}: a split-token host's result depends on its token shape (CI is Default).");
+
+        Assert.AreEqual(ReviewedRouteSplitTokenState.NoSplitToken, ChocolateyReviewedRouteComposition.ProbeSplitTokenState(), elevation.ToString());
+    }
+
     private static ChocolateyReviewedRouteComposition Composition(ScriptedObserver observer, TimeProvider clock) =>
         ChocolateyReviewedRouteComposition.CreateForTests(
             baselines => ChocolateyProfileEvidenceSource.CreateForTests(observer.Observe, baselines, clock, Budget),

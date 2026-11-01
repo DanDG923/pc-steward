@@ -1,6 +1,7 @@
 using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Execution;
+using PCSteward.Provider.Chocolatey.Native;
 
 namespace PCSteward.Security.FixtureTests;
 
@@ -110,6 +111,48 @@ public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
         bool hadCheck = interpretation.CandidateCheck.Kind != ReviewedHelperCandidateCheckKind.NotObserved;
         Assert.AreEqual(hadCheck, carried.Message.StartsWith(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " ", StringComparison.Ordinal), carried.Message);
         Assert.IsFalse(plain.Message.Contains(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// H1/L1 end to end (design rev 6 settle window, rev-4 L4): the real helper endpoint (fake item reporting that the launch
+    /// job closed lingering descendants), the real codec frame, the desktop interpreter, the real workflow and the persisted
+    /// terminal format, then history. The admitted WinGet carrier never records the Chocolatey helper's marker; for the
+    /// runtime-limit route (not admitted, so the workflow cannot run it) the workflow's own marker rule is applied to the
+    /// same observation and recorded message, and history shows the fixed note only when the helper reported the token.
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task TheHelpersLingeringTokenReachesHistoryOnlyForTheRuntimeLimitRoute(bool lingering)
+    {
+        EndpointHarness harness = new();
+        harness.Item.Upgrade = (_, _) => Task.FromResult<ChocolateyUpgradeResult>(
+            new ChocolateyUpgradeResult.Observed(EndpointFixture.Started(0, lingering: lingering)));
+        EndpointRun run = await harness.ExchangeAsync();
+        ReviewedUpdateDispatchObservation observation = run.Interpretation.Observation;
+        Assert.AreEqual(ReviewedUpdateInvocation.Started, observation.Invocation);
+        Assert.AreEqual(lingering, ReviewedUpdateLingeringProcesses.IsReported(observation.Diagnostic), observation.Diagnostic);
+
+        (ReviewedUpdateDispatchResult result, MemoryStore store) = await RunCarrierAsync(observation);
+        Assert.AreEqual(UpdateDispatchOutcome.Success, result.Outcome, result.Message);
+        Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(store.Payload, null, out ReviewedUpdateTerminalRecord? carrierTerminal));
+        Assert.AreEqual(ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage, carrierTerminal!.Diagnostic, "L1: the WinGet route records no marker");
+        ReviewedUpdateHistoryView carrierView = ReviewedUpdateHistoryPresentation.Present(new(store.Claim!.Draft.Operation.JobId, store.Claim.Draft.Operation,
+            UpdateDispatchState.Final, store.Claim.ClaimedAt, carrierTerminal, true));
+        Assert.IsNull(carrierView.LingeringProcessesNote);
+
+        ReviewedUpdateOperation route = run.Operation;
+        Assert.AreEqual(UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, route.RouteContract);
+        string recorded = ReviewedUpdateDispatchWorkflow.WithLingeringMarker(route, observation, carrierTerminal.Diagnostic);
+        UpdateDispatchTerminal terminal = new(carrierTerminal.Outcome, carrierTerminal.OccurredAt, carrierTerminal.ExitCode, recorded,
+            RecordedHelperCandidateCheck.NotObserved);
+        Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(terminal.GetReservedPayload(), null, out ReviewedUpdateTerminalRecord? routeTerminal));
+        ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(new(route.JobId, route, UpdateDispatchState.Final,
+            ReviewedAt.AddMinutes(1), routeTerminal, true));
+        Assert.AreEqual(lingering ? ReviewedUpdateLingeringProcesses.HistoryNote : null, view.LingeringProcessesNote);
+        Assert.AreEqual(ReviewedUpdateHistoryPresentation.TargetVerifiedText, view.VerificationDetail);
+        Assert.AreEqual(ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage, view.Diagnostic, "the visible diagnostic drops the marker");
+        Assert.AreEqual(lingering, routeTerminal!.Diagnostic.StartsWith(ReviewedUpdateLingeringProcesses.Token + " ", StringComparison.Ordinal));
     }
 
     private static async Task<(ReviewedUpdateDispatchResult, MemoryStore)> RunCarrierAsync(ReviewedUpdateDispatchObservation observation)
@@ -224,13 +267,17 @@ public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
     {
         internal UpdateDispatchState? State;
         internal UpdateDispatchTerminal? Terminal;
+        internal UpdateDispatchClaim? Claim;
+        /// <summary>The persisted terminal format, as the store would write it.</summary>
+        internal byte[] Payload = [];
 
         public Task<UpdateDispatchClaim?> TryClaimAsync(ReviewedUpdateDraft draft, FreshUpdateDispatchEvidence evidence, OperationOwnership ownership,
             DateTimeOffset claimedAt, CancellationToken cancellationToken)
         {
             if (State is not null) return Task.FromResult<UpdateDispatchClaim?>(null);
             State = UpdateDispatchState.DispatchClaimed;
-            return Task.FromResult<UpdateDispatchClaim?>(new(Guid.NewGuid(), Guid.NewGuid(), draft, evidence, claimedAt));
+            Claim = new(Guid.NewGuid(), Guid.NewGuid(), draft, evidence, claimedAt);
+            return Task.FromResult<UpdateDispatchClaim?>(Claim);
         }
 
         public Task RecordFinalAsync(UpdateDispatchClaim claim, OperationOwnership ownership, UpdateDispatchTerminal terminal,
@@ -241,6 +288,7 @@ public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
                 throw new InvalidOperationException("Settlement does not match the terminal outcome.");
             State = terminal.Outcome == UpdateDispatchOutcome.Uncertain ? UpdateDispatchState.Uncertain : UpdateDispatchState.Final;
             Terminal = terminal;
+            Payload = terminal.GetReservedPayload(settlement);
             return Task.CompletedTask;
         }
 

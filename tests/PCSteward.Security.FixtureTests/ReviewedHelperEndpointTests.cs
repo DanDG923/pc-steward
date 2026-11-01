@@ -789,6 +789,40 @@ public sealed class ReviewedHelperEndpointTests
         if (scenario == "not-started-termination-failed") Assert.IsTrue(response.Facts.AggregateTerminationFailed);
     }
 
+    /// <summary>
+    /// Design rev 6 settle window (rev-4 L4): a Started launch whose job terminated lingering descendants carries the shared
+    /// lingering-process token in its diagnostic, through the codec and the desktop interpreter; the facts are unchanged
+    /// and every other launch says "launch-started" only.
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task AStartedLaunchReportsTheLingeringTokenOnlyWhenTheJobClosedLingeringDescendants(bool lingering)
+    {
+        EndpointHarness harness = new();
+        harness.Item.Upgrade = (_, _) => Task.FromResult<ChocolateyUpgradeResult>(new ChocolateyUpgradeResult.Observed(F.Started(0, lingering: lingering)));
+
+        EndpointRun run = await harness.ExchangeAsync();
+
+        Assert.AreEqual(ReviewedHelperEndpointExit.ResponseWritten, run.Result.Exit);
+        FramedUpdateResponse response = run.Response;
+        Assert.AreEqual(lingering ? "launch-started; lingering-descendants-terminated" : "launch-started", response.Diagnostic);
+        Assert.IsTrue(ReviewedUpdateLingeringProcesses.IsReported(ReviewedHelperEndpoint.LaunchStartedLingeringDiagnostic), "the endpoint uses the desktop's shared token");
+        Assert.IsFalse(ReviewedUpdateLingeringProcesses.IsReported(ReviewedHelperEndpoint.LaunchStartedDiagnostic));
+        Assert.AreEqual(ReviewedHelperQualification.Matched, response.Reviewed.Qualification);
+        Assert.AreEqual(UpdateWireInvocation.Started, response.Facts.Invocation);
+        Assert.AreEqual(0, response.Facts.ExitCode);
+        Assert.IsTrue(response.Facts.AggregateSettlementConfirmed);
+        Assert.IsFalse(response.Facts.AggregateTerminationFailed || response.Facts.Cancelled || response.Facts.TimedOut || response.Facts.OutputLimitExceeded);
+
+        ReviewedUpdateDispatchObservation observation = run.Interpretation.Observation;
+        Assert.AreEqual(response.Diagnostic, observation.Diagnostic, "the interpreter accepts and keeps the diagnostic");
+        Assert.AreEqual(lingering, ReviewedUpdateLingeringProcesses.IsReported(observation.Diagnostic));
+        Assert.AreEqual(ReviewedUpdateProviderStatus.Completed, observation.Status, "the token never changes the status");
+        Assert.IsTrue(Protocol2InterpreterFixture.IsSettled(observation));
+        Assert.AreEqual(ReviewedHelperCandidateCheckKind.Confirmed, run.Interpretation.CandidateCheck.Kind);
+    }
+
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]

@@ -45,8 +45,8 @@ internal static class EndpointFixture
         ReviewedUpdateWireCodec.CreateRequest(payload, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload)), Nonce, Start);
 
     internal static NativeProcessObservation Started(int exit = 0, bool settled = true, bool cancelled = false, bool timedOut = false,
-        bool outputLimit = false) =>
-        new(NativeInvocation.Started, exit, true, true, true, false, settled, cancelled, timedOut, outputLimit, false, "", "");
+        bool outputLimit = false, bool lingering = false) =>
+        new(NativeInvocation.Started, exit, true, true, true, false, settled, cancelled, timedOut, outputLimit, lingering, "", "");
 
     internal static NativeProcessObservation NotStarted(bool settled = true, bool terminationFailed = false, bool cancelled = false, bool timedOut = false) =>
         new(NativeInvocation.NotStarted, null, false, false, false, terminationFailed, settled, cancelled, timedOut, false, false, "", "");

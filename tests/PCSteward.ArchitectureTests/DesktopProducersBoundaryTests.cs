@@ -115,7 +115,9 @@ public sealed class DesktopProducersBoundaryTests
 
     /// <summary>
     /// The CRITICAL scope limit of N6: the runtime-limit Chocolatey route stays non-admitted. The review gate admits only
-    /// <c>WinGetUserExactV3</c>, and no <c>src</c> type implements a route dispatcher for any Chocolatey route.
+    /// <c>WinGetUserExactV3</c>, nothing in <c>src</c> constructs the reviewed dispatch workflow, and nothing in <c>src</c>
+    /// constructs the route's dispatcher (<c>PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher</c>, which exists for
+    /// the not-yet-admitted route; <c>DeploymentCapabilityBoundaryTests</c> also pins its non-composition on source).
     /// </summary>
     [TestMethod]
     public void TheRuntimeLimitRouteStaysNonAdmitted()
@@ -128,12 +130,23 @@ public sealed class DesktopProducersBoundaryTests
         Assert.IsFalse(body.Contains("Chocolatey", StringComparison.Ordinal), "HasSupportedMode must not admit a Chocolatey route");
         Assert.AreEqual(1, Regex.Count(body, @"RouteContract\s*=="), "HasSupportedMode compares the route with exactly one contract");
 
-        // No src code composes the reviewed dispatch workflow, so no UI path can reach any route dispatcher.
+        // No src code composes the reviewed dispatch workflow or the runtime-limit route dispatcher, so no UI path can reach it.
+        const string RouteDispatcher = "PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher";
+        List<string> assemblies = RequireBuilt();
+        string execution = assemblies.Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Execution");
+        Assert.IsTrue(CompiledIlScanner.MethodDefinitions(execution).Any(method => method.Type == RouteDispatcher && method.Method == ".ctor"),
+            "the scan must see the route dispatcher's constructor, or its non-construction proves nothing");
         List<string> violations = [];
-        foreach (string path in RequireBuilt())
+        foreach (string path in assemblies)
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+            {
                 if (reference.TargetMember == ".ctor" && reference.TargetType == "PCSteward.Application.ReviewedUpdateDispatchWorkflow")
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the reviewed dispatch workflow");
+                // Only its own constructor chaining (": this(...)") may reference its constructor.
+                if (reference.TargetMember == ".ctor" && reference.TargetType == RouteDispatcher &&
+                    !(reference.Caller == RouteDispatcher && reference.CallerMethod == ".ctor"))
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the runtime-limit route dispatcher");
+            }
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
     }
 
