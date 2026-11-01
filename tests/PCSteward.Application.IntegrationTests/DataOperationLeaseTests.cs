@@ -108,8 +108,15 @@ public sealed class DataOperationLeaseTests
         Assert.AreEqual(0, fixture.Reconciliations);
         using (DataOperationLease.EnterBootstrapForTesting(session, reconciledClear: true))
             Assert.IsTrue(DataOperationLease.RunOnCurrentThread(_ => true, DataOperationKind.Mutating, (_, _) => null, () => true, null, CancellationToken.None));
-        // After the scope ends, the facade acquires again (and the session above still holds the gate, so it is busy).
-        Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Run(DataOperationKind.Read));
+        // After the scope ends the facade acquires again. Native mutexes are re-entrant on their owning thread, so
+        // contention is observed from another thread while the bootstrap session still holds the gate.
+        // Block synchronously: the session must be released on this (acquiring) thread, so no await may move it.
+        Exception? contended = Task.Factory.StartNew(() =>
+        {
+            try { fixture.Run(DataOperationKind.Read); return null; }
+            catch (Exception exception) { return exception; }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).GetAwaiter().GetResult();
+        Assert.IsInstanceOfType<InvalidOperationException>(contended);
     }
 
     private sealed class Fixture
