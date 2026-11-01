@@ -2,7 +2,7 @@
 
 Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `AC-UPD-01–11`, `TM-03/04/07/13`; retained `FR-UPD-08/09/14`, `TM-06`.
 
-Status: **revision 2, for re-review.** Revision 1 (`c95fc34`, SHA-256 `4f8373fd…e312`) was CONDITIONAL on both parts: Part A had 2 Medium and 3 Low findings, Part B had 1 Medium and 3 Low, and neither had a Blocker or High. This revision discharges two of the four N5 items in [protocol-2 fact extension rev 3](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) §10. It also covers O2 / review-9 L3 (the `EvidenceId` format). It adds no code and grants no route admission, deployment, redeploy, host read, UAC or update authority. `ReviewedUpdateReview.HasSupportedMode` still admits only `WinGetUserExactV3`.
+Status: **independently reviewed specification — PASS at revision 2** (`e801692`, SHA-256 `cca2d3eb…7b7f`; revision 1 at `c95fc34` was CONDITIONAL). Low findings are binding implementation obligations (§R). This is a design review result inside owner-accepted ADR-025. Still owner-gated: acceptance of the G2 ADR-022 alignment-note wording when the implementation lands, separate exact approval for any v2 redeploy, and the O5 contingency. It adds no code and grants no deployment, host-read, UAC or update authority.
 
 Sources read: AGENTS.md; fact extension rev 3 (all sections); dispatch composition and its Task 90 remediation; ADR-025 (protocol boundary and the ADR-022 row of the amendment map); ADR-022 including the Task 48 pinned-payload amendment; handover §3–§4; Profile V2; V2 task contract (validation and migration rule). Code read at `aad760e`: `ReviewedUpdateDispatchWorkflow.cs`, `UpdateDispatchAdmission.cs`, `ReviewedUpdateHistory.cs`, `SqliteReviewedUpdateHistory.cs`, `SqliteUpdateDispatches.cs`, `SqliteReviewedOperations.cs`, `ReviewedUpdateOperation.cs`, `ReviewedUpdateProtocol2Interpreter.cs`, `ReviewedUpdateWireCodec.cs`, `WindowsElevatedHelperTransport.cs` (`InstalledHelperLaunchTrust`, `ProtectedLaunchLayout`), `ChocolateyVersionGrammar.cs`, `ChocolateyNativeVersion.cs`, `scripts/Install-`/`Test-OwnerOnlyProtectedTestDeployment.ps1`, `scripts/OwnerOnlyPayloadIntegrity.ps1`, and the architecture tests.
 
@@ -400,3 +400,18 @@ Storing the fingerprint or the diagnostic as a fact; any change to `Status`, set
 The fresh-`EvidenceId` observation from revision 1 is now the route-specific rule in A.6.1.
 
 Owner actions: accept the ADR-022 alignment-note wording (G2) during the implementation task, and give separate exact approval for any v2 redeploy. Beyond that, no owner question arises other than the existing O5 contingency.
+
+## §R. Review record and binding implementation obligations (revision 2 PASS)
+
+| # | Obligation |
+|---|---|
+| A2-L1 | Specify a closed ledger key set **per writer variant**. The installer also writes `schema`, `certificateSubject`, `ownedCertificateStores` and `createdAtUtc`; pending and rollback ledgers add `pendingCertificate`, `rollbackFailures` and `originalFailure`, and may hold a null thumbprint. Add a fixture test against the actual scripts so that real ledgers are not all rejected and `Incomplete` stays reachable. |
+| A2-L2 | A v2 redeploy from a v1 host needs a reviewed redeploy-template or plan-schema change: the template hard-codes the `legacy-v6` preflight (line 60) and the v1 postcondition (line 74). A new embedded plan alone is not enough. Owner approval remains separate. |
+| A2-L3 | Windows evidence: the `TryProbeRights` write probes, run while read-share handles are held, must still return ACCESS_DENIED (a sharing violation already fails closed). |
+| A2-L4 | Bind `PCSteward.Desktop.dll` as well as the apphost, or reword the "foreign desktop" claim. |
+| A2-L5 | The fallback names its reference identity (the FileIdInfo captured before launch) and states that it detects replacement only. |
+| A2-L6 | Restate the claim-to-TryConsume mismatch case as "the same result at all three `Matches` sites" (evidence and operation are immutable). F′ must use the Profile V2 observer including its protection checks, not just the same normal form. |
+| B2-L1 | Require the version grammar in **every** production composition root (Desktop and ScheduledHost). The no-grammar constructor is test-only. |
+| B2-L2 | Guarantee every written v3 row is readable: add a write-side grammar check or a test proving writer and reader agree. |
+| Authority | Owner: (a) accept the G2 ADR-022 alignment-note wording, reconciled with ADR-022 Task 48's "no runtime updater capability changes"; (b) separate exact approval for any v2 redeploy; (c) the O5 contingency. A-Q1 and O5 evidence need separately authorized exact-artifact Windows host tests (ADR-025 follow-up controls). |
+| Open | A-Q1 remains native evidence required before admission and does not block the spec. B-Q4 is closed: writing v2 for NotObserved is correct. Nit: the transport comparison is at lines 852–853. |
