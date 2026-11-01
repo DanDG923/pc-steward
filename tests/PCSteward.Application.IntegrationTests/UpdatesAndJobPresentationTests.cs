@@ -10,7 +10,7 @@ namespace PCSteward.Application.IntegrationTests;
 [TestClass]
 public sealed class UpdatesAndJobPresentationTests
 {
-    private static readonly string[] ExpectedFactLabels = ["App", "Version", "Publisher", "Source", "Package ID", "Scope", "Architecture", "Channel"];
+    private static readonly string[] ExpectedFactLabels = ["App", "Version", "Publisher", "Source", "Updated with", "Package ID", "Scope", "Architecture", "Channel"];
     private static readonly string[] FourOutcomeLabels = ["Verified", "Restart required", "Installed, not verified", "Failed"];
     private static readonly string[] ReadyKeys = ["ready"];
     private static readonly string[] NeedsReviewKeys = ["review", "unavailable"];
@@ -188,6 +188,7 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.AreEqual("1.0 → 2.0", Fact(sheet, "Version"));
         Assert.AreEqual("Contoso Ltd", Fact(sheet, "Publisher"));
         Assert.AreEqual("WinGet", Fact(sheet, "Source"));
+        Assert.AreEqual("WinGet", Fact(sheet, "Updated with"), "the exact provider is named (protected UI behaviour)");
         Assert.AreEqual("Contoso.Widget", Fact(sheet, "Package ID"));
         Assert.AreEqual("All users (machine-wide)", Fact(sheet, "Scope"));
         Assert.AreEqual("x64", Fact(sheet, "Architecture"));

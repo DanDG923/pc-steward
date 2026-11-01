@@ -61,9 +61,9 @@ public sealed record ReviewRiskCallout(ReviewRiskKind Kind, string Title, string
 /// </summary>
 public sealed class UpdateReviewSheet
 {
-    /// <summary>The §17.2 fact labels, in display order.</summary>
+    /// <summary>The §17.2 fact labels plus the provider (a protected UI behaviour), in display order.</summary>
     public static IReadOnlyList<string> FactLabels { get; } =
-        ["App", "Version", "Publisher", "Source", "Package ID", "Scope", "Architecture", "Channel"];
+        ["App", "Version", "Publisher", "Source", "Updated with", "Package ID", "Scope", "Architecture", "Channel"];
 
     private UpdateReviewSheet(string appName, IReadOnlyList<ReviewFact> facts, string confidenceSummary, IReadOnlyList<string> confidenceEvidence,
         IReadOnlyList<ReviewRiskCallout> risks, string coverageDisclosure, string attestation, string primaryButtonLabel, string primaryAutomationName,
@@ -109,6 +109,8 @@ public sealed class UpdateReviewSheet
             new("Version", $"{selection.InstalledVersion} → {selection.CandidateVersion}"),
             new("Publisher", string.IsNullOrWhiteSpace(publisher) ? "Not recorded" : publisher.Trim()),
             new("Source", Source(selection.Source)),
+            // Protected UI behaviour: the final confirmation names the exact provider that runs the update.
+            new("Updated with", selection.Provider == UpdateProvider.Chocolatey ? "Chocolatey" : "WinGet"),
             new("Package ID", selection.PackageId),
             new("Scope", selection.Scope == UpdateScope.Machine ? "All users (machine-wide)" : "Current user"),
             new("Architecture", Architecture(selection.Architecture)),
