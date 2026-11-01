@@ -29,6 +29,23 @@ internal sealed class N1NativeFixture : IDisposable
         User = identity.User ?? throw new InvalidOperationException("No user SID.");
         Assert.IsTrue(NativeTokenReader.TryReadGroups(identity.AccessToken, out IReadOnlyList<NativeTokenGroup> groups));
         Logon = new SecurityIdentifier(groups.First(group => (group.Attributes & Win32.SeGroupLogonId) == Win32.SeGroupLogonId).Sid);
+        GrantOwnerFullControl(Root, User);
+    }
+
+    /// <summary>
+    /// CI hardening: the CI user's TEMP sits under the checkout, where that user is granted only Modify, so whether
+    /// <see cref="Protect"/> may set the owner (WRITE_OWNER) depended on what the runner's inherited ACL happened to
+    /// provide (intermittent <c>UnauthorizedAccessException</c> in <see cref="LockTree"/>). The creator owns the new root and
+    /// therefore holds WRITE_DAC implicitly, so it adds one inheritable FullControl ACE for itself, keeping every inherited
+    /// ACE. Nodes the tests lock still get their own protected DACLs, so no evaluated verdict changes.
+    /// </summary>
+    private static void GrantOwnerFullControl(string root, SecurityIdentifier user)
+    {
+        DirectoryInfo directory = new(root);
+        DirectorySecurity security = directory.GetAccessControl(AccessControlSections.Access);
+        security.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+        directory.SetAccessControl(security);
     }
 
     internal string Root { get; }
