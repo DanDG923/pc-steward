@@ -91,7 +91,8 @@ public static class DataResetPresenter
     /// <summary>The exact, case-sensitive text the final factory-reset confirmation requires.</summary>
     public const string FactoryResetConfirmationPhrase = "RESET";
 
-    public const string NotMeasured = "Not measured separately (kept in PC Steward's local database)";
+    /// <summary>Shown where PC Steward records no size for a category, rather than inventing one.</summary>
+    public const string NotMeasured = "Not measured separately";
 
     public const string ProviderCacheBoundary = "PC Steward never deletes Windows, WinGet, Microsoft Store or other providers' caches, and never touches installed apps. Each action removes only its named PC Steward category, and each one asks you to confirm first.";
 

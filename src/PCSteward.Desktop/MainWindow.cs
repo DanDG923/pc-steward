@@ -1892,8 +1892,8 @@ public sealed class MainWindow : Window
 
         // Scan scope / AppX.
         StackPanel scope = new() { Spacing = StewardSpacing.Small };
-        CheckBox local = new() { Content = "On (required · local only)", IsChecked = true, IsEnabled = false };
-        AutomationProperties.SetName(local, "Windows local inventory (required · local only)");
+        CheckBox local = new() { Content = "Always on", IsChecked = true, IsEnabled = false };
+        AutomationProperties.SetName(local, "Windows local inventory: Always on (required · local only)");
         scope.Children.Add(StewardVisuals.SettingsRow("Windows local inventory", "Installed apps that Windows reports for this PC. Always on, read-only and never shared.", local));
         ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
         ToggleSwitch includeAppx = new() { IsOn = appx.IsEnabled, OffContent = "Off", OnContent = "On" };
