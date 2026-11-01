@@ -477,9 +477,12 @@ public sealed class DeploymentCapabilityReaderTests
 
         internal string Leaf(string leaf) => Path.Combine(InstallRoot, leaf);
 
-        internal static DeploymentTree Create(Fixture fixture, byte[]? capability = null)
+        internal static DeploymentTree Create(Fixture fixture, byte[]? capability = null) => Create(fixture.Root, capability);
+
+        /// <summary>N4b: the same tree under any fixture root (for example an N1 fixture whose ACLs the test sets).</summary>
+        internal static DeploymentTree Create(string root, byte[]? capability = null)
         {
-            DeploymentTree tree = new(fixture.Root);
+            DeploymentTree tree = new(root);
             Directory.CreateDirectory(tree.InstallRoot);
             Directory.CreateDirectory(tree.StateRoot);
             capability ??= DeploymentCapabilityPolicy.CanonicalCapabilityBytes();

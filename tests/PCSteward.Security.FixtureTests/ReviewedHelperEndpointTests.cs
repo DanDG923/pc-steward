@@ -907,17 +907,7 @@ public sealed class ReviewedHelperEndpointTests
         Assert.IsTrue(harness.Item.Disposed);
     }
 
-    // ---- No entry-point wiring (N4b) ----
-
-    [TestMethod]
-    public async Task TheProtocol2EntryPointStillExitsWithCode20()
-    {
-        string[] arguments =
-        [
-            "--protocol", "2", "--desktop-pid", "4242", "--pipe", WindowsReviewedHelperTransport.CreatePipeName(), "--nonce", F.Nonce,
-        ];
-        Assert.AreEqual(20, await ElevatedHelperEntryPoint.RunAsync(arguments).WaitAsync(F.Wait));
-    }
+    // N4b: the protocol-2 entry-point dispatch and bootstrap are covered by ReviewedHelperBootstrapTests.
 
     // ---- Assertions ----
 
