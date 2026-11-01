@@ -19,6 +19,9 @@ namespace PCSteward.ArchitectureTests;
 /// are the only <c>src</c> implementations of the port interfaces and <c>HelperDeploymentCapabilityCheck</c> the only one of the
 /// G1 seam; the composition root constructs only the native port;</item>
 /// <item>the native item's test seams have no <c>src</c> caller;</item>
+/// <item>by compiled signature (N4b review L5): the G1 check's production constructor, the Helper-role reader constructor,
+/// <c>ResolveHelperLayout</c> and the <c>ReviewedHelperHost</c> constructor each have only their pinned callers, and protocol-2
+/// peer trust uses the shared cache-only Authenticode policy;</item>
 /// <item><c>--protocol 2</c> is dispatched to the reviewed bootstrap, which alone calls the endpoint and accepts only the
 /// protocol-2 locator; the protocol-1 path names no protocol-2 type and still refuses <c>--protocol 2</c> itself.</item>
 /// </list>
@@ -285,6 +288,88 @@ public sealed class HelperEndpointBoundaryTests
         StringAssert.Contains(bootstrap, "TokenImpersonationLevel.Identification");
         foreach (string path in Sources(Path.Combine(src, "PCSteward.ElevatedHelper")))
             Assert.IsFalse(File.ReadAllText(path).Contains("ReviewedHelperEndpoint", StringComparison.Ordinal), path);
+    }
+
+    [TestMethod]
+    public void ProductionG1AndHostConstructionArePinnedBySignature()
+    {
+        // N4b review L5: overloads are told apart by their compiled parameter types, not by name alone.
+        List<string> assemblies = RequireBuilt();
+        const string Reader = "PCSteward.Execution.OwnerOnlyDeploymentCapabilityReader";
+        const string Host = "PCSteward.Execution.ReviewedHelperHost";
+        const string LayoutFactory = "(System.Func`1<PCSteward.Execution.DeploymentCapabilityLayout>)";
+        const string ReaderTwo = "(System.Func`1<PCSteward.Execution.DeploymentCapabilityLayout>, PCSteward.Execution.DeploymentLayoutProtectionCheck)";
+        const string ReaderRole = "(PCSteward.Execution.DeploymentCapabilityRole, System.Func`1<PCSteward.Execution.DeploymentCapabilityLayout>, " +
+            "PCSteward.Execution.DeploymentLayoutProtectionCheck)";
+        const string HostFacts = "(System.String, System.String, System.String, System.Int32)";
+        // Each permitted edge: target type, member, target signature, logical caller, caller signature (null: any).
+        (string Type, string Member, string Signature, string Caller, string? CallerSignature)[] permitted =
+        [
+            // Only the composition root constructs the G1 check, and only through the production (parameterless) constructor;
+            // the fixture-layout overload is reached only by that constructor's chain.
+            (CapabilityCheck, ".ctor", "()", EntryPoint + ".RunReviewedAsync", null),
+            (CapabilityCheck, ".ctor", LayoutFactory, CapabilityCheck + "..ctor", "()"),
+            // The fixed helper layout is bound only by the production constructor.
+            (Reader, "ResolveHelperLayout", "()", CapabilityCheck + "..ctor", "()"),
+            // The Helper-role reader (the role and protection-principal constructor) is constructed only by G1's Evaluate; the
+            // reader's other constructors only chain into it and have no other src caller.
+            (Reader, ".ctor", ReaderRole, CapabilityCheck + ".Evaluate", null),
+            (Reader, ".ctor", ReaderRole, Reader + "..ctor", ReaderTwo),
+            (Reader, ".ctor", ReaderTwo, Reader + "..ctor", "()"),
+            // The host facts are constructed only from the running process; the record's copy constructor only by its clone.
+            (Host, ".ctor", HostFacts, Host + ".TryResolve", null),
+            (Host, ".ctor", "(" + Host + ")", Host + ".Clone", "()"),
+        ];
+        string[] watched = [CapabilityCheck + "..ctor", Reader + "..ctor", Reader + ".ResolveHelperLayout", Host + "..ctor", Host + ".<Clone>$"];
+        List<string> violations = [];
+        HashSet<int> seen = [];
+        foreach (string path in assemblies)
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+            {
+                if (!watched.Contains(reference.TargetType + "." + reference.TargetMember)) continue;
+                int index = Array.FindIndex(permitted, edge => edge.Type == reference.TargetType && edge.Member == reference.TargetMember &&
+                    edge.Signature == reference.TargetSignature && edge.Caller == reference.LogicalCaller &&
+                    (edge.CallerSignature is null || edge.CallerSignature == reference.CallerSignature));
+                if (index >= 0) seen.Add(index);
+                else violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller}{reference.CallerSignature} -> " +
+                    $"{reference.TargetType}.{reference.TargetMember}{reference.TargetSignature}");
+            }
+        Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
+        // Every pinned edge exists (the signatures above are the compiled ones, so the scan is not vacuous).
+        string[] missing = [.. Enumerable.Range(0, permitted.Length).Where(index => !seen.Contains(index))
+            .Select(index => $"{permitted[index].Caller} -> {permitted[index].Type}.{permitted[index].Member}{permitted[index].Signature}")];
+        Assert.AreEqual(0, missing.Length, string.Join(Environment.NewLine, missing));
+
+        // The role argument at the one Evaluate construction site is the Helper role (source; the IL constant is not scanned).
+        string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Execution");
+        string check = File.ReadAllText(Path.Combine(src, "HelperDeploymentCapabilityCheck.cs"));
+        Assert.AreEqual(1, Regex.Count(check, @"OwnerOnlyDeploymentCapabilityReader reader = new\(DeploymentCapabilityRole\.Helper, \(\) => layout, requesterCannotModify\);"));
+        string[] naming = [.. Sources(src).Where(path => File.ReadAllText(path).Contains("DeploymentCapabilityRole.Helper", StringComparison.Ordinal))
+            .Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)];
+        Assert.AreEqual("HelperDeploymentCapabilityCheck.cs, OwnerOnlyDeploymentCapabilityReader.cs", string.Join(", ", naming));
+    }
+
+    [TestMethod]
+    public void ProtocolTwoPeerTrustUsesTheSharedCacheOnlyAuthenticodePolicy()
+    {
+        // N4b review M2: the handle-based VerifyPeer reaches WinVerifyTrust only through AuthenticodeIdentity, whose policy has
+        // no revocation check and cache-only URL retrieval, so peer verification does no network I/O.
+        List<string> assemblies = RequireBuilt();
+        string execution = assemblies.Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Execution");
+        string[] called = [.. CompiledIlScanner.References(execution)
+            .Where(reference => reference.LogicalCaller == Verifier + ".VerifyPeer" && reference.CallerSignature.StartsWith("(" + Native + "IChocolateyPeer,", StringComparison.Ordinal))
+            .Select(reference => reference.TargetType + "." + reference.TargetMember)];
+        CollectionAssert.Contains(called, "PCSteward.Execution.AuthenticodeIdentity.IsTrustedAndSameSigner");
+        string[] trustCallers = [.. CompiledIlScanner.References(execution)
+            .Where(reference => reference.TargetType == "PCSteward.Execution.NativeMethods" && reference.TargetMember == "WinVerifyTrust")
+            .Select(reference => reference.LogicalCaller).Distinct()];
+        Assert.AreEqual("PCSteward.Execution.AuthenticodeIdentity.VerifyTrust", string.Join(", ", trustCallers));
+
+        string transport = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
+        StringAssert.Contains(transport, "RevocationChecks = NativeMethods.WtdRevokeNone,");
+        StringAssert.Contains(transport, "ProviderFlags = NativeMethods.WtdCacheOnlyUrlRetrieval");
+        StringAssert.Contains(transport, "internal const uint WtdRevokeNone = 0;");
+        StringAssert.Contains(transport, "internal const uint WtdCacheOnlyUrlRetrieval = 0x00001000;");
     }
 
     [TestMethod]

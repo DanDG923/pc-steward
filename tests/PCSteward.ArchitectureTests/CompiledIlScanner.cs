@@ -23,6 +23,15 @@ internal static class CompiledIlScanner
         /// <summary>The calling method's metadata name (for example <c>MoveNext</c> or <c>&lt;M&gt;b__0_0</c>).</summary>
         internal string? CallerMethod { get; init; }
 
+        /// <summary>The calling method's parameter types, for example <c>(System.String, System.Int32)</c>.</summary>
+        internal string CallerSignature { get; init; } = string.Empty;
+
+        /// <summary>
+        /// A method target's parameter types, for example <c>(System.String, System.Int32)</c>, with generic instantiations as
+        /// <c>System.Func`1&lt;T&gt;</c>; empty for a field or type target. Distinguishes overloads (N4b review L5).
+        /// </summary>
+        internal string TargetSignature { get; init; } = string.Empty;
+
         /// <summary>
         /// The source-level caller "Type.Method": compiler-generated nested types (async/iterator state machines, display
         /// classes, <c>&lt;&gt;c</c>) and lambda/local-function names are mapped back to the declaring source method.
@@ -75,6 +84,7 @@ internal static class CompiledIlScanner
                 MethodDefinition method = md.GetMethodDefinition(methodHandle);
                 string callerMethod = md.GetString(method.Name);
                 if (method.RelativeVirtualAddress == 0) continue;
+                string callerSignature = Parameters(method.DecodeSignature(SignatureNames.Instance, null));
                 BlobReader il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILReader();
                 while (il.RemainingBytes > 0)
                 {
@@ -85,8 +95,12 @@ internal static class CompiledIlScanner
                     switch (code.OperandType)
                     {
                         case OperandType.InlineMethod or OperandType.InlineTok or OperandType.InlineField or OperandType.InlineType:
-                            if (TryResolve(md, MetadataTokens.EntityHandle(il.ReadInt32()), out string type, out string member, out ReferenceKind kind))
-                                yield return new IlReference(caller, type, member, kind) { CallerType = callerType, CallerMethod = callerMethod };
+                            if (TryResolve(md, MetadataTokens.EntityHandle(il.ReadInt32()), out string type, out string member, out ReferenceKind kind,
+                                out string signature))
+                                yield return new IlReference(caller, type, member, kind)
+                                {
+                                    CallerType = callerType, CallerMethod = callerMethod, CallerSignature = callerSignature, TargetSignature = signature,
+                                };
                             break;
                         case OperandType.InlineSwitch:
                             // Read the count first: "il.Offset += 4 * il.ReadInt32()" would read Offset before the count.
@@ -168,9 +182,10 @@ internal static class CompiledIlScanner
         throw new InvalidOperationException("Repository root was not found.");
     }
 
-    private static bool TryResolve(MetadataReader md, EntityHandle handle, out string type, out string member, out ReferenceKind kind)
+    private static bool TryResolve(MetadataReader md, EntityHandle handle, out string type, out string member, out ReferenceKind kind,
+        out string signature)
     {
-        type = member = string.Empty;
+        type = member = signature = string.Empty;
         kind = ReferenceKind.Method;
         switch (handle.Kind)
         {
@@ -178,6 +193,7 @@ internal static class CompiledIlScanner
                 MethodDefinition definition = md.GetMethodDefinition((MethodDefinitionHandle)handle);
                 type = FullName(md, definition.GetDeclaringType());
                 member = md.GetString(definition.Name);
+                signature = Parameters(definition.DecodeSignature(SignatureNames.Instance, null));
                 return true;
             case HandleKind.FieldDefinition:
                 FieldDefinition field = md.GetFieldDefinition((FieldDefinitionHandle)handle);
@@ -189,6 +205,7 @@ internal static class CompiledIlScanner
                 MemberReference reference = md.GetMemberReference((MemberReferenceHandle)handle);
                 member = md.GetString(reference.Name);
                 kind = reference.GetKind() == MemberReferenceKind.Method ? ReferenceKind.Method : ReferenceKind.Field;
+                if (kind == ReferenceKind.Method) signature = Parameters(reference.DecodeMethodSignature(SignatureNames.Instance, null));
                 type = reference.Parent.Kind switch
                 {
                     HandleKind.TypeReference => FullName(md, (TypeReferenceHandle)reference.Parent),
@@ -200,7 +217,8 @@ internal static class CompiledIlScanner
                 };
                 return type.Length != 0;
             case HandleKind.MethodSpecification:
-                return TryResolve(md, md.GetMethodSpecification((MethodSpecificationHandle)handle).Method, out type, out member, out kind);
+                return TryResolve(md, md.GetMethodSpecification((MethodSpecificationHandle)handle).Method, out type, out member, out kind,
+                    out signature);
             case HandleKind.TypeDefinition:
                 type = FullName(md, (TypeDefinitionHandle)handle);
                 kind = ReferenceKind.Type;
@@ -254,6 +272,31 @@ internal static class CompiledIlScanner
     }
 
     private static string Qualify(string ns, string name) => ns.Length == 0 ? name : ns + "." + name;
+
+    private static string Parameters(MethodSignature<string> signature) => "(" + string.Join(", ", signature.ParameterTypes) + ")";
+
+    /// <summary>Type names for decoded signatures: full metadata names, generic instantiations as <c>Name`n&lt;args&gt;</c>.</summary>
+    private sealed class SignatureNames : ISignatureTypeProvider<string, object?>
+    {
+        internal static readonly SignatureNames Instance = new();
+
+        public string GetArrayType(string elementType, ArrayShape shape) => elementType + "[" + new string(',', shape.Rank - 1) + "]";
+        public string GetByReferenceType(string elementType) => elementType + "&";
+        public string GetFunctionPointerType(MethodSignature<string> signature) => "method*" + Parameters(signature);
+        public string GetGenericInstantiation(string genericType, System.Collections.Immutable.ImmutableArray<string> typeArguments) =>
+            genericType + "<" + string.Join(", ", typeArguments) + ">";
+        public string GetGenericMethodParameter(object? genericContext, int index) => "!!" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        public string GetGenericTypeParameter(object? genericContext, int index) => "!" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+        public string GetPinnedType(string elementType) => elementType;
+        public string GetPointerType(string elementType) => elementType + "*";
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => "System." + typeCode;
+        public string GetSZArrayType(string elementType) => elementType + "[]";
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => FullName(reader, handle);
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => FullName(reader, handle);
+        public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) =>
+            reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    }
 
     private static int OperandSize(OperandType type) => type switch
     {
