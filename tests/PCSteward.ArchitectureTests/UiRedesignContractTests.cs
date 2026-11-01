@@ -541,6 +541,36 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(mapping.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Task 73 Phase 3 (FR-HIS-01–03): Activity is a read-only, filterable, day-grouped history built by the portable presenter, with
+    /// the Phase 2 outcome states and sanitized details, and keeps the Task 50 reviewed-outcomes section. The history reader only reads.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-HIS-01–03: filterable day-grouped Activity, honest outcomes, sanitized details, read-only reader, Task 50 section kept.")]
+    public void ActivityIsAReadOnlyFilterableHistoryThatKeepsReviewedOutcomes()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string activity = Between(source, "private StackPanel BuildActivityPage()", "private void AddReviewedUpdateOutcomesSection(");
+        StringAssert.Contains(activity, "ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows)");
+        StringAssert.Contains(activity, "ActivityPresenter.Build(entries, activityFilter, DateTimeOffset.UtcNow)");
+        StringAssert.Contains(activity, "foreach (ActivityDay day in page.Days)");
+        StringAssert.Contains(activity, "Header = \"Details\"");
+        StringAssert.Contains(activity, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
+        int days = activity.IndexOf("foreach (ActivityDay day in page.Days)", StringComparison.Ordinal);
+        int reviewed = activity.IndexOf("AddReviewedUpdateOutcomesSection(panel);", StringComparison.Ordinal);
+        Assert.IsTrue(days >= 0 && reviewed > days, "the Task 50 reviewed-outcomes section is kept");
+        foreach (string action in new[] { "workflow.", "DataOperationLease.Run", "ReviewAndExecuteAsync", "FileSavePicker", "Export", "Clear" })
+            Assert.IsFalse(activity.Contains(action, StringComparison.Ordinal), $"Activity is read-only: {action}");
+
+        string presenter = ApplicationSource("ActivityPresentation.cs");
+        StringAssert.Contains(presenter, "UpdateOutcomePresenter.ForStatus(final.Status, final.Diagnostic, final.ExitCode, final.TargetVersion)");
+        StringAssert.Contains(presenter, "SanitizedDiagnosticBundle.Sanitize(job.Final.Diagnostic)");
+        string reader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Persistence.Sqlite", "SqliteActivityHistory.cs"));
+        foreach (string write in new[] { "INSERT", "UPDATE ", "DELETE", "CREATE ", "DROP", "ExecuteNonQuery" })
+            Assert.IsFalse(reader.Contains(write, StringComparison.Ordinal), $"the activity reader only reads: {write}");
+        StringAssert.Contains(reader, "LIMIT $limit");
+    }
+
     private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
 
     private static string ApplicationSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", relativePath));

@@ -976,40 +976,97 @@ public sealed class MainWindow : Window
         return panel;
     }
 
+    /// <summary>
+    /// FR-HIS-01–03 (Task 73 Phase 3, ADR-030): a filterable history (All, Updates, Scans, Problems) grouped by day. Each update shows
+    /// its Phase 2 outcome, start and end time, provider, package ID and target version; Details shows the exit code, the failure
+    /// class and the sanitized recorded output. The Task 50 reviewed-outcomes section (route, verification, running installers,
+    /// helper report) follows unchanged. Read-only: nothing here deletes, exports or starts anything.
+    /// </summary>
     private StackPanel BuildActivityPage()
     {
         StackPanel panel = CreatePagePanel();
         Button privacy = new() { Content = "Privacy & data" };
         AutomationProperties.SetName(privacy, "View privacy and local data controls");
         privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy);
-        panel.Children.Add(StewardVisuals.PageHeader("Activity", "A local ledger of completed inventory and reversible decisions. PC Steward does not upload activity telemetry.", null, privacy));
+        panel.Children.Add(StewardVisuals.PageHeader("Activity", "Scans, updates and decisions recorded on this PC. PC Steward does not upload activity telemetry.", null, privacy));
+        if (activityHistoryUnavailable)
+            panel.Children.Add(StewardVisuals.InformationBanner("Recorded history unavailable", "PC Steward couldn't read its recorded update and scan history just now. Nothing was changed; try again later.", "neutral"));
 
-        List<(DateTimeOffset OccurredAt, string Glyph, string Title, string Detail)> activity = [];
-        if (viewModel.LastScanAt is { } lastScan)
-            activity.Add((lastScan, "\uE721", "Inventory completed", $"{viewModel.AllRows.Count:N0} canonical applications · {viewModel.ScanModeLabel}."));
-        activity.AddRange(activeDecisions.Select(decision =>
-            (decision.CreatedAt, "\uE8C8", $"{decision.Kind} decision saved", $"{decision.Value}{(string.IsNullOrWhiteSpace(decision.Reason) ? string.Empty : $" · {decision.Reason}")}")));
-        activity.AddRange(manualMappings.Select(mapping =>
-            (mapping.CreatedAt, "\uE8D7", "Package identity confirmed", $"{mapping.SourceId}:{mapping.PackageId}{(string.IsNullOrWhiteSpace(mapping.Reason) ? string.Empty : $" · {mapping.Reason}")}")));
-
-        if (activity.Count == 0)
+        IReadOnlyList<ActivityEntry> entries = ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows);
+        if (entries.Count == 0)
         {
             Button start = StewardVisuals.PrimaryButton("Start local inventory", "Start a read-only local application inventory");
             start.IsEnabled = !HasActiveOperation;
             start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
-            panel.Children.Add(StewardVisuals.EmptyState("\uE823", "No local activity yet", "Complete an inventory or save a decision and its timestamped record will appear here.", start));
+            panel.Children.Add(StewardVisuals.EmptyState("", "No local activity yet", "Complete an inventory or save a decision and its timestamped record will appear here.", start));
         }
         else
         {
-            StackPanel timeline = new() { Spacing = 0 };
-            foreach ((DateTimeOffset occurredAt, string glyph, string title, string detail) in activity.OrderByDescending(item => item.OccurredAt).Take(50))
-                timeline.Children.Add(StewardVisuals.ActivityRow(DisplayFormat.DateTime(occurredAt), glyph, title, detail));
-            panel.Children.Add(Card(timeline));
-            panel.Children.Add(PageCopy($"Showing {Math.Min(activity.Count, 50):N0} of {activity.Count:N0} locally available record{(activity.Count == 1 ? string.Empty : "s")}. Update execution outcomes remain attached to each application's technical timeline."));
+            ActivityPagePresentation page = ActivityPresenter.Build(entries, activityFilter, DateTimeOffset.UtcNow);
+            StackPanel filters = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+            AutomationProperties.SetName(filters, "Activity filters");
+            foreach (ActivityFilterOption option in page.Filters)
+            {
+                bool selected = page.Filter == option.Filter;
+                // The selected filter stays focusable (accent style plus "Selected" item status) so a refresh can restore focus to it.
+                Button filter = selected ? StewardVisuals.PrimaryButton(option.DisplayLabel, option.AccessibleName) : new Button { Content = option.DisplayLabel };
+                AutomationProperties.SetName(filter, option.AccessibleName);
+                if (selected) AutomationProperties.SetItemStatus(filter, "Selected");
+                ActivityFilter value = option.Filter;
+                filter.Click += (_, _) => { activityFilter = value; Render(); };
+                filters.Children.Add(filter);
+            }
+            panel.Children.Add(new ScrollViewer { Content = filters, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Auto, VerticalScrollMode = ScrollMode.Disabled });
+            TextBlock summary = PageCopy(page.Summary);
+            AutomationProperties.SetLiveSetting(summary, AutomationLiveSetting.Polite);
+            panel.Children.Add(summary);
+            if (page.MatchingCount == 0)
+                panel.Children.Add(StewardVisuals.EmptyState("", "Nothing here", page.Filter == ActivityFilter.Problems ? "No failed or unverified updates and no incomplete scans are recorded." : "Choose another filter to see more of the recorded activity."));
+            foreach (ActivityDay day in page.Days)
+            {
+                panel.Children.Add(SectionHeading(day.Heading));
+                StackPanel dayEntries = new() { Spacing = 0 };
+                foreach (ActivityEntry entry in day.Entries) dayEntries.Children.Add(ActivityEntryRow(entry));
+                panel.Children.Add(Card(dayEntries));
+            }
         }
         AddReviewedUpdateOutcomesSection(panel);
         panel.Children.Add(StewardVisuals.InformationBanner("Current source evidence", viewModel.UpdateFreshnessLabel, viewModel.IsUpdateSourceEnabled ? "information" : "neutral"));
         return panel;
+    }
+
+    /// <summary>One Activity entry: title and outcome chip (icon and text), time, summary, facts, and Details behind an expander.</summary>
+    private static Border ActivityEntryRow(ActivityEntry entry)
+    {
+        StackPanel content = new() { Spacing = StewardSpacing.XSmall };
+        Grid heading = new() { ColumnSpacing = StewardSpacing.Medium };
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        StackPanel titles = new() { Spacing = StewardSpacing.XSmall };
+        titles.Children.Add(new TextBlock { Text = entry.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        titles.Children.Add(new TextBlock { Text = entry.TimeText, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        heading.Children.Add(titles);
+        Border chip = StewardVisuals.Badge(entry.OutcomeLabel, entry.Glyph, StewardStatus.ToneName(entry.Tone), $"{entry.Title}: {entry.OutcomeLabel}");
+        chip.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(chip, 1); heading.Children.Add(chip);
+        content.Children.Add(heading);
+        content.Children.Add(new TextBlock { Text = entry.Summary, TextWrapping = TextWrapping.Wrap });
+        foreach (DetailFact fact in entry.Facts) content.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        if (entry.Details.Count != 0)
+        {
+            StackPanel details = new() { Spacing = 0 };
+            foreach (DetailFact fact in entry.Details)
+            {
+                Grid line = StewardVisuals.EvidenceRow(fact.Label, fact.Value);
+                // Evidence can be selected and copied (for example the recorded output).
+                foreach (TextBlock text in line.Children.OfType<TextBlock>()) text.IsTextSelectionEnabled = true;
+                details.Children.Add(line);
+            }
+            content.Children.Add(new Expander { Header = "Details", Content = details, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+        }
+        Border row = new() { BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, StewardSpacing.Medium, 0, StewardSpacing.Medium), Child = content };
+        AutomationProperties.SetName(row, entry.AccessibleName);
+        return row;
     }
 
     /// <summary>Admission obligation 5: the read-only reviewed-update outcomes (route, verification, lingering processes, helper report).</summary>
