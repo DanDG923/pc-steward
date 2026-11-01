@@ -58,6 +58,12 @@ internal sealed class N2ProfileFixture : IDisposable
     /// <summary>The release contents; a test may replace one before <see cref="Build"/> to change the table.</summary>
     internal Dictionary<string, string> ReleaseContent { get; } = ReleasePaths.ToDictionary(path => path, path => path == "tools/7z.exe.ignore" ? "" : "fixture:" + path);
 
+    /// <summary>
+    /// Binary release contents that take precedence over <see cref="ReleaseContent"/> (N3: a runnable stand-in engine). The
+    /// fixture release table records their real length and SHA-256.
+    /// </summary>
+    internal Dictionary<string, byte[]> ReleaseBinary { get; } = [];
+
     internal string RootPath(string relative) => Root + '\\' + relative.Replace('/', '\\');
 
     internal N2ProfileFixture Build(string configuration = "")
@@ -67,8 +73,8 @@ internal sealed class N2ProfileFixture : IDisposable
         {
             string full = RootPath(path);
             System.IO.Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            System.IO.File.WriteAllText(full, content);
-            byte[] bytes = Encoding.UTF8.GetBytes(content);
+            byte[] bytes = ReleaseBinary.TryGetValue(path, out byte[]? binary) ? binary : Encoding.UTF8.GetBytes(content);
+            System.IO.File.WriteAllBytes(full, bytes);
             Release.Add(new ChocolateyReleaseFile(path, bytes.Length, Convert.ToHexString(SHA256.HashData(bytes))));
         }
         foreach (string tree in new[] { "bin", "lib", ".chocolatey", "config", "hooks", "extensions", "license", "lib-bkp", "lib-bad", "logs" })
