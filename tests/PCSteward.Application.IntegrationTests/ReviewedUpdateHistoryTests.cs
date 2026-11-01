@@ -105,8 +105,10 @@ public sealed class ReviewedUpdateHistoryTests
         ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
         Assert.IsFalse(record.IntegrityVerified);
         ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(record);
-        Assert.IsTrue(view.BlocksOtherUpdates);
-        Assert.IsFalse(view.Status.StartsWith("Updated", StringComparison.Ordinal));
+        // Blocking mirrors the store's barrier (non-Final state); a corrupt Final row is untrusted but not a barrier.
+        Assert.AreEqual(change is "state" or "claimed-terminal", view.BlocksOtherUpdates);
+        Assert.AreEqual(view.BlocksOtherUpdates, await fixture.Store.HasUnresolvedDispatchesAsync(Owner(), CancellationToken.None));
+        StringAssert.StartsWith(view.Status, "Record failed integrity checks");
         AssertNeverClaimsHelperQualification(view);
     }
 
@@ -116,6 +118,8 @@ public sealed class ReviewedUpdateHistoryTests
     [DataRow(nameof(UpdateDispatchOutcome.Unverified), "not-invoked")]
     [DataRow(nameof(UpdateDispatchOutcome.Failed), "unsettled")]
     [DataRow(nameof(UpdateDispatchOutcome.Cancelled), "unknown")]
+    [DataRow(nameof(UpdateDispatchOutcome.Cancelled), "stopped")]
+    [DataRow(nameof(UpdateDispatchOutcome.Failed), "not-invoked-with-exit")]
     public async Task RowsTheStoreCouldNeverWriteAreCorruptionNotHistory(string outcomeName, string settlement)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
@@ -126,13 +130,32 @@ public sealed class ReviewedUpdateHistoryTests
         {
             "not-invoked" => UpdateDispatchSettlement.BeforeInvocation(claim, owner),
             "unsettled" => UpdateDispatchSettlement.FromObservedWork(claim, owner, Task.CompletedTask, false, true, true, false, false),
+            "stopped" => UpdateDispatchSettlement.FromObservedWork(claim, owner, Task.CompletedTask, true, true, true, false, false),
+            "not-invoked-with-exit" => UpdateDispatchSettlement.BeforeInvocation(claim, owner),
             _ => null,
         };
-        byte[] payload = new UpdateDispatchTerminal(Enum.Parse<UpdateDispatchOutcome>(outcomeName), ReviewedAt.AddMinutes(2), 0, "forged").GetReservedPayload(forged);
+        byte[] payload = new UpdateDispatchTerminal(Enum.Parse<UpdateDispatchOutcome>(outcomeName), ReviewedAt.AddMinutes(2), settlement == "not-invoked-with-exit" ? 1 : null, "forged").GetReservedPayload(forged);
         await fixture.ExecuteAsync($"PRAGMA ignore_check_constraints=ON; UPDATE update_dispatch_claims SET state='Final', terminal_payload=x'{Convert.ToHexString(payload)}', terminal_digest='{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload))}';");
         ReviewedUpdateHistoryRecord record = (await fixture.Store.GetReviewedUpdateHistoryAsync(10, CancellationToken.None)).Single();
         Assert.IsFalse(record.IntegrityVerified);
-        Assert.IsTrue(ReviewedUpdateHistoryPresentation.Present(record).BlocksOtherUpdates);
+        StringAssert.StartsWith(ReviewedUpdateHistoryPresentation.Present(record).Status, "Record failed integrity checks");
+    }
+
+    [TestMethod]
+    public async Task UnresolvedRowsAreListedFirstSoTheLimitCannotHideABarrier()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        OperationOwnership owner = Owner();
+        ReviewedUpdateDraft finished = await fixture.SaveWinGetAsync();
+        UpdateDispatchClaim claim = (await fixture.ClaimAsync(finished))!;
+        await fixture.Store.RecordFinalAsync(claim, owner, new(UpdateDispatchOutcome.Cancelled, ReviewedAt.AddMinutes(2), null, "x"),
+            UpdateDispatchSettlement.BeforeInvocation(claim, owner), CancellationToken.None);
+        ReviewedUpdateDraft pending = await fixture.SaveWinGetAsync();
+        _ = await fixture.ClaimAsync(pending);
+        await fixture.ExecuteAsync($"UPDATE update_dispatch_claims SET claimed_at='2000-01-01T00:00:00.0000000+00:00' WHERE job_id='{pending.Operation.JobId:D}';");
+        ReviewedUpdateHistoryRecord first = (await fixture.Store.GetReviewedUpdateHistoryAsync(1, CancellationToken.None)).Single();
+        Assert.AreEqual(pending.Operation.JobId, first.JobId);
+        Assert.IsTrue(ReviewedUpdateHistoryPresentation.Present(first).BlocksOtherUpdates);
     }
 
     [TestMethod]

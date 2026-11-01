@@ -185,7 +185,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         if (!permit.TryConsume(approval, ownership))
             return await FinalizeAsync(claim, ownership, UpdateDispatchSettlement.BeforeInvocation(claim, ownership), UpdateDispatchOutcome.Cancelled,
                 null, "Review, ownership or fresh evidence lapsed immediately before launch; nothing was invoked.").ConfigureAwait(false);
-        if (!dispatcher.Supports(operation))
+        if (!StillSupported(operation))
             return await FinalizeAsync(claim, ownership, UpdateDispatchSettlement.BeforeInvocation(claim, ownership), UpdateDispatchOutcome.Cancelled,
                 null, "The provider route became unavailable immediately before launch; nothing was invoked.").ConfigureAwait(false);
 
@@ -218,6 +218,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
         return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, message).ConfigureAwait(false);
     }
 
+    private bool StillSupported(ReviewedUpdateOperation operation)
+    {
+        try { return dispatcher.Supports(operation); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+    }
+
     private static UpdateDispatchSettlement Settle(UpdateDispatchClaim claim, OperationOwnership ownership, ReviewedUpdateDispatchObservation observation)
     {
         bool provenNotStarted = observation.Invocation == ReviewedUpdateInvocation.NotStarted && !observation.ExecutionUncertain &&
@@ -247,18 +253,25 @@ public sealed class ReviewedUpdateDispatchWorkflow
         }
         // A restart report is honoured only with the standard reboot-required codes; any other non-zero exit is failure.
         bool restartReported = observation.RestartReported && observation.ExitCode is 3010 or 1641;
+        if (observation.ExitCode is null)
+            return (UpdateDispatchOutcome.Unverified, $"The provider ran but its exit code was not observed; the resulting version is unverified. {diagnostic}");
         if (observation.ExitCode != 0 && !restartReported)
             return (UpdateDispatchOutcome.Failed, $"The provider exited with code {exit}. {diagnostic}");
         try
         {
             PostUpdateInventoryResult verification = await verifier.VerifyAsync(operation, ownership, cancellationToken).ConfigureAwait(false);
+            // AC-UPD-07: a non-zero (restart-requested) provider result is never Success, even if the version is detected.
+            if (restartReported)
+                return verification.RestartPending
+                    ? (UpdateDispatchOutcome.RestartRequired, "The installer requested a restart and a reliable restart-pending state was detected.")
+                    : (UpdateDispatchOutcome.Unverified, verification.ExpectedVersionDetected
+                        ? "The target version was detected, but the installer's restart request could not be confirmed as a reliable restart-pending state."
+                        : "The installer reported that a restart is needed, but neither the target version nor a reliable restart-pending state was verified.");
             return verification.ExpectedVersionDetected
                 ? (UpdateDispatchOutcome.Success, "Target version verified by post-update inventory.")
                 : verification.RestartPending
                     ? (UpdateDispatchOutcome.RestartRequired, "Provider completed; a reliable restart-pending state was detected.")
-                    : (UpdateDispatchOutcome.Unverified, restartReported
-                        ? "The provider reported that a restart is needed, but neither the target version nor a reliable restart-pending state was verified."
-                        : "Provider completed but the target version was not detected.");
+                    : (UpdateDispatchOutcome.Unverified, "Provider completed but the target version was not detected.");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {

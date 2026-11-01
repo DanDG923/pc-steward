@@ -27,7 +27,8 @@ public sealed partial class SqliteDatabase : IReviewedUpdateHistoryReader
                 CASE WHEN typeof(claimed_at)='text' AND length(claimed_at)=33 THEN claimed_at END,
                 CASE WHEN typeof(terminal_payload)='blob' AND length(terminal_payload)=16384 THEN terminal_payload END,
                 CASE WHEN typeof(terminal_digest)='text' AND length(terminal_digest)=64 THEN terminal_digest END
-            FROM update_dispatch_claims ORDER BY claimed_at DESC, job_id LIMIT $limit;
+            FROM update_dispatch_claims
+            ORDER BY CASE WHEN typeof(state)='text' AND state='Final' THEN 1 ELSE 0 END, claimed_at DESC, job_id LIMIT $limit;
             """;
         command.Parameters.AddWithValue("$limit", maximumRecords);
         List<ReviewedUpdateHistoryRecord> records = [];
@@ -63,7 +64,7 @@ public sealed partial class SqliteDatabase : IReviewedUpdateHistoryReader
             terminalDigest == Convert.ToHexString(SHA256.HashData(reserved)) &&
             ReviewedUpdateTerminalRecord.TryParse(reserved, out ReviewedUpdateTerminalRecord? parsedTerminal) && parsedTerminal is not null &&
             (parsedTerminal.Outcome == UpdateDispatchOutcome.Uncertain) == (state == UpdateDispatchState.Uncertain) &&
-            SatisfiesWriteInvariants(parsedTerminal))
+            SatisfiesWriteInvariants(parsedTerminal) && (claimedAt == default || parsedTerminal.OccurredAt >= claimedAt))
             terminal = parsedTerminal;
         else integrity = false;
         return new(jobId, operation, state, claimedAt, terminal, integrity);
@@ -71,9 +72,11 @@ public sealed partial class SqliteDatabase : IReviewedUpdateHistoryReader
 
     // Mirrors RecordFinalAsync: a row the store could never have written is corruption, not history. This detects
     // corruption only; an unkeyed digest cannot stop a same-user writer from forging a consistent row.
-    private static bool SatisfiesWriteInvariants(ReviewedUpdateTerminalRecord terminal) => terminal.Outcome switch
+    private static bool SatisfiesWriteInvariants(ReviewedUpdateTerminalRecord terminal) =>
+        (terminal.Settlement != UpdateDispatchSettlementState.NotInvoked || terminal.ExitCode is null) && terminal.Outcome switch
     {
         UpdateDispatchOutcome.Uncertain => true,
+        UpdateDispatchOutcome.Cancelled => terminal.Settlement == UpdateDispatchSettlementState.NotInvoked,
         UpdateDispatchOutcome.Success or UpdateDispatchOutcome.RestartRequired or UpdateDispatchOutcome.Unverified =>
             terminal.Settlement == UpdateDispatchSettlementState.OwnedWorkStopped,
         _ => terminal.Settlement is UpdateDispatchSettlementState.NotInvoked or UpdateDispatchSettlementState.OwnedWorkStopped,

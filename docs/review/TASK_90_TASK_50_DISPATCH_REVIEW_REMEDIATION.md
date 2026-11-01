@@ -29,3 +29,17 @@ A separate fresh-context reviewer, on a different model, repeated the review aga
 | F5 | Low | Stale step-7 doc wording; Unverified history text; misleading message when only route support flipped | Fixed. |
 
 Linux focused 152/152; full suites keep failure sets identical to the Windows-green baseline.
+
+## Third fresh review (Opus, pinned `97c7b6d`) and third remediation
+
+There were no Blocker or High findings. F1, F2 and F4 are verified, and the shared `Sanitize`/`Truncate` change has no regression in legacy callers. Windows CI on `97c7b6d`: 983/983, zero warnings.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| M1 | Medium | AC-UPD-07: exit 3010/1641 with the version detected was recorded as **Success** | Fixed. A restart-reported run is never Success: RestartRequired if the verifier sees a reliable restart-pending state, otherwise Unverified (the wording notes when the version was detected). Tests updated (four cases). How "version detected but restart requested" should eventually be presented is an owner/Task 51 question. |
+| L1 | Low | History labelled a corrupt **Final** row as "blocking" although the store does not block on it | Fixed. `BlocksOtherUpdates` mirrors the store barrier (non-Final state); integrity failures say the outcome cannot be trusted. The tamper test asserts agreement with `HasUnresolvedDispatchesAsync`. |
+| L2 | Low | Store/history accepted impossible combinations (Cancelled after start, exit code with NotInvoked, terminal before claim); Failed-with-NotInvoked text implied something ran | Fixed in both places. The store rejects Cancelled without NotInvoked and an exit code with NotInvoked. History additionally rejects a terminal earlier than the claim, and shows Failed+NotInvoked as "nothing was started". The settlement `Facts` field remains display-only. |
+| L3 | Low | History `LIMIT` could hide an old blocking row | Fixed. Non-Final and unreadable-state rows are ordered first. Test added. |
+| L4 | Low | Dispatcher contract traps: started work with a null exit recorded as Failed; a throwing second `Supports` after permit consumption left a false barrier | Fixed. Null exit on settled started work is Unverified; a `Supports` exception counts as unsupported and finalizes Cancelled/NotInvoked. **Kept conservative:** a NotStarted observation carrying an exit code is not proof of non-invocation and stays Uncertain. Adapters must report UAC denial as NotStarted without an exit code (documented contract). |
+
+Linux focused 159/159. Failure-set diff against the Windows-green baseline shows only the new Windows-only `DataOperationLeaseTests`.

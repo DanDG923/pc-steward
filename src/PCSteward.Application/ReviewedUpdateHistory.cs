@@ -77,26 +77,31 @@ public static class ReviewedUpdateHistoryPresentation
     public static ReviewedUpdateHistoryView Present(ReviewedUpdateHistoryRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        bool blocks = record.State != UpdateDispatchState.Final || !record.IntegrityVerified;
+        // Mirrors the store's barrier predicate (state other than Final blocks); integrity failures make details unknown.
+        bool blocks = record.State != UpdateDispatchState.Final;
         ReviewedUpdateOperation? operation = record.IntegrityVerified ? record.Operation : null;
         string title = operation is null
             ? "Update record (details unreadable)"
             : $"{operation.Selection.PackageId} {operation.Selection.InstalledVersion} → {operation.Selection.CandidateVersion} ({operation.Selection.Provider}, {operation.Selection.Scope})";
         string status = !record.IntegrityVerified
-            ? "Record failed integrity checks; treated as unresolved and blocking other updates."
+            ? blocks
+                ? "Record failed integrity checks; its outcome is unknown and it blocks other updates until safe reconciliation."
+                : "Record failed integrity checks; its recorded outcome cannot be trusted."
             : record.State switch
             {
                 UpdateDispatchState.DispatchClaimed => "Started or about to start; no result recorded. Other updates stay blocked until safe reconciliation.",
                 UpdateDispatchState.Uncertain => "Uncertain: whether the update ran or finished is unknown. Other updates stay blocked until safe reconciliation; it is never retried automatically.",
-                _ => record.Terminal is { } terminal ? Outcome(terminal.Outcome) : "Finished, but the recorded result is unreadable.",
+                _ => record.Terminal is { } terminal ? Outcome(terminal) : "Finished, but the recorded result is unreadable.",
             };
         return new(title, status, operation is null ? "Unknown" : Mode(operation.Mode), operation is null ? "Unknown" : Candidate(operation),
             operation is null ? null : ReviewedUpdateProviderDisclosure.GetRiskText(operation), blocks,
             record.Terminal is null ? string.Empty : SanitizedDiagnosticBundle.Sanitize(record.Terminal.Diagnostic));
     }
 
-    private static string Outcome(UpdateDispatchOutcome outcome) => outcome switch
+    private static string Outcome(ReviewedUpdateTerminalRecord terminal) => terminal.Outcome switch
     {
+        UpdateDispatchOutcome.Failed when terminal.Settlement == UpdateDispatchSettlementState.NotInvoked =>
+            "Not updated: nothing was started.",
         UpdateDispatchOutcome.Success => "Updated: the target version was verified after the update.",
         UpdateDispatchOutcome.RestartRequired => "Restart required: a reliable restart-pending state was detected.",
         UpdateDispatchOutcome.Unverified => "The update ran (or was stopped after starting), but the new version could not be verified.",

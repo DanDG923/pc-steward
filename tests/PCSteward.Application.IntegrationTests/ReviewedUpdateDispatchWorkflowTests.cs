@@ -228,10 +228,11 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     }
 
     [TestMethod]
-    [DataRow(true, false, UpdateDispatchOutcome.Success)]
+    [DataRow(true, false, UpdateDispatchOutcome.Unverified)]
+    [DataRow(true, true, UpdateDispatchOutcome.RestartRequired)]
     [DataRow(false, true, UpdateDispatchOutcome.RestartRequired)]
     [DataRow(false, false, UpdateDispatchOutcome.Unverified)]
-    public async Task ProviderRestartReportIsVerifiedNotTreatedAsFailure(bool expected, bool restart, UpdateDispatchOutcome outcome)
+    public async Task ProviderRestartReportIsVerifiedButNeverSuccess(bool expected, bool restart, UpdateDispatchOutcome outcome)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         ReviewedUpdateDraft draft = await fixture.SaveAsync();
@@ -240,6 +241,46 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
             .RunAsync(fixture.Confirm(draft), CancellationToken.None);
         Assert.AreEqual(outcome, result.Outcome);
         Assert.AreEqual(1, verifier.Calls);
+    }
+
+    [TestMethod]
+    public async Task SettledStartedWorkWithoutAnObservedExitCodeIsUnverified()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        FakeVerifier verifier = new(new(true, false));
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(new FakeDispatcher(_ => Settled(ReviewedUpdateProviderStatus.Completed, null)), verifier: verifier)
+            .RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(UpdateDispatchOutcome.Unverified, result.Outcome);
+        Assert.AreEqual(0, verifier.Calls);
+    }
+
+    [TestMethod]
+    public async Task RouteSupportThrowingAfterPermitConsumptionFinalizesAsNeverInvoked()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        ThrowingSecondSupport dispatcher = new();
+        ReviewedUpdateDispatchResult result = await fixture.Workflow(dispatcher).RunAsync(fixture.Confirm(draft), CancellationToken.None);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, result.Disposition);
+        Assert.AreEqual(UpdateDispatchOutcome.Cancelled, result.Outcome);
+        Assert.AreEqual(0, dispatcher.Dispatches);
+        Assert.AreEqual(UpdateDispatchState.Final, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task StoreRejectsCancelledAfterStartAndExitCodesWithoutInvocation()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        ReviewedUpdateDraft draft = await fixture.SaveAsync();
+        OperationOwnership owner = Owner();
+        UpdateDispatchClaim claim = (await fixture.Store.TryClaimAsync(draft, Fresh(draft.Operation)!, owner, fixture.Clock.GetUtcNow(), CancellationToken.None))!;
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim, owner,
+            new(UpdateDispatchOutcome.Cancelled, fixture.Clock.GetUtcNow(), null, "x"),
+            UpdateDispatchSettlement.FromObservedWork(claim, owner, Task.CompletedTask, true, true, true, false, false), CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.RecordFinalAsync(claim, owner,
+            new(UpdateDispatchOutcome.Failed, fixture.Clock.GetUtcNow(), 1, "x"), UpdateDispatchSettlement.BeforeInvocation(claim, owner), CancellationToken.None));
+        Assert.AreEqual(UpdateDispatchState.DispatchClaimed, await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
     }
 
     [TestMethod]
@@ -441,6 +482,18 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
             Calls++;
             LastTicket = ticket;
             return Task.FromResult(dispatch(ticket));
+        }
+    }
+
+    private sealed class ThrowingSecondSupport : IReviewedUpdateRouteDispatcher
+    {
+        private int supportCalls;
+        internal int Dispatches;
+        public bool Supports(ReviewedUpdateOperation operation) => ++supportCalls == 1 ? true : throw new InvalidOperationException("route table unavailable");
+        public Task<ReviewedUpdateDispatchObservation> DispatchAsync(ReviewedUpdateDispatchTicket ticket, CancellationToken cancellationToken)
+        {
+            Dispatches++;
+            return Task.FromResult(Settled(ReviewedUpdateProviderStatus.Completed, 0));
         }
     }
 
