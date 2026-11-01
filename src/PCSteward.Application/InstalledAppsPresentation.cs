@@ -143,17 +143,17 @@ public static partial class AppDetailPresenter
         switch (entry.Kind)
         {
             case "PinCurrentVersion":
-                return new(entry.OccurredAt, when, $"Pinned at version {value}", Reason(reason), "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, $"Pinned at version {value}", Reason(reason), "\uE718", StatusTone.Neutral);
             case "PinSourcePackage":
-                return new(entry.OccurredAt, when, $"Pinned to package {value}", Reason(reason), "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, $"Pinned to package {value}", Reason(reason), "\uE718", StatusTone.Neutral);
             case "Ignore":
                 string until = DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset expires)
                     ? $"until {DisplayFormat.Date(expires, culture, zone)}" : "indefinitely";
-                return new(entry.OccurredAt, when, $"Ignored {until}", Reason(reason), "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, $"Ignored {until}", Reason(reason), "\uE74F", StatusTone.Neutral);
             case "ManualMapping":
-                return new(entry.OccurredAt, when, $"Package identity confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, $"Package identity confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
             case "InventoryScan":
-                return new(entry.OccurredAt, when, "Found in the latest inventory scan", null, "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, "Found in the latest inventory scan", null, "\uE721", StatusTone.Neutral);
             case "Update":
                 Match match = UpdateSummary().Match(entry.Summary);
                 if (match.Success && Enum.TryParse(match.Groups["status"].Value, false, out UpdateHistoryStatus status) && Enum.IsDefined(status))
@@ -168,11 +168,11 @@ public static partial class AppDetailPresenter
                     UpdateOutcomePresentation outcome = UpdateOutcomePresenter.ForStatus(status, reason, null, target);
                     bool intermediate = status is UpdateHistoryStatus.Queued or UpdateHistoryStatus.Running;
                     return new(entry.OccurredAt, when, title, reason is null ? null : $"Recorded detail: {SanitizedDiagnosticBundle.Sanitize(reason)}",
-                        intermediate ? "" : outcome.Glyph, intermediate ? StatusTone.Neutral : outcome.Tone);
+                        intermediate ? "\uE895" : outcome.Glyph, intermediate ? StatusTone.Neutral : outcome.Tone);
                 }
-                return new(entry.OccurredAt, when, "Update recorded", reason is null ? null : SanitizedDiagnosticBundle.Sanitize(reason), "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, "Update recorded", reason is null ? null : SanitizedDiagnosticBundle.Sanitize(reason), "\uE81C", StatusTone.Neutral);
             default:
-                return new(entry.OccurredAt, when, entry.Summary, Reason(reason), "", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, entry.Summary, Reason(reason), "\uE81C", StatusTone.Neutral);
         }
     }
 

@@ -56,13 +56,13 @@ public static class DecisionsPresenter
             {
                 "Ignore" => new(decision.Id, DecisionKind.Ignore, decision.StableProductKey, product,
                     decision.ExpiresAt is { } until ? $"Ignored until {DisplayFormat.Date(until, culture, zone)}" : "Ignored indefinitely",
-                    $"Updates for this app aren't shown. {created}.", Reason(decision.Reason), decision.CreatedAt, "",
+                    $"Updates for this app aren't shown. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE74F",
                     "Remove ignore", PageFocusRestore.RemoveDecisionName(product, "ignore")),
                 "PinSourcePackage" => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
-                    $"Pinned to package {decision.Value}", $"No other package is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "",
+                    $"Pinned to package {decision.Value}", $"No other package is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE718",
                     "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin")),
                 _ => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
-                    $"Pinned at version {decision.Value}", $"No other version is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "",
+                    $"Pinned at version {decision.Value}", $"No other version is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE718",
                     "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin")),
             };
             result.Add(row);
@@ -73,7 +73,7 @@ public static class DecisionsPresenter
             result.Add(new(mapping.Id, DecisionKind.Mapping, mapping.StableProductKey, product,
                 $"Package identity confirmed: {mapping.SourceId}:{mapping.PackageId}",
                 $"You confirmed this package is the installed app. Saved {DisplayFormat.Date(mapping.CreatedAt, culture, zone)}.",
-                Reason(mapping.Reason), mapping.CreatedAt, "",
+                Reason(mapping.Reason), mapping.CreatedAt, "\uE71B",
                 "Remove manual mapping", PageFocusRestore.RemoveManualMappingName(product, mapping.SourceId, mapping.PackageId)));
         }
         return result

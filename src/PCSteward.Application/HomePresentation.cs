@@ -161,28 +161,28 @@ public static class HomePresenter
         [
             new(HomeTileKind.RestartRequired, "Restart required", restart.Length.ToString("N0", CultureInfo.CurrentCulture),
                 restart.Length == 0 ? "No update is waiting for a restart." : $"{DisplayFormat.Plural(restart.Length, "update")} will finish after Windows restarts. PC Steward never restarts your PC.",
-                "", restart.Length == 0 ? StatusTone.Neutral : StatusTone.Information, new(ShellPage.Activity, ActivityFilter: ActivityFilter.Updates)),
+                "\uE777", restart.Length == 0 ? StatusTone.Neutral : StatusTone.Information, new(ShellPage.Activity, ActivityFilter: ActivityFilter.Updates)),
             new(HomeTileKind.NeedsAttention, "Needs attention", attention.Length.ToString("N0", CultureInfo.CurrentCulture),
                 attention.Length == 0 ? "No update failed or is waiting to be verified." : "Updates that failed or couldn't be verified. Scan again or review them.",
-                "", attention.Length == 0 ? StatusTone.Neutral : StatusTone.Attention, new(ShellPage.Activity, ActivityFilter: ActivityFilter.Problems)),
+                "\uE7BA", attention.Length == 0 ? StatusTone.Neutral : StatusTone.Attention, new(ShellPage.Activity, ActivityFilter: ActivityFilter.Problems)),
             new(HomeTileKind.NeedsReview, "Needs review", (counts.ReviewRequired + counts.SourceUnavailable).ToString("N0", CultureInfo.CurrentCulture),
                 counts.SourceUnavailable == 0
                     ? "Possible updates whose match needs your review. They can't be updated until it's resolved."
                     : $"Possible updates whose match needs your review, including {DisplayFormat.Plural(counts.SourceUnavailable, "app")} whose source couldn't be checked.",
-                "", counts.ReviewRequired + counts.SourceUnavailable == 0 ? StatusTone.Neutral : StatusTone.Attention,
+                "\uE9D5", counts.ReviewRequired + counts.SourceUnavailable == 0 ? StatusTone.Neutral : StatusTone.Attention,
                 new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview)),
             new(HomeTileKind.PinnedAndIgnored, "Pinned & ignored", $"{counts.Pinned.ToString("N0", CultureInfo.CurrentCulture)} pinned · {counts.Ignored.ToString("N0", CultureInfo.CurrentCulture)} ignored",
-                "Your reversible decisions. Review or undo them on Decisions.", "", StatusTone.Neutral, new(ShellPage.Decisions)),
+                "Your reversible decisions. Review or undo them on Decisions.", "\uE718", StatusTone.Neutral, new(ShellPage.Decisions)),
             new(HomeTileKind.Unmanaged, "Unmanaged", counts.Unmanaged.ToString("N0", CultureInfo.CurrentCulture),
-                "Inventoried only: no approved update source is mapped. This is not a safety warning.", "", StatusTone.Neutral,
+                "Inventoried only: no approved update source is mapped. This is not a safety warning.", "\uE946", StatusTone.Neutral,
                 new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.Unmanaged)),
             new(HomeTileKind.InstalledApps, "Installed apps", counts.Installed.ToString("N0", CultureInfo.CurrentCulture),
-                $"{counts.Current.ToString("N0", CultureInfo.CurrentCulture)} current. See every app found on this PC.", "", StatusTone.Neutral,
+                $"{counts.Current.ToString("N0", CultureInfo.CurrentCulture)} current. See every app found on this PC.", "\uE71D", StatusTone.Neutral,
                 new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.All)),
             new(HomeTileKind.RecentActivity, "Recent activity",
                 inputs.Activity.Count == 0 ? "Nothing yet" : $"{inputs.Activity[0].Title}: {inputs.Activity[0].OutcomeLabel}",
                 inputs.Activity.Count == 0 ? "Scans, updates and decisions are recorded on this PC." : DisplayFormat.Relative(inputs.Activity[0].OccurredAt, inputs.Now, culture, zone) + ".",
-                "", StatusTone.Neutral, new(ShellPage.Activity, ActivityFilter: ActivityFilter.All)),
+                "\uE81C", StatusTone.Neutral, new(ShellPage.Activity, ActivityFilter: ActivityFilter.All)),
         ];
 
         HomeAttentionItem[] items = attention.Concat(restart).OrderByDescending(job => job.EndedAt).Take(MaximumAttentionItems)

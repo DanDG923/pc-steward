@@ -211,9 +211,9 @@ public static class ActivityPresenter
             DateTimeOffset at = scan.CompletedAt ?? scan.StartedAt;
             (string label, string glyph, StatusTone tone, string summary, bool problem) = scan.Status switch
             {
-                "Completed" => ("Completed", "", StatusTone.Success, "The read-only inventory scan finished and replaced the saved snapshot.", false),
-                "Cancelled" => ("Cancelled", "", StatusTone.Neutral, "You cancelled the scan. The previous saved snapshot was kept.", false),
-                _ => ("Did not complete", "", StatusTone.Attention, "The scan did not finish. The previous saved snapshot was kept.", true)
+                "Completed" => ("Completed", "\uE73E", StatusTone.Success, "The read-only inventory scan finished and replaced the saved snapshot.", false),
+                "Cancelled" => ("Cancelled", "\uE711", StatusTone.Neutral, "You cancelled the scan. The previous saved snapshot was kept.", false),
+                _ => ("Did not complete", "\uE7BA", StatusTone.Attention, "The scan did not finish. The previous saved snapshot was kept.", true)
             };
             List<DetailFact> facts = [new("Started", DisplayFormat.DateTime(scan.StartedAt, culture, zone))];
             if (scan.CompletedAt is { } completed)

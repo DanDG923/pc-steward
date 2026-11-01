@@ -137,6 +137,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("1 pinned · 1 ignored", tiles[HomeTileKind.PinnedAndIgnored].Value);
         StringAssert.Contains(tiles[HomeTileKind.Unmanaged].Description, "not a safety warning", "unmanaged never reads as unsafe");
         Assert.IsFalse(home.Tiles.Any(tile => tile.Description.Contains("unsafe", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(home.Tiles.All(tile => tile.Glyph.Length == 1), "every tile has an icon as well as text");
         foreach (HomeTile tile in home.Tiles)
         {
             StringAssert.StartsWith(tile.AccessibleName, tile.Title, "each tile's accessible name starts with its visible title");
@@ -233,6 +234,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("Reason: Work laptop", timeline[5].Detail);
         Assert.AreEqual("29 Oct 2026 · 12:00", timeline[5].When);
         Assert.IsFalse(timeline.Any(entry => entry.Title.Contains("PinCurrentVersion", StringComparison.Ordinal)), "no raw kinds in user copy");
+        Assert.IsTrue(timeline.All(entry => entry.Glyph.Length == 1));
     }
 
     [TestMethod]
@@ -321,6 +323,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("Contoso.App update", Single(entries, ActivityKind.Update, "Verified").Title, "an app no longer installed falls back to its package ID");
         ActivityEntry scan = Single(entries, ActivityKind.Scan, "Completed");
         Assert.AreEqual("42 seconds", scan.Facts.Single(fact => fact.Label == "Duration").Value);
+        Assert.IsTrue(entries.All(entry => entry.Glyph.Length == 1), "every entry has an icon as well as its outcome label");
         Assert.IsTrue(Single(entries, ActivityKind.Scan, "Did not complete").IsProblem);
         ActivityEntry decision = entries.Single(entry => entry.Kind == ActivityKind.Decision);
         Assert.AreEqual("App widget: Pinned at version 1.0", decision.Title);
@@ -369,6 +372,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual(view.Count, view.Select(row => row.RemoveAccessibleName).Distinct(StringComparer.Ordinal).Count() + 1,
             "only the two ignores of the same app share a name; every other remove button is unique");
         Assert.AreEqual("Pins (2)", DecisionsPresenter.GroupHeading(DecisionKind.Pin, 2));
+        Assert.IsTrue(view.All(row => row.Glyph.Length == 1));
     }
 
     private static ActivityEntry Single(IEnumerable<ActivityEntry> entries, ActivityKind kind, string outcome) =>
