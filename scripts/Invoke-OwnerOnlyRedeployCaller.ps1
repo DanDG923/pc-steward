@@ -15,9 +15,11 @@
 #   $b=[IO.File]::ReadAllBytes($caller); <compare the SHA-256 of $b with the approved value>
 #   & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($b))) -PlanPath $plan
 # This process must never load SQLite (Task 49: a caller that had loaded the installed e_sqlite3.dll blocked removal).
-# It executes only: the pinned OwnerOnlyExecution.ps1 and Wait-OwnerOnlyDeploymentProcess.ps1 bytes (hash-checked against
-# the plan) and, elevated, the generated program built from the embedded stub below, the exact plan JSON, the pinned
-# OwnerOnlyExecution.ps1 text and the bootstrap template. No command, path or argument is taken from other data.
+# It executes only: the OwnerOnlyExecution.ps1 and Wait-OwnerOnlyDeploymentProcess.ps1 bytes whose SHA-256 equals a reviewed
+# constant embedded below (Get-OwnerOnlyReviewedHelperPins; the plan's pin must also equal it) and, elevated, the generated
+# program built from the embedded stub below, the exact plan JSON, that OwnerOnlyExecution.ps1 text and the bootstrap
+# template at its reviewed constant. The caller is itself hash-approved, so these constants are the trust anchor; a plan
+# cannot name other helper or template bytes. No command, path or argument is taken from other data.
 [CmdletBinding(DefaultParameterSetName='CheckOnly')]
 param(
     [Parameter(Mandatory,ParameterSetName='CheckOnly')][Parameter(Mandatory,ParameterSetName='Execute')][string]$PlanPath,
@@ -37,6 +39,27 @@ $ErrorActionPreference='Stop'
 function Get-OwnerOnlyReviewedScriptNames {
     # Same six names, same order, as the bootstrap template's allowlist.
     return @('Install-OwnerOnlyProtectedTestDeployment.ps1','Test-OwnerOnlyProtectedTestDeployment.ps1','Remove-OwnerOnlyProtectedTestDeployment.ps1','OwnerOnlyPayloadIntegrity.ps1','OwnerOnlyExecution.ps1','Wait-OwnerOnlyDeploymentProcess.ps1')
+}
+
+function Get-OwnerOnlyReviewedHelperPins {
+    # Reviewed SHA-256 of the committed bytes, LF form then CRLF form (a Windows checkout may convert line endings).
+    # RedeployToolingScriptTests recomputes both from the committed files, so any edit to these three files must update them.
+    return @{
+        'OwnerOnlyExecution.ps1'=@('857F6DC8BCE109F412401B55A1EF966AEE037B249CFBF14CE19586D163EB2728','33B1B716E6298DCEAEF784DCFCB985FD8485DEFEDF6F886029D6BC8F8A615EF3')
+        'Wait-OwnerOnlyDeploymentProcess.ps1'=@('F24B3235FD34AA82421C576EB284C1F8C04D26D9C56170BE0175825ADDF46C59','2BA1A90DD230CA8587F846F75B84691BA3EA4D27C20069192F46C6602FAC520B')
+        'Invoke-OwnerOnlyApprovedRedeployment.ps1'=@('646A3D1B054C5EB505D3BD87293C583D4018A5D0AB9B3410ACAAD694030AACB6','A3EF83B74BF8D288FEB5E4F82BFCC750E3D3583C619FCA6E16448716E07DDE4A')
+    }
+}
+
+function Assert-OwnerOnlyReviewedHelperPin {
+    param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][AllowEmptyString()][string]$Sha256)
+    $pins=(Get-OwnerOnlyReviewedHelperPins)[$Name]
+    if($null -eq $pins -or $Sha256 -cnotin $pins){throw "$Name is not the reviewed version embedded in this caller; regenerate the plan from the reviewed scripts."}
+}
+
+function Assert-OwnerOnlyAbsoluteInputPath {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path,[Parameter(Mandatory)][string]$Name)
+    if($Path -cnotmatch '^[A-Za-z]:\\' -or $Path.Substring(2).Contains(':')){throw "$Name must be an absolute local path such as C:\...; relative, UNC and device paths are refused."}
 }
 
 function Get-OwnerOnlySha256Hex {
@@ -76,12 +99,24 @@ function Assert-OwnerOnlyFunctionOnlyScript {
     if(@($errors).Count -or $null -ne $ast.ParamBlock -or $null -ne $ast.BeginBlock -or $null -ne $ast.ProcessBlock -or $null -ne $ast.DynamicParamBlock -or $null -eq $ast.EndBlock -or @($ast.EndBlock.Statements|Where-Object{$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}).Count){throw 'A pinned helper must contain only function definitions.'}
 }
 
+function Assert-OwnerOnlyHelperShadowsNothing {
+    # A pinned helper may only ADD Verb-OwnerOnly* functions: none may replace a caller function, an alias or a cmdlet.
+    param([Parameter(Mandatory)][string]$Text)
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseInput($Text,[ref]$tokens,[ref]$errors)
+    foreach($definition in @($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))){
+        if($definition.Name -cnotmatch '^[A-Z][a-z]+-OwnerOnly[A-Za-z0-9]+$' -or $null -ne (Get-Command -Name $definition.Name -CommandType Alias,Function,Filter,Cmdlet -ErrorAction SilentlyContinue)){throw "A pinned helper may not define or replace the command $($definition.Name)."}
+    }
+}
+
 function Get-OwnerOnlyPinnedScriptBlock {
     # Returns the captured, hash-checked, function-only script text as a script block; the caller dot-sources it at script scope.
     param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$Sha256)
     if($Name -cnotin @('OwnerOnlyExecution.ps1','Wait-OwnerOnlyDeploymentProcess.ps1')){throw 'Only the pinned execution helpers may be loaded by the caller.'}
+    Assert-OwnerOnlyReviewedHelperPin -Name $Name -Sha256 $Sha256
     $text=ConvertFrom-OwnerOnlyScriptBytes -Bytes (Read-OwnerOnlyPinnedScript -Source $Source -Name $Name -Sha256 $Sha256)
     Assert-OwnerOnlyFunctionOnlyScript -Text $text
+    Assert-OwnerOnlyHelperShadowsNothing -Text $text
     return [ScriptBlock]::Create($text)
 }
 
@@ -184,13 +219,32 @@ function Assert-OwnerOnlySystemPowerShell {
     return $literal
 }
 
+function Test-OwnerOnlyElevated {
+    return ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Assert-OwnerOnlyWorkingDirectoryOutside {
+    # A working directory inside the install or state root holds it open and blocks the elevated removal.
+    param([Parameter(Mandatory)][string[]]$Roots)
+    $paths=@([Environment]::CurrentDirectory)
+    $location=Get-Location
+    if($location.Provider.Name -ceq 'FileSystem'){$paths+=$location.ProviderPath}
+    foreach($path in $paths){
+        $full=[IO.Path]::GetFullPath($path).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        foreach($root in $Roots){
+            $rootFull=[IO.Path]::GetFullPath($root).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            if($full.Equals($rootFull,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($rootFull+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Run the caller from a working directory outside the PC Steward install and state roots.'}
+        }
+    }
+}
+
 function Assert-OwnerOnlyCallerEnvironment {
     param([Parameter(Mandatory)][string]$InstallerSid)
     if($PSVersionTable.PSEdition -cne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5){throw 'Run this caller in Windows PowerShell 5.1.'}
     # 64-bit system Windows PowerShell only: a 32-bit host would resolve Program Files (x86) for the execution root.
     if(![Environment]::Is64BitProcess -or !$PSHOME.TrimEnd('\').Equals('C:\Windows\System32\WindowsPowerShell\v1.0',[StringComparison]::OrdinalIgnoreCase)){throw 'Run this caller in 64-bit system Windows PowerShell (C:\Windows\System32\WindowsPowerShell\v1.0).'}
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
-    if(([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run this caller from a normal, non-elevated session; it requests elevation itself only in -ExecuteApprovedPlan.'}
+    if(Test-OwnerOnlyElevated){throw 'Run this caller from a normal, non-elevated session; it requests elevation itself only in -ExecuteApprovedPlan.'}
     if($identity.User.Value -cne $InstallerSid){throw 'The current Windows user is not the approved installing user.'}
     $names=@([Environment]::GetEnvironmentVariables().Keys)+@([Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::User).Keys)+@([Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Machine).Keys)
     if(@(Get-OwnerOnlyClrOverrideNames -Names ([string[]]$names)).Count){throw 'A CLR startup override is configured; remove it before the redeploy.'}
@@ -320,17 +374,21 @@ function Invoke-OwnerOnlyRedeployCheck {
     $plan=$record.Plan
     Assert-OwnerOnlyCallerEnvironment -InstallerSid $plan.installerSid
     Assert-OwnerOnlyNoSqliteLoaded
+    $programFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+    $installRoot=Join-Path $programFiles 'PC Steward';$stateRoot=Join-Path $programFiles 'PC Steward OwnerOnlyTest State'
+    Assert-OwnerOnlyWorkingDirectoryOutside -Roots @($installRoot,$stateRoot)
     $source=Assert-OwnerOnlyExecutionPath -Path $plan.scriptSource
     $scripts=[Collections.Generic.List[object]]::new();$helpers=$null
     foreach($entry in @($plan.scripts)){
+        if($entry.path -cin @('OwnerOnlyExecution.ps1','Wait-OwnerOnlyDeploymentProcess.ps1')){Assert-OwnerOnlyReviewedHelperPin -Name $entry.path -Sha256 $entry.sha256}
         $bytes=Read-OwnerOnlyPinnedScript -Source $source -Name $entry.path -Sha256 $entry.sha256
         if($entry.path -ceq 'OwnerOnlyExecution.ps1'){$helpers=ConvertFrom-OwnerOnlyScriptBytes -Bytes $bytes}
         $scripts.Add([ordered]@{path=$entry.path;sha256=$entry.sha256})
     }
     $templateBytes=Read-OwnerOnlyStableBytes -Path (Join-Path $source 'Invoke-OwnerOnlyApprovedRedeployment.ps1') -MaxBytes 1048576
-    $programFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
-    $installRoot=Join-Path $programFiles 'PC Steward'
-    $null=Assert-OwnerOnlyOldLedger -LedgerPath (Join-Path (Join-Path $programFiles 'PC Steward OwnerOnlyTest State') 'deployment.json') -Plan $plan -InstallRoot $installRoot
+    $templateSha256=Get-OwnerOnlySha256Hex -Bytes $templateBytes
+    Assert-OwnerOnlyReviewedHelperPin -Name 'Invoke-OwnerOnlyApprovedRedeployment.ps1' -Sha256 $templateSha256
+    $null=Assert-OwnerOnlyOldLedger -LedgerPath (Join-Path $stateRoot 'deployment.json') -Plan $plan -InstallRoot $installRoot
     $notAfter=Assert-OwnerOnlyOldSigner -InstallRoot $installRoot -Thumbprint $plan.oldThumbprint
     $null=Assert-OwnerOnlyExecutionPath -Path $plan.candidateRoot
     $null=Assert-OwnerOnlyExecutionPath -Path $plan.candidateManifestPath
@@ -342,6 +400,7 @@ function Invoke-OwnerOnlyRedeployCheck {
     if(!$execution.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or $execution.Substring($prefix.Length) -cnotmatch '^[a-f0-9]{32}$' -or (Test-Path -LiteralPath $execution)){throw 'Unapproved or existing execution root.'}
     $data=Get-OwnerOnlyUserDataRoot
     if([IO.Path]::GetFullPath($plan.userDataRoot).TrimEnd('\') -cne $data){throw 'The approved user data root differs.'}
+    Assert-OwnerOnlyScheduledCheckInactive
     $userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $record.Pins)
     $attemptPath=Get-OwnerOnlyAttemptRecordPath -PlanPath $PlanPath -PlanSha256 $record.Sha256
     if(Test-Path -LiteralPath $attemptPath){throw 'An attempt record for this plan already exists; the approval is used. Never delete or reuse it to run again.'}
@@ -350,12 +409,12 @@ function Invoke-OwnerOnlyRedeployCheck {
     $report=[ordered]@{
         mode='CheckOnly';result='Pass';schema=$plan.schema;planSha256=$record.Sha256
         programSha256=$encoded.ProgramSha256;encodedCommandSha256=$encoded.EncodedSha256;encodedCommandLength=$encoded.Encoded.Length
-        bootstrapTemplateSha256=(Get-OwnerOnlySha256Hex -Bytes $templateBytes);scripts=$scripts.ToArray()
+        bootstrapTemplateSha256=$templateSha256;scripts=$scripts.ToArray()
         expectedOldOrigin=$plan.expectedOldOrigin;expectedNewOrigin=$plan.expectedNewOrigin
         candidateManifestSha256=$plan.candidateManifestSha256;candidateFiles=$candidate.files;candidateBytes=$candidate.bytes
         oldLedgerSha256=$plan.oldLedgerSha256;oldThumbprint=$plan.oldThumbprint;oldSignerNotAfterUtc=$notAfter.ToString('o')
         userDatabase=[ordered]@{path=$database.path;bytes=$database.bytes;sha256=$database.sha256};userDataFiles=$userData.Count
-        sqliteSidecars=0;pcstewardProcesses=0;sqliteLoaded=$false;elevated=$false;executionRootAbsent=$true;attemptRecordAbsent=$true
+        sqliteSidecars=0;pcstewardProcesses=0;scheduledCheckTask='AbsentOrDisabled';sqliteLoaded=$false;elevated=$false;executionRootAbsent=$true;attemptRecordAbsent=$true
     }
     return [pscustomobject]@{Report=$report;Encoded=$encoded.Encoded;ExecutionRoot=$execution;UserDataRoot=$data;Pins=$record.Pins;AttemptRecordPath=$attemptPath}
 }
@@ -379,13 +438,15 @@ function Invoke-OwnerOnlyRedeployExecution {
     if(!('PCSteward.Deployment.ChildExit' -as [type])){try{$null=Wait-OwnerOnlyDeploymentProcess -Process ([Diagnostics.Process]::GetCurrentProcess()) -TimeoutMilliseconds 1}catch{}}
     if(!('PCSteward.Deployment.ChildExit' -as [type])){throw 'The pinned native waiter could not be prepared.'}
     Assert-OwnerOnlyNoSqliteLoaded
-    $attempt=[ordered]@{schema='pc-steward-owner-only-redeploy-attempt-v1';attempt=1;status='Claimed';planSha256=$check.Report.planSha256;encodedCommandSha256=$check.Report.encodedCommandSha256;startedUtc=[DateTime]::UtcNow.ToString('o');processId=$null;nativeExitCode=$null;resultExitCode=$null;resultPhase=$null;resultFailure=$null;userDatabaseSha256=$check.Report.userDatabase.sha256;postcheckFailure=$null;failure=$null;completedUtc=$null;retry=$false;launched=$false}
+    $attempt=[ordered]@{schema='pc-steward-owner-only-redeploy-attempt-v1';attempt=1;status='Claimed';planSha256=$check.Report.planSha256;encodedCommandSha256=$check.Report.encodedCommandSha256;startedUtc=[DateTime]::UtcNow.ToString('o');processId=$null;nativeExitCode=$null;resultExitCode=$null;resultPhase=$null;resultFailure=$null;userDatabaseSha256=$check.Report.userDatabase.sha256;postcheckFailure=$null;recordFailure=$null;failure=$null;completedUtc=$null;retry=$false;launched=$false}
     $stream=New-OwnerOnlyAttemptRecord -Path $check.AttemptRecordPath -Value $attempt
     try{
         $process=$null
         try{$process=Start-OwnerOnlyElevatedRedeploy -EncodedCommand $check.Encoded}catch{$attempt.status='NotStarted';$attempt.failure=$_.Exception.Message}
         if($null -ne $process){
-            $attempt.status='Started';$attempt.processId=$process.Id;Write-OwnerOnlyAttemptRecord -Stream $stream -Value $attempt
+            # The elevated child is never left unobserved: a failed "Started" write is recorded and the wait still happens.
+            $attempt.status='Started';$attempt.processId=$process.Id
+            try{Write-OwnerOnlyAttemptRecord -Stream $stream -Value $attempt}catch{$attempt.recordFailure=$_.Exception.Message}
             try{$attempt.nativeExitCode=[long](Wait-OwnerOnlyDeploymentProcess -Process $process -TimeoutMilliseconds 900000)}
             catch{$attempt.status='PendingOrUnknown';$attempt.failure=$_.Exception.Message}
         }
@@ -406,12 +467,16 @@ function Invoke-OwnerOnlyRedeployExecution {
 function New-OwnerOnlyRedeployPlan {
     # Read-only host inspection; the only write is the new plan file. Nothing is executed, elevated, deleted or changed.
     param([Parameter(Mandatory)][string]$NewPlanPath,[Parameter(Mandatory)][string]$ScriptSource,[Parameter(Mandatory)][string]$CandidateRoot,[Parameter(Mandatory)][string]$CandidateManifestPath,[Parameter(Mandatory)][string]$ExpectedOldOrigin,[Parameter(Mandatory)][string]$ExpectedNewOrigin)
+    Assert-OwnerOnlyAbsoluteInputPath -Path $ScriptSource -Name 'ScriptSource'
+    Assert-OwnerOnlyAbsoluteInputPath -Path $NewPlanPath -Name 'NewPlanPath'
     $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     Assert-OwnerOnlyCallerEnvironment -InstallerSid $sid
     Assert-OwnerOnlyNoSqliteLoaded
     $source=Assert-OwnerOnlyExecutionPath -Path $ScriptSource
     $scripts=[Collections.Generic.List[object]]::new()
     foreach($name in @(Get-OwnerOnlyReviewedScriptNames)){$scripts.Add([pscustomobject]@{path=$name;sha256=(Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $source $name) -MaxBytes 1048576))})}
+    foreach($entry in @($scripts|Where-Object{$_.path -cin @('OwnerOnlyExecution.ps1','Wait-OwnerOnlyDeploymentProcess.ps1')})){Assert-OwnerOnlyReviewedHelperPin -Name $entry.path -Sha256 $entry.sha256}
+    Assert-OwnerOnlyReviewedHelperPin -Name 'Invoke-OwnerOnlyApprovedRedeployment.ps1' -Sha256 (Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $source 'Invoke-OwnerOnlyApprovedRedeployment.ps1') -MaxBytes 1048576))
     $programFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
     $ledgerPath=Join-Path (Join-Path $programFiles 'PC Steward OwnerOnlyTest State') 'deployment.json'
     $ledger=ConvertFrom-Json -InputObject (ConvertFrom-OwnerOnlyScriptBytes -Bytes (Read-OwnerOnlyStableBytes -Path $ledgerPath -MaxBytes 4194304))
@@ -431,6 +496,7 @@ function New-OwnerOnlyRedeployPlan {
     $null=Assert-OwnerOnlyOldLedger -LedgerPath $ledgerPath -Plan $plan -InstallRoot (Join-Path $programFiles 'PC Steward')
     $null=Assert-OwnerOnlyOldSigner -InstallRoot (Join-Path $programFiles 'PC Steward') -Thumbprint $plan.oldThumbprint
     $null=Assert-OwnerOnlyCandidateTree -Root $plan.candidateRoot -ManifestBytes (Read-OwnerOnlyStableBytes -Path $manifestPath -MaxBytes 1048576) -ExpectedOrigin $ExpectedNewOrigin
+    Assert-OwnerOnlyScheduledCheckInactive
     $null=Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files @(Assert-OwnerOnlyRedeployPlanV3 -Plan $plan)
     $target=[IO.Path]::GetFullPath($NewPlanPath)
     foreach($forbidden in @($programFiles,$data,[Environment]::GetFolderPath([Environment+SpecialFolder]::Windows))){if($target.StartsWith($forbidden.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Write the plan outside Program Files, Windows and the PC Steward data root.'}}
@@ -445,12 +511,15 @@ $mode=$PSCmdlet.ParameterSetName;$report=$null
 try{
     if($PSVersionTable.PSEdition -cne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5){throw 'Run this caller in Windows PowerShell 5.1.'}
     if($mode -ceq 'NewPlan'){
+        # Absolute local paths only, before anything is read; the helper loads only at a reviewed constant.
+        Assert-OwnerOnlyAbsoluteInputPath -Path $ScriptSource -Name 'ScriptSource'
+        Assert-OwnerOnlyAbsoluteInputPath -Path $NewPlanPath -Name 'NewPlanPath'
         $helperSha=Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $ScriptSource 'OwnerOnlyExecution.ps1') -MaxBytes 1048576)
         . (Get-OwnerOnlyPinnedScriptBlock -Source $ScriptSource -Name 'OwnerOnlyExecution.ps1' -Sha256 $helperSha)
         $report=New-OwnerOnlyRedeployPlan -NewPlanPath $NewPlanPath -ScriptSource $ScriptSource -CandidateRoot $CandidateRoot -CandidateManifestPath $CandidateManifestPath -ExpectedOldOrigin $ExpectedOldOrigin -ExpectedNewOrigin $ExpectedNewOrigin
     }else{
-        # Execution first requires the approved plan hash. Then the helpers named by the plan's own pins are loaded (each a
-        # function-only file); the full plan check follows before anything else is trusted.
+        # Execution first requires the approved plan hash. The helpers then load only when the plan's pin equals the reviewed
+        # constant embedded in this caller (each a function-only file adding only new functions); the full check follows.
         $planBytes=Read-OwnerOnlyStableBytes -Path $PlanPath -MaxBytes 65536
         if($mode -ceq 'Execute' -and (Get-OwnerOnlySha256Hex -Bytes $planBytes) -cne $ApprovedPlanSha256){throw 'The plan differs from the approved plan hash.'}
         $preview=ConvertFrom-Json -InputObject ([Text.Encoding]::ASCII.GetString($planBytes))

@@ -8,7 +8,8 @@ $OwnerOnlyPlan=ConvertFrom-Json -InputObject $OwnerOnlyPlanJson
 if($null -eq $OwnerOnlyPlan -or $OwnerOnlyPlan.schema -cnotin @('pc-steward-exact-redeploy-v1','pc-steward-exact-redeploy-v2','pc-steward-exact-redeploy-v3')){throw 'An exact embedded owner-approved redeployment plan is required.'}
 # Plan schema v3 (Task 50 G1) is v2 plus user-data preservation for a host that already has %LOCALAPPDATA%\PCSteward: a closed
 # key set, preserveUserData true and exact database pins (bytes and SHA-256; no -wal/-shm/-journal sidecar, no PCSteward
-# process, no reparse point). It replaces only the "data root absent" checks; v1 and v2 keep requiring an absent data root.
+# process or enabled scheduled check, no reparse point). It replaces only the "data root absent" checks; v1 and v2 keep
+# requiring an absent data root.
 # Executing a v3 plan likewise needs its own separate exact owner approval with these pins.
 $preserveUserData=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v3';$userDataPins=$null;$userData=$null
 if($preserveUserData){$userDataPins=@(Assert-OwnerOnlyRedeployPlanV3 -Plan $OwnerOnlyPlan)}
@@ -70,7 +71,7 @@ try{
     $data=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward'
     $phase='old-deployment-preflight'
     if((Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $OwnerOnlyPlan.oldLedgerSha256 -or (!$preserveUserData -and (Test-Path -LiteralPath $data)) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'Approved old deployment/data/process baseline changed.'}
-    if($preserveUserData){if([IO.Path]::GetFullPath($OwnerOnlyPlan.userDataRoot).TrimEnd('\') -cne $data){throw 'The approved user data root differs.'};Assert-OwnerOnlyNoSqliteLoaded;$userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $userDataPins)}
+    if($preserveUserData){if([IO.Path]::GetFullPath($OwnerOnlyPlan.userDataRoot).TrimEnd('\') -cne $data){throw 'The approved user data root differs.'};Assert-OwnerOnlyNoSqliteLoaded;Assert-OwnerOnlyScheduledCheckInactive;$userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $userDataPins)}
     $old=Get-Content -LiteralPath $ledger -Raw|ConvertFrom-Json
     if($old.certificateThumbprint -cne $OwnerOnlyPlan.oldThumbprint){throw 'Old signer changed.'}
     if($expectedOldOrigin -ceq 'legacy-v6'){$legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -AllowLegacyPayload}
@@ -80,6 +81,7 @@ try{
     if($candidate.PayloadOrigin -cne $expectedNewOrigin){throw 'The pinned candidate payload origin differs from the plan.'}
     [PCSteward.Deployment.PayloadIntegrity]::AssertTree($OwnerOnlyPlan.candidateRoot,$candidate.Files)
     $phase='approved-removal'
+    if($preserveUserData){Assert-OwnerOnlyScheduledCheckInactive;Assert-OwnerOnlyNoPCStewardProcess}
     $removal=& (Join-Path $scripts 'Remove-OwnerOnlyProtectedTestDeployment.ps1') -Remove
     Write-OwnerOnlyProtectedJson -Path (Join-Path $execution 'removal-result.json') -Value ($removal|ConvertFrom-Json)
     if((Test-Path -LiteralPath $install) -or (Test-Path -LiteralPath $state) -or (!$preserveUserData -and (Test-Path -LiteralPath $data))){throw 'Removal postconditions failed.'}

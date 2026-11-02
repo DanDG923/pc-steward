@@ -122,6 +122,13 @@ function Assert-OwnerOnlyNoPCStewardProcess {
     if(@(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'A PC Steward process is running; user data cannot be preserved.'}
 }
 
+function Assert-OwnerOnlyScheduledCheckInactive {
+    # PCSteward.ScheduledCheck starts the installed ScheduledHost (SQLite). Absent or Disabled only; other errors refuse.
+    Import-Module ([IO.Path]::Combine($PSHOME,'Modules','ScheduledTasks','ScheduledTasks.psd1')) -ErrorAction Stop
+    $failures=$null;$tasks=@(Get-ScheduledTask -TaskName 'PCSteward.ScheduledCheck' -ErrorAction SilentlyContinue -ErrorVariable failures)
+    if(@($failures|Where-Object{[string]$_.FullyQualifiedErrorId -notlike 'CmdletizationQuery_NotFound*'}).Count -or @($tasks|Where-Object{[string]$_.State -cne 'Disabled'}).Count){throw 'The PC Steward scheduled check task is enabled or unreadable; disable it before the redeploy.'}
+}
+
 function Assert-OwnerOnlyUserDataPreserved {
     param([Parameter(Mandatory)][string]$DataRoot,[Parameter(Mandatory)][object[]]$Files)
     if(!(Test-Path -LiteralPath $DataRoot -PathType Container)){throw 'The preserved user data root is absent.'}

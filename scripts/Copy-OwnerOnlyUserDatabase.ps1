@@ -12,9 +12,37 @@
 # the live file, the live file equals the approved plan pin before and after the redeploy, and a later, separately
 # approved app launch opens the preserved database. Any process that later runs an engine-based check on the copy must
 # run separately, exit, and never be the redeploy caller.
+#
+# Run it with -File from a captured, hash-checked copy beside the reviewed OwnerOnlyExecution.ps1, for example
+#   C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -File <folder>\Copy-OwnerOnlyUserDatabase.ps1
+# It refuses when $PSScriptRoot is empty (pasted or dot-sourced text) and loads OwnerOnlyExecution.ps1 only when its bytes
+# equal the reviewed SHA-256 embedded below (the same constants as Invoke-OwnerOnlyRedeployCaller.ps1).
 [CmdletBinding()]
 param([string]$DestinationParent)
 $ErrorActionPreference='Stop'
+
+function Get-OwnerOnlyCopyHelperScriptBlock {
+    # Reviewed SHA-256 of OwnerOnlyExecution.ps1, LF then CRLF form; RedeployToolingScriptTests recomputes both.
+    param([AllowEmptyString()][string]$ScriptRoot)
+    if([string]::IsNullOrEmpty($ScriptRoot)){throw 'Run this copy with powershell.exe -File; the pinned helper is found only beside the script.'}
+    $stream=[IO.FileStream]::new((Join-Path $ScriptRoot 'OwnerOnlyExecution.ps1'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try{
+        if($stream.Length -gt 1048576){throw 'OwnerOnlyExecution.ps1 exceeds its size bound.'}
+        $buffer=[IO.MemoryStream]::new();try{$stream.CopyTo($buffer);$bytes=$buffer.ToArray()}finally{$buffer.Dispose()}
+    }finally{$stream.Dispose()}
+    $sha=[Security.Cryptography.SHA256]::Create();try{$hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','')}finally{$sha.Dispose()}
+    if($hash -cnotin @('857F6DC8BCE109F412401B55A1EF966AEE037B249CFBF14CE19586D163EB2728','33B1B716E6298DCEAEF784DCFCB985FD8485DEFEDF6F886029D6BC8F8A615EF3')){throw 'OwnerOnlyExecution.ps1 is not the reviewed version embedded in this copy script; nothing was copied.'}
+    $text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes).TrimStart([char]0xfeff)
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)
+    if(@($errors).Count -or $null -ne $ast.ParamBlock -or $null -ne $ast.BeginBlock -or $null -ne $ast.ProcessBlock -or $null -eq $ast.EndBlock -or @($ast.EndBlock.Statements|Where-Object{$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}).Count){throw 'A pinned helper must contain only function definitions.'}
+    return [ScriptBlock]::Create($text)
+}
+
+function Assert-OwnerOnlyCopyDestinationPath {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    if($Path -cnotmatch '^[A-Za-z]:\\' -or $Path.Substring(2).Contains(':')){throw 'DestinationParent must be an absolute local path such as C:\...; relative, UNC and device paths are refused.'}
+}
 
 function Get-OwnerOnlySqliteHeaderFacts {
     # Pure byte parsing of the 100-byte SQLite header (https://www.sqlite.org/fileformat.html section 1.3). Not an engine.
@@ -50,6 +78,10 @@ function Copy-OwnerOnlyUserDatabase {
     Assert-OwnerOnlyNoPCStewardProcess
     if(@(Get-OwnerOnlyUserDataSidecars -DataRoot $root -Leaves @('pcsteward.db')).Count){throw 'A SQLite sidecar exists; close PC Steward normally and let it finish before copying. Nothing was copied.'}
     Assert-OwnerOnlyNoSqliteLoaded
+    # Refuse a reparse point on the nearest existing ancestor BEFORE creating anything, so no refusal leaves a folder behind.
+    $existing=$parent
+    while(!(Test-Path -LiteralPath $existing -PathType Container)){$up=Split-Path -Parent $existing;if([string]::IsNullOrEmpty($up) -or $up -eq $existing){throw 'The copy destination has no existing parent folder.'};$existing=$up}
+    Assert-OwnerOnlyNoReparseChain -Path $existing
     [void][IO.Directory]::CreateDirectory($parent)
     Assert-OwnerOnlyNoReparseChain -Path $parent
     $leaf='pcsteward-db-copy-'+[DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8)
@@ -95,8 +127,10 @@ function Copy-OwnerOnlyUserDatabase {
 
 # ---- Main (skipped when a test dot-sources the functions through the AST). ----
 if($PSVersionTable.PSEdition -cne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5){throw 'Run this copy in Windows PowerShell 5.1.'}
+if(![Environment]::Is64BitProcess -or !$PSHOME.TrimEnd('\').Equals('C:\Windows\System32\WindowsPowerShell\v1.0',[StringComparison]::OrdinalIgnoreCase)){throw 'Run this copy in 64-bit system Windows PowerShell (C:\Windows\System32\WindowsPowerShell\v1.0).'}
 if(([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run this copy from a normal, non-elevated session.'}
-. (Join-Path $PSScriptRoot 'OwnerOnlyExecution.ps1')
+if($DestinationParent){Assert-OwnerOnlyCopyDestinationPath -Path $DestinationParent}
+. (Get-OwnerOnlyCopyHelperScriptBlock -ScriptRoot $PSScriptRoot)
 if(!$DestinationParent){$DestinationParent=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) 'PCSteward-DatabaseCopies'}
 $forbidden=@([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles),[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86),[Environment]::GetFolderPath([Environment+SpecialFolder]::Windows))
 ConvertTo-Json -InputObject (Copy-OwnerOnlyUserDatabase -DataRoot (Get-OwnerOnlyUserDataRoot) -DestinationParent $DestinationParent -ForbiddenRoots $forbidden) -Depth 4
