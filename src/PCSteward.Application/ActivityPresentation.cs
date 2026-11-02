@@ -92,6 +92,15 @@ public static class UpdateJobHistory
         };
     }
 
+    /// <summary>
+    /// As <see cref="FailureClass(UpdateHistoryStatus)"/>, but an admission refusal (recorded as ProductFailed with
+    /// <see cref="UpdateOutcomePresenter.AdmissionRefusedDiagnostic"/>) reads as not started (Task 73 Phase 6 review L5).
+    /// </summary>
+    public static string FailureClass(UpdateHistoryStatus status, string? diagnostic) =>
+        status == UpdateHistoryStatus.ProductFailed && string.Equals(diagnostic, UpdateOutcomePresenter.AdmissionRefusedDiagnostic, StringComparison.Ordinal)
+            ? "Not started: another update or its work wasn't finished"
+            : FailureClass(status);
+
     /// <summary>The failure class in words (FR-HIS-03: source, download, installer, elevation, timeout and verification stay distinct).</summary>
     public static string FailureClass(UpdateHistoryStatus status) => status switch
     {
@@ -221,7 +230,7 @@ public static class ActivityPresenter
                 ],
                 [
                     new("Exit code", job.Final.ExitCode is { } code ? code.ToString(CultureInfo.InvariantCulture) : "None recorded"),
-                    new("Failure class", UpdateJobHistory.FailureClass(job.Final.Status)),
+                    new("Failure class", UpdateJobHistory.FailureClass(job.Final.Status, job.Final.Diagnostic)),
                     new("Recorded output", string.IsNullOrWhiteSpace(job.Final.Diagnostic) ? "None recorded" : SanitizedDiagnosticBundle.Sanitize(job.Final.Diagnostic)),
                 ],
                 outcome.Kind));

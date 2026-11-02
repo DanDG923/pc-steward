@@ -115,8 +115,11 @@ public sealed class UpdateBatchWorkflowTests
         CollectionAssert.AreEqual(KeysA, harness.Executor.Keys.ToArray());
         StringAssert.Contains(UpdateOutcomePresenter.ForBatch(run, key => key).Items[1].Outcome.Summary, "more than 30 minutes old");
 
+        harness.Now = Start;
+        harness.Executor.OnExecute = null;
+        UpdateBatchReviewPreparation fresh = await harness.Workflow.BeginBatchReviewAsync(["a", "b"], CancellationToken.None);
         harness.Now = Start.AddMinutes(-1);
-        UpdateBatchRunResult clockWentBack = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, CancellationToken.None);
+        UpdateBatchRunResult clockWentBack = await harness.Workflow.ConfirmAndRunBatchAsync(fresh, new UpdateBatchStop(), null, CancellationToken.None);
         Assert.IsTrue(clockWentBack.Items.All(item => item.Disposition == UpdateBatchItemDisposition.ReviewExpired), "a clock that went backwards fails closed");
     }
 

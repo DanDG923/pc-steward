@@ -82,10 +82,18 @@ public sealed class MainWindow : Window
     private TaskCompletionSource<bool>? reviewDecision;
     // Independent review: true while BeginReviewAsync prepares a review, so a second review cannot start meanwhile.
     private bool preparingReview;
+    // Task 73 Phase 6 review M2: "Preparing review… n of N" and the band's "Cancel review preparation" while a review is prepared.
+    private UpdateBatchReviewProgress? reviewPreparationProgress;
+    private CancellationTokenSource? reviewPreparationCancellation;
+    private Button? operationCancelReview;
+    // Task 73 Phase 6 review (Info): the band names the app updating now in a batch ("Updating Firefox (2 of 4)"), so a UAC prompt has context.
+    private string? updateProgressSubject;
     // Independent review: a job finished while the user was elsewhere; the band offers "View result" instead of moving them.
     private bool jobResultPending;
     private ProgressBar? operationProgress;
     private TextBlock? jobProgressStateText;
+    // Task 73 Phase 6 review L1: the Update step line that carries the live state (the app updating now, or the next app while waiting).
+    private UpdateJobItemLine? jobProgressLine;
     private Button? operationViewJob;
     private Control? pageInitialFocus;
     // Task 73 Phase 5 (AC-UX-01/09): the control Ctrl+F focuses on the current page, and the last operation state the live region spoke.
@@ -121,7 +129,7 @@ public sealed class MainWindow : Window
         this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken));
         updateProgressTimer = DispatcherQueue.CreateTimer();
         updateProgressTimer.Interval = TimeSpan.FromMilliseconds(250);
-        Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false); StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
+        Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false); reviewPreparationCancellation?.Cancel(); StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
@@ -297,13 +305,13 @@ public sealed class MainWindow : Window
             : viewModel.IsCheckingUpdates
                 ? "Checking package sources for updates"
                 : isExecuting
-                    ? updateProgressLabel
+                    ? UpdateJobProgressText.BandLabel(updateProgressSubject, updateProgressLabel)
                     : isClearing || downloads.IsCleaning
                         ? "Clearing PC Steward data"
                         : isSavingSchedule
                             ? "Saving the schedule"
                         : preparingReview
-                            ? PreparingReviewLabel
+                            ? UpdateJobProgressText.PreparingReview(PreparingReviewLabel, reviewPreparationProgress)
                             : ShowsJobResultInBand && updateJob is { Completion: { } completion } finished
                                 ? $"{finished.Sheet.AppName}: {completion.Headline}"
                                 : "Ready";
@@ -323,9 +331,10 @@ public sealed class MainWindow : Window
             StewardVisuals.SetLiveText(operationStatusText, label, announce: stateChanged && BandAnnouncesState && operationBand?.Visibility == Visibility.Visible);
         }
         if (operationCancel is not null) operationCancel.Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
+        if (operationCancelReview is not null) operationCancelReview.Visibility = preparingReview && reviewPreparationCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (scanPageStatusText is not null) scanPageStatusText.Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}";
         // Task 73 Phase 2: the job page's per-item state follows the same polled progress presentation; no page rebuild per frame.
-        if (jobProgressStateText is not null && isExecuting) StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.ItemState(updateProgressPresentation), announce: true);
+        if (jobProgressStateText is not null && isExecuting) StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.LiveState(jobProgressLine ?? new(true, null), updateProgressPresentation), announce: true);
         if (operationViewJob is not null)
         {
             // Independent review: a job that finished elsewhere shows its result here with "View result"; it never moves the user.
@@ -1473,6 +1482,14 @@ public sealed class MainWindow : Window
         Grid.SetColumn(viewJob, 3);
         operation.Children.Add(viewJob);
         operationViewJob = viewJob;
+        // Task 73 Phase 6 review M2: preparing a review can be abandoned; nothing has been approved or started at that point.
+        operation.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Button cancelReview = StewardVisuals.ActionButton("Cancel review preparation");
+        cancelReview.Visibility = preparingReview && reviewPreparationCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
+        cancelReview.Click += (_, _) => reviewPreparationCancellation?.Cancel();
+        Grid.SetColumn(cancelReview, 4);
+        operation.Children.Add(cancelReview);
+        operationCancelReview = cancelReview;
         operationBand = new Border
         {
             Background = StewardVisuals.Brush("StewardBrandSubtleBrush"),
@@ -1958,6 +1975,9 @@ public sealed class MainWindow : Window
         // The one-shot helper takes one approved job per prompt, so a batch elevates each machine-wide app on its own.
         if (sheet.ElevationNote is { } elevationNote)
             panel.Children.Add(StewardVisuals.InformationBanner("Windows may ask more than once", elevationNote, "information"));
+        // Review L2: the 30-minute dispatch ceiling is shown while the review is still open.
+        if (!refused && reviewDecision is not null && sheet.ExpiryNote is { } expiryNote)
+            panel.Children.Add(StewardVisuals.InformationBanner("Start within 30 minutes", expiryNote, "neutral"));
 
         StackPanel fineprint = new() { Spacing = StewardSpacing.Small };
         fineprint.Children.Add(new TextBlock { Text = sheet.Attestation, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
@@ -2020,13 +2040,19 @@ public sealed class MainWindow : Window
         StackPanel item = new() { Spacing = StewardSpacing.Small };
         item.Children.Add(SectionHeading(UpdateJobProgressText.Heading(job.Sheet.ItemCount)));
         // Task 73 Phase 6 (AC-UPD-09): one line per app, in run order. Only the app updating now follows the polled progress.
+        // Review L1: a finished app shows its outcome (never a progress bar or "Waiting to start"); while the batch waits for its owned
+        // work to settle, the next app carries the live "Waiting for the previous app to finish…".
+        jobProgressStateText = null;
+        jobProgressLine = null;
         for (int index = 0; index < job.Sheet.ItemCount; index++)
         {
             UpdateReviewSheetItem entry = job.Sheet.Items[index];
             item.Children.Add(StewardVisuals.EvidenceRow(entry.AppName, entry.Facts.Single(fact => fact.Label == "Version").Value));
-            if (job.Sheet.ItemCount == 1 || index == job.CurrentIndex)
+            UpdateJobItemLine line = UpdateJobProgressText.Line(index, job.CurrentIndex, job.FinishedLabels, job.Stop.IsRequested);
+            if (line.IsLive && jobProgressStateText is null)
             {
-                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.ItemState(updateProgressPresentation), TextWrapping = TextWrapping.Wrap };
+                jobProgressLine = line;
+                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.LiveState(line, updateProgressPresentation), TextWrapping = TextWrapping.Wrap };
                 // A polite live region: its text (not a fixed name) is what a screen reader hears when the state changes.
                 AutomationProperties.SetLiveSetting(jobProgressStateText, AutomationLiveSetting.Polite);
                 item.Children.Add(jobProgressStateText);
@@ -2034,7 +2060,7 @@ public sealed class MainWindow : Window
                 AutomationProperties.SetName(progress, $"{entry.AppName} update progress");
                 item.Children.Add(progress);
             }
-            else item.Children.Add(PageCopy(UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index])));
+            else item.Children.Add(PageCopy(line.Text ?? UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index])));
         }
         panel.Children.Add(Card(item));
         // FR-UPD-11, AC-UPD-10: stop before the next app starts. It never interrupts the app that is updating now.
@@ -2878,16 +2904,37 @@ public sealed class MainWindow : Window
         // says "Preparing review…", so a second review cannot start. The flag covers preparation only, never the sheet.
         preparingReview = true;
         jobResultPending = false;
+        // Review M2: preparation reports "n of N" and can be cancelled from the band; nothing is approved or started while preparing.
+        CancellationTokenSource preparationCancellation = new();
+        reviewPreparationCancellation = preparationCancellation;
+        reviewPreparationProgress = null;
+        Progress<UpdateBatchReviewProgress> preparationProgress = new(progress =>
+        {
+            if (windowClosed || !preparingReview || !ReferenceEquals(reviewPreparationCancellation, preparationCancellation)) return;
+            reviewPreparationProgress = progress;
+            RefreshOperationVisuals();
+        });
         Render();
         string[] keys = [.. rows.Select(row => row.StableProductKey).Distinct(StringComparer.Ordinal)];
         string NameOf(string key) => rows.FirstOrDefault(row => row.StableProductKey == key)?.Name ?? key;
         UpdateBatchReviewPreparation? prepared = null;
         bool leaseUnavailable = false;
-        try { prepared = await DataOperationLease.RunAsync(token => updates.BeginBatchReviewAsync(keys, token), CancellationToken.None); }
+        bool preparationCancelled = false;
+        try { prepared = await DataOperationLease.RunAsync(token => updates.BeginBatchReviewAsync(keys, preparationProgress, token), preparationCancellation.Token); }
+        catch (OperationCanceledException) when (preparationCancellation.IsCancellationRequested) { preparationCancelled = true; }
         catch (InvalidOperationException) { leaseUnavailable = true; }
         catch (Exception) { prepared = null; }
         finally { preparingReview = false; }
+        reviewPreparationCancellation = null;
+        reviewPreparationProgress = null;
+        preparationCancellation.Dispose();
         if (windowClosed) return;
+        if (preparationCancelled)
+        {
+            Render();
+            AnnounceCompletion("Review preparation cancelled. Nothing was changed.", "review-preparation-cancelled");
+            return;
+        }
         if (prepared is null)
         {
             Render();
@@ -2911,7 +2958,8 @@ public sealed class MainWindow : Window
             NameOf(item.StableProductKey), rows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Publisher ?? string.Empty,
             viewModel.UpdateDetails.GetValueOrDefault(item.StableProductKey), item.Preparation.RunningApplication))];
         UpdateReviewSheet sheet = UpdateReviewSheet.CreateBatch(inputs,
-            [.. preparation.Excluded.Select(excluded => new UpdateReviewExclusion(NameOf(excluded.StableProductKey), excluded.Message))]);
+            [.. preparation.Excluded.Select(excluded => new UpdateReviewExclusion(NameOf(excluded.StableProductKey), excluded.Message))],
+            preparation.ExpiresAt.ToLocalTime());
         UpdateJobSession job = new([.. preparation.Items.Select(item => rows.First(row => row.StableProductKey == item.StableProductKey))], sheet);
         updateJob = job;
         TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2937,6 +2985,7 @@ public sealed class MainWindow : Window
         updateProgressMailbox = null;
         updateProgressPresentation = null;
         updateProgressLabel = "Revalidating reviewed update";
+        updateProgressSubject = null;
         Microsoft.UI.Dispatching.DispatcherQueue dispatcher = DispatcherQueue;
         UpdateBatchRunResult? run = null;
         ReviewedUpdateExecutionResult? result = null;
@@ -2954,7 +3003,7 @@ public sealed class MainWindow : Window
         }
         catch (InvalidOperationException) when (!Volatile.Read(ref operationEntered)) { result = new(false, UpdateOutcomePresenter.DataUnavailableNotStartedMessage, null); }
         catch (Exception) { result = new(true, "The reviewed update did not produce a recorded outcome. Execution or verification may have been interrupted. No verified success was recorded; refresh inventory before deciding what to do next.", null); }
-        finally { StopUpdateProgressPolling(); isExecuting = false; updateProgressMailbox = null; updateProgressPresentation = null; if (!windowClosed) LoadSavedInventory(); }
+        finally { StopUpdateProgressPolling(); isExecuting = false; updateProgressMailbox = null; updateProgressPresentation = null; updateProgressSubject = null; if (!windowClosed) LoadSavedInventory(); }
         if (windowClosed) return;
         // FR-UPD-08/09, AC-UPD-09/10, UJ-04 step 8 (audit P-H3): each app's recorded result is authoritative and maps to Verified,
         // Restart required, Installed, not verified, Failed or Not started — never a flattened "Update failed". Earlier results are
@@ -2980,7 +3029,16 @@ public sealed class MainWindow : Window
         {
             if (notice.Result is { } finished)
                 job.FinishedLabels[notice.Index] = UpdateOutcomePresenter.ForBatch(new([finished], false), _ => null).Items.Single().Outcome.Label;
-            if (notice.Index == job.CurrentIndex) { StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; }
+            if (notice.Index == job.CurrentIndex)
+            {
+                StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null;
+                // Review L1: while the batch waits for this app's owned work to settle, the band says so instead of naming a finished app.
+                if (notice.Index < preparation.Items.Count - 1 && !job.Stop.IsRequested)
+                {
+                    updateProgressSubject = null;
+                    updateProgressLabel = UpdateJobProgressText.WaitingForPreviousApp;
+                }
+            }
         }
         else
         {
@@ -2988,8 +3046,10 @@ public sealed class MainWindow : Window
             job.CurrentIndex = notice.Index;
             updateProgressMailbox = item.Progress;
             updateProgressPresentation = new(item.Review!.JobId, item.Review.CorrelationId, item.Review.Selection.Scope);
-            updateProgressLabel = item.Progress is null ? "Progress unavailable"
-                : preparation.Items.Count == 1 ? "Revalidating reviewed update" : $"Revalidating reviewed update ({notice.Index + 1} of {preparation.Items.Count})";
+            updateProgressLabel = item.Progress is null ? "Progress unavailable" : "Revalidating reviewed update";
+            // Info (review): name the app in the band ("Updating Firefox (2 of 4)"), so a UAC prompt for it has context.
+            updateProgressSubject = preparation.Items.Count == 1 ? null
+                : UpdateJobProgressText.BatchSubject(job.Sheet.Items[notice.Index].AppName, notice.Index, preparation.Items.Count);
             StartUpdateProgressPolling();
         }
         Render();

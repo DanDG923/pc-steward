@@ -131,6 +131,20 @@ public sealed class UpdateReviewSheet
     public bool AppearsToBeRunning { get; }
     public int ItemCount => Items.Count;
 
+    /// <summary>Review L2: when this review stops being startable (the 30-minute dispatch ceiling), in the time shown to the user.</summary>
+    public DateTimeOffset? ReviewExpiresAt { get; private set; }
+
+    /// <summary>The review's expiry in words, shown on the sheet; null when no expiry was supplied.</summary>
+    public string? ExpiryNote => ReviewExpiresAt is { } expiresAt ? ExpiryText(expiresAt, ItemCount) : null;
+
+    public static string ExpiryText(DateTimeOffset expiresAt, int itemCount)
+    {
+        string time = expiresAt.ToString("t", System.Globalization.CultureInfo.CurrentCulture);
+        return itemCount == 1
+            ? $"This review is valid until {time}. If the update hasn't started by then, review again to update."
+            : $"This review is valid until {time}. An app that hasn't started by then won't start; review it again.";
+    }
+
     public static UpdateReviewSheet Create(UpdateJobSelection selection, string appName, string publisher, UpdateDetail? detail,
         RunningApplicationDetection running, AdministratorRequirementPresentation administratorRequirement)
     {
@@ -168,7 +182,15 @@ public sealed class UpdateReviewSheet
     /// app keeps its own §17.2 facts and confidence; risks are aggregated (running apps named, restart, administrator count) and
     /// excluded apps are listed with their reasons. The commit button names the count and shows the shield only if an app needs it.
     /// </summary>
-    public static UpdateReviewSheet CreateBatch(IReadOnlyList<UpdateReviewSheetInput> inputs, IReadOnlyList<UpdateReviewExclusion>? excluded = null)
+    public static UpdateReviewSheet CreateBatch(IReadOnlyList<UpdateReviewSheetInput> inputs, IReadOnlyList<UpdateReviewExclusion>? excluded = null,
+        DateTimeOffset? reviewExpiresAt = null)
+    {
+        UpdateReviewSheet sheet = BuildBatch(inputs, excluded);
+        sheet.ReviewExpiresAt = reviewExpiresAt;
+        return sheet;
+    }
+
+    private static UpdateReviewSheet BuildBatch(IReadOnlyList<UpdateReviewSheetInput> inputs, IReadOnlyList<UpdateReviewExclusion>? excluded)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         if (inputs.Count == 0) throw new ArgumentException("A review sheet needs at least one app.", nameof(inputs));
@@ -297,6 +319,43 @@ public static class UpdateJobProgressText
     public static string QueuedItemState(int index, int currentIndex, string? finishedLabel) =>
         finishedLabel is not null ? finishedLabel : index < currentIndex ? "Finished" : "Waiting to start";
 
+    /// <summary>Review L1: shown on the next app while the batch waits for the previous app's owned work to settle.</summary>
+    public const string WaitingForPreviousApp = "Waiting for the previous app to finish…";
+
+    /// <summary>
+    /// Review L1 (Task 73 Phase 6): how one line of the Update step is shown. A finished app always shows its recorded outcome label,
+    /// never a progress bar or "Waiting to start", even while it is still the current app. While the batch waits for a finished app's
+    /// owned work to settle, the next app (unless a stop was requested) carries the live state "Waiting for the previous app to finish…".
+    /// </summary>
+    public static UpdateJobItemLine Line(int index, int currentIndex, IReadOnlyList<string?> finishedLabels, bool stopRequested)
+    {
+        ArgumentNullException.ThrowIfNull(finishedLabels);
+        if (index < 0 || index >= finishedLabels.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        if (finishedLabels[index] is { } finished) return new(false, finished);
+        if (finishedLabels.Count == 1 || index == currentIndex) return new(true, null);
+        bool currentFinished = currentIndex >= 0 && currentIndex < finishedLabels.Count && finishedLabels[currentIndex] is not null;
+        if (currentFinished && index == currentIndex + 1 && !stopRequested) return new(true, WaitingForPreviousApp);
+        return new(false, QueuedItemState(index, currentIndex, null));
+    }
+
+    /// <summary>The live state text for a live line: the waiting text, or the polled progress of the app updating now.</summary>
+    public static string LiveState(UpdateJobItemLine line, UpdateProgressPresentation? presentation)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return line.Text ?? ItemState(presentation);
+    }
+
+    /// <summary>Review M2: the band while a review is prepared — "Preparing review… 2 of 5" for several apps, the plain label for one.</summary>
+    public static string PreparingReview(string label, UpdateBatchReviewProgress? progress) =>
+        progress is { Total: > 1 } known ? $"{label} {known.Prepared} of {known.Total}" : label;
+
+    /// <summary>Info (review): the operation band names the app updating now in a batch, so a UAC prompt has context.</summary>
+    public static string BatchSubject(string appName, int index, int itemCount) => $"Updating {appName} ({index + 1} of {itemCount})";
+
+    /// <summary>The band text: the batch subject (if any) followed by the polled progress label.</summary>
+    public static string BandLabel(string? subject, string progressLabel) =>
+        string.IsNullOrWhiteSpace(subject) ? progressLabel : $"{subject} · {progressLabel}";
+
     public static string ItemState(UpdateProgressPresentation? presentation)
     {
         if (presentation is null) return "Waiting to start";
@@ -313,6 +372,12 @@ public static class UpdateJobProgressText
         };
     }
 }
+
+/// <summary>
+/// One line of the Update step. <see cref="IsLive"/> lines carry the polite live region and an indeterminate progress bar; their
+/// <see cref="Text"/> is null when they follow the polled progress. Other lines show <see cref="Text"/> only.
+/// </summary>
+public sealed record UpdateJobItemLine(bool IsLive, string? Text);
 
 /// <summary>
 /// The outcome shown on the Verify step. The first four are the ADR-030 outcomes; <see cref="NotStarted"/> is not a failure.
@@ -412,6 +477,14 @@ public static class UpdateOutcomePresenter
     public const string ProviderCompletedCheckInterruptedDiagnostic = "verification-interrupted-after-provider-completed";
 
     /// <summary>
+    /// The diagnostic the coordinator records (as <see cref="UpdateHistoryStatus.ProductFailed"/>) for an app refused execution admission
+    /// because another update or its owned work hadn't finished — for example after the batch settle wait. Nothing ran (review L5).
+    /// </summary>
+    public const string AdmissionRefusedDiagnostic = "not-started-update-execution-busy-or-owned-work-unresolved";
+
+    private const string AdmissionRefusedSummary = "Not started — another update is still running or its work isn't finished, so nothing was changed.";
+
+    /// <summary>
     /// The workflow message when the data lease refuses the confirmed update before the workflow runs (another data task, a pending
     /// reset or an unresolved earlier update). Nothing was started; it reads as "Not started", never as an unrecorded outcome.
     /// </summary>
@@ -457,6 +530,9 @@ public static class UpdateOutcomePresenter
                 "The update took too long and PC Steward stopped waiting. It may have partly applied — scan again to check.", technical),
             UpdateHistoryStatus.ProductFailed when string.Equals(diagnostic, HelperMissingDiagnostic, StringComparison.Ordinal) =>
                 Failed(ElevationStory.HelperMissingOutcome, technical),
+            // Review L5: an admission refusal is recorded as ProductFailed, but nothing ran. Presentation only; the record is unchanged.
+            UpdateHistoryStatus.ProductFailed when string.Equals(diagnostic, AdmissionRefusedDiagnostic, StringComparison.Ordinal) =>
+                new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral, AdmissionRefusedSummary, TryAgain, technical),
             UpdateHistoryStatus.ProductFailed => Failed("PC Steward couldn't run the update.", technical),
             _ => ResultNotVerified("PC Steward couldn't read the recorded outcome.", technical)
         };
@@ -473,8 +549,7 @@ public static class UpdateOutcomePresenter
 
         if (result.Batch is { AdmissionRefused: true })
             return new([Item(new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral,
-                "Not started — another update is still running or its work isn't finished, so nothing was changed.", TryAgain,
-                "not-started-update-execution-busy-or-owned-work-unresolved"))]);
+                AdmissionRefusedSummary, TryAgain, AdmissionRefusedDiagnostic))]);
         UpdateHistoryEntry[] finals = result.Batch?.FinalEntries.ToArray() ?? [];
         if (finals.Length != 0)
             return new(finals.Select(entry => Item(ForStatus(entry.Status, entry.Diagnostic, entry.ExitCode, entry.TargetVersion))).ToArray());
@@ -507,6 +582,8 @@ public static class UpdateOutcomePresenter
             }
             string summary = item.Disposition switch
             {
+                // Review L2: a one-app job has no "turn"; it reads as the single-app expiry.
+                UpdateBatchItemDisposition.ReviewExpired when run.Items.Count == 1 => $"Not started — {ReviewedUpdateExecutionWorkflow.SingleReviewExpiredMessage} Nothing was changed.",
                 UpdateBatchItemDisposition.ReviewExpired => "Not started — the review was more than 30 minutes old when this app's turn came, so nothing was changed.",
                 UpdateBatchItemDisposition.StoppedAfterEarlierProblem => "Not started — an earlier update in this batch didn't finish normally, so PC Steward stopped before this app. Nothing was changed.",
                 _ => "Not started — you stopped the remaining updates before this app started, so nothing was changed."
