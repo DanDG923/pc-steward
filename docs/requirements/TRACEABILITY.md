@@ -33,6 +33,24 @@
 - Phase 6 (`FR-UPD-09–11`, `AC-UPD-01–11`, `FR-POL-01–05`, SPEC §9.13 G4 and the skip-version amendment): batch workflow tests (frozen set, per-item revalidation, stop between items, kept results, settle wait), batch presentation tests, skip-decision domain tests (equal, newer, older, incomparable; precedence) and a persistence round-trip, plus a contract test that the batch adds no execution, approval, cancellation, elevation or Chocolatey path. Windows CI is green at `2a9c31d`.
 - Not claimed: runtime look and behaviour (Mica, drag region, focus restore, Narrator, high-contrast switching, scaling, UAC end to end). Those are owner-host evidence.
 
+# ADR-031 — Chocolatey client update (reviewed release list, W1 wiring, watchdog and the verified Desktop offer)
+
+`FR-UPD-15`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [ADR-031](../adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) (Option 2, owner decisions 1–5); [design note](../review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §3.3, §3.7 and §8 (gate 3 of §8.6).
+
+- Domain `ClientSelfUpdateRouteTests` (the distinct route contract).
+- Application:
+  - `ChocolateyClientUpdateViewModelTests`: the offer only from a verified check, never from the scan; a distinct reason for each state (checking, not checked, not verified, not listed, list unavailable, no newer release); Confirm always disabled.
+  - `ChocolateyClientUpdatePresentationTests` and `ChocolateyReviewDisclosureTests`: review facts, disclosures and W1 history details.
+- Security:
+  - the installed-client check: `ChocolateyInstalledClientObservationTests`, including a shared budget on a manual clock;
+  - the release list and launch: `ChocolateyReleaseListTests`, `ChocolateyClientUpdateCommandTests`, `ChocolateyClientSelfUpdateLaunchTests`, `ChocolateyClientUpdateDesktopTests` and `ChocolateyClientUpdatePostcheckTests`;
+  - the watchdog: `ChocolateyClientUpdateWatchdogTests`;
+  - W1 run faults: `ClientRunFaultInterpreterWorkflowTests`, `ReviewedHelperEndpointClientRunFaultTests` and `ReviewedUpdateWireCodecClientRunFaultTests`.
+- Architecture:
+  - `ChocolateyClientUpdateDesktopUiBoundaryTests`: thin, read-only surfaces; `Verified` is called only by the native observation, pinned on IL and on Desktop source text; the dialog keeps its scroll position and has a live summary;
+  - `ClientUpdateWatchdogBoundaryTests`, `ClientRunFaultBoundaryTests` (the route is still not admitted) and `ReviewedRouteDesktopUiBoundaryTests`.
+- Not claimed: admission of `ChocolateyClientSelfUpdateV1`, host evidence of a real client update, or Narrator and scrolling behaviour at runtime (AC-UX best effort, ADR-021). Windows CI for the independent review Low fixes (L1–L6) is pending.
+
 # Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
 
 `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [scope](../review/TASK_50_DESKTOP_REVIEW_UI_SCOPE.md); [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).

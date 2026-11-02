@@ -42,15 +42,42 @@ internal static class ChocolateyClientUpdateSurfaces
 
     /// <summary>
     /// Renders <paramref name="model"/> into the dialog (when it opens, and again when the installed-client check ends): title,
-    /// every line, and Confirm's enabled state from <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> only.
+    /// every line, and Confirm's enabled state from <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> only. The
+    /// re-render keeps the dialog's ScrollViewer, its summary and its scroll position and replaces only the lines below the
+    /// summary; the summary is a polite live region whose change is announced, so the check's result reaches a screen reader
+    /// without moving the reader to the top (independent review L4; AC-UX best effort, ADR-021).
     /// </summary>
     internal static void Render(ContentDialog dialog, ChocolateyClientUpdateViewModel model)
     {
         ArgumentNullException.ThrowIfNull(dialog);
         ArgumentNullException.ThrowIfNull(model);
-        StackPanel content = new() { Spacing = 4 };
-        TextBlock summary = new() { Text = model.Summary, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap };
-        content.Children.Add(summary);
+        if (dialog.Content is ScrollViewer { Content: StackPanel { Children.Count: > 0 } rendered } host && rendered.Children[0] is TextBlock liveSummary)
+        {
+            double offset = host.VerticalOffset;
+            while (rendered.Children.Count > 1) rendered.Children.RemoveAt(rendered.Children.Count - 1);
+            AddLines(rendered, model);
+            StewardVisuals.SetLiveText(liveSummary, model.Summary, announce: true);
+            host.UpdateLayout();
+            host.ChangeView(null, offset, null, true);
+        }
+        else
+        {
+            StackPanel content = new() { Spacing = 4 };
+            TextBlock summary = new() { Text = model.Summary, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap };
+            AutomationProperties.SetLiveSetting(summary, AutomationLiveSetting.Polite);
+            content.Children.Add(summary);
+            AddLines(content, model);
+            dialog.Content = new ScrollViewer { Content = content, MaxHeight = 520 };
+        }
+        dialog.Title = model.Title;
+        dialog.IsPrimaryButtonEnabled = model.IsConfirmEnabled;
+        AutomationProperties.SetName(dialog, model.Title);
+        AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);
+    }
+
+    // Every line below the summary: the facts, Chocolatey's setup side effects, then every unavailability reason.
+    private static void AddLines(StackPanel content, ChocolateyClientUpdateViewModel model)
+    {
         content.Children.Add(Heading(ChocolateyClientUpdateViewModel.FactsHeading));
         foreach (ReviewedDisplayField field in model.Fields) content.Children.Add(Line(field));
         content.Children.Add(Heading(ChocolateyClientUpdateViewModel.DisclosuresHeading));
@@ -60,11 +87,6 @@ internal static class ChocolateyClientUpdateSurfaces
             content.Children.Add(Heading(ChocolateyClientUpdateViewModel.UnavailableHeading));
             foreach (ReviewedDisplayField field in model.UnavailableFields) content.Children.Add(Line(field));
         }
-        dialog.Title = model.Title;
-        dialog.Content = new ScrollViewer { Content = content, MaxHeight = 520 };
-        dialog.IsPrimaryButtonEnabled = model.IsConfirmEnabled;
-        AutomationProperties.SetName(dialog, model.Title);
-        AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);
     }
 
     private static TextBlock Heading(string text)

@@ -36,11 +36,12 @@ public enum ChocolateyClientUpdateUnavailableReason
     NoNewerReviewedRelease,
     /// <summary>The verified installed release is not on the reviewed list shown, so nothing is offered (ADR-031 owner decision 2).</summary>
     InstalledReleaseNotReviewed,
-    /// <summary>
-    /// ADR-031 design §8.6 gate 3: the installed client has not been checked yet (summaries, or while the review's check runs),
-    /// so nothing is offered.
-    /// </summary>
+    /// <summary>The installed release is verified, but the compiled reviewed list is unavailable, so nothing is offered (independent review L5).</summary>
+    ReviewedReleasesUnavailable,
+    /// <summary>ADR-031 design §8.6 gate 3: the installed client has not been checked yet (summaries), so nothing is offered.</summary>
     InstalledReleaseNotChecked,
+    /// <summary>ADR-031 design §8.6 gate 3: the review's check of the installed client is running, so nothing is offered yet.</summary>
+    InstalledReleaseChecking,
     /// <summary>ADR-031 design §8.6 gate 3: the check refused, could not run, timed out or was stopped, so nothing is offered.</summary>
     InstalledReleaseNotVerified,
     /// <summary>design rev 6 §(L6): UAC off, standard-user desktop, or an elevated desktop.</summary>
@@ -103,7 +104,7 @@ public sealed class ChocolateyClientUpdateViewModel
     public const string CheckingText = "Checking the installed Chocolatey…";
     public const string CheckingOfferText = "No update offered while PC Steward checks the installed Chocolatey.";
     public const string RefusedDetailText = "its files, folder or settings do not exactly match a reviewed release.";
-    public const string UnavailableDetailText = "the check could not run for this Windows account.";
+    public const string UnavailableDetailText = "the check could not be completed.";
     public const string TimedOutDetailText = "the check did not finish in time.";
     public const string CancelledDetailText = "the check was stopped.";
     public const string ReviewedReleasesUnavailableText = "Unavailable";
@@ -127,10 +128,14 @@ public sealed class ChocolateyClientUpdateViewModel
     public const string NoNewerReviewedReleaseText =
         "No newer reviewed release: Chocolatey can be updated only to a newer release PC Steward has reviewed.";
     public const string InstalledReleaseNotReviewedText =
-        "The installed Chocolatey release is unknown or not on PC Steward's reviewed list, so no update is offered. Bringing Chocolatey " +
+        "The verified Chocolatey release is not on PC Steward's reviewed list, so no update is offered. Bringing Chocolatey " +
         "to a reviewed release is done outside PC Steward.";
+    public const string ReviewedReleasesUnavailableReasonText =
+        "PC Steward's list of reviewed releases is unavailable, so no update is offered.";
     public const string InstalledReleaseNotCheckedText =
         "Not checked yet: PC Steward offers an update only after it verifies the installed Chocolatey, which it does when you open this review.";
+    public const string InstalledReleaseCheckingText =
+        "PC Steward is checking the installed Chocolatey; nothing is offered until it is verified.";
     public const string InstalledReleaseNotVerifiedText =
         CouldNotVerifyText + ", so no update is offered. PC Steward offers an update only from a Chocolatey whose files exactly match a reviewed release.";
 
@@ -155,10 +160,11 @@ public sealed class ChocolateyClientUpdateViewModel
         if (offer is null)
             reasons.Add(verification.Check switch
             {
-                ChocolateyInstalledClientCheck.Verified => listed.Contains(installed!, StringComparer.Ordinal)
-                    ? ChocolateyClientUpdateUnavailableReason.NoNewerReviewedRelease
+                ChocolateyInstalledClientCheck.Verified => !catalogAvailable ? ChocolateyClientUpdateUnavailableReason.ReviewedReleasesUnavailable
+                    : listed.Contains(installed!, StringComparer.Ordinal) ? ChocolateyClientUpdateUnavailableReason.NoNewerReviewedRelease
                     : ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed,
-                ChocolateyInstalledClientCheck.NotChecked or ChocolateyInstalledClientCheck.Checking => ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotChecked,
+                ChocolateyInstalledClientCheck.NotChecked => ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotChecked,
+                ChocolateyInstalledClientCheck.Checking => ChocolateyClientUpdateUnavailableReason.InstalledReleaseChecking,
                 _ => ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotVerified,
             });
         switch (splitToken)
@@ -327,12 +333,14 @@ public sealed class ChocolateyClientUpdateViewModel
     /// <summary>
     /// The Settings card, Installed apps detail "Status" and review dialog summary. Before a check, the release is the scan's,
     /// qualified as such: "Chocolatey 2.7.5 (reported by the last scan) · Not checked yet" (independent review L2). After a
-    /// verified check: "Chocolatey 2.7.5 (verified) · No newer reviewed release".
+    /// verified check: "Chocolatey 2.7.5 (verified) · No newer reviewed release", or "Chocolatey 2.7.5 (verified) · 2.8.0 is a newer
+    /// reviewed release; updating is not available yet" (never the "Update available — verified" status, which is reserved for an
+    /// update that can be reviewed and started).
     /// </summary>
     public string Summary =>
         $"Chocolatey {(VerifiedInstalledVersion is not null ? VerifiedInstalledVersion + " (verified)" : ReportedVersion is null ? "(release unknown)" : ReportedVersion + " " + ReportedByLastScanText)} · " +
         (OfferVersion is not null
-            ? $"{OfferVersion} is available; updating is {NotAvailableYetShort}"
+            ? $"{OfferVersion} is a newer reviewed release; updating is {NotAvailableYetShort}"
             : NoOfferState switch
             {
                 NoOffer.NotChecked => NotCheckedYetText,
@@ -387,7 +395,9 @@ public sealed class ChocolateyClientUpdateViewModel
         ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview => NotAdmittedText,
         ChocolateyClientUpdateUnavailableReason.NoNewerReviewedRelease => NoNewerReviewedReleaseText,
         ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed => InstalledReleaseNotReviewedText,
+        ChocolateyClientUpdateUnavailableReason.ReviewedReleasesUnavailable => ReviewedReleasesUnavailableReasonText,
         ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotChecked => InstalledReleaseNotCheckedText,
+        ChocolateyClientUpdateUnavailableReason.InstalledReleaseChecking => InstalledReleaseCheckingText,
         ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotVerified => InstalledReleaseNotVerifiedText,
         ChocolateyClientUpdateUnavailableReason.SplitTokenRequired => ChocolateyReviewDisclosurePresentation.SplitTokenRequiredText,
         ChocolateyClientUpdateUnavailableReason.DesktopTokenUnsupported => ChocolateyReviewDisclosurePresentation.DesktopTokenUnsupportedText,

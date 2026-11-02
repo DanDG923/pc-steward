@@ -162,6 +162,52 @@ public sealed class ChocolateyInstalledClientObservationTests
         Assert.AreEqual(0, calls);
     }
 
+    /// <summary>
+    /// Independent review L6(a): both observations share one budget. Over a manual clock, the second observation is given the
+    /// budget minus the first's elapsed time, and a first observation that consumes the whole budget ends TimedOut with no
+    /// second observation.
+    /// </summary>
+    [TestMethod]
+    public async Task TheSecondObservationGetsOnlyWhatTheFirstLeftOfTheBudget()
+    {
+        (ChocolateyReleaseList list, ChocolateyReviewedRelease oldest, ChocolateyReviewedRelease newest) = ChocolateyClientUpdatePostcheckTests.Releases();
+        ManualClock clock = new();
+        List<TimeSpan> remaining = [];
+        ChocolateyInstalledClientVerification result = await ChocolateyDesktopObservation.ObserveInstalledClientAsync((_, expected, left, _) =>
+        {
+            remaining.Add(left);
+            if (expected.Normalized == oldest.Version) return ChocolateyClientUpdatePostcheckTests.Observation(oldest);
+            clock.Advance(TimeSpan.FromSeconds(2));
+            return ChocolateyProfileResult.Refused.Create(ChocolateyProfileRefusal.InstalledMismatch, oldest.Version, null);
+        }, list, Budget, clock, CancellationToken.None);
+        Assert.AreEqual(ChocolateyInstalledClientCheck.Verified, result.Check);
+        Assert.AreEqual(oldest.Version, result.InstalledRelease);
+        CollectionAssert.AreEqual(new[] { Budget, Budget - TimeSpan.FromSeconds(2) }, remaining, "the second observation gets the budget minus the first's elapsed time");
+
+        ManualClock exhausted = new();
+        List<string> asked = [];
+        ChocolateyInstalledClientVerification timedOut = await ChocolateyDesktopObservation.ObserveInstalledClientAsync((_, expected, _, _) =>
+        {
+            asked.Add(expected.Normalized);
+            exhausted.Advance(Budget);
+            return ChocolateyProfileResult.Refused.Create(ChocolateyProfileRefusal.InstalledMismatch, oldest.Version, null);
+        }, list, Budget, exhausted, CancellationToken.None);
+        Assert.AreSame(ChocolateyInstalledClientVerification.TimedOut, timedOut);
+        CollectionAssert.AreEqual(new[] { newest.Version }, asked, "no second observation once the budget is spent");
+    }
+
+    /// <summary>A clock that moves only when told to; timers (the real-time cap) stay on the system clock.</summary>
+    private sealed class ManualClock : TimeProvider
+    {
+        private long ticks;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => Interlocked.Read(ref ticks);
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref ticks, by.Ticks);
+    }
+
     private static Task<ChocolateyInstalledClientVerification> Check(ChocolateyReleaseList list, ChocolateyDesktopObserve observe) =>
         ChocolateyDesktopObservation.ObserveInstalledClientAsync(observe, list, Budget, TimeProvider.System, CancellationToken.None);
 }

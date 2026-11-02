@@ -130,11 +130,21 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.IsFalse(Regex.IsMatch(surfaces, @"\b(TryConfirm|Click|DataOperationLease|ReviewedUpdateReview|ConfirmAndRunAsync|Dispatch\w*|LiveApprovedUpdate)\b"),
             "the surfaces hold no action");
 
-        // Accessibility (Phase 5 helpers, AC-UX best effort): level-3 headings, label-in-name entry, named lines. The dialog's
-        // summary is static text, so it is not a live region (independent review Info).
+        // Accessibility (Phase 5 helpers, AC-UX best effort): level-3 headings, label-in-name entry, named lines.
         StringAssert.Contains(surfaces, "StewardVisuals.SectionHeading(text, AutomationHeadingLevel.Level3)");
         StringAssert.Contains(surfaces, "AutomationProperties.SetName(entry, model.EntryAutomationName);");
-        Assert.IsFalse(surfaces.Contains("SetLiveSetting", StringComparison.Ordinal), "no live region on the static summary");
+        // Independent review L4: the summary changes when the check ends, so it is a polite live region announced through the
+        // Phase 5 helper; the re-render keeps the ScrollViewer and its offset and replaces only the lines below the summary.
+        string render = Between(surfaces, "internal static void Render(", "\n    }\n");
+        Assert.AreEqual(1, Regex.Count(surfaces, @"AutomationProperties\.SetLiveSetting\(summary, AutomationLiveSetting\.Polite\);"), "one live region: the summary");
+        StringAssert.Contains(render, "if (dialog.Content is ScrollViewer { Content: StackPanel { Children.Count: > 0 } rendered } host && rendered.Children[0] is TextBlock liveSummary)");
+        StringAssert.Contains(render, "double offset = host.VerticalOffset;");
+        StringAssert.Contains(render, "while (rendered.Children.Count > 1) rendered.Children.RemoveAt(rendered.Children.Count - 1);");
+        StringAssert.Contains(render, "StewardVisuals.SetLiveText(liveSummary, model.Summary, announce: true);");
+        StringAssert.Contains(render, "host.ChangeView(null, offset, null, true);");
+        Assert.AreEqual(1, Regex.Count(render, @"dialog\.Content\s*="), "the ScrollViewer is created once, on the first render only");
+        Assert.IsTrue(render.IndexOf("host.ChangeView(", StringComparison.Ordinal) < render.IndexOf("dialog.Content =", StringComparison.Ordinal),
+            "the re-render branch restores the offset; only the first render creates the ScrollViewer");
         StringAssert.Contains(surfaces, "AutomationProperties.SetName(line, field.AutomationName);");
         StringAssert.Contains(surfaces, "AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);");
     }
@@ -198,8 +208,11 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.IsTrue(files.Length > 5, "Desktop sources not found");
         foreach (string file in files)
             Assert.IsFalse(File.ReadAllText(file).Contains("PCSteward.Provider.Chocolatey.Native", StringComparison.Ordinal), $"{file} names the Native namespace");
-        string all = string.Concat(files.Select(File.ReadAllText));
+        string all = string.Concat(files.Select(File.ReadAllText)).Replace("\r\n", "\n", StringComparison.Ordinal);
         Assert.AreEqual(1, Regex.Count(all, @"\bChocolateyInstalledClientProbe\b"), "one composition site of the façade");
+        // Independent review L6(b): a cheap source pin beside the IL pin (which covers the Desktop only where it is built, on
+        // Windows CI): no Desktop source fabricates a verified installed release.
+        Assert.IsFalse(Regex.IsMatch(all, @"ChocolateyInstalledClientVerification\s*\.\s*Verified\s*\("), "the Desktop never calls ChocolateyInstalledClientVerification.Verified(");
         Assert.AreEqual(0, Regex.Count(all, @"ChocolateyInstalledClientProbe\.ObserveAsync\("), "composed as a method group, never invoked at startup");
         Assert.IsFalse(Regex.IsMatch(all, @"\bChocolateyDesktopObservation\b|\bChocolateyProfileObserver\b"), "the Desktop names no native observation");
 

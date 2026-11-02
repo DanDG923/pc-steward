@@ -94,7 +94,9 @@ public sealed class ChocolateyClientUpdateViewModelTests
             Assert.IsFalse(model.Title.Contains("may be available", StringComparison.Ordinal));
             Assert.AreEqual($"A newer reviewed Chocolatey release is available: 2.9.1 (not yet enabled). PC Steward verified the installed Chocolatey {installed}; " +
                 "2.9.1 is the newest release on its reviewed list. Updating Chocolatey itself is not available yet.", model.OfferText);
-            Assert.AreEqual($"Chocolatey {installed} (verified) · 2.9.1 is available; updating is not available yet", model.Summary);
+            // Independent review L5: never the "Update available — verified" status, which is reserved for "Review and update".
+            Assert.AreEqual($"Chocolatey {installed} (verified) · 2.9.1 is a newer reviewed release; updating is not available yet", model.Summary);
+            Assert.IsFalse(model.Summary.Contains("Update available", StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual("2.7.5, 2.8.0, 2.9.1", model.ReviewedReleasesText);
             // Even with a verified offer and a split token, the route is not admitted.
             CollectionAssert.AreEqual(new[] { ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview }, model.UnavailableReasons.ToArray());
@@ -160,13 +162,19 @@ public sealed class ChocolateyClientUpdateViewModelTests
         Assert.AreEqual("Chocolatey 2.7.5 (reported by the last scan) · Checking…", checking.Summary);
         Assert.AreEqual(ChocolateyClientUpdateViewModel.CheckingText, checking.InstalledText);
         Assert.AreEqual(ChocolateyClientUpdateViewModel.CheckingOfferText, checking.OfferText);
-        CollectionAssert.Contains(checking.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotChecked);
+        // Independent review L1: while the check runs, the reason says it is checking, not "not checked yet".
+        CollectionAssert.AreEqual(new[]
+        {
+            ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview, ChocolateyClientUpdateUnavailableReason.InstalledReleaseChecking,
+        }, checking.UnavailableReasons.ToArray());
+        Assert.AreEqual("PC Steward is checking the installed Chocolatey; nothing is offered until it is verified.", checking.UnavailableFields[1].Text);
+        Assert.IsFalse(checking.UnavailableFields.Any(field => field.Text.StartsWith(ChocolateyClientUpdateViewModel.NotCheckedYetText, StringComparison.Ordinal)));
         AssertConfirmDisabled(checking);
     }
 
     [TestMethod]
     [DataRow(ChocolateyInstalledClientCheck.Refused, "its files, folder or settings do not exactly match a reviewed release.")]
-    [DataRow(ChocolateyInstalledClientCheck.Unavailable, "the check could not run for this Windows account.")]
+    [DataRow(ChocolateyInstalledClientCheck.Unavailable, "the check could not be completed.")]
     [DataRow(ChocolateyInstalledClientCheck.TimedOut, "the check did not finish in time.")]
     [DataRow(ChocolateyInstalledClientCheck.Cancelled, "the check was stopped.")]
     public void ARefusedUnavailableTimedOutOrCancelledCheckOffersNothingAndSaysItCouldNotVerify(ChocolateyInstalledClientCheck check, string detail)
@@ -270,6 +278,9 @@ public sealed class ChocolateyClientUpdateViewModelTests
             ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview, ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed,
         }, model.UnavailableReasons.ToArray());
         Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledReleaseNotReviewedText, model.UnavailableFields[1].Text);
+        // Independent review L2: the reason matches the verified state; it never calls the verified release "unknown".
+        StringAssert.StartsWith(model.UnavailableFields[1].Text, "The verified Chocolatey release is not on PC Steward's reviewed list, so no update is offered.");
+        Assert.IsFalse(model.UnavailableFields[1].Text.Contains("unknown", StringComparison.OrdinalIgnoreCase));
         AssertConfirmDisabled(model);
     }
 
@@ -307,7 +318,12 @@ public sealed class ChocolateyClientUpdateViewModelTests
             Assert.AreEqual(ChocolateyClientUpdateViewModel.CatalogUnavailableOfferText, model.OfferText);
             Assert.AreEqual("Chocolatey 2.7.5 (verified) · Reviewed releases unavailable", model.Summary);
             Assert.IsNull(model.OfferVersion);
-            CollectionAssert.Contains(model.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed);
+            // Independent review L2: an unavailable list has its own reason, never "not on the reviewed list".
+            CollectionAssert.AreEqual(new[]
+            {
+                ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview, ChocolateyClientUpdateUnavailableReason.ReviewedReleasesUnavailable,
+            }, model.UnavailableReasons.ToArray());
+            Assert.AreEqual("PC Steward's list of reviewed releases is unavailable, so no update is offered.", model.UnavailableFields[1].Text);
             AssertConfirmDisabled(model);
         }
         foreach (string? signer in new[] { null, "", " ", new string('x', 129) })
@@ -376,6 +392,10 @@ public sealed class ChocolateyClientUpdateViewModelTests
         Assert.AreEqual(ChocolateyReviewDisclosurePresentation.DesktopTokenUnknownText, ChocolateyClientUpdateViewModel.Text(ChocolateyClientUpdateUnavailableReason.DesktopTokenUnknown));
         Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledReleaseNotCheckedText, ChocolateyClientUpdateViewModel.Text(ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotChecked));
         Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledReleaseNotVerifiedText, ChocolateyClientUpdateViewModel.Text(ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotVerified));
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledReleaseCheckingText, ChocolateyClientUpdateViewModel.Text(ChocolateyClientUpdateUnavailableReason.InstalledReleaseChecking));
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.ReviewedReleasesUnavailableReasonText, ChocolateyClientUpdateViewModel.Text(ChocolateyClientUpdateUnavailableReason.ReviewedReleasesUnavailable));
+        foreach (ChocolateyClientUpdateUnavailableReason defined in Enum.GetValues<ChocolateyClientUpdateUnavailableReason>())
+            Assert.IsFalse(string.IsNullOrWhiteSpace(ChocolateyClientUpdateViewModel.Text(defined)), defined.ToString());
         Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => ChocolateyClientUpdateViewModel.Text((ChocolateyClientUpdateUnavailableReason)99));
     }
 
