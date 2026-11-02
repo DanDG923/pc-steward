@@ -103,3 +103,22 @@ public static class OperationAnnouncements
     private static bool IsElapsed(string text) =>
         text.Length >= 4 && text.All(character => char.IsDigit(character) || character == ':') && text.Contains(':', StringComparison.Ordinal);
 }
+
+/// <summary>
+/// AC-UX-04 (audit P-M9; final review Info-1): the window's minimum size is chosen in effective pixels, but
+/// OverlappedPresenter.PreferredMinimumWidth/Height take physical pixels, so the size is scaled by the window's display scale
+/// (XamlRoot.RasterizationScale). An unknown or invalid scale falls back to 1.0 (100%).
+/// </summary>
+public static class WindowMinimumSize
+{
+    public const int EffectiveWidth = 500;
+    public const int EffectiveHeight = 500;
+
+    /// <summary>Effective pixels to physical pixels at <paramref name="scale"/>, rounded up so the reflow layout is never clipped.</summary>
+    public static int PhysicalPixels(int effectivePixels, double scale)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(effectivePixels);
+        double safeScale = double.IsFinite(scale) && scale > 0 ? scale : 1.0;
+        return (int)Math.Min(int.MaxValue, Math.Ceiling(effectivePixels * safeScale - 1e-9));
+    }
+}

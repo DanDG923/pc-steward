@@ -72,4 +72,21 @@ public sealed class AccessibilityTextTests
         Assert.AreEqual("Checking package sources for updates", OperationAnnouncements.StateKey("Checking package sources for updates"));
         Assert.AreEqual("Widget: Installed · not verified", OperationAnnouncements.StateKey("Widget: Installed · not verified"), "only a trailing mm:ss is removed");
     }
+
+    [TestMethod]
+    [Description("AC-UX-04 (audit P-M9; final review Info-1): the 500x500 epx minimum window size is converted to physical pixels at the display scale.")]
+    public void MinimumWindowSizeScalesEffectivePixelsToPhysicalPixels()
+    {
+        Assert.AreEqual(500, WindowMinimumSize.EffectiveWidth);
+        Assert.AreEqual(500, WindowMinimumSize.EffectiveHeight);
+        Assert.AreEqual(500, WindowMinimumSize.PhysicalPixels(500, 1.0));
+        Assert.AreEqual(625, WindowMinimumSize.PhysicalPixels(500, 1.25));
+        Assert.AreEqual(750, WindowMinimumSize.PhysicalPixels(500, 1.5));
+        Assert.AreEqual(1000, WindowMinimumSize.PhysicalPixels(500, 2.0));
+        Assert.AreEqual(875, WindowMinimumSize.PhysicalPixels(500, 1.75));
+        Assert.AreEqual(584, WindowMinimumSize.PhysicalPixels(500, 1.1666), "rounded up, never clipped");
+        foreach (double invalid in new[] { 0.0, -1.0, double.NaN, double.PositiveInfinity })
+            Assert.AreEqual(500, WindowMinimumSize.PhysicalPixels(500, invalid), $"scale {invalid} falls back to 100%");
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => WindowMinimumSize.PhysicalPixels(-1, 1.0));
+    }
 }

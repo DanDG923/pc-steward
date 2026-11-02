@@ -93,8 +93,9 @@ public sealed class MainWindow : Window
 
     private enum ResultsFilter { All, Actionable, NeedsDecision, Unavailable, Unmanaged }
 
-    private const int MinimumWindowWidth = 500;
-    private const int MinimumWindowHeight = 500;
+    private const int MinimumWindowWidth = WindowMinimumSize.EffectiveWidth;
+    private const int MinimumWindowHeight = WindowMinimumSize.EffectiveHeight;
+    private double appliedMinimumSizeScale;
 
     /// <summary>
     /// Task 73 Phase 2 (ADR-030 decision 3): what the update job page shows. It holds presentation only — the reviewed sheet, the
@@ -118,18 +119,27 @@ public sealed class MainWindow : Window
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
-        // Audit P-M9: a minimum window size, so pages reflow (wrapping action rows, stacked headers) instead of clipping.
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
-        {
-            presenter.PreferredMinimumWidth = MinimumWindowWidth;
-            presenter.PreferredMinimumHeight = MinimumWindowHeight;
-        }
+        // Audit P-M9: a minimum window size, so pages reflow (wrapping action rows, stacked headers) instead of clipping. It is set
+        // at 100% now and rescaled to the window's display scale once the content has a XamlRoot (see ApplyMinimumWindowSize).
+        ApplyMinimumWindowSize(1.0);
         navigation = new ShellNavigation(showPostResetOnboarding ? ShellPage.Onboarding : ShellPage.Home);
         // Leaving the update job's Review step cancels that review: navigation never approves anything (FR-UPD-01).
         navigation.PropertyChanged += (_, _) => { SyncNavigationChrome(); if (navigation.Current != ShellPage.UpdateJob) CancelPendingReview(); else jobResultPending = false; };
         BuildWindowChrome();
         if (!showPostResetOnboarding) startupStateLoadFailed = !LoadSavedInventory();
         Render();
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);
+
+    /// <summary>AC-UX-04 (final review Info-1): applies the 500x500 epx minimum in physical pixels at <paramref name="scale"/>.</summary>
+    private void ApplyMinimumWindowSize(double scale)
+    {
+        if (windowClosed || scale.Equals(appliedMinimumSizeScale)) return;
+        if (AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter presenter) return;
+        presenter.PreferredMinimumWidth = WindowMinimumSize.PhysicalPixels(MinimumWindowWidth, scale);
+        presenter.PreferredMinimumHeight = WindowMinimumSize.PhysicalPixels(MinimumWindowHeight, scale);
+        appliedMinimumSizeScale = scale;
     }
 
     private bool LoadSavedInventory()
@@ -1208,6 +1218,15 @@ public sealed class MainWindow : Window
         titleBar.Children.Add(dragRegion);
         windowRoot.Children.Add(titleBar);
         Content = windowRoot;
+        // Final review Info-1: PreferredMinimumWidth/Height are physical pixels, so scale the 500x500 epx minimum by the display
+        // scale, and again whenever the window moves to a display with a different scale (XamlRoot.Changed).
+        windowRoot.Loaded += (_, _) =>
+        {
+            if (windowRoot?.XamlRoot is not { } root) return;
+            ApplyMinimumWindowSize(root.RasterizationScale);
+            root.Changed -= OnXamlRootChanged;
+            root.Changed += OnXamlRootChanged;
+        };
         SetTitleBar(dragRegion);
         // Independent review L9: the mouse Back button (XButton1) goes back anywhere in the shell, even over handled controls.
         windowRoot.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnShellPointerPressed), true);

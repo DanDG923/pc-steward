@@ -258,9 +258,14 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);");
         string source = DesktopSource("MainWindow.cs");
-        StringAssert.Contains(source, "presenter.PreferredMinimumWidth = MinimumWindowWidth;");
-        StringAssert.Contains(source, "presenter.PreferredMinimumHeight = MinimumWindowHeight;");
-        StringAssert.Contains(source, "private const int MinimumWindowWidth = 500;");
+        // Final review Info-1: the 500x500 epx minimum is applied in physical pixels at the display scale, and again on a scale change.
+        StringAssert.Contains(source, "presenter.PreferredMinimumWidth = WindowMinimumSize.PhysicalPixels(MinimumWindowWidth, scale);");
+        StringAssert.Contains(source, "presenter.PreferredMinimumHeight = WindowMinimumSize.PhysicalPixels(MinimumWindowHeight, scale);");
+        StringAssert.Contains(source, "private const int MinimumWindowWidth = WindowMinimumSize.EffectiveWidth;");
+        StringAssert.Contains(source, "ApplyMinimumWindowSize(root.RasterizationScale);");
+        StringAssert.Contains(source, "root.Changed += OnXamlRootChanged;");
+        StringAssert.Contains(source, "private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);");
+        Assert.AreEqual(2, Count(source, "presenter.PreferredMinimum"), "the minimum size is set in one place");
         // The only horizontal StackPanels left are icon+text pairs (tile heading, title-bar brand, the shield button content).
         Assert.AreEqual(3, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
         Assert.IsFalse(source.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto", StringComparison.Ordinal), "filter rows wrap instead of scrolling sideways");
