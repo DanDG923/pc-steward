@@ -184,7 +184,12 @@ internal static class ReviewedUpdateProtocol2Interpreter
             ExecutionUncertain: !wire.AggregateSettlementConfirmed || !h || wire.Invocation == UpdateWireInvocation.Unknown,
             RestartReported: false,
             ClientRunFault: response.ClientRunFault is { } accepted ? ToRunFault(accepted) : null);
-        return new(observation, ReviewedHelperCandidateCheck.FromAcceptedFacts(response.Reviewed));
+        // Review M1: the recorded helper check is defined for the package route only (RecordedHelperCandidateCheck.IsConsistentWith),
+        // so a client self-update records NotObserved instead of a check the workflow would drop with a false inconsistency marker.
+        // History-only either way; never authority.
+        return new(observation, operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1
+            ? ReviewedHelperCandidateCheck.NotObserved
+            : ReviewedHelperCandidateCheck.FromAcceptedFacts(response.Reviewed));
     }
 
     /// <summary>

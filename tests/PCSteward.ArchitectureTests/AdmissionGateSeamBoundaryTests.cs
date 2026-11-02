@@ -5,7 +5,7 @@ namespace PCSteward.ArchitectureTests;
 
 /// <summary>
 /// FR-UPD-15, FR-UPD-01/03–09, TM-03/04/07/13; ADR-031 design §8.6 admission gates (checked on compiled IL of every built
-/// <c>src</c> assembly and on CRLF-normalised source): the three test-only seams that let the gate tests run the client
+/// <c>src</c> assembly, which must include Application, Provider.Chocolatey, Execution and Storage, and on LF-normalised source): the three test-only seams that let the gate tests run the client
 /// self-update route before admission have no <c>src</c> caller, and their production defaults are the reviewed behaviour.
 /// <list type="bullet">
 /// <item>Gate 1: <c>ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests</c> (the only way to set its flag) is never
@@ -29,7 +29,7 @@ public sealed class AdmissionGateSeamBoundaryTests
     [TestMethod]
     public void TheTestOnlyAdmissionSeamsHaveNoCompiledSrcCaller()
     {
-        List<string> assemblies = CompiledIlScanner.BuiltSrcAssemblies();
+        List<string> assemblies = RequireBuilt();
         string application = Assembly(assemblies, "PCSteward.Application");
         string chocolatey = Assembly(assemblies, "PCSteward.Provider.Chocolatey");
         IReadOnlyList<(string Type, string Method)> applicationMethods = CompiledIlScanner.MethodDefinitions(application);
@@ -104,8 +104,27 @@ public sealed class AdmissionGateSeamBoundaryTests
         string admission = Source(root, "PCSteward.Application", "ReviewedRouteTestAdmission.cs");
         StringAssert.Contains(admission, "ClientSelfUpdateAdmitted.Value && operation.HasCurrentSchema &&");
         Assert.AreEqual(1, Regex.Count(admission, @"ClientSelfUpdateAdmitted\.Value = true;"), "only the scope entry admits");
-        foreach (string path in SourcePaths(root).Where(path => Path.GetFileName(path) != "ReviewedRouteTestAdmission.cs"))
-            Assert.IsFalse(File.ReadAllText(path).Contains("EnterClientSelfUpdateForTests", StringComparison.Ordinal), $"{path} names the test admission");
+        // Source-text fallback for all three seams (LF-normalised): each is named only in its own defining file.
+        (string Seam, string DefiningFile)[] seams =
+        [
+            ("EnterClientSelfUpdateForTests", "ReviewedRouteTestAdmission.cs"),
+            ("CreateClientOverFixtureForTests", "NativeChocolateyHelperItem.cs"),
+            ("UseEnvironmentWatchForTests", "ChocolateyClientUpdateWatchdog.cs"),
+        ];
+        foreach (string path in SourcePaths(root))
+        {
+            string text = File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
+            foreach ((string seam, string definingFile) in seams)
+                if (Path.GetFileName(path) != definingFile)
+                    Assert.IsFalse(text.Contains(seam, StringComparison.Ordinal), $"{path} names the test-only seam {seam}");
+        }
+        foreach ((string seam, string definingFile) in seams)
+        {
+            string[] defining = [.. SourcePaths(root).Where(path => Path.GetFileName(path) == definingFile)];
+            Assert.HasCount(1, defining, $"{definingFile} is unique under src");
+            Assert.IsTrue(Regex.IsMatch(File.ReadAllText(defining[0]).Replace("\r\n", "\n", StringComparison.Ordinal),
+                @"internal static \w+ " + seam + @"\("), $"{seam} is defined in {definingFile}; update the ban list");
+        }
 
         string item = Source(root, "PCSteward.Provider.Chocolatey", @"Native/NativeChocolateyHelperItem.cs");
         // The production item and the existing fixture factory read the compiled list; only the gate-2 factory passes another.
@@ -118,6 +137,15 @@ public sealed class AdmissionGateSeamBoundaryTests
         string watchdog = Source(root, "PCSteward.Provider.Chocolatey", @"Native/ChocolateyClientUpdateWatchdog.cs");
         StringAssert.Contains(watchdog, "TestEnvironmentWatch(client) ?? ChocolateySetupEnvironmentReader.TryWatch, watchThreadForTests: null);");
         Assert.AreEqual(1, Regex.Count(watchdog, @"TestEnvironmentWatches\.Add\("), "a single registration site");
+    }
+
+    /// <summary>Review L6 (as <c>HelperEndpointBoundaryTests.RequireBuilt</c>): a missing assembly fails instead of passing vacuously.</summary>
+    private static List<string> RequireBuilt()
+    {
+        List<string> assemblies = CompiledIlScanner.BuiltSrcAssemblies();
+        foreach (string required in new[] { "PCSteward.Application", "PCSteward.Provider.Chocolatey", "PCSteward.Execution", "PCSteward.Storage" })
+            Assert.IsTrue(assemblies.Any(path => Path.GetFileNameWithoutExtension(path) == required), $"{required} was not built");
+        return assemblies;
     }
 
     private static string Assembly(List<string> assemblies, string name) =>

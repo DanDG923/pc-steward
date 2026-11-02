@@ -41,6 +41,7 @@
   - The route is still **not admitted**.
   - **Windows CI on `9c6ecc1` is green** (Security 1252). **Independent review: PASS with fixes**, all applied.
   - Admission gates added: a full client-route workflow test and a Windows end-to-end run of stages B/C/D/Launch, both needing test-only seams.
+  - Gate review fixes: the client route no longer records a false `helper-check-not-recorded` prefix (interpreter returns no helper check for it); gate 1 adds a SQLite store/history variant, missing/unreadable and restart-pending postcheck cases and seam near-miss cases; the seam boundary test requires the Execution and Storage builds. Gate 2's Desktop-side budget now respects the 60 s observation cap (`182edec`). Design §8.7.
   - Remaining: the Desktop "Update Chocolatey to X" UI (on the Task 73 branch); host evidence; owner acceptance of R5.
 
 **Task 50 — ADR-031 accepted; host Chocolatey aligned to 2.7.5 (owner, 2026-11-02).**

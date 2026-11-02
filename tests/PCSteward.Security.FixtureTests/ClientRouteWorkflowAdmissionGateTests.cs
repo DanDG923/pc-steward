@@ -19,6 +19,9 @@ namespace PCSteward.Security.FixtureTests;
 /// workflow refuses before any claim. Owner conditions (ADR-031 decisions 4 and 5): only None with the exact target postcheck
 /// is Success; each watchdog stop, the incomplete release and both combined are "not verified" with every recovery warning in
 /// history; a lost launch is Uncertain with the untrusted-folder caution; a missing or invalid field is never Success.
+/// The store here is in memory (<see cref="GateStore"/>, mirroring the durable invariants) and history is presented from its
+/// stored payload; the SQLite claim, canonical round trip, <c>RecordFinalAsync</c> and SQLite history reader are exercised for
+/// this route by <c>ClientRouteSqliteAdmissionGateTests</c> (Application integration tests).
 /// </summary>
 [TestClass]
 public sealed class ClientRouteWorkflowAdmissionGateTests
@@ -90,6 +93,97 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
         Assert.AreEqual(UpdateDispatchState.Final, gate.Store.State);
         Assert.AreEqual(expected, view.VerificationDetail);
     }
+
+    /// <summary>
+    /// Review L4: a postcheck that returns nothing or cannot be read (the client-mode observation throws) did not finish, so
+    /// the record is Unverified with the fixed "not verified" detail, never Success; the baseline was still consumed.
+    /// </summary>
+    [TestMethod]
+    [DataRow("null")]
+    [DataRow("unreadable")]
+    public async Task AMissingOrUnreadablePostcheckIsUnverifiedNeverSuccess(string postcheck)
+    {
+        Gate gate = new(postUpdate: _ => postcheck == "null" ? null : throw new IOException("synthetic unreadable client state"));
+        (ReviewedUpdateDispatchResult result, ReviewedUpdateHistoryView view) = await gate.RunAsync();
+
+        string expected = ChocolateyClientUpdatePresentation.NotVerifiedMessage(
+            ChocolateyClientUpdatePostcheck.ToResult(ChocolateyClientUpdateVerdict.NotFinished).Detail);
+        Assert.AreEqual(ReviewedUpdateDispatchDisposition.Finalized, result.Disposition, result.Message);
+        Assert.AreEqual(UpdateDispatchOutcome.Unverified, result.Outcome, result.Message);
+        Assert.AreEqual(gate.Recorded(expected), result.Message);
+        Assert.AreEqual(1, gate.VerifyReads, "the postcheck was attempted once");
+        Assert.IsFalse(gate.Baselines.TryTake(gate.Operation, out _), "the one-use baseline was consumed");
+        Assert.AreEqual(expected, view.VerificationDetail);
+        Assert.AreNotEqual(ReviewedUpdateHistoryPresentation.TargetVerifiedText, view.VerificationDetail);
+    }
+
+    /// <summary>
+    /// Review L4: a restart-pending verification (even beside the exact target) is never Success or RestartRequired on the
+    /// client route; the workflow records Unverified with the fixed restart-contract text.
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ARestartPendingVerificationIsUnverifiedNeverSuccess(bool exactTarget)
+    {
+        Gate gate = new(postUpdate: exactTarget ? null : release => ChocolateyClientUpdatePostcheckTests.Observation(release.Source),
+            reportRestartPending: true);
+        (ReviewedUpdateDispatchResult result, ReviewedUpdateHistoryView view) = await gate.RunAsync();
+
+        Assert.AreEqual(UpdateDispatchOutcome.Unverified, result.Outcome, result.Message);
+        if (exactTarget) Assert.AreEqual(gate.Recorded(ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage), result.Message);
+        Assert.AreEqual(1, gate.VerifyReads);
+        Assert.AreNotEqual(ReviewedUpdateHistoryPresentation.TargetVerifiedText, view.VerificationDetail);
+        Assert.IsFalse(view.BlocksOtherUpdates);
+    }
+
+    /// <summary>
+    /// Review L5: inside the test scope, <c>ReviewedRouteTestAdmission.Admits</c> still refuses every near miss of the client
+    /// shape, one conjunct at a time. The operation constructor already refuses each variant on the client route, so the
+    /// variant is built on the unrestricted registration route and only its frozen route is then forged to the client route
+    /// (reflection, test only) to reach the seam's own conjunct. The unmodified shape forged the same way is admitted.
+    /// </summary>
+    [TestMethod]
+    [DataRow("control")]
+    [DataRow("user-scope")]
+    [DataRow("other-package")]
+    [DataRow("observed-architecture")]
+    [DataRow("other-mode")]
+    [DataRow("other-source")]
+    public void TheScopeRefusesEveryNearMissOfTheClientShape(string variant)
+    {
+        string package = variant == "other-package" ? "chocolatey.extension" : ReviewedUpdateOperation.ChocolateyClientPackageId;
+        UpdateSource source = variant == "other-source" ? UpdateSource.WinGet : UpdateSource.ChocolateyCommunity;
+        ReviewedUpdateArchitecture architecture = variant == "observed-architecture"
+            ? ReviewedUpdateArchitecture.Observed(UpdateArchitecture.X64) : ReviewedUpdateArchitecture.ProviderScriptSelected();
+        ReviewedInstallerMode mode = variant == "other-mode"
+            ? ReviewedInstallerMode.Selected(InstallerMode.Silent) : ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled);
+        UpdateJobSelection selection = new("choco:chocolatey", UpdateProvider.Chocolatey, source, package, "2.7.5", "2.8.0", UpdateScope.Machine,
+            architecture.Value ?? UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2");
+        // The selection itself refuses a Chocolatey user scope, so that conjunct is reached only by forging the frozen scope.
+        if (variant == "user-scope") Forge(selection, "<Scope>k__BackingField", UpdateScope.User);
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), selection).Confirm(ReviewedAt);
+        string evidence = ReviewedUpdateOperation.ProfileEvidencePrefix + new string('A', 64);
+        if (variant != "control")
+            Assert.ThrowsExactly<ArgumentException>(() => new ReviewedUpdateOperation(job, Protocol2InterpreterFixture.User, "choco:chocolatey",
+                "machine:choco", evidence, ReviewedAt.AddSeconds(-1), UpdateRouteContract.ChocolateyClientSelfUpdateV1, mode, architecture),
+                "the constructor refuses the variant on the client route");
+        ReviewedUpdateOperation forged = new(job, Protocol2InterpreterFixture.User, "choco:chocolatey", "machine:choco", evidence,
+            ReviewedAt.AddSeconds(-1), UpdateRouteContract.ChocolateyMachineRegistrationV3, mode, architecture);
+        Forge(forged, "<RouteContract>k__BackingField", UpdateRouteContract.ChocolateyClientSelfUpdateV1);
+        Assert.AreEqual(variant == "user-scope" ? UpdateScope.User : UpdateScope.Machine, forged.Selection.Scope);
+        Assert.AreEqual(UpdateRouteContract.ChocolateyClientSelfUpdateV1, forged.RouteContract);
+
+        Assert.IsFalse(ReviewedRouteTestAdmission.Admits(forged), "outside the scope nothing is admitted");
+        using (ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests())
+        {
+            Assert.AreEqual(variant == "control", ReviewedRouteTestAdmission.Admits(forged), variant);
+            Assert.AreEqual(variant == "control", ReviewedUpdateReview.HasSupportedMode(forged), variant);
+        }
+    }
+
+    private static void Forge<T>(T target, string field, object value) where T : class =>
+        typeof(T).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(target, value);
 
     [TestMethod]
     [DataRow((int)ChocolateyClientWatchdogFault.SetupOverrideDuringRun, false, 0)]
@@ -254,8 +348,9 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
     private sealed class Gate
     {
         internal Gate(Func<(ChocolateyReviewedRelease Source, ChocolateyReviewedRelease Target), ChocolateyProfileResult?>? postUpdate = null,
-            Func<byte[], byte[]>? tamper = null)
+            Func<byte[], byte[]>? tamper = null, bool reportRestartPending = false)
         {
+            this.reportRestartPending = reportRestartPending;
             (List, Source, Target) = ChocolateyClientUpdatePostcheckTests.Releases();
             string fingerprint = ChocolateyClientUpdatePostcheckTests.Observation(Source).Observation.Fingerprint;
             Operation = ClientOperation(Source.Version, Target.Version, fingerprint);
@@ -272,11 +367,12 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
             {
                 Interlocked.Increment(ref verifyReads);
                 return id == ReviewedUpdateOperation.ChocolateyClientPackageId && expected.Normalized == Target.Version
-                    ? postUpdate?.Invoke((Source, Target)) ?? ChocolateyClientUpdatePostcheckTests.Observation(Target) : null;
+                    ? postUpdate is null ? ChocolateyClientUpdatePostcheckTests.Observation(Target) : postUpdate((Source, Target)) : null;
             }, List, Baselines, TimeProvider.System, Budget);
             Dispatcher = new(Harness, tamper);
         }
 
+        private readonly bool reportRestartPending;
         private int evidenceReads;
         private int verifyReads;
 
@@ -299,19 +395,21 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
         internal int VerifyReads => Volatile.Read(ref verifyReads);
 
         internal ReviewedUpdateDispatchWorkflow Workflow() =>
-            new((work, _, ct) => work(Owner(Operation.RequestingUserSid), ct), Evidence, Dispatcher, Verifier, Store, Clock);
+            new((work, _, ct) => work(Owner(Operation.RequestingUserSid), ct), Evidence, Dispatcher,
+                reportRestartPending ? new RestartPendingVerifier(Verifier) : Verifier, Store, Clock);
 
         /// <summary>
-        /// The workflow's recorded form of <paramref name="message"/>. Gate finding (ADR-031 design §8.6): the interpreter derives a
-        /// helper candidate check for every accepted client-route reply, but <see cref="RecordedHelperCandidateCheck.IsConsistentWith"/>
-        /// accepts a check only on the package route, so the workflow drops it and prefixes the fixed
-        /// <see cref="ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic"/> marker. History strips that marker, and the
-        /// outcome, settlement and verification text are unaffected; the behaviour is pinned here, not changed.
+        /// The workflow's recorded form of <paramref name="message"/>: the message itself. Independent review M1: the interpreter
+        /// derives no helper candidate check for the client route (the recorded check is defined for the package route only), so
+        /// the workflow never drops one and never prefixes the
+        /// <see cref="ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic"/> marker on a client record.
         /// </summary>
-        internal string Recorded(string message) =>
-            Dispatcher.Observation?.HelperCheck is { Kind: not RecordedHelperCheckKind.NotObserved }
-                ? ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " " + message
-                : message;
+        internal string Recorded(string message)
+        {
+            Assert.IsFalse(Dispatcher.Observation?.HelperCheck is { Kind: not RecordedHelperCheckKind.NotObserved },
+                "the client route never carries a helper candidate check");
+            return message;
+        }
 
         /// <summary>Review, confirm and run inside the test admission scope, then present the persisted record as history.</summary>
         internal async Task<(ReviewedUpdateDispatchResult, ReviewedUpdateHistoryView)> RunAsync()
@@ -326,8 +424,9 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
             Assert.AreEqual(result.Message, terminal.Diagnostic, "live text equals the recorded text");
             Assert.IsNull(result.HelperCheck, "no helper check is ever recorded for the client route");
             Assert.AreSame(RecordedHelperCandidateCheck.NotObserved, Store.Terminal!.HelperCheck);
-            Assert.AreEqual(Dispatcher.Observation?.HelperCheck is { Kind: not RecordedHelperCheckKind.NotObserved },
-                result.Message.StartsWith(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " ", StringComparison.Ordinal), result.Message);
+            Assert.IsFalse(Dispatcher.Observation?.HelperCheck is { Kind: not RecordedHelperCheckKind.NotObserved }, "no helper check reaches the workflow");
+            Assert.IsFalse(result.Message.Contains(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, StringComparison.Ordinal),
+                "review M1: a client record never carries the helper-check-not-recorded marker: " + result.Message);
             ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(new ReviewedUpdateHistoryRecord(Operation.JobId, Operation,
                 Store.State!.Value, Store.Claim!.ClaimedAt, terminal, true));
             Assert.AreEqual(Store.State != UpdateDispatchState.Final, view.BlocksOtherUpdates);
@@ -404,6 +503,22 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
         public Task<UpdateDispatchState?> GetDispatchStateAsync(Guid jobId, CancellationToken cancellationToken) => Task.FromResult(State);
         public Task<bool> HasUnresolvedDispatchesAsync(OperationOwnership ownership, CancellationToken cancellationToken) =>
             Task.FromResult(State is UpdateDispatchState.DispatchClaimed or UpdateDispatchState.Uncertain);
+    }
+
+    /// <summary>
+    /// Review L4: the real client verifier never reports restart-pending, so this wrapper runs it unchanged and then marks its
+    /// result restart-pending, to show the workflow's guard (a client self-update is never Success or RestartRequired on a
+    /// restart-pending result).
+    /// </summary>
+    private sealed class RestartPendingVerifier(ChocolateyReviewedUpdateVerifier inner) : IReviewedUpdateVerifier, IReviewedClientUpdateVerifier
+    {
+        public async Task<PostUpdateInventoryResult> VerifyAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
+            CancellationToken cancellationToken) =>
+            (await inner.VerifyAsync(operation, ownership, cancellationToken)) with { RestartPending = true };
+
+        public async Task<PostUpdateInventoryResult> VerifyClientAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
+            ReviewedClientRunFault runFault, CancellationToken cancellationToken) =>
+            (await inner.VerifyClientAsync(operation, ownership, runFault, cancellationToken)) with { RestartPending = true };
     }
 
     /// <summary>A wall clock fixed at one instant (monotonic time and timers stay real).</summary>
