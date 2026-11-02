@@ -160,13 +160,15 @@ public static partial class AppDetailPresenter
                 if (match.Success && Enum.TryParse(match.Groups["status"].Value, false, out UpdateHistoryStatus status) && Enum.IsDefined(status))
                 {
                     string target = match.Groups["target"].Value;
+                    // Final review Info-2: the same inputs as Activity (recorded diagnostic and exit code, which carry the
+                    // provider-completed evidence), so one job shows the same display state in both places.
+                    UpdateOutcomePresentation outcome = UpdateOutcomePresenter.ForStatus(status, entry.Reason, entry.ExitCode, target);
                     string title = status switch
                     {
                         UpdateHistoryStatus.Queued => $"Update to {target} queued",
                         UpdateHistoryStatus.Running => $"Update to {target} started",
-                        _ => $"Update to {target}: {UpdateOutcomePresenter.ForStatus(status, reason, null, target).Label}"
+                        _ => $"Update to {target}: {outcome.Label}"
                     };
-                    UpdateOutcomePresentation outcome = UpdateOutcomePresenter.ForStatus(status, reason, null, target);
                     bool intermediate = status is UpdateHistoryStatus.Queued or UpdateHistoryStatus.Running;
                     return new(entry.OccurredAt, when, title, reason is null ? null : $"Recorded detail: {SanitizedDiagnosticBundle.Sanitize(reason)}",
                         intermediate ? "\uE895" : outcome.Glyph, intermediate ? StatusTone.Neutral : outcome.Tone);

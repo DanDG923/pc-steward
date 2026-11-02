@@ -327,6 +327,27 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("29 Oct 2026 · 12:00", timeline[5].When);
         Assert.IsFalse(timeline.Any(entry => entry.Title.Contains("PinCurrentVersion", StringComparison.Ordinal)), "no raw kinds in user copy");
         Assert.IsTrue(timeline.All(entry => entry.Glyph.Length == 1));
+
+        // Final review Info-2: the app timeline passes the recorded exit code and diagnostic (provider-completed evidence) to the
+        // outcome presenter like Activity does, so the same job shows the same display state in both places.
+        UpdateHistoryEntry[] cases =
+        [
+            History("app", UpdateHistoryStatus.VerificationRequired, Now, exitCode: 0),
+            History("app", UpdateHistoryStatus.VerificationRequired, Now, diagnostic: UpdateOutcomePresenter.ProviderCompletedCheckInterruptedDiagnostic),
+            History("app", UpdateHistoryStatus.VerificationRequired, Now, exitCode: null),
+            History("app", UpdateHistoryStatus.InstallerFailed, Now, exitCode: 1603),
+            History("app", UpdateHistoryStatus.TimedOut, Now),
+        ];
+        foreach (UpdateHistoryEntry recorded in cases)
+        {
+            UpdateOutcomePresentation activity = UpdateJobHistory.Group([recorded]).Single().Outcome;
+            ProductTimelineItem shown = AppDetailPresenter.Timeline(
+                [new(recorded.OccurredAt, "Update", $"Update {recorded.Status}: {recorded.TargetVersion}", recorded.Diagnostic, recorded.ExitCode)], Culture, Utc).Single();
+            Assert.AreEqual($"Update to {recorded.TargetVersion}: {activity.Label}", shown.Title, $"{recorded.Status}/{recorded.ExitCode}/{recorded.Diagnostic}");
+            Assert.AreEqual(activity.Tone, shown.Tone, recorded.Status.ToString());
+        }
+        Assert.AreEqual("Update to 2.0: Installed, not verified", AppDetailPresenter.Timeline([new(Now, "Update", "Update VerificationRequired: 2.0", "recorded", 0)], Culture, Utc).Single().Title,
+            "the provider reported finishing (exit code zero), so the timeline matches Activity");
     }
 
     [TestMethod]

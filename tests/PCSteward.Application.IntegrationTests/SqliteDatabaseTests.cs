@@ -318,6 +318,7 @@ public sealed class SqliteDatabaseTests
         Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.VerificationRequired && entry.Diagnostic.Contains("verification-required", StringComparison.Ordinal)));
         Assert.IsTrue(history.Any(entry => entry.Status == UpdateHistoryStatus.Success && entry.ExitCode == 0));
         Assert.IsTrue(timeline.Any(entry => entry.Summary.Contains("Update Success", StringComparison.Ordinal)));
+        Assert.AreEqual(0, timeline.Single(entry => entry.Summary.Contains("Update Success", StringComparison.Ordinal)).ExitCode, "the timeline carries the recorded exit code");
         Assert.IsTrue((await database.Store.GetHistoryForProductAsync(job.Selection.StableProductKey, CancellationToken.None)).Count <= 2);
     }
 

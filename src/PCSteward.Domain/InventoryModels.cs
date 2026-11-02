@@ -20,7 +20,8 @@ public sealed record ScanRun(Guid Id, DateTimeOffset StartedAt, DateTimeOffset? 
 public sealed record ScanProviderTiming(Guid Id, Guid ScanRunId, string Provider, TimeSpan Duration, string? Warning);
 public sealed record StableDecision(Guid Id, string StableProductKey, string Kind, string Value, DateTimeOffset CreatedAt, string? Reason = null, DateTimeOffset? ExpiresAt = null);
 public sealed record ManualMapping(Guid Id, string StableProductKey, string SourceId, string PackageId, DateTimeOffset CreatedAt, string? Reason = null);
-public sealed record ProductTimelineEntry(DateTimeOffset OccurredAt, string Kind, string Summary, string? Reason = null);
+/// <summary>One entry in an app's timeline. <paramref name="ExitCode"/> is the recorded exit code of an update event, when one was recorded.</summary>
+public sealed record ProductTimelineEntry(DateTimeOffset OccurredAt, string Kind, string Summary, string? Reason = null, int? ExitCode = null);
 public enum DownloadedArtifactOutcome { Incomplete, Failed, VerifiedSuccess }
 public sealed record DownloadedArtifact(
     Guid Id,
