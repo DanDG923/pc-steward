@@ -19,7 +19,7 @@ Tests: exact boundary and one-unit-over for counts/scalars/encoded bytes/deadlin
 
 ## Q2/Q3 — Accepted existing-warning coverage
 
-Keep existing pin/ignore/deselection semantics; no skip-version policy. Retain the package-derived process-name heuristic as a warning with explicit limitations: up to 4,096 inspected processes and 64-character names, bounded candidate derivation, inaccessible/exited processes and enumeration saturation can miss a running app. It is not proof that software is unused. Keep checks at review and before execution, cancellation/manual closure/explicit continuation and no force-close. Tasks 49/52 must disclose coverage and test a late start, ambiguous suffix, access denial and saturation. No universal executable mapping or process control is promised. This warning policy is owner-accepted; applicable ADR acceptance remains separate.
+Keep existing pin/ignore/deselection semantics. (Superseded for skip-version by the owner decision of 2026-11-02 below: Skip this version is accepted.) Retain the package-derived process-name heuristic as a warning with explicit limitations: up to 4,096 inspected processes and 64-character names, bounded candidate derivation, inaccessible/exited processes and enumeration saturation can miss a running app. It is not proof that software is unused. Keep checks at review and before execution, cancellation/manual closure/explicit continuation and no force-close. Tasks 49/52 must disclose coverage and test a late start, ambiguous suffix, access denial and saturation. No universal executable mapping or process control is promised. This warning policy is owner-accepted; applicable ADR acceptance remains separate.
 
 ## Q4 — Capability and host-fixture decision
 

@@ -84,6 +84,18 @@
     - timeline and Activity show the same outcome.
   - **Windows CI on `a5b8d1c` is green** (architecture 122, integration 1012, Security 1148).
   - **Task 73 implementation is complete pending owner review.** See [owner decisions](review/OWNER_DECISIONS_2026-11-02.md).
+- **Phase 6 (owner request, 2026-11-02; `a0ac5b4..2a9c31d`): Update all available (SPEC §9.13 G4) and Skip this version** (an owner decision, with SPEC and planning amended).
+  - Update all: multi-select with nothing preselected and only Ready items; one frozen review sheet and one confirmation; N per-app immutable jobs, each revalidated with `EqualsEvidence` before its own approval; one UAC prompt per machine-scope app; stop only between apps; earlier results kept.
+  - Skip version: stored in `stable_decisions` (kind SkipVersion), with no migration; deterministic equality; ignore and pin take precedence; never actionable.
+  - **Windows CI on `2a9c31d` is green** (architecture 123, integration 1033, Security 1148, domain 184).
+  - **Independent review: PASS with fixes** (no Blocker or High). Docs are fixed here. Code fixes in progress:
+    - one shared observation for batch preparation, with progress;
+    - settle-wait labels;
+    - a deadline re-check before approval;
+    - Skipped status in lists;
+    - settle-timeout shown as Not started;
+    - a single-use preparation;
+    - the current app named in the band, plus tests.
   - Follow-up recorded: split `MainWindow.cs` (≈2,800 lines).
   - Owner-host evidence still needed before release: Narrator, keyboard, theme and high contrast, scaling, UAC end to end, a schedule refusal and rollback, and the clipboard after close.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.

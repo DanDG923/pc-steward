@@ -30,6 +30,7 @@
 - Phase 4 (`FR-DAT-01/03/06–15`, `FR-HIS-05`, `AC-UX-07/08`): `SettingsDataResetPresentationTests` (cards, labels, sizes, disabled during work, sanitized startup details) and contract pins (the three labels, the RESET order, no Enter activation, a single arm site, one Save button for the schedule only, clipboard flush). Windows CI is green at `e16125e`.
 - Phase 5 (`AC-UX-01–09`, best effort): `AccessibilityTextTests` and `UiAccessibilityContractTests` (heading levels, live notifications on completion paths, label-in-name, access keys and the shortcut guard, selectable evidence, contrast ratios computed from the tokens, jargon absence with a pinned-text allowlist). Windows CI is green at `111bbc6`.
 - Final integrated review of `52244ff..111bbc6`: PASS with fixes.
+- Phase 6 (`FR-UPD-09–11`, `AC-UPD-01–11`, `FR-POL-01–05`, SPEC §9.13 G4 and the skip-version amendment): batch workflow tests (frozen set, per-item revalidation, stop between items, kept results, settle wait), batch presentation tests, skip-decision domain tests (equal, newer, older, incomparable; precedence) and a persistence round-trip, plus a contract test that the batch adds no execution, approval, cancellation, elevation or Chocolatey path. Windows CI is green at `2a9c31d`.
 - Not claimed: runtime look and behaviour (Mica, drag region, focus restore, Narrator, high-contrast switching, scaling, UAC end to end). Those are owner-host evidence.
 
 # Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
