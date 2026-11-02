@@ -352,12 +352,23 @@ public sealed class UiRedesignContractTests
         string presenter = ApplicationSource("UpdatesPagePresentation.cs");
         StringAssert.Contains(presenter, "case nameof(UpdateIntelligenceStatus.VerifiedUpdate):");
         StringAssert.Contains(presenter, "public bool HasUpdateControl => Group == UpdateGroup.Ready;");
-        Assert.IsFalse(presenter.Contains("\"Skip", StringComparison.Ordinal) || presenter.Contains("SkipVersion", StringComparison.Ordinal), "no invented skip-version decision");
+        // Task 73 Phase 6 (owner decision 2026-11-02) deliberately replaces "no invented skip-version decision": Skip this version is
+        // now a real, reversible decision. It is offered only with an exact known version, and a skipped row is never Ready.
+        StringAssert.Contains(presenter, "case nameof(UpdateIntelligenceStatus.Skipped):");
+        StringAssert.Contains(presenter, "detail?.CandidateVersion is { } version && !string.IsNullOrWhiteSpace(version)");
+        StringAssert.Contains(presenter, "$\"Skip this version ({version.Trim()})\"");
 
         string overflow = Between(source, "private Button UpdateRowOverflow(", "/// FR-UPD-01/04–09, FR-UI-03/04, FR-DAT-09, UJ-04");
-        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row)", "PromptAndPinCurrentVersionAsync(row)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)" })
+        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row)", "PromptAndPinCurrentVersionAsync(row)", "PromptAndSkipVersionAsync(row, version)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)" })
             StringAssert.Contains(overflow, operation);
         Assert.IsFalse(overflow.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+        // The skip prompt uses the existing decision confirmation pattern: Cancel default, optional bounded reason, and no update authority.
+        string skip = Between(source, "private async Task PromptAndSkipVersionAsync(InventoryRow row, string version)", "private static TextBox DecisionReasonBox(");
+        StringAssert.Contains(skip, "DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(skip, "DecisionReasonBox(");
+        StringAssert.Contains(skip, "workflow.SkipVersionAsync(row.StableProductKey, version, decisionReason, token)");
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRun", "BeginReviewAsync", "BeginBatchReviewAsync", "TrySetResult" })
+            Assert.IsFalse(skip.Contains(authority, StringComparison.Ordinal), $"skipping a version has no update authority: {authority}");
     }
 
     /// <summary>

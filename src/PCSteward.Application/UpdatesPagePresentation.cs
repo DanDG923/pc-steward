@@ -126,17 +126,21 @@ public static class ReviewReasonText
     };
 }
 
-/// <summary>An action in a row's overflow menu. There is no skip-this-version action: no domain operation exists for it, so none is invented.</summary>
+/// <summary>An action in a row's overflow menu. <see cref="SkipVersion"/> is the owner-accepted Skip this version decision (2026-11-02).</summary>
 public enum UpdateRowAction
 {
     IgnoreApp,
     PinCurrentVersion,
     Details,
-    Reverse
+    Reverse,
+    SkipVersion
 }
 
-/// <summary>One overflow-menu entry. The wording keeps "ignore this app" and "pin this version" clearly different.</summary>
-public sealed record UpdateRowActionPresentation(UpdateRowAction Action, string Label, string Glyph);
+/// <summary>
+/// One overflow-menu entry. The wording keeps "ignore this app", "pin this version" and "skip this version" clearly different.
+/// <see cref="Version"/> is the exact version a Skip this version entry records (null for every other action).
+/// </summary>
+public sealed record UpdateRowActionPresentation(UpdateRowAction Action, string Label, string Glyph, string? Version = null);
 
 /// <summary>One row on the Updates page.</summary>
 public sealed record UpdateRowPresentation(
@@ -217,14 +221,14 @@ public static class UpdatesPagePresenter
             {
                 case nameof(UpdateIntelligenceStatus.VerifiedUpdate):
                     if (sourcesEnabled && detail is { CandidateVersion: not null, PackageId: not null, SourceId: not null })
-                        ready.Add(Row(row, detail, UpdateGroup.Ready, [], [Ignore, Pin, Details]));
+                        ready.Add(Row(row, detail, UpdateGroup.Ready, [], WithSkip([Ignore, Pin, Details], detail)));
                     else
                         review.Add(Row(row, detail, UpdateGroup.NeedsReview,
                             [sourcesEnabled ? "The update evidence is incomplete, so it can't be reviewed." : "Package sources are off, so this update can't be reviewed."],
-                            [Ignore, Pin, Details]));
+                            WithSkip([Ignore, Pin, Details], detail)));
                     break;
                 case nameof(UpdateIntelligenceStatus.ReviewRequired):
-                    review.Add(Row(row, detail, UpdateGroup.NeedsReview, NeedsReviewReasons(detail), [Ignore, Pin, Details]));
+                    review.Add(Row(row, detail, UpdateGroup.NeedsReview, NeedsReviewReasons(detail), WithSkip([Ignore, Pin, Details], detail)));
                     break;
                 case nameof(UpdateIntelligenceStatus.FailedUnavailable):
                     review.Add(Row(row, detail, UpdateGroup.NeedsReview,
@@ -244,6 +248,14 @@ public static class UpdatesPagePresenter
                         [pin is { Kind: "PinCurrentVersion" } ? $"You pinned this app at version {pin.Value}. No other version is offered." : "You pinned this app. No other version is offered."],
                         pin is null ? [Details] : [new(UpdateRowAction.Reverse, "Remove pin", ""), Details], pin?.Id));
                     break;
+                case nameof(UpdateIntelligenceStatus.Skipped):
+                    // Owner decision 2026-11-02: the skipped version is named; a newer version returns the app to Ready by itself.
+                    StableDecision? skip = Latest(decisions, row.StableProductKey, UserDecisionService.SkipVersionKind);
+                    string skipped = skip?.Value ?? detail?.CandidateVersion ?? "this version";
+                    ignored.Add(Row(row, detail, UpdateGroup.IgnoredAndSkipped,
+                        [$"Skipped version {skipped}. You chose not to install it; a newer version will be offered again."],
+                        skip is null ? [Details] : [new(UpdateRowAction.Reverse, $"Stop skipping {skipped}", "\uE7A7"), Details], skip?.Id));
+                    break;
             }
         }
         string? selected = selectedKey is not null && ready.Any(row => row.StableProductKey == selectedKey) ? selectedKey : null;
@@ -262,6 +274,13 @@ public static class UpdatesPagePresenter
         if (reasons.Count == 0) reasons.Add(string.IsNullOrWhiteSpace(detail.Explanation) ? "The evidence for this app needs your review." : detail.Explanation);
         return reasons;
     }
+
+    /// <summary>Adds "Skip this version (V)" before Details when an exact new version is known; otherwise nothing is invented.</summary>
+    private static IReadOnlyList<UpdateRowActionPresentation> WithSkip(IReadOnlyList<UpdateRowActionPresentation> actions, UpdateDetail? detail) =>
+        detail?.CandidateVersion is { } version && !string.IsNullOrWhiteSpace(version)
+            ? [.. actions.Where(action => action.Action != UpdateRowAction.Details),
+                new(UpdateRowAction.SkipVersion, $"Skip this version ({version.Trim()})", "\uE893", version.Trim()), Details]
+            : actions;
 
     private static UpdateRowPresentation Row(InventoryRow row, UpdateDetail? detail, UpdateGroup group, IReadOnlyList<string> reasons,
         IReadOnlyList<UpdateRowActionPresentation> actions, Guid? decisionId = null)

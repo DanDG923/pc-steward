@@ -993,6 +993,34 @@ public sealed class MainWindow : Window
         await ShowUpdateOutcomeAsync("Product ignored", ignoredUntil is null ? $"{row.Name} is ignored until you reverse the decision. No application was changed." : $"{row.Name} is ignored until {DisplayFormat.Date(ignoredUntil.Value)}. No application was changed.");
     }
 
+    /// <summary>
+    /// Owner decision 2026-11-02 (FR-POL-01/03/05): Skip this version, through the same confirmation pattern as pin and ignore — Cancel
+    /// is the default, the reason is optional and bounded. It only hides this exact version; nothing is installed or changed.
+    /// </summary>
+    private async Task PromptAndSkipVersionAsync(InventoryRow row, string version)
+    {
+        TextBox reason = DecisionReasonBox("Optional reason for skipping this version");
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        content.Children.Add(PageCopy($"Skip version {version} of {row.Name}? PC Steward stops offering this version. When a newer version is available it is offered again. You can stop skipping it on the Decisions page. No application is changed."));
+        content.Children.Add(reason);
+        ContentDialog confirmation = new()
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Skip this version?",
+            Content = content,
+            PrimaryButtonText = "Skip version",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+        string decisionReason = reason.Text;
+        try { await DataOperationLease.RunAsync(token => workflow.SkipVersionAsync(row.StableProductKey, version, decisionReason, token), CancellationToken.None); }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        LoadSavedInventory();
+        Render();
+        await ShowUpdateOutcomeAsync("Version skipped", $"Version {version} of {row.Name} won't be offered. A newer version will be. No application was changed.");
+    }
+
     private static TextBox DecisionReasonBox(string placeholder) => new() { Header = "Optional reason", PlaceholderText = placeholder, MaxLength = 512 };
 
     private async Task ConfirmCurrentPackageIdentitiesAsync(IReadOnlyCollection<InventoryRow> candidates)
@@ -1749,8 +1777,8 @@ public sealed class MainWindow : Window
         // Ignored and skipped: collapsed by default and reversible from here or from Decisions.
         StackPanel ignoredRows = new() { Spacing = StewardSpacing.Small };
         ignoredRows.Children.Add(PageCopy(page.IgnoredAndSkipped.Count == 0
-            ? "You haven't ignored or pinned any apps."
-            : "You chose to ignore or pin these apps. Each choice can be reversed here or on the Decisions page."));
+            ? "You haven't ignored, pinned or skipped a version of any app."
+            : "You chose to ignore, pin or skip a version of these apps. Each choice can be reversed here or on the Decisions page."));
         foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)
         {
             Grid line = new() { ColumnSpacing = StewardSpacing.Medium };
@@ -1775,9 +1803,9 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>
-    /// FR-POL-01–05 (ADR-030 decision 2): a row's overflow menu. Every entry uses an existing decision operation and its existing
-    /// confirmation: ignore the app, pin the installed version, open details, or reverse a recorded pin or ignore. There is no
-    /// "Skip this version": PC Steward has no such decision, so none is invented.
+    /// FR-POL-01–05 (ADR-030 decision 2): a row's overflow menu. Every entry uses a decision operation and its confirmation: ignore
+    /// the app, pin the installed version, skip this exact version (owner decision 2026-11-02), open details, or reverse a recorded
+    /// pin, ignore or skip. None of them can start an update.
     /// </summary>
     private Button UpdateRowOverflow(UpdateRowPresentation presentation)
     {
@@ -1797,6 +1825,7 @@ public sealed class MainWindow : Window
                 {
                     case UpdateRowAction.IgnoreApp: await PromptAndIgnoreProductAsync(row); break;
                     case UpdateRowAction.PinCurrentVersion: await PromptAndPinCurrentVersionAsync(row); break;
+                    case UpdateRowAction.SkipVersion when action.Version is { } version: await PromptAndSkipVersionAsync(row, version); break;
                     case UpdateRowAction.Details: await ShowDetailsAsync(row); break;
                     case UpdateRowAction.Reverse when presentation.DecisionId is { } decisionId:
                         try { await DataOperationLease.RunAsync(token => workflow.ReverseDecisionAsync(decisionId, token), CancellationToken.None); LoadSavedInventory(); Render(); }
@@ -2414,9 +2443,9 @@ public sealed class MainWindow : Window
     {
         IReadOnlyList<DecisionRow> rows = DecisionsPresenter.Build(activeDecisions, manualMappings, viewModel.AllRows);
         panel.Children.Add(PageCopy(rows.Count == 0
-            ? "No active pins, ignores or confirmed package identities. Decisions are optional, reversible, and never enable or start updates."
+            ? "No active pins, ignores, skipped versions or confirmed package identities. Decisions are optional, reversible, and never enable or start updates."
             : "Remove a decision to reapply the normal review rules on the next source check. Nothing is updated when you do."));
-        foreach (DecisionKind kind in new[] { DecisionKind.Pin, DecisionKind.Ignore, DecisionKind.Mapping })
+        foreach (DecisionKind kind in new[] { DecisionKind.Pin, DecisionKind.Ignore, DecisionKind.Skip, DecisionKind.Mapping, DecisionKind.Other })
         {
             DecisionRow[] group = rows.Where(row => row.Kind == kind).ToArray();
             if (group.Length == 0) continue;

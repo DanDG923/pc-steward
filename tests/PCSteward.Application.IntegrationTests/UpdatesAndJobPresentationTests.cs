@@ -23,7 +23,7 @@ public sealed class UpdatesAndJobPresentationTests
     private static readonly string[] ReadyKeys = ["ready"];
     private static readonly string[] NeedsReviewKeys = ["review", "unavailable"];
     private static readonly string[] IgnoredKeys = ["ignored", "pinned"];
-    private static readonly string[] OverflowLabels = ["Ignore updates for this app", "Pin current version", "Details"];
+    private static readonly string[] OverflowLabels = ["Ignore updates for this app", "Pin current version", "Skip this version (2.0)", "Details"];
     private static readonly string[] StepLabels = ["Review", "Update", "Verify"];
     private static readonly int[] StepNumbers = [1, 2, 3];
     private static readonly ReviewRiskKind[] RiskOrder = [ReviewRiskKind.RunningApplication, ReviewRiskKind.Restart, ReviewRiskKind.Administrator];
@@ -132,15 +132,44 @@ public sealed class UpdatesAndJobPresentationTests
     }
 
     [TestMethod]
-    [Description("FR-POL-01–05; ADR-030 foundation 7: the overflow offers Ignore, Pin and Details; there is no Skip this version because no domain operation exists for it.")]
-    public void OverflowActionsUseExistingDecisionsAndKeepIgnoreAndPinDistinct()
+    [Description("FR-POL-01–05; owner decision 2026-11-02: the overflow offers Ignore, Pin, Skip this version (V) and Details, each worded distinctly; Skip names the exact version.")]
+    public void OverflowActionsKeepIgnorePinAndSkipDistinct()
     {
-        UpdatesPagePresentation page = UpdatesPagePresenter.Build([Row("ready", "VerifiedUpdate", "1.0")],
-            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, true, [], null, Now);
-        string[] labels = page.Ready.Single().Actions.Select(action => action.Label).ToArray();
-        CollectionAssert.AreEqual(OverflowLabels, labels);
-        Assert.IsFalse(labels.Any(label => label.Contains("Skip", StringComparison.OrdinalIgnoreCase)));
-        Assert.IsFalse(Enum.GetNames<UpdateRowAction>().Any(name => name.Contains("Skip", StringComparison.Ordinal)));
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build([Row("ready", "VerifiedUpdate", "1.0"), Row("review", "ReviewRequired", "1.0"), Row("unavailable", "FailedUnavailable", "1.0")],
+            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal)
+            {
+                ["ready"] = Detail("ready", "1.0", "2.0"),
+                ["review"] = Detail("review", "1.0", "3.0", confidence: "Low"),
+                ["unavailable"] = Detail("unavailable", "1.0", null)
+            }, true, [], null, Now);
+        UpdateRowActionPresentation[] actions = [.. page.Ready.Single().Actions];
+        CollectionAssert.AreEqual(OverflowLabels, actions.Select(action => action.Label).ToArray());
+        UpdateRowActionPresentation skip = actions.Single(action => action.Action == UpdateRowAction.SkipVersion);
+        Assert.AreEqual("2.0", skip.Version, "the exact candidate version is what is skipped");
+        Assert.IsTrue(actions.Where(action => action.Action != UpdateRowAction.SkipVersion).All(action => action.Version is null));
+        Assert.AreEqual("3.0", page.NeedsReview.Single(row => row.StableProductKey == "review").Actions.Single(action => action.Action == UpdateRowAction.SkipVersion).Version,
+            "a review-only candidate can be skipped too; skipping never makes it actionable");
+        Assert.IsFalse(page.NeedsReview.Single(row => row.StableProductKey == "unavailable").Actions.Any(action => action.Action == UpdateRowAction.SkipVersion),
+            "no version is invented when none is known");
+        Assert.AreEqual(actions.Length, actions.Select(action => action.Label).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [TestMethod]
+    [Description("FR-POL-01/05; owner decision 2026-11-02: a skipped version sits under Ignored and skipped with its version named and a Stop skipping reversal; it is never selectable.")]
+    public void SkippedRowsAreGroupedWithIgnoredNamedAndReversible()
+    {
+        StableDecision skip = new(Guid.NewGuid(), "skipped", UserDecisionService.SkipVersionKind, "2.0", Now.AddDays(-1));
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build([Row("skipped", "Skipped", "1.0")],
+            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["skipped"] = Detail("skipped", "1.0", "2.0") }, true, [skip], null, Now);
+
+        UpdateRowPresentation row = page.IgnoredAndSkipped.Single();
+        Assert.IsEmpty(page.Ready);
+        Assert.IsFalse(row.CanSelect);
+        Assert.IsFalse(row.HasUpdateControl);
+        StringAssert.Contains(row.ReasonText, "Skipped version 2.0");
+        Assert.AreEqual(skip.Id, row.DecisionId);
+        Assert.AreEqual("Stop skipping 2.0", row.Actions.Single(action => action.Action == UpdateRowAction.Reverse).Label);
+        Assert.IsFalse(row.Actions.Any(action => action.Label.Contains("Ignore", StringComparison.OrdinalIgnoreCase)), "distinct from ignore");
     }
 
     [TestMethod]
