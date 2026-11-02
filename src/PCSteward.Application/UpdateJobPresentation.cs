@@ -274,8 +274,8 @@ public sealed record UpdateJobCompletion(IReadOnlyList<UpdateJobItemOutcome> Ite
 /// FR-UPD-07–09, FR-HIS-03, UJ-04 step 8 (Task 73 Phase 2, ADR-030 foundation 3; audit P-H3): maps every recorded outcome to one
 /// of four honest labels — Verified, Restart required, Installed, not verified and Failed — or to "Not started" when nothing ran,
 /// or to "Result not verified" when nothing shows the update was installed and nothing checked it. "Installed, not verified" is
-/// kept for results where the installer reported finishing (or ran until PC Steward stopped waiting) but the check failed or was
-/// inconclusive.
+/// kept for results where the installer reported finishing but the check failed or was inconclusive; a timeout reads as
+/// "Result not verified".
 /// Only <see cref="UpdateHistoryStatus.Success"/> (post-update inventory found the target version) reads as Verified, and only
 /// <see cref="UpdateHistoryStatus.RestartRequired"/> (a reliable restart-pending result) reads as Restart required. Presentation
 /// only: it reads recorded results and never changes them.
@@ -328,9 +328,9 @@ public static class UpdateOutcomePresenter
             UpdateHistoryStatus.DownloadFailed => Failed("The update couldn't be downloaded.", technical),
             UpdateHistoryStatus.InstallerFailed => Failed(exitCode is { } code ? $"The installer reported an error (exit code {code})." : "The installer reported an error.", technical),
             // A timeout ends the attempt before any verification runs. The recorded status stays TimedOut (FR-HIS-03); the display
-            // is "Installed, not verified" because the installer ran until PC Steward stopped waiting and may have partly applied.
-            // The next step is to scan again, not to review again (independent review).
-            UpdateHistoryStatus.TimedOut => NotVerified(
+            // is "Result not verified": nothing shows the installer finished, it may have partly applied, and nothing checked it.
+            // It is neither "Installed" nor "Failed". The next step is to scan again, not to review again (independent review).
+            UpdateHistoryStatus.TimedOut => ResultNotVerified(
                 "The update took too long and PC Steward stopped waiting. It may have partly applied — scan again to check.", technical),
             UpdateHistoryStatus.ProductFailed when string.Equals(diagnostic, HelperMissingDiagnostic, StringComparison.Ordinal) =>
                 Failed(ElevationStory.HelperMissingOutcome, technical),

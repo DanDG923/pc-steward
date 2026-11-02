@@ -314,7 +314,7 @@ public sealed class UpdatesAndJobPresentationTests
             [UpdateHistoryStatus.SourceFailed] = UpdateOutcomeKind.Failed,
             [UpdateHistoryStatus.DownloadFailed] = UpdateOutcomeKind.Failed,
             [UpdateHistoryStatus.InstallerFailed] = UpdateOutcomeKind.Failed,
-            [UpdateHistoryStatus.TimedOut] = UpdateOutcomeKind.InstalledNotVerified,
+            [UpdateHistoryStatus.TimedOut] = UpdateOutcomeKind.ResultNotVerified,
             [UpdateHistoryStatus.ProductFailed] = UpdateOutcomeKind.Failed
         };
         CollectionAssert.AreEquivalent(Enum.GetValues<UpdateHistoryStatus>(), expected.Keys.ToArray(), "every enum value is covered");
@@ -340,10 +340,13 @@ public sealed class UpdatesAndJobPresentationTests
             }
         }
 
-        // A timeout: "Installed, not verified" with timeout wording, Scan again, never a failure or a new review.
+        // A timeout: "Result not verified" with timeout wording, Scan again, never installed, a failure or a new review.
         UpdateOutcomePresentation timedOut = UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.TimedOut, null, null, "2.0");
-        Assert.AreEqual(UpdateOutcomeKind.InstalledNotVerified, timedOut.Kind);
-        Assert.AreEqual("Installed, not verified", timedOut.Label);
+        Assert.AreEqual(UpdateOutcomeKind.ResultNotVerified, timedOut.Kind);
+        Assert.AreEqual("Result not verified", timedOut.Label);
+        Assert.AreNotEqual(StatusTone.Critical, timedOut.Tone, "a timeout is not shown as a failure");
+        Assert.IsFalse(timedOut.Label.Contains("Installed", StringComparison.Ordinal), "a timeout is not shown as installed");
+        Assert.IsFalse(timedOut.Label.Contains("Failed", StringComparison.Ordinal), "a timeout is not shown as failed");
         StringAssert.Contains(timedOut.Summary, "took too long and PC Steward stopped waiting");
         StringAssert.Contains(timedOut.Summary, "may have partly applied");
         StringAssert.StartsWith(timedOut.NextStep, "Scan again");
@@ -420,7 +423,8 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.AreEqual("Result not verified", interrupted.Headline, "verification required with no evidence of installation");
 
         UpdateJobCompletion timedOut = UpdateOutcomePresenter.ForResult(Result(true, selection, UpdateHistoryStatus.TimedOut), selection, "Widget");
-        Assert.AreEqual("Installed, not verified", timedOut.Headline, "a timeout is not shown as a failure");
+        Assert.AreEqual("Result not verified", timedOut.Headline, "a timeout is neither a failure nor shown as installed");
+        StringAssert.StartsWith(timedOut.Items.Single().Outcome.NextStep, "Scan again");
         Assert.AreEqual("No outcome recorded", new UpdateJobCompletion([]).Headline);
     }
 

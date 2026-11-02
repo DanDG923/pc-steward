@@ -351,6 +351,7 @@ public sealed class HomeActivityDecisionsPresentationTests
             [UpdateHistoryStatus.RestartRequired] = "Restart required",
             [UpdateHistoryStatus.Inconclusive] = "Installed, not verified",
             [UpdateHistoryStatus.Running] = "Result not verified",
+            [UpdateHistoryStatus.TimedOut] = "Result not verified",
             [UpdateHistoryStatus.InstallerFailed] = "Failed",
             [UpdateHistoryStatus.ElevationDenied] = "Not started",
         };
