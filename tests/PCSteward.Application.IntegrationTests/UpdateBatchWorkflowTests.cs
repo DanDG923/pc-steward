@@ -195,12 +195,51 @@ public sealed class UpdateBatchWorkflowTests
             notices.Select(notice => $"{notice.Index}:{(notice.Finished ? "end" : "start")}").ToArray());
     }
 
+    [TestMethod]
+    [TestCategory("FR-UPD-10")]
+    public async Task TheNextItemWaitsForThePreviousItemsOwnedWorkInsteadOfBeingRefused()
+    {
+        Harness harness = new();
+        harness.Executor.Lifetime = new UpdateExecutionLifetime();
+        harness.Executor.Owned = key => key == "a" ? Task.Delay(TimeSpan.FromMilliseconds(100)) : null;
+        UpdateBatchReviewPreparation review = await harness.Workflow.BeginBatchReviewAsync(["a", "b"], CancellationToken.None);
+
+        UpdateBatchRunResult run = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, CancellationToken.None);
+
+        CollectionAssert.AreEqual(KeysAB, harness.Executor.Keys.ToArray(), "b starts once a's owned work has settled");
+        Assert.IsTrue(run.Items.All(item => item.Result.Batch is { AdmissionRefused: false }));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-10")]
+    public async Task UnsettledOwnedWorkRefusesTheNextItemAndStopsTheRestFailClosed()
+    {
+        Harness harness = new(TimeSpan.FromMilliseconds(50));
+        TaskCompletionSource never = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Executor.Lifetime = new UpdateExecutionLifetime();
+        harness.Executor.Owned = key => key == "a" ? never.Task : null;
+        UpdateBatchReviewPreparation review = await harness.Workflow.BeginBatchReviewAsync(["a", "b", "c"], CancellationToken.None);
+
+        UpdateBatchRunResult run = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, CancellationToken.None);
+        never.SetResult();
+
+        CollectionAssert.AreEqual(KeysA, harness.Executor.Keys.ToArray());
+        Assert.IsTrue(run.Items[1].Result.Batch!.AdmissionRefused, "the existing admission check still refuses while owned work is unresolved");
+        Assert.AreEqual(UpdateBatchItemDisposition.StoppedAfterEarlierProblem, run.Items[2].Disposition);
+        UpdateJobCompletion completion = UpdateOutcomePresenter.ForBatch(run, key => key);
+        Assert.AreEqual(UpdateOutcomeKind.Verified, completion.Items[0].Outcome.Kind);
+        Assert.IsTrue(completion.Items.Skip(1).All(item => item.Outcome.Kind == UpdateOutcomeKind.NotStarted));
+    }
+
     private sealed class Harness
     {
-        public Harness()
+        public Harness(TimeSpan? settleLimit = null)
         {
             Workflow = new ReviewedUpdateExecutionWorkflow(Prepare, new UpdateJobApprovalService(Store),
-                new SequentialUpdateBatchCoordinator(Executor, Inventory, History, Detector), Detector, () => Now);
+                new SequentialUpdateBatchCoordinator(Executor, Inventory, History, Detector), Detector, () => Now)
+            {
+                OwnedWorkSettleLimit = settleLimit ?? TimeSpan.FromSeconds(30)
+            };
             Detector.Running = Running;
         }
 
@@ -241,13 +280,16 @@ public sealed class UpdateBatchWorkflowTests
         public List<string> Keys { get; } = [];
         public Dictionary<string, UpdateProviderAttemptStatus> Statuses { get; } = [];
         public Action<string, CancellationToken>? OnExecute { get; set; }
+        public UpdateExecutionLifetime? Lifetime { get; set; }
+        public Func<string, Task?>? Owned { get; set; }
+        public UpdateExecutionLifetime? ExecutionLifetime => Lifetime;
         public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken)
         {
             string key = job.Selection.StableProductKey;
             Keys.Add(key);
             OnExecute?.Invoke(key, cancellationToken);
             UpdateProviderAttemptStatus status = Statuses.GetValueOrDefault(key, UpdateProviderAttemptStatus.AwaitingVerification);
-            return Task.FromResult(new UpdateProviderAttempt(status, status == UpdateProviderAttemptStatus.AwaitingVerification ? 0 : 1, "provider"));
+            return Task.FromResult(new UpdateProviderAttempt(status, status == UpdateProviderAttemptStatus.AwaitingVerification ? 0 : 1, "provider", Owned?.Invoke(key)));
         }
     }
 

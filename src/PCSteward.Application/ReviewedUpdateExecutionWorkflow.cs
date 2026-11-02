@@ -31,6 +31,12 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     public const int MaximumBatchItems = 256;
 
     private readonly Func<DateTimeOffset> utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// How long a batch waits for the previous item's owned work to settle before the next item asks for admission. Past it, the
+    /// existing admission check decides, and a refusal stops the remaining items (fail-closed); nothing is ever forced.
+    /// </summary>
+    internal TimeSpan OwnedWorkSettleLimit { get; init; } = TimeSpan.FromMinutes(2);
     private readonly Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepareSelection = prepareSelection ?? throw new ArgumentNullException(nameof(prepareSelection));
     private readonly UpdateJobApprovalService approvals = approvals ?? throw new ArgumentNullException(nameof(approvals));
     private readonly SequentialUpdateBatchCoordinator coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
@@ -133,6 +139,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         {
             UpdateBatchReviewItem item = review.Items[index];
             UpdateJobReview jobReview = item.Preparation.Review!;
+            if (halt is null && !stop.IsRequested && index > 0) await SettlePreviousOwnedWorkAsync(cancellationToken).ConfigureAwait(false);
             TimeSpan age = utcNow() - review.ReviewedAt;
             UpdateBatchItemDisposition? skipped = halt ?? (stop.IsRequested || cancellationToken.IsCancellationRequested ? UpdateBatchItemDisposition.StoppedBeforeStart
                 : age < TimeSpan.Zero || age > MaximumBatchDispatchAge ? UpdateBatchItemDisposition.ReviewExpired : null);
@@ -159,6 +166,16 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             Notify(notice, new(index, true, results[^1]));
         }
         return new(results, stop.IsRequested);
+    }
+
+    private async Task SettlePreviousOwnedWorkAsync(CancellationToken cancellationToken)
+    {
+        Task owned = coordinator.OwnedWorkCompletion;
+        if (owned.IsCompleted) return;
+        try { await owned.WaitAsync(OwnedWorkSettleLimit, cancellationToken).ConfigureAwait(false); }
+        catch (TimeoutException) { /* Admission decides: still-owned work refuses the next item, which stops the batch. */ }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { /* Read as stopped below. */ }
+        catch (Exception) { /* A faulted owned task is observed by the execution lifetime; admission decides. */ }
     }
 
     private static string NotStartedMessage(UpdateBatchItemDisposition disposition) => disposition switch

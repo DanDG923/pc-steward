@@ -123,6 +123,12 @@ public sealed class SequentialUpdateBatchCoordinator(
     private readonly Func<DateTimeOffset> utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     private readonly IUpdateExecutionEventSink events = events ?? NullUpdateExecutionEventSink.Instance;
 
+    /// <summary>
+    /// Task 73 Phase 6: the owned work (for example a helper process still exiting) that the last admitted item left behind, or a
+    /// completed task. A batch waits for it before the next item so that item isn't refused admission; it grants nothing.
+    /// </summary>
+    internal Task OwnedWorkCompletion => executor.ExecutionLifetime?.OwnedCompletion ?? Task.CompletedTask;
+
     public async Task<UpdateBatchResult> RunAsync(IReadOnlyCollection<UpdateBatchItem> items, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(items);
