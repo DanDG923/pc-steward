@@ -78,14 +78,35 @@ public sealed class ChocolateyInstalledClientVerification
         ArgumentNullException.ThrowIfNull(check);
         if (cancellationToken.IsCancellationRequested) return Cancelled;
         if (timeout <= TimeSpan.Zero) return TimedOut;
-        using CancellationTokenSource bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bounded.CancelAfter(timeout);
+        // The linked source lives until the check itself returns (it is disposed by the continuation), so a caller cancellation
+        // or the bound always reaches a check that is still running, even after this method has stopped waiting for it.
+        CancellationTokenSource bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<ChocolateyInstalledClientVerification> work;
+        try
+        {
+            bounded.CancelAfter(timeout);
+            work = check(bounded.Token) ?? Task.FromResult<ChocolateyInstalledClientVerification>(null!);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            bounded.Dispose();
+            return cancellationToken.IsCancellationRequested ? Cancelled : Unavailable;
+        }
+        _ = work.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(), bounded, CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         ChocolateyInstalledClientVerification? result;
-        try { result = await check(bounded.Token).WaitAsync(timeout, cancellationToken).ConfigureAwait(false); }
+        try { result = await work.WaitAsync(timeout, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             if (cancellationToken.IsCancellationRequested) return Cancelled;
-            return exception is TimeoutException || bounded.IsCancellationRequested ? TimedOut : Unavailable;
+            if (exception is TimeoutException)
+            {
+                // Stop the abandoned check now (its source may already be disposed if it has just returned).
+                try { bounded.Cancel(); }
+                catch (ObjectDisposedException) { }
+                return TimedOut;
+            }
+            return bounded.IsCancellationRequested ? TimedOut : Unavailable;
         }
         if (cancellationToken.IsCancellationRequested) return Cancelled;
         if (result is null || !Enum.IsDefined(result.Check) || result.Check is ChocolateyInstalledClientCheck.NotChecked or ChocolateyInstalledClientCheck.Checking)
