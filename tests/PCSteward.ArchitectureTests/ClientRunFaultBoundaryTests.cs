@@ -63,13 +63,33 @@ public sealed class ClientRunFaultBoundaryTests
         string[] signatures = entries.Select(match => match.Groups["name"].Value + "(" + Regex.Replace(match.Groups["args"].Value, @"\s+", " ") + ")").ToArray();
         Assert.AreEqual(3, signatures.Length, string.Join(" | ", signatures));
         Assert.IsTrue(signatures.Any(signature => signature.StartsWith("Evaluate(ChocolateyProfileResult result, ChocolateyHeldClientBinding client,", StringComparison.Ordinal)));
-        Assert.IsTrue(signatures.Any(signature => signature.StartsWith("Evaluate(ChocolateyProfileResult result, ReviewedClientRunFault runFault,", StringComparison.Ordinal)));
+        Assert.IsTrue(signatures.Any(signature => signature.StartsWith("Evaluate(ChocolateyProfileResult? result, ReviewedClientRunFault runFault,", StringComparison.Ordinal)));
         Assert.IsTrue(signatures.Any(signature => signature.StartsWith("EvaluateForTests(", StringComparison.Ordinal)));
         // The free-enum core stays private (so unreachable); no src file outside the postcheck calls the test overload.
         StringAssert.Contains(postcheck, "private static ChocolateyClientUpdateVerdict EvaluateCore(");
         foreach ((string path, string source) in sources)
             if (Path.GetFileName(path) != PostcheckFile)
                 Assert.AreEqual(0, Count(source, "ChocolateyClientUpdatePostcheck.EvaluateForTests("), path);
+    }
+
+    [TestMethod]
+    public void TheDesktopClientEntriesHaveFixedCallSitesAndTheirTestFactoriesNone()
+    {
+        Dictionary<string, string> sources = Sources();
+        foreach ((string path, string source) in sources)
+        {
+            string name = Path.GetFileName(path);
+            // The fact overload is called only by the desktop verifier.
+            if (name != "ChocolateyReviewedUpdateVerifier.cs") Assert.AreEqual(0, Regex.Count(source, @"ChocolateyClientUpdatePostcheck\.Evaluate\([^;]*runFault"), path);
+            // The client-mode observer has one production caller.
+            if (name != "ChocolateyDesktopObservation.cs") Assert.AreEqual(0, Count(source, "ChocolateyProfileObserver.ObserveClient("), path);
+            // The client test factories are never called from src.
+            if (name is not ("ChocolateyReviewedUpdateVerifier.cs" or "ChocolateyProfileEvidenceSource.cs"))
+                Assert.AreEqual(0, Count(source, "CreateClientForTests("), path);
+        }
+        StringAssert.Contains(Single(sources, "ChocolateyDesktopObservation.cs"), "ChocolateyProfileObserver.ObserveClient(token, ChocolateyObserverRole.Desktop,");
+        foreach (string file in new[] { "ChocolateyReviewedUpdateVerifier.cs", "ChocolateyProfileEvidenceSource.cs" })
+            Assert.AreEqual(1, Count(Single(sources, file), "CreateClientForTests("), $"{file}: the definition only");
     }
 
     [TestMethod]

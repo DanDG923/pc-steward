@@ -227,8 +227,10 @@ public sealed class HelperEndpointBoundaryTests
             // N5 (design rev 6 §7): the Desktop-role producers observe only through their single production observation.
             (Native + "ChocolateyProfileObserver", "Observe", [NativeItem + ".ProductionObserve", Native + "ChocolateyDesktopObservation.ProductionObserve"]),
             // N6: the review's split-token probe (design rev 6 §(L6)) reads the same desktop token; it observes nothing.
+            // ADR-031 design §7.1/§8.3: the client-mode Desktop observation (F′ and verification) reads the same token.
             (Native + "RequesterToken", "TryFromCurrentProcess",
-                [Native + "ChocolateyDesktopObservation.ProductionObserve", Native + "ChocolateyReviewedRouteComposition.ProbeSplitTokenState"]),
+                [Native + "ChocolateyDesktopObservation.ProductionObserve", Native + "ChocolateyDesktopObservation.ProductionObserveClient",
+                    Native + "ChocolateyReviewedRouteComposition.ProbeSplitTokenState"]),
         ];
         foreach ((string type, string member, _) in pinned)
             Assert.IsTrue(defined.Contains((type, member)), $"{type}.{member} is not defined; update the pin list");

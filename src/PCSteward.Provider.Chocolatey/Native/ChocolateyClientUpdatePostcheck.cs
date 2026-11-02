@@ -64,6 +64,7 @@ internal static class ChocolateyClientUpdatePostcheck
     internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyHeldClientBinding client,
         ChocolateyReviewedRelease target, string requestingUserSid)
     {
+        ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(client);
         if (client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate || client.InstalledRelease is not { } source)
             throw new ArgumentException("Only a client self-update binding has a client postcheck.", nameof(client));
@@ -75,9 +76,10 @@ internal static class ChocolateyClientUpdatePostcheck
     /// <see cref="ReviewedClientRunFault"/> of the accepted helper reply (the binding lives in the helper process) and the F′
     /// observation's source release. The fact is applied first, exactly as the binding overload applies the binding's state:
     /// any watchdog stop forces its verdict, then an incomplete release forces <see cref="ChocolateyClientUpdateVerdict.ReleaseIncomplete"/>.
-    /// It can only lower the verdict; Verified still needs the exact target match.
+    /// It can only lower the verdict; Verified still needs the exact target match. A null <paramref name="result"/> means the
+    /// desktop observation did not finish (<see cref="ChocolateyClientUpdateVerdict.NotFinished"/> after the fact is applied).
     /// </summary>
-    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ReviewedClientRunFault runFault,
+    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult? result, ReviewedClientRunFault runFault,
         ChocolateyReviewedRelease source, ChocolateyReviewedRelease target, string requestingUserSid)
     {
         ArgumentNullException.ThrowIfNull(runFault);
@@ -94,12 +96,11 @@ internal static class ChocolateyClientUpdatePostcheck
     /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the rule over free parameters.</summary>
     internal static ChocolateyClientUpdateVerdict EvaluateForTests(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
         ChocolateyReviewedRelease target, string requestingUserSid, ChocolateyClientWatchdogFault watchdogFault, bool holdReleaseIncomplete) =>
-        EvaluateCore(result, source, target, requestingUserSid, watchdogFault, holdReleaseIncomplete);
+        EvaluateCore(result ?? throw new ArgumentNullException(nameof(result)), source, target, requestingUserSid, watchdogFault, holdReleaseIncomplete);
 
-    private static ChocolateyClientUpdateVerdict EvaluateCore(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
+    private static ChocolateyClientUpdateVerdict EvaluateCore(ChocolateyProfileResult? result, ChocolateyReviewedRelease source,
         ChocolateyReviewedRelease target, string requestingUserSid, ChocolateyClientWatchdogFault watchdogFault, bool holdReleaseIncomplete)
     {
-        ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(requestingUserSid);
@@ -113,7 +114,7 @@ internal static class ChocolateyClientUpdatePostcheck
         if (holdReleaseIncomplete) return ChocolateyClientUpdateVerdict.ReleaseIncomplete;
         switch (result)
         {
-            case ChocolateyProfileResult.TimedOut or ChocolateyProfileResult.Cancelled:
+            case null or ChocolateyProfileResult.TimedOut or ChocolateyProfileResult.Cancelled:
                 return ChocolateyClientUpdateVerdict.NotFinished;
             case ChocolateyProfileResult.Refused refused:
                 return refused.Detail == ChocolateyProfileRefusalDetail.UnlistedReleaseLeftover

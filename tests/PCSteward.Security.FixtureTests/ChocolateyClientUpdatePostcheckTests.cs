@@ -15,7 +15,7 @@ namespace PCSteward.Security.FixtureTests;
 [TestClass]
 public sealed class ChocolateyClientUpdatePostcheckTests
 {
-    private const string User = "S-1-5-21-11-22-33-1001";
+    internal const string User = "S-1-5-21-11-22-33-1001";
 
     [TestMethod]
     public void OnlyAnExactTargetReleaseObservationIsVerified()
@@ -187,13 +187,13 @@ public sealed class ChocolateyClientUpdatePostcheckTests
     private static ChocolateyClientUpdateVerdict Check(ChocolateyProfileResult result, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) =>
         ChocolateyClientUpdatePostcheck.EvaluateForTests(result, source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: false);
 
-    private static (ChocolateyReleaseList, ChocolateyReviewedRelease, ChocolateyReviewedRelease) Releases()
+    internal static (ChocolateyReleaseList, ChocolateyReviewedRelease, ChocolateyReviewedRelease) Releases()
     {
         ChocolateyReleaseList list = ChocolateyReleaseListTests.Three();
         return (list, list.Releases[0], list.Releases[2]);
     }
 
-    private static ChocolateyProfileResult.Observed Observation(ChocolateyReviewedRelease release, string? installed = null, string? archive = null,
+    internal static ChocolateyProfileResult.Observed Observation(ChocolateyReviewedRelease release, string? installed = null, string? archive = null,
         string sid = User, string? extension = null, ChocolateyReviewedRelease? leftoverOf = null, ChocolateyReleaseResidue? residue = null)
     {
         Assert.IsTrue(ChocolateyConfigurationParser.TryRead(Encoding.UTF8.GetBytes("<chocolatey></chocolatey>"), out ChocolateyConfigurationObservation? configuration));

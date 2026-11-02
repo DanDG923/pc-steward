@@ -39,6 +39,43 @@ internal static class ChocolateyDesktopObservation
     }
 
     /// <summary>
+    /// ADR-031 design §3.6/§7.1 F′ and verification: the Desktop-role client-mode observation (target <c>chocolatey</c>, the
+    /// release selected by engine digest from the compiled list), with the same token rules as <see cref="ProductionObserve"/>.
+    /// Shaped as a <see cref="ChocolateyDesktopObserve"/>: any other target observes nothing. Reads only; never launches.
+    /// </summary>
+    internal static ChocolateyProfileResult? ProductionObserveClient(string targetId, ChocolateyNativeVersion expectedInstalled, TimeSpan remaining,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(targetId, ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.Ordinal)) return null;
+        using RequesterToken? token = RequesterToken.TryFromCurrentProcess(out _);
+        if (token is null) return null;
+        return ChocolateyProfileObserver.ObserveClient(token, ChocolateyObserverRole.Desktop, expectedInstalled, expectedFingerprint: null,
+            remaining, cancellationToken);
+    }
+
+    /// <summary>
+    /// ADR-031 design §3.3/§3.5: the frozen client self-update's source and target releases from <paramref name="releases"/> —
+    /// the listed release at the frozen installed version and that list's offer for it, which must be the frozen candidate,
+    /// over the exact route shape (<see cref="ChocolateyClientUpdateArguments.IsUpgradeShape"/>). False for anything else,
+    /// including every operation while the compiled list holds a single release.
+    /// </summary>
+    internal static bool TryGetClientRouteTarget(ReviewedUpdateOperation? operation, ChocolateyReleaseList releases,
+        [NotNullWhen(true)] out ChocolateyReviewedRelease? source, [NotNullWhen(true)] out ChocolateyReviewedRelease? target)
+    {
+        ArgumentNullException.ThrowIfNull(releases);
+        source = null;
+        target = null;
+        if (operation is null) return false;
+        ChocolateyReviewedRelease? installed = releases.FindByVersion(operation.Selection.InstalledVersion);
+        ChocolateyReviewedRelease? offer = releases.OfferTarget(installed);
+        if (installed is null || offer is null) return false;
+        if (!ChocolateyClientUpdateArguments.IsUpgradeShape(operation, installed, offer)) return false;
+        source = installed;
+        target = offer;
+        return true;
+    }
+
+    /// <summary>
     /// The frozen operation's fixed route shape (the predicates of <see cref="ChocolateyReviewedUpdateArguments.Build"/>), its
     /// package ID, its frozen installed version and its reviewed candidate. False for anything else.
     /// </summary>
@@ -164,7 +201,9 @@ internal static class ChocolateyDesktopObservation
 internal readonly record struct ChocolateyDesktopOutcome(ChocolateyProfileObservation? Observation, bool InstalledMismatch);
 
 /// <summary>The F′ observation's file-first baseline (Task 90 M2), kept for the post-update check of the same operation.</summary>
-internal sealed record ChocolateyDispatchBaseline(string TargetId, string RequestingUserSid, ChocolateyClientStateData ClientState);
+/// <remarks>ADR-031 design §8.3: for the client self-update, <see cref="SourceRelease"/> is the F′ observation's listed release.</remarks>
+internal sealed record ChocolateyDispatchBaseline(string TargetId, string RequestingUserSid, ChocolateyClientStateData ClientState,
+    ChocolateyReviewedRelease? SourceRelease = null);
 
 /// <summary>
 /// FR-UPD-15; design rev 6 §7: hands the F′ observation's <see cref="ChocolateyClientStateData"/> from the evidence source to

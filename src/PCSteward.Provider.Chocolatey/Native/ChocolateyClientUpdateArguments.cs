@@ -40,6 +40,21 @@ internal static class ChocolateyClientUpdateArguments
         return Array.AsReadOnly(new[] { "list", ReviewedUpdateOperation.ChocolateyClientPackageId, "--exact", "--limit-output", "--no-color" });
     }
 
+    /// <summary>
+    /// ADR-031 design §3.5/§7.1: true exactly when <see cref="BuildUpgrade"/> would accept the operation with these releases
+    /// (the desktop producer and verifier check the shape without building any argument list).
+    /// </summary>
+    internal static bool IsUpgradeShape(ReviewedUpdateOperation operation, ChocolateyReviewedRelease installed, ChocolateyReviewedRelease target)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(installed);
+        ArgumentNullException.ThrowIfNull(target);
+        try { RequireShape(operation, installed); }
+        catch (ArgumentException) { return false; }
+        return ReferenceEquals(installed.List.OfferTarget(installed), target) &&
+            string.Equals(operation.Selection.CandidateVersion, target.Version, StringComparison.Ordinal);
+    }
+
     private static void RequireShape(ReviewedUpdateOperation operation, ChocolateyReviewedRelease installed)
     {
         ReviewedUpdateSelection selection = operation.Selection;
