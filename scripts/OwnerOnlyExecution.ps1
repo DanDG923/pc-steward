@@ -59,23 +59,31 @@ function Get-OwnerOnlyUserDataRoot {
     return (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward')
 }
 
+function Get-OwnerOnlyOrdinalNames {
+    # Property names joined in ordinal order (culture-independent, so 'scriptSource' sorts before 'scripts' everywhere).
+    param($Object)
+    $names=[string[]]@($Object.PSObject.Properties|ForEach-Object{$_.Name})
+    [Array]::Sort($names,[StringComparer]::Ordinal)
+    return ($names -join ',')
+}
+
 function Assert-OwnerOnlyRedeployPlanV3 {
     param([Parameter(Mandatory)]$Plan)
     $keys=@('candidateManifestPath','candidateManifestSha256','candidateRoot','executionRoot','expectedNewOrigin','expectedOldOrigin','installerSid','oldLedgerSha256','oldThumbprint','preserveUserData','schema','scriptSource','scripts','userDataFiles','userDataRoot')
-    if((@($Plan.PSObject.Properties.Name|Sort-Object) -join ',') -cne ($keys -join ',')){throw 'Plan schema v3 requires exactly the reviewed key set.'}
     if($Plan.schema -cne 'pc-steward-exact-redeploy-v3'){throw 'Plan schema v3 is required.'}
     if($Plan.preserveUserData -isnot [bool] -or !$Plan.preserveUserData){throw 'Plan schema v3 requires preserveUserData true.'}
+    if((Get-OwnerOnlyOrdinalNames -Object $Plan) -cne ($keys -join ',')){throw 'Plan schema v3 requires exactly the reviewed key set.'}
     if($Plan.expectedOldOrigin -isnot [string] -or $Plan.expectedOldOrigin -cnotin @('legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2') -or $Plan.expectedNewOrigin -isnot [string] -or $Plan.expectedNewOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2')){throw 'Plan schema v3 must name an allowlisted expected old and new payload origin.'}
     if($Plan.installerSid -isnot [string] -or $Plan.installerSid -cnotmatch '^S-1-5-21-\d+-\d+-\d+-\d+$'){throw 'Plan schema v3 requires a user installer SID.'}
     foreach($name in @('candidateManifestPath','candidateRoot','executionRoot','scriptSource','userDataRoot')){if($Plan.$name -isnot [string] -or [string]::IsNullOrWhiteSpace($Plan.$name)){throw "Plan schema v3 requires the path $name."}}
     foreach($name in @('candidateManifestSha256','oldLedgerSha256')){if($Plan.$name -isnot [string] -or $Plan.$name -cnotmatch '^[A-F0-9]{64}$'){throw "Plan schema v3 requires an uppercase SHA-256 $name."}}
     if($Plan.oldThumbprint -isnot [string] -or $Plan.oldThumbprint -cnotmatch '^[A-F0-9]{40}$'){throw 'Plan schema v3 requires an uppercase old signer thumbprint.'}
     if($Plan.scripts -isnot [array] -or @($Plan.scripts).Count -ne 6){throw 'Plan schema v3 requires exactly six reviewed script pins.'}
-    foreach($entry in @($Plan.scripts)){if($null -eq $entry -or (@($entry.PSObject.Properties.Name|Sort-Object) -join ',') -cne 'path,sha256' -or $entry.path -isnot [string] -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed reviewed script entry.'}}
+    foreach($entry in @($Plan.scripts)){if($null -eq $entry -or (Get-OwnerOnlyOrdinalNames -Object $entry) -cne 'path,sha256' -or $entry.path -isnot [string] -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed reviewed script entry.'}}
     if($Plan.userDataFiles -isnot [array] -or @($Plan.userDataFiles).Count -lt 1 -or @($Plan.userDataFiles).Count -gt 8){throw 'Plan schema v3 requires one to eight pinned user database files.'}
     $seen=@{};$pins=[Collections.Generic.List[object]]::new()
     foreach($entry in @($Plan.userDataFiles)){
-        if($null -eq $entry -or (@($entry.PSObject.Properties.Name|Sort-Object) -join ',') -cne 'bytes,path,sha256' -or $entry.path -isnot [string] -or $entry.path -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $entry.path -match '-(wal|shm|journal)$' -or $entry.path.EndsWith('.') -or $seen.ContainsKey($entry.path.ToUpperInvariant()) -or ($entry.bytes -isnot [int] -and $entry.bytes -isnot [long]) -or $entry.bytes -lt 1 -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed pinned user database entry.'}
+        if($null -eq $entry -or (Get-OwnerOnlyOrdinalNames -Object $entry) -cne 'bytes,path,sha256' -or $entry.path -isnot [string] -or $entry.path -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $entry.path -match '-(wal|shm|journal)$' -or $entry.path.EndsWith('.') -or $seen.ContainsKey($entry.path.ToUpperInvariant()) -or ($entry.bytes -isnot [int] -and $entry.bytes -isnot [long]) -or $entry.bytes -lt 1 -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed pinned user database entry.'}
         $seen[$entry.path.ToUpperInvariant()]=$true
         $pins.Add([pscustomobject]@{path=[string]$entry.path;bytes=[long]$entry.bytes;sha256=[string]$entry.sha256})
     }
@@ -98,7 +106,7 @@ function Get-OwnerOnlyStableFileIdentity {
 function Assert-OwnerOnlyNoReparseChain {
     param([Parameter(Mandatory)][string]$Path)
     for($current=Get-Item -LiteralPath $Path -Force;$null -ne $current;){
-        if($current.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'User data reparse path refused.'}
+        if($current.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Reparse path refused for user data or a pinned file.'}
         $current=if($current -is [IO.DirectoryInfo]){$current.Parent}else{$current.Directory}
     }
 }
