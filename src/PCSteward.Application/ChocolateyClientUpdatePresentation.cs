@@ -231,6 +231,26 @@ public static class ChocolateyClientUpdatePresentation
     internal static bool EndsWithLostTrackCaution(string? diagnostic) =>
         diagnostic is not null && diagnostic.EndsWith(" " + LostTrackCautionMessage, StringComparison.Ordinal);
 
+    /// <summary>
+    /// ADR-031 design §8.3, history recognition (Task 73 client update UI): the fixed run-fault recovery message (one of the
+    /// non-null <see cref="RunFaultMessage"/> results) that an Uncertain record's diagnostic ends with, where the workflow appends
+    /// it on the unsettled path; otherwise null. Combined messages are matched first, so one is never read as its watchdog part.
+    /// Display only.
+    /// </summary>
+    internal static string? TrailingRunFaultMessage(string? diagnostic)
+    {
+        if (diagnostic is null) return null;
+        foreach (string message in RunFaultMessagesCombinedFirst)
+            if (diagnostic.EndsWith(" " + message, StringComparison.Ordinal)) return message;
+        return null;
+    }
+
+    private static readonly string[] RunFaultMessagesCombinedFirst =
+    [
+        StoppedSetupOverrideReleaseIncompleteMessage, StoppedRootWritableReleaseIncompleteMessage, StoppedWatchFailedReleaseIncompleteMessage,
+        StoppedSetupOverrideMessage, StoppedRootWritableMessage, StoppedWatchFailedMessage, NotVerifiedReleaseIncompleteMessage,
+    ];
+
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>
         value is { Length: > 0 and <= 32 } && value.Split('.') is { Length: 3 or 4 } parts &&

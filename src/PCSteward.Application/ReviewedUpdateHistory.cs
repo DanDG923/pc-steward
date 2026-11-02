@@ -260,13 +260,16 @@ public static class ReviewedUpdateHistoryPresentation
     /// <summary>
     /// Independent review M1 (ADR-031 design §8.6): an Uncertain client self-update whose recorded diagnostic ends with the
     /// workflow's fixed <see cref="ChocolateyClientUpdatePresentation.LostTrackCautionMessage"/> shows that caution as its
-    /// fixed text. Any other route, outcome or diagnostic has none. Display only; it never changes the recorded outcome.
+    /// fixed text. ADR-031 design §8.3 (Task 73 client update UI): an Uncertain client record whose diagnostic ends with a
+    /// helper-reported run fault's fixed recovery message (appended on the unsettled path by
+    /// <c>ReviewedUpdateDispatchWorkflow.WithClientRunFaultWarning</c>) shows that message, so the untrusted-folder advice and the
+    /// release-incomplete note stay visible beside the Uncertain status. Any other route, outcome or diagnostic has none.
+    /// Display only; it never changes the recorded outcome.
     /// </summary>
     internal static string? UncertainDetail(ReviewedUpdateOperation? operation, ReviewedUpdateTerminalRecord terminal) =>
-        operation?.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 && terminal.Outcome == UpdateDispatchOutcome.Uncertain &&
-        ChocolateyClientUpdatePresentation.EndsWithLostTrackCaution(terminal.Diagnostic)
-            ? ChocolateyClientUpdatePresentation.LostTrackCautionMessage
-            : null;
+        operation?.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1 || terminal.Outcome != UpdateDispatchOutcome.Uncertain ? null
+        : ChocolateyClientUpdatePresentation.EndsWithLostTrackCaution(terminal.Diagnostic) ? ChocolateyClientUpdatePresentation.LostTrackCautionMessage
+        : ChocolateyClientUpdatePresentation.TrailingRunFaultMessage(terminal.Diagnostic);
 
     private static readonly ReviewedUpdateProviderStatus[] StoppedStatuses =
         [ReviewedUpdateProviderStatus.Cancelled, ReviewedUpdateProviderStatus.TimedOut, ReviewedUpdateProviderStatus.Failed];
