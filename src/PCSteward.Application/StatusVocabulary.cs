@@ -54,6 +54,8 @@ public static class StatusVocabulary
             "You chose to stay on this version. No update is offered until you remove the pin."),
         new(nameof(UpdateIntelligenceStatus.Ignored), "Ignored", "", StatusTone.Neutral,
             "You chose not to be told about updates for this app. It stays in the inventory."),
+        new(nameof(UpdateIntelligenceStatus.Skipped), "Version skipped", "\uE893", StatusTone.Neutral,
+            "You chose to skip this version. A newer version will be offered again; you can stop skipping it at any time."),
         new(InstalledKey, "Source not checked", "", StatusTone.Neutral,
             "Found on this PC. No package source has been checked for it yet.")
     }.ToDictionary(chip => chip.Key, StringComparer.Ordinal);
@@ -68,6 +70,7 @@ public static class StatusVocabulary
         Chips[nameof(UpdateIntelligenceStatus.Unmanaged)],
         Chips[nameof(UpdateIntelligenceStatus.Pinned)],
         Chips[nameof(UpdateIntelligenceStatus.Ignored)],
+        Chips[nameof(UpdateIntelligenceStatus.Skipped)],
         Chips[InstalledKey]
     ];
 

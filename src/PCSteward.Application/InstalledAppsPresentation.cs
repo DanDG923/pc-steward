@@ -36,7 +36,7 @@ public static class InstalledAppsFilters
         [InstalledAppsFilter.Updates] = [nameof(UpdateIntelligenceStatus.VerifiedUpdate)],
         [InstalledAppsFilter.NeedsReview] = [nameof(UpdateIntelligenceStatus.ReviewRequired), nameof(UpdateIntelligenceStatus.FailedUnavailable)],
         [InstalledAppsFilter.Unmanaged] = [nameof(UpdateIntelligenceStatus.Unmanaged)],
-        [InstalledAppsFilter.PinnedAndIgnored] = [nameof(UpdateIntelligenceStatus.Pinned), nameof(UpdateIntelligenceStatus.Ignored)],
+        [InstalledAppsFilter.PinnedAndIgnored] = [nameof(UpdateIntelligenceStatus.Pinned), nameof(UpdateIntelligenceStatus.Ignored), nameof(UpdateIntelligenceStatus.Skipped)],
     };
 
     /// <summary>The filter's short label.</summary>
@@ -45,7 +45,7 @@ public static class InstalledAppsFilters
         InstalledAppsFilter.Updates => "Updates",
         InstalledAppsFilter.NeedsReview => "Needs review",
         InstalledAppsFilter.Unmanaged => "Unmanaged",
-        InstalledAppsFilter.PinnedAndIgnored => "Pinned & ignored",
+        InstalledAppsFilter.PinnedAndIgnored => "Pinned, ignored & skipped",
         _ => "All"
     };
 
@@ -151,6 +151,8 @@ public static partial class AppDetailPresenter
                 string until = DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset expires)
                     ? $"until {DisplayFormat.Date(expires, culture, zone)}" : "indefinitely";
                 return new(entry.OccurredAt, when, $"Ignored {until}", Reason(reason), "\uE74F", StatusTone.Neutral);
+            case UserDecisionService.SkipVersionKind:
+                return new(entry.OccurredAt, when, $"Skipped version {value}", Reason(reason), "\uE893", StatusTone.Neutral);
             case "ManualMapping":
                 return new(entry.OccurredAt, when, $"Package identity confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
             case "InventoryScan":

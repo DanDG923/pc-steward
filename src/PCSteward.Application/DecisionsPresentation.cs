@@ -8,7 +8,11 @@ public enum DecisionKind
 {
     Pin,
     Ignore,
-    Mapping
+    Mapping,
+    /// <summary>Owner decision 2026-11-02: Skip this version.</summary>
+    Skip,
+    /// <summary>A stored decision this version doesn't recognise (for example from a newer PC Steward). It is shown, never guessed.</summary>
+    Other
 }
 
 /// <summary>
@@ -62,9 +66,18 @@ public static class DecisionsPresenter
                 "PinSourcePackage" => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
                     $"Pinned to package {decision.Value}", $"No other package is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE718",
                     "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin source package")),
-                _ => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
+                "PinCurrentVersion" => new(decision.Id, DecisionKind.Pin, decision.StableProductKey, product,
                     $"Pinned at version {decision.Value}", $"No other version is offered for this app. {created}.", Reason(decision.Reason), decision.CreatedAt, "\uE718",
                     "Remove pin", PageFocusRestore.RemoveDecisionName(product, "pin current version")),
+                UserDecisionService.SkipVersionKind => new(decision.Id, DecisionKind.Skip, decision.StableProductKey, product,
+                    $"Skipping version {decision.Value}", $"Version {decision.Value} isn't offered for this app. A newer version will be offered again. {created}.",
+                    Reason(decision.Reason), decision.CreatedAt, "\uE893",
+                    $"Stop skipping {decision.Value}", $"Stop skipping {decision.Value} for {product}"),
+                // An unrecognised kind (for example from a newer PC Steward) is shown as what it is, never as a pin it may not be.
+                _ => new(decision.Id, DecisionKind.Other, decision.StableProductKey, product,
+                    "Saved decision (not recognised)", $"This version of PC Steward doesn't recognise this decision, so it has no effect here. {created}.",
+                    Reason(decision.Reason), decision.CreatedAt, "\uE946",
+                    "Remove decision", $"Remove decision (not recognised) saved {DisplayFormat.DateTime(decision.CreatedAt, culture, zone)} for {product}"),
             };
             result.Add(row);
         }
@@ -89,6 +102,8 @@ public static class DecisionsPresenter
     {
         DecisionKind.Pin => $"Pins ({count})",
         DecisionKind.Ignore => $"Ignored apps ({count})",
+        DecisionKind.Skip => $"Skipped versions ({count})",
+        DecisionKind.Other => $"Other saved decisions ({count})",
         _ => $"Confirmed package identities ({count})"
     };
 

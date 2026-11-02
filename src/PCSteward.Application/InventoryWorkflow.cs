@@ -257,6 +257,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     public Task PinCurrentVersionAsync(string stableProductKey, string currentVersion, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinCurrentVersionAsync(stableProductKey, currentVersion, reason, cancellationToken);
     public Task PinSourcePackageAsync(string stableProductKey, string sourceId, string packageId, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinSourcePackageAsync(stableProductKey, sourceId, packageId, reason, cancellationToken);
     public Task IgnoreAsync(string stableProductKey, DateTimeOffset? until, string? reason, CancellationToken cancellationToken) => RequiredDecisions().IgnoreAsync(stableProductKey, until, reason, cancellationToken);
+    public Task SkipVersionAsync(string stableProductKey, string version, string? reason, CancellationToken cancellationToken) => RequiredDecisions().SkipVersionAsync(stableProductKey, version, reason, cancellationToken);
     public Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetActiveDecisionsAsync(cancellationToken);
     public Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetManualMappingsAsync(cancellationToken);
     public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => RequiredDecisions().ReverseDecisionAsync(decisionId, cancellationToken);

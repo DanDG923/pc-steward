@@ -123,7 +123,7 @@ public sealed record HomeAttentionItem(string StableProductKey, string AppName, 
 }
 
 /// <summary>The FR-UI-01 counts. Each one appears exactly once on Home (hero or tile), so nothing is restated (audit P-M4).</summary>
-public sealed record HomeCounts(int Installed, int Verified, int ReviewRequired, int SourceUnavailable, int Current, int Unmanaged, int Pinned, int Ignored, int Failed, int RestartRequired);
+public sealed record HomeCounts(int Installed, int Verified, int ReviewRequired, int SourceUnavailable, int Current, int Unmanaged, int Pinned, int Ignored, int Failed, int RestartRequired, int Skipped = 0);
 
 /// <summary>Everything Home shows.</summary>
 public sealed record HomePresentation(
@@ -189,7 +189,7 @@ public static class HomePresenter
         int Count(UpdateIntelligenceStatus status) => rows.Count(row => row.Status == status.ToString());
         HomeCounts counts = new(rows.Count, ready, Count(UpdateIntelligenceStatus.ReviewRequired), Count(UpdateIntelligenceStatus.FailedUnavailable),
             Count(UpdateIntelligenceStatus.Current), Count(UpdateIntelligenceStatus.Unmanaged), Count(UpdateIntelligenceStatus.Pinned),
-            Count(UpdateIntelligenceStatus.Ignored), attention.Length, restart.Length);
+            Count(UpdateIntelligenceStatus.Ignored), attention.Length, restart.Length, Count(UpdateIntelligenceStatus.Skipped));
         FreshnessPresentation freshness = FreshnessPresenter.Describe(inputs.SourcesEnabled, inputs.Sources, inputs.Now, culture, zone);
         bool hasInventory = inputs.LastScanAt is not null || rows.Count != 0;
 
@@ -215,7 +215,7 @@ public static class HomePresenter
                     : $"Possible updates whose match needs your review, including {DisplayFormat.Plural(counts.SourceUnavailable, "app")} whose source couldn't be checked.",
                 "\uE9D5", counts.ReviewRequired + counts.SourceUnavailable == 0 ? StatusTone.Neutral : StatusTone.Attention,
                 new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview)),
-            new(HomeTileKind.PinnedAndIgnored, "Pinned & ignored", $"{counts.Pinned.ToString("N0", CultureInfo.CurrentCulture)} pinned · {counts.Ignored.ToString("N0", CultureInfo.CurrentCulture)} ignored",
+            new(HomeTileKind.PinnedAndIgnored, "Pinned, ignored & skipped", $"{counts.Pinned.ToString("N0", CultureInfo.CurrentCulture)} pinned · {counts.Ignored.ToString("N0", CultureInfo.CurrentCulture)} ignored · {counts.Skipped.ToString("N0", CultureInfo.CurrentCulture)} skipped",
                 "Your reversible decisions. Review or undo them on Decisions.", "\uE718", StatusTone.Neutral, new(ShellPage.Decisions)),
             new(HomeTileKind.Unmanaged, "Unmanaged", counts.Unmanaged.ToString("N0", CultureInfo.CurrentCulture),
                 "Inventoried only: no approved update source is mapped. This is not a safety warning.", "\uE946", StatusTone.Neutral,

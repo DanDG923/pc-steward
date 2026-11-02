@@ -14,15 +14,15 @@ public sealed class HomeActivityDecisionsPresentationTests
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
     private static readonly TimeZoneInfo Utc = TimeZoneInfo.Utc;
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
-    private static readonly string[] FilterLabels = ["All", "Updates", "Needs review", "Unmanaged", "Pinned & ignored"];
+    private static readonly string[] FilterLabels = ["All", "Updates", "Needs review", "Unmanaged", "Pinned, ignored & skipped"];
     private static readonly string[] ActivityFilterLabels = ["All", "Updates", "Scans", "Problems"];
     private static readonly string[] FreshnessWords = ["Local-only", "Live", "Cached", "Offline", "Unavailable"];
     private static readonly string[] OutcomeLabels = ["Verified", "Restart required", "Installed, not verified", "Result not verified", "Failed", "Not started"];
     private static readonly string[] AttentionKeys = ["failed", "restart"];
-    private static readonly int[] FilterCounts = [8, 1, 2, 1, 2];
+    private static readonly int[] FilterCounts = [9, 1, 2, 1, 3];
     private static readonly string[] UpdatesLabels = ["Update available — verified"];
     private static readonly string[] NeedsReviewLabels = ["Update available — review", "Source unavailable"];
-    private static readonly string[] PinnedIgnoredLabels = ["Pinned", "Ignored"];
+    private static readonly string[] PinnedIgnoredLabels = ["Pinned", "Ignored", "Version skipped"];
     private static readonly string[] InstanceFactLabels = ["Found by", "Identity", "Version", "Scope", "Architecture"];
     private static readonly int[] ActivityCounts = [5, 2, 2, 2];
     private static readonly string[] DayHeadings = ["Today", "Yesterday", "30 Oct 2026", "28 Oct 2026"];
@@ -97,7 +97,7 @@ public sealed class HomeActivityDecisionsPresentationTests
             Row("ready-1", "VerifiedUpdate", "1.0"), Row("ready-2", "VerifiedUpdate", "1.0"),
             Row("review", "ReviewRequired", "1.0"), Row("unavailable", "FailedUnavailable", "1.0"),
             Row("current", "Current", "2.0"), Row("unmanaged", "Unmanaged", "1.0"),
-            Row("pinned", "Pinned", "1.0"), Row("ignored", "Ignored", "1.0"),
+            Row("pinned", "Pinned", "1.0"), Row("ignored", "Ignored", "1.0"), Row("skipped", "Skipped", "1.0"),
             Row("failed", "Current", "1.0"), Row("restart", "Current", "1.0"), Row("fixed", "Current", "2.0")
         ];
         Dictionary<string, UpdateDetail> details = new(StringComparer.Ordinal)
@@ -125,7 +125,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         StringAssert.Contains(home.SecondaryHelpText, "never asks for administrator permission");
         Assert.AreEqual("Scans this PC, then checks your enabled update sources.", home.SecondaryCaption, "independent review L1");
 
-        Assert.AreEqual(new HomeCounts(rows.Length, 2, 1, 1, 4, 1, 1, 1, 1, 1), home.Counts, "FR-UI-01 counts include pinned, ignored and failed; a later scan resolves an old attempt");
+        Assert.AreEqual(new HomeCounts(rows.Length, 2, 1, 1, 4, 1, 1, 1, 1, 1, 1), home.Counts, "FR-UI-01 counts include pinned, ignored and failed; a later scan resolves an old attempt");
 
         Dictionary<HomeTileKind, HomeTile> tiles = home.Tiles.ToDictionary(tile => tile.Kind);
         Assert.HasCount(Enum.GetValues<HomeTileKind>().Length, tiles);
@@ -136,7 +136,8 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual(new HomeTileTarget(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.Unmanaged), tiles[HomeTileKind.Unmanaged].Target);
         Assert.AreEqual(new HomeTileTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.All), tiles[HomeTileKind.RecentActivity].Target);
         Assert.AreEqual("2", tiles[HomeTileKind.NeedsReview].Value);
-        Assert.AreEqual("1 pinned · 1 ignored", tiles[HomeTileKind.PinnedAndIgnored].Value);
+        Assert.AreEqual("1 pinned · 1 ignored · 1 skipped", tiles[HomeTileKind.PinnedAndIgnored].Value);
+        Assert.AreEqual("Pinned, ignored & skipped", tiles[HomeTileKind.PinnedAndIgnored].Title, "Phase 6: skipped versions are counted with pins and ignores");
         StringAssert.Contains(tiles[HomeTileKind.Unmanaged].Description, "not a safety warning", "unmanaged never reads as unsafe");
         Assert.IsFalse(home.Tiles.Any(tile => tile.Description.Contains("unsafe", StringComparison.OrdinalIgnoreCase)));
         Assert.IsTrue(home.Tiles.All(tile => tile.Glyph.Length == 1), "every tile has an icon as well as text");
@@ -267,12 +268,12 @@ public sealed class HomeActivityDecisionsPresentationTests
         [
             Row("a", "VerifiedUpdate", "1"), Row("b", "ReviewRequired", "1"), Row("c", "FailedUnavailable", "1"),
             Row("d", "Unmanaged", "1"), Row("e", "Pinned", "1"), Row("f", "Ignored", "1"), Row("g", "Current", "1"),
-            Row("h", StatusVocabulary.InstalledKey, "1")
+            Row("h", StatusVocabulary.InstalledKey, "1"), Row("i", "Skipped", "1")
         ];
         IReadOnlyList<InstalledAppsFilterOption> options = InstalledAppsFilters.Options(rows);
         CollectionAssert.AreEqual(FilterLabels, options.Select(option => option.Label).ToArray());
         CollectionAssert.AreEqual(FilterCounts, options.Select(option => option.Count).ToArray());
-        Assert.AreEqual("All (8)", options[0].DisplayLabel, "All includes current, pinned, ignored and source-not-checked rows");
+        Assert.AreEqual("All (9)", options[0].DisplayLabel, "All includes current, pinned, ignored and source-not-checked rows");
         foreach (InstalledAppsFilterOption option in options) StringAssert.StartsWith(option.AccessibleName, option.DisplayLabel);
         CollectionAssert.AreEqual(UpdatesLabels, options[1].StatusLabels.ToArray());
         CollectionAssert.AreEqual(NeedsReviewLabels, options[2].StatusLabels.ToArray());
