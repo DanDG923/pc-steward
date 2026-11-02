@@ -395,7 +395,7 @@ public sealed class UiRedesignContractTests
         string[] ordered =
         [
             "if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;",
-            "updates.BeginBatchReviewAsync(keys, token)",
+            "updates.BeginBatchReviewAsync(keys, preparationProgress, token)",
             "item.Preparation.Review!.Selection,",
             "UpdateReviewSheet.CreateBatch(inputs,",
             "NavigateTo(ShellPage.UpdateJob);",
@@ -471,7 +471,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(source, "|| downloads.IsCleaning || preparingReview || isSavingSchedule;");
         int guard = review.IndexOf("if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;", StringComparison.Ordinal);
         int set = review.IndexOf("preparingReview = true;", StringComparison.Ordinal);
-        int begin = review.IndexOf("updates.BeginBatchReviewAsync(keys, token)", StringComparison.Ordinal);
+        int begin = review.IndexOf("updates.BeginBatchReviewAsync(keys, preparationProgress, token)", StringComparison.Ordinal);
         int reset = review.IndexOf("finally { preparingReview = false; }", StringComparison.Ordinal);
         int sheet = review.IndexOf("UpdateReviewSheet.CreateBatch(inputs,", StringComparison.Ordinal);
         Assert.IsTrue(guard >= 0 && set > guard && begin > set && reset > begin && sheet > reset, "preparingReview wraps BeginReviewAsync only");
@@ -582,6 +582,56 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(verify, "completion.Groups");
         StringAssert.Contains(verify, "RowsFor([key])");
         StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "public const string PerAppElevationNote =");
+    }
+
+    /// <summary>
+    /// Task 73 Phase 6 independent review (M2, L2, L6; SPEC §9.13 G4; FR-UPD-10, AC-UPD-01): batch review preparation shares one
+    /// fresh observation and starts the ceiling after preparation; preparation is cancellable from the band and reports progress;
+    /// dispatch re-checks the ceiling after its own re-preparation and immediately before approval; a frozen review runs once.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-10; AC-UPD-01; SPEC §9.13 G4: shared fresh observation, ceiling after preparation and before approval, single-use batch, cancellable preparation.")]
+    public void UpdateAllPreparationIsSharedCancellableAndTheCeilingIsCheckedBeforeApproval()
+    {
+        string app = DesktopSource("App.xaml.cs");
+        StringAssert.Contains(app, "prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync");
+        StringAssert.Contains(app, "new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications,");
+
+        string workflow = ApplicationSource("ReviewedUpdateExecutionWorkflow.cs");
+        string begin = Between(workflow, "public async Task<UpdateBatchReviewPreparation> BeginBatchReviewAsync(", "private async Task<IReadOnlyList<UpdateSelectionPreparation?>> PrepareSelectionsAsync(");
+        int prepare = begin.IndexOf("await PrepareSelectionsAsync(keys, Report, cancellationToken)", StringComparison.Ordinal);
+        int reviewedAt = begin.IndexOf("return new(items, excluded, utcNow());", StringComparison.Ordinal);
+        Assert.IsTrue(prepare >= 0 && reviewedAt > prepare, "ReviewedAt is taken after every app was prepared");
+        Assert.AreEqual(1, Count(begin, "utcNow()"), "the ceiling has one start");
+
+        string confirm = Between(workflow, "public async Task<ReviewedUpdateExecutionResult> ConfirmAndRunAsync(", "public Task<UpdateBatchReviewPreparation> BeginBatchReviewAsync(");
+        int evidence = confirm.IndexOf("review.Selection.EqualsEvidence(preparation.Selection)", StringComparison.Ordinal);
+        int ceiling = confirm.IndexOf("IsPastDispatchCeiling(reviewed, utcNow())", StringComparison.Ordinal);
+        int approve = confirm.IndexOf("await approvals.ConfirmAsync(review,", StringComparison.Ordinal);
+        Assert.IsTrue(evidence >= 0 && ceiling > evidence && approve > ceiling, "the ceiling is re-read after re-preparation and immediately before approval");
+
+        string batch = Between(workflow, "public async Task<UpdateBatchRunResult> ConfirmAndRunBatchAsync(", "private static string NotStartedMessage(");
+        int claim = batch.IndexOf("if (!review.TryClaimForRun()) throw new InvalidOperationException(", StringComparison.Ordinal);
+        int firstRun = batch.IndexOf("await ConfirmAndRunAsync(jobReview,", StringComparison.Ordinal);
+        Assert.IsTrue(claim >= 0 && firstRun > claim, "a frozen review is claimed once, before any app is re-prepared or approved");
+        StringAssert.Contains(batch, "cancellationToken, item.Preparation.Progress, review.ReviewedAt)");
+
+        string inventory = ApplicationSource("InventoryWorkflow.cs");
+        string shared = Between(inventory, "public async Task<IReadOnlyList<UpdateSelectionPreparation>> PrepareApprovedUpdateSelectionsAsync(", "private sealed record FreshSelectionEvidence(");
+        Assert.AreEqual(1, Count(shared, "await ObserveFreshSelectionEvidenceAsync(cancellationToken)"), "one fresh observation for the whole batch review");
+        StringAssert.Contains(shared, "await PrepareAgainstFreshEvidenceAsync(key, evidence, cancellationToken)");
+        string single = Between(inventory, "public async Task<UpdateSelectionPreparation> PrepareApprovedUpdateSelectionAsync(", "public async Task<IReadOnlyList<UpdateSelectionPreparation>> PrepareApprovedUpdateSelectionsAsync(");
+        StringAssert.Contains(single, "await PrepareAgainstFreshEvidenceAsync(stableProductKey, evidence, cancellationToken)", "the single and batch paths share the per-app validation");
+
+        string source = DesktopSource("MainWindow.cs");
+        string review = Between(source, "private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
+        StringAssert.Contains(review, "DataOperationLease.RunAsync(token => updates.BeginBatchReviewAsync(keys, preparationProgress, token), preparationCancellation.Token)");
+        StringAssert.Contains(review, "preparation.ExpiresAt.ToLocalTime()");
+        StringAssert.Contains(source, "cancelReview.Click += (_, _) => reviewPreparationCancellation?.Cancel();");
+        StringAssert.Contains(source, "UpdateJobProgressText.PreparingReview(PreparingReviewLabel, reviewPreparationProgress)");
+        StringAssert.Contains(source, "UpdateJobProgressText.BandLabel(updateProgressSubject, updateProgressLabel)");
+        string reviewStep = Between(source, "private void AddReviewStep(", "private void AddUpdateStep(");
+        StringAssert.Contains(reviewStep, "sheet.ExpiryNote is { } expiryNote");
     }
 
     /// <summary>

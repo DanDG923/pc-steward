@@ -136,6 +136,76 @@ public sealed class UpdateBatchPresentationTests
             Assert.IsFalse(text.Contains("Cancel", StringComparison.OrdinalIgnoreCase), "stopping the batch is never a cancel of a running update");
     }
 
+    [TestMethod]
+    [TestCategory("AC-UPD-09")]
+    public void AFinishedAppShowsItsOutcomeAndTheNextAppWaitsForThePreviousOneDuringTheSettleWait()
+    {
+        // Review L1: during the settle wait the finished current app shows its outcome (no progress bar, no "Waiting to start").
+        string?[] labels = ["Verified", null, null];
+        UpdateJobItemLine finished = UpdateJobProgressText.Line(0, 0, labels, stopRequested: false);
+        Assert.IsFalse(finished.IsLive);
+        Assert.AreEqual("Verified", finished.Text);
+        UpdateJobItemLine next = UpdateJobProgressText.Line(1, 0, labels, stopRequested: false);
+        Assert.IsTrue(next.IsLive, "the next app carries the live state while the batch waits");
+        Assert.AreEqual(UpdateJobProgressText.WaitingForPreviousApp, next.Text);
+        Assert.AreEqual("Waiting for the previous app to finish…", UpdateJobProgressText.LiveState(next, null));
+        Assert.AreEqual("Waiting to start", UpdateJobProgressText.Line(2, 0, labels, stopRequested: false).Text);
+        Assert.IsFalse(UpdateJobProgressText.Line(1, 0, labels, stopRequested: true).IsLive, "after a stop request the next app won't start, so it doesn't wait");
+
+        // While the current app runs it is the only live line and follows the polled progress.
+        string?[] running = ["Verified", null, null];
+        UpdateJobItemLine current = UpdateJobProgressText.Line(1, 1, running, stopRequested: false);
+        Assert.IsTrue(current.IsLive);
+        Assert.IsNull(current.Text);
+        Assert.AreEqual("Waiting to start", UpdateJobProgressText.LiveState(current, null));
+        Assert.IsFalse(UpdateJobProgressText.Line(2, 1, running, stopRequested: false).IsLive);
+        Assert.IsTrue(UpdateJobProgressText.Line(0, -1, [null], stopRequested: false).IsLive, "a one-app job is always live until it finishes");
+        Assert.IsFalse(UpdateJobProgressText.Line(0, 0, ["Failed"], stopRequested: false).IsLive);
+        Assert.IsFalse(UpdateJobProgressText.Line(0, -1, new string?[2], stopRequested: false).IsLive, "nothing is live before the first app starts");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-10")]
+    public void TheBandNamesTheAppUpdatingNowAndCountsReviewPreparation()
+    {
+        Assert.AreEqual("Updating Firefox (2 of 4)", UpdateJobProgressText.BatchSubject("Firefox", 1, 4));
+        Assert.AreEqual("Updating Firefox (2 of 4) · Waiting for Windows administrator permission (UAC); installer progress not observed",
+            UpdateJobProgressText.BandLabel(UpdateJobProgressText.BatchSubject("Firefox", 1, 4), "Waiting for Windows administrator permission (UAC); installer progress not observed"));
+        Assert.AreEqual("Verifying installed version", UpdateJobProgressText.BandLabel(null, "Verifying installed version"));
+        Assert.AreEqual("Preparing review… 2 of 5", UpdateJobProgressText.PreparingReview("Preparing review…", new(2, 5)));
+        Assert.AreEqual("Preparing review…", UpdateJobProgressText.PreparingReview("Preparing review…", new(0, 1)));
+        Assert.AreEqual("Preparing review…", UpdateJobProgressText.PreparingReview("Preparing review…", null));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-10")]
+    [TestCategory("FR-UI-03")]
+    public void TheSheetShowsWhenTheReviewExpires()
+    {
+        // Review L2.
+        DateTimeOffset expires = new(2026, 11, 2, 14, 32, 0, TimeSpan.Zero);
+        string time = expires.ToString("t", System.Globalization.CultureInfo.CurrentCulture);
+        UpdateReviewSheet single = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User)], null, expires);
+        Assert.AreEqual(expires, single.ReviewExpiresAt);
+        Assert.AreEqual($"This review is valid until {time}. If the update hasn't started by then, review again to update.", single.ExpiryNote);
+        UpdateReviewSheet batch = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User), Input("beta", UpdateScope.User)], null, expires);
+        StringAssert.Contains(batch.ExpiryNote, time);
+        StringAssert.Contains(batch.ExpiryNote, "An app that hasn't started by then won't start");
+        Assert.IsNull(UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User)]).ExpiryNote);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-POL-01")]
+    [TestCategory("FR-UI-05")]
+    public void EveryInventoryStatusHasAChipSoSkippedRowsNeverReadAsStatusUnavailable()
+    {
+        // Review L3: Results and Applications rows use StewardStatus.From → StatusVocabulary.For(row.Status).
+        foreach (UpdateIntelligenceStatus status in Enum.GetValues<UpdateIntelligenceStatus>())
+            Assert.AreNotEqual("Status unavailable", StatusVocabulary.For(status.ToString()).Label, status.ToString());
+        Assert.AreEqual("Version skipped", StatusVocabulary.For(nameof(UpdateIntelligenceStatus.Skipped)).Label);
+        CollectionAssert.Contains(StatusVocabulary.FilterLabels.ToArray(), "Version skipped");
+    }
+
     private static UpdateJobItemOutcome Outcome(string key, UpdateHistoryStatus status) =>
         new($"App {key}", $"Contoso.{key}", "1.0", "2.0", UpdateOutcomePresenter.ForStatus(status, "diag", status == UpdateHistoryStatus.InstallerFailed ? 1 : 0, "2.0"), key);
 

@@ -43,7 +43,7 @@ public sealed class UpdateProgressUiContractTests
         StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "running.CoverageDisclosure");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "sheet.CoverageDisclosure");
         // Task 73 Phase 6: each app's own review-bound mailbox is passed to its confirm-and-run and attached to the UI when its turn starts.
-        StringAssert.Contains(ApplicationSource("ReviewedUpdateExecutionWorkflow.cs"), "ConfirmAndRunAsync(jobReview, item.Preparation.RunningApplication.AppearsToBeRunning, cancellationToken, item.Preparation.Progress)");
+        StringAssert.Contains(ApplicationSource("ReviewedUpdateExecutionWorkflow.cs"), "ConfirmAndRunAsync(jobReview, item.Preparation.RunningApplication.AppearsToBeRunning, cancellationToken, item.Preparation.Progress, review.ReviewedAt)");
         StringAssert.Contains(source, "updateProgressMailbox = item.Progress;");
         StringAssert.Contains(source, "updateProgressPresentation = new(item.Review!.JobId, item.Review.CorrelationId, item.Review.Selection.Scope);");
         StringAssert.Contains(review, "dispatcher.TryEnqueue(() => OnBatchItemNotice(job, preparation, notice))");
@@ -64,13 +64,15 @@ public sealed class UpdateProgressUiContractTests
         string source = Source();
         string step = Between(source, "private void AddUpdateStep(", "private void AddVerifyStep(");
         StringAssert.Contains(step, "ProgressBar progress = new() { IsIndeterminate = true");
-        StringAssert.Contains(step, "UpdateJobProgressText.ItemState(updateProgressPresentation)");
+        // Task 73 Phase 6 review L1: the live line follows the polled presentation unless it is the next app waiting for the previous one.
+        StringAssert.Contains(step, "UpdateJobProgressText.LiveState(line, updateProgressPresentation)");
+        StringAssert.Contains(step, "UpdateJobProgressText.Line(index, job.CurrentIndex, job.FinishedLabels, job.Stop.IsRequested)");
         StringAssert.Contains(step, "UpdateJobProgressText.LeaveNote");
         Assert.IsFalse(step.Contains("Cancel", StringComparison.Ordinal), "no cancel once the update has started");
         Assert.IsFalse(step.Contains("ContentDialog", StringComparison.Ordinal), "progress is a page, not a modal dialog");
         string visuals = Between(source, "private void RefreshOperationVisuals()", "private StackPanel BuildOnboardingPage()");
         // Task 73 Phase 5 (AC-UX-09): the same polled text, now set through the live-region helper (raised only when it changes).
-        StringAssert.Contains(visuals, "StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.ItemState(updateProgressPresentation), announce: true);");
+        StringAssert.Contains(visuals, "StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.LiveState(jobProgressLine ?? new(true, null), updateProgressPresentation), announce: true);");
         StringAssert.Contains(visuals, "operationViewJob.Visibility =");
         Assert.IsFalse(ApplicationSource("UpdateJobPresentation.cs").Contains("Cancel update", StringComparison.Ordinal));
     }
