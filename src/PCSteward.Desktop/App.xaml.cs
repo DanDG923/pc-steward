@@ -188,12 +188,11 @@ internal static class StartupNotice
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
         StackPanel title = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Medium };
         title.Children.Add(new FontIcon { Glyph = glyph, FontSize = 24, Foreground = StewardVisuals.Brush("StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Center });
-        TextBlock headingText = new() { Text = heading, Style = StewardVisuals.Style("StewardPageTitleStyle"), TextWrapping = TextWrapping.Wrap };
-        AutomationProperties.SetHeadingLevel(headingText, AutomationHeadingLevel.Level1);
-        title.Children.Add(headingText);
+        title.Children.Add(StewardVisuals.PageTitle(heading));
         content.Children.Add(title);
         content.Children.Add(new TextBlock { Text = message, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap });
-        StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Right };
+        StewardWrapPanel actions = StewardVisuals.ActionRow();
+        actions.HorizontalAlignment = HorizontalAlignment.Right;
         if (details is not null)
         {
             TextBlock detailText = new() { Text = details, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Foreground = StewardVisuals.Brush("StewardTextBrush") };
@@ -202,8 +201,8 @@ internal static class StartupNotice
             TextBlock status = new() { Style = StewardVisuals.Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
             AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
             content.Children.Add(status);
-            Button copy = new() { Content = StartupNoticeText.CopyDetailsLabel, Style = StewardVisuals.Style("StewardButtonStyle") };
-            AutomationProperties.SetName(copy, "Copy details to the clipboard");
+            Button copy = StewardVisuals.ActionButton(StartupNoticeText.CopyDetailsLabel, "to the clipboard");
+            copy.Style = StewardVisuals.Style("StewardButtonStyle");
             copy.Click += (_, _) =>
             {
                 try
@@ -213,13 +212,13 @@ internal static class StartupNotice
                     Clipboard.SetContent(package);
                     // Keeps the copied details on the clipboard after PC Steward closes (the next action is Close).
                     Clipboard.Flush();
-                    status.Text = StartupNoticeText.DetailsCopied;
+                    StewardVisuals.SetLiveText(status, StartupNoticeText.DetailsCopied, announce: true);
                 }
-                catch (Exception exception) when (exception is not OutOfMemoryException) { status.Text = StartupNoticeText.DetailsNotCopied; }
+                catch (Exception exception) when (exception is not OutOfMemoryException) { StewardVisuals.SetLiveText(status, StartupNoticeText.DetailsNotCopied, announce: true); }
             };
             actions.Children.Add(copy);
         }
-        Button close = StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, "Close PC Steward");
+        Button close = StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, "PC Steward");
         close.Click += (_, _) => window.Close();
         actions.Children.Add(close);
         content.Children.Add(actions);

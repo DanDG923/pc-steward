@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using PCSteward.Application;
 
@@ -30,12 +31,9 @@ internal static class ReviewedRouteSurfaces
         foreach (ReviewedDisplayField field in model.Fields) content.Children.Add(Line(field));
         if (model.UnavailableFields.Count != 0)
         {
-            content.Children.Add(new TextBlock
-            {
-                Text = ChocolateyReviewedRouteReviewViewModel.UnavailableHeading,
-                Style = StewardVisuals.Style("StewardSectionTitleStyle"),
-                Margin = new Thickness(0, 8, 0, 0),
-            });
+            TextBlock unavailableHeading = StewardVisuals.SectionHeading(ChocolateyReviewedRouteReviewViewModel.UnavailableHeading);
+            unavailableHeading.Margin = new Thickness(0, 8, 0, 0);
+            content.Children.Add(unavailableHeading);
             foreach (ReviewedDisplayField field in model.UnavailableFields) content.Children.Add(Line(field));
         }
         ContentDialog dialog = new()
@@ -63,7 +61,7 @@ internal static class ReviewedRouteSurfaces
         foreach (ReviewedUpdateHistoryItemViewModel item in model.Items)
         {
             StackPanel entry = new() { Spacing = 2 };
-            entry.Children.Add(new TextBlock { Text = item.Title, Style = StewardVisuals.Style("StewardSectionTitleStyle") });
+            entry.Children.Add(StewardVisuals.SectionHeading(item.Title, AutomationHeadingLevel.Level3));
             foreach (ReviewedDisplayField field in item.Fields) entry.Children.Add(Line(field));
             Border card = new() { Style = StewardVisuals.Style("StewardCardStyle"), Child = entry };
             AutomationProperties.SetName(card, item.AutomationName);

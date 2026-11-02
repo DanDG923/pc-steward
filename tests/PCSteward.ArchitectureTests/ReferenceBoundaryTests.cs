@@ -304,7 +304,8 @@ public sealed class ReferenceBoundaryTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
         int detailRequirement = source.IndexOf("AdministratorRequirementPresenter.BeforeReview()", StringComparison.Ordinal);
-        int reviewButton = source.IndexOf("Review and update this verified package.", detailRequirement, StringComparison.Ordinal);
+        // Task 73 Phase 5 (WCAG 2.5.3): the name is built from the visible label, so it still reads "Review and update this verified package. …".
+        int reviewButton = source.IndexOf("StewardVisuals.PrimaryButton(\"Review and update\", $\"this verified package. {administratorRequirement.Label}\")", detailRequirement, StringComparison.Ordinal);
         int confirmedRequirement = source.IndexOf("AdministratorRequirementPresenter.ForSelection(selection)", reviewButton, StringComparison.Ordinal);
         // Task 73 Phase 2 (ADR-030 decision 3; audit P-H6): the final confirmation is the review sheet page, awaited through the
         // user's decision, instead of the wall-of-text ContentDialog. The requirement still feeds the sheet before confirmation.

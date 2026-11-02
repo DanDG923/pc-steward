@@ -10,17 +10,17 @@ public sealed class UiRedesignContractTests
     private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions"];
     private static readonly string[] FooterNavigationLabels = ["Settings", "About"];
     private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
+    // Task 73 Phase 5 (WCAG 2.5.3, AC-UX-01): deliberately updated so every per-row name starts with the visible label
+    // (StewardVisuals.ActionButton / Named → AccessibilityText.LabelInName) and still names the product; "View details" is the one verb
+    // for opening an app's details (audit P-M3).
     private static readonly string[] PerRowActionNames =
     [
-        "$\"Pin {row.Name} at installed version {row.Version}\"",
-        "$\"Choose how long to ignore {row.Name}\"",
-        "$\"Review {row.Name} decision evidence and options\"",
-        "$\"Review {row.Name} evidence",
-        "$\"Open {row.Name} evidence\"",
-        "$\"Open unavailable source evidence for {row.Name}\"",
-        "$\"Open repository evidence for {row.Name}\"",
+        "StewardVisuals.ActionButton(\"Pin current version\", $\"of {row.Name} ({row.Version})\")",
+        "StewardVisuals.ActionButton(\"Ignore…\", $\"{row.Name}: choose how long\")",
+        "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name}\")",
+        "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name} (update evidence unavailable)\")",
         "$\"More options for {presentation.Name}\"",
-        "$\"Choose {ready.Name} to review",
+        "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: choose to review\")",
         "$\"Why {needsReview.Name} needs review: {needsReview.ReasonText}\""
     ];
     private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Decisions", "InstalledApps", "Settings", "UpdateJob"];
@@ -199,7 +199,7 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(scan.Contains("viewModel.ReportProgress(value); Render();", StringComparison.Ordinal));
         StringAssert.Contains(source, "IsIndeterminate = true");
         StringAssert.Contains(source, "cancel.Click += (_, _) => scanCancellation?.Cancel()");
-        StringAssert.Contains(source, "Previous completed data is retained where available");
+        StringAssert.Contains(source, "Data from your last completed scan is kept where available");
     }
 
     [TestMethod]
@@ -297,14 +297,14 @@ public sealed class UiRedesignContractTests
 
         StringAssert.Contains(results, "AddReviewDecisionActions(finding, row, detail)");
         StringAssert.Contains(review, "AddReviewDecisionActions(decision, row, detail)");
-        foreach (string action in new[] { "Refresh source evidence", "Confirm package identity", "Choose package identity", "Pin current version", "Ignore…", "Review details" })
+        foreach (string action in new[] { "Refresh source evidence", "Confirm package identity", "Choose package identity", "Pin current version", "Ignore…", "View details" })
             StringAssert.Contains(sharedActions, action);
         StringAssert.Contains(sharedActions, "RequiresFreshSourceEvidence: true");
         StringAssert.Contains(sharedActions, "CreateSourceEvidenceRefreshButton(row)");
         Assert.IsFalse((results + review + sharedActions).Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
         StringAssert.Contains(detail, "RequiresFreshSourceEvidence: true");
         StringAssert.Contains(detail, "CreateSourceEvidenceRefreshButton(row)");
-        StringAssert.Contains(detail, "Approved package candidates");
+        StringAssert.Contains(detail, "Matching packages from your sources");
         StringAssert.Contains(detail, "Confirm selected identity");
         StringAssert.Contains(detail, "CreateManualMappingAsync");
         StringAssert.Contains(results, "ResultsFilter.Unavailable");
@@ -406,7 +406,7 @@ public sealed class UiRedesignContractTests
         int confirm = reviewStep.IndexOf("actions.Children.Add(confirm);", StringComparison.Ordinal);
         Assert.IsTrue(cancel >= 0 && confirm > cancel, "Cancel comes first");
         StringAssert.Contains(reviewStep, "pageInitialFocus = cancel;");
-        StringAssert.Contains(reviewStep, "Content = UpdateReviewSheet.CancelButtonLabel");
+        StringAssert.Contains(reviewStep, "StewardVisuals.ActionButton(UpdateReviewSheet.CancelButtonLabel,");
         StringAssert.Contains(reviewStep, "decision.TrySetResult(true);");
         Assert.AreEqual(1, Count(reviewStep, "decision.TrySetResult(true);"), "only the specific primary button confirms");
         Assert.IsFalse(reviewStep.Contains("KeyboardAccelerator", StringComparison.Ordinal), "no Enter accelerator on the update button");
@@ -728,7 +728,7 @@ public sealed class UiRedesignContractTests
         // Exactly one Save button in Settings, on the Schedule card; every other setting saves immediately.
         Assert.IsFalse(settings.Contains("Content = \"Save", StringComparison.Ordinal), "no other Save button");
         Assert.AreEqual(1, Count(settings, "SettingsPresenter.SaveScheduleLabel"), "exactly one Save button in Settings");
-        StringAssert.Contains(scheduleCard, "Button saveSchedule = StewardVisuals.PrimaryButton(SettingsPresenter.SaveScheduleLabel, \"Save schedule\");");
+        StringAssert.Contains(scheduleCard, "Button saveSchedule = StewardVisuals.PrimaryButton(SettingsPresenter.SaveScheduleLabel);");
         StringAssert.Contains(scheduleCard, "saveSchedule.Click += async (_, _) => await SaveScheduleAsync();");
         StringAssert.Contains(scheduleCard, "saveSchedule.IsEnabled = plan.IsSaveEnabled;");
         StringAssert.Contains(scheduleCard, "SettingsPresenter.ScheduleDescription");
@@ -775,7 +775,7 @@ public sealed class UiRedesignContractTests
         // Copy diagnostic uses the existing sanitized bundle (FR-HIS-05).
         string copy = Between(settings, "private void CopyDiagnostic(", "private DataResetInputs DataResetInputsNow()");
         StringAssert.Contains(copy, "package.SetText(SanitizedDiagnosticBundle.Create(updateHistory));");
-        StringAssert.Contains(copy, "confirmation.Text = SettingsPresenter.DiagnosticCopied(updateHistory.Count);");
+        StringAssert.Contains(copy, "StewardVisuals.SetLiveText(confirmation, SettingsPresenter.DiagnosticCopied(updateHistory.Count), announce: true);");
         AssertFlushedAfterSetContent(copy);
         StringAssert.Contains(settings, "NavigateTo(ShellPage.Privacy)");
     }
@@ -787,8 +787,8 @@ public sealed class UiRedesignContractTests
         string app = DesktopSource("App.xaml.cs");
         string notice = app[app.IndexOf("internal static class StartupNotice", StringComparison.Ordinal)..];
         StringAssert.Contains(notice, "IsTextSelectionEnabled = true");
-        StringAssert.Contains(notice, "Content = StartupNoticeText.CopyDetailsLabel");
-        StringAssert.Contains(app, "StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, \"Close PC Steward\")");
+        StringAssert.Contains(notice, "StewardVisuals.ActionButton(StartupNoticeText.CopyDetailsLabel, \"to the clipboard\")");
+        StringAssert.Contains(app, "StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, \"PC Steward\")");
         StringAssert.Contains(notice, "close.Click += (_, _) => window.Close();");
         Assert.AreEqual(3, Count(app, "Content = StartupNotice.Build(this,"), "all three windows use the shared style");
         StringAssert.Contains(app, "StartupNoticeText.ExceptionDetails(exception.GetType().Name, exception.Message)");

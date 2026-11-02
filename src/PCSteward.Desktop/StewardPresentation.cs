@@ -107,30 +107,137 @@ internal static class StewardVisuals
     public static Brush Brush(string key) => (Brush)global::Microsoft.UI.Xaml.Application.Current.Resources[key];
     public static Style Style(string key) => (Style)global::Microsoft.UI.Xaml.Application.Current.Resources[key];
 
+    /// <summary>
+    /// A page header: optional eyebrow, the page title (a level-1 heading, AC-UX-01) and description, with an optional action that
+    /// sits beside the copy on wide windows and moves under it on narrow windows or at large text sizes (audit P-M9).
+    /// </summary>
     public static Grid PageHeader(string title, string description, string? eyebrow = null, FrameworkElement? action = null)
     {
         Grid grid = new() { ColumnSpacing = StewardSpacing.XLarge };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
-        if (!string.IsNullOrWhiteSpace(eyebrow)) copy.Children.Add(new TextBlock { Text = eyebrow.ToUpperInvariant(), Style = Style("StewardEyebrowStyle") });
-        copy.Children.Add(new TextBlock { Text = title, Style = Style("StewardPageTitleStyle") });
+        // Sentence case (concept study §2 foundation 9): the eyebrow is shown as written, never forced to capitals.
+        if (!string.IsNullOrWhiteSpace(eyebrow)) copy.Children.Add(new TextBlock { Text = eyebrow, Style = Style("StewardEyebrowStyle") });
+        copy.Children.Add(PageTitle(title));
         copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardBodyLargeStyle"), MaxWidth = 760 });
         grid.Children.Add(copy);
         if (action is not null)
         {
             action.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(action, 1);
             grid.Children.Add(action);
+            PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);
         }
         return grid;
     }
 
-    public static Button PrimaryButton(string label, string automationName)
+    /// <summary>Below these widths a header or settings-row action moves under its copy instead of clipping beside it (audit P-M9).</summary>
+    private const double NarrowHeaderWidth = 640;
+    private const double NarrowRowWidth = 520;
+
+    /// <summary>Puts <paramref name="action"/> in column 1 on wide layouts and in row 1, under the copy, on narrow ones.</summary>
+    private static void PlaceBesideOrBelow(Grid grid, FrameworkElement action, double narrowWidth, double wideSpacing)
     {
-        Button button = new() { Content = label, Style = Style("StewardPrimaryButtonStyle") };
-        AutomationProperties.SetName(button, automationName);
-        return button;
+        HorizontalAlignment wideAlignment = action.HorizontalAlignment;
+        void Place(double width)
+        {
+            bool narrow = width > 0 && width < narrowWidth;
+            Grid.SetColumn(action, narrow ? 0 : 1);
+            Grid.SetRow(action, narrow ? 1 : 0);
+            grid.ColumnSpacing = narrow ? 0 : wideSpacing;
+            grid.RowSpacing = narrow ? StewardSpacing.Small : 0;
+            action.HorizontalAlignment = narrow ? HorizontalAlignment.Left : wideAlignment;
+        }
+        Place(0);
+        grid.SizeChanged += (_, args) => Place(args.NewSize.Width);
+    }
+
+    /// <summary>AC-UX-01: a page title, exposed to assistive technology as a level-1 heading.</summary>
+    public static TextBlock PageTitle(string text)
+    {
+        TextBlock title = new() { Text = text, Style = Style("StewardPageTitleStyle"), TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level1);
+        return title;
+    }
+
+    /// <summary>AC-UX-01: a section heading (level 2 by default; level 3 for an item inside a section).</summary>
+    public static TextBlock SectionHeading(string text, AutomationHeadingLevel level = AutomationHeadingLevel.Level2)
+    {
+        TextBlock heading = new() { Text = text, Style = Style("StewardSectionTitleStyle"), TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetHeadingLevel(heading, level);
+        return heading;
+    }
+
+    /// <summary>
+    /// WCAG 2.5.3 label in name (AC-UX-01): sets the accessible name to the visible label, optionally followed by detail, through
+    /// <see cref="AccessibilityText.LabelInName"/>, so the name always starts with what is on screen.
+    /// </summary>
+    public static T Named<T>(T element, string visibleLabel, string? detail = null) where T : DependencyObject
+    {
+        AutomationProperties.SetName(element, AccessibilityText.LabelInName(visibleLabel, detail));
+        return element;
+    }
+
+    /// <summary>A standard button whose accessible name starts with its visible label.</summary>
+    public static Button ActionButton(string label, string? detail = null) => Named(new Button { Content = label }, label, detail);
+
+    /// <summary>A primary (accent) button whose accessible name starts with its visible label.</summary>
+    public static Button PrimaryButton(string label, string? detail = null) =>
+        Named(new Button { Content = label, Style = Style("StewardPrimaryButtonStyle") }, label, detail);
+
+    /// <summary>Audit P-M9: a row of actions that wraps onto more lines instead of clipping at narrow widths or large text.</summary>
+    public static StewardWrapPanel ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing };
+
+    /// <summary>
+    /// AC-UX-09 (research §2 item 10): raises a UIA notification with <paramref name="message"/> from <paramref name="source"/>, so
+    /// Narrator announces a finished scan, update job, review or save/clear without moving focus.
+    /// </summary>
+    public static void Announce(UIElement? source, string message, string activityId)
+    {
+        if (source is null || string.IsNullOrWhiteSpace(message)) return;
+        try
+        {
+            AutomationPeer? peer = FrameworkElementAutomationPeer.FromElement(source) ?? FrameworkElementAutomationPeer.CreatePeerForElement(source);
+            peer?.RaiseNotificationEvent(AutomationNotificationKind.ActionCompleted, AutomationNotificationProcessing.ImportantMostRecent, message, activityId);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { }
+    }
+
+    /// <summary>
+    /// AC-UX-09: updates a polite live region. LiveRegionChanged is raised only when <paramref name="announce"/> is true (the
+    /// state changed), so elapsed-time ticks update the text without repeating it to a screen reader.
+    /// </summary>
+    public static void SetLiveText(TextBlock target, string text, bool announce)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (string.Equals(target.Text, text, StringComparison.Ordinal)) return;
+        target.Text = text;
+        if (!announce) return;
+        try { (FrameworkElementAutomationPeer.FromElement(target) ?? FrameworkElementAutomationPeer.CreatePeerForElement(target))?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { }
+    }
+
+    /// <summary>Selectable evidence text (package IDs, versions, technical detail) that can be copied.</summary>
+    public static TextBlock SelectableText(string text, string? styleKey = null)
+    {
+        TextBlock block = new() { Text = text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+        if (styleKey is not null) block.Style = Style(styleKey);
+        return block;
+    }
+
+    /// <summary>
+    /// Concept study §2 foundation 9: a plain, blame-free message, with any technical code or diagnostic kept behind a collapsed
+    /// "Technical details" expander and selectable so it can be copied into a report.
+    /// </summary>
+    public static FrameworkElement MessageWithDetails(string message, string? technicalDetail)
+    {
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        content.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap });
+        if (!string.IsNullOrWhiteSpace(technicalDetail))
+            content.Children.Add(new Expander { Header = "Technical details", Content = SelectableText(technicalDetail), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+        return content;
     }
 
     public static Border StatusBadge(string status, string? automationName = null)
@@ -183,7 +290,10 @@ internal static class StewardVisuals
     {
         StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 30, Foreground = Brush("StewardBrandBrush"), HorizontalAlignment = HorizontalAlignment.Center });
-        content.Children.Add(new TextBlock { Text = title, Style = Style("StewardSectionTitleStyle"), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
+        TextBlock heading = SectionHeading(title);
+        heading.TextAlignment = TextAlignment.Center;
+        heading.HorizontalAlignment = HorizontalAlignment.Center;
+        content.Children.Add(heading);
         content.Children.Add(new TextBlock { Text = message, Style = Style("StewardBodyStyle"), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
         if (action is not null) { action.HorizontalAlignment = HorizontalAlignment.Center; content.Children.Add(action); }
         Border empty = new() { Style = Style("StewardCardStyle"), Padding = new Thickness(32), Child = content };
@@ -212,7 +322,8 @@ internal static class StewardVisuals
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.Children.Add(new TextBlock { Text = label, Style = Style("StewardCaptionStyle") });
-        TextBlock valueText = new() { Text = value, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap };
+        // Evidence values (package IDs, versions, sources, technical detail) can be selected and copied (audit §5).
+        TextBlock valueText = new() { Text = value, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
         Grid.SetColumn(valueText, 1);
         row.Children.Add(valueText);
         AutomationProperties.SetName(row, $"{label}: {value}");
@@ -232,9 +343,8 @@ internal static class StewardVisuals
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.Children.Add(new FontIcon { Glyph = glyph, FontSize = 20, Foreground = Brush(danger ? "StewardDangerBrush" : "StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
-        TextBlock heading = new() { Text = title, Style = Style("StewardSectionTitleStyle"), TextWrapping = TextWrapping.Wrap };
+        TextBlock heading = SectionHeading(title);
         if (danger) heading.Foreground = Brush("StewardDangerBrush");
-        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
         copy.Children.Add(heading);
         if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(copy, 1);
@@ -246,20 +356,22 @@ internal static class StewardVisuals
         return card;
     }
 
-    /// <summary>One SettingsCard row: a label and description on the left, its control on the right.</summary>
+    /// <summary>One SettingsCard row: a label and description on the left, its control on the right (under them when narrow).</summary>
     public static Grid SettingsRow(string title, string? description, FrameworkElement control)
     {
         Grid row = new() { ColumnSpacing = StewardSpacing.Large, Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(new TextBlock { Text = title, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
         if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
         row.Children.Add(copy);
         control.VerticalAlignment = VerticalAlignment.Center;
         control.HorizontalAlignment = HorizontalAlignment.Right;
-        Grid.SetColumn(control, 1);
         row.Children.Add(control);
+        PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);
         return row;
     }
 
@@ -281,5 +393,63 @@ internal static class StewardVisuals
         Border result = new() { BorderBrush = Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, 10, 0, 10), Child = row };
         AutomationProperties.SetName(result, $"{title}. {detail}. {time.Text}");
         return result;
+    }
+}
+
+/// <summary>
+/// Audit P-M9 (AC-UX best effort, research §2 item 7): a minimal wrapping panel for action and filter rows. Children keep their
+/// natural size and move to the next line when the row runs out of width, so nothing is clipped at narrow widths or at 150–225%
+/// text scaling. Standard WinUI only (no Toolkit dependency); it lays out and does nothing else.
+/// </summary>
+public sealed class StewardWrapPanel : Panel
+{
+    public double HorizontalSpacing { get; set; } = StewardSpacing.Small;
+    public double VerticalSpacing { get; set; } = StewardSpacing.Small;
+
+    protected override global::Windows.Foundation.Size MeasureOverride(global::Windows.Foundation.Size availableSize)
+    {
+        double lineWidth = 0, lineHeight = 0, width = 0, height = 0;
+        foreach (UIElement child in Children)
+        {
+            child.Measure(new global::Windows.Foundation.Size(availableSize.Width, double.PositiveInfinity));
+            if (child.Visibility == Visibility.Collapsed) continue;
+            global::Windows.Foundation.Size desired = child.DesiredSize;
+            if (lineWidth > 0 && lineWidth + HorizontalSpacing + desired.Width > availableSize.Width)
+            {
+                width = Math.Max(width, lineWidth);
+                height += lineHeight + VerticalSpacing;
+                lineWidth = desired.Width;
+                lineHeight = desired.Height;
+            }
+            else
+            {
+                lineWidth = lineWidth > 0 ? lineWidth + HorizontalSpacing + desired.Width : desired.Width;
+                lineHeight = Math.Max(lineHeight, desired.Height);
+            }
+        }
+        width = Math.Max(width, lineWidth);
+        height += lineHeight;
+        return new global::Windows.Foundation.Size(double.IsInfinity(availableSize.Width) ? width : Math.Min(width, availableSize.Width), height);
+    }
+
+    protected override global::Windows.Foundation.Size ArrangeOverride(global::Windows.Foundation.Size finalSize)
+    {
+        double x = 0, y = 0, lineHeight = 0;
+        foreach (UIElement child in Children)
+        {
+            if (child.Visibility == Visibility.Collapsed) continue;
+            global::Windows.Foundation.Size desired = child.DesiredSize;
+            if (x > 0 && x + desired.Width > finalSize.Width)
+            {
+                x = 0;
+                y += lineHeight + VerticalSpacing;
+                lineHeight = 0;
+            }
+            double childWidth = Math.Min(desired.Width, finalSize.Width);
+            child.Arrange(new global::Windows.Foundation.Rect(x, y, childWidth, desired.Height));
+            x += childWidth + HorizontalSpacing;
+            lineHeight = Math.Max(lineHeight, desired.Height);
+        }
+        return finalSize;
     }
 }

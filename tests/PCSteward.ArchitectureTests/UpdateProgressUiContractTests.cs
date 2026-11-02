@@ -65,7 +65,8 @@ public sealed class UpdateProgressUiContractTests
         Assert.IsFalse(step.Contains("Cancel", StringComparison.Ordinal), "no cancel once the update has started");
         Assert.IsFalse(step.Contains("ContentDialog", StringComparison.Ordinal), "progress is a page, not a modal dialog");
         string visuals = Between(source, "private void RefreshOperationVisuals()", "private StackPanel BuildOnboardingPage()");
-        StringAssert.Contains(visuals, "jobProgressStateText.Text = UpdateJobProgressText.ItemState(updateProgressPresentation);");
+        // Task 73 Phase 5 (AC-UX-09): the same polled text, now set through the live-region helper (raised only when it changes).
+        StringAssert.Contains(visuals, "StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.ItemState(updateProgressPresentation), announce: true);");
         StringAssert.Contains(visuals, "operationViewJob.Visibility =");
         Assert.IsFalse(ApplicationSource("UpdateJobPresentation.cs").Contains("Cancel update", StringComparison.Ordinal));
     }
