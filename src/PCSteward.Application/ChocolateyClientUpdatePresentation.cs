@@ -96,6 +96,53 @@ public static class ChocolateyClientUpdatePresentation
         "Stopped, not verified: PC Steward could not keep checking Chocolatey's folder and settings while the update ran, so it " +
         "stopped the update. Chocolatey may be partly updated. " + WatchdogRecoveryStep;
 
+    /// <summary>
+    /// ADR-031 design §8.3: shown after a watchdog stop message when the hold release was also incomplete, so both warnings are
+    /// retained; the watchdog message keeps its own action advice (the untrusted-folder advice is never replaced).
+    /// </summary>
+    public const string ReleaseIncompleteAlsoNote =
+        "PC Steward also could not fully release its hold on Chocolatey's files after the update started, so the update did not run " +
+        "under the reviewed conditions.";
+
+    public const string StoppedSetupOverrideReleaseIncompleteMessage = StoppedSetupOverrideMessage + " " + ReleaseIncompleteAlsoNote;
+
+    public const string StoppedRootWritableReleaseIncompleteMessage = StoppedRootWritableMessage + " " + ReleaseIncompleteAlsoNote;
+
+    public const string StoppedWatchFailedReleaseIncompleteMessage = StoppedWatchFailedMessage + " " + ReleaseIncompleteAlsoNote;
+
+    /// <summary>
+    /// ADR-031 design §8.3: a started client self-update whose accepted helper reply did not reach the workflow with a run-fault
+    /// value. Never Success: verification is not attempted.
+    /// </summary>
+    public const string RunFaultNotReportedMessage =
+        "Installed, not verified: PC Steward's administrator helper did not report whether the update ran under the reviewed " +
+        "conditions, so PC Steward did not verify it. Chocolatey updates stay unavailable until its files match a reviewed release again.";
+
+    /// <summary>
+    /// ADR-031 design §8.3: the fixed recovery message for a helper-reported client run fault, or null for
+    /// <see cref="ReviewedClientRunFault.IsNone"/>. A watchdog stop selects its own message (setup override and user-changeable
+    /// folder: the untrusted-folder advice, never <c>choco upgrade</c>; failed watch: the forced reinstall advice); an incomplete
+    /// release alone selects <see cref="NotVerifiedReleaseIncompleteMessage"/>; both together keep the watchdog message and add
+    /// <see cref="ReleaseIncompleteAlsoNote"/>.
+    /// </summary>
+    public static string? RunFaultMessage(ReviewedClientRunFault fault)
+    {
+        ArgumentNullException.ThrowIfNull(fault);
+        return (fault.WatchdogStop, fault.ReleaseIncomplete) switch
+        {
+            (ReviewedClientWatchdogStop.None, false) => null,
+            (ReviewedClientWatchdogStop.None, true) => NotVerifiedReleaseIncompleteMessage,
+            (ReviewedClientWatchdogStop.SetupOverrideDuringRun, false) => StoppedSetupOverrideMessage,
+            (ReviewedClientWatchdogStop.SetupOverrideDuringRun, true) => StoppedSetupOverrideReleaseIncompleteMessage,
+            (ReviewedClientWatchdogStop.RootWritableDuringRun, false) => StoppedRootWritableMessage,
+            (ReviewedClientWatchdogStop.RootWritableDuringRun, true) => StoppedRootWritableReleaseIncompleteMessage,
+            (ReviewedClientWatchdogStop.WatchFailedDuringRun, false) => StoppedWatchFailedMessage,
+            (ReviewedClientWatchdogStop.WatchFailedDuringRun, true) => StoppedWatchFailedReleaseIncompleteMessage,
+            // Unreachable for a constructed value; fail closed with the strongest advice rather than none.
+            _ => StoppedRootWritableReleaseIncompleteMessage,
+        };
+    }
+
     public const string VerifiedMessage = "Verified: Chocolatey's files and package match the reviewed release that was approved.";
 
     public const string NotVerifiedReleaseMessage =
@@ -152,7 +199,8 @@ public static class ChocolateyClientUpdatePresentation
     /// <summary>True for exactly one of the fixed client self-update not-verified messages (history recognition).</summary>
     internal static bool IsNotVerifiedMessage(string? message) => message is NotVerifiedLeftoverMessage or NotVerifiedLeftoverNotSourceMessage or
         NotVerifiedReleaseIncompleteMessage or NotVerifiedReleaseMessage or NotVerifiedUnreadableMessage or StoppedSetupOverrideMessage or
-        StoppedRootWritableMessage or StoppedWatchFailedMessage;
+        StoppedRootWritableMessage or StoppedWatchFailedMessage or StoppedSetupOverrideReleaseIncompleteMessage or
+        StoppedRootWritableReleaseIncompleteMessage or StoppedWatchFailedReleaseIncompleteMessage or RunFaultNotReportedMessage;
 
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>

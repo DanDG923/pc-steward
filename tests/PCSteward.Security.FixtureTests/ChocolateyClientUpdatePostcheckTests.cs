@@ -125,6 +125,34 @@ public sealed class ChocolateyClientUpdatePostcheckTests
         Assert.AreEqual(PostUpdateVerificationNote.None, result.Note);
     }
 
+    [TestMethod]
+    public void TheInterpreterFactOverloadOnlyLowersTheVerdict()
+    {
+        // ADR-031 design §8.3 (W1): the desktop overload applies the accepted reply's fact first, exactly like the binding
+        // overload; None leaves the exact-match rule in charge, so Verified still needs the target release.
+        (_, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) = Releases();
+        ReviewedClientRunFault none = ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, false);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.Verified, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), none, source, target, User));
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.NotTargetRelease, ChocolateyClientUpdatePostcheck.Evaluate(Observation(source), none, source, target, User));
+        (ReviewedClientWatchdogStop Stop, ChocolateyClientUpdateVerdict Verdict)[] stops =
+        [
+            (ReviewedClientWatchdogStop.SetupOverrideDuringRun, ChocolateyClientUpdateVerdict.SetupOverrideDuringRun),
+            (ReviewedClientWatchdogStop.RootWritableDuringRun, ChocolateyClientUpdateVerdict.RootWritableDuringRun),
+            (ReviewedClientWatchdogStop.WatchFailedDuringRun, ChocolateyClientUpdateVerdict.WatchFailedDuringRun),
+        ];
+        foreach ((ReviewedClientWatchdogStop stop, ChocolateyClientUpdateVerdict verdict) in stops)
+            foreach (bool releaseIncomplete in new[] { false, true })
+            {
+                ReviewedClientRunFault fault = ReviewedClientRunFault.FromAcceptedHelperReply(stop, releaseIncomplete);
+                Assert.AreEqual(verdict, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), fault, source, target, User), fault.ToString());
+                Assert.AreEqual(verdict, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target, leftoverOf: source), fault, source, target, User));
+            }
+        ReviewedClientRunFault release = ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, true);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), release, source, target, User));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), (ReviewedClientRunFault)null!, source, target, User));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => ReviewedClientRunFault.FromAcceptedHelperReply((ReviewedClientWatchdogStop)9, false));
+    }
+
     private static ChocolateyReleaseEntry WithModule(ChocolateyReleaseEntry entry, ChocolateyReleaseFile module) =>
         entry with { Files = [.. entry.Files.Select(file => file.Path == module.Path ? module : file)] };
 

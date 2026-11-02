@@ -11,7 +11,9 @@ public enum ReviewedUpdateProviderStatus { Completed, ProviderFailed, Refused, E
 /// Native observations returned by a route dispatcher. The owned root is an immutable snapshot that the workflow never
 /// awaits again; unknown invocation is always unsettled. No member is execution authority or a verified outcome.
 /// <see cref="HelperCheck"/> (null means NotObserved) is desktop-derived history data only: the workflow records it when
-/// consistent and never lets it change status, settlement or outcome.
+/// consistent and never lets it change status, settlement or outcome. <see cref="ClientRunFault"/> (ADR-031 design §8.3) is
+/// set by the protocol-2 interpreter for every accepted <c>ChocolateyClientSelfUpdateV1</c> reply and never otherwise; the
+/// workflow uses it only to keep or lower an outcome and to retain the fixed recovery warnings, never to raise one.
 /// </summary>
 public sealed record ReviewedUpdateDispatchObservation(
     ReviewedUpdateInvocation Invocation,
@@ -25,7 +27,8 @@ public sealed record ReviewedUpdateDispatchObservation(
     bool TerminationFailed,
     bool ExecutionUncertain,
     bool RestartReported = false,
-    RecordedHelperCandidateCheck? HelperCheck = null)
+    RecordedHelperCandidateCheck? HelperCheck = null,
+    ReviewedClientRunFault? ClientRunFault = null)
 {
     /// <summary>Maximum diagnostic characters carried into a terminal record (the wire diagnostic bound).</summary>
     public const int MaximumDiagnosticLength = 2048;
@@ -71,6 +74,18 @@ public interface IReviewedUpdateDispatchEvidenceSource
 public interface IReviewedUpdateVerifier
 {
     Task<PostUpdateInventoryResult> VerifyAsync(ReviewedUpdateOperation operation, OperationOwnership ownership, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// ADR-031 design §8.3: the verifier of <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/>. The workflow verifies
+/// that route only through <see cref="VerifyClientAsync"/>, passing the interpreter-only <see cref="ReviewedClientRunFault"/>
+/// of the accepted reply; a verifier without this interface leaves the route Unverified. Implemented beside
+/// <see cref="IReviewedUpdateVerifier"/> by the Chocolatey verifier (it does not derive from it).
+/// </summary>
+public interface IReviewedClientUpdateVerifier
+{
+    Task<PostUpdateInventoryResult> VerifyClientAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
+        ReviewedClientRunFault runFault, CancellationToken cancellationToken);
 }
 
 public enum ReviewedUpdateDispatchDisposition { NotStarted, NotStartedClaimRetained, Finalized, Uncertain }
@@ -243,7 +258,8 @@ public sealed class ReviewedUpdateDispatchWorkflow
         RecordedHelperCandidateCheck helperCheck = observation.HelperCheck ?? RecordedHelperCandidateCheck.NotObserved;
         if (!settlement.ProvesSettlement)
             return await FinalizeAsync(claim, ownership, settlement, UpdateDispatchOutcome.Uncertain, observation.ExitCode,
-                WithLingeringMarker(operation, observation, $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}"),
+                WithLingeringMarker(operation, observation, WithClientRunFaultWarning(operation, observation,
+                    $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}")),
                 helperCheck).ConfigureAwait(false);
         if (settlement.State == UpdateDispatchSettlementState.NotInvoked)
             return await FinalizeAsync(claim, ownership, settlement, observation.Status switch
@@ -252,9 +268,11 @@ public sealed class ReviewedUpdateDispatchWorkflow
                 ReviewedUpdateProviderStatus.ElevationDenied => UpdateDispatchOutcome.ElevationDenied,
                 ReviewedUpdateProviderStatus.Refused => UpdateDispatchOutcome.Refused,
                 _ => UpdateDispatchOutcome.Failed,
-            }, null, $"Nothing was invoked. {Bounded(observation.Diagnostic)}", helperCheck).ConfigureAwait(false);
+            }, null, WithClientRunFaultWarning(operation, observation, $"Nothing was invoked. {Bounded(observation.Diagnostic)}"), helperCheck)
+                .ConfigureAwait(false);
 
-        (UpdateDispatchOutcome outcome, string message) = await ClassifySettledAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
+        (UpdateDispatchOutcome outcome, string message) =
+            await ClassifyAfterSettlementAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
         return await FinalizeAsync(claim, ownership, settlement, outcome, observation.ExitCode, WithLingeringMarker(operation, observation, message), helperCheck)
             .ConfigureAwait(false);
     }
@@ -268,10 +286,40 @@ public sealed class ReviewedUpdateDispatchWorkflow
     /// outcome, settlement or barrier.
     /// </summary>
     internal static string WithLingeringMarker(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation, string message) =>
-        operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&
+        // ADR-031 design §6/§8: the client self-update's helper reports the same settle window, so it is marked too.
+        operation.RouteContract is UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
         observation.Invocation == ReviewedUpdateInvocation.Started &&
         ReviewedUpdateLingeringProcesses.IsReported(observation.Diagnostic)
             ? ReviewedUpdateLingeringProcesses.Token + " " + message
+            : message;
+
+    /// <summary>
+    /// ADR-031 design §8.3, downgrade-only lattice for a settled, started client self-update (applied before any provider-status
+    /// mapping or verification): a helper-reported run fault other than None is Unverified with the fault's fixed recovery
+    /// message; a missing value (no accepted reply reached the workflow with one) is Unverified with the fixed "not reported"
+    /// message. Both moves are downward (Success/RestartRequired and Failed ⊐ Unverified) and verification is not attempted, so
+    /// nothing here can produce Success. Null for any other route or for the None value (normal classification, whose
+    /// verification for this route goes through <see cref="IReviewedClientUpdateVerifier"/> with the same value).
+    /// </summary>
+    internal static (UpdateDispatchOutcome Outcome, string Message)? ClientRunFaultOutcome(ReviewedUpdateOperation operation,
+        ReviewedUpdateDispatchObservation observation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(observation);
+        if (operation.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1) return null;
+        if (observation.ClientRunFault is not { } fault) return (UpdateDispatchOutcome.Unverified, ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage);
+        return ChocolateyClientUpdatePresentation.RunFaultMessage(fault) is { } message ? (UpdateDispatchOutcome.Unverified, message) : null;
+    }
+
+    /// <summary>
+    /// ADR-031 design §8.3: on paths whose outcome the field never changes (Uncertain; and, defensively, NotInvoked, which S14c
+    /// makes impossible), a client self-update run fault other than None still appends its fixed recovery message, so no
+    /// required warning is dropped. Every other route and the None value leave the message unchanged.
+    /// </summary>
+    internal static string WithClientRunFaultWarning(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation, string message) =>
+        operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 && observation.ClientRunFault is { } fault &&
+        ChocolateyClientUpdatePresentation.RunFaultMessage(fault) is { } warning
+            ? message + " " + warning
             : message;
 
     /// <summary>Every <see cref="IReviewedUpdateRouteDispatcher.Supports"/> call goes through here; any exception means unsupported.</summary>
@@ -290,6 +338,16 @@ public sealed class ReviewedUpdateDispatchWorkflow
             observation.DirectExitObserved, observation.OwnedIoComplete, observation.PipeEndOfFile, observation.TerminationFailed,
             observation.ExecutionUncertain || observation.Invocation != ReviewedUpdateInvocation.Started);
     }
+
+    /// <summary>
+    /// The outcome of positively settled, invoked work: the client self-update's downgrade-only run-fault rule
+    /// (<see cref="ClientRunFaultOutcome"/>) first, then the provider-status mapping and verification. Internal so the client
+    /// route's lattice can be exercised while <c>HasSupportedMode</c> still refuses that route before any claim.
+    /// </summary>
+    internal async Task<(UpdateDispatchOutcome Outcome, string Message)> ClassifyAfterSettlementAsync(ReviewedUpdateOperation operation,
+        OperationOwnership ownership, ReviewedUpdateDispatchObservation observation, CancellationToken cancellationToken) =>
+        ClientRunFaultOutcome(operation, observation) ??
+            await ClassifySettledAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
 
     private async Task<(UpdateDispatchOutcome, string)> ClassifySettledAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
         ReviewedUpdateDispatchObservation observation, CancellationToken cancellationToken)
@@ -318,7 +376,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
             return (UpdateDispatchOutcome.Failed, $"The provider exited with code {exit}. {diagnostic}");
         try
         {
-            PostUpdateInventoryResult verification = await verifier.VerifyAsync(operation, ownership, cancellationToken).ConfigureAwait(false);
+            PostUpdateInventoryResult verification = await VerifyAsync(operation, ownership, observation, cancellationToken).ConfigureAwait(false);
             if (RejectVerification(operation, verification) is { } rejected) return rejected;
             // AC-UPD-07: a non-zero (restart-requested) provider result is never Success, even if the version is detected.
             if (restartReported)
@@ -338,6 +396,22 @@ public sealed class ReviewedUpdateDispatchWorkflow
         {
             return (UpdateDispatchOutcome.Unverified, VerificationDidNotFinishMessage);
         }
+    }
+
+    /// <summary>
+    /// The route's verification. ADR-031 design §8.3: a client self-update is verified only through
+    /// <see cref="IReviewedClientUpdateVerifier.VerifyClientAsync"/> with the accepted reply's run-fault value (None here, since
+    /// <see cref="ClientRunFaultOutcome"/> already lowered every other value); a missing value or a verifier without that
+    /// interface is Unverified with the fixed "not reported" detail, never Success.
+    /// </summary>
+    private Task<PostUpdateInventoryResult> VerifyAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
+        ReviewedUpdateDispatchObservation observation, CancellationToken cancellationToken)
+    {
+        if (operation.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1)
+            return verifier.VerifyAsync(operation, ownership, cancellationToken);
+        return verifier is IReviewedClientUpdateVerifier client && observation.ClientRunFault is { } fault
+            ? client.VerifyClientAsync(operation, ownership, fault, cancellationToken)
+            : Task.FromResult(new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientUnverifiable));
     }
 
     /// <summary>

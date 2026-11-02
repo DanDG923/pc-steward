@@ -46,9 +46,12 @@ internal enum ChocolateyClientUpdateVerdict
 /// <see cref="ChocolateyClientUpdateVerdict.ReleaseIncomplete"/>. Everything else is not verified. A restart-pending
 /// result never exists here: <see cref="ToResult"/> always reports it false.
 /// <para>
-/// Independent review L3: <c>src</c> callers must use <see cref="Evaluate"/> over the client self-update binding, which
+/// Independent review L3 and ADR-031 design §8.3 (W1): <c>src</c> callers use <see cref="Evaluate(ChocolateyProfileResult, ChocolateyHeldClientBinding, ChocolateyReviewedRelease, string)"/>
+/// over the client self-update binding (helper process), which
 /// reads the source release (<c>InstalledRelease</c>), <c>WatchdogFault</c> and <c>ReleaseIncomplete</c> from the binding
-/// itself, so no caller can pass a watchdog fault or a release state that is not the job's. The free-parameter
+/// itself, or, on the desktop, <see cref="Evaluate(ChocolateyProfileResult, ReviewedClientRunFault, ChocolateyReviewedRelease, ChocolateyReviewedRelease, string)"/>
+/// over the interpreter-only fact of the accepted helper reply, so no caller can pass a watchdog fault or a release state
+/// that is not the job's. There is no free-enum overload reachable from <c>src</c>: the free-parameter
 /// <see cref="EvaluateForTests"/> has no <c>src</c> caller (architecture-banned).
 /// </para>
 /// </summary>
@@ -65,6 +68,27 @@ internal static class ChocolateyClientUpdatePostcheck
         if (client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate || client.InstalledRelease is not { } source)
             throw new ArgumentException("Only a client self-update binding has a client postcheck.", nameof(client));
         return EvaluateCore(result, source, target, requestingUserSid, client.WatchdogFault, client.ReleaseIncomplete);
+    }
+
+    /// <summary>
+    /// ADR-031 design §8.3 (W1): the desktop postcheck for a client self-update, over the interpreter-only
+    /// <see cref="ReviewedClientRunFault"/> of the accepted helper reply (the binding lives in the helper process) and the F′
+    /// observation's source release. The fact is applied first, exactly as the binding overload applies the binding's state:
+    /// any watchdog stop forces its verdict, then an incomplete release forces <see cref="ChocolateyClientUpdateVerdict.ReleaseIncomplete"/>.
+    /// It can only lower the verdict; Verified still needs the exact target match.
+    /// </summary>
+    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ReviewedClientRunFault runFault,
+        ChocolateyReviewedRelease source, ChocolateyReviewedRelease target, string requestingUserSid)
+    {
+        ArgumentNullException.ThrowIfNull(runFault);
+        ChocolateyClientWatchdogFault watchdog = runFault.WatchdogStop switch
+        {
+            ReviewedClientWatchdogStop.None => ChocolateyClientWatchdogFault.None,
+            ReviewedClientWatchdogStop.SetupOverrideDuringRun => ChocolateyClientWatchdogFault.SetupOverrideDuringRun,
+            ReviewedClientWatchdogStop.RootWritableDuringRun => ChocolateyClientWatchdogFault.RootWritableDuringRun,
+            _ => ChocolateyClientWatchdogFault.WatchFailedDuringRun,
+        };
+        return EvaluateCore(result, source, target, requestingUserSid, watchdog, runFault.ReleaseIncomplete);
     }
 
     /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the rule over free parameters.</summary>

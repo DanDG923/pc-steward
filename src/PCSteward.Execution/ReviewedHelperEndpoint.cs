@@ -132,8 +132,15 @@ internal static class ReviewedHelperEndpoint
         byte[] frame;
         try
         {
-            frame = ReviewedUpdateWireCodec.CreateResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
-                decision.Reviewed, decision.Diagnostic);
+            // ADR-031 design §8.2 S14a: the frozen route selects the reply shape; only a client self-update reply carries
+            // clientRunFault, and a run fault can never be dropped silently on another route (nothing is written instead).
+            frame = IsClientRoute(request.Operation)
+                ? ReviewedUpdateWireCodec.CreateClientResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
+                    decision.Reviewed, decision.RunFault, decision.Diagnostic)
+                : decision.RunFault == ReviewedClientRunFaultWire.None
+                    ? ReviewedUpdateWireCodec.CreateResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
+                        decision.Reviewed, decision.Diagnostic)
+                    : throw new InvalidOperationException("A run fault exists only for the client self-update route.");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -213,7 +220,32 @@ internal static class ReviewedHelperEndpoint
 
     private sealed record CorrelatedRequest(ReviewedUpdateOperation Operation, string Digest, DateTimeOffset IssuedAt);
 
-    private sealed record Decision(UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, string Diagnostic);
+    /// <summary>ADR-031 design §8.2: the reply shape follows the frozen route; only the client self-update carries clientRunFault.</summary>
+    private static bool IsClientRoute(ReviewedUpdateOperation operation) =>
+        operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1;
+
+    /// <summary>
+    /// ADR-031 design §8.1: the item's plain run state as the closed wire value, row by row (explicit mapping by name, no
+    /// numeric cast). An undefined value is a failed watch with an incomplete release (fail closed: the strongest warning).
+    /// </summary>
+    internal static ReviewedClientRunFaultWire RunFault(ChocolateyClientRunFault runFault) => runFault switch
+    {
+        ChocolateyClientRunFault.None => ReviewedClientRunFaultWire.None,
+        ChocolateyClientRunFault.SetupOverrideDuringRun => ReviewedClientRunFaultWire.SetupOverrideDuringRun,
+        ChocolateyClientRunFault.RootWritableDuringRun => ReviewedClientRunFaultWire.RootWritableDuringRun,
+        ChocolateyClientRunFault.WatchFailedDuringRun => ReviewedClientRunFaultWire.WatchFailedDuringRun,
+        ChocolateyClientRunFault.ReleaseIncomplete => ReviewedClientRunFaultWire.ReleaseIncomplete,
+        ChocolateyClientRunFault.SetupOverrideDuringRunAndReleaseIncomplete => ReviewedClientRunFaultWire.SetupOverrideDuringRunAndReleaseIncomplete,
+        ChocolateyClientRunFault.RootWritableDuringRunAndReleaseIncomplete => ReviewedClientRunFaultWire.RootWritableDuringRunAndReleaseIncomplete,
+        _ => ReviewedClientRunFaultWire.WatchFailedDuringRunAndReleaseIncomplete,
+    };
+
+    /// <summary>
+    /// One decision. <see cref="RunFault"/> is set only from a client self-update launch's settled binding state (design §8.1);
+    /// every other decision carries None.
+    /// </summary>
+    private sealed record Decision(UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, string Diagnostic,
+        ReviewedClientRunFaultWire RunFault = ReviewedClientRunFaultWire.None);
 
     /// <summary>The stages for one admitted request. Owns the item from A2 until after the single response write.</summary>
     private sealed class Stages(CorrelatedRequest request, IChocolateyPeer peer, IChocolateyHelperQualificationPort port,
@@ -236,7 +268,9 @@ internal static class ReviewedHelperEndpoint
         {
             // ---- A1: admission (correlatable failures are RequestNotAdmitted, fields 16–18 null) ----
             if (ApprovalLapsed(clock.GetUtcNow())) return NotAdmitted("a1-request-not-fresh");
-            if (!ReviewedUpdateProtocol2Interpreter.TryGetProfileDigest(operation, out string digest) || !HasExactRouteShape())
+            // ADR-031 design §7.1 A1: route-discriminated shape; the client arm never accepts a mixed route/guard/provenance.
+            if (!ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out string digest, out ReviewedHelperReplyShape shape) ||
+                (shape == ReviewedHelperReplyShape.ClientSelfUpdate) != IsClientRoute(operation) || !HasExactRouteShape(shape))
                 return NotAdmitted("a1-route-not-admitted");
             if (!TryReadPeer(out string peerImage, out string peerSid) ||
                 !string.Equals(peerSid, operation.RequestingUserSid, StringComparison.Ordinal))
@@ -386,7 +420,7 @@ internal static class ReviewedHelperEndpoint
             switch (result)
             {
                 case ChocolateyUpgradeResult.Observed observed:
-                    return FromObservation(observed.Observation);
+                    return FromObservation(observed.Observation, RunFault(observed.RunFault));
                 case ChocolateyUpgradeResult.OutOfOrder:
                     // rev-5 F2 Launch: the stage-D values plus the stage-C candidate; nothing was launched.
                     return Fault(stageDInstalled, stageCCandidate, stageDFingerprint, "launch-out-of-order");
@@ -395,7 +429,11 @@ internal static class ReviewedHelperEndpoint
             }
         }
 
-        private Decision FromObservation(NativeProcessObservation observation)
+        /// <summary>
+        /// The Launch row. <paramref name="runFault"/> (design §8.1) rides on every launch decision; S14c lets the codec accept a
+        /// value other than None only with Started or Unknown, so an inconsistent item report writes nothing (Uncertain).
+        /// </summary>
+        private Decision FromObservation(NativeProcessObservation observation, ReviewedClientRunFaultWire runFault)
         {
             bool itemSettled = Settled();
             switch (observation.Invocation)
@@ -404,9 +442,9 @@ internal static class ReviewedHelperEndpoint
                     // A definitive launch failure: settled, nothing ran (S13). Anything less is not known to have failed.
                     if (observation.AggregateSettled && itemSettled && !observation.TerminationFailed && !observation.OutputLimitExceeded)
                         return Matched(new(UpdateWireInvocation.NotStarted, null, false, false, false, false, true,
-                            observation.Cancelled, observation.TimedOut, false), "launch-not-started");
+                            observation.Cancelled, observation.TimedOut, false), "launch-not-started") with { RunFault = runFault };
                     return Unknown(observation.TerminationFailed, observation.Cancelled, observation.TimedOut, observation.OutputLimitExceeded,
-                        "launch-not-started-unsettled");
+                        "launch-not-started-unsettled") with { RunFault = runFault };
                 case NativeInvocation.Started:
                     // Facts 4–13 as observed; an inconsistent set makes CreateResponse throw, so nothing is written. Design rev 6
                     // settle window (rev-4 L4): when the launch job closed lingering descendants, the diagnostic carries the fixed
@@ -414,10 +452,11 @@ internal static class ReviewedHelperEndpoint
                     return Matched(new(UpdateWireInvocation.Started, observation.ExitCode, observation.DirectExitObserved,
                         observation.OwnedIoCompleted, observation.PipeEofObserved, observation.TerminationFailed,
                         observation.AggregateSettled && itemSettled, observation.Cancelled, observation.TimedOut,
-                        observation.OutputLimitExceeded), observation.LingeringTerminated ? LaunchStartedLingeringDiagnostic : LaunchStartedDiagnostic);
+                        observation.OutputLimitExceeded), observation.LingeringTerminated ? LaunchStartedLingeringDiagnostic : LaunchStartedDiagnostic)
+                        with { RunFault = runFault };
                 default:
                     return Unknown(observation.TerminationFailed, observation.Cancelled, observation.TimedOut, observation.OutputLimitExceeded,
-                        "launch-unknown");
+                        "launch-unknown") with { RunFault = runFault };
             }
         }
 
@@ -439,9 +478,14 @@ internal static class ReviewedHelperEndpoint
             issuedAt > now || now - issuedAt > RequestLifetime ||
             operation.ReviewedAt > now || now - operation.ReviewedAt > ReviewCeiling;
 
-        /// <summary>Exact route shape: the same predicates as the fixed upgrade arguments (fact extension rev 3 §1).</summary>
-        private bool HasExactRouteShape()
+        /// <summary>
+        /// Exact route shape: the package route uses the same predicates as the fixed upgrade arguments (fact extension rev 3 §1);
+        /// the client self-update's shape is <see cref="ReviewedUpdateProtocol2Interpreter.TryGetClientProfileDigest"/> (ADR-031
+        /// design §7.1), whose release-bound predicates the item re-checks against the compiled list at stages B and C.
+        /// </summary>
+        private bool HasExactRouteShape(ReviewedHelperReplyShape shape)
         {
+            if (shape == ReviewedHelperReplyShape.ClientSelfUpdate) return ReviewedUpdateProtocol2Interpreter.TryGetClientProfileDigest(operation, out _);
             try { return ChocolateyReviewedUpdateArguments.Build(operation).Count > 0; }
             catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
         }

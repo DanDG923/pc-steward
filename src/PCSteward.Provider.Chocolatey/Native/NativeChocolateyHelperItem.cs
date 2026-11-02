@@ -162,7 +162,9 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         {
             using CancellationTokenSource linked = Link(cancellationToken);
             NativeProcessObservation observation = await work.UpgradeAsync(remaining, linked.Token).ConfigureAwait(false);
-            return new ChocolateyUpgradeResult.Observed(observation);
+            // ADR-031 design §8.1: the binding's run state after settlement (None/false for a package binding).
+            (ChocolateyClientWatchdogFault watchdogFault, bool releaseIncomplete) = work.RunState;
+            return new ChocolateyUpgradeResult.Observed(observation, watchdogFault, releaseIncomplete);
         }
         finally { Exit(Phase.Closed, exclusive: true); }
     }
@@ -256,6 +258,9 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         ChocolateyStageValues RevalidateBeforeLaunch(TimeSpan remaining, CancellationToken cancellationToken);
 
         Task<NativeProcessObservation> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken);
+
+        /// <summary>ADR-031 design §8.1: the held binding's watchdog fault and incomplete release, read after the upgrade settled.</summary>
+        (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState { get; }
     }
 
     /// <summary>
@@ -403,6 +408,9 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
             return Launch(() => ChocolateyClientQueries.UpgradeAsync(binding, upgradeCommand!, remaining, cancellationToken), static observation => observation);
         }
 
+        public (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState =>
+            stageB?.HeldClient is { } binding ? (binding.WatchdogFault, binding.ReleaseIncomplete) : (ChocolateyClientWatchdogFault.None, false);
+
         public void Dispose()
         {
             // M4: the engine and release-tree holds stay until every launch job settled; otherwise process exit releases them.
@@ -514,6 +522,8 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
 
         public Task<NativeProcessObservation> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken) =>
             seam.Upgrade(remaining, cancellationToken);
+
+        public (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState => (ChocolateyClientWatchdogFault.None, false);
 
         public void Dispose() => seam.Released();
     }

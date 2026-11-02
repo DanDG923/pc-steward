@@ -37,13 +37,14 @@ public sealed class HelperEndpointBoundaryTests
 
     /// <summary>
     /// §2 allow-list: the port interfaces of §5.4 plus the value records and their reason enums (rev-5 F1). The two reason
-    /// enums are carried by the value records; they are named here explicitly so nothing else can slip in.
+    /// enums are carried by the value records; they are named here explicitly so nothing else can slip in. ADR-031 design §8.1
+    /// adds the plain run-fault enum carried by the upgrade result (no watchdog type crosses).
     /// </summary>
     private static readonly string[] AllowList =
     [
         "IChocolateyHelperQualificationPort", "IChocolateyPeer", "IChocolateyHelperItem", "ChocolateyStageValues", "ChocolateyCandidateValues",
         "ChocolateyUpgradeResult", "NativeProcessObservation", "NativeInvocation", "ChocolateyItemRefusal", "ChocolateyStageRefusal",
-        "ChocolateyCandidateRefusal",
+        "ChocolateyCandidateRefusal", "ChocolateyClientRunFault",
     ];
 
     private static readonly string[] PortCalls =
@@ -89,9 +90,15 @@ public sealed class HelperEndpointBoundaryTests
         HashSet<string> callers = [];
         foreach (string path in assemblies)
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
-                if (reference.TargetType == Codec && reference.TargetMember == "CreateResponse") callers.Add(reference.LogicalCaller);
-        // TryReadResponse re-encodes the frame it read to prove canonical form; the endpoint is the only producer.
-        CollectionAssert.AreEquivalent(new[] { Codec + ".TryReadResponse", Endpoint + ".RunAsync" }, callers.ToArray());
+                if (reference.TargetType == Codec && reference.TargetMember is "CreateResponse" or "CreateClientResponse" or "CreateResponseCore")
+                    callers.Add(reference.LogicalCaller + "->" + reference.TargetMember);
+        // TryReadResponse re-encodes the frame it read to prove canonical form; the endpoint is the only producer of either
+        // reply shape (ADR-031 design §8: the package entry and the client entry share one private core).
+        CollectionAssert.AreEquivalent(new[]
+        {
+            Codec + ".TryReadResponse->CreateResponseCore", Codec + ".CreateResponse->CreateResponseCore",
+            Codec + ".CreateClientResponse->CreateResponseCore", Endpoint + ".RunAsync->CreateResponse", Endpoint + ".RunAsync->CreateClientResponse",
+        }, callers.ToArray(), string.Join(Environment.NewLine, callers));
 
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
         foreach (string path in Sources(src))
