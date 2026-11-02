@@ -115,14 +115,15 @@
   - Update all: multi-select with nothing preselected and only Ready items; one frozen review sheet and one confirmation; N per-app immutable jobs, each revalidated with `EqualsEvidence` before its own approval; one UAC prompt per machine-scope app; stop only between apps; earlier results kept.
   - Skip version: stored in `stable_decisions` (kind SkipVersion), with no migration; deterministic equality; ignore and pin take precedence; never actionable.
   - **Windows CI on `2a9c31d` is green** (architecture 123, integration 1033, Security 1148, domain 184).
-  - **Independent review: PASS with fixes** (no Blocker or High). Docs are fixed here. Code fixes in progress:
-    - one shared observation for batch preparation, with progress;
+  - **Independent review: PASS with fixes** (no Blocker or High). The docs and the code fixes are in `a5a22fd..aae865f`:
+    - one shared scan for batch preparation, with progress and cancel, and `ReviewedAt` taken after preparation;
+    - the expiry re-checked immediately before each approval, and "valid until" shown;
     - settle-wait labels;
-    - a deadline re-check before approval;
-    - Skipped status in lists;
     - settle-timeout shown as Not started;
     - a single-use preparation;
-    - the current app named in the band, plus tests.
+    - the current app named in the band;
+    - tests for a declined UAC prompt continuing and for a stop during the settle wait.
+  - **Windows CI is green on `aae865f`**, and on `99fa841` with the ADR-031 work merged from the Task 50 branch (architecture 129, integration 1055, Security 1180, domain 192).
   - Follow-up recorded: split `MainWindow.cs` (≈2,800 lines).
   - Owner-host evidence still needed before release: Narrator, keyboard, theme and high contrast, scaling, UAC end to end, a schedule refusal and rollback, and the clipboard after close.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
