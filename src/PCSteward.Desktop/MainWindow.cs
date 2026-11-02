@@ -370,8 +370,8 @@ public sealed class MainWindow : Window
     private static StackPanel BuildAboutPage()
     {
         StackPanel panel = CreatePagePanel(820);
-        panel.Children.Add(StewardVisuals.PageHeader("About", "PC Steward is a local-first Windows 11 application inventory and evidence-review tool."));
-        panel.Children.Add(StewardVisuals.InformationBanner("Private and user-directed", "No account, cloud sync, telemetry, resident background service, or automatic updates."));
+        panel.Children.Add(StewardVisuals.PageHeader("About", "PC Steward lists the apps on this Windows 11 PC and helps you review and apply their updates. Everything stays on this PC."));
+        panel.Children.Add(StewardVisuals.InformationBanner("Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates."));
         StackPanel scope = new() { Spacing = 8 };
         scope.Children.Add(SectionHeading("Updates and administrator permission"));
         scope.Children.Add(PageCopy(ElevationStory.Summary));
@@ -2018,10 +2018,11 @@ public sealed class MainWindow : Window
         TimePicker startTime = new() { Time = plan.LocalStartTime.ToTimeSpan(), IsEnabled = plan.IsTimeEnabled };
         AutomationProperties.SetName(startTime, "Local start time");
         ComboBox weeklyDay = new() { IsEnabled = plan.IsWeekdayEnabled, MinWidth = 160 };
-        foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>()) weeklyDay.Items.Add(day);
+        // Audit P-M6: localized day names; the selection stays index-based (DayOfWeek order), so what is saved is unchanged.
+        foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>()) weeklyDay.Items.Add(CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day));
         weeklyDay.SelectedIndex = (int)plan.WeeklyDay;
         AutomationProperties.SetName(weeklyDay, "Weekly day");
-        ToggleSwitch scheduleEnabled = new() { IsOn = plan.IsEnabled, IsEnabled = plan.IsEnableToggleEnabled, OffContent = "Not scheduled", OnContent = "Current-user task · no resident service" };
+        ToggleSwitch scheduleEnabled = new() { IsOn = plan.IsEnabled, IsEnabled = plan.IsEnableToggleEnabled, OffContent = "Not scheduled", OnContent = "On · runs for your account only, no background service" };
         AutomationProperties.SetName(scheduleEnabled, "Enable scheduled checks");
         ToggleSwitch notifications = new() { IsOn = plan.NotificationsEnabled, IsEnabled = plan.IsNotificationsToggleEnabled, OffContent = "Off", OnContent = "Attention and repeated scan failures only" };
         AutomationProperties.SetName(notifications, "Windows notifications");
@@ -2633,7 +2634,9 @@ public sealed class MainWindow : Window
         if (candidates.Count == 0) technical.Children.Add(PageCopy("No packages were found in your sources."));
         foreach (DetailItem candidate in candidates) technical.Children.Add(DetailItemCard(candidate));
         technical.Children.Add(SectionHeading("Match a package by ID", AutomationHeadingLevel.Level3));
-        ComboBox mappingSource = FilterBox(detail?.SourceId ?? "winget", "winget", "msstore");
+        // Audit §4: the source list shows the names rows show; the chosen index maps back to the same raw source ID as before.
+        string[] mappingSources = ["winget", "msstore"];
+        ComboBox mappingSource = FilterBox(StewardPresentation.Provider(detail?.SourceId ?? "winget"), mappingSources.Select(StewardPresentation.Provider).ToArray());
         mappingSource.Header = "Source";
         AutomationProperties.SetName(mappingSource, $"Source for matching {row.Name}");
         TextBox mappingPackage = new() { Header = "Exact package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
@@ -2643,7 +2646,7 @@ public sealed class MainWindow : Window
         map.IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable && !HasActiveOperation;
         map.Click += async (_, _) =>
         {
-            string sourceId = mappingSource.SelectedItem?.ToString() ?? "winget";
+            string sourceId = mappingSource.SelectedIndex >= 0 && mappingSource.SelectedIndex < mappingSources.Length ? mappingSources[mappingSource.SelectedIndex] : "winget";
             string packageId = string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text.Trim();
             if (packageId.Length == 0) { await ShowUpdateOutcomeAsync("Package ID needed", "Enter the exact package ID first. Nothing was saved."); return; }
             await PromptAndCreateManualMappingAsync(row, sourceId, packageId);

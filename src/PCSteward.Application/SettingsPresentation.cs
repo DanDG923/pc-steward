@@ -139,7 +139,7 @@ public static class SettingsPresenter
         {
             ScheduleCadence.Manual => "Not scheduled. PC Steward checks only when you start a scan.",
             ScheduleCadence.Daily when settings.IsEnabled => $"Checks this PC every day at {time}.",
-            ScheduleCadence.Weekly when settings.IsEnabled => $"Checks this PC every {settings.WeeklyDay} at {time}.",
+            ScheduleCadence.Weekly when settings.IsEnabled => $"Checks this PC every {(culture ?? CultureInfo.CurrentCulture).DateTimeFormat.GetDayName(settings.WeeklyDay)} at {time}.",
             _ => "Paused. Turn on scheduled checks to create the check."
         };
         DetailFact[] facts =

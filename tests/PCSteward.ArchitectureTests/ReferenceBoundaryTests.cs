@@ -338,7 +338,9 @@ public sealed class ReferenceBoundaryTests
         Assert.IsFalse(source.Contains("RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, reason.Text", StringComparison.Ordinal));
         StringAssert.Contains(source, "string decisionReason = reason.Text;");
         StringAssert.Contains(source, "DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null;");
-        StringAssert.Contains(source, "string sourceId = mappingSource.SelectedItem?.ToString() ?? \"winget\";");
+        // Task 73 Phase 5 (audit §4): the list shows display names; the index is read on the UI thread and maps to the same raw ID.
+        StringAssert.Contains(source, "string sourceId = mappingSource.SelectedIndex >= 0 && mappingSource.SelectedIndex < mappingSources.Length ? mappingSources[mappingSource.SelectedIndex] : \"winget\";");
+        StringAssert.Contains(source, "string[] mappingSources = [\"winget\", \"msstore\"];");
     }
 
     /// <summary>
