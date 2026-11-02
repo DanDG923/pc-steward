@@ -35,9 +35,9 @@ function Get-OwnerOnlyCandidateBuildSteps {
         [Parameter(Mandatory)][string]$HelperPublishDirectory
     )
     $runtime = 'win-x64'
-    $scheduledHost = Join-Path $RepositoryRoot 'src\PCSteward.ScheduledHost\PCSteward.ScheduledHost.csproj'
-    $desktop = Join-Path $RepositoryRoot 'src\PCSteward.Desktop\PCSteward.Desktop.csproj'
-    $helper = Join-Path $RepositoryRoot 'src\PCSteward.ElevatedHelper\PCSteward.ElevatedHelper.csproj'
+    $scheduledHost = [IO.Path]::Combine($RepositoryRoot, 'src', 'PCSteward.ScheduledHost', 'PCSteward.ScheduledHost.csproj')
+    $desktop = [IO.Path]::Combine($RepositoryRoot, 'src', 'PCSteward.Desktop', 'PCSteward.Desktop.csproj')
+    $helper = [IO.Path]::Combine($RepositoryRoot, 'src', 'PCSteward.ElevatedHelper', 'PCSteward.ElevatedHelper.csproj')
     @(
         [pscustomobject]@{ Name = 'restore-scheduledhost'; Arguments = [string[]]@('restore', $scheduledHost, '--runtime', $runtime) }
         [pscustomobject]@{ Name = 'restore-desktop'; Arguments = [string[]]@('restore', $desktop, '--runtime', $runtime) }
