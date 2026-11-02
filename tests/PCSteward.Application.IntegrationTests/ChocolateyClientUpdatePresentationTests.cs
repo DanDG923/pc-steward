@@ -132,13 +132,35 @@ public sealed class ChocolateyClientUpdatePresentationTests
             Assert.AreEqual(message, ChocolateyClientUpdatePresentation.NotVerifiedMessage(detail));
             StringAssert.StartsWith(message, "Stopped, not verified:");
             StringAssert.Contains(message, "may be partly updated");
-            StringAssert.Contains(message, "PC Steward does not repair Chocolatey automatically.");
-            StringAssert.Contains(message, "choco upgrade chocolatey --version <the version you approved> --force");
             StringAssert.Contains(message, "administrator prompt");
             Assert.AreEqual(message, ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Unverified, message)));
         }
         StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedSetupOverrideMessage, "ChocolateyInstallAllowCurrentUser");
         StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedRootWritableMessage, "changeable by your account");
+        // The forced reinstall advice stays only where the folder was never shown changeable by the user.
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage, "PC Steward does not repair Chocolatey automatically.");
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage,
+            "from an administrator prompt, run choco upgrade chocolatey --version <the version you approved> --force");
+    }
+
+    [TestMethod]
+    [DataRow((int)PostUpdateVerificationDetail.ClientSetupOverrideDuringRun)]
+    [DataRow((int)PostUpdateVerificationDetail.ClientRootWritableDuringRun)]
+    public void AFolderShownChangeableDuringTheRunIsTreatedAsUntrustedAndNeverRepairedElevated(int injected)
+    {
+        // Independent review H1 (ADR-031 design §2.2 R5; FR-UPD-15, TM-07/13): the folder may stay changeable by the user, so
+        // the message never advises running choco elevated from it; it says to treat it as untrusted and reinstall.
+        string message = ChocolateyClientUpdatePresentation.NotVerifiedMessage((PostUpdateVerificationDetail)injected);
+        Assert.IsFalse(message.Contains("choco upgrade", StringComparison.OrdinalIgnoreCase), message);
+        Assert.IsFalse(message.Contains("--force", StringComparison.Ordinal), message);
+        Assert.IsFalse(message.Contains("repair Chocolatey)", StringComparison.Ordinal), message);
+        Assert.IsFalse(message.Contains("http", StringComparison.OrdinalIgnoreCase), "no invented URL");
+        StringAssert.Contains(message, "Treat the Chocolatey folder as untrusted");
+        StringAssert.Contains(message, "do not run choco from an administrator prompt");
+        StringAssert.Contains(message, "Remove or quarantine the Chocolatey folder");
+        StringAssert.Contains(message, "reinstall Chocolatey using Chocolatey's official installation instructions");
+        StringAssert.Contains(message, "PC Steward will not repair it.");
+        StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
     }
 
     private static ReviewedUpdateTerminalRecord Terminal(UpdateDispatchOutcome outcome, string diagnostic) =>
