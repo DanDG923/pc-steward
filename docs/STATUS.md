@@ -26,6 +26,16 @@
   - **Windows CI on `d56cb26` is green** (Security 1207).
   - **Independent review: PASS with fixes**, all applied: the safe recovery advice, kept key handles, no busy-spin, a binding-bound postcheck, and normal-run, parent-grant, re-arm-failure and thread-failure tests.
   - The residual is documented: detection is by sampling, so rapid set/delete of a value can evade it, and a user-scope `ChocolateyInstall` may leave no trace. **Option 2** (running the self-update under a non-user identity, which needs its own ADR) is the only full closure. Owner acceptance is still required before admission.
+- **W1 helper-reply field and client-route wiring (owner-approved with conditions, ADR-031 decision 4; `7c0dafe..9c6ecc1`, review fixes `d762dca..223764d`).**
+  - The field: `clientRunFault` is a closed 8-value field, required on `ChocolateyClientSelfUpdateV1` replies and forbidden on every other route. Codec rule S14 makes a missing or invalid value reject the reply, which becomes Uncertain and never Success.
+  - Outcomes only stay the same or downgrade: a fault moves Success to Unverified and skips verification. The owner confirmed (decision 5) that a stopped run shows as not verified with the warning.
+  - Recovery warnings are kept for every value. If the helper loses track of a started run, Uncertain still carries the untrusted-folder caution.
+  - Package-route bytes and goldens are unchanged.
+  - Also wired: the client stages B/C/D/Launch, dispatcher, transport, F′, and the verifier using an interpreter-only fault value pinned on compiled IL.
+  - The route is still **not admitted**.
+  - **Windows CI on `9c6ecc1` is green** (Security 1252). **Independent review: PASS with fixes**, all applied.
+  - Admission gates added: a full client-route workflow test and a Windows end-to-end run of stages B/C/D/Launch, both needing test-only seams.
+  - Remaining: the Desktop "Update Chocolatey to X" UI (on the Task 73 branch); host evidence; owner acceptance of R5.
 
 **Task 50 — ADR-031 accepted; host Chocolatey aligned to 2.7.5 (owner, 2026-11-02).**
 - The owner accepted [ADR-031](adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) Option 2: a reviewed Chocolatey release list replacing the single pin, plus a separate reviewed "Update Chocolatey to X" job run by the trusted current client and verified against X's manifest.
