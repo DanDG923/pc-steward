@@ -200,4 +200,26 @@ internal static class ChocolateyClientQueries
         ArgumentNullException.ThrowIfNull(command);
         return LaunchJob.RunAsync(client, command, remaining, cancellationToken);
     }
+
+    /// <summary>ADR-031 design §7.1 C: the client self-update's stage-C <c>list chocolatey --exact</c> through its client binding.</summary>
+    internal static async Task<ChocolateyQueryOutcome<ChocolateyInstalledRecord>> ListClientAsync(ChocolateyHeldClientBinding client,
+        ChocolateyCompiledCommand.ListClient command, TimeSpan remaining, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(command);
+        NativeProcessObservation observation = await LaunchJob.RunAsync(client, command, remaining, cancellationToken).ConfigureAwait(false);
+        return ChocolateyQueryParser.ParseListExact(observation, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId);
+    }
+
+    /// <summary>
+    /// ADR-031 design §7.1 Launch: the single client upgrade through the client binding (release-all at resume, R5 watchdog
+    /// armed by the launch spec). The binding's run state is read by the item after this settles.
+    /// </summary>
+    internal static Task<NativeProcessObservation> UpgradeClientAsync(ChocolateyHeldClientBinding client,
+        ChocolateyCompiledCommand.UpgradeClient command, TimeSpan remaining, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(command);
+        return LaunchJob.RunAsync(client, command, remaining, cancellationToken);
+    }
 }

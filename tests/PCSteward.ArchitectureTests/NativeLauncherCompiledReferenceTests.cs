@@ -33,7 +33,9 @@ public sealed class NativeLauncherCompiledReferenceTests
     [
         (LaunchJob, "RunCoreAsync", [LaunchJob + ".RunAsync"]),
         (Spec, "FromBinding", [LaunchJob + ".RunAsync"]),
-        (LaunchJob, "RunAsync", [Queries + ".ListExactAsync", Queries + ".OutdatedAsync", Queries + ".UpgradeAsync"]),
+        // ADR-031 design §7.1: plus the client self-update's list and upgrade through the client binding.
+        (LaunchJob, "RunAsync", [Queries + ".ListExactAsync", Queries + ".OutdatedAsync", Queries + ".UpgradeAsync", Queries + ".ListClientAsync",
+            Queries + ".UpgradeClientAsync"]),
     ];
 
     private static readonly string[] RequiredAssemblies = ["PCSteward.Provider.Chocolatey", "PCSteward.Execution", "PCSteward.ElevatedHelper"];

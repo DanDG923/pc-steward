@@ -81,8 +81,9 @@ public sealed class ClientRunFaultBoundaryTests
             string name = Path.GetFileName(path);
             // The fact overload is called only by the desktop verifier.
             if (name != "ChocolateyReviewedUpdateVerifier.cs") Assert.AreEqual(0, Regex.Count(source, @"ChocolateyClientUpdatePostcheck\.Evaluate\([^;]*runFault"), path);
-            // The client-mode observer has one production caller.
-            if (name != "ChocolateyDesktopObservation.cs") Assert.AreEqual(0, Count(source, "ChocolateyProfileObserver.ObserveClient("), path);
+            // The client-mode observer has one Desktop and one Helper production caller.
+            if (name is not ("ChocolateyDesktopObservation.cs" or "NativeChocolateyHelperItem.cs"))
+                Assert.AreEqual(0, Count(source, "ChocolateyProfileObserver.ObserveClient("), path);
             // The client test factories are never called from src.
             if (name is not ("ChocolateyReviewedUpdateVerifier.cs" or "ChocolateyProfileEvidenceSource.cs"))
                 Assert.AreEqual(0, Count(source, "CreateClientForTests("), path);
