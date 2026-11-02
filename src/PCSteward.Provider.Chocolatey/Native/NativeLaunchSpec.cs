@@ -14,13 +14,15 @@ internal sealed class NativeLaunchSpec
 {
     private readonly ChocolateyHeldClientBinding? client;
     private readonly bool releaseCodeAfterResume;
+    private readonly bool releaseAllAfterResume;
 
     private NativeLaunchSpec(string imagePath, IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string> environment, string workingDirectory, ChocolateyHeldClientBinding? client = null,
-        bool releaseCodeAfterResume = false)
+        bool releaseCodeAfterResume = false, bool releaseAllAfterResume = false)
     {
         this.client = client;
         this.releaseCodeAfterResume = releaseCodeAfterResume;
+        this.releaseAllAfterResume = releaseAllAfterResume;
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(environment);
         ImagePath = NativeCommandLine.ValidateImagePath(imagePath, nameof(imagePath));
@@ -59,7 +61,9 @@ internal sealed class NativeLaunchSpec
     /// </summary>
     internal void OnResumed()
     {
-        if (releaseCodeAfterResume) client!.ReleaseCodeAfterResume();
+        // ADR-031 design §1: a client self-update upgrade releases every hold; a package upgrade only the code holds.
+        if (releaseAllAfterResume) client!.ReleaseAllAfterResume();
+        else if (releaseCodeAfterResume) client!.ReleaseCodeAfterResume();
     }
 
     /// <summary>
@@ -74,13 +78,22 @@ internal sealed class NativeLaunchSpec
         ArgumentNullException.ThrowIfNull(command);
         if (!client.CanLaunch) throw new InvalidOperationException("The held client binding can no longer launch.");
         IReadOnlyList<string> arguments = command.Arguments;
+        bool package = client.Purpose == ChocolateyBindingPurpose.PackageUpdate;
+        bool clientUpdate = client.Purpose == ChocolateyBindingPurpose.ClientSelfUpdate && client.InstalledRelease is not null;
         bool upgrade = command switch
         {
-            ChocolateyCompiledCommand.ListExact list when IsTarget(client, list.PackageId) && arguments.Count == 5 &&
+            ChocolateyCompiledCommand.ListExact list when package && IsTarget(client, list.PackageId) && arguments.Count == 5 &&
                 arguments[0] == "list" && arguments[1] == list.PackageId => false,
-            ChocolateyCompiledCommand.Outdated when arguments.Count > 0 && arguments[0] == "outdated" => false,
-            ChocolateyCompiledCommand.Upgrade update when IsTarget(client, update.PackageId) && arguments.Count > 3 &&
+            ChocolateyCompiledCommand.Outdated when package && arguments.Count > 0 && arguments[0] == "outdated" => false,
+            ChocolateyCompiledCommand.Upgrade update when package && IsTarget(client, update.PackageId) && arguments.Count > 3 &&
                 arguments[0] == "upgrade" && arguments[1] == update.PackageId && arguments[3] == update.CandidateVersion => true,
+            // ADR-031 design §3.6: a client binding launches only the client commands for the release it holds.
+            ChocolateyCompiledCommand.ListClient list when clientUpdate && ReferenceEquals(list.InstalledRelease, client.InstalledRelease) &&
+                arguments.Count == 5 && arguments[0] == "list" && IsTarget(client, arguments[1]) => false,
+            ChocolateyCompiledCommand.UpgradeClient update when clientUpdate && ReferenceEquals(update.InstalledRelease, client.InstalledRelease) &&
+                ReferenceEquals(client.InstalledRelease!.List.OfferTarget(client.InstalledRelease), update.TargetRelease) &&
+                arguments.Count > 3 && arguments[0] == "upgrade" && IsTarget(client, arguments[1]) &&
+                arguments[3] == update.TargetRelease.Version => true,
             _ => throw new ArgumentException("The command is not a compiled command for this binding.", nameof(command)),
         };
         // N3 review L2: at most one upgrade launch per binding, claimed atomically before any process can exist.
@@ -88,7 +101,7 @@ internal sealed class NativeLaunchSpec
             throw new InvalidOperationException("The held client binding has already launched its upgrade.");
         ChocolateyLaunchPaths paths = client.LaunchPaths;
         return new NativeLaunchSpec(client.EnginePath, arguments, ChocolateyCompiledEnvironment.Create(paths), paths.ChocolateyRoot,
-            client, upgrade);
+            client, releaseCodeAfterResume: upgrade && package, releaseAllAfterResume: upgrade && clientUpdate);
     }
 
     /// <summary>Test-only factory (rev-4 M1). Any <c>src</c> caller fails the architecture tests.</summary>

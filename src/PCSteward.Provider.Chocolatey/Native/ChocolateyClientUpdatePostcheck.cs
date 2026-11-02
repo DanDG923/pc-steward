@@ -1,0 +1,75 @@
+using PCSteward.Application;
+
+namespace PCSteward.Provider.Chocolatey.Native;
+
+/// <summary>Closed verdict of the client self-update postcheck (ADR-031 design §3.6, §3a).</summary>
+internal enum ChocolateyClientUpdateVerdict
+{
+    /// <summary>Every client file matches the target release, which is the registered client; no leftover.</summary>
+    Verified,
+    /// <summary>As <see cref="Verified"/>, plus the one reviewed leftover whose bytes are the job's source release (disclosed).</summary>
+    VerifiedWithLeftover,
+    /// <summary>The files or registration are not exactly the target release (including a target never installed).</summary>
+    NotTargetRelease,
+    /// <summary>The only failure is the reviewed leftover name with bytes of no listed release (named; never deleted).</summary>
+    UnlistedLeftover,
+    /// <summary>The check did not finish (timed out or cancelled).</summary>
+    NotFinished,
+}
+
+/// <summary>
+/// FR-UPD-15, FR-UPD-01/03–09, TM-03/04/13, AC-UPD-07; ADR-031 design mapping §3.6 and §3a: the pure postcheck rule for a client
+/// self-update, over a Desktop-role client observation made with the target version as the expected installed version.
+/// Verified only when the observation matched exactly the target release of the same list (complete manifest and engine trust),
+/// the unique <c>chocolatey</c> registration is the target version, its archive equals the reviewed asset digest, and the
+/// requester is the job's; a leftover is accepted only when its bytes are the job's <b>source</b> release. Everything else
+/// is not verified. A restart-pending result never exists here: <see cref="ToResult"/> always reports it false.
+/// </summary>
+internal static class ChocolateyClientUpdatePostcheck
+{
+    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
+        ChocolateyReviewedRelease target, string requestingUserSid)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(requestingUserSid);
+        switch (result)
+        {
+            case ChocolateyProfileResult.TimedOut or ChocolateyProfileResult.Cancelled:
+                return ChocolateyClientUpdateVerdict.NotFinished;
+            case ChocolateyProfileResult.Refused refused:
+                return refused.Detail == ChocolateyProfileRefusalDetail.UnlistedReleaseLeftover
+                    ? ChocolateyClientUpdateVerdict.UnlistedLeftover : ChocolateyClientUpdateVerdict.NotTargetRelease;
+            case ChocolateyProfileResult.Observed { Observation: var observation }:
+                bool sameList = ReferenceEquals(source.List, target.List) && target.List.Contains(target) && target.List.Contains(source) &&
+                    ChocolateyReleaseList.IsNewer(target, source);
+                bool exact = sameList && ReferenceEquals(observation.Release, target) &&
+                    string.Equals(observation.InstalledVersion.Normalized, target.Version, StringComparison.Ordinal) &&
+                    string.Equals(observation.Common.TargetId, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.Ordinal) &&
+                    string.Equals(observation.Common.ArchiveSha256, target.AssetSha256, StringComparison.Ordinal) &&
+                    string.Equals(observation.Common.ReleaseAssetSha256, target.AssetSha256, StringComparison.Ordinal) &&
+                    string.Equals(observation.ClientState.EngineSha256, target.EngineSha256, StringComparison.Ordinal) &&
+                    observation.ClientState.LicensedExtensionRegistrationDigest is null &&
+                    string.Equals(observation.Common.RequestingUserSid, requestingUserSid, StringComparison.Ordinal);
+                if (!exact) return ChocolateyClientUpdateVerdict.NotTargetRelease;
+                return observation.ReleaseResidue switch
+                {
+                    null => ChocolateyClientUpdateVerdict.Verified,
+                    { MatchedRelease: var matched } when ReferenceEquals(matched, source) => ChocolateyClientUpdateVerdict.VerifiedWithLeftover,
+                    _ => ChocolateyClientUpdateVerdict.NotTargetRelease,
+                };
+            default:
+                return ChocolateyClientUpdateVerdict.NotTargetRelease;
+        }
+    }
+
+    /// <summary>The workflow result: Success only for the two verified verdicts; never restart-pending.</summary>
+    internal static PostUpdateInventoryResult ToResult(ChocolateyClientUpdateVerdict verdict) => verdict switch
+    {
+        ChocolateyClientUpdateVerdict.Verified or ChocolateyClientUpdateVerdict.VerifiedWithLeftover => new PostUpdateInventoryResult(true, false),
+        ChocolateyClientUpdateVerdict.UnlistedLeftover => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientLeftoverNotListed),
+        ChocolateyClientUpdateVerdict.NotTargetRelease => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientChanged),
+        _ => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientUnverifiable),
+    };
+}

@@ -36,6 +36,7 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
     private readonly Lock gate = new();
     private bool sealedForUse;
     private bool codeReleased;
+    private bool allReleased;
     private bool disposed;
 
     private ChocolateyHeldProfileFiles() { }
@@ -109,6 +110,31 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
             codeReleased = true;
             foreach (ChocolateyHeldFile file in code) file.Handle.Dispose();
         }
+    }
+
+    /// <summary>
+    /// ADR-031 design §1 (client self-update only): closes <b>every</b> handle — engine, release tree and code — because the
+    /// client's own setup must rename or delete each of them. Binding only (an architecture test pins the call site), and
+    /// only after the upgrade's process creation, assignment and resume all succeeded. Identities stay readable; nothing
+    /// launches afterwards (<see cref="CodeReleased"/> is true). Idempotent.
+    /// </summary>
+    internal void ReleaseAll()
+    {
+        lock (gate)
+        {
+            if (!sealedForUse) throw new InvalidOperationException("The held file set is not sealed.");
+            if (disposed) return;
+            codeReleased = true;
+            allReleased = true;
+            foreach (ChocolateyHeldFile file in code) file.Handle.Dispose();
+            foreach (ChocolateyHeldFile file in release) file.Handle.Dispose();
+        }
+    }
+
+    /// <summary>True once <see cref="ReleaseAll"/> closed every handle (client self-update only).</summary>
+    internal bool AllReleased
+    {
+        get { lock (gate) return allReleased; }
     }
 
     public void Dispose()

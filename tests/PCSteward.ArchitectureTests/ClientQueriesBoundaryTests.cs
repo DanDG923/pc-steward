@@ -69,6 +69,10 @@ public sealed class ClientQueriesBoundaryTests
         (Binding, "Create", [Native + "ChocolateyProfileObserver+Observation.Evaluate"]),
         (Held, "ReleaseCode", [Binding + ".ReleaseCodeAfterResume"]),
         (Binding, "ReleaseCodeAfterResume", [Spec + ".OnResumed"]),
+        // ADR-031 design §1: only the client self-update binding releases every hold, only from the resumed launch.
+        (Binding, "CreateForClientUpdate", [Native + "ChocolateyProfileObserver+Observation.Evaluate"]),
+        (Held, "ReleaseAll", [Binding + ".ReleaseAllAfterResume"]),
+        (Binding, "ReleaseAllAfterResume", [Spec + ".OnResumed"]),
         (Spec, "OnResumed", [LaunchJob + ".Run"]),
         (Spec, "get_MayCreateProcess", [LaunchJob + ".Run"]),
         (Command + "+ListExact", "TryCreate", [Command + ".TryListExact"]),

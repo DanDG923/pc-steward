@@ -109,9 +109,30 @@ internal static class ChocolateyProfileObserver
         return ObserveCore(token, role, targetId, frozenInstalled, expectedFingerprint, remaining, seam, cancellationToken);
     }
 
+    /// <summary>
+    /// ADR-031 design §3.6: the same observation for the client self-update, whose target is the client registration
+    /// <c>chocolatey</c> itself. Step 7 then requires exactly one <c>chocolatey</c> registration at the version of the listed
+    /// release step 2 matched, and no <c>chocolatey.extension</c> registration; the Helper role returns a client-update
+    /// binding. Every other step is unchanged. Post-update verification calls it in the Desktop role with the target version.
+    /// </summary>
+    internal static ChocolateyProfileResult ObserveClient(RequesterToken token, ChocolateyObserverRole role, ChocolateyNativeVersion frozenInstalled,
+        string? expectedFingerprint, TimeSpan remaining, CancellationToken cancellationToken) =>
+        ObserveCore(token, role, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, frozenInstalled, expectedFingerprint,
+            remaining, seam: null, cancellationToken, clientMode: true);
+
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): <see cref="ObserveClient"/> over synthetic machine inputs.</summary>
+    internal static ChocolateyProfileResult ObserveClientForTests(RequesterToken token, ChocolateyObserverRole role,
+        ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObserverTestSeam seam,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seam);
+        return ObserveCore(token, role, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, frozenInstalled, expectedFingerprint,
+            remaining, seam, cancellationToken, clientMode: true);
+    }
+
     private static ChocolateyProfileResult ObserveCore(RequesterToken token, ChocolateyObserverRole role, string targetId,
         ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObserverTestSeam? seam,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool clientMode = false)
     {
         ArgumentNullException.ThrowIfNull(token);
         ArgumentNullException.ThrowIfNull(targetId);
@@ -119,7 +140,7 @@ internal static class ChocolateyProfileObserver
         if (!Enum.IsDefined(role)) throw new ArgumentOutOfRangeException(nameof(role));
         using Run run = new(remaining, cancellationToken);
         if (run.Interrupted) return run.Interrupt();
-        using Observation observation = new(token, role, targetId, seam, run);
+        using Observation observation = new(token, role, targetId, seam, run, clientMode);
         ChocolateyProfileResult result = observation.Evaluate(frozenInstalled, expectedFingerprint);
         if (result is ChocolateyProfileResult.Observed) observation.Release();
         return result;
@@ -162,7 +183,8 @@ internal static class ChocolateyProfileObserver
     }
 
     /// <summary>One observation's state. Steps 1–7 return false on the first failure (MachineInputsUnsupported).</summary>
-    private sealed class Observation(RequesterToken token, ChocolateyObserverRole role, string targetId, ChocolateyObserverTestSeam? seam, Run run)
+    private sealed class Observation(RequesterToken token, ChocolateyObserverRole role, string targetId, ChocolateyObserverTestSeam? seam, Run run,
+        bool clientMode)
         : IDisposable
     {
         private readonly ChocolateyHeldProfileFiles? held = role == ChocolateyObserverRole.Helper ? ChocolateyHeldProfileFiles.Begin() : null;
@@ -224,7 +246,9 @@ internal static class ChocolateyProfileObserver
             {
                 // N3: the binding takes the sealed holder over; its launch paths were resolved and validated in step 6.
                 held.Seal();
-                client = ChocolateyHeldClientBinding.Create(held, launchPaths!, targetId);
+                client = clientMode
+                    ? ChocolateyHeldClientBinding.CreateForClientUpdate(held, launchPaths!, release)
+                    : ChocolateyHeldClientBinding.Create(held, launchPaths!, targetId);
             }
             return ChocolateyProfileResult.Observed.Create(
                 ChocolateyProfileObservation.Create(common, fingerprint, clientState, installed, libBadResidue, client, release, residue));
@@ -517,7 +541,12 @@ internal static class ChocolateyProfileObserver
         // identity, the store alternatives, markers, pending state, lib-bkp prefixes and lib-bad residue (L5).
         private bool LibraryAndStore()
         {
-            if (!ChocolateyNativePackageId.IsSupported(targetId) || ChocolateyClientReleasePolicy.IsClientTarget(targetId)) return false;
+            // Package jobs refuse the client identities; the client self-update (ADR-031) targets exactly chocolatey.
+            if (!ChocolateyNativePackageId.IsSupported(targetId) ||
+                (clientMode
+                    ? !string.Equals(targetId, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.Ordinal)
+                    : ChocolateyClientReleasePolicy.IsClientTarget(targetId)))
+                return false;
             NativeNode[] libChildren = Children("lib");
             if (libChildren.Count(node => node.Directory) > MaximumLibraryDirectories) return false;
             HashSet<string> libDirectories = new(libChildren.Where(node => node.Directory).Select(node => node.RelativePath), StringComparer.OrdinalIgnoreCase);
@@ -545,6 +574,9 @@ internal static class ChocolateyProfileObserver
             }
             if (targets.Count != 1) return false;
             target = targets[0];
+            // ADR-031 design §3.6: the client registration is the matched listed release, with no licensed extension registered.
+            if (clientMode && (!string.Equals(target.Version.Normalized, release.Version, StringComparison.Ordinal) || extensionRecords.Count != 0))
+                return false;
 
             // Store: at most one of the four pinned alternatives exists, it is a directory, and it holds no override marker.
             IReadOnlyList<string> alternatives;
