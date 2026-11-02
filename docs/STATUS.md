@@ -129,7 +129,7 @@
   - **Task 73 implementation is complete pending owner review.** See [owner decisions](review/OWNER_DECISIONS_2026-11-02.md).
 - **Chocolatey client update UI (ADR-031; `b9d39eb..d0c2c56`, CRLF test fix `b8cbf53`, review fixes `d850404..fc937a7`).**
   - Settings and Installed-apps cards plus a review dialog for "Update Chocolatey to X". The installed version is shown as reported by the last scan.
-  - The offer text depends on the reason: unlisted, unknown, list unavailable, or no newer reviewed release. Any offer reads "may be available" until the verified-offer admission gate is met.
+  - The offer text depends on the reason: unlisted, unknown, list unavailable, or no newer reviewed release. The offer now comes only from a fresh verified check of the installed client (design §8.6 gate 3, `ec5d7dd`): "A newer reviewed Chocolatey release is available: X (not yet enabled)", or "PC Steward could not verify the installed Chocolatey". The scan-reported version is shown separately. Windows CI and an independent review of this change are pending.
   - Confirm is always disabled, and "Not available yet: waiting for review and owner approval" is always shown. No dispatch path exists, pinned on compiled IL.
   - History shows client run-fault and lost-track details only from a leading marker written by the workflow, so it can't be spoofed by helper text.
   - A catalog fault falls back to "unavailable" and cannot stop startup.
