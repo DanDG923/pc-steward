@@ -295,6 +295,13 @@ public static class UpdateOutcomePresenter
     /// <summary>The diagnostic recorded when the provider finished but the post-update check was interrupted (existing workflow text).</summary>
     public const string ProviderCompletedCheckInterruptedDiagnostic = "verification-interrupted-after-provider-completed";
 
+    /// <summary>
+    /// The workflow message when the data lease refuses the confirmed update before the workflow runs (another data task, a pending
+    /// reset or an unresolved earlier update). Nothing was started; it reads as "Not started", never as an unrecorded outcome.
+    /// </summary>
+    public const string DataUnavailableNotStartedMessage =
+        "PC Steward couldn't open its data for this update because another task with its data, such as a reset or an earlier update, isn't finished. Nothing was changed.";
+
     private const string CheckAgain = "Scan again to check the installed version. PC Steward hasn't recorded this update as successful.";
     private const string TryAgain = "Check the app in Installed apps, then review the update again from Updates.";
 

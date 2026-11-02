@@ -44,6 +44,9 @@ public sealed class MainWindow : Window
     private bool isClearing;
     private bool isSavingSchedule;
     private bool isExecuting;
+    // Independent review (L2): set synchronously when Confirm is clicked, before the decision completes, so HasActiveOperation is
+    // true at once and F5 or a scan cannot start between the click and the awaited decision. Cleared when isExecuting takes over.
+    private bool executionPending;
     private DownloadCacheSummary downloadCache = new(0, 0, 0, 0, null);
     private ScheduledCheckSettings scheduledSettings = ScheduledCheckSettings.Manual;
     private ScheduledCheckStatus scheduledStatus = ScheduledCheckStatus.NotScheduled;
@@ -250,7 +253,7 @@ public sealed class MainWindow : Window
 
     private static Border Card(FrameworkElement child) => new() { Style = AppStyle("StewardCardStyle"), Child = child };
 
-    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || isClearing || downloads.IsCleaning || preparingReview || isSavingSchedule;
+    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || executionPending || isClearing || downloads.IsCleaning || preparingReview || isSavingSchedule;
 
     /// <summary>Leaving or cancelling the review clears it at once, so the next page is not built while it still counts as open.</summary>
     private void CancelPendingReview()
@@ -1904,7 +1907,15 @@ public sealed class MainWindow : Window
             if (ReferenceEquals(reviewDecision, decision)) reviewDecision = null;
             if (navigation.CanGoBack) GoBack(); else NavigateTo(ShellPage.Updates);
         };
-        confirm.Click += (_, _) => { cancel.IsEnabled = false; confirm.IsEnabled = false; decision.TrySetResult(true); };
+        confirm.Click += (_, _) =>
+        {
+            cancel.IsEnabled = false; confirm.IsEnabled = false;
+            if (decision.Task.IsCompleted) return;
+            // Mark execution pending before completing the decision, so no other operation can start in between.
+            executionPending = true;
+            bool accepted = decision.TrySetResult(true);
+            if (!accepted) executionPending = false;
+        };
         actions.Children.Add(cancel);
         actions.Children.Add(confirm);
         panel.Children.Add(actions);
@@ -2778,6 +2789,7 @@ public sealed class MainWindow : Window
         if (ReferenceEquals(reviewDecision, decision)) reviewDecision = null;
         if (!confirmed || windowClosed)
         {
+            executionPending = false;
             if (ReferenceEquals(updateJob, job)) updateJob = null;
             // Independent review: always refresh whichever page is shown, so its Review button is enabled again after Cancel.
             if (!windowClosed) Render();
@@ -2785,17 +2797,26 @@ public sealed class MainWindow : Window
         }
 
         isExecuting = true;
+        executionPending = false;
         job.Step = UpdateJobStep.Update;
         updateProgressMailbox = preparation.Progress;
         updateProgressPresentation = new(preparation.Review.JobId, preparation.Review.CorrelationId, selection.Scope);
         updateProgressLabel = preparation.Progress is null ? "Progress unavailable" : "Revalidating reviewed update";
         ReviewedUpdateExecutionResult result;
+        // Set only once the data lease has run the operation: a lease refusal (busy, reset pending or an unresolved earlier
+        // update) happens before the workflow is entered, so nothing was started and nothing was changed.
+        bool operationEntered = false;
         try
         {
             Render();
             StartUpdateProgressPolling();
-            result = await DataOperationLease.RunAsync(token => updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token, preparation.Progress), CancellationToken.None);
+            result = await DataOperationLease.RunAsync(token =>
+            {
+                Volatile.Write(ref operationEntered, true);
+                return updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token, preparation.Progress);
+            }, CancellationToken.None);
         }
+        catch (InvalidOperationException) when (!Volatile.Read(ref operationEntered)) { result = new(false, UpdateOutcomePresenter.DataUnavailableNotStartedMessage, null); }
         catch (Exception) { result = new(true, "The reviewed update did not produce a recorded outcome. Execution or verification may have been interrupted. No verified success was recorded; refresh inventory before deciding what to do next.", null); }
         finally { StopUpdateProgressPolling(); isExecuting = false; updateProgressMailbox = null; updateProgressPresentation = null; if (!windowClosed) LoadSavedInventory(); }
         if (windowClosed) return;

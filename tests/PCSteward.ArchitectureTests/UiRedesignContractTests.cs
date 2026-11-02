@@ -484,6 +484,43 @@ public sealed class UiRedesignContractTests
     }
 
     /// <summary>
+    /// Task 73 final review L2 (FR-UPD-01/04/08/09, FR-HIS-03): clicking Confirm marks execution pending synchronously, before the
+    /// single confirmation completes the decision, so HasActiveOperation is true at once and F5 or a scan cannot start in between;
+    /// ConfirmAndRunAsync still runs only after the awaited decision. A data-lease refusal before the workflow is entered reads as
+    /// "Not started", never as an unrecorded outcome.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-01/04/08/09; FR-HIS-03 (final review L2): Confirm blocks other work at once; a lease refusal reads as Not started.")]
+    public void ConfirmMarksExecutionPendingAtOnceAndALeaseRefusalReadsAsNotStarted()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        StringAssert.Contains(source, "|| isExecuting || executionPending || isClearing ||");
+        string reviewStep = Between(source, "private void AddReviewStep(", "private void AddUpdateStep(");
+        string confirmHandler = Between(reviewStep, "confirm.Click += (_, _) =>", "actions.Children.Add(cancel);");
+        int completedGuard = confirmHandler.IndexOf("if (decision.Task.IsCompleted) return;", StringComparison.Ordinal);
+        int pending = confirmHandler.IndexOf("executionPending = true;", StringComparison.Ordinal);
+        int settle = confirmHandler.IndexOf("decision.TrySetResult(true);", StringComparison.Ordinal);
+        Assert.IsTrue(completedGuard >= 0 && pending > completedGuard && settle > pending, "pending is set before the decision completes");
+        StringAssert.Contains(confirmHandler, "if (!accepted) executionPending = false;");
+        Assert.AreEqual(1, Count(source, "TrySetResult(true)"), "still exactly one confirmation path");
+
+        string review = Between(source, "private async Task ReviewAndExecuteAsync", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
+        StringAssert.Contains(Between(review, "if (!confirmed || windowClosed)", "isExecuting = true;"), "executionPending = false;");
+        int awaited = review.IndexOf("bool confirmed = await decision.Task;", StringComparison.Ordinal);
+        int executing = review.IndexOf("isExecuting = true;", StringComparison.Ordinal);
+        int handOver = review.IndexOf("executionPending = false;", executing, StringComparison.Ordinal);
+        int run = review.IndexOf("updates.ConfirmAndRunAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(awaited >= 0 && executing > awaited && handOver > executing && run > handOver, "execution starts only after the awaited decision");
+
+        int entered = review.IndexOf("Volatile.Write(ref operationEntered, true);", StringComparison.Ordinal);
+        Assert.IsTrue(entered >= 0 && run > entered, "the flag is set inside the lease, before the workflow runs");
+        string leaseCatch = "catch (InvalidOperationException) when (!Volatile.Read(ref operationEntered)) { result = new(false, UpdateOutcomePresenter.DataUnavailableNotStartedMessage, null); }";
+        int refusal = review.IndexOf(leaseCatch, StringComparison.Ordinal);
+        int general = review.IndexOf("catch (Exception) { result = new(true, \"The reviewed update did not produce a recorded outcome.", StringComparison.Ordinal);
+        Assert.IsTrue(refusal >= 0 && general > refusal, "a lease refusal is caught separately, before the unrecorded-outcome fallback");
+    }
+
+    /// <summary>
     /// Task 73 Phase 2 (ADR-030 decision 3; FR-UPD-08/09; FR-DAT-09; audit P-H3/P-H4): Verify shows the mapped per-item outcome,
     /// its evidence, restart guidance and Delete downloaded files through the existing cleanup; a refused UAC prompt returns to
     /// Review instead of reading as a failure.

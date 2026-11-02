@@ -412,6 +412,14 @@ public sealed class UpdatesAndJobPresentationTests
             new UpdateBatchResult([Entry(selection, UpdateHistoryStatus.RunningApplicationWarning)], new RunningApplicationDetection(true, ["widget.exe"]))), selection, "Widget");
         Assert.AreEqual(UpdateOutcomeKind.NotStarted, late.Items.Single().Outcome.Kind);
 
+        // Final review L2: a data-lease refusal before the workflow runs is Not started, with honest text, never "no recorded outcome".
+        UpdateJobCompletion leaseRefused = UpdateOutcomePresenter.ForResult(new(false, UpdateOutcomePresenter.DataUnavailableNotStartedMessage, null), selection, "Widget");
+        Assert.AreEqual(UpdateOutcomeKind.NotStarted, leaseRefused.Items.Single().Outcome.Kind);
+        Assert.AreEqual("Update not started", leaseRefused.Headline);
+        StringAssert.Contains(leaseRefused.Items.Single().Outcome.Summary, "Nothing was changed.");
+        Assert.IsFalse(leaseRefused.Items.Single().Outcome.Summary.Contains("recorded outcome", StringComparison.Ordinal));
+        Assert.AreNotEqual(StatusTone.Critical, leaseRefused.Items.Single().Outcome.Tone);
+
         UpdateJobCompletion unrecorded = UpdateOutcomePresenter.ForResult(new(true, "no recorded outcome", null), selection, "Widget");
         Assert.AreEqual(UpdateOutcomeKind.ResultNotVerified, unrecorded.Items.Single().Outcome.Kind, "an unrecorded run is never Verified or described as installed");
         Assert.AreEqual("Result not verified", unrecorded.Headline);
