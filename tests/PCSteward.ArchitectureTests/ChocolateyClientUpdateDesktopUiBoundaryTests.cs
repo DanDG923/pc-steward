@@ -128,7 +128,9 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         StringAssert.Contains(surfaces, "AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);");
     }
 
-    private static string Desktop(string file) => File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", file));
+    // Normalised to LF: Windows checkouts use CRLF, and the handler boundary below is matched on "\n    }\n".
+    private static string Desktop(string file) =>
+        File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", file)).Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static string Between(string source, string start, string end)
     {
