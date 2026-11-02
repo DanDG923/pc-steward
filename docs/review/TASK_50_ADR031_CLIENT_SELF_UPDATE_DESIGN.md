@@ -157,7 +157,7 @@ Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `TM-03/04/07/13`, ADR-031. Base 
 | `RootWritableDuringRun+ReleaseIncomplete` | RootWritable | yes |
 | `WatchFailedDuringRun+ReleaseIncomplete` | WatchFailed | yes |
 
-  Any other text (two watchdog kinds, reversed order, whitespace, `None+…`, lowercase, digits) is invalid. The set is complete for the binding: `RecordWatchdogFault` keeps only the **first** watchdog fault, so at most one kind can co-occur with `ReleaseIncomplete`. Longest value 39 B (+ `,"clientRunFault":""` = 19 B overhead) → the largest client frame is 5,083 + 58 = 5,141 B ≤ 16,384.
+  Any other text (two watchdog kinds, reversed order, whitespace, `None+…`, lowercase, digits) is invalid. The set is complete for the binding: `RecordWatchdogFault` keeps only the **first** watchdog fault, so at most one kind can co-occur with `ReleaseIncomplete`. Longest value 39 B (+ `,"clientRunFault":""` = 20 B overhead) → a client frame is at most 5,083 + 59 = 5,142 B ≤ 16,384 (upper bound).
 - **Source.** Only the helper endpoint writes it, from the client binding's `WatchdogFault` and `ReleaseIncomplete` read after the launch settled (the watchdog is joined and its fault recorded in the launcher's `finally`, before the launch task completes), carried by `ChocolateyUpgradeResult.Observed`. Every other client-route decision (A1–D refusals, Undetermined, Matched ∧ NotStarted, a launch that threw) writes `None`.
 
 ### 8.2 Codec rule S14 (structural, added to S1–S13)
