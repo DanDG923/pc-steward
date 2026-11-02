@@ -89,3 +89,25 @@ An independent review (Opus, pinned `7671d98`) returned **CONDITIONAL** with no 
 Its findings are applied above:
 - three Medium overclaims: the fallback is "not triggered" rather than "not needed"; the lazy-load and loader scope is narrowed; O5 is held to the spec scope;
 - Lows: corrected A-Q1 details, A2-L3 exact-artifact wording, re-pin scope, unprobed eligibility facts and no target package, the complete open list, and the provenance and escape restoration.
+
+## Re-run after alignment to 2.7.5 (2026-11-02, approval record 2)
+
+[Raw evidence](TASK_50_HOST_EVIDENCE_RESULT_2.json). Same script (SHA-256 `0A1C4377…84D4`), Default cases, no stop, 0 redactions.
+
+- **Verdicts:** O5 **PASS-READABLE**; AQ1N, AQ1M, AQ1C **PASS**; A2L3S **PASS**. These confirm the earlier run on the aligned install.
+- **The release now matches the pin**, except for one extra file:
+  - engine `choco.exe` 12,022,880 B, SHA-256 `4AB5785C…61C0` = the 2.7.5 pin;
+  - code list 56/56 matched;
+  - `lib/chocolatey/chocolatey.nupkg` 5,719,618 B, `F86F99A1…5839` = the 2.7.5 public asset;
+  - tools tree: 13 files, 0 unlisted.
+- **Remaining mismatch:** the `helpers` tree has **42 files against 41 listed**; exactly one unlisted file. The probe's `matchesPinnedRelease` is therefore `false`, and observer step 2 would refuse ("an extra helpers file refuses"). The likeliest cause is a stale helper left by the in-place upgrade from the earlier release; this is a hypothesis until the file is named.
+  - **Next:** the owner identifies the file with a read-only listing. Then either the owner removes it (an owner host action; for example a Chocolatey repair/reinstall of 2.7.5, or deleting the stale file), or, if it is part of a legitimate 2.7.5 install path, the reviewed manifest decision is revisited. Fail closed until then.
+- **Split token present:** `tokenElevationType` = 3 (Limited) and not elevated. The desktop meets the L6 split-token availability constraint on this host.
+- **Still open before admission:**
+  - the extra helper file;
+  - a Chocolatey-managed target package (the store has only the client);
+  - AQ1UAC/runas (H3, not approved);
+  - the ADR-025 exact-artifact test;
+  - the v2 redeploy;
+  - the proxy and client-certificate disclosure decision;
+  - owner approval.
