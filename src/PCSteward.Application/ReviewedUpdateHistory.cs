@@ -186,6 +186,7 @@ public static class ReviewedUpdateHistoryPresentation
             "Chocolatey Community machine update through PC Steward's administrator helper; package scripts run with administrator rights.",
         UpdateRouteContract.ChocolateyMachineRegistrationV2 or UpdateRouteContract.ChocolateyMachineRegistrationV3 or
             UpdateRouteContract.ChocolateyMachineProvisionalV3 => EarlierChocolateyRouteText,
+        UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ChocolateyClientUpdatePresentation.HistoryRouteText,
         _ => UnknownRouteText,
     };
 

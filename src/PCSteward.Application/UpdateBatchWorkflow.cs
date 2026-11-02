@@ -82,7 +82,11 @@ public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, boo
     PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None);
 
 /// <summary>Why a post-update verification did not proceed to the target check (fact extension rev 3 §4.3).</summary>
-public enum PostUpdateVerificationDetail { None, ClientChanged, ClientUnverifiable }
+/// <summary>
+/// Verification detail; anything but <see cref="None"/> is Unverified. <see cref="ClientLeftoverNotListed"/> (ADR-031 design §3a):
+/// a Chocolatey client self-update left a leftover whose bytes match no reviewed release (named in the message, never deleted).
+/// </summary>
+public enum PostUpdateVerificationDetail { None, ClientChanged, ClientUnverifiable, ClientLeftoverNotListed }
 
 public interface IPostUpdateInventory
 {

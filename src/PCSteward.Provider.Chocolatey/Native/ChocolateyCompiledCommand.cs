@@ -91,6 +91,58 @@ internal abstract record ChocolateyCompiledCommand
         }
     }
 
+    /// <summary>
+    /// ADR-031 design §3.5: the client self-update's single fixed <c>upgrade chocolatey --version &lt;target&gt;</c>, built only by
+    /// <see cref="ChocolateyClientUpdateArguments.BuildUpgrade"/> from two releases of one reviewed list. Only a client-update
+    /// binding accepts it (<see cref="NativeLaunchSpec.FromBinding"/>); its launch releases every client hold after resume.
+    /// </summary>
+    internal sealed record UpgradeClient : ChocolateyCompiledCommand
+    {
+        private UpgradeClient(ChocolateyReviewedRelease installed, ChocolateyReviewedRelease target, IReadOnlyList<string> arguments)
+            : base(arguments, UpgradeBudget)
+        {
+            InstalledRelease = installed;
+            TargetRelease = target;
+        }
+
+        internal ChocolateyReviewedRelease InstalledRelease { get; }
+
+        internal ChocolateyReviewedRelease TargetRelease { get; }
+
+        /// <summary>Called only by <see cref="TryUpgradeClient"/> (architecture test).</summary>
+        internal static UpgradeClient? TryCreate(ReviewedUpdateOperation operation, ChocolateyReviewedRelease installed, ChocolateyReviewedRelease target)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+            try { return new UpgradeClient(installed, target, ChocolateyClientUpdateArguments.BuildUpgrade(operation, installed, target)); }
+            catch (ArgumentException) { return null; }
+        }
+    }
+
+    /// <summary>ADR-031: the client self-update's stage-C <c>list chocolatey --exact --limit-output --no-color</c>.</summary>
+    internal sealed record ListClient : ChocolateyCompiledCommand
+    {
+        private ListClient(ChocolateyReviewedRelease installed, IReadOnlyList<string> arguments) : base(arguments, ListExactBudget) =>
+            InstalledRelease = installed;
+
+        internal ChocolateyReviewedRelease InstalledRelease { get; }
+
+        /// <summary>Called only by <see cref="TryListClient"/> (architecture test).</summary>
+        internal static ListClient? TryCreate(ReviewedUpdateOperation operation, ChocolateyReviewedRelease installed)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+            try { return new ListClient(installed, ChocolateyClientUpdateArguments.BuildList(operation, installed)); }
+            catch (ArgumentException) { return null; }
+        }
+    }
+
+    /// <summary>ADR-031: the client self-update upgrade, or null unless the operation names exactly the list's offer.</summary>
+    internal static UpgradeClient? TryUpgradeClient(ReviewedUpdateOperation operation, ChocolateyReviewedRelease installed,
+        ChocolateyReviewedRelease target) => UpgradeClient.TryCreate(operation, installed, target);
+
+    /// <summary>ADR-031: the client self-update installed recheck, or null unless the operation is that route's exact shape.</summary>
+    internal static ListClient? TryListClient(ReviewedUpdateOperation operation, ChocolateyReviewedRelease installed) =>
+        ListClient.TryCreate(operation, installed);
+
     /// <summary>The stage-C installed recheck, or null when the operation is not the exact accepted route shape.</summary>
     internal static ListExact? TryListExact(ReviewedUpdateOperation operation) => ListExact.TryCreate(operation);
 

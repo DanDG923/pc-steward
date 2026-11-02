@@ -59,6 +59,8 @@ public sealed class ClientQueriesBoundaryTests
     private static readonly string[] PrivatelyConstructed =
     [
         Binding, Command, Command + "+ListExact", Command + "+Outdated", Command + "+Upgrade", Outcome, Spec,
+        // ADR-031: the client self-update commands.
+        Command + "+UpgradeClient", Command + "+ListClient",
     ];
 
     /// <summary>(target type, member) → the exact set of source-level callers allowed in <c>src</c> (empty: none yet).</summary>
@@ -73,6 +75,13 @@ public sealed class ClientQueriesBoundaryTests
         (Command + "+Outdated", "Create", [Command + ".CreateOutdated"]),
         (Command + "+Upgrade", "TryCreate", [Command + ".TryUpgrade"]),
         (Native + "ChocolateyExactListArguments", "Build", [Command + "+ListExact.TryCreate"]),
+        // ADR-031 design §3.5: the client commands come only from their list-bound builders; no src caller admits them yet.
+        (Command + "+UpgradeClient", "TryCreate", [Command + ".TryUpgradeClient"]),
+        (Command + "+ListClient", "TryCreate", [Command + ".TryListClient"]),
+        (Native + "ChocolateyClientUpdateArguments", "BuildUpgrade", [Command + "+UpgradeClient.TryCreate"]),
+        (Native + "ChocolateyClientUpdateArguments", "BuildList", [Command + "+ListClient.TryCreate"]),
+        (Command, "TryUpgradeClient", []),
+        (Command, "TryListClient", []),
         (Outcome, "Create", [Native + "ChocolateyQueryParser.ParseListExact", Native + "ChocolateyQueryParser.ParseOutdated"]),
         // N4b (design rev 6 §4, §5.4): the native item owns the commands, the launches and the stage-C decision.
         (Command, "TryListExact", [ItemWork + ".ObserveProfile"]),
@@ -127,7 +136,8 @@ public sealed class ClientQueriesBoundaryTests
                 type == Command && ctor.Parameters == 1 && (ctor.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Family),
                 $"{type} has a non-private constructor");
         }
-        CollectionAssert.AreEquivalent(new[] { Command + "+ListExact", Command + "+Outdated", Command + "+Upgrade" },
+        CollectionAssert.AreEquivalent(new[] { Command + "+ListExact", Command + "+Outdated", Command + "+Upgrade", Command + "+UpgradeClient",
+                Command + "+ListClient" },
             assemblies.SelectMany(path => DerivedFrom(path, Command)).ToArray(), "the compiled command hierarchy is closed");
         CollectionAssert.AreEquivalent(new[] { Values + "+Matched", Values + "+Refused", Values + "+Undetermined", Values + "+OutOfOrder" },
             assemblies.SelectMany(path => DerivedFrom(path, Values)).ToArray(), "the candidate values are a closed kind");

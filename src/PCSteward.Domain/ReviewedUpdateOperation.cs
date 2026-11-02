@@ -8,7 +8,13 @@ namespace PCSteward.Domain;
 public enum UpdateRouteContract
 {
     WinGetUserExactV2, ChocolateyMachineRegistrationV2, WinGetUserExactV3, ChocolateyMachineRegistrationV3,
-    ChocolateyMachineProvisionalV3, ChocolateyMachineRuntimeLimitsV3
+    ChocolateyMachineProvisionalV3, ChocolateyMachineRuntimeLimitsV3,
+    /// <summary>
+    /// ADR-031 (accepted, Option 2): update the Chocolatey client itself (package ID exactly <c>chocolatey</c>) to a release on
+    /// PC Steward's compiled reviewed list, with its own guard contract. Not admitted (<c>HasSupportedMode</c>), and the
+    /// frozen versions are data: only the provider's compiled list and native checks decide whether a job could run.
+    /// </summary>
+    ChocolateyClientSelfUpdateV1
 }
 
 /// <summary>Frozen data semantics only. No member asserts that native candidate qualification succeeded.</summary>
@@ -21,7 +27,15 @@ public enum ReviewedCandidateProvenance { UnqualifiedLegacyLabel, TrustedDesktop
 /// conditional on the fixed official Community feed. No member asserts native eligibility, qualification or consent.
 /// Append new values; never reinterpret an existing one.
 /// </summary>
-public enum ReviewedProviderGuardContract { LegacyUnqualified, RequiredEffectiveControls, CommunityScriptRuntimeLimits }
+public enum ReviewedProviderGuardContract
+{
+    LegacyUnqualified, RequiredEffectiveControls, CommunityScriptRuntimeLimits,
+    /// <summary>
+    /// ADR-031: the client self-update guard. The trusted current client runs one compiled command built only from the reviewed
+    /// list; success needs an exact manifest match of the target release. Never inherits the package-route meaning.
+    /// </summary>
+    ChocolateyClientSelfUpdate
+}
 
 /// <summary>Canonical reviewed data; neither a digest nor a restored identity grants execution consent.</summary>
 public sealed partial class ReviewedUpdateOperation
@@ -53,6 +67,10 @@ public sealed partial class ReviewedUpdateOperation
             (job.Selection.Provider != UpdateProvider.Chocolatey || job.Selection.Source != UpdateSource.ChocolateyCommunity ||
                 job.Selection.Scope != UpdateScope.Machine))
             throw new ArgumentException("Provisional candidate intent is limited to Chocolatey Community machine Update.", nameof(routeContract));
+        if (routeContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
+            (encodingVersion != SchemaVersion || !HasClientSelfUpdateShape(job.Selection, mode, architecture)))
+            throw new ArgumentException("A client self-update is limited to the current schema, the Chocolatey Community machine " +
+                "registration of the package ID chocolatey, and provider-script-controlled mode and architecture.", nameof(routeContract));
         if (evidenceObservedAt == default || evidenceObservedAt > job.ApprovedAt)
             throw new ArgumentException("Review evidence needs an observation time no later than review.", nameof(evidenceObservedAt));
         JobId = job.Id;
@@ -66,7 +84,8 @@ public sealed partial class ReviewedUpdateOperation
         InstallationContextId = ValidateIdentity(installationContextId, nameof(installationContextId));
         EvidenceId = ValidateIdentity(evidenceId, nameof(evidenceId));
         // Shared by construction and TryRestore, so a non-conforming stored row restores as false (adapter gates §A.6/§A.6.2).
-        if (routeContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 && !TryGetProfileEvidenceDigest(EvidenceId, out _))
+        if (routeContract is UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
+            !TryGetProfileEvidenceDigest(EvidenceId, out _))
             throw new ArgumentException("Runtime-limit review evidence must be the exact Chocolatey profile v2 identity.", nameof(evidenceId));
         EvidenceObservedAt = evidenceObservedAt.ToUniversalTime();
         RouteContract = routeContract;
@@ -114,6 +133,7 @@ public sealed partial class ReviewedUpdateOperation
         {
             UpdateRouteContract.ChocolateyMachineProvisionalV3 => ReviewedProviderGuardContract.RequiredEffectiveControls,
             UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 => ReviewedProviderGuardContract.CommunityScriptRuntimeLimits,
+            UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ReviewedProviderGuardContract.ChocolateyClientSelfUpdate,
             _ => ReviewedProviderGuardContract.LegacyUnqualified,
         };
     public ReviewedInstallerMode Mode { get; }
@@ -200,6 +220,19 @@ public sealed partial class ReviewedUpdateOperation
         digest = candidate;
         return true;
     }
+
+    /// <summary>The ADR-031 client self-update package ID; compared ordinally (the native registration's own spelling).</summary>
+    public const string ChocolateyClientPackageId = "chocolatey";
+
+    /// <summary>
+    /// ADR-031 shape only: Chocolatey Community machine registration of exactly <see cref="ChocolateyClientPackageId"/>,
+    /// <c>NotControllable(ProviderScriptControlled)</c> and <c>ProviderScriptSelected</c>. Never list membership or eligibility.
+    /// </summary>
+    private static bool HasClientSelfUpdateShape(UpdateJobSelection selection, ReviewedInstallerMode mode, ReviewedUpdateArchitecture? architecture) =>
+        selection.Provider == UpdateProvider.Chocolatey && selection.Source == UpdateSource.ChocolateyCommunity &&
+        selection.Scope == UpdateScope.Machine && string.Equals(selection.PackageId, ChocolateyClientPackageId, StringComparison.Ordinal) &&
+        mode == ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled) &&
+        architecture?.Binding == ReviewedArchitectureBinding.ProviderScriptSelected;
 
     private static bool IsUserCacheIntentRoute(UpdateRouteContract route) =>
         route is UpdateRouteContract.ChocolateyMachineProvisionalV3 or UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3;

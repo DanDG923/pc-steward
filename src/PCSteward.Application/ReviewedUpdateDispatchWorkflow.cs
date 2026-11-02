@@ -348,8 +348,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (verification is null) return (UpdateDispatchOutcome.Unverified, VerificationDidNotFinishMessage);
-        if (verification.Detail != PostUpdateVerificationDetail.None) return (UpdateDispatchOutcome.Unverified, ClientNotVerifiedMessage);
-        if (operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 && verification.RestartPending)
+        if (verification.Detail != PostUpdateVerificationDetail.None)
+            return (UpdateDispatchOutcome.Unverified, operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1
+                ? ChocolateyClientUpdatePresentation.NotVerifiedMessage(verification.Detail) : ClientNotVerifiedMessage);
+        // ADR-031: a client self-update is Success only on the exact target manifest; restart-pending is never Success either.
+        if (operation.RouteContract is UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
+            verification.RestartPending)
             return (UpdateDispatchOutcome.Unverified, RestartContractViolationMessage);
         return null;
     }
