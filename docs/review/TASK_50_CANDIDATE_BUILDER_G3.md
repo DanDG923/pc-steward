@@ -1,6 +1,6 @@
 # Task 50 — candidate builder (gap G3)
 
-**Status:** implemented and tested on Linux. The Windows CI job is the end-to-end evidence; it has not run yet for this branch. No host action has been taken. This record does not close G3 by itself: it needs an independent review and a green Windows CI run.
+**Status:** implemented, tested on Linux, end-to-end Windows CI evidence recorded (see [First Windows CI evidence](#first-windows-ci-evidence)), and independently reviewed; review findings are applied (see [Review disposition](#review-disposition)). No host action has been taken.
 
 **Requirements:** `FR-UPD-15`, `TM-03`, `TM-13`, [ADR-022](../adr/ADR-022-OWNER-ONLY-PROTECTED-TEST-DEPLOYMENT.md) and its protocol-2 alignment note. **Gap:** G3 in the [activation host-session plan](TASK_50_ACTIVATION_HOST_SESSION_PLAN.md) §11, which asks for a reviewed builder that writes the `[{bytes,path,sha256}]` manifest with the root capability file, built once and pinned, with no deterministic-build claim.
 
@@ -16,7 +16,7 @@ Task 48's candidate was put together by hand: the ScheduledHost RID prerequisite
 |---|---|
 | `scripts/New-OwnerOnlyCandidate.ps1` | The builder. It runs under Windows PowerShell 5.1 or pwsh. An internal `-ValidateCandidateRoot` mode re-runs the script in Windows PowerShell 5.1 to validate the result. |
 | `scripts/Test-OwnerOnlyCandidateBuilderCI.ps1` | CI-only launcher. Like `Test-CI.ps1`, it runs only as an administrator on a GitHub-hosted runner. It creates a disposable standard user and runs the builder plus an independent re-validation as that user. |
-| `.github/workflows/ci.yml` | New `owner-only-candidate-builder` job on `windows-latest`. It installs the SDK from `global.json` and uploads only the small JSON evidence files. The existing `build-and-test` job is unchanged. |
+| `.github/workflows/ci.yml` | New `owner-only-candidate-builder` job on `windows-latest`. It installs the SDK from `global.json` and uploads only the small JSON evidence files. The job reads contents only and does not persist checkout credentials. The `build-and-test` job's steps are unchanged, but its `Test-CI.ps1` run now also executes the new candidate-builder fixtures as the disposable standard user. |
 | `tests/PCSteward.Security.FixtureTests/OwnerOnlyCandidateBuilderTests.cs` and `Fixtures/OwnerOnlyCandidateBuilder.ps1` | Parse, AST policy, real-function and manifest tests. |
 
 ## Design
@@ -123,7 +123,7 @@ A bad build therefore fails before anyone approves it. The child's counts and ha
   - **Windows row only:** `Read-OwnerOnlyCandidateManifest -PayloadRoot` accepts the written manifest (`pinned-unsigned-v2`, protocol `2`). `AssertTree` and `GetUnsignedImage` pass, and a byte appended after pinning is refused. On Linux this row reports Inconclusive with that reason; it is not silently skipped.
 - **`BuilderRefusesUnsafeInvocationsBeforeAnyBuildStep`.** On Linux, the builder exits non-zero with "requires Windows" and creates nothing. On Windows, a Program Files path, a path inside the repository, an existing folder and a relative path are each refused before any `== restore` step, and the existing folder stays empty.
 - **`CandidateBuilderCiLauncherRefusesAccountCreationOutsideHostedRunner`.** Windows only; Inconclusive on Linux.
-- **`WindowsCiRunsTheCandidateBuilderWithThePinnedSdk`.** The job exists, uses `windows-latest` and `global-json-file: global.json`, and the existing job still runs `Test-CI.ps1`.
+- **`WindowsCiRunsTheCandidateBuilderWithThePinnedSdk`.** The job exists, uses `windows-latest` and `global-json-file: global.json`, reads contents only without persisted checkout credentials, and the existing job still runs `Test-CI.ps1`.
 
 **Mutation checks**, each reverted afterwards:
 - an inserted `Invoke-Expression` was caught;
@@ -143,6 +143,25 @@ On a clean `windows-latest` checkout, as a non-admin user, with the `global.json
 
 A second Windows PowerShell 5.1 process then re-validates the payload from disk. The job uploads `candidate-manifest.json`, `candidate-build.json` and `candidate-revalidation.json` (14-day retention). The CI candidate is **not** the deployment candidate: it is built from a PR merge commit on a runner and is discarded.
 
+## First Windows CI evidence
+
+The `owner-only-candidate-builder` job passed on `19bc296`: 103 files, 51,472,376 bytes, manifest SHA-256 `DEB99FF9FEB1D4AD645DA7B9B6F4B57119675A2BF9B52D7525937D067CA74FD7`, SDK 10.0.403, independently re-validated from disk in a second Windows PowerShell 5.1 process (`AssertTree` checks every file's size and hash). This CI candidate hash will not equal the owner's deployment candidate (B1).
+
+The same run's `build-and-test` job failed three Windows-only rows of the new fixtures; none was a builder defect:
+- the manifest bytes mismatch for `a.txt` (13 vs 14) came from the fixture's own 5.1-only drift probe, which appended a byte after the manifest was written and before the C# test re-derived the manifest from the tree. The probe now restores the pinned bytes, and the test asserts that the restored tree is accepted again;
+- the existing-OutputRoot refusal created its directory under the inherited, inaccessible runneradmin `LOCALAPPDATA`; it now uses the first writable location outside the repository;
+- Windows PowerShell wrapped the launcher's error text at console width; the test now collapses whitespace before matching.
+
+## Review disposition
+
+- **M1:** the CI launcher's standard-user branch also points `HOME`, `USERPROFILE` and `HOMEDRIVE`/`HOMEPATH` (read by Git for Windows) at a per-run folder under the work root.
+- **M2:** `dotnet` and `git` run with a function-local `$ErrorActionPreference = 'Continue'`, so native stderr cannot become a terminating `NativeCommandError` under Windows PowerShell 5.1; success is judged by the exit code only.
+- **M3 (identical-or-refuse merge rule):** passed on the first real run (no conflicting projection file). It stays an owner decision if a projection conflict ever appears.
+- **L1:** `safe.directory` is narrowed from `*` to the checkout path (forward slashes).
+- **L2:** the candidate job declares `permissions: contents: read` and checks out with `persist-credentials: false`.
+- **L3:** the data-root prefix comes from `[Environment]::GetFolderPath(LocalApplicationData)`, as `FactoryReset.GetStateRoot()` resolves it, and stays a pure string comparison.
+- **L4:** each writer refusal and the copy conflict are asserted by their specific message. The AST policy also bans `[scriptblock]::Create`, `$ExecutionContext` and `New-Object System.Diagnostics.Process` (`[Diagnostics.Process]` types were already banned), and a canary script proves each ban fires.
+
 ## What remains host evidence
 
 - **B1:** the owner builds once from the chosen build commit (G6) on the host, and records `manifestSha256` and the summary. The CI hash will not match it. There is no deterministic-build claim, and the hash is pinned only once it has been built.
@@ -151,6 +170,6 @@ A second Windows PowerShell 5.1 process then re-validates the payload from disk.
 
 ## Open points for review
 
-- The strict identical-or-refuse merge may fail on Windows CI if the desktop and helper publishes emit different copies of a shared file. Task 48/49 silently took the helper's copy. Read-only inspection found a single Windows SDK projection package (`Microsoft.Windows.SDK.NET.Ref` 10.0.22000.57) and no CsWinRT package in the graph, so this is not expected. The first CI run settles it. If the merge does fail, the failing path is printed, and the owner must decide on a merge rule instead of letting the builder choose one.
-- The CI launcher passes `safe.directory=*` through the process-scoped `GIT_CONFIG_*` variables, for the disposable user only, because the checkout belongs to the runner account. No Git config file is changed.
+- The strict identical-or-refuse merge could fail if the desktop and helper publishes emit different copies of a shared file. Task 48/49 silently took the helper's copy. Read-only inspection found a single Windows SDK projection package (`Microsoft.Windows.SDK.NET.Ref` 10.0.22000.57) and no CsWinRT package in the graph, and the first CI run passed (M3). If the merge ever fails, the failing path is printed, and the owner must decide on a merge rule instead of letting the builder choose one.
+- The CI launcher passes `safe.directory=<checkout path>` through the process-scoped `GIT_CONFIG_*` variables, for the disposable user only, because the checkout belongs to the runner account. No Git config file is changed.
 - `--disable-build-servers` and `MSBUILDDISABLENODEREUSE=1` avoid leaving build servers running. They do not change the build output.

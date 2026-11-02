@@ -26,11 +26,19 @@ if ($StandardUser) {
     $env:APPDATA = Join-Path $WorkRoot 'appdata'
     $env:LOCALAPPDATA = Join-Path $WorkRoot 'localappdata'
     New-Item -ItemType Directory -Path $env:APPDATA, $env:LOCALAPPDATA -Force | Out-Null
+    # HOME/USERPROFILE and HOMEDRIVE+HOMEPATH (read by Git for Windows) also still name runneradmin's profile.
+    $userHome = Join-Path $WorkRoot 'home'
+    New-Item -ItemType Directory -Path $userHome -Force | Out-Null
+    $env:HOME = $userHome
+    $env:USERPROFILE = $userHome
+    $env:HOMEDRIVE = Split-Path -Qualifier $userHome
+    $env:HOMEPATH = $userHome.Substring($env:HOMEDRIVE.Length)
     # Process-scoped, command-level Git configuration for this disposable user only (no Git config file is changed):
-    # the checkout belongs to the runner account, so Git's ownership check would refuse rev-parse/status.
+    # the checkout belongs to the runner account, so Git's ownership check would refuse rev-parse/status. Only this
+    # checkout is trusted (Git compares safe.directory against the forward-slash path).
     $env:GIT_CONFIG_COUNT = '1'
     $env:GIT_CONFIG_KEY_0 = 'safe.directory'
-    $env:GIT_CONFIG_VALUE_0 = '*'
+    $env:GIT_CONFIG_VALUE_0 = $repository.Replace('\', '/')
     New-Item -ItemType Directory -Path $env:TEMP, $env:DOTNET_CLI_HOME -Force | Out-Null
     $candidate = Join-Path $WorkRoot 'candidate'
 

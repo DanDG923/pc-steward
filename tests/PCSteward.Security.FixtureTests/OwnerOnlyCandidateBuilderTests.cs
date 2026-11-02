@@ -60,6 +60,12 @@ public sealed class OwnerOnlyCandidateBuilderTests
             // AST policy: no violations; dotnet/git/Windows PowerShell only through resolved variables with structured arguments.
             string[] violations = [.. result.GetProperty("violations").EnumerateArray().Select(item => item.GetString()!)];
             Assert.AreEqual(0, violations.Length, string.Join("\n", violations));
+            // The policy is live: a canary script trips each dynamic-code and process-creation ban.
+            string[] canary = [.. result.GetProperty("canaryViolations").EnumerateArray().Select(item => item.GetString()!)];
+            foreach (string ban in new[] { "canary: [scriptblock]::Create", "canary: $ExecutionContext", "canary: New-Object Diagnostics.Process", "canary: type Diagnostics.Process" })
+                Assert.IsTrue(canary.Contains(ban), $"{ban} not detected:\n{string.Join("\n", canary)}");
+            Assert.AreEqual(2, canary.Count(item => item == "canary: [scriptblock]::Create"), "both [scriptblock] spellings");
+            Assert.AreEqual(2, canary.Count(item => item == "canary: New-Object Diagnostics.Process"), "positional and -TypeName forms");
             JsonElement invocations = result.GetProperty("invocations");
             CollectionAssert.AreEquivalent(InvokedExecutables, invocations.EnumerateObject().Select(item => item.Name).ToArray());
             Assert.AreEqual(2, invocations.GetProperty("dotnet").GetInt32(), "dotnet: the splatted build step and --version only");
@@ -82,13 +88,28 @@ public sealed class OwnerOnlyCandidateBuilderTests
             Assert.AreEqual(FixturePaths.Length, manifest.GetProperty("entries").GetInt32());
             Assert.IsTrue(result.GetProperty("rendering").GetProperty("stable").GetBoolean());
             Assert.IsTrue(result.GetProperty("rendering").GetProperty("reversedInputSameBytes").GetBoolean(), "input order must not change the manifest bytes");
-            foreach (JsonProperty refusal in result.GetProperty("writerRefusals").EnumerateObject())
-                Assert.AreEqual(JsonValueKind.String, refusal.Value.ValueKind, $"writer must refuse: {refusal.Name}");
+            // Each refusal for its own reason, not merely any exception.
+            Dictionary<string, string> refusalReasons = new()
+            {
+                ["overwrite"] = "already exists", ["noncanonical"] = "Noncanonical candidate path", ["traversal"] = "Noncanonical candidate path",
+                ["forwardSlash"] = "Noncanonical candidate path", ["reservedName"] = "Noncanonical candidate path", ["caseCollision"] = "Duplicate or case-colliding candidate path",
+                ["lowerCaseHash"] = "Invalid candidate entry", ["negativeLength"] = "Invalid candidate entry", ["tooMany"] = "1 to 512 files",
+                ["oversize"] = "exceeds the 256 MiB manifest bound",
+            };
+            JsonElement writerRefusals = result.GetProperty("writerRefusals");
+            CollectionAssert.AreEquivalent(refusalReasons.Keys.ToArray(), writerRefusals.EnumerateObject().Select(item => item.Name).ToArray());
+            foreach ((string name, string reason) in refusalReasons)
+            {
+                JsonElement refusal = writerRefusals.GetProperty(name);
+                Assert.AreEqual(JsonValueKind.String, refusal.ValueKind, $"writer must refuse: {name}");
+                StringAssert.Contains(refusal.GetString(), reason, name);
+            }
 
             JsonElement copy = result.GetProperty("copy");
             Assert.IsTrue(copy.GetProperty("first").GetBoolean());
             Assert.IsFalse(copy.GetProperty("identical").GetBoolean());
-            StringAssert.Contains(copy.GetProperty("conflict").GetString(), "Conflicting payload file");
+            StringAssert.Contains(copy.GetProperty("conflict").GetString(), "Conflicting payload file from fixture");
+            StringAssert.Contains(copy.GetProperty("conflict").GetString(), "differs from an earlier output");
             StringAssert.Contains(result.GetProperty("reparseRefused").GetString(), "Reparse point refused");
             CollectionAssert.AreEqual(ExpectedXbf,
                 result.GetProperty("expectedXbf").EnumerateArray().Select(item => item.GetString()).ToArray());
@@ -217,6 +238,8 @@ public sealed class OwnerOnlyCandidateBuilderTests
         StringAssert.Contains(section, "runs-on: windows-latest");
         StringAssert.Contains(section, "global-json-file: global.json");
         StringAssert.Contains(section, "scripts/Test-OwnerOnlyCandidateBuilderCI.ps1");
+        StringAssert.Matches(section, new System.Text.RegularExpressions.Regex(@"permissions:\s+contents: read"));
+        StringAssert.Contains(section, "persist-credentials: false");
         // The existing build-and-test job keeps its own steps.
         StringAssert.Contains(workflow[..job], "pwsh -NoProfile -File ./scripts/Test-CI.ps1");
     }

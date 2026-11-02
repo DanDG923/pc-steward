@@ -210,12 +210,17 @@ function Copy-OwnerOnlyCandidateFile {
 function Invoke-OwnerOnlyCandidateDotnet {
     param([Parameter(Mandatory)][string]$Dotnet, [Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string[]]$Arguments)
     Write-Host "== $Name"
+    # Function-local: Windows PowerShell 5.1 can turn native stderr into a terminating NativeCommandError under 'Stop'
+    # when streams are redirected, even on exit 0. Success is judged by the exit code only.
+    $ErrorActionPreference = 'Continue'
     & $Dotnet @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "dotnet step '$Name' failed with exit code $LASTEXITCODE." }
 }
 
 function Get-OwnerOnlyCandidateGitState {
     param([Parameter(Mandatory)][string]$Git, [Parameter(Mandatory)][string]$RepositoryRoot)
+    # Function-local: Git warnings on stderr must not terminate under Windows PowerShell 5.1; the exit code decides.
+    $ErrorActionPreference = 'Continue'
     $commit = & $Git @('-C', $RepositoryRoot, 'rev-parse', '--verify', 'HEAD')
     if ($LASTEXITCODE -ne 0 -or [string]$commit -notmatch '\A[0-9a-f]{40}\z') { throw 'Could not read the source commit.' }
     $status = @(& $Git @('-C', $RepositoryRoot, '--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=all'))
@@ -265,7 +270,10 @@ Assert-OwnerOnlyCandidateNonElevatedWindows
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 foreach ($required in @('global.json', 'PCSteward.slnx')) { if (!(Test-Path -LiteralPath (Join-Path $repositoryRoot $required) -PathType Leaf)) { throw "Repository file is missing: $required" } }
 $programRoots = @([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles), [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86), $env:ProgramW6432, $env:ProgramFiles, [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows))
-$dataPrefixes = @(); if ($env:LOCALAPPDATA) { $dataPrefixes += (Join-Path $env:LOCALAPPDATA 'PCSteward') }
+# The data root as the app resolves it (FactoryReset.cs: SpecialFolder.LocalApplicationData); a pure string prefix rule.
+# DoNotVerify: .NET Framework otherwise returns '' for a folder that does not exist yet, which would drop the rule.
+$localApplicationData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData, [Environment+SpecialFolderOption]::DoNotVerify)
+$dataPrefixes = @(); if ($localApplicationData) { $dataPrefixes += [IO.Path]::Combine($localApplicationData, 'PCSteward') }
 $OutputRoot = Assert-OwnerOnlyCandidateOutputRootRule -Path $OutputRoot -ForbiddenRoots ($programRoots + @($repositoryRoot)) -ForbiddenPrefixes $dataPrefixes
 if (Test-Path -LiteralPath $OutputRoot) { throw "OutputRoot must not exist: $OutputRoot" }
 $parent = Split-Path -Parent $OutputRoot

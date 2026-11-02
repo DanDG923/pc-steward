@@ -3,7 +3,7 @@
 `FR-UPD-15`, `TM-03`, `TM-13`; ADR-022 and its protocol-2 alignment note; activation plan §11 G3.
 
 - [Record](../review/TASK_50_CANDIDATE_BUILDER_G3.md): `scripts/New-OwnerOnlyCandidate.ps1` builds the unsigned v2 payload and `candidate-manifest.json`, then self-validates with `Read-OwnerOnlyCandidateManifest` in Windows PowerShell 5.1. It is non-elevated, makes no deterministic-build claim, and the candidate is pinned once by its manifest hash.
-- Security `OwnerOnlyCandidateBuilderTests` covers parsing, AST policy, the real build-step, SDK, output-root, manifest-writer and copy functions, and installer-reader acceptance (Windows row). The Windows CI job `owner-only-candidate-builder` runs the builder end to end.
+- Security `OwnerOnlyCandidateBuilderTests` covers parsing, AST policy, the real build-step, SDK, output-root, manifest-writer and copy functions, and installer-reader acceptance (Windows row). The Windows CI job `owner-only-candidate-builder` runs the builder end to end; first pass on `19bc296` (103 files, manifest `DEB99FF9…4FD7`). Review findings M1–M3 and L1–L5 are dispositioned in the record.
 - No host action. B1 (the owner's build on the chosen commit) remains host evidence.
 
 # Task 50 — activation host-session plan (draft)

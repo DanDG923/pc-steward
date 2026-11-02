@@ -41,10 +41,20 @@ $commonForbidden = @('Invoke-Expression', 'iex', 'Set-AuthenticodeSignature', 'N
 $builderOnlyForbidden = @('Start-Process', 'saps', 'start', 'cmd', 'cmd.exe', 'Add-Type', 'Remove-Item', 'rm', 'del', 'ri', 'rd', 'rmdir', 'erase',
     'Set-Acl', 'Set-ItemProperty', 'New-ItemProperty', 'New-Service', 'Register-ScheduledTask', 'Stop-Process', 'kill', 'Restart-Computer',
     'dotnet', 'dotnet.exe', 'git', 'git.exe', 'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe')
-foreach ($subject in @(@{ Name = 'builder'; Ast = $builder.Ast; Forbidden = $commonForbidden + $builderOnlyForbidden }, @{ Name = 'launcher'; Ast = $launcher.Ast; Forbidden = $commonForbidden })) {
+# A canary script proves the dynamic-code and process-creation bans below actually fire.
+$canaryText = "[scriptblock]::Create('x')`n[Management.Automation.ScriptBlock]::Create('x')`n`$ExecutionContext.InvokeCommand.InvokeScript('x')`nNew-Object System.Diagnostics.Process`nNew-Object -TypeName 'Diagnostics.ProcessStartInfo'`n[Diagnostics.Process]::Start('x')`n"
+$canary = [Management.Automation.Language.Parser]::ParseInput($canaryText, [ref]$null, [ref]$null)
+foreach ($subject in @(@{ Name = 'builder'; Ast = $builder.Ast; Forbidden = $commonForbidden + $builderOnlyForbidden }, @{ Name = 'launcher'; Ast = $launcher.Ast; Forbidden = $commonForbidden }, @{ Name = 'canary'; Ast = $canary; Forbidden = $commonForbidden })) {
+    foreach ($invoke in $subject.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Static -and $node.Expression -is [Management.Automation.Language.TypeExpressionAst] }, $true)) {
+        if ($invoke.Expression.TypeName.FullName -match '(^|\.)ScriptBlock$' -and [string]$invoke.Member.Value -ieq 'Create') { $violations.Add("$($subject.Name): [scriptblock]::Create") }
+    }
+    foreach ($variable in $subject.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.VariableExpressionAst] -and $node.VariablePath.UserPath -ieq 'ExecutionContext' }, $true)) {
+        $violations.Add("$($subject.Name): `$ExecutionContext")
+    }
     foreach ($command in $subject.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true)) {
         $name = $command.GetCommandName()
         if ($name -and ($subject.Forbidden -contains $name)) { $violations.Add("$($subject.Name): forbidden command $name") }
+        if ($name -ieq 'New-Object' -and $command.Extent.Text -match 'Diagnostics\.Process') { $violations.Add("$($subject.Name): New-Object Diagnostics.Process") }
         foreach ($parameter in @($command.CommandElements | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] })) {
             if ($parameter.ParameterName -ieq 'Verb') { $violations.Add("$($subject.Name): -Verb parameter") }
         }
@@ -92,7 +102,8 @@ foreach ($pair in @($stepsFunction.FindAll({ param($node) $node -is [Management.
     }
 }
 $results.buildStepArgumentArrays = $argumentValues
-$results.violations = @($violations)
+$results.canaryViolations = @($violations | Where-Object { $_.StartsWith('canary: ', [StringComparison]::Ordinal) })
+$results.violations = @($violations | Where-Object { !$_.StartsWith('canary: ', [StringComparison]::Ordinal) })
 
 # 3. Real pure functions from the builder.
 foreach ($name in @('Get-OwnerOnlyCandidateBuildSteps', 'Test-OwnerOnlyCandidateSdkVersion', 'Assert-OwnerOnlyCandidateOutputRootRule', 'Get-OwnerOnlyCandidateFileSha256',
