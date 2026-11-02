@@ -1,5 +1,32 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — ADR-031 implementation (2026-11-02; `0183de7..c63d522`).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`; design: [ADR-031 design note](review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md).
+- What it adds:
+  - a compiled reviewed **release list** (2.7.5 only), with 2.7.5 protections and goldens unchanged;
+  - a pure offer rule (newest strictly newer listed release; never a downgrade; nothing for an unlisted client);
+  - route `ChocolateyClientSelfUpdateV1` with its own guard;
+  - list-only `UpgradeClient` and `ListClient` commands;
+  - a client-mode observer and binding, which verifies under holds through stage D and releases holds only after a successful resume;
+  - `ChocolateyClientUpdatePostcheck`: Verified only on an exact target-release match; restart-pending is never Success;
+  - a content-bound `.old` leftover allowance in client mode only;
+  - presenters.
+- The route is **not admitted**.
+- Deferred: the client helper item and stage machine, wire and dispatcher acceptance, desktop verifier wiring, and the Desktop UI.
+- **Windows CI on `b7f5f67` is green** (Security 1168).
+- **Independent review: PASS with fixes.** Fixed in `5a988b4`:
+  - the setup-override guard: a pinned read-only registry reader refuses when `ChocolateyInstallAllowCurrentUser`, `ChocolateyAllowInsecureRootDirectory` or a user-scope `ChocolateyInstall` is present, at stages B and D and again immediately before `CreateProcessW`;
+  - leftover matching by the source release's own digest;
+  - the leftover allowed in client mode only, and surfaced in Verify and history;
+  - fault-injection tests with a client binding;
+  - a failed release becomes Unverified (`ClientReleaseIncomplete`).
+- **Owner decision needed before any admission of the client route.** Residual R5 remains an elevated-execution race: a same-user process can set the override after the check, and the pinned setup then grants the user Modify partway through the elevated run. The guard narrows the race but cannot close it.
+
+**Task 50 — ADR-031 accepted; host Chocolatey aligned to 2.7.5 (owner, 2026-11-02).**
+- The owner accepted [ADR-031](adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) Option 2: a reviewed Chocolatey release list replacing the single pin, plus a separate reviewed "Update Chocolatey to X" job run by the trusted current client and verified against X's manifest.
+- The owner reports updating the host's Chocolatey to 2.7.5 by hand.
+- **Host evidence re-run (approval record 2): all verdicts PASS** (O5 PASS-READABLE; AQ1N, AQ1M, AQ1C and A2L3S PASS). Engine, 56/56 code files and the client nupkg match 2.7.5. **One unlisted file in `helpers`** (`Chocolatey.PowerShell.dll.old`, a self-upgrade leftover) kept `matchesPinnedRelease` false. The owner has since deleted it, and the listing is clean; the next approved evidence run must confirm. The desktop token is a split token (Limited). There is still no Chocolatey-managed target package. See the [interpretation](review/TASK_50_HOST_EVIDENCE_INTERPRETATION.md). Implementation of ADR-031 is in progress.
+- The route stays non-admitted.
+
 **Task 73 — Desktop UI and UX overhaul: direction accepted (2026-11-01).** The owner chose concept A (Calm Native) as the base, with B's Ready / Needs review / Ignored grouping on Updates and D's Review → Update → Verify stepper for the job. Recorded in [ADR-030](adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md), with a five-phase [plan](review/TASK_73_UI_UX_OVERHAUL_PLAN.md); the evidence is the [audit](review/UI_UX_OVERHAUL_AUDIT.md), the [research](review/UI_UX_OVERHAUL_RESEARCH.md) and the [concepts](review/UI_UX_OVERHAUL_CONCEPTS.md). Implementation awaits owner approval of its branch and PR. No code has changed. It is not part of Task 50 admission.
 
 **Task 73 — Phase 1 foundations (2026-11-01), draft PR DanDG923/pc-steward#13 stacked on the Task 50 branch:**

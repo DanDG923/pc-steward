@@ -58,7 +58,9 @@ public sealed class FreshUpdateDispatchEvidence
     /// </summary>
     internal bool ProfileEvidenceMatches(ReviewedUpdateOperation operation)
     {
-        if (operation.RouteContract != UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3) return true;
+        // ADR-031: the client self-update route carries the same profile evidence form and is held to the same equality.
+        if (operation.RouteContract is not (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1))
+            return true;
         if (!ReviewedUpdateOperation.TryGetProfileEvidenceDigest(operation.EvidenceId, out string frozen) ||
             !ReviewedUpdateOperation.TryGetProfileEvidenceDigest(EvidenceId, out string fresh)) return false;
         return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(fresh), Encoding.ASCII.GetBytes(frozen));

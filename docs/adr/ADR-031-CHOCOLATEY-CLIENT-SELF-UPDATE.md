@@ -1,6 +1,6 @@
 # ADR-031 — Keeping the Chocolatey client itself up to date
 
-**Status:** Proposed (owner request, 2026-11-02). It needs owner acceptance before implementation.
+**Status:** Accepted (owner, 2026-11-02): Option 2.
 **Date:** 2026-11-02
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-UPD-15`, `FR-UPD-01/03–09`, `TM-03/04/07/13`; ADR-025 (Chocolatey runtime-limits exception), Profile V2 ([TASK_50_CHOCOLATEY_PROFILE_V2.md](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md))
@@ -49,7 +49,7 @@ Option 2:
 - Re-pin work happens per Chocolatey release, as an owner-approved PR with independent review.
 - Host evidence (O5, A-Q1, A2-L3), the ADR-025 exact-artifact test and a v2 redeploy remain prerequisites. This ADR does not admit anything by itself.
 
-## Open questions for the owner
+## Owner decisions (2026-11-02)
 
-1. Accept Option 2?
-2. For first alignment: update Chocolatey by hand to a listed release (2.7.5), or have a reviewed re-pin add your installed release?
+1. Option 2 is accepted.
+2. First alignment is done by the owner: the host's Chocolatey has been updated by hand to **2.7.5**, the release already on the reviewed list. Host evidence must be re-run to confirm the installed files match the 2.7.5 manifest; the earlier run predates the update.

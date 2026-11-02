@@ -77,12 +77,26 @@ public interface IApprovedUpdateExecutor
 /// Protocol-2 fact extension rev 3 §4.3 (L5): <see cref="Detail"/> is appended for the reviewed Chocolatey verifier. A detail
 /// other than <see cref="PostUpdateVerificationDetail.None"/> means the client's own files or registrations changed or could
 /// not be checked, so nothing was run to verify; the reviewed workflow records it as Unverified whatever the other fields say.
+/// <see cref="Note"/> (ADR-031 design §3a) is a disclosure on a verified result only; it never makes a result verified.
 /// </summary>
 public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending,
-    PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None);
+    PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None, PostUpdateVerificationNote Note = PostUpdateVerificationNote.None);
 
-/// <summary>Why a post-update verification did not proceed to the target check (fact extension rev 3 §4.3).</summary>
-public enum PostUpdateVerificationDetail { None, ClientChanged, ClientUnverifiable }
+/// <summary>
+/// Verification detail; anything but <see cref="None"/> is Unverified. ADR-031 (Chocolatey client self-update):
+/// <see cref="ClientLeftoverNotListed"/> — a leftover whose bytes match no reviewed release (design §3a, named, never deleted);
+/// <see cref="ClientLeftoverNotSource"/> — the leftover matches a reviewed release other than the one the update started from
+/// (named, never deleted); <see cref="ClientReleaseIncomplete"/> — releasing the helper's file holds after the update started
+/// failed part-way (design §2 R3).
+/// </summary>
+public enum PostUpdateVerificationDetail { None, ClientChanged, ClientUnverifiable, ClientLeftoverNotListed, ClientLeftoverNotSource, ClientReleaseIncomplete }
+
+/// <summary>
+/// A disclosure carried with a <b>verified</b> result (ADR-031 design §3a). <see cref="ClientReviewedLeftover"/>: a Chocolatey
+/// client self-update verified with the reviewed leftover of the source release present. Only the client self-update route
+/// may carry a note; the reviewed workflow treats any note elsewhere, or an undefined one, as Unverified.
+/// </summary>
+public enum PostUpdateVerificationNote { None, ClientReviewedLeftover }
 
 public interface IPostUpdateInventory
 {

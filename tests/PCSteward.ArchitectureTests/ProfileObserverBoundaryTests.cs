@@ -42,6 +42,7 @@ public sealed class ProfileObserverBoundaryTests
     private static readonly (string Type, string Member)[] TestOnly =
     [
         (Observer, "ObserveForTests"),
+        (Observer, "ObserveClientForTests"),
         (Seam, "CreateForTests"),
     ];
 
@@ -52,6 +53,7 @@ public sealed class ProfileObserverBoundaryTests
         (Held, "Begin", Observer),
         // N3: the retained binding is built only by the observer, from the holder it sealed.
         (Binding, "Create", Observer),
+        (Binding, "CreateForClientUpdate", Observer),
         (Result + "+Observed", "Create", Observer),
         (Result + "+Refused", "Create", Observer),
         (Result + "+TimedOut", "Create", Observer),

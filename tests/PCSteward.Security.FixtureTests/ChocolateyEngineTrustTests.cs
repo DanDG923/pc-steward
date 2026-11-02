@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32.SafeHandles;
+using PCSteward.Provider.Chocolatey;
 using PCSteward.Provider.Chocolatey.Native;
 
 namespace PCSteward.Security.FixtureTests;
@@ -22,7 +23,7 @@ public sealed class ChocolateyEngineTrustTests
         {
             Assert.IsFalse(ChocolateyEngineTrust.TryVerifyEmbeddedSignature(handle, path, out string? signer));
             Assert.IsNull(signer);
-            Assert.IsFalse(ChocolateyEngineTrust.IsTrustedEngine(handle, path));
+            Assert.IsFalse(ChocolateyEngineTrust.IsTrustedEngine(handle, path, ChocolateyClientReleasePolicy.Version));
             Assert.IsFalse(ChocolateyEngineTrust.TryVerifyEmbeddedSignature(handle, path.ToLowerInvariant().Replace('\\', '/'), out _));
         }
         SafeFileHandle closed = N1NativeFixture.Open(path, directory: false, out _);
@@ -44,7 +45,7 @@ public sealed class ChocolateyEngineTrustTests
             verified = ChocolateyEngineTrust.TryVerifyEmbeddedSignature(handle, copy, out string? signer);
             if (verified) Assert.IsFalse(string.IsNullOrEmpty(signer));
             Assert.AreNotEqual(ChocolateyEngineTrust.ExpectedSignerSimpleName, signer);
-            Assert.IsFalse(ChocolateyEngineTrust.IsTrustedEngine(handle, copy), "only the Chocolatey signer at 2.7.5.0 is trusted");
+            Assert.IsFalse(ChocolateyEngineTrust.IsTrustedEngine(handle, copy, ChocolateyClientReleasePolicy.Version), "only the Chocolatey signer at 2.7.5.0 is trusted");
             Assert.IsTrue(ChocolateyEngineTrust.TryReadFileVersion(handle, copy, out string? version));
             Assert.AreEqual(4, version!.Split('.').Length);
         }

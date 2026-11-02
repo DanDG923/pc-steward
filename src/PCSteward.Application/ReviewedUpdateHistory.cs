@@ -186,6 +186,7 @@ public static class ReviewedUpdateHistoryPresentation
             "Chocolatey Community machine update through PC Steward's administrator helper; package scripts run with administrator rights.",
         UpdateRouteContract.ChocolateyMachineRegistrationV2 or UpdateRouteContract.ChocolateyMachineRegistrationV3 or
             UpdateRouteContract.ChocolateyMachineProvisionalV3 => EarlierChocolateyRouteText,
+        UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ChocolateyClientUpdatePresentation.HistoryRouteText,
         _ => UnknownRouteText,
     };
 
@@ -217,6 +218,8 @@ public static class ReviewedUpdateHistoryPresentation
     }
 
     internal const string TargetVerifiedText = "Verification: the target version was detected after the update.";
+    /// <summary>ADR-031 design §3a: the verified client self-update with the reviewed leftover disclosed.</summary>
+    internal const string TargetVerifiedWithLeftoverText = TargetVerifiedText + " " + ChocolateyClientUpdatePresentation.VerifiedLeftoverNote;
     internal const string TargetNotDetectedText = "Verification: the update finished, but the target version was not detected.";
     internal const string VerificationDidNotFinishText = "Verification did not finish, so the resulting version is unknown.";
     internal const string StoppedAfterStartText =
@@ -233,11 +236,18 @@ public static class ReviewedUpdateHistoryPresentation
     {
         string message = StripLeadingMarkers(terminal.Diagnostic);
         if (terminal.Outcome == UpdateDispatchOutcome.Success)
-            return message == ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage ? TargetVerifiedText : null;
+            return message switch
+            {
+                ReviewedUpdateDispatchWorkflow.TargetVerifiedMessage => TargetVerifiedText,
+                ReviewedUpdateDispatchWorkflow.TargetVerifiedWithLeftoverMessage => TargetVerifiedWithLeftoverText,
+                _ => null,
+            };
         if (terminal.Outcome != UpdateDispatchOutcome.Unverified) return null;
         if (message == ReviewedUpdateDispatchWorkflow.TargetNotDetectedMessage) return TargetNotDetectedText;
         if (message == ReviewedUpdateDispatchWorkflow.VerificationDidNotFinishMessage) return VerificationDidNotFinishText;
         if (message == ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage) return ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage;
+        // ADR-031 design §3.7/§3a: the client self-update's fixed not-verified messages (naming a leftover where there is one).
+        if (ChocolateyClientUpdatePresentation.IsNotVerifiedMessage(message)) return message;
         if (message == ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage) return ReviewedUpdateDispatchWorkflow.RestartContractViolationMessage;
         if (message.StartsWith(ReviewedUpdateDispatchWorkflow.ExitCodeNotObservedMessage, StringComparison.Ordinal)) return ExitCodeNotObservedText;
         foreach (ReviewedUpdateProviderStatus stopped in StoppedStatuses)

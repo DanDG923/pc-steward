@@ -36,6 +36,7 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
     private readonly Lock gate = new();
     private bool sealedForUse;
     private bool codeReleased;
+    private bool allReleased;
     private bool disposed;
 
     private ChocolateyHeldProfileFiles() { }
@@ -111,6 +112,38 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
         }
     }
 
+    /// <summary>
+    /// ADR-031 design §1 (client self-update only): closes <b>every</b> handle — engine, release tree and code — because the
+    /// client's own setup must rename or delete each of them. Binding only (an architecture test pins the call site), and
+    /// only after the upgrade's process creation, assignment and resume all succeeded. Identities stay readable; nothing
+    /// launches afterwards (<see cref="CodeReleased"/> is true). Idempotent. Every handle is attempted; <see cref="AllReleased"/>
+    /// becomes true only when each close succeeded, otherwise this throws after the attempt (design §2 R3: the caller records
+    /// the partial release as a fault).
+    /// </summary>
+    internal void ReleaseAll()
+    {
+        lock (gate)
+        {
+            if (!sealedForUse) throw new InvalidOperationException("The held file set is not sealed.");
+            if (disposed || allReleased) return;
+            codeReleased = true;
+            bool complete = true;
+            foreach (ChocolateyHeldFile file in code.Concat(release))
+            {
+                try { file.Handle.Dispose(); }
+                catch (Exception exception) when (exception is not OutOfMemoryException) { complete = false; }
+            }
+            allReleased = complete;
+            if (!complete) throw new InvalidOperationException("Not every held client file could be released.");
+        }
+    }
+
+    /// <summary>True once <see cref="ReleaseAll"/> closed every handle (client self-update only).</summary>
+    internal bool AllReleased
+    {
+        get { lock (gate) return allReleased; }
+    }
+
     public void Dispose()
     {
         lock (gate)
@@ -141,8 +174,11 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
 internal sealed class ChocolateyProfileObservation : IDisposable
 {
     private ChocolateyProfileObservation(ChocolateyCommonProfileData common, string fingerprint, ChocolateyClientStateData clientState,
-        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient)
+        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient,
+        ChocolateyReviewedRelease? release, ChocolateyReleaseResidue? releaseResidue)
     {
+        Release = release;
+        ReleaseResidue = releaseResidue;
         Common = common;
         Fingerprint = fingerprint;
         ClientState = clientState;
@@ -168,19 +204,44 @@ internal sealed class ChocolateyProfileObservation : IDisposable
     /// </summary>
     internal ChocolateyHeldClientBinding? HeldClient { get; }
 
+    /// <summary>
+    /// ADR-031 design §3.2: the listed release whose complete manifest the installed client matched (selected by engine digest).
+    /// The observer always sets it; null only for an observation a test built directly.
+    /// </summary>
+    internal ChocolateyReviewedRelease? Release { get; }
+
+    /// <summary>
+    /// ADR-031 design §3a: the disclosed finding for the one reviewed self-upgrade leftover, accepted because its bytes equal a
+    /// listed release's file. Never held, fingerprinted or part of the stage-D identity; null when absent.
+    /// </summary>
+    internal ChocolateyReleaseResidue? ReleaseResidue { get; }
+
     /// <summary>Observer only (an architecture test pins the call site).</summary>
     internal static ChocolateyProfileObservation Create(ChocolateyCommonProfileData common, string fingerprint, ChocolateyClientStateData clientState,
-        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient)
+        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient,
+        ChocolateyReviewedRelease? release = null, ChocolateyReleaseResidue? releaseResidue = null)
     {
         ArgumentNullException.ThrowIfNull(common);
         ArgumentException.ThrowIfNullOrEmpty(fingerprint);
         ArgumentNullException.ThrowIfNull(clientState);
         ArgumentNullException.ThrowIfNull(installedVersion);
-        return new ChocolateyProfileObservation(common, fingerprint, clientState, installedVersion, targetLibBadResidue, heldClient);
+        if (releaseResidue is not null && release is null)
+            throw new ArgumentException("A leftover finding needs the matched installed release.", nameof(releaseResidue));
+        return new ChocolateyProfileObservation(common, fingerprint, clientState, installedVersion, targetLibBadResidue, heldClient, release,
+            releaseResidue);
     }
 
     public void Dispose() => HeldClient?.Dispose();
 }
+
+/// <summary>
+/// ADR-031 design §3a fallback: the disclosed cause of a MachineInputsUnsupported refusal. <see cref="UnlistedReleaseLeftover"/>
+/// means the only failure was <c>helpers\Chocolatey.PowerShell.dll.old</c> whose bytes match no listed release; PC Steward never
+/// deletes it and reports it as "Installed, not verified" with a manual next step. <see cref="SetupAccessOverride"/> (design
+/// §2 R5, client mode, Helper role only): a name pinned setup.psm1 uses to weaken or skip the root ACL is set, so the client
+/// self-update does not launch.
+/// </summary>
+internal enum ChocolateyProfileRefusalDetail { None, UnlistedReleaseLeftover, SetupAccessOverride }
 
 /// <summary>
 /// Closed result of <see cref="ChocolateyProfileObserver.Observe"/> (§3, rev-4 L3): Observed, a settled Refused with the
@@ -210,8 +271,9 @@ internal abstract record ChocolateyProfileResult
     /// </summary>
     internal sealed record Refused : ChocolateyProfileResult
     {
-        private Refused(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint)
+        private Refused(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint, ChocolateyProfileRefusalDetail detail)
         {
+            Detail = detail;
             Reason = reason;
             ObservedInstalled = observedInstalled;
             ObservedFingerprint = observedFingerprint;
@@ -223,8 +285,14 @@ internal abstract record ChocolateyProfileResult
 
         internal string? ObservedFingerprint { get; }
 
-        internal static Refused Create(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint)
+        /// <summary>ADR-031 design §3a fallback: why a MachineInputsUnsupported refusal happened, when it has a disclosed cause.</summary>
+        internal ChocolateyProfileRefusalDetail Detail { get; }
+
+        internal static Refused Create(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint,
+            ChocolateyProfileRefusalDetail detail = ChocolateyProfileRefusalDetail.None)
         {
+            if (!Enum.IsDefined(detail) || detail != ChocolateyProfileRefusalDetail.None && reason != ChocolateyProfileRefusal.MachineInputsUnsupported)
+                throw new ArgumentException("A refusal detail applies only to MachineInputsUnsupported.", nameof(detail));
             bool valid = reason switch
             {
                 ChocolateyProfileRefusal.MachineInputsUnsupported or ChocolateyProfileRefusal.SourceNotCommunity =>
@@ -234,7 +302,7 @@ internal abstract record ChocolateyProfileResult
                 _ => false,
             };
             if (!valid) throw new ArgumentException("The observed values do not match the refusal reason.", nameof(reason));
-            return new Refused(reason, observedInstalled, observedFingerprint);
+            return new Refused(reason, observedInstalled, observedFingerprint, detail);
         }
     }
 

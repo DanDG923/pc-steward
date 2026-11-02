@@ -28,12 +28,16 @@ internal static class ChocolateyEngineTrust
     private const uint StateActionClose = 2;
     private const uint CacheOnlyUrlRetrieval = 0x1000; // WTD_CACHE_ONLY_URL_RETRIEVAL (wintrust.h), as MachineTrustedChocolatey
 
-    /// <summary>Embedded signature trusted, signed by the expected vendor, and file version exactly 2.7.5.0.</summary>
-    internal static bool IsTrustedEngine(SafeFileHandle held, string canonicalPath) =>
+    /// <summary>
+    /// ADR-031 design §3.2: embedded signature trusted, signed by the expected vendor, and file version exactly
+    /// <paramref name="expectedFileVersion"/> — the engine file version of the listed release the observer matched by digest.
+    /// </summary>
+    internal static bool IsTrustedEngine(SafeFileHandle held, string canonicalPath, string expectedFileVersion) =>
+        !string.IsNullOrEmpty(expectedFileVersion) &&
         TryVerifyEmbeddedSignature(held, canonicalPath, out string? signer) &&
         string.Equals(signer, ExpectedSignerSimpleName, StringComparison.Ordinal) &&
         TryReadFileVersion(held, canonicalPath, out string? version) &&
-        string.Equals(version, ChocolateyClientReleasePolicy.Version, StringComparison.Ordinal);
+        string.Equals(version, expectedFileVersion, StringComparison.Ordinal);
 
     /// <summary>
     /// True when WinVerifyTrust accepts the embedded signature of the held file, with the leaf signer's simple name from

@@ -160,7 +160,8 @@ internal sealed class LaunchJob : IDisposable
                 }
 
                 // N3: a binding that no longer holds its engine (disposed, or already released by an upgrade) launches nothing.
-                created = spec.MayCreateProcess &&
+                // ADR-031 design §2 R5: a client self-update re-checks the setup override names immediately before creation.
+                created = spec.MayCreateProcess && spec.SetupEnvironmentPermitsLaunch() &&
                     TryCreateSuspended(spec, commandLine, environment, input, outputPipe, errorPipe, out process, out thread);
                 try
                 {
@@ -200,9 +201,10 @@ internal sealed class LaunchJob : IDisposable
                 return TerminateAndConfirm(process, fault) ? NotStarted(cancelled: false) : Unknown(terminationFailed: true);
             }
             // §4 L2: CreateProcessW, assignment and resume all succeeded; an upgrade now releases the code holds. A failed
-            // release only keeps the holds longer (until the binding is disposed), so it never changes the outcome.
+            // package release only keeps the holds longer (until the binding is disposed), so it never changes the outcome; a
+            // failed client self-update release is recorded on its binding and forces the postcheck to Unverified (ADR-031 R3).
             try { spec.OnResumed(); }
-            catch (Exception exception) when (exception is not OutOfMemoryException) { }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { spec.OnReleaseFaulted(); }
             return launch.Supervise(process, output, error, budget, deadline, clock, fault, cancellationToken);
         }
         finally

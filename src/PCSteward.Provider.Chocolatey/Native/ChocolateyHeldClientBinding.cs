@@ -1,5 +1,14 @@
 namespace PCSteward.Provider.Chocolatey.Native;
 
+/// <summary>ADR-031: what a held client binding may launch.</summary>
+internal enum ChocolateyBindingPurpose
+{
+    /// <summary>The Task 50 package route: list, outdated and the fixed package upgrade; code holds released after resume.</summary>
+    PackageUpdate,
+    /// <summary>The client self-update: client list and the fixed client upgrade; every hold released after resume (design §1).</summary>
+    ClientSelfUpdate
+}
+
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §4 (M4, L2, L6) and §4.1: the retained root-engine binding. Private
 /// construction; produced only by <see cref="ChocolateyProfileObserver"/> (Helper role) from the sealed
@@ -24,8 +33,11 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
 
     private readonly ChocolateyHeldProfileFiles files;
 
-    private ChocolateyHeldClientBinding(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths, string targetId)
+    private ChocolateyHeldClientBinding(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths, string targetId,
+        ChocolateyBindingPurpose purpose, ChocolateyReviewedRelease? installedRelease)
     {
+        Purpose = purpose;
+        InstalledRelease = installedRelease;
         this.files = files;
         LaunchPaths = launchPaths;
         TargetId = targetId;
@@ -40,6 +52,18 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
 
     /// <summary>The package ID the observation was made for; list and upgrade commands must name it exactly.</summary>
     internal string TargetId { get; }
+
+    /// <summary>
+    /// ADR-031: a package binding accepts only the package commands; a client self-update binding accepts only the client
+    /// commands for <see cref="InstalledRelease"/>, and its upgrade releases every hold after resume.
+    /// </summary>
+    internal ChocolateyBindingPurpose Purpose { get; }
+
+    /// <summary>Client self-update only: the listed release the observer matched (the installed client). Null for a package binding.</summary>
+    internal ChocolateyReviewedRelease? InstalledRelease { get; }
+
+    /// <summary>True once a client self-update's resumed upgrade released every hold.</summary>
+    internal bool AllReleased => files.AllReleased;
 
     internal ChocolateyHeldFile Engine => files.Engine;
 
@@ -88,10 +112,33 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(launchPaths);
-        if (files.IsDisposed || !files.IsSealed || files.CodeReleased)
-            throw new ArgumentException("A sealed, fully held file set is required.", nameof(files));
         if (!ChocolateyNativePackageId.IsSupported(targetId) || ChocolateyClientReleasePolicy.IsClientTarget(targetId))
             throw new ArgumentException("A supported non-client target is required.", nameof(targetId));
+        Validate(files, launchPaths);
+        return new ChocolateyHeldClientBinding(files, launchPaths, targetId, ChocolateyBindingPurpose.PackageUpdate, null);
+    }
+
+    /// <summary>
+    /// ADR-031 design §3.6, observer only (an architecture test pins the call site): the client self-update binding over the
+    /// same sealed holder rules, for target <c>chocolatey</c> and the listed release the observer matched by engine digest.
+    /// </summary>
+    internal static ChocolateyHeldClientBinding CreateForClientUpdate(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths,
+        ChocolateyReviewedRelease installedRelease)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        ArgumentNullException.ThrowIfNull(launchPaths);
+        ArgumentNullException.ThrowIfNull(installedRelease);
+        if (!installedRelease.List.Contains(installedRelease))
+            throw new ArgumentException("The installed release must belong to its reviewed list.", nameof(installedRelease));
+        Validate(files, launchPaths);
+        return new ChocolateyHeldClientBinding(files, launchPaths, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId,
+            ChocolateyBindingPurpose.ClientSelfUpdate, installedRelease);
+    }
+
+    private static void Validate(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths)
+    {
+        if (files.IsDisposed || !files.IsSealed || files.CodeReleased)
+            throw new ArgumentException("A sealed, fully held file set is required.", nameof(files));
         if (!IsLaunchable(launchPaths, launchPaths.ChocolateyRoot))
             throw new ArgumentException("The launch paths cannot form the compiled environment.", nameof(launchPaths));
         ChocolateyHeldFile engine = files.Engine;
@@ -109,7 +156,6 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
                 !(top.Equals("hooks", StringComparison.OrdinalIgnoreCase) || top.Equals("extensions", StringComparison.OrdinalIgnoreCase)))
                 throw new ArgumentException("A held code file is outside hooks and extensions.", nameof(files));
         }
-        return new ChocolateyHeldClientBinding(files, launchPaths, targetId);
     }
 
     /// <summary>
@@ -117,6 +163,42 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
     /// assignment and resume have all succeeded. Closes the code handles; the engine and release tree stay held.
     /// </summary>
     internal void ReleaseCodeAfterResume() => files.ReleaseCode();
+
+    /// <summary>
+    /// ADR-031 design §1, launcher only (an architecture test pins the call site): a client self-update binding's upgrade
+    /// launch, once <c>CreateProcessW</c>, assignment and resume have all succeeded, closes every hold (engine, release tree,
+    /// code), because the client's setup renames or deletes each of them. Throws for a package binding.
+    /// </summary>
+    internal void ReleaseAllAfterResume()
+    {
+        if (Purpose != ChocolateyBindingPurpose.ClientSelfUpdate)
+            throw new InvalidOperationException("Only a client self-update binding releases every hold.");
+        files.ReleaseAll();
+    }
+
+    private int releaseIncomplete;
+    private int setupAccessOverrideRefused;
+
+    /// <summary>
+    /// Design §2 R3 (client self-update only): the resumed upgrade's release of every hold failed part-way. The postcheck then
+    /// reports <c>ReleaseIncomplete</c> (Unverified) whatever the re-observation shows. Never set for a package binding.
+    /// </summary>
+    internal bool ReleaseIncomplete => Volatile.Read(ref releaseIncomplete) != 0;
+
+    /// <summary>
+    /// Design §2 R5: the launcher refused to create the client upgrade process because a setup override name was set
+    /// immediately before launch (the launch reports NotStarted; no process exists).
+    /// </summary>
+    internal bool SetupAccessOverrideRefused => Volatile.Read(ref setupAccessOverrideRefused) != 0;
+
+    /// <summary>Launch spec only (an architecture test pins the call site): records a failed release after resume (client binding only).</summary>
+    internal void RecordReleaseIncomplete()
+    {
+        if (Purpose == ChocolateyBindingPurpose.ClientSelfUpdate) Volatile.Write(ref releaseIncomplete, 1);
+    }
+
+    /// <summary>Launch spec only (an architecture test pins the call site): records the pre-creation setup-override refusal.</summary>
+    internal void RecordSetupAccessOverrideRefused() => Volatile.Write(ref setupAccessOverrideRefused, 1);
 
     private int upgradeClaimed;
 
