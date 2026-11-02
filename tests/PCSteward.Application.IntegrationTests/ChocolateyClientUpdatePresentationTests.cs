@@ -113,6 +113,56 @@ public sealed class ChocolateyClientUpdatePresentationTests
         }
     }
 
+    [TestMethod]
+    public void AWatchdogStopIsNeverVerifiedSaysChocolateyMayBePartlyUpdatedAndGivesTheManualStep()
+    {
+        // ADR-031 design §2.1 R5 runtime watchdog (FR-UPD-15, TM-07/13): each fault has its own fixed message, recognised by history.
+        ReviewedUpdateOperation operation = Operation("2.7.5", "2.8.0");
+        (PostUpdateVerificationDetail Detail, string Message)[] stops =
+        [
+            (PostUpdateVerificationDetail.ClientSetupOverrideDuringRun, ChocolateyClientUpdatePresentation.StoppedSetupOverrideMessage),
+            (PostUpdateVerificationDetail.ClientRootWritableDuringRun, ChocolateyClientUpdatePresentation.StoppedRootWritableMessage),
+            (PostUpdateVerificationDetail.ClientWatchFailedDuringRun, ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage),
+        ];
+        foreach ((PostUpdateVerificationDetail detail, string message) in stops)
+        {
+            // Even an otherwise verified result is rejected once the watchdog stopped the run.
+            Assert.AreEqual((UpdateDispatchOutcome.Unverified, message),
+                ReviewedUpdateDispatchWorkflow.RejectVerification(operation, new PostUpdateInventoryResult(true, false, detail)));
+            Assert.AreEqual(message, ChocolateyClientUpdatePresentation.NotVerifiedMessage(detail));
+            StringAssert.StartsWith(message, "Stopped, not verified:");
+            StringAssert.Contains(message, "may be partly updated");
+            StringAssert.Contains(message, "administrator prompt");
+            Assert.AreEqual(message, ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Unverified, message)));
+        }
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedSetupOverrideMessage, "ChocolateyInstallAllowCurrentUser");
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedRootWritableMessage, "changeable by your account");
+        // The forced reinstall advice stays only where the folder was never shown changeable by the user.
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage, "PC Steward does not repair Chocolatey automatically.");
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage,
+            "from an administrator prompt, run choco upgrade chocolatey --version <the version you approved> --force");
+    }
+
+    [TestMethod]
+    [DataRow((int)PostUpdateVerificationDetail.ClientSetupOverrideDuringRun)]
+    [DataRow((int)PostUpdateVerificationDetail.ClientRootWritableDuringRun)]
+    public void AFolderShownChangeableDuringTheRunIsTreatedAsUntrustedAndNeverRepairedElevated(int injected)
+    {
+        // Independent review H1 (ADR-031 design §2.2 R5; FR-UPD-15, TM-07/13): the folder may stay changeable by the user, so
+        // the message never advises running choco elevated from it; it says to treat it as untrusted and reinstall.
+        string message = ChocolateyClientUpdatePresentation.NotVerifiedMessage((PostUpdateVerificationDetail)injected);
+        Assert.IsFalse(message.Contains("choco upgrade", StringComparison.OrdinalIgnoreCase), message);
+        Assert.IsFalse(message.Contains("--force", StringComparison.Ordinal), message);
+        Assert.IsFalse(message.Contains("repair Chocolatey)", StringComparison.Ordinal), message);
+        Assert.IsFalse(message.Contains("http", StringComparison.OrdinalIgnoreCase), "no invented URL");
+        StringAssert.Contains(message, "Treat the Chocolatey folder as untrusted");
+        StringAssert.Contains(message, "do not run choco from an administrator prompt");
+        StringAssert.Contains(message, "Remove or quarantine the Chocolatey folder");
+        StringAssert.Contains(message, "reinstall Chocolatey using Chocolatey's official installation instructions");
+        StringAssert.Contains(message, "PC Steward will not repair it.");
+        StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
+    }
+
     private static ReviewedUpdateTerminalRecord Terminal(UpdateDispatchOutcome outcome, string diagnostic) =>
         new(outcome, new DateTimeOffset(2026, 11, 2, 12, 5, 0, TimeSpan.Zero), 0, UpdateDispatchSettlementState.OwnedWorkStopped, diagnostic);
 

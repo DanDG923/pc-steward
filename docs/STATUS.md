@@ -20,6 +20,12 @@
   - fault-injection tests with a client binding;
   - a failed release becomes Unverified (`ClientReleaseIncomplete`).
 - **Owner decision needed before any admission of the client route.** Residual R5 remains an elevated-execution race: a same-user process can set the override after the check, and the pinned setup then grants the user Modify partway through the elevated run. The guard narrows the race but cannot close it.
+- **R5 runtime watchdog (owner-approved option 1; `ac17a9c..d56cb26`, review fixes `49614d8..8ef7513`).**
+  - What it does: registry change notifications on the HKCU and HKLM Environment keys (`KEY_NOTIFY` and `KEY_QUERY_VALUE` only), plus security-change notifications on the root and its parent, are armed before launch. The requester-access re-checks run on each notification and every 250 ms. Any override, any requester-writable root, or any watch failure terminates the job at once, and the result is never Verified.
+  - After an override or writable-root fault the message tells the owner to treat the folder as untrusted, not to run choco elevated, and to reinstall from Chocolatey's official instructions.
+  - **Windows CI on `d56cb26` is green** (Security 1207).
+  - **Independent review: PASS with fixes**, all applied: the safe recovery advice, kept key handles, no busy-spin, a binding-bound postcheck, and normal-run, parent-grant, re-arm-failure and thread-failure tests.
+  - The residual is documented: detection is by sampling, so rapid set/delete of a value can evade it, and a user-scope `ChocolateyInstall` may leave no trace. **Option 2** (running the self-update under a non-user identity, which needs its own ADR) is the only full closure. Owner acceptance is still required before admission.
 
 **Task 50 — ADR-031 accepted; host Chocolatey aligned to 2.7.5 (owner, 2026-11-02).**
 - The owner accepted [ADR-031](adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) Option 2: a reviewed Chocolatey release list replacing the single pin, plus a separate reviewed "Update Chocolatey to X" job run by the trusted current client and verified against X's manifest.

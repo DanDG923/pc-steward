@@ -28,11 +28,13 @@ public sealed class NativeLauncherBoundaryTests
         Assert.AreEqual(1, Count(Code(sources[launchJob]), @"return\s+RunCoreAsync\(spec,\s*deadline,\s*cancellationToken\);"),
             "the one core call is RunAsync's");
         Assert.AreEqual(1, Count(sources[launchJob], @"\bRunCoreWithFaultForTestsAsync\b"), "LaunchJob.cs may only declare the fault entry");
+        Assert.AreEqual(1, Count(sources[launchJob], @"\bRunCoreWithWatchdogForTestsAsync\b"), "LaunchJob.cs may only declare the watchdog entry");
         Assert.AreEqual(1, Count(sources[spec], @"\bForTests\b"), "NativeLaunchSpec.cs may only declare the test factory");
 
         string[] banned =
         [
             @"\bRunCoreWithFaultForTestsAsync\b",
+            @"\bRunCoreWithWatchdogForTestsAsync\b",
             @"\bLaunchJobFault\b",
             @"\bLaunchJob\s*\.\s*RunCoreAsync\b",
             @"\bNativeLaunchSpec\s*\.\s*ForTests\b",

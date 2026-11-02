@@ -266,7 +266,7 @@ internal static class ChocolateyProfileObserver
                 // N3: the binding takes the sealed holder over; its launch paths were resolved and validated in step 6.
                 held.Seal();
                 client = clientMode
-                    ? ChocolateyHeldClientBinding.CreateForClientUpdate(held, launchPaths!, release)
+                    ? ChocolateyHeldClientBinding.CreateForClientUpdate(held, launchPaths!, release, token)
                     : ChocolateyHeldClientBinding.Create(held, launchPaths!, targetId);
             }
             return ChocolateyProfileResult.Observed.Create(

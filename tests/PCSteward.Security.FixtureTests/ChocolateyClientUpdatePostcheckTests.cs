@@ -90,12 +90,39 @@ public sealed class ChocolateyClientUpdatePostcheckTests
         // LOW-2 (design §2 R3): the binding's recorded partial release forces Unverified with its own detail.
         (_, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) = Releases();
         Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete,
-            ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), source, target, User, holdReleaseIncomplete: true));
+            ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target), source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: true));
         Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete,
-            ChocolateyClientUpdatePostcheck.Evaluate(Observation(target, leftoverOf: source), source, target, User, holdReleaseIncomplete: true));
+            ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target, leftoverOf: source), source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: true));
         PostUpdateInventoryResult result = ChocolateyClientUpdatePostcheck.ToResult(ChocolateyClientUpdateVerdict.ReleaseIncomplete);
         Assert.IsFalse(result.ExpectedVersionDetected);
         Assert.AreEqual(PostUpdateVerificationDetail.ClientReleaseIncomplete, result.Detail);
+    }
+
+    [TestMethod]
+    [DataRow((int)ChocolateyClientWatchdogFault.SetupOverrideDuringRun, (int)ChocolateyClientUpdateVerdict.SetupOverrideDuringRun,
+        (int)PostUpdateVerificationDetail.ClientSetupOverrideDuringRun)]
+    [DataRow((int)ChocolateyClientWatchdogFault.RootWritableDuringRun, (int)ChocolateyClientUpdateVerdict.RootWritableDuringRun,
+        (int)PostUpdateVerificationDetail.ClientRootWritableDuringRun)]
+    [DataRow((int)ChocolateyClientWatchdogFault.WatchFailedDuringRun, (int)ChocolateyClientUpdateVerdict.WatchFailedDuringRun,
+        (int)PostUpdateVerificationDetail.ClientWatchFailedDuringRun)]
+    [DataRow(99, (int)ChocolateyClientUpdateVerdict.WatchFailedDuringRun, (int)PostUpdateVerificationDetail.ClientWatchFailedDuringRun)]
+    public void AWatchdogFaultIsNeverVerifiedWhateverTheReObservationShows(int injected, int expectedVerdict, int expectedDetail)
+    {
+        // ADR-031 design §2.1 R5: a terminated run may have left a partly updated client; an exact target observation (with or
+        // without the reviewed leftover) and an incomplete release both yield the watchdog verdict, never Verified.
+        ChocolateyClientWatchdogFault fault = (ChocolateyClientWatchdogFault)injected;
+        (_, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) = Releases();
+        foreach (bool releaseIncomplete in new[] { false, true })
+        {
+            Assert.AreEqual((ChocolateyClientUpdateVerdict)expectedVerdict,
+                ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target), source, target, User, fault, releaseIncomplete));
+            Assert.AreEqual((ChocolateyClientUpdateVerdict)expectedVerdict,
+                ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target, leftoverOf: source), source, target, User, fault, releaseIncomplete));
+        }
+        PostUpdateInventoryResult result = ChocolateyClientUpdatePostcheck.ToResult((ChocolateyClientUpdateVerdict)expectedVerdict);
+        Assert.IsFalse(result.ExpectedVersionDetected || result.RestartPending);
+        Assert.AreEqual((PostUpdateVerificationDetail)expectedDetail, result.Detail);
+        Assert.AreEqual(PostUpdateVerificationNote.None, result.Note);
     }
 
     private static ChocolateyReleaseEntry WithModule(ChocolateyReleaseEntry entry, ChocolateyReleaseFile module) =>
@@ -130,7 +157,7 @@ public sealed class ChocolateyClientUpdatePostcheckTests
     }
 
     private static ChocolateyClientUpdateVerdict Check(ChocolateyProfileResult result, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) =>
-        ChocolateyClientUpdatePostcheck.Evaluate(result, source, target, User, holdReleaseIncomplete: false);
+        ChocolateyClientUpdatePostcheck.EvaluateForTests(result, source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: false);
 
     private static (ChocolateyReleaseList, ChocolateyReviewedRelease, ChocolateyReviewedRelease) Releases()
     {

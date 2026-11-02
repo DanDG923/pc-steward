@@ -25,6 +25,12 @@ internal enum ChocolateyClientUpdateVerdict
     /// under the reviewed conditions; never verified, whatever the re-observation shows.
     /// </summary>
     ReleaseIncomplete,
+    /// <summary>Design §2.1 R5: the runtime watchdog terminated the job because a setup override name appeared while it ran.</summary>
+    SetupOverrideDuringRun,
+    /// <summary>Design §2.1 R5: the runtime watchdog terminated the job because the requester could modify the root while it ran.</summary>
+    RootWritableDuringRun,
+    /// <summary>Design §2.1 R5: the runtime watchdog terminated the job because it could not keep watching (fail closed).</summary>
+    WatchFailedDuringRun,
 }
 
 /// <summary>
@@ -34,19 +40,52 @@ internal enum ChocolateyClientUpdateVerdict
 /// the unique <c>chocolatey</c> registration is the target version, its archive equals the reviewed asset digest, and the
 /// requester is the job's; a leftover is accepted only when its observed bytes are the job's <b>source</b> release's
 /// <c>Chocolatey.PowerShell.dll</c> (compared directly, so two listed releases sharing that file cannot cause a false
-/// mismatch). <c>holdReleaseIncomplete</c> (the binding's <c>ReleaseIncomplete</c>) forces
+/// mismatch). <c>watchdogFault</c> (the binding's <c>WatchdogFault</c>, design §2.1 R5) forces the matching watchdog verdict
+/// first, whatever the re-observation shows (the run was terminated and Chocolatey may be partly updated);
+/// <c>holdReleaseIncomplete</c> (the binding's <c>ReleaseIncomplete</c>) then forces
 /// <see cref="ChocolateyClientUpdateVerdict.ReleaseIncomplete"/>. Everything else is not verified. A restart-pending
 /// result never exists here: <see cref="ToResult"/> always reports it false.
+/// <para>
+/// Independent review L3: <c>src</c> callers must use <see cref="Evaluate"/> over the client self-update binding, which
+/// reads the source release (<c>InstalledRelease</c>), <c>WatchdogFault</c> and <c>ReleaseIncomplete</c> from the binding
+/// itself, so no caller can pass a watchdog fault or a release state that is not the job's. The free-parameter
+/// <see cref="EvaluateForTests"/> has no <c>src</c> caller (architecture-banned).
+/// </para>
 /// </summary>
 internal static class ChocolateyClientUpdatePostcheck
 {
-    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
-        ChocolateyReviewedRelease target, string requestingUserSid, bool holdReleaseIncomplete)
+    /// <summary>
+    /// The postcheck for the client self-update job of <paramref name="client"/>: its matched installed release is the
+    /// source, and its recorded watchdog fault and incomplete hold release are applied first. Throws for a package binding.
+    /// </summary>
+    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyHeldClientBinding client,
+        ChocolateyReviewedRelease target, string requestingUserSid)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        if (client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate || client.InstalledRelease is not { } source)
+            throw new ArgumentException("Only a client self-update binding has a client postcheck.", nameof(client));
+        return EvaluateCore(result, source, target, requestingUserSid, client.WatchdogFault, client.ReleaseIncomplete);
+    }
+
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the rule over free parameters.</summary>
+    internal static ChocolateyClientUpdateVerdict EvaluateForTests(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
+        ChocolateyReviewedRelease target, string requestingUserSid, ChocolateyClientWatchdogFault watchdogFault, bool holdReleaseIncomplete) =>
+        EvaluateCore(result, source, target, requestingUserSid, watchdogFault, holdReleaseIncomplete);
+
+    private static ChocolateyClientUpdateVerdict EvaluateCore(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
+        ChocolateyReviewedRelease target, string requestingUserSid, ChocolateyClientWatchdogFault watchdogFault, bool holdReleaseIncomplete)
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(requestingUserSid);
+        switch (watchdogFault)
+        {
+            case ChocolateyClientWatchdogFault.None: break;
+            case ChocolateyClientWatchdogFault.SetupOverrideDuringRun: return ChocolateyClientUpdateVerdict.SetupOverrideDuringRun;
+            case ChocolateyClientWatchdogFault.RootWritableDuringRun: return ChocolateyClientUpdateVerdict.RootWritableDuringRun;
+            default: return ChocolateyClientUpdateVerdict.WatchFailedDuringRun;
+        }
         if (holdReleaseIncomplete) return ChocolateyClientUpdateVerdict.ReleaseIncomplete;
         switch (result)
         {
@@ -92,6 +131,12 @@ internal static class ChocolateyClientUpdatePostcheck
         ChocolateyClientUpdateVerdict.UnlistedLeftover => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientLeftoverNotListed),
         ChocolateyClientUpdateVerdict.LeftoverNotSource => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientLeftoverNotSource),
         ChocolateyClientUpdateVerdict.ReleaseIncomplete => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientReleaseIncomplete),
+        ChocolateyClientUpdateVerdict.SetupOverrideDuringRun =>
+            new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientSetupOverrideDuringRun),
+        ChocolateyClientUpdateVerdict.RootWritableDuringRun =>
+            new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientRootWritableDuringRun),
+        ChocolateyClientUpdateVerdict.WatchFailedDuringRun =>
+            new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientWatchFailedDuringRun),
         ChocolateyClientUpdateVerdict.NotTargetRelease => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientChanged),
         _ => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientUnverifiable),
     };

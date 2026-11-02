@@ -16,6 +16,7 @@ public sealed class ChocolateyClientSelfUpdateLaunchTests
 {
     private static readonly TimeSpan Budget = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan Remaining = TimeSpan.FromMinutes(11);
+    private static readonly string[] ListedDirectories = ["helpers", "tools"];
 
     [TestMethod]
     public void TheClientBindingRefusesEveryPackageCommandAndKeepsItsHolds()
@@ -48,6 +49,8 @@ public sealed class ChocolateyClientSelfUpdateLaunchTests
         // Design §1: the client's own setup must rename or delete every client file, so every hold is gone after resume.
         Assert.IsTrue(fixture.Client.AllReleased);
         Assert.IsFalse(fixture.Client.CanLaunch);
+        // Design §2.1 R5: the launch ran under the runtime watchdog (real environment keys, KEY_NOTIFY only) and nothing tripped it.
+        Assert.AreEqual(ChocolateyClientWatchdogFault.None, fixture.Client.WatchdogFault);
         OpenForWrite(fixture.Profile.RootPath(@"tools\7z.exe")).Dispose();
         OpenForWrite(fixture.Profile.RootPath(@"helpers\functions\Get-ChocolateyPath.ps1")).Dispose();
         OpenForWrite(fixture.Profile.RootPath(@"extensions\fixture\fixture.psm1")).Dispose();
@@ -90,6 +93,54 @@ public sealed class ChocolateyClientSelfUpdateLaunchTests
             fixture.Releases.Releases[0], fixture.Releases.Releases[1]) ?? throw new AssertFailedException("upgrade refused");
         NativeLaunchSpec.FromBinding(fixture.Client, upgrade).OnReleaseFaulted();
         Assert.IsTrue(fixture.Client.ReleaseIncomplete);
+    }
+
+    [TestMethod]
+    public void OnlyTheClientUpgradeSpecIsWatchedAndOnlyItRecordsTheFirstWatchdogFault()
+    {
+        // Design §2.1 R5: the watchdog targets come only from the client upgrade spec over its binding (root, helpers/tools, the
+        // observation's requester token); a query spec is not watched and records nothing.
+        using ClientUpdateFixture fixture = new();
+        ChocolateyCompiledCommand.ListClient list = ChocolateyCompiledCommand.TryListClient(fixture.Operation, fixture.Releases.Releases[0])
+            ?? throw new AssertFailedException("list refused");
+        NativeLaunchSpec query = NativeLaunchSpec.FromBinding(fixture.Client, list);
+        Assert.IsNull(query.WatchTargets());
+        query.OnWatchdogStopped(ChocolateyClientWatchdogFault.RootWritableDuringRun);
+        Assert.AreEqual(ChocolateyClientWatchdogFault.None, fixture.Client.WatchdogFault);
+
+        ChocolateyCompiledCommand.UpgradeClient upgrade = ChocolateyCompiledCommand.TryUpgradeClient(fixture.Operation,
+            fixture.Releases.Releases[0], fixture.Releases.Releases[1]) ?? throw new AssertFailedException("upgrade refused");
+        NativeLaunchSpec spec = NativeLaunchSpec.FromBinding(fixture.Client, upgrade);
+        ChocolateyClientWatchTargets targets = spec.WatchTargets() ?? throw new AssertFailedException("the client upgrade must be watched");
+        Assert.AreEqual(fixture.Client.LaunchPaths.ChocolateyRoot, targets.Root);
+        CollectionAssert.AreEqual(ListedDirectories, targets.ListedDirectories.ToArray());
+        Assert.IsNotNull(fixture.Client.Requester);
+        Assert.AreSame(fixture.Client.Requester, targets.Requester);
+        spec.OnWatchdogStopped(ChocolateyClientWatchdogFault.None);
+        Assert.AreEqual(ChocolateyClientWatchdogFault.None, fixture.Client.WatchdogFault);
+        spec.OnWatchdogStopped(ChocolateyClientWatchdogFault.SetupOverrideDuringRun);
+        spec.OnWatchdogStopped(ChocolateyClientWatchdogFault.RootWritableDuringRun);
+        Assert.AreEqual(ChocolateyClientWatchdogFault.SetupOverrideDuringRun, fixture.Client.WatchdogFault, "the first fault wins");
+    }
+
+    [TestMethod]
+    public void TheClientPostcheckReadsTheSourceTheWatchdogFaultAndTheReleaseStateFromTheBinding()
+    {
+        // Review L3 (design §2.1 R5, §2 R3): src callers pass the binding, never a free fault or release flag.
+        using ClientUpdateFixture fixture = new();
+        ChocolateyReviewedRelease target = fixture.Releases.Releases[1];
+        string sid = fixture.Client.Requester!.Sid;
+        ChocolateyProfileResult refused = ChocolateyProfileResult.Refused.Create(ChocolateyProfileRefusal.InstalledMismatch, "2.7.5", null);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.NotTargetRelease, ChocolateyClientUpdatePostcheck.Evaluate(refused, fixture.Client, target, sid));
+
+        ChocolateyCompiledCommand.UpgradeClient upgrade = ChocolateyCompiledCommand.TryUpgradeClient(fixture.Operation,
+            fixture.Releases.Releases[0], target) ?? throw new AssertFailedException("upgrade refused");
+        NativeLaunchSpec spec = NativeLaunchSpec.FromBinding(fixture.Client, upgrade);
+        spec.OnReleaseFaulted();
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete, ChocolateyClientUpdatePostcheck.Evaluate(refused, fixture.Client, target, sid));
+        spec.OnWatchdogStopped(ChocolateyClientWatchdogFault.RootWritableDuringRun);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.RootWritableDuringRun,
+            ChocolateyClientUpdatePostcheck.Evaluate(refused, fixture.Client, target, sid), "the recorded watchdog fault comes first");
     }
 
     [TestMethod]

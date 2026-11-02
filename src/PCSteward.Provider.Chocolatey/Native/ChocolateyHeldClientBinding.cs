@@ -34,10 +34,11 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
     private readonly ChocolateyHeldProfileFiles files;
 
     private ChocolateyHeldClientBinding(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths, string targetId,
-        ChocolateyBindingPurpose purpose, ChocolateyReviewedRelease? installedRelease)
+        ChocolateyBindingPurpose purpose, ChocolateyReviewedRelease? installedRelease, RequesterToken? requester)
     {
         Purpose = purpose;
         InstalledRelease = installedRelease;
+        Requester = requester;
         this.files = files;
         LaunchPaths = launchPaths;
         TargetId = targetId;
@@ -61,6 +62,13 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
 
     /// <summary>Client self-update only: the listed release the observer matched (the installed client). Null for a package binding.</summary>
     internal ChocolateyReviewedRelease? InstalledRelease { get; }
+
+    /// <summary>
+    /// Client self-update only (design §2.1 R5 watchdog): the requester token the observation that produced this binding
+    /// evaluated with; the watchdog re-evaluates the requester's access with it while the upgrade runs. Not owned: the
+    /// observer's caller disposes it after the binding. Null for a package binding.
+    /// </summary>
+    internal RequesterToken? Requester { get; }
 
     /// <summary>True once a client self-update's resumed upgrade released every hold.</summary>
     internal bool AllReleased => files.AllReleased;
@@ -115,24 +123,26 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
         if (!ChocolateyNativePackageId.IsSupported(targetId) || ChocolateyClientReleasePolicy.IsClientTarget(targetId))
             throw new ArgumentException("A supported non-client target is required.", nameof(targetId));
         Validate(files, launchPaths);
-        return new ChocolateyHeldClientBinding(files, launchPaths, targetId, ChocolateyBindingPurpose.PackageUpdate, null);
+        return new ChocolateyHeldClientBinding(files, launchPaths, targetId, ChocolateyBindingPurpose.PackageUpdate, null, null);
     }
 
     /// <summary>
     /// ADR-031 design §3.6, observer only (an architecture test pins the call site): the client self-update binding over the
     /// same sealed holder rules, for target <c>chocolatey</c> and the listed release the observer matched by engine digest.
+    /// <paramref name="requester"/> is the observation's requester token, kept (not owned) for the R5 runtime watchdog.
     /// </summary>
     internal static ChocolateyHeldClientBinding CreateForClientUpdate(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths,
-        ChocolateyReviewedRelease installedRelease)
+        ChocolateyReviewedRelease installedRelease, RequesterToken requester)
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(launchPaths);
         ArgumentNullException.ThrowIfNull(installedRelease);
+        ArgumentNullException.ThrowIfNull(requester);
         if (!installedRelease.List.Contains(installedRelease))
             throw new ArgumentException("The installed release must belong to its reviewed list.", nameof(installedRelease));
         Validate(files, launchPaths);
         return new ChocolateyHeldClientBinding(files, launchPaths, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId,
-            ChocolateyBindingPurpose.ClientSelfUpdate, installedRelease);
+            ChocolateyBindingPurpose.ClientSelfUpdate, installedRelease, requester);
     }
 
     private static void Validate(ChocolateyHeldProfileFiles files, ChocolateyLaunchPaths launchPaths)
@@ -199,6 +209,21 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
 
     /// <summary>Launch spec only (an architecture test pins the call site): records the pre-creation setup-override refusal.</summary>
     internal void RecordSetupAccessOverrideRefused() => Volatile.Write(ref setupAccessOverrideRefused, 1);
+
+    private int watchdogFault;
+
+    /// <summary>
+    /// Design §2.1 R5 (client self-update only): the runtime watchdog terminated the upgrade job while it ran. The postcheck
+    /// then reports a watchdog verdict (never Verified) whatever the re-observation shows; Chocolatey may be partly updated.
+    /// </summary>
+    internal ChocolateyClientWatchdogFault WatchdogFault => (ChocolateyClientWatchdogFault)Volatile.Read(ref watchdogFault);
+
+    /// <summary>Launch spec only (an architecture test pins the call site): records the first watchdog fault (client binding only).</summary>
+    internal void RecordWatchdogFault(ChocolateyClientWatchdogFault fault)
+    {
+        if (Purpose == ChocolateyBindingPurpose.ClientSelfUpdate && fault != ChocolateyClientWatchdogFault.None && Enum.IsDefined(fault))
+            Interlocked.CompareExchange(ref watchdogFault, (int)fault, (int)ChocolateyClientWatchdogFault.None);
+    }
 
     private int upgradeClaimed;
 

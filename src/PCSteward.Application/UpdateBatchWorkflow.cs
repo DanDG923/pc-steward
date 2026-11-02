@@ -87,9 +87,15 @@ public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, boo
 /// <see cref="ClientLeftoverNotListed"/> — a leftover whose bytes match no reviewed release (design §3a, named, never deleted);
 /// <see cref="ClientLeftoverNotSource"/> — the leftover matches a reviewed release other than the one the update started from
 /// (named, never deleted); <see cref="ClientReleaseIncomplete"/> — releasing the helper's file holds after the update started
-/// failed part-way (design §2 R3).
+/// failed part-way (design §2 R3); <see cref="ClientSetupOverrideDuringRun"/>, <see cref="ClientRootWritableDuringRun"/> and
+/// <see cref="ClientWatchFailedDuringRun"/> — the runtime watchdog terminated the update while it ran (design §2.1 R5;
+/// Chocolatey may be partly updated, never repaired automatically).
 /// </summary>
-public enum PostUpdateVerificationDetail { None, ClientChanged, ClientUnverifiable, ClientLeftoverNotListed, ClientLeftoverNotSource, ClientReleaseIncomplete }
+public enum PostUpdateVerificationDetail
+{
+    None, ClientChanged, ClientUnverifiable, ClientLeftoverNotListed, ClientLeftoverNotSource, ClientReleaseIncomplete,
+    ClientSetupOverrideDuringRun, ClientRootWritableDuringRun, ClientWatchFailedDuringRun,
+}
 
 /// <summary>
 /// A disclosure carried with a <b>verified</b> result (ADR-031 design §3a). <see cref="ClientReviewedLeftover"/>: a Chocolatey

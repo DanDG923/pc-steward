@@ -62,6 +62,40 @@ public static class ChocolateyClientUpdatePresentation
         "Installed, not verified: PC Steward could not fully release its hold on Chocolatey's files after the update started, so the " +
         "update did not run under the reviewed conditions. Chocolatey updates stay unavailable until its files match a reviewed release again.";
 
+    /// <summary>
+    /// The manual recovery step after a watchdog stop that never showed Chocolatey's folder as changeable by the user
+    /// (design §2.1 R5, <see cref="StoppedWatchFailedMessage"/> only). PC Steward never repairs Chocolatey itself.
+    /// </summary>
+    public const string WatchdogRecoveryStep =
+        "PC Steward does not repair Chocolatey automatically. Next step: from an administrator prompt, run " +
+        "choco upgrade chocolatey --version <the version you approved> --force (or repair Chocolatey), then check again.";
+
+    /// <summary>
+    /// Independent review H1 (design §2.2 R5): after a setup override or a user-changeable folder during the run, the folder
+    /// may stay changeable by the user indefinitely, so running any Chocolatey code from it elevated could run tampered code
+    /// with administrator rights. The only advice is to treat the folder as untrusted, never run choco elevated from it, and
+    /// reinstall from Chocolatey's official instructions. PC Steward does not repair it and never changes its access rules.
+    /// </summary>
+    public const string UntrustedFolderRecoveryStep =
+        "Treat the Chocolatey folder as untrusted: do not run choco from an administrator prompt, because files in that folder " +
+        "may have been replaced. Remove or quarantine the Chocolatey folder and reinstall Chocolatey using Chocolatey's official " +
+        "installation instructions. PC Steward will not repair it.";
+
+    public const string StoppedSetupOverrideMessage =
+        "Stopped, not verified: while Chocolatey was updating, a setting that makes Chocolatey's setup give your account write access " +
+        "to its folder (ChocolateyInstallAllowCurrentUser or ChocolateyAllowInsecureRootDirectory) appeared in the environment, so " +
+        "PC Steward stopped the update immediately. Chocolatey may be partly updated and its folder may now be changeable by your " +
+        "account. Remove that environment variable first. " + UntrustedFolderRecoveryStep;
+
+    public const string StoppedRootWritableMessage =
+        "Stopped, not verified: while Chocolatey was updating, its folder became changeable by your account, so PC Steward stopped " +
+        "the update immediately. Chocolatey may be partly updated and files in its folder may have been changed. Remove any " +
+        "ChocolateyInstallAllowCurrentUser environment variable first. " + UntrustedFolderRecoveryStep;
+
+    public const string StoppedWatchFailedMessage =
+        "Stopped, not verified: PC Steward could not keep checking Chocolatey's folder and settings while the update ran, so it " +
+        "stopped the update. Chocolatey may be partly updated. " + WatchdogRecoveryStep;
+
     public const string VerifiedMessage = "Verified: Chocolatey's files and package match the reviewed release that was approved.";
 
     public const string NotVerifiedReleaseMessage =
@@ -108,13 +142,17 @@ public static class ChocolateyClientUpdatePresentation
         PostUpdateVerificationDetail.ClientLeftoverNotListed => NotVerifiedLeftoverMessage,
         PostUpdateVerificationDetail.ClientLeftoverNotSource => NotVerifiedLeftoverNotSourceMessage,
         PostUpdateVerificationDetail.ClientReleaseIncomplete => NotVerifiedReleaseIncompleteMessage,
+        PostUpdateVerificationDetail.ClientSetupOverrideDuringRun => StoppedSetupOverrideMessage,
+        PostUpdateVerificationDetail.ClientRootWritableDuringRun => StoppedRootWritableMessage,
+        PostUpdateVerificationDetail.ClientWatchFailedDuringRun => StoppedWatchFailedMessage,
         PostUpdateVerificationDetail.ClientChanged or PostUpdateVerificationDetail.None => NotVerifiedReleaseMessage,
         _ => NotVerifiedUnreadableMessage,
     };
 
     /// <summary>True for exactly one of the fixed client self-update not-verified messages (history recognition).</summary>
     internal static bool IsNotVerifiedMessage(string? message) => message is NotVerifiedLeftoverMessage or NotVerifiedLeftoverNotSourceMessage or
-        NotVerifiedReleaseIncompleteMessage or NotVerifiedReleaseMessage or NotVerifiedUnreadableMessage;
+        NotVerifiedReleaseIncompleteMessage or NotVerifiedReleaseMessage or NotVerifiedUnreadableMessage or StoppedSetupOverrideMessage or
+        StoppedRootWritableMessage or StoppedWatchFailedMessage;
 
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>
