@@ -48,11 +48,16 @@ internal sealed class ChocolateyRuntimeLimitsRouteDispatcher : IReviewedUpdateRo
         }
     }
 
+    /// <summary>
+    /// One exchange. ADR-031 design §7.1: the client self-update is a client mode of this dispatcher (the interpreter reads its
+    /// reply shape and run fault), but <see cref="Supports"/> stays on the package arm, so the workflow never dispatches it
+    /// (and <c>HasSupportedMode</c> refuses it first); the transport's capability hold refuses it as well.
+    /// </summary>
     public async Task<ReviewedUpdateDispatchObservation> DispatchAsync(ReviewedUpdateDispatchTicket ticket, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ticket);
         ReviewedUpdateOperation operation = ticket.Operation;
-        if (!ReviewedUpdateProtocol2Interpreter.TryGetProfileDigest(operation, out _))
+        if (!ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out _, out _))
             return ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.Failed, RouteUnsupportedDiagnostic);
         string nonce = createNonce();
         ReviewedHelperExchange exchange = await transport.ExchangeAsync(operation, nonce, cancellationToken).ConfigureAwait(false)
