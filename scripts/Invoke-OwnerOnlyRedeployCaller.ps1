@@ -187,6 +187,8 @@ function Assert-OwnerOnlySystemPowerShell {
 function Assert-OwnerOnlyCallerEnvironment {
     param([Parameter(Mandatory)][string]$InstallerSid)
     if($PSVersionTable.PSEdition -cne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5){throw 'Run this caller in Windows PowerShell 5.1.'}
+    # 64-bit system Windows PowerShell only: a 32-bit host would resolve Program Files (x86) for the execution root.
+    if(![Environment]::Is64BitProcess -or !$PSHOME.TrimEnd('\').Equals('C:\Windows\System32\WindowsPowerShell\v1.0',[StringComparison]::OrdinalIgnoreCase)){throw 'Run this caller in 64-bit system Windows PowerShell (C:\Windows\System32\WindowsPowerShell\v1.0).'}
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
     if(([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run this caller from a normal, non-elevated session; it requests elevation itself only in -ExecuteApprovedPlan.'}
     if($identity.User.Value -cne $InstallerSid){throw 'The current Windows user is not the approved installing user.'}
