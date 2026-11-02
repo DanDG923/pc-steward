@@ -1,5 +1,11 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — activation host-session plan drafted (2026-11-02).** [Plan rev 1](review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md) orders the owner-host gates before activation (ADR-031 decision 7). Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
+- Ready for owner approval: the confirming Default evidence run (`matchesPinnedRelease` on 2.7.5) and the optional H3 runas probe, using the unchanged reviewed script.
+- Blocked: the v2 redeploy (the committed template refuses an existing user-data root; the caller/encoder, candidate builder and database-preservation tooling are uncommitted) and the ADR-025 exact-artifact test (no script or harness exists; the non-admitted route cannot drive the signed helper). Gaps G1–G9 need build and review.
+- Time constraint: the deployed signer expires 2026-11-13T20:18:09Z, after which the redeploy preflight fails closed.
+- No host action; nothing authorized.
+
 **Task 50 — ADR-031 implementation (2026-11-02; `0183de7..c63d522`).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`; design: [ADR-031 design note](review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md).
 - What it adds:
   - a compiled reviewed **release list** (2.7.5 only), with 2.7.5 protections and goldens unchanged;

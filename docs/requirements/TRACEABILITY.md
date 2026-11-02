@@ -1,3 +1,10 @@
+# Task 50 — activation host-session plan (draft)
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; ADR-031 decision 7; composition record admission obligations 1–3.
+
+- [Plan rev 1](../review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md): Part A (confirming Default run, optional H3) reuses script SHA-256 `0A1C4377…84D4` and is ready for approval; Parts B (v2 redeploy) and C (exact-artifact test) are blocked by gaps G1–G9.
+- No host action; no evidence yet.
+
 # Task 50 — host evidence (O5, A-Q1, A2-L3)
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; fact extension §10 N5 (O5); adapter gates §A.4 (A-Q1) and §R A2-L3.
