@@ -12,7 +12,7 @@ internal static class ChocolateyPostUpdateClientCheck
     internal static ChocolateyClientComparison Compare(ChocolateyClientStateData before, ChocolateyClientStateData? after)
     {
         ArgumentNullException.ThrowIfNull(before);
-        if (!Valid(before) || before.EngineSha256 != ChocolateyClientReleasePolicy.EngineSha256 || after is null || !Valid(after))
+        if (!Valid(before) || !ChocolateyClientReleasePolicy.IsListedEngine(before.EngineSha256) || after is null || !Valid(after))
             return ChocolateyClientComparison.Unverifiable;
         return before == after ? ChocolateyClientComparison.Unchanged : ChocolateyClientComparison.ClientChanged;
     }

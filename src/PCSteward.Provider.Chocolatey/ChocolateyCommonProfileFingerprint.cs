@@ -7,9 +7,15 @@ namespace PCSteward.Provider.Chocolatey;
 
 /// <summary>Comparison data only. Neither this record nor its digest asserts native trust, qualification or approval.</summary>
 internal sealed record ChocolateyCodeFileData(string RelativePath, string Identity, long Length, string Sha256);
+/// <summary>
+/// Comparison data only. <paramref name="ReleaseAssetSha256"/> (ADR-031 design §3.2) is the asset digest of the listed release
+/// the observer matched (fingerprint field 4); the observer always passes it. Its default is the reviewed 2.7.5 asset digest,
+/// the only listed release, so existing comparison goldens keep their bytes.
+/// </summary>
 internal sealed record ChocolateyCommonProfileData(string RequestingUserSid, string RootIdentity,
     IReadOnlyList<ChocolateyCodeFileData> CodeFiles, string CacheIdentity, ChocolateyConfigurationObservation Configuration,
-    string TargetId, ChocolateyNativeVersion InstalledVersion, string ArchiveIdentity, string ArchiveSha256, string? StoreIdentity);
+    string TargetId, ChocolateyNativeVersion InstalledVersion, string ArchiveIdentity, string ArchiveSha256, string? StoreIdentity,
+    string ReleaseAssetSha256 = ChocolateyClientReleasePolicy.AssetSha256);
 
 internal static class ChocolateyCommonProfileFingerprint
 {
@@ -32,7 +38,7 @@ internal static class ChocolateyCommonProfileFingerprint
         Field(hash, "pc-steward-choco-profile:2");
         Field(hash, Sid(data.RequestingUserSid));
         Field(hash, FileIdentity(data.RootIdentity));
-        Field(hash, ChocolateyClientReleasePolicy.AssetSha256);
+        Field(hash, Digest(data.ReleaseAssetSha256));
         Field(hash, ComputeCodeList(data.CodeFiles));
         Field(hash, FileIdentity(data.CacheIdentity));
         foreach (string name in ChocolateyConfigurationParser.SupportedFeatureDefaults.Keys.Order(StringComparer.Ordinal))

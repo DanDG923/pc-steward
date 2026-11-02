@@ -141,8 +141,11 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
 internal sealed class ChocolateyProfileObservation : IDisposable
 {
     private ChocolateyProfileObservation(ChocolateyCommonProfileData common, string fingerprint, ChocolateyClientStateData clientState,
-        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient)
+        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient,
+        ChocolateyReviewedRelease? release, ChocolateyReleaseResidue? releaseResidue)
     {
+        Release = release;
+        ReleaseResidue = releaseResidue;
         Common = common;
         Fingerprint = fingerprint;
         ClientState = clientState;
@@ -168,19 +171,42 @@ internal sealed class ChocolateyProfileObservation : IDisposable
     /// </summary>
     internal ChocolateyHeldClientBinding? HeldClient { get; }
 
+    /// <summary>
+    /// ADR-031 design §3.2: the listed release whose complete manifest the installed client matched (selected by engine digest).
+    /// The observer always sets it; null only for an observation a test built directly.
+    /// </summary>
+    internal ChocolateyReviewedRelease? Release { get; }
+
+    /// <summary>
+    /// ADR-031 design §3a: the disclosed finding for the one reviewed self-upgrade leftover, accepted because its bytes equal a
+    /// listed release's file. Never held, fingerprinted or part of the stage-D identity; null when absent.
+    /// </summary>
+    internal ChocolateyReleaseResidue? ReleaseResidue { get; }
+
     /// <summary>Observer only (an architecture test pins the call site).</summary>
     internal static ChocolateyProfileObservation Create(ChocolateyCommonProfileData common, string fingerprint, ChocolateyClientStateData clientState,
-        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient)
+        ChocolateyNativeVersion installedVersion, bool targetLibBadResidue, ChocolateyHeldClientBinding? heldClient,
+        ChocolateyReviewedRelease? release = null, ChocolateyReleaseResidue? releaseResidue = null)
     {
         ArgumentNullException.ThrowIfNull(common);
         ArgumentException.ThrowIfNullOrEmpty(fingerprint);
         ArgumentNullException.ThrowIfNull(clientState);
         ArgumentNullException.ThrowIfNull(installedVersion);
-        return new ChocolateyProfileObservation(common, fingerprint, clientState, installedVersion, targetLibBadResidue, heldClient);
+        if (releaseResidue is not null && release is null)
+            throw new ArgumentException("A leftover finding needs the matched installed release.", nameof(releaseResidue));
+        return new ChocolateyProfileObservation(common, fingerprint, clientState, installedVersion, targetLibBadResidue, heldClient, release,
+            releaseResidue);
     }
 
     public void Dispose() => HeldClient?.Dispose();
 }
+
+/// <summary>
+/// ADR-031 design §3a fallback: the disclosed cause of a MachineInputsUnsupported refusal. <see cref="UnlistedReleaseLeftover"/>
+/// means the only failure was <c>helpers\Chocolatey.PowerShell.dll.old</c> whose bytes match no listed release; PC Steward never
+/// deletes it and reports it as "Installed, not verified" with a manual next step.
+/// </summary>
+internal enum ChocolateyProfileRefusalDetail { None, UnlistedReleaseLeftover }
 
 /// <summary>
 /// Closed result of <see cref="ChocolateyProfileObserver.Observe"/> (§3, rev-4 L3): Observed, a settled Refused with the
@@ -210,8 +236,9 @@ internal abstract record ChocolateyProfileResult
     /// </summary>
     internal sealed record Refused : ChocolateyProfileResult
     {
-        private Refused(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint)
+        private Refused(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint, ChocolateyProfileRefusalDetail detail)
         {
+            Detail = detail;
             Reason = reason;
             ObservedInstalled = observedInstalled;
             ObservedFingerprint = observedFingerprint;
@@ -223,8 +250,14 @@ internal abstract record ChocolateyProfileResult
 
         internal string? ObservedFingerprint { get; }
 
-        internal static Refused Create(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint)
+        /// <summary>ADR-031 design §3a fallback: why a MachineInputsUnsupported refusal happened, when it has a disclosed cause.</summary>
+        internal ChocolateyProfileRefusalDetail Detail { get; }
+
+        internal static Refused Create(ChocolateyProfileRefusal reason, string? observedInstalled, string? observedFingerprint,
+            ChocolateyProfileRefusalDetail detail = ChocolateyProfileRefusalDetail.None)
         {
+            if (!Enum.IsDefined(detail) || detail != ChocolateyProfileRefusalDetail.None && reason != ChocolateyProfileRefusal.MachineInputsUnsupported)
+                throw new ArgumentException("A refusal detail applies only to MachineInputsUnsupported.", nameof(detail));
             bool valid = reason switch
             {
                 ChocolateyProfileRefusal.MachineInputsUnsupported or ChocolateyProfileRefusal.SourceNotCommunity =>
@@ -234,7 +267,7 @@ internal abstract record ChocolateyProfileResult
                 _ => false,
             };
             if (!valid) throw new ArgumentException("The observed values do not match the refusal reason.", nameof(reason));
-            return new Refused(reason, observedInstalled, observedFingerprint);
+            return new Refused(reason, observedInstalled, observedFingerprint, detail);
         }
     }
 

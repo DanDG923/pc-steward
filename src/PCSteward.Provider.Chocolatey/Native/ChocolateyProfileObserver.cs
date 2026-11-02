@@ -6,41 +6,61 @@ using Microsoft.Win32.SafeHandles;
 namespace PCSteward.Provider.Chocolatey.Native;
 
 /// <summary>
-/// Test-only (an architecture test bans every <c>src</c> reference to <see cref="CreateForTests"/> and to
+/// Test-only (an architecture test bans every <c>src</c> reference to <c>CreateForTests</c> (both overloads) and to
 /// <see cref="ChocolateyProfileObserver.ObserveForTests"/>): synthetic machine inputs for the observer. A test supplies
 /// fixture roots (production uses only <see cref="ChocolateyNativePathResolver.TryResolveMachine"/>); an ancestry base, below
 /// which ancestry is evaluated in Ancestor mode from that base instead of from the drive root (a temp fixture always has a
-/// requester-owned profile ancestor); a release table for fixture contents (production uses only
-/// <see cref="ChocolateyReleaseManifest2_7_5"/>); and an engine-trust check for an unsigned fixture engine (production uses
-/// only <see cref="ChocolateyEngineTrust.IsTrustedEngine"/>). The HTTP cache need not be the fixed concatenation, because a
+/// requester-owned profile ancestor); a release list for fixture contents (production uses only
+/// <see cref="ChocolateyReleaseList.Listed"/>); and an engine-trust check for an unsigned fixture engine (production uses
+/// only <c>ChocolateyEngineTrust.IsTrustedEngine</c> with the matched release's file version). The HTTP cache need not be the fixed concatenation, because a
 /// standard-user runner cannot create a tree that it does not own (N3 launch-path resolution, for which the HTTP cache is not
 /// an input, is then given the fixed concatenation); every other observer rule is unchanged.
 /// </summary>
 internal sealed class ChocolateyObserverTestSeam
 {
-    private ChocolateyObserverTestSeam(ChocolateyNativeRoots roots, string ancestryBase, IReadOnlyList<ChocolateyReleaseFile> releaseFiles,
+    private ChocolateyObserverTestSeam(ChocolateyNativeRoots roots, string ancestryBase, ChocolateyReleaseList releases,
         Func<SafeFileHandle, string, bool> engineTrust)
     {
         Roots = roots;
         AncestryBase = ancestryBase;
-        ReleaseFiles = releaseFiles;
+        Releases = releases;
         EngineTrust = engineTrust;
     }
 
     internal ChocolateyNativeRoots Roots { get; }
     internal string AncestryBase { get; }
-    internal IReadOnlyList<ChocolateyReleaseFile> ReleaseFiles { get; }
+
+    /// <summary>ADR-031: the fixture release list (production uses only <see cref="ChocolateyReleaseList.Listed"/>).</summary>
+    internal ChocolateyReleaseList Releases { get; }
+
     internal Func<SafeFileHandle, string, bool> EngineTrust { get; }
 
+    /// <summary>One fixture release table, as a single-entry 2.7.5-shaped fixture list with the reviewed 2.7.5 asset digest.</summary>
     internal static ChocolateyObserverTestSeam CreateForTests(ChocolateyNativeRoots roots, string ancestryBase,
         IReadOnlyList<ChocolateyReleaseFile> releaseFiles, Func<SafeFileHandle, string, bool> engineTrust)
     {
-        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(releaseFiles);
+        return Create(roots, ancestryBase, ChocolateyReleaseList.CreateForTests(
+        [
+            new ChocolateyReleaseEntry(ChocolateyReleaseManifest2_7_5.Release, ChocolateyClientReleasePolicy.Version,
+                ChocolateyReleaseManifest2_7_5.Asset, ChocolateyReleaseManifest2_7_5.AssetLength, ChocolateyReleaseManifest2_7_5.AssetSha256,
+                [.. releaseFiles]),
+        ]), engineTrust);
+    }
+
+    /// <summary>ADR-031: a fixture release list (a multi-entry list exercises release selection and the §3a leftover rule).</summary>
+    internal static ChocolateyObserverTestSeam CreateForTests(ChocolateyNativeRoots roots, string ancestryBase,
+        ChocolateyReleaseList releases, Func<SafeFileHandle, string, bool> engineTrust) => Create(roots, ancestryBase, releases, engineTrust);
+
+    private static ChocolateyObserverTestSeam Create(ChocolateyNativeRoots roots, string ancestryBase,
+        ChocolateyReleaseList releases, Func<SafeFileHandle, string, bool> engineTrust)
+    {
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(releases);
         ArgumentNullException.ThrowIfNull(engineTrust);
         if (!ProtectedNodeReader.IsCanonicalLocalPath(ancestryBase) || ancestryBase.Length <= 3)
             throw new ArgumentException("A canonical ancestry base below a drive root is required.", nameof(ancestryBase));
-        return new ChocolateyObserverTestSeam(roots, ancestryBase, [.. releaseFiles], engineTrust);
+        return new ChocolateyObserverTestSeam(roots, ancestryBase, releases, engineTrust);
     }
 }
 
@@ -162,6 +182,9 @@ internal static class ChocolateyProfileObserver
         private ChocolateyRegistrationRecord target = null!;
         private string? storeIdentity;
         private bool libBadResidue;
+        private ChocolateyReviewedRelease release = null!;
+        private ChocolateyReleaseResidue? residue;
+        private bool unlistedLeftover;
 
         internal ChocolateyProfileResult Evaluate(ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint)
         {
@@ -170,6 +193,9 @@ internal static class ChocolateyProfileObserver
                 (role == ChocolateyObserverRole.Helper && !HttpCache()) ||
                 !LoaderAndLicensing() || !Configuration() || !LibraryAndStore())
                 return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null);
+            // ADR-031 §3a fallback: steps 1–7 otherwise passed, so the unlisted leftover was their only failure (disclosed).
+            if (unlistedLeftover)
+                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.UnlistedReleaseLeftover);
 
             // Step 8: the compiled Community URL must stay byte-equal (S8: installed and fingerprint null).
             if (!ChocolateySourceResolution.TryResolve(configuration, out _))
@@ -182,7 +208,7 @@ internal static class ChocolateyProfileObserver
 
             // Step 9: the common fingerprint, compared in fixed time when the helper supplies the expected value.
             ChocolateyCommonProfileData common = new(token.Sid, rootIdentity, codeFiles.AsReadOnly(), cacheIdentity, configuration,
-                targetId, installed, target.ArchiveIdentity, target.Sha256, storeIdentity);
+                targetId, installed, target.ArchiveIdentity, target.Sha256, storeIdentity, release.AssetSha256);
             string fingerprint;
             try { fingerprint = ChocolateyCommonProfileFingerprint.Compute(common); }
             catch (ArgumentException) { return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null); }
@@ -201,7 +227,7 @@ internal static class ChocolateyProfileObserver
                 client = ChocolateyHeldClientBinding.Create(held, launchPaths!, targetId);
             }
             return ChocolateyProfileResult.Observed.Create(
-                ChocolateyProfileObservation.Create(common, fingerprint, clientState, installed, libBadResidue, client));
+                ChocolateyProfileObservation.Create(common, fingerprint, clientState, installed, libBadResidue, client, release, residue));
         }
 
         /// <summary>The observation took ownership of the held files.</summary>
@@ -213,8 +239,9 @@ internal static class ChocolateyProfileObserver
         }
 
         /// <summary>Never a settled refusal on an interrupt (§3, rev-4 L3).</summary>
-        private ChocolateyProfileResult Refuse(ChocolateyProfileRefusal reason, string? installed, string? fingerprint) =>
-            run.Interrupted ? run.Interrupt() : ChocolateyProfileResult.Refused.Create(reason, installed, fingerprint);
+        private ChocolateyProfileResult Refuse(ChocolateyProfileRefusal reason, string? installed, string? fingerprint,
+            ChocolateyProfileRefusalDetail detail = ChocolateyProfileRefusalDetail.None) =>
+            run.Interrupted ? run.Interrupt() : ChocolateyProfileResult.Refused.Create(reason, installed, fingerprint, detail);
 
         // Step 1. Machine roots, then the Chocolatey root's ancestry and its complete bounded walk (M3).
         private bool Roots()
@@ -246,33 +273,79 @@ internal static class ChocolateyProfileObserver
             return !run.Interrupted;
         }
 
-        // Step 2. The compiled release tree: every entry present with its length and SHA-256, no other helpers/tools file
-        // or directory, and the root engine trusted by hash plus WinVerifyTrust, signer and version on its held handle (L3).
+        // Step 2 (ADR-031 §3.2, §3a). The listed release is selected by the held root engine's SHA-256 (exactly one listed
+        // match); then that release's complete table: every entry present with its length and SHA-256, no other helpers/tools
+        // file or directory except the one reviewed leftover whose bytes equal a listed release's file (a disclosed finding),
+        // and the root engine trusted by WinVerifyTrust, signer and that release's file version on its held handle (L3).
         private bool ReleaseTree()
         {
-            IReadOnlyList<ChocolateyReleaseFile> table = seam is null ? ChocolateyReleaseManifest2_7_5.Files : seam.ReleaseFiles;
+            ChocolateyReleaseList list = seam is null ? ChocolateyReleaseList.Listed : seam.Releases;
+            if (!byPath.TryGetValue(ChocolateyReviewedRelease.EnginePath, out NativeNode engineNode) || engineNode.Directory) return false;
+            long engineMaximum = list.Releases.Max(candidate => candidate.EngineLength);
+            if (engineNode.Length < 0 || engineNode.Length > engineMaximum) return false;
+            SafeFileHandle? engineHandle = Reopen(engineNode);
+            if (engineHandle is null) return false;
+            bool engineKept = false;
+            try
+            {
+                if (!ProtectedNodeReader.TryHashBounded(engineHandle, engineMaximum, out NativeObservedFile engineObserved) ||
+                    engineObserved.Length != engineNode.Length)
+                    return false;
+                ChocolateyReviewedRelease? matched = list.FindByEngine(engineObserved.Sha256);
+                if (matched is null || matched.EngineLength != engineObserved.Length) return false;
+                release = matched;
+                if (!ReleaseTable(matched.Files, engineNode, engineHandle, engineObserved, ref engineKept)) return false;
+            }
+            finally
+            {
+                if (!engineKept) engineHandle.Dispose();
+            }
+            return engineSha256.Length != 0 && !run.Interrupted;
+        }
+
+        /// <summary>The selected release's table; the already-hashed engine handle is reused (and kept when held).</summary>
+        private bool ReleaseTable(IReadOnlyList<ChocolateyReleaseFile> table, NativeNode engineNode, SafeFileHandle engineHandle,
+            NativeObservedFile engineObserved, ref bool engineKept)
+        {
             HashSet<string> files = new(StringComparer.OrdinalIgnoreCase);
             HashSet<string> directories = new(StringComparer.OrdinalIgnoreCase) { "helpers", "tools" };
             foreach (ChocolateyReleaseFile entry in table)
             {
-                if (!ChocolateyProfileRules.IsReleasePath(entry.Path) || entry.Length < 0 || !IsDigest(entry.Sha256)) return false;
                 string relative = entry.Path.Replace('/', '\\');
                 if (!files.Add(relative)) return false;
                 for (int slash = relative.IndexOf('\\', StringComparison.Ordinal); slash > 0; slash = relative.IndexOf('\\', slash + 1))
                     directories.Add(relative[..slash]);
             }
-            if (table.Count(entry => entry.Path == "choco.exe") != 1) return false;
 
             foreach (NativeNode node in nodes)
             {
                 string top = node.RelativePath.Split('\\')[0];
                 if (!top.Equals("helpers", StringComparison.OrdinalIgnoreCase) && !top.Equals("tools", StringComparison.OrdinalIgnoreCase)) continue;
-                if (node.Directory ? !directories.Contains(node.RelativePath) : !files.Contains(node.RelativePath)) return false;
+                if (node.Directory ? directories.Contains(node.RelativePath) : files.Contains(node.RelativePath)) continue;
+                if (node.Directory || !node.RelativePath.Equals(ChocolateyReleaseList.PowerShellModuleLeftover, StringComparison.OrdinalIgnoreCase) ||
+                    !LeftoverObserved(node))
+                    return false;
             }
 
             foreach (ChocolateyReleaseFile entry in table)
             {
                 if (run.Interrupted) return false;
+                if (entry.Path == ChocolateyReviewedRelease.EnginePath)
+                {
+                    if (entry.Length != engineObserved.Length || !string.Equals(entry.Sha256, engineObserved.Sha256, StringComparison.Ordinal))
+                        return false;
+                    bool trusted = seam is null
+                        ? ChocolateyEngineTrust.IsTrustedEngine(engineHandle, engineNode.FullPath, release.EngineFileVersion)
+                        : seam.EngineTrust(engineHandle, engineNode.FullPath);
+                    if (!trusted) return false;
+                    engineSha256 = engineObserved.Sha256;
+                    if (held is not null)
+                    {
+                        held.AddRelease(new ChocolateyHeldFile(entry.Path, engineNode, engineHandle), engine: true);
+                        engineKept = true;
+                    }
+                    continue;
+                }
                 if (!byPath.TryGetValue(entry.Path.Replace('/', '\\'), out NativeNode node) || node.Directory || node.Length != entry.Length) return false;
                 SafeFileHandle? handle = Reopen(node);
                 if (handle is null) return false;
@@ -282,18 +355,9 @@ internal static class ChocolateyProfileObserver
                     if (!ProtectedNodeReader.TryHashBounded(handle, entry.Length, out NativeObservedFile observed) ||
                         observed.Length != entry.Length || !string.Equals(observed.Sha256, entry.Sha256, StringComparison.Ordinal))
                         return false;
-                    bool engine = entry.Path == "choco.exe";
-                    if (engine)
-                    {
-                        if (seam is null && !string.Equals(observed.Sha256, ChocolateyClientReleasePolicy.EngineSha256, StringComparison.Ordinal))
-                            return false;
-                        bool trusted = seam is null ? ChocolateyEngineTrust.IsTrustedEngine(handle, node.FullPath) : seam.EngineTrust(handle, node.FullPath);
-                        if (!trusted) return false;
-                        engineSha256 = observed.Sha256;
-                    }
                     if (held is not null)
                     {
-                        held.AddRelease(new ChocolateyHeldFile(entry.Path, node, handle), engine);
+                        held.AddRelease(new ChocolateyHeldFile(entry.Path, node, handle), engine: false);
                         keep = true;
                     }
                 }
@@ -302,7 +366,25 @@ internal static class ChocolateyProfileObserver
                     if (!keep) handle.Dispose();
                 }
             }
-            return engineSha256.Length != 0 && !run.Interrupted;
+            return true;
+        }
+
+        /// <summary>
+        /// §3a: the one reviewed leftover, already covered by the walk (requester-unmodifiable, reparse-free). Its bytes are read
+        /// through a read-share-only handle that is closed again (never held). A match with a listed release's file becomes the
+        /// disclosed finding; a readable mismatch is recorded for the disclosed fallback refusal; an unreadable leftover refuses.
+        /// </summary>
+        private bool LeftoverObserved(NativeNode node)
+        {
+            if (node.Length < 0 || node.Length > CodeFileMaximumBytes) return false;
+            using SafeFileHandle? leftover = Reopen(node);
+            if (leftover is null || !ProtectedNodeReader.TryHashBounded(leftover, node.Length, out NativeObservedFile observed) ||
+                observed.Length != node.Length)
+                return false;
+            ChocolateyReviewedRelease? source = release.List.MatchLeftover(node.RelativePath, observed.Length, observed.Sha256);
+            if (source is null) unlistedLeftover = true;
+            else residue = new ChocolateyReleaseResidue(ChocolateyReleaseList.PowerShellModuleLeftover, source);
+            return true;
         }
 
         // Step 3. Ordered code identities of every regular file under hooks and extensions (L5), within the code bounds.
@@ -580,6 +662,5 @@ internal static class ChocolateyProfileObserver
 
         private static string Leaf(string relative) => relative[(relative.LastIndexOf('\\') + 1)..];
 
-        private static bool IsDigest(string value) => value is { Length: 64 } && value.All(character => character is >= '0' and <= '9' or >= 'A' and <= 'F');
     }
 }

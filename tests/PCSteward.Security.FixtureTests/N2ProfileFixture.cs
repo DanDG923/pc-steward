@@ -137,6 +137,16 @@ internal sealed class N2ProfileFixture : IDisposable
             new ChocolateyNativeRoots(ProgramData, Root, HttpCache, Windows, Native.PathOf("ProgramFiles"), Native.PathOf("ProgramFilesX86")),
             Native.Root, Release, engineTrust ?? ((handle, _) => !handle.IsInvalid && !handle.IsClosed));
 
+    /// <summary>ADR-031: the observer seam over a fixture release list (multi-entry lists, leftover rule).</summary>
+    internal ChocolateyObserverTestSeam Seam(ChocolateyReleaseList releases, Func<SafeFileHandle, string, bool>? engineTrust = null) =>
+        ChocolateyObserverTestSeam.CreateForTests(
+            new ChocolateyNativeRoots(ProgramData, Root, HttpCache, Windows, Native.PathOf("ProgramFiles"), Native.PathOf("ProgramFilesX86")),
+            Native.Root, releases, engineTrust ?? ((handle, _) => !handle.IsInvalid && !handle.IsClosed));
+
+    /// <summary>ADR-031: this fixture's built release table as a list entry with the given version and asset digest.</summary>
+    internal ChocolateyReleaseEntry ReleaseEntry(string version, string assetSha256) =>
+        new(version, version + ".0", "chocolatey." + version + ".nupkg", 1000, assetSha256, [.. Release]);
+
     internal static ChocolateyNativeVersion Version(string text)
     {
         if (!ChocolateyNativeVersion.TryParse(text, out ChocolateyNativeVersion? version)) throw new ArgumentException(text);
