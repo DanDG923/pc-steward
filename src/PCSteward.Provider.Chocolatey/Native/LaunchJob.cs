@@ -68,7 +68,7 @@ internal sealed class LaunchJob : IDisposable
     /// unexpected internal error, which a caller must treat as an unknown invocation.
     /// </summary>
     internal static Task<NativeProcessObservation> RunCoreAsync(NativeLaunchSpec spec, TimeSpan deadline,
-        CancellationToken cancellationToken) => StartAsync(spec, deadline, LaunchJobFault.None, cancellationToken);
+        CancellationToken cancellationToken) => StartAsync(spec, deadline, LaunchJobFault.None, null, null, cancellationToken);
 
     /// <summary>
     /// N3 (§4.1, rev-2 M4): the typed launcher entry. It takes no path or argument string: the spec comes only from
@@ -100,7 +100,20 @@ internal sealed class LaunchJob : IDisposable
 
     /// <summary>Test-only entry with an injected fault. Any <c>src</c> caller fails the architecture tests.</summary>
     internal static Task<NativeProcessObservation> RunCoreWithFaultForTestsAsync(NativeLaunchSpec spec, TimeSpan deadline,
-        LaunchJobFault fault, CancellationToken cancellationToken) => StartAsync(spec, deadline, fault, cancellationToken);
+        LaunchJobFault fault, CancellationToken cancellationToken) => StartAsync(spec, deadline, fault, null, null, cancellationToken);
+
+    /// <summary>
+    /// Test-only entry (any <c>src</c> caller fails the architecture tests): launches <paramref name="spec"/> under the ADR-031
+    /// R5 watchdog over <paramref name="watch"/> (fixture directories and test keys) and reports the watchdog's fault to
+    /// <paramref name="stopped"/> after the watchdog was disposed, exactly where a client self-update spec records it.
+    /// </summary>
+    internal static Task<NativeProcessObservation> RunCoreWithWatchdogForTestsAsync(NativeLaunchSpec spec, TimeSpan deadline,
+        ChocolateyClientWatchTargets watch, Action<ChocolateyClientWatchdogFault> stopped, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(watch);
+        ArgumentNullException.ThrowIfNull(stopped);
+        return StartAsync(spec, deadline, LaunchJobFault.None, watch, stopped, cancellationToken);
+    }
 
     public void Dispose()
     {
@@ -109,19 +122,20 @@ internal sealed class LaunchJob : IDisposable
     }
 
     private static Task<NativeProcessObservation> StartAsync(NativeLaunchSpec spec, TimeSpan deadline, LaunchJobFault fault,
-        CancellationToken cancellationToken)
+        ChocolateyClientWatchTargets? testWatch, Action<ChocolateyClientWatchdogFault>? testStopped, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(spec);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(deadline, TimeSpan.Zero);
         if (!Enum.IsDefined(fault)) throw new ArgumentOutOfRangeException(nameof(fault));
         Stopwatch clock = Stopwatch.StartNew();
         // The observer blocks on kernel waits for the whole launch, so it gets its own thread.
-        return Task.Factory.StartNew(() => Run(spec, deadline, fault, clock, cancellationToken), CancellationToken.None,
+        return Task.Factory.StartNew(() => Run(spec, deadline, fault, clock, testWatch, testStopped, cancellationToken), CancellationToken.None,
             TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
     }
 
     private static NativeProcessObservation Run(NativeLaunchSpec spec, TimeSpan deadline, LaunchJobFault fault,
-        Stopwatch clock, CancellationToken cancellationToken)
+        Stopwatch clock, ChocolateyClientWatchTargets? testWatch, Action<ChocolateyClientWatchdogFault>? testStopped,
+        CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested) return NotStarted(cancelled: true);
         char[] commandLine = (NativeCommandLine.Build(spec.ImagePath, spec.Arguments) + "\0").ToCharArray();
@@ -135,9 +149,19 @@ internal sealed class LaunchJob : IDisposable
         OutputBudget budget = new(OutputLimitCharacters);
         OutputCapture output = new(budget);
         OutputCapture error = new(budget);
+        ChocolateyClientUpdateWatchdog? watchdog = null;
         using CancellationTokenSource readerStop = new();
         try
         {
+            // ADR-031 design §2.1 R5: a client self-update is watched from before its last pre-creation checks (the setup
+            // override re-read and the watchdog's own check below), so no change can fall between a check and the watch. A
+            // watch that cannot be armed launches nothing.
+            ChocolateyClientWatchTargets? watchTargets = testWatch ?? spec.WatchTargets();
+            if (watchTargets is not null)
+            {
+                watchdog = ChocolateyClientUpdateWatchdog.TryArm(watchTargets);
+                if (watchdog is null) return NotStarted(cancelled: false);
+            }
             bool created;
             bool releaseFailed = false;
             // Review L3: every inheritable handle of this launch exists only inside the gate.
@@ -161,7 +185,7 @@ internal sealed class LaunchJob : IDisposable
 
                 // N3: a binding that no longer holds its engine (disposed, or already released by an upgrade) launches nothing.
                 // ADR-031 design §2 R5: a client self-update re-checks the setup override names immediately before creation.
-                created = spec.MayCreateProcess && spec.SetupEnvironmentPermitsLaunch() &&
+                created = spec.MayCreateProcess && spec.SetupEnvironmentPermitsLaunch() && (watchdog is null || watchdog.PermitsCreation()) &&
                     TryCreateSuspended(spec, commandLine, environment, input, outputPipe, errorPipe, out process, out thread);
                 try
                 {
@@ -200,6 +224,9 @@ internal sealed class LaunchJob : IDisposable
                 // L1: a never-resumed process is NotStarted only once its termination is confirmed.
                 return TerminateAndConfirm(process, fault) ? NotStarted(cancelled: false) : Unknown(terminationFailed: true);
             }
+            // ADR-031 design §2.1 R5: from here on the watchdog terminates the job on the first fault (before any hold is released).
+            LaunchJob running = launch;
+            watchdog?.Start(() => Win32.TerminateJobObject(running.job, TerminationExitCode));
             // §4 L2: CreateProcessW, assignment and resume all succeeded; an upgrade now releases the code holds. A failed
             // package release only keeps the holds longer (until the binding is disposed), so it never changes the outcome; a
             // failed client self-update release is recorded on its binding and forces the postcheck to Unverified (ADR-031 R3).
@@ -210,6 +237,13 @@ internal sealed class LaunchJob : IDisposable
         finally
         {
             readerStop.Cancel();
+            // R5: the watch thread is joined before the job handle can close; its fault is reported once.
+            if (watchdog is not null)
+            {
+                watchdog.Dispose();
+                if (testStopped is not null) testStopped(watchdog.Fault);
+                else spec.OnWatchdogStopped(watchdog.Fault);
+            }
             outputPipe?.Dispose();
             errorPipe?.Dispose();
             thread?.Dispose();

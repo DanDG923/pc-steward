@@ -93,6 +93,23 @@ internal sealed class NativeLaunchSpec
     }
 
     /// <summary>
+    /// ADR-031 design §2.1 R5, called by the launcher before its last pre-creation checks: a client self-update upgrade
+    /// spec is watched (<see cref="ChocolateyClientWatchTargets.FromBinding"/> over its binding); every other spec, the
+    /// package route included, is not (null).
+    /// </summary>
+    internal ChocolateyClientWatchTargets? WatchTargets() =>
+        releaseAllAfterResume ? ChocolateyClientWatchTargets.FromBinding(client!) : null;
+
+    /// <summary>
+    /// Called by the launcher after the watchdog of a client self-update launch was stopped: a fault is recorded on the
+    /// binding (design §2.1 R5), which forces the postcheck to a watchdog verdict. Every other spec records nothing.
+    /// </summary>
+    internal void OnWatchdogStopped(ChocolateyClientWatchdogFault fault)
+    {
+        if (releaseAllAfterResume && fault != ChocolateyClientWatchdogFault.None) client!.RecordWatchdogFault(fault);
+    }
+
+    /// <summary>
     /// N3 (rev-5 F3): the only production factory; its only call site is <see cref="LaunchJob.RunAsync"/> (architecture
     /// test). No string comes from the caller: the image is the held engine, argv[1..] is the sealed command's fixed list,
     /// the environment is <see cref="ChocolateyCompiledEnvironment.Create"/> over the binding's launch paths, and the working
