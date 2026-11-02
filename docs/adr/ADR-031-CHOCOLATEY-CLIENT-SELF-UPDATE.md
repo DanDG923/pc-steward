@@ -64,3 +64,4 @@ Option 2:
    - tests for a watchdog stop, a protection-release failure, and both combined.
 
    The Chocolatey self-update route stays disabled, pending the required review and the owner's separate acceptance of the remaining runtime risk.
+5. **Outcome ordering (2026-11-02):** the owner confirmed that a Chocolatey self-update the watchdog stopped after it started is shown as **"not verified" with the recovery warning**, not "Failed". This is the §8.3 ordering Success > Failed > Unverified > Uncertain, where Failed→Unverified counts as a downgrade in assertion strength.
