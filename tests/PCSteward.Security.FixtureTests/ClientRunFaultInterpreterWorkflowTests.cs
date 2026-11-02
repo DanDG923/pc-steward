@@ -104,6 +104,42 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
         Assert.IsNull(packageObservation.ClientRunFault);
     }
 
+    /// <summary>
+    /// Independent review M1: the recorded helper candidate check is defined for the package route only, so an accepted
+    /// client-route reply (Matched, Refused or Undetermined) carries NotObserved. The workflow therefore never drops a check
+    /// and never prefixes the false <c>helper-check-not-recorded</c> marker. The package route still derives its check.
+    /// </summary>
+    [TestMethod]
+    public void AnAcceptedClientReplyCarriesNoHelperCandidateCheck()
+    {
+        ReviewedUpdateOperation client = ClientOperation();
+        (UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, UpdateDispatchOutcome Outcome, UpdateDispatchSettlementState Settled)[] replies =
+        [
+            (Protocol2InterpreterFixture.Started(), ClientMatched(), UpdateDispatchOutcome.Success, UpdateDispatchSettlementState.OwnedWorkStopped),
+            (Protocol2InterpreterFixture.NotStarted(), Protocol2InterpreterFixture.Refused(ReviewedHelperRefusalReason.RequestNotAdmitted, null, null, null),
+                UpdateDispatchOutcome.Refused, UpdateDispatchSettlementState.NotInvoked),
+            (Protocol2InterpreterFixture.NotStarted(cancelled: true), Protocol2InterpreterFixture.Undetermined(), UpdateDispatchOutcome.Cancelled,
+                UpdateDispatchSettlementState.NotInvoked),
+        ];
+        foreach ((UpdateWireFacts facts, ReviewedHelperFacts reviewed, UpdateDispatchOutcome outcome, UpdateDispatchSettlementState settled) in replies)
+        {
+            ReviewedUpdateProtocol2Interpretation result = Protocol2InterpreterFixture.Interpret(client,
+                ClientFrame(client, facts, reviewed, ReviewedClientRunFaultWire.None));
+            Assert.AreNotEqual(ReviewedUpdateProtocol2Interpreter.ResponseRejectedDiagnostic, result.Observation.Diagnostic, reviewed.Qualification.ToString());
+            Assert.IsNotNull(result.WorkflowObservation.ClientRunFault, "the reply was accepted");
+            Assert.AreSame(ReviewedHelperCandidateCheck.NotObserved, result.CandidateCheck, reviewed.Qualification.ToString());
+            Assert.IsNull(result.CandidateCheck.LiveText);
+            Assert.AreSame(RecordedHelperCandidateCheck.NotObserved, result.WorkflowObservation.HelperCheck);
+            Assert.IsTrue(result.WorkflowObservation.HelperCheck!.IsConsistentWith(client, outcome, settled), "nothing for the workflow to drop");
+        }
+
+        ReviewedUpdateOperation package = Protocol2InterpreterFixture.Operation();
+        ReviewedUpdateProtocol2Interpretation packageResult = Protocol2InterpreterFixture.Interpret(package,
+            Protocol2InterpreterFixture.Frame(package, Protocol2InterpreterFixture.Started(), Protocol2InterpreterFixture.Matched()));
+        Assert.AreEqual(ReviewedHelperCandidateCheckKind.Confirmed, packageResult.CandidateCheck.Kind, "the package route keeps its check");
+        Assert.AreEqual(RecordedHelperCheckKind.Confirmed, packageResult.WorkflowObservation.HelperCheck!.Kind);
+    }
+
     [TestMethod]
     public void AMissingWrongRouteOrInvalidFieldIsRejectedAndNeverSucceeds()
     {

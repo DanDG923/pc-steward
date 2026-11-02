@@ -28,11 +28,17 @@ public sealed class ReviewedUpdateReview
         }
     }
 
+    /// <summary>
+    /// The compiled route admission: only <see cref="UpdateRouteContract.WinGetUserExactV3"/>. The trailing term is the
+    /// ADR-031 design §8.6 gate-1 test seam (<see cref="ReviewedRouteTestAdmission"/>), always false in production because
+    /// no <c>src</c> code can enter its scope (architecture test).
+    /// </summary>
     internal static bool HasSupportedMode(ReviewedUpdateOperation operation) =>
         operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserExactV3 &&
         operation.Selection.Architecture.Binding == ReviewedArchitectureBinding.Observed &&
         operation.Selection.Architecture.Value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64 &&
-        UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode;
+        UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode ||
+        ReviewedRouteTestAdmission.Admits(operation);
 }
 
 /// <summary>Explicit process-local confirmation. It is not a persisted job or a dispatch permit.</summary>

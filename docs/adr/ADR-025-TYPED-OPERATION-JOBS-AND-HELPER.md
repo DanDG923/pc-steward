@@ -147,3 +147,7 @@ Prove migration of existing update history with no implicit approval, crash wind
 ## Reconsider when
 
 A route cannot independently validate the reviewed operation, process/pipe identity or supported mode; provider/API behavior changes; or operation-specific bounds cannot fit the safe protocol. Keep that capability blocked pending a revised owner-reviewed contract.
+
+## Owner decision (2026-11-02): proxy and client-certificate disclosure
+
+The owner decided that the existing runtime-limits disclosure is sufficient. No separate disclosure of the effects of administrator-controlled proxy and client-certificate settings is required in the Chocolatey review. This resolves the Profile V2 "disclosed" note (N6 review Info; admission obligation 7).

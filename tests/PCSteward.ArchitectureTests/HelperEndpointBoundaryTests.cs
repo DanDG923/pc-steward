@@ -213,7 +213,11 @@ public sealed class HelperEndpointBoundaryTests
         List<string> assemblies = RequireBuilt();
         string chocolatey = assemblies.Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");
         IReadOnlyList<(string Type, string Method)> defined = CompiledIlScanner.MethodDefinitions(chocolatey);
-        (string Type, string Member)[] testOnly = [(NativeItem, "CreateForTests"), (NativeItem, "CreateOverFixtureForTests"), (ItemSeam, "CreateForTests")];
+        (string Type, string Member)[] testOnly =
+        [
+            (NativeItem, "CreateForTests"), (NativeItem, "CreateOverFixtureForTests"), (NativeItem, "CreateClientOverFixtureForTests"),
+            (ItemSeam, "CreateForTests"),
+        ];
         foreach ((string type, string member) in testOnly)
             Assert.IsTrue(defined.Contains((type, member)), $"{type}.{member} is not defined; update the ban list");
         (string Type, string Member, string[] Callers)[] pinned =
@@ -252,7 +256,8 @@ public sealed class HelperEndpointBoundaryTests
                 }
                 // Only the native port's peer factory and the item's own factories construct the native implementations.
                 if (reference.TargetMember == ".ctor" && reference.TargetType == NativeItem &&
-                    reference.LogicalCaller is not (NativeItem + ".Create" or NativeItem + ".CreateForTests" or NativeItem + ".CreateOverFixtureForTests"))
+                    reference.LogicalCaller is not (NativeItem + ".Create" or NativeItem + ".CreateForTests" or NativeItem + ".CreateOverFixtureForTests" or
+                        NativeItem + ".CreateClientOverFixtureForTests"))
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the native item");
                 if (reference.TargetMember == ".ctor" && reference.TargetType == NativePeer && reference.LogicalCaller != NativePeer + ".TryOpen")
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the native peer");

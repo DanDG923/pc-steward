@@ -1,3 +1,25 @@
+# Task 50 — candidate builder (activation gap G3)
+
+`FR-UPD-15`, `TM-03`, `TM-13`; ADR-022 and its protocol-2 alignment note; activation plan §11 G3.
+
+- [Record](../review/TASK_50_CANDIDATE_BUILDER_G3.md): `scripts/New-OwnerOnlyCandidate.ps1` builds the unsigned v2 payload and `candidate-manifest.json`, then self-validates with `Read-OwnerOnlyCandidateManifest` in Windows PowerShell 5.1. It is non-elevated, makes no deterministic-build claim, and the candidate is pinned once by its manifest hash.
+- Security `OwnerOnlyCandidateBuilderTests` covers parsing, AST policy, the real build-step, SDK, output-root, manifest-writer and copy functions, and installer-reader acceptance (Windows row). The Windows CI job `owner-only-candidate-builder` runs the builder end to end; first pass on `19bc296` (103 files, manifest `DEB99FF9…4FD7`). Review findings M1–M3 and L1–L5 are dispositioned in the record.
+- No host action. B1 (the owner's build on the chosen commit) remains host evidence.
+
+# Task 50 — activation host-session plan (draft)
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; ADR-031 decision 7; composition record admission obligations 1–3.
+
+- [Plan rev 1](../review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md): Part A (confirming Default run, optional H3) reuses script SHA-256 `0A1C4377…84D4` and is ready for approval; Parts B (v2 redeploy) and C (exact-artifact test) are blocked by gaps G1–G9.
+- No host action; no evidence yet.
+
+# Task 50 — ADR-031 client-route admission gates (design §8.6/§8.7)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decisions 4, 5 and 7.
+
+- Security `ClientRouteWorkflowAdmissionGateTests` (portable 30), Application `ClientRouteSqliteAdmissionGateTests` (portable 4, real SQLite store and history reader), Security `ClientRouteNativeEndToEndGateTests` (3, Windows-only), `ClientRunFaultInterpreterWorkflowTests` (client reply carries no helper check, review M1), architecture `AdmissionGateSeamBoundaryTests`.
+- Not claimed: route admission, Windows CI evidence for the Windows-only cases, or owner-host evidence.
+
 # Task 50 — host evidence (O5, A-Q1, A2-L3)
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; fact extension §10 N5 (O5); adapter gates §A.4 (A-Q1) and §R A2-L3.

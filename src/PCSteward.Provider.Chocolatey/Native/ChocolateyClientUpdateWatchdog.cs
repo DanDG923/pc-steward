@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -197,8 +198,37 @@ internal sealed class ChocolateyClientWatchTargets
             throw new InvalidOperationException("Only a client self-update binding is watched.");
         string[] directories = [.. client.ReleaseFiles.Select(file => file.RelativePath.Split('/'))
             .Where(parts => parts.Length > 1).Select(parts => parts[0]).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal)];
-        return new ChocolateyClientWatchTargets(requester, client.LaunchPaths.ChocolateyRoot, directories, ChocolateySetupEnvironmentReader.TryWatch,
-            watchThreadForTests: null);
+        // ADR-031 design §8.6 gate 2: no test key watch is ever registered in production (its setter has no src caller).
+        return new ChocolateyClientWatchTargets(requester, client.LaunchPaths.ChocolateyRoot, directories,
+            TestEnvironmentWatch(client) ?? ChocolateySetupEnvironmentReader.TryWatch, watchThreadForTests: null);
+    }
+
+    /// <summary>
+    /// ADR-031 design §8.6 admission gate 2 (test-only): environment-key watch factories registered for individual client
+    /// self-update bindings by <see cref="UseEnvironmentWatchForTests"/>. Empty in production (that setter has no <c>src</c>
+    /// caller, architecture test), so <see cref="FromBinding"/> always arms the two fixed keys there. Keyed weakly by the
+    /// binding instance: nothing is shared between bindings and nothing outlives the binding.
+    /// </summary>
+    private static readonly ConditionalWeakTable<ChocolateyHeldClientBinding, Func<ChocolateySetupEnvironmentReader.Watch?>> TestEnvironmentWatches = new();
+
+    /// <summary>The test key watch registered for <paramref name="client"/>, or null (always null in production).</summary>
+    private static Func<ChocolateySetupEnvironmentReader.Watch?>? TestEnvironmentWatch(ChocolateyHeldClientBinding client) =>
+        TestEnvironmentWatches.TryGetValue(client, out Func<ChocolateySetupEnvironmentReader.Watch?>? arm) ? arm : null;
+
+    /// <summary>
+    /// Test-only (an architecture test bans every <c>src</c> caller): makes the watchdog of this client self-update binding's
+    /// upgrade arm <paramref name="arm"/> (a test passes <see cref="ChocolateySetupEnvironmentReader.TryWatchForTests"/> over two
+    /// test keys below <c>HKCU\Software\PCSteward.Tests\</c>) instead of the real environment keys, so an end-to-end run
+    /// through the native item, the launcher and the real watchdog never watches the real keys and a test can set an override
+    /// name mid-run. Every other target (requester, root, listed directories, watch thread) still comes from the binding. A
+    /// package binding or a second registration throws.
+    /// </summary>
+    internal static void UseEnvironmentWatchForTests(ChocolateyHeldClientBinding client, Func<ChocolateySetupEnvironmentReader.Watch?> arm)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(arm);
+        if (client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate) throw new InvalidOperationException("Only a client self-update binding is watched.");
+        TestEnvironmentWatches.Add(client, arm);
     }
 
     /// <summary>
