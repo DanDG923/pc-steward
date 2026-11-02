@@ -46,6 +46,8 @@ Owner request, 2026-11-02: "I would want the update all available button & skip 
   - Items whose review is older than the accepted 30-minute dispatch ceiling (V2 decisions, 2026-10-29) are not started and need a fresh review.
   - A stop request (`UpdateBatchStop`) is checked only **between** items. The running item's token is never cancelled by Stop, so there is no mid-install cancel and no "Cancel update".
   - Earlier results are kept as recorded.
+  - A declined UAC prompt makes only that app "Not started". The other apps still run.
+  - Before each later app, the batch waits a bounded two minutes for the previous app's owned work (for example a helper still exiting), read through `SequentialUpdateBatchCoordinator.OwnedWorkCompletion`. After that, the unchanged admission check decides: a refusal stops the remaining apps.
 - **Elevation choice.**
   - Items run sequentially, each with its own existing approval and elevation. The helper and protocol are unchanged, because the one-shot protocol has no multi-item job.
   - The sheet says: "Windows may ask for permission once for each app that needs it."
@@ -93,3 +95,17 @@ Owner request, 2026-11-02: "I would want the update all available button & skip 
 - Per-item UAC prompts for a batch of machine-scope apps is noisier than one prompt. A multi-item elevated job would need a new protocol version and an ADR.
 - Behaviour on the WinUI runtime (checkbox selection churn, live progress switching between items) can only be checked on Windows. Linux checks compile the Desktop through a stub.
 - A one-app job now also gets the 30-minute dispatch ceiling. This is stricter, never looser.
+- Owned work that outlasts the two-minute settle wait stops the rest of the batch. This is fail-closed, and the stopped apps are reported as not started.
+
+## Implementation record (commits on this branch)
+
+1. **Design and decision record.** This note and the V2 planning entry.
+2. **Skip this version: domain and persistence.**
+   - `SkipVersionRule`, `UpdateIntelligenceStatus.Skipped`, `ProductUpdatePolicy.SkippedVersion` and `UserDecisionService.SkipVersionAsync`.
+   - No schema change.
+   - Unknown decision kinds are shown as "not recognised" instead of as a pin.
+3. **Skip this version: UI.** The overflow item, the Ignored and skipped row, Decisions, the Home tile and the Installed apps filter.
+4. **Update all.**
+   - Multi-select, `BeginBatchReviewAsync`, `UpdateReviewSheet.CreateBatch`, `ConfirmAndRunBatchAsync` and `UpdateOutcomePresenter.ForBatch`.
+   - On the Desktop: the Update step with "Stop after this app", and the grouped Verify step.
+5. **Owned-work settle wait between apps.**
