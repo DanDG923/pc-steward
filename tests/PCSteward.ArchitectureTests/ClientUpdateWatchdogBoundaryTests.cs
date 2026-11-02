@@ -46,6 +46,8 @@ public sealed class ClientUpdateWatchdogBoundaryTests
         (Reader, "TryWatchForTests"),
         (LaunchJob, "RunCoreWithWatchdogForTestsAsync"),
         (Postcheck, "EvaluateForTests"),
+        // ADR-031 design §8.6 gate 2: the binding's test environment-key watch.
+        (Targets, "UseEnvironmentWatchForTests"),
     ];
 
     /// <summary>(target type, member) → the exact set of source-level callers in <c>src</c>.</summary>
@@ -59,6 +61,7 @@ public sealed class ClientUpdateWatchdogBoundaryTests
         (Targets, "FromBinding", [Spec + ".WatchTargets"]),
         (Binding, "RecordWatchdogFault", [Spec + ".OnWatchdogStopped"]),
         (Reader, "TryWatch", [Targets + ".FromBinding"]),
+        (Targets, "TestEnvironmentWatch", [Targets + ".FromBinding"]),
         (Targets, "get_WatchThreadForTests", [Watchdog + ".Start"]),
     ];
 

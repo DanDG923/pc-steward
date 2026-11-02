@@ -61,7 +61,8 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
     internal static NativeChocolateyHelperItem Create(RequesterToken token)
     {
         ArgumentNullException.ThrowIfNull(token);
-        return new NativeChocolateyHelperItem(new NativeWork(token, ProductionObserve, ancestryBase: null, stageCForTests: null));
+        return new NativeChocolateyHelperItem(new NativeWork(token, ProductionObserve, ancestryBase: null, stageCForTests: null,
+            ChocolateyReleaseList.Listed));
     }
 
     /// <summary>
@@ -88,7 +89,24 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         ArgumentNullException.ThrowIfNull(observe);
         if (ancestryBase is not null && (!ProtectedNodeReader.IsCanonicalLocalPath(ancestryBase) || ancestryBase.Length <= 3))
             throw new ArgumentException("A canonical ancestry base below a drive root is required.", nameof(ancestryBase));
-        return new NativeChocolateyHelperItem(new NativeWork(token, observe, ancestryBase, stageCForTests));
+        return new NativeChocolateyHelperItem(new NativeWork(token, observe, ancestryBase, stageCForTests, ChocolateyReleaseList.Listed));
+    }
+
+    /// <summary>
+    /// Test-only (an architecture test bans every <c>src</c> caller): ADR-031 design §8.6 admission gate 2. The native work
+    /// over a fixture for the client self-update route: <paramref name="observe"/> replaces the production observer call (a
+    /// test passes the N2 fixture seam over the same list), and <paramref name="releases"/> replaces the compiled
+    /// <see cref="ChocolateyReleaseList.Listed"/> as the source of the stage-B source release and its offer, so stages B, C
+    /// (the real <c>list chocolatey --exact</c> query), D and the launch run unchanged against a two-release fixture list.
+    /// No stage is replaced. The token is owned by the item.
+    /// </summary>
+    internal static NativeChocolateyHelperItem CreateClientOverFixtureForTests(RequesterToken token, ChocolateyHelperObserve observe,
+        ChocolateyReleaseList releases)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        ArgumentNullException.ThrowIfNull(observe);
+        ArgumentNullException.ThrowIfNull(releases);
+        return new NativeChocolateyHelperItem(new NativeWork(token, observe, ancestryBase: null, stageCForTests: null, releases));
     }
 
     public bool AggregateSettled
@@ -280,7 +298,7 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
     /// stage-B binding. Every launch's settlement is recorded; a launch that throws is recorded unsettled.
     /// </summary>
     private sealed class NativeWork(RequesterToken token, ChocolateyHelperObserve observe, string? ancestryBase,
-        Func<ChocolateyCandidateValues>? stageCForTests) : IWork
+        Func<ChocolateyCandidateValues>? stageCForTests, ChocolateyReleaseList releases) : IWork
     {
         private readonly Lock launches = new();
         private bool unsettledLaunch;
@@ -337,10 +355,11 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
                 return Unsupported();
             if (operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1)
             {
-                // ADR-031 design §7.1 B: the frozen source release and its offer come only from the compiled list; the two client
-                // command factories (their only call sites, architecture test) refuse anything but the exact shape and list data.
-                ChocolateyReviewedRelease? release = ChocolateyReleaseList.Listed.FindByVersion(installed);
-                ChocolateyReviewedRelease? offer = ChocolateyReleaseList.Listed.OfferTarget(release);
+                // ADR-031 design §7.1 B: the frozen source release and its offer come only from the compiled list (production
+                // passes ChocolateyReleaseList.Listed; only the test-only fixture factory passes another); the two client command
+                // factories (their only call sites, architecture test) refuse anything but the exact shape and list data.
+                ChocolateyReviewedRelease? release = releases.FindByVersion(installed);
+                ChocolateyReviewedRelease? offer = releases.OfferTarget(release);
                 if (release is null || offer is null) return Unsupported();
                 ChocolateyCompiledCommand.ListClient? listClient = ChocolateyCompiledCommand.TryListClient(operation, release);
                 ChocolateyCompiledCommand.UpgradeClient? upgradeClient = ChocolateyCompiledCommand.TryUpgradeClient(operation, release, offer);
