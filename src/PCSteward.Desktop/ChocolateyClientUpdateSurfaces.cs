@@ -9,7 +9,8 @@ namespace PCSteward.Desktop;
 /// <summary>
 /// FR-UPD-15, FR-UI-03/04, TM-03/04/07/13; ADR-031 (owner decisions 1–5), ADR-030: thin rendering of
 /// <see cref="ChocolateyClientUpdateViewModel"/> — the Settings card row and Installed apps detail entry point, and the
-/// Chocolatey client update review dialog ("may be available" until admission). It renders every line the view model exposes and binds Confirm's enabled state to
+/// Chocolatey client update review dialog (opened as "Checking", then re-rendered with the installed-client check's result; an offer is
+/// "not yet enabled" until admission). It renders every line the view model exposes and binds Confirm's enabled state to
 /// <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> (always false while the route is not admitted). It holds no
 /// logic, starts nothing and has no review, confirm or dispatch path.
 /// </summary>
@@ -28,6 +29,25 @@ internal static class ChocolateyClientUpdateSurfaces
     internal static ContentDialog ReviewDialog(XamlRoot root, ChocolateyClientUpdateViewModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
+        ContentDialog dialog = new()
+        {
+            XamlRoot = root,
+            PrimaryButtonText = ChocolateyClientUpdateViewModel.ConfirmText,
+            CloseButtonText = ChocolateyClientUpdateViewModel.CloseText,
+            DefaultButton = ContentDialogButton.Close,
+        };
+        Render(dialog, model);
+        return dialog;
+    }
+
+    /// <summary>
+    /// Renders <paramref name="model"/> into the dialog (when it opens, and again when the installed-client check ends): title,
+    /// every line, and Confirm's enabled state from <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> only.
+    /// </summary>
+    internal static void Render(ContentDialog dialog, ChocolateyClientUpdateViewModel model)
+    {
+        ArgumentNullException.ThrowIfNull(dialog);
+        ArgumentNullException.ThrowIfNull(model);
         StackPanel content = new() { Spacing = 4 };
         TextBlock summary = new() { Text = model.Summary, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap };
         content.Children.Add(summary);
@@ -40,19 +60,11 @@ internal static class ChocolateyClientUpdateSurfaces
             content.Children.Add(Heading(ChocolateyClientUpdateViewModel.UnavailableHeading));
             foreach (ReviewedDisplayField field in model.UnavailableFields) content.Children.Add(Line(field));
         }
-        ContentDialog dialog = new()
-        {
-            XamlRoot = root,
-            Title = model.Title,
-            Content = new ScrollViewer { Content = content, MaxHeight = 520 },
-            PrimaryButtonText = ChocolateyClientUpdateViewModel.ConfirmText,
-            IsPrimaryButtonEnabled = model.IsConfirmEnabled,
-            CloseButtonText = ChocolateyClientUpdateViewModel.CloseText,
-            DefaultButton = ContentDialogButton.Close,
-        };
+        dialog.Title = model.Title;
+        dialog.Content = new ScrollViewer { Content = content, MaxHeight = 520 };
+        dialog.IsPrimaryButtonEnabled = model.IsConfirmEnabled;
         AutomationProperties.SetName(dialog, model.Title);
         AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);
-        return dialog;
     }
 
     private static TextBlock Heading(string text)

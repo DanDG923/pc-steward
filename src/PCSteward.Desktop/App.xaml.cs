@@ -114,7 +114,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications,
             prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync);
         // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
         ActivateWindow(window);
         }
         catch (Exception exception)
