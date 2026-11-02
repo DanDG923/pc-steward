@@ -306,16 +306,22 @@ public sealed class ReferenceBoundaryTests
         int detailRequirement = source.IndexOf("AdministratorRequirementPresenter.BeforeReview()", StringComparison.Ordinal);
         // Task 73 Phase 5 (WCAG 2.5.3): the name is built from the visible label, so it still reads "Review and update this verified package. …".
         int reviewButton = source.IndexOf("StewardVisuals.PrimaryButton(\"Review and update\", $\"this verified package. {administratorRequirement.Label}\")", detailRequirement, StringComparison.Ordinal);
-        int confirmedRequirement = source.IndexOf("AdministratorRequirementPresenter.ForSelection(selection)", reviewButton, StringComparison.Ordinal);
+        // Task 73 Phase 6 (SPEC §9.13 G4) deliberately moves the per-app requirement into the portable sheet builder: the Desktop builds
+        // one sheet for the frozen set from each reviewed selection, and CreateBatch derives each app's requirement (ForSelection)
+        // and the aggregate (ForBatch) before confirmation.
+        int confirmedRequirement = source.IndexOf("item.Preparation.Review!.Selection,", reviewButton, StringComparison.Ordinal);
         // Task 73 Phase 2 (ADR-030 decision 3; audit P-H6): the final confirmation is the review sheet page, awaited through the
         // user's decision, instead of the wall-of-text ContentDialog. The requirement still feeds the sheet before confirmation.
-        int sheet = source.IndexOf("UpdateReviewSheet.Create(selection, row.Name, row.Publisher", confirmedRequirement, StringComparison.Ordinal);
+        int sheet = source.IndexOf("UpdateReviewSheet.CreateBatch(inputs,", confirmedRequirement, StringComparison.Ordinal);
         int showConfirmation = source.IndexOf("bool confirmed = await decision.Task;", sheet, StringComparison.Ordinal);
-        int execute = source.IndexOf("updates.ConfirmAndRunAsync", showConfirmation, StringComparison.Ordinal);
+        int execute = source.IndexOf("updates.ConfirmAndRunBatchAsync", showConfirmation, StringComparison.Ordinal);
 
         Assert.IsTrue(detailRequirement >= 0 && reviewButton > detailRequirement);
         Assert.IsTrue(confirmedRequirement > reviewButton && sheet > confirmedRequirement && showConfirmation > sheet && execute > showConfirmation);
-        StringAssert.Contains(source, "preparation.RunningApplication, administratorRequirement);");
+        StringAssert.Contains(source, "item.Preparation.RunningApplication))];");
+        string sheetBuilder = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
+        StringAssert.Contains(sheetBuilder, "Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection))");
+        StringAssert.Contains(sheetBuilder, "AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray())");
         StringAssert.Contains(source, "administratorRequirement.Label");
         StringAssert.Contains(source, "administratorRequirement.Explanation");
         StringAssert.Contains(source, "AutomationProperties.SetHelpText(review, administratorRequirement.Explanation)");
@@ -357,7 +363,8 @@ public sealed class ReferenceBoundaryTests
         // The execution finally block (the review-preparation finally only clears preparingReview).
         int completionStart = source.IndexOf("finally { StopUpdateProgressPolling();", reviewStart, StringComparison.Ordinal);
         Assert.IsTrue(completionStart >= 0);
-        int outcome = source.IndexOf("job.Completion = UpdateOutcomePresenter.ForResult(result, selection, row.Name);", completionStart, StringComparison.Ordinal);
+        // Task 73 Phase 6: the batch's recorded per-item results (or the not-started/unrecorded fallback) become the completion.
+        int outcome = source.IndexOf("job.Completion = run is not null", completionStart, StringComparison.Ordinal);
         Assert.IsTrue(outcome > completionStart);
         // Independent review: the result is shown where the user is (the band offers "View result" elsewhere); it never navigates.
         int show = source.IndexOf("jobResultPending = navigation.Current != ShellPage.UpdateJob;", outcome, StringComparison.Ordinal);
@@ -382,7 +389,10 @@ public sealed class ReferenceBoundaryTests
         string source = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "MainWindow.cs"));
         string presenter = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
 
-        StringAssert.Contains(source, "UpdateOutcomePresenter.ForResult(result, selection, row.Name)");
+        // Task 73 Phase 6: every app's recorded result maps through the portable presenter (ForBatch delegates each ran item to ForResult).
+        StringAssert.Contains(source, "UpdateOutcomePresenter.ForBatch(run, NameOf)");
+        StringAssert.Contains(source, "UpdateOutcomePresenter.ForResult(result!, item.Preparation.Review!.Selection, NameOf(item.StableProductKey))");
+        StringAssert.Contains(presenter, "items.AddRange(ForResult(item.Result, item.Selection, name).Items);");
         foreach (string flattened in new[] { "_ => \"Update failed\"", "GetUpdateOutcomeTitle", "\"Update completed\"", "result.Started ? \"Update completed\" : \"Update not started\"" })
             Assert.IsFalse(source.Contains(flattened, StringComparison.Ordinal), flattened);
         StringAssert.Contains(presenter, "UpdateHistoryStatus.Success => new(UpdateOutcomeKind.Verified, VerifiedLabel");

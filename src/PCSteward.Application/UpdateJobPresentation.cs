@@ -53,11 +53,30 @@ public enum ReviewRiskKind
 /// <summary>A risk callout. Tone is never the only signal: each has a title and a message.</summary>
 public sealed record ReviewRiskCallout(ReviewRiskKind Kind, string Title, string Message, StatusTone Tone);
 
+/// <summary>One app's input to the review sheet: its reviewed immutable selection plus display-only inventory and evidence.</summary>
+public sealed record UpdateReviewSheetInput(UpdateJobSelection Selection, string AppName, string Publisher, UpdateDetail? Detail, RunningApplicationDetection Running);
+
+/// <summary>One app on the review sheet: the §17.2 facts, the confidence in words and this app's own risks.</summary>
+public sealed record UpdateReviewSheetItem(
+    string StableProductKey,
+    string AppName,
+    IReadOnlyList<ReviewFact> Facts,
+    string ConfidenceSummary,
+    IReadOnlyList<string> ConfidenceEvidence,
+    AdministratorRequirementPresentation AdministratorRequirement,
+    bool AppearsToBeRunning,
+    IReadOnlyList<string> RunningProcessNames);
+
+/// <summary>A selected app that isn't in the frozen set, with the reason in words (SPEC §9.13: excluded rows are explained).</summary>
+public sealed record UpdateReviewExclusion(string AppName, string Reason);
+
 /// <summary>
 /// FR-UI-03/04, SPEC §17.2, FR-UPD-04–06 (Task 73 Phase 2, ADR-030 foundation 4; audit P-H6, P-M3): the structured review sheet
 /// that replaces the wall-of-text confirmation. It is built only from the reviewed immutable selection (facts), the inventory row
 /// (name, publisher), the already computed update detail (confidence and its evidence) and the existing running-app and
 /// administrator presentations. It holds no authority: confirming still goes through the existing review and confirmation flow.
+/// Task 73 Phase 6 (SPEC §9.13 G4): the same sheet reviews a frozen set of apps — every app's facts, the excluded apps with their
+/// reasons, and aggregated risks. A one-app sheet is exactly the Phase 2 sheet.
 /// </summary>
 public sealed class UpdateReviewSheet
 {
@@ -65,23 +84,35 @@ public sealed class UpdateReviewSheet
     public static IReadOnlyList<string> FactLabels { get; } =
         ["App", "Version", "Publisher", "Source", "Updated with", "Package ID", "Scope", "Architecture", "Channel"];
 
-    private UpdateReviewSheet(string appName, IReadOnlyList<ReviewFact> facts, string confidenceSummary, IReadOnlyList<string> confidenceEvidence,
-        IReadOnlyList<ReviewRiskCallout> risks, string coverageDisclosure, string attestation, string primaryButtonLabel, string primaryAutomationName,
-        AdministratorRequirementPresentation administratorRequirement, bool appearsToBeRunning, int itemCount)
+    /// <summary>
+    /// Shown when more than one app needs administrator permission: the one-shot helper accepts one approved job per prompt, so the
+    /// batch is approved and elevated one app at a time (Task 73 Phase 6 design note).
+    /// </summary>
+    public const string PerAppElevationNote =
+        "Windows may ask for permission once for each app that needs it, when that app's update starts. If you decline, only that app is skipped.";
+
+    private UpdateReviewSheet(IReadOnlyList<UpdateReviewSheetItem> items, IReadOnlyList<UpdateReviewExclusion> excluded, IReadOnlyList<ReviewRiskCallout> risks,
+        string coverageDisclosure, string attestation, string primaryButtonLabel, string primaryAutomationName,
+        AdministratorRequirementPresentation administratorRequirement, bool appearsToBeRunning)
     {
-        AppName = appName; Facts = facts; ConfidenceSummary = confidenceSummary; ConfidenceEvidence = confidenceEvidence; Risks = risks;
-        CoverageDisclosure = coverageDisclosure; Attestation = attestation; PrimaryButtonLabel = primaryButtonLabel;
-        PrimaryAutomationName = primaryAutomationName; AdministratorRequirement = administratorRequirement;
-        AppearsToBeRunning = appearsToBeRunning; ItemCount = itemCount;
+        Items = items; Excluded = excluded; Risks = risks; CoverageDisclosure = coverageDisclosure; Attestation = attestation;
+        PrimaryButtonLabel = primaryButtonLabel; PrimaryAutomationName = primaryAutomationName; AdministratorRequirement = administratorRequirement;
+        AppearsToBeRunning = appearsToBeRunning;
     }
 
     /// <summary>"Review update" — never "approved" before approval (audit P-M3).</summary>
     public string Title => ItemCount == 1 ? "Review update" : "Review updates";
     public const string Intro = "Check these details. Nothing changes until you choose the update button below, and you can cancel now.";
-    public string AppName { get; }
-    public IReadOnlyList<ReviewFact> Facts { get; }
-    public string ConfidenceSummary { get; }
-    public IReadOnlyList<string> ConfidenceEvidence { get; }
+    /// <summary>Every app in the frozen set, in the order it will run.</summary>
+    public IReadOnlyList<UpdateReviewSheetItem> Items { get; }
+    /// <summary>Selected apps that couldn't be reviewed and aren't included, each with its reason.</summary>
+    public IReadOnlyList<UpdateReviewExclusion> Excluded { get; }
+    /// <summary>The app's name, or "N apps" for a batch.</summary>
+    public string AppName => ItemCount == 1 ? Items[0].AppName : $"{ItemCount} apps";
+    /// <summary>The single app's facts (a one-app sheet), or empty for a batch: a batch shows each item's facts.</summary>
+    public IReadOnlyList<ReviewFact> Facts => ItemCount == 1 ? Items[0].Facts : [];
+    public string ConfidenceSummary => ItemCount == 1 ? Items[0].ConfidenceSummary : string.Empty;
+    public IReadOnlyList<string> ConfidenceEvidence => ItemCount == 1 ? Items[0].ConfidenceEvidence : [];
     public IReadOnlyList<ReviewRiskCallout> Risks { get; }
     /// <summary>The existing running-app coverage disclosure; required content, shown de-emphasised.</summary>
     public string CoverageDisclosure { get; }
@@ -91,10 +122,14 @@ public sealed class UpdateReviewSheet
     public string PrimaryAutomationName { get; }
     public const string CancelButtonLabel = "Cancel";
     public AdministratorRequirementPresentation AdministratorRequirement { get; }
-    /// <summary>The UAC shield appears on the primary button only when the existing presentation says administrator approval is required.</summary>
+    /// <summary>The UAC shield appears on the primary button only when at least one app needs administrator approval.</summary>
     public bool ShowsAdministratorShield => AdministratorRequirement.Status == AdministratorRequirementStatus.Required;
+    /// <summary>How many apps in the frozen set need administrator approval (machine scope).</summary>
+    public int AdministratorRequiredCount => Items.Count(item => item.AdministratorRequirement.Status == AdministratorRequirementStatus.Required);
+    /// <summary>The per-app elevation note, shown only for a batch with an app that needs administrator approval.</summary>
+    public string? ElevationNote => ItemCount > 1 && AdministratorRequiredCount > 0 ? PerAppElevationNote : null;
     public bool AppearsToBeRunning { get; }
-    public int ItemCount { get; }
+    public int ItemCount => Items.Count;
 
     public static UpdateReviewSheet Create(UpdateJobSelection selection, string appName, string publisher, UpdateDetail? detail,
         RunningApplicationDetection running, AdministratorRequirementPresentation administratorRequirement)
@@ -102,12 +137,88 @@ public sealed class UpdateReviewSheet
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(running);
         ArgumentNullException.ThrowIfNull(administratorRequirement);
-        string name = string.IsNullOrWhiteSpace(appName) ? selection.PackageId : appName.Trim();
+        UpdateReviewSheetItem item = Item(new(selection, appName, publisher, detail, running), administratorRequirement);
+        string name = item.AppName;
+
+        List<ReviewRiskCallout> risks = [];
+        risks.Add(running.AppearsToBeRunning
+            ? new(ReviewRiskKind.RunningApplication, $"{name} appears to be running",
+                $"Detected process: {string.Join(", ", running.ProcessNames)}. PC Steward will not close it. Close the app before you continue, or choose to update anyway.",
+                StatusTone.Attention)
+            : new(ReviewRiskKind.RunningApplication, "The app doesn't appear to be running",
+                $"No running process was matched for {selection.PackageId}. If you know it's open, close it first. PC Steward never closes apps.",
+                StatusTone.Neutral));
+        risks.Add(new(ReviewRiskKind.Restart, "A restart might be needed",
+            "Some installers need Windows to restart to finish. PC Steward never restarts your PC; if a restart is needed, it tells you afterwards.",
+            StatusTone.Neutral));
+        risks.Add(new(ReviewRiskKind.Administrator, administratorRequirement.Label, administratorRequirement.Explanation,
+            administratorRequirement.Status == AdministratorRequirementStatus.NotExpected ? StatusTone.Neutral : StatusTone.Attention));
+
+        const int itemCount = 1;
+        string primary = $"Update {itemCount} app{(itemCount == 1 ? string.Empty : "s")}{(running.AppearsToBeRunning ? " anyway" : string.Empty)}";
+        string attestation =
+            $"By choosing {primary}, you confirm that the exact source, package ID, installed version and target version shown here are the app and update you intend. " +
+            "PC Steward doesn't record the update as successful until it checks the installed version again afterwards.";
+        string automation = $"{primary}: {name} {selection.InstalledVersion} to {selection.CandidateVersion}. {administratorRequirement.Label}";
+        return new([item], [], risks, running.CoverageDisclosure, attestation, primary, automation, administratorRequirement, running.AppearsToBeRunning);
+    }
+
+    /// <summary>
+    /// SPEC §9.13 G4 (Task 73 Phase 6): one sheet for a frozen set. One app gives exactly <see cref="Create"/>. For several apps every
+    /// app keeps its own §17.2 facts and confidence; risks are aggregated (running apps named, restart, administrator count) and
+    /// excluded apps are listed with their reasons. The commit button names the count and shows the shield only if an app needs it.
+    /// </summary>
+    public static UpdateReviewSheet CreateBatch(IReadOnlyList<UpdateReviewSheetInput> inputs, IReadOnlyList<UpdateReviewExclusion>? excluded = null)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        if (inputs.Count == 0) throw new ArgumentException("A review sheet needs at least one app.", nameof(inputs));
+        if (inputs.Any(input => input is null || input.Selection is null || input.Running is null)) throw new ArgumentException("Every app needs its reviewed selection and running-app detection.", nameof(inputs));
+        IReadOnlyList<UpdateReviewExclusion> exclusions = excluded ?? [];
+        if (inputs.Count == 1)
+        {
+            UpdateReviewSheetInput only = inputs[0];
+            UpdateReviewSheet single = Create(only.Selection, only.AppName, only.Publisher, only.Detail, only.Running, AdministratorRequirementPresenter.ForSelection(only.Selection));
+            return exclusions.Count == 0 ? single : new(single.Items, exclusions, single.Risks, single.CoverageDisclosure, single.Attestation,
+                single.PrimaryButtonLabel, single.PrimaryAutomationName, single.AdministratorRequirement, single.AppearsToBeRunning);
+        }
+
+        UpdateReviewSheetItem[] items = [.. inputs.Select(input => Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection)))];
+        AdministratorRequirementPresentation administrator = AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray());
+        UpdateReviewSheetItem[] running = [.. items.Where(item => item.AppearsToBeRunning)];
+        List<ReviewRiskCallout> risks = [];
+        risks.Add(running.Length == 0
+            ? new(ReviewRiskKind.RunningApplication, "None of these apps appear to be running",
+                "No running process was matched for these apps. If you know one is open, close it first. PC Steward never closes apps.", StatusTone.Neutral)
+            : new(ReviewRiskKind.RunningApplication, running.Length == 1 ? $"{running[0].AppName} appears to be running" : $"{running.Length} apps appear to be running",
+                $"Detected: {string.Join("; ", running.Select(item => $"{item.AppName} ({string.Join(", ", item.RunningProcessNames)})"))}. " +
+                "PC Steward will not close them. Close them before you continue, or choose to update anyway. An app that starts running later is not updated without a new review.",
+                StatusTone.Attention));
+        risks.Add(new(ReviewRiskKind.Restart, "A restart might be needed",
+            "Some installers need Windows to restart to finish. PC Steward never restarts your PC; if a restart is needed, it tells you afterwards.",
+            StatusTone.Neutral));
+        risks.Add(new(ReviewRiskKind.Administrator, administrator.Label, administrator.Explanation,
+            administrator.Status == AdministratorRequirementStatus.NotExpected ? StatusTone.Neutral : StatusTone.Attention));
+
+        string primary = $"Update {items.Length} apps{(running.Length > 0 ? " anyway" : string.Empty)}";
+        string attestation =
+            $"By choosing {primary}, you confirm that the exact source, package ID, installed version and target version shown for each app are the apps and updates you intend. " +
+            "PC Steward updates them one at a time, checks each app's details again just before it starts, and doesn't start an app whose details changed. " +
+            "It doesn't record an update as successful until it checks the installed version again afterwards.";
+        string automation = $"{primary}: {string.Join(", ", items.Select(item => item.AppName))}. {administrator.Label}";
+        string coverage = string.Join(" ", inputs.Select(input => input.Running.CoverageDisclosure).Distinct(StringComparer.Ordinal));
+        return new(items, exclusions, risks, coverage, attestation, primary, automation, administrator, running.Length > 0);
+    }
+
+    private static UpdateReviewSheetItem Item(UpdateReviewSheetInput input, AdministratorRequirementPresentation administratorRequirement)
+    {
+        UpdateJobSelection selection = input.Selection;
+        UpdateDetail? detail = input.Detail;
+        string name = string.IsNullOrWhiteSpace(input.AppName) ? selection.PackageId : input.AppName.Trim();
         ReviewFact[] facts =
         [
             new("App", name),
             new("Version", $"{selection.InstalledVersion} → {selection.CandidateVersion}"),
-            new("Publisher", string.IsNullOrWhiteSpace(publisher) ? "Not recorded" : publisher.Trim()),
+            new("Publisher", string.IsNullOrWhiteSpace(input.Publisher) ? "Not recorded" : input.Publisher.Trim()),
             new("Source", Source(selection.Source)),
             // Protected UI behaviour: the final confirmation names the exact provider that runs the update.
             new("Updated with", selection.Provider == UpdateProvider.Chocolatey ? "Chocolatey" : "WinGet"),
@@ -131,29 +242,8 @@ public sealed class UpdateReviewSheet
             if (!string.IsNullOrWhiteSpace(detail.Freshness)) evidence.Add(detail.Freshness.Trim());
         }
         evidence.Add($"Evidence version: {selection.MappingEvidenceVersion}.");
-
-        List<ReviewRiskCallout> risks = [];
-        risks.Add(running.AppearsToBeRunning
-            ? new(ReviewRiskKind.RunningApplication, $"{name} appears to be running",
-                $"Detected process: {string.Join(", ", running.ProcessNames)}. PC Steward will not close it. Close the app before you continue, or choose to update anyway.",
-                StatusTone.Attention)
-            : new(ReviewRiskKind.RunningApplication, "The app doesn't appear to be running",
-                $"No running process was matched for {selection.PackageId}. If you know it's open, close it first. PC Steward never closes apps.",
-                StatusTone.Neutral));
-        risks.Add(new(ReviewRiskKind.Restart, "A restart might be needed",
-            "Some installers need Windows to restart to finish. PC Steward never restarts your PC; if a restart is needed, it tells you afterwards.",
-            StatusTone.Neutral));
-        risks.Add(new(ReviewRiskKind.Administrator, administratorRequirement.Label, administratorRequirement.Explanation,
-            administratorRequirement.Status == AdministratorRequirementStatus.NotExpected ? StatusTone.Neutral : StatusTone.Attention));
-
-        const int itemCount = 1;
-        string primary = $"Update {itemCount} app{(itemCount == 1 ? string.Empty : "s")}{(running.AppearsToBeRunning ? " anyway" : string.Empty)}";
-        string attestation =
-            $"By choosing {primary}, you confirm that the exact source, package ID, installed version and target version shown here are the app and update you intend. " +
-            "PC Steward doesn't record the update as successful until it checks the installed version again afterwards.";
-        string automation = $"{primary}: {name} {selection.InstalledVersion} to {selection.CandidateVersion}. {administratorRequirement.Label}";
-        return new(name, facts, confidence, evidence, risks, running.CoverageDisclosure, attestation, primary, automation,
-            administratorRequirement, running.AppearsToBeRunning, itemCount);
+        return new(selection.StableProductKey, name, facts, confidence, evidence, administratorRequirement, input.Running.AppearsToBeRunning,
+            [.. input.Running.ProcessNames]);
     }
 
     private static string Source(UpdateSource source) => source switch
@@ -195,8 +285,17 @@ public static class UpdateJobProgressText
 {
     public const string LeaveNote = "You can leave this page; the update keeps going and its result is recorded. An update can't be cancelled once it has started.";
 
-    /// <summary>A defensible count only: one reviewed app per job.</summary>
-    public static string Heading(int itemCount) => itemCount == 1 ? "Updating 1 app" : $"Updating {itemCount} apps";
+    /// <summary>A defensible count only: the apps in the reviewed frozen set.</summary>
+    public static string Heading(int itemCount) => itemCount == 1 ? "Updating 1 app" : $"Updating {itemCount} apps, one at a time";
+
+    /// <summary>FR-UPD-11, AC-UPD-10 (Task 73 Phase 6): the batch stop control. It stops before the next app; it never interrupts one.</summary>
+    public const string StopAfterCurrentLabel = "Stop after this app";
+    public const string StopAfterCurrentHelp = "The app that is updating now finishes and its result is recorded. The apps after it don't start.";
+    public const string StopRequestedText = "Stopping after this app. The apps after it won't start.";
+
+    /// <summary>The state of one batch item that isn't the one updating now.</summary>
+    public static string QueuedItemState(int index, int currentIndex, string? finishedLabel) =>
+        finishedLabel is not null ? finishedLabel : index < currentIndex ? "Finished" : "Waiting to start";
 
     public static string ItemState(UpdateProgressPresentation? presentation)
     {
@@ -244,8 +343,15 @@ public sealed record UpdateOutcomePresentation(
     public string AccessibleName(string subject) => $"{subject}: {Label}";
 }
 
-/// <summary>One app's line on the Verify step.</summary>
-public sealed record UpdateJobItemOutcome(string AppName, string PackageId, string InstalledVersion, string TargetVersion, UpdateOutcomePresentation Outcome);
+/// <summary>One app's line on the Verify step. <see cref="StableProductKey"/> lets "Review again" open a fresh review of that app only.</summary>
+public sealed record UpdateJobItemOutcome(string AppName, string PackageId, string InstalledVersion, string TargetVersion, UpdateOutcomePresentation Outcome,
+    string? StableProductKey = null);
+
+/// <summary>One outcome group on the Verify step, for example "Verified (2)".</summary>
+public sealed record UpdateOutcomeGroup(UpdateOutcomeKind Kind, string Label, IReadOnlyList<UpdateJobItemOutcome> Items)
+{
+    public string Heading => $"{Label} ({Items.Count})";
+}
 
 /// <summary>The completion view: per-item outcomes plus restart guidance.</summary>
 public sealed record UpdateJobCompletion(IReadOnlyList<UpdateJobItemOutcome> Items)
@@ -259,7 +365,17 @@ public sealed record UpdateJobCompletion(IReadOnlyList<UpdateJobItemOutcome> Ite
         ? $"Restart Windows when it suits you to finish the update. {NeverRestartsNote} The new version is checked again on your next scan after the restart."
         : $"{NeverRestartsNote} No restart was reported for this job.";
 
-    public string Headline => Items.Count == 0 ? "No outcome recorded" : Items[0].Outcome.Kind switch
+    /// <summary>
+    /// SPEC §9.13 G4 (Task 73 Phase 6): the outcomes grouped by kind, in the order Verified, Restart required, Installed, not verified,
+    /// Failed, Not started, Result not verified. Each item keeps its own recorded outcome; grouping never merges or upgrades one.
+    /// </summary>
+    public IReadOnlyList<UpdateOutcomeGroup> Groups => [.. Items.GroupBy(item => item.Outcome.Kind).OrderBy(group => group.Key)
+        .Select(group => new UpdateOutcomeGroup(group.Key, group.First().Outcome.Label, [.. group]))];
+
+    public string Headline => Items.Count == 0 ? "No outcome recorded"
+        // A batch headline counts each outcome group, for example "2 verified · 1 not started"; the subject ("3 apps") is shown beside it.
+        : Items.Count > 1 ? string.Join(" · ", Groups.Select(group => $"{group.Items.Count} {group.Label.ToLowerInvariant()}"))
+        : Items[0].Outcome.Kind switch
     {
         UpdateOutcomeKind.Verified => "Update verified",
         UpdateOutcomeKind.RestartRequired => "Restart required to finish",
@@ -353,7 +469,7 @@ public static class UpdateOutcomePresenter
         ArgumentNullException.ThrowIfNull(selection);
         string name = string.IsNullOrWhiteSpace(appName) ? selection.PackageId : appName;
         UpdateJobItemOutcome Item(UpdateOutcomePresentation outcome) =>
-            new(name, selection.PackageId, selection.InstalledVersion, selection.CandidateVersion, outcome);
+            new(name, selection.PackageId, selection.InstalledVersion, selection.CandidateVersion, outcome, selection.StableProductKey);
 
         if (result.Batch is { AdmissionRefused: true })
             return new([Item(new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral,
@@ -369,6 +485,37 @@ public static class UpdateOutcomePresenter
         return new([Item(ResultNotVerified(
             "PC Steward didn't record an outcome for this update. It may or may not have run, and the installed version wasn't checked.",
             "no-recorded-outcome"))]);
+    }
+
+    /// <summary>
+    /// SPEC §9.13 G4, AC-UPD-09/10 (Task 73 Phase 6): one completion for a batch, in batch order. Every item that ran is mapped by
+    /// <see cref="ForResult"/> from its own recorded result, so Verified still comes only from Success. Items that never reached
+    /// confirm-and-run (stopped, review expired, stopped after an earlier problem) read as "Not started", never as failures.
+    /// </summary>
+    public static UpdateJobCompletion ForBatch(UpdateBatchRunResult run, Func<string, string?> appName)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        ArgumentNullException.ThrowIfNull(appName);
+        List<UpdateJobItemOutcome> items = [];
+        foreach (UpdateBatchItemResult item in run.Items.OrderBy(item => item.Index))
+        {
+            string name = appName(item.StableProductKey) is { Length: > 0 } known ? known : item.Selection.PackageId;
+            if (item.Disposition == UpdateBatchItemDisposition.Ran)
+            {
+                items.AddRange(ForResult(item.Result, item.Selection, name).Items);
+                continue;
+            }
+            string summary = item.Disposition switch
+            {
+                UpdateBatchItemDisposition.ReviewExpired => "Not started — the review was more than 30 minutes old when this app's turn came, so nothing was changed.",
+                UpdateBatchItemDisposition.StoppedAfterEarlierProblem => "Not started — an earlier update in this batch didn't finish normally, so PC Steward stopped before this app. Nothing was changed.",
+                _ => "Not started — you stopped the remaining updates before this app started, so nothing was changed."
+            };
+            items.Add(new(name, item.Selection.PackageId, item.Selection.InstalledVersion, item.Selection.CandidateVersion,
+                new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "\uE711", StatusTone.Neutral, summary, TryAgain, $"not-started; {item.Disposition}"),
+                item.StableProductKey));
+        }
+        return new(items);
     }
 
     private static UpdateOutcomePresentation NotVerified(string summary, string technical) =>

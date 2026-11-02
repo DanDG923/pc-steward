@@ -20,7 +20,7 @@ public sealed class UiRedesignContractTests
         "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name}\")",
         "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name} (update evidence unavailable)\")",
         "$\"More options for {presentation.Name}\"",
-        "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: choose to review\")",
+        "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: select to review\")",
         "$\"Why {needsReview.Name} needs review: {needsReview.ReasonText}\""
     ];
     private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Decisions", "InstalledApps", "Settings", "UpdateJob"];
@@ -334,21 +334,31 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string page = Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow(");
-        StringAssert.Contains(page, "UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKey, DateTimeOffset.UtcNow)");
+        StringAssert.Contains(page, "UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKeys, DateTimeOffset.UtcNow)");
+        StringAssert.Contains(page, "selectedReadyKeys.RemoveWhere(key => !page.IsSelected(key));");
         string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "if (page.Ready.Count > 0)");
         string needsReview = Between(page, "foreach (UpdateRowPresentation needsReview in page.NeedsReview)", "// Ignored and skipped");
         string ignored = Between(page, "foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)", "Expander ignoredGroup");
-        StringAssert.Contains(ready, "RadioButton choose = new() { GroupName = \"ready-updates\", IsChecked = ready.StableProductKey == page.SelectedKey");
-        Assert.AreEqual(1, Count(source, "new RadioButton") + Count(source, "RadioButton choose = new()"), "the only selection control is on Ready rows");
+        // Task 73 Phase 6 (SPEC §9.13 G4) deliberately replaces the single radio with a checkbox per Ready row; it still starts unticked.
+        StringAssert.Contains(ready, "CheckBox choose = new() { IsChecked = page.IsSelected(ready.StableProductKey), Content = ready.Name };");
+        Assert.IsFalse(source.Contains("RadioButton choose", StringComparison.Ordinal), "the single-choice radio is gone");
+        Assert.AreEqual(1, Count(page, "CheckBox choose = new()"), "the only selection control on Updates is on Ready rows");
+        // "Select all ready" and "Review all ready" choose exactly the Ready group, and only on an explicit press.
+        Assert.AreEqual(2, Count(page, "selectedReadyKeys.UnionWith(page.ReadyKeys)"), "only Select all ready and Review all ready select the Ready group");
+        StringAssert.Contains(page, "reviewAll.Click += async (_, _) => { selectedReadyKeys.Clear(); selectedReadyKeys.UnionWith(page.ReadyKeys); await ReviewAndExecuteAsync(RowsFor(page.ReadyKeys)); };");
         foreach (string group in new[] { needsReview, ignored })
             foreach (string control in new[] { "RadioButton", "CheckBox", "ReviewAndExecuteAsync", "PrimaryButton", "IsEnabled = false" })
                 Assert.IsFalse(group.Contains(control, StringComparison.Ordinal), $"no update control (not even a disabled one): {control}");
         StringAssert.Contains(needsReview, "needsReview.ReasonText");
         StringAssert.Contains(page, "IsExpanded = ignoredGroupExpanded");
         Assert.IsFalse(source.Contains("private bool ignoredGroupExpanded = true", StringComparison.Ordinal), "Ignored and skipped starts collapsed");
-        Assert.AreEqual(1, Count(page, "ReviewAndExecuteAsync("), "only the review button opens a review");
+        Assert.AreEqual(2, Count(page, "ReviewAndExecuteAsync("), "only the two review buttons open a review (selected apps, all ready apps)");
         StringAssert.Contains(page, "review.IsEnabled = page.CanReview && !HasActiveOperation && reviewDecision is null");
-        Assert.IsFalse(source.Contains("private string? selectedReadyKey =", StringComparison.Ordinal), "nothing is preselected");
+        StringAssert.Contains(page, "reviewAll.IsEnabled = page.CanReviewAll && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
+        StringAssert.Contains(source, "private readonly HashSet<string> selectedReadyKeys = new(StringComparer.Ordinal);");
+        Assert.AreEqual(1, Count(source, "selectedReadyKeys = "), "nothing is preselected: the set is only ever created empty");
+        string presentationSource = ApplicationSource("UpdatesPagePresentation.cs");
+        StringAssert.Contains(presentationSource, "string[] selected = selectedKeys is null ? [] : [.. ready.Select(row => row.StableProductKey).Where(key => selectedKeys.Contains(key, StringComparer.Ordinal))];");
         string presenter = ApplicationSource("UpdatesPagePresentation.cs");
         StringAssert.Contains(presenter, "case nameof(UpdateIntelligenceStatus.VerifiedUpdate):");
         StringAssert.Contains(presenter, "public bool HasUpdateControl => Group == UpdateGroup.Ready;");
@@ -384,15 +394,15 @@ public sealed class UiRedesignContractTests
         string review = source[source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal)..];
         string[] ordered =
         [
-            "if (HasActiveOperation || windowClosed || reviewDecision is not null) return;",
-            "updates.BeginReviewAsync(row.StableProductKey, token)",
-            "AdministratorRequirementPresenter.ForSelection(selection)",
-            "UpdateReviewSheet.Create(selection,",
+            "if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;",
+            "updates.BeginBatchReviewAsync(keys, token)",
+            "item.Preparation.Review!.Selection,",
+            "UpdateReviewSheet.CreateBatch(inputs,",
             "NavigateTo(ShellPage.UpdateJob);",
             "bool confirmed = await decision.Task;",
             "if (!confirmed || windowClosed)",
             "isExecuting = true;",
-            "updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token, preparation.Progress)"
+            "updates.ConfirmAndRunBatchAsync(preparation, job.Stop,"
         ];
         int previous = -1;
         foreach (string step in ordered)
@@ -421,8 +431,12 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(reviewStep, "decision.TrySetResult(true);");
         Assert.AreEqual(1, Count(reviewStep, "decision.TrySetResult(true);"), "only the specific primary button confirms");
         Assert.IsFalse(reviewStep.Contains("KeyboardAccelerator", StringComparison.Ordinal), "no Enter accelerator on the update button");
-        StringAssert.Contains(reviewStep, "foreach (ReviewFact fact in sheet.Facts)");
-        StringAssert.Contains(reviewStep, "sheet.ConfidenceSummary");
+        // Task 73 Phase 6: every app in the frozen set shows its own facts and confidence; excluded apps are explained.
+        StringAssert.Contains(reviewStep, "foreach (UpdateReviewSheetItem item in sheet.Items)");
+        StringAssert.Contains(reviewStep, "foreach (ReviewFact fact in item.Facts)");
+        StringAssert.Contains(reviewStep, "item.ConfidenceSummary");
+        StringAssert.Contains(reviewStep, "sheet.Excluded");
+        StringAssert.Contains(reviewStep, "sheet.ElevationNote");
         StringAssert.Contains(reviewStep, "foreach (ReviewRiskCallout risk in sheet.Risks)");
         StringAssert.Contains(reviewStep, "sheet.Attestation");
         StringAssert.Contains(source, "?? initialFocus");
@@ -455,11 +469,11 @@ public sealed class UiRedesignContractTests
 
         // Item 2: preparation is guarded and visible; it covers preparation only.
         StringAssert.Contains(source, "|| downloads.IsCleaning || preparingReview || isSavingSchedule;");
-        int guard = review.IndexOf("if (HasActiveOperation || windowClosed || reviewDecision is not null) return;", StringComparison.Ordinal);
+        int guard = review.IndexOf("if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;", StringComparison.Ordinal);
         int set = review.IndexOf("preparingReview = true;", StringComparison.Ordinal);
-        int begin = review.IndexOf("updates.BeginReviewAsync(row.StableProductKey, token)", StringComparison.Ordinal);
+        int begin = review.IndexOf("updates.BeginBatchReviewAsync(keys, token)", StringComparison.Ordinal);
         int reset = review.IndexOf("finally { preparingReview = false; }", StringComparison.Ordinal);
-        int sheet = review.IndexOf("UpdateReviewSheet.Create(selection,", StringComparison.Ordinal);
+        int sheet = review.IndexOf("UpdateReviewSheet.CreateBatch(inputs,", StringComparison.Ordinal);
         Assert.IsTrue(guard >= 0 && set > guard && begin > set && reset > begin && sheet > reset, "preparingReview wraps BeginReviewAsync only");
         StringAssert.Contains(source, "private const string PreparingReviewLabel = \"Preparing review…\";");
         StringAssert.Contains(source, "? PreparingReviewLabel");
@@ -479,13 +493,13 @@ public sealed class UiRedesignContractTests
 
         // Item 6: any reload, rescan, Clear scan data or finished job ends the earlier choice.
         string load = Between(source, "private bool LoadSavedInventory()", "try { DataOperationLease.RunReadSynchronous(");
-        StringAssert.Contains(load, "selectedReadyKey = null;");
+        StringAssert.Contains(load, "selectedReadyKeys.Clear();");
         string completion = review[review.IndexOf("finally { StopUpdateProgressPolling();", StringComparison.Ordinal)..];
         StringAssert.Contains(completion, "LoadSavedInventory();");
         StringAssert.Contains(Between(source, "private async Task ConfirmAndClearScanDataAsync()", "private async Task ConfirmAndClearDownloadedFilesAsync("), "LoadSavedInventory();");
 
         // Item 7: completion never navigates; elsewhere the band shows the result with "View result".
-        string tail = review[review.IndexOf("job.Completion = UpdateOutcomePresenter.ForResult(result, selection, row.Name);", StringComparison.Ordinal)..];
+        string tail = review[review.IndexOf("job.Completion = run is not null", StringComparison.Ordinal)..];
         Assert.IsFalse(tail.Contains("NavigateTo(", StringComparison.Ordinal), "completion does not move the user");
         StringAssert.Contains(tail, "jobResultPending = navigation.Current != ShellPage.UpdateJob;");
         string visuals = Between(source, "private void RefreshOperationVisuals()", "private StackPanel BuildOnboardingPage()");
@@ -520,7 +534,7 @@ public sealed class UiRedesignContractTests
         int awaited = review.IndexOf("bool confirmed = await decision.Task;", StringComparison.Ordinal);
         int executing = review.IndexOf("isExecuting = true;", StringComparison.Ordinal);
         int handOver = review.IndexOf("executionPending = false;", executing, StringComparison.Ordinal);
-        int run = review.IndexOf("updates.ConfirmAndRunAsync(", StringComparison.Ordinal);
+        int run = review.IndexOf("updates.ConfirmAndRunBatchAsync(", StringComparison.Ordinal);
         Assert.IsTrue(awaited >= 0 && executing > awaited && handOver > executing && run > handOver, "execution starts only after the awaited decision");
 
         int entered = review.IndexOf("Volatile.Write(ref operationEntered, true);", StringComparison.Ordinal);
@@ -529,6 +543,45 @@ public sealed class UiRedesignContractTests
         int refusal = review.IndexOf(leaseCatch, StringComparison.Ordinal);
         int general = review.IndexOf("catch (Exception) { result = new(true, \"The reviewed update did not produce a recorded outcome.", StringComparison.Ordinal);
         Assert.IsTrue(refusal >= 0 && general > refusal, "a lease refusal is caught separately, before the unrecorded-outcome fallback");
+    }
+
+    /// <summary>
+    /// Task 73 Phase 6 (SPEC §9.13 G4; FR-UPD-10/11; AC-UPD-09/10): Update all runs the frozen set one app at a time through the
+    /// existing per-app confirm-and-run (fresh revalidation, own approval, own elevation), with no change to the elevated helper. The
+    /// only stop control asks to stop before the next app; nothing cancels a running installer, there is no "Cancel update", and the
+    /// batch never reaches the Chocolatey reviewed route. Verify groups the per-app outcomes.
+    /// </summary>
+    [TestMethod]
+    [Description("FR-UPD-10/11; AC-UPD-09/10; SPEC §9.13 G4: sequential batch through the existing per-app path; stop only between apps; no Cancel update.")]
+    public void UpdateAllRunsSequentiallyThroughThePerAppPathAndStopsOnlyBetweenApps()
+    {
+        string workflow = ApplicationSource("ReviewedUpdateExecutionWorkflow.cs");
+        string batch = Between(workflow, "public async Task<UpdateBatchRunResult> ConfirmAndRunBatchAsync(", "private static string NotStartedMessage(");
+        int stopCheck = batch.IndexOf("stop.IsRequested", StringComparison.Ordinal);
+        int run = batch.IndexOf("await ConfirmAndRunAsync(jobReview,", StringComparison.Ordinal);
+        Assert.IsTrue(stopCheck >= 0 && run > stopCheck, "stop is read before an app starts");
+        Assert.AreEqual(1, Count(batch, "await ConfirmAndRunAsync("), "every app goes through the one existing confirm-and-run path");
+        foreach (string forbidden in new[] { "coordinator.RunAsync", "approvals.ConfirmAsync", "CancellationTokenSource", ".Cancel(", "Elevat", "Chocolatey", "UpdateDispatch" })
+            Assert.IsFalse(batch.Contains(forbidden, StringComparison.Ordinal), $"the batch adds no execution, approval, cancellation or elevation path of its own: {forbidden}");
+        StringAssert.Contains(workflow, "public static readonly TimeSpan MaximumBatchDispatchAge = TimeSpan.FromMinutes(30);");
+
+        string source = DesktopSource("MainWindow.cs");
+        string step = Between(source, "private void AddUpdateStep(", "private void AddVerifyStep(");
+        StringAssert.Contains(step, "Button stop = StewardVisuals.ActionButton(UpdateJobProgressText.StopAfterCurrentLabel);");
+        StringAssert.Contains(step, "stop.Click += (_, _) => { job.Stop.Request(); Render(); };");
+        StringAssert.Contains(step, "if (job.Sheet.ItemCount > 1 && job.CurrentIndex < job.Sheet.ItemCount - 1)");
+        Assert.IsFalse(source.Contains("Cancel update", StringComparison.Ordinal), "there is no Cancel update");
+        string review = Between(source, "private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
+        foreach (string forbidden in new[] { "Chocolatey", "ReviewedUpdateDispatch", "LiveApprovedUpdate", "updates.ConfirmAndRunAsync(" })
+            Assert.IsFalse(review.Contains(forbidden, StringComparison.Ordinal), $"the batch never reaches another route: {forbidden}");
+        string notice = Between(source, "private void OnBatchItemNotice(", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
+        foreach (string authority in new[] { "TrySetResult", "ConfirmAndRun", "Stop.Request" })
+            Assert.IsFalse(notice.Contains(authority, StringComparison.Ordinal), $"a progress notice only presents: {authority}");
+
+        string verify = Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()");
+        StringAssert.Contains(verify, "completion.Groups");
+        StringAssert.Contains(verify, "RowsFor([key])");
+        StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "public const string PerAppElevationNote =");
     }
 
     /// <summary>
@@ -654,13 +707,13 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(home, "Button button = new()");
         StringAssert.Contains(home, "AutomationProperties.SetName(button, tile.AccessibleName);");
         StringAssert.Contains(home, "check.Click += async (_, _) => await CheckForUpdatesAsync();");
-        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "BeginReviewAsync", "selectedReadyKey =" })
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys." })
             Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update: {authority}");
         string check = Between(source, "private async Task CheckForUpdatesAsync()", "private async Task StartScanAsync()");
         StringAssert.Contains(check, "if (HasActiveOperation) { Render(); return; }");
         StringAssert.Contains(check, "await StartScanAsync();");
         StringAssert.Contains(check, "await CheckUpdateSourcesAsync();");
-        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "Elevat", "runas" })
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "Elevat", "runas" })
             Assert.IsFalse(check.Contains(authority, StringComparison.OrdinalIgnoreCase), authority);
         string homePresenter = ApplicationSource("HomePresentation.cs");
         StringAssert.Contains(homePresenter, "Inventoried only: no approved update source is mapped. This is not a safety warning.");

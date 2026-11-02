@@ -75,7 +75,8 @@ public sealed class MainWindow : Window
     private long updateProgressEpoch;
     private bool windowClosed;
     private string updateProgressLabel = "Preparing reviewed update";
-    private string? selectedReadyKey;
+    // Task 73 Phase 6: the Ready apps the user ticked. It starts empty and only Ready keys survive each render (nothing preselected).
+    private readonly HashSet<string> selectedReadyKeys = new(StringComparer.Ordinal);
     private bool ignoredGroupExpanded;
     private UpdateJobSession? updateJob;
     private TaskCompletionSource<bool>? reviewDecision;
@@ -99,14 +100,19 @@ public sealed class MainWindow : Window
 
     /// <summary>
     /// Task 73 Phase 2 (ADR-030 decision 3): what the update job page shows. It holds presentation only — the reviewed sheet, the
-    /// current step and, once recorded, the completion. The immutable review and its approval stay inside ReviewAndExecuteAsync.
+    /// current step and, once recorded, the completion. The immutable reviews and their approvals stay inside ReviewAndExecuteAsync.
+    /// Task 73 Phase 6 (SPEC §9.13 G4): one session covers a frozen set of apps; it also tracks which app is updating now, each
+    /// finished app's outcome label and the "stop after this app" request (read only between apps).
     /// </summary>
-    private sealed class UpdateJobSession(InventoryRow row, UpdateReviewSheet sheet)
+    private sealed class UpdateJobSession(IReadOnlyList<InventoryRow> rows, UpdateReviewSheet sheet)
     {
-        public InventoryRow Row { get; } = row;
+        public IReadOnlyList<InventoryRow> Rows { get; } = rows;
         public UpdateReviewSheet Sheet { get; } = sheet;
         public UpdateJobStep Step { get; set; } = UpdateJobStep.Review;
         public UpdateJobCompletion? Completion { get; set; }
+        public int CurrentIndex { get; set; } = -1;
+        public string?[] FinishedLabels { get; } = new string?[sheet.ItemCount];
+        public UpdateBatchStop Stop { get; } = new();
     }
 
     public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
@@ -146,7 +152,7 @@ public sealed class MainWindow : Window
     {
         // FR-UPD-01 (independent review): a reload, rescan, Clear scan data or a finished update job ends any earlier choice on
         // Updates; nothing is preselected again.
-        selectedReadyKey = null;
+        selectedReadyKeys.Clear();
         try { DataOperationLease.RunReadSynchronous(() =>
         {
             InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
@@ -1669,8 +1675,8 @@ public sealed class MainWindow : Window
     private StackPanel BuildUpdatesPage()
     {
         StackPanel panel = CreatePagePanel(960);
-        UpdatesPagePresentation page = UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKey, DateTimeOffset.UtcNow);
-        selectedReadyKey = page.SelectedKey;
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKeys, DateTimeOffset.UtcNow);
+        selectedReadyKeys.RemoveWhere(key => !page.IsSelected(key));
         Button refresh = StewardVisuals.ActionButton(viewModel.IsCheckingUpdates ? "Checking package sources…" : "Refresh package sources");
         refresh.IsEnabled = viewModel.IsUpdateSourceEnabled && !HasActiveOperation;
         refresh.Click += async (_, _) => await CheckUpdateSourcesAsync();
@@ -1679,7 +1685,7 @@ public sealed class MainWindow : Window
         StewardWrapPanel headerActions = StewardVisuals.ActionRow();
         headerActions.Children.Add(reviewDecisions);
         headerActions.Children.Add(refresh);
-        panel.Children.Add(StewardVisuals.PageHeader("Updates", "Choose an update that's ready, review its details, then decide. Nothing updates until you confirm it.", "Your approval is required", headerActions));
+        panel.Children.Add(StewardVisuals.PageHeader("Updates", "Choose the updates that are ready, review their details, then decide. Nothing updates until you confirm it.", "Your approval is required", headerActions));
         panel.Children.Add(StewardVisuals.InformationBanner(viewModel.IsUpdateSourceEnabled ? "Package sources" : "Package sources are off", viewModel.UpdateFreshnessLabel, viewModel.IsUpdateSourceEnabled ? "information" : "attention"));
         if (updateJob is { Step: UpdateJobStep.Update or UpdateJobStep.Verify } job)
         {
@@ -1697,21 +1703,30 @@ public sealed class MainWindow : Window
             return panel;
         }
 
-        // Ready: the only group that can be selected. One app per reviewed job, so the choice is single (radio) and starts empty.
+        // Ready: the only group that can be selected. Checkboxes start empty; "Select all ready" and "Review all ready" choose exactly
+        // the Ready group (Task 73 Phase 6, SPEC §9.13 G4). Choosing never starts anything: the review sheet comes first.
         panel.Children.Add(SectionHeading($"Ready ({page.Ready.Count})"));
         panel.Children.Add(PageCopy(page.Ready.Count == 0
             ? "No updates are ready. Updates appear here only when the evidence is fresh, exact and compatible."
-            : "Choose one app to review. Choosing doesn't start anything: PC Steward reviews and updates one app per job, and you confirm it on the next step."));
+            : "Choose the apps to review, or review all ready updates. Choosing doesn't start anything: you check every app on the next step and confirm there."));
+        if (page.CanReviewAll)
+        {
+            Button selectAll = StewardVisuals.ActionButton(page.AllReadySelected ? "Clear selection" : "Select all ready");
+            selectAll.IsEnabled = !HasActiveOperation && reviewDecision is null;
+            selectAll.Click += (_, _) => { if (page.AllReadySelected) selectedReadyKeys.Clear(); else selectedReadyKeys.UnionWith(page.ReadyKeys); Render(); };
+            panel.Children.Add(selectAll);
+        }
         foreach (UpdateRowPresentation ready in page.Ready)
         {
             Grid line = new() { ColumnSpacing = StewardSpacing.Medium };
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            RadioButton choose = new() { GroupName = "ready-updates", IsChecked = ready.StableProductKey == page.SelectedKey, Content = ready.Name };
-            StewardVisuals.Named(choose, ready.Name, $"{ready.VersionText}: choose to review");
+            CheckBox choose = new() { IsChecked = page.IsSelected(ready.StableProductKey), Content = ready.Name };
+            StewardVisuals.Named(choose, ready.Name, $"{ready.VersionText}: select to review");
             string key = ready.StableProductKey;
-            choose.Checked += (_, _) => { if (selectedReadyKey == key) return; selectedReadyKey = key; Render(); };
+            choose.Checked += (_, _) => { if (selectedReadyKeys.Add(key)) Render(); };
+            choose.Unchecked += (_, _) => { if (selectedReadyKeys.Remove(key)) Render(); };
             line.Children.Add(choose);
             Border chip = StewardVisuals.StatusBadge(ready.Status, $"{ready.Name}: {StewardStatus.From(ready.Status).Label}");
             chip.VerticalAlignment = VerticalAlignment.Center;
@@ -1736,14 +1751,21 @@ public sealed class MainWindow : Window
         }
         if (page.Ready.Count > 0)
         {
+            StewardWrapPanel reviewActions = StewardVisuals.ActionRow();
+            // Both buttons only open the review sheet for a frozen set; the update needs its own confirmation there (FR-UPD-01, AC-UPD-01).
+            Button reviewAll = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : page.ReviewAllLabel);
+            reviewAll.IsEnabled = page.CanReviewAll && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
+            AutomationProperties.SetHelpText(reviewAll, "Selects every ready update and opens one review. Nothing is updated until you confirm on the review page.");
+            reviewAll.Click += async (_, _) => { selectedReadyKeys.Clear(); selectedReadyKeys.UnionWith(page.ReadyKeys); await ReviewAndExecuteAsync(RowsFor(page.ReadyKeys)); };
             string reviewLabel = preparingReview ? PreparingReviewLabel : page.ReviewButtonLabel;
-            Button review = StewardVisuals.PrimaryButton(reviewLabel);
-            // Opens the review sheet only; the update needs its own confirmation there (FR-UPD-01).
+            Button review = StewardVisuals.ActionButton(reviewLabel);
             review.AccessKey = "R";
             review.IsEnabled = page.CanReview && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
-            AutomationProperties.SetHelpText(review, "Opens the review. Nothing is updated until you confirm on the review page.");
-            review.Click += async (_, _) => { if (page.Selected is { } chosen && viewModel.AllRows.SingleOrDefault(row => row.StableProductKey == chosen.StableProductKey) is { } row) await ReviewAndExecuteAsync(row); };
-            panel.Children.Add(review);
+            AutomationProperties.SetHelpText(review, "Opens the review of the apps you selected. Nothing is updated until you confirm on the review page.");
+            review.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor(page.SelectedKeys));
+            reviewActions.Children.Add(reviewAll);
+            reviewActions.Children.Add(review);
+            panel.Children.Add(reviewActions);
         }
 
         // Needs review: the reason in words and no update control at all — not a disabled one.
@@ -1904,23 +1926,38 @@ public sealed class MainWindow : Window
         }
         else panel.Children.Add(PageCopy(UpdateReviewSheet.Intro));
 
-        StackPanel facts = new() { Spacing = 0 };
-        TextBlock factsHeading = SectionHeading("What will be updated");
-        factsHeading.Margin = new Thickness(0, 0, 0, StewardSpacing.Small);
-        facts.Children.Add(factsHeading);
-        foreach (ReviewFact fact in sheet.Facts) facts.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
-        panel.Children.Add(Card(facts));
+        // SPEC §9.13 G4: selected apps that couldn't be reviewed are explained and are not part of this review.
+        if (sheet.Excluded.Count > 0)
+            panel.Children.Add(StewardVisuals.InformationBanner($"Not included ({sheet.Excluded.Count})",
+                string.Join(" ", sheet.Excluded.Select(excluded => $"{excluded.AppName}: {excluded.Reason}")), "attention"));
 
-        StackPanel confidence = new() { Spacing = StewardSpacing.Small };
-        confidence.Children.Add(SectionHeading("How sure PC Steward is"));
-        confidence.Children.Add(new TextBlock { Text = sheet.ConfidenceSummary, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        StackPanel evidence = new() { Spacing = StewardSpacing.XSmall };
-        foreach (string line in sheet.ConfidenceEvidence) evidence.Children.Add(new TextBlock { Text = line, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        confidence.Children.Add(new Expander { Header = "Evidence", Content = evidence, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
-        panel.Children.Add(Card(confidence));
+        // Every app in the frozen set keeps its own §17.2 facts and confidence in words.
+        foreach (UpdateReviewSheetItem item in sheet.Items)
+        {
+            StackPanel facts = new() { Spacing = 0 };
+            TextBlock factsHeading = SectionHeading(sheet.ItemCount == 1 ? "What will be updated" : item.AppName);
+            factsHeading.Margin = new Thickness(0, 0, 0, StewardSpacing.Small);
+            facts.Children.Add(factsHeading);
+            foreach (ReviewFact fact in item.Facts) facts.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+            if (sheet.ItemCount > 1 && item.AppearsToBeRunning)
+                facts.Children.Add(StewardVisuals.EvidenceRow("Running", $"Appears to be running ({string.Join(", ", item.RunningProcessNames)})"));
+            panel.Children.Add(Card(facts));
+
+            StackPanel confidence = new() { Spacing = StewardSpacing.Small };
+            confidence.Children.Add(SectionHeading(sheet.ItemCount == 1 ? "How sure PC Steward is" : $"How sure PC Steward is about {item.AppName}",
+                sheet.ItemCount == 1 ? AutomationHeadingLevel.Level2 : AutomationHeadingLevel.Level3));
+            confidence.Children.Add(new TextBlock { Text = item.ConfidenceSummary, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            StackPanel evidence = new() { Spacing = StewardSpacing.XSmall };
+            foreach (string line in item.ConfidenceEvidence) evidence.Children.Add(new TextBlock { Text = line, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            confidence.Children.Add(new Expander { Header = "Evidence", Content = evidence, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            panel.Children.Add(Card(confidence));
+        }
 
         foreach (ReviewRiskCallout risk in sheet.Risks)
             panel.Children.Add(StewardVisuals.InformationBanner(risk.Title, risk.Message, StewardStatus.ToneName(risk.Tone)));
+        // The one-shot helper takes one approved job per prompt, so a batch elevates each machine-wide app on its own.
+        if (sheet.ElevationNote is { } elevationNote)
+            panel.Children.Add(StewardVisuals.InformationBanner("Windows may ask more than once", elevationNote, "information"));
 
         StackPanel fineprint = new() { Spacing = StewardSpacing.Small };
         fineprint.Children.Add(new TextBlock { Text = sheet.Attestation, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
@@ -1933,7 +1970,7 @@ public sealed class MainWindow : Window
         {
             Button again = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : "Start a new review", $"of the update for {sheet.AppName}");
             again.IsEnabled = !HasActiveOperation;
-            again.Click += async (_, _) => await ReviewAndExecuteAsync(job.Row);
+            again.Click += async (_, _) => await ReviewAndExecuteAsync(job.Rows);
             Button leave = StewardVisuals.ActionButton("Back to Updates");
             leave.Click += (_, _) => { updateJob = null; jobResultPending = false; NavigateTo(ShellPage.Updates); };
             actions.Children.Add(leave);
@@ -1944,7 +1981,7 @@ public sealed class MainWindow : Window
         // Cancel is the default: it comes first and takes focus, and the update button has no Enter accelerator.
         Button cancel = StewardVisuals.ActionButton(UpdateReviewSheet.CancelButtonLabel, $"the review of {sheet.AppName}. Nothing is changed.");
         StackPanel primaryContent = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon { Glyph = "", FontSize = 16 });
+        if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon { Glyph = "\uEA18", FontSize = 16 });
         primaryContent.Children.Add(new TextBlock { Text = sheet.PrimaryButtonLabel });
         Button confirm = new() { Content = primaryContent, Style = AppStyle("StewardPrimaryButtonStyle") };
         AutomationProperties.SetName(confirm, sheet.PrimaryAutomationName);
@@ -1982,30 +2019,57 @@ public sealed class MainWindow : Window
         panel.Children.Add(PageCopy(UpdateJobProgressText.LeaveNote));
         StackPanel item = new() { Spacing = StewardSpacing.Small };
         item.Children.Add(SectionHeading(UpdateJobProgressText.Heading(job.Sheet.ItemCount)));
-        item.Children.Add(StewardVisuals.EvidenceRow(job.Sheet.AppName, job.Sheet.Facts.Single(fact => fact.Label == "Version").Value));
-        jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.ItemState(updateProgressPresentation), TextWrapping = TextWrapping.Wrap };
-        // A polite live region: its text (not a fixed name) is what a screen reader hears when the state changes.
-        AutomationProperties.SetLiveSetting(jobProgressStateText, AutomationLiveSetting.Polite);
-        item.Children.Add(jobProgressStateText);
-        ProgressBar progress = new() { IsIndeterminate = true, Height = 4 };
-        AutomationProperties.SetName(progress, $"{job.Sheet.AppName} update progress");
-        item.Children.Add(progress);
+        // Task 73 Phase 6 (AC-UPD-09): one line per app, in run order. Only the app updating now follows the polled progress.
+        for (int index = 0; index < job.Sheet.ItemCount; index++)
+        {
+            UpdateReviewSheetItem entry = job.Sheet.Items[index];
+            item.Children.Add(StewardVisuals.EvidenceRow(entry.AppName, entry.Facts.Single(fact => fact.Label == "Version").Value));
+            if (job.Sheet.ItemCount == 1 || index == job.CurrentIndex)
+            {
+                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.ItemState(updateProgressPresentation), TextWrapping = TextWrapping.Wrap };
+                // A polite live region: its text (not a fixed name) is what a screen reader hears when the state changes.
+                AutomationProperties.SetLiveSetting(jobProgressStateText, AutomationLiveSetting.Polite);
+                item.Children.Add(jobProgressStateText);
+                ProgressBar progress = new() { IsIndeterminate = true, Height = 4 };
+                AutomationProperties.SetName(progress, $"{entry.AppName} update progress");
+                item.Children.Add(progress);
+            }
+            else item.Children.Add(PageCopy(UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index])));
+        }
         panel.Children.Add(Card(item));
+        // FR-UPD-11, AC-UPD-10: stop before the next app starts. It never interrupts the app that is updating now.
+        if (job.Sheet.ItemCount > 1 && job.CurrentIndex < job.Sheet.ItemCount - 1)
+        {
+            if (job.Stop.IsRequested) panel.Children.Add(StewardVisuals.InformationBanner("Stopping after this app", UpdateJobProgressText.StopRequestedText, "neutral"));
+            else
+            {
+                Button stop = StewardVisuals.ActionButton(UpdateJobProgressText.StopAfterCurrentLabel);
+                AutomationProperties.SetHelpText(stop, UpdateJobProgressText.StopAfterCurrentHelp);
+                stop.IsEnabled = isExecuting;
+                stop.Click += (_, _) => { job.Stop.Request(); Render(); };
+                panel.Children.Add(stop);
+            }
+        }
         if (job.Sheet.ShowsAdministratorShield)
-            panel.Children.Add(StewardVisuals.InformationBanner(job.Sheet.AdministratorRequirement.Label, job.Sheet.AdministratorRequirement.Explanation, "information"));
+            panel.Children.Add(StewardVisuals.InformationBanner(job.Sheet.AdministratorRequirement.Label, job.Sheet.ElevationNote ?? job.Sheet.AdministratorRequirement.Explanation, "information"));
     }
 
     private void AddVerifyStep(StackPanel panel, UpdateJobSession job)
     {
         UpdateJobCompletion completion = job.Completion ?? new UpdateJobCompletion([]);
+        // Task 73 Phase 6 (AC-UPD-09): a batch is grouped by outcome; every app keeps its own recorded outcome and evidence.
+        IReadOnlyList<UpdateOutcomeGroup> groups = completion.Items.Count > 1 ? completion.Groups : [];
+        if (groups.Count > 0) panel.Children.Add(PageCopy(completion.Headline));
         foreach (UpdateJobItemOutcome item in completion.Items)
         {
+            if (groups.Count > 0 && groups.FirstOrDefault(group => ReferenceEquals(group.Items[0], item)) is { } group)
+                panel.Children.Add(SectionHeading(group.Heading));
             UpdateOutcomePresentation outcome = item.Outcome;
             StackPanel card = new() { Spacing = StewardSpacing.Small };
             Grid heading = new() { ColumnSpacing = StewardSpacing.Medium };
             heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            heading.Children.Add(SectionHeading(item.AppName));
+            heading.Children.Add(SectionHeading(item.AppName, groups.Count > 0 ? AutomationHeadingLevel.Level3 : AutomationHeadingLevel.Level2));
             Border badge = StewardVisuals.Badge(outcome.Label, outcome.Glyph, StewardStatus.ToneName(outcome.Tone), outcome.AccessibleName(item.AppName));
             badge.VerticalAlignment = VerticalAlignment.Top;
             Grid.SetColumn(badge, 1); heading.Children.Add(badge);
@@ -2017,10 +2081,12 @@ public sealed class MainWindow : Window
             card.Children.Add(new Expander { Header = "Technical details", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
             if (outcome.Kind is UpdateOutcomeKind.Failed or UpdateOutcomeKind.NotStarted)
             {
-                Button again = StewardVisuals.ActionButton("Review again", $"the update for {item.AppName}");
-                again.IsEnabled = !HasActiveOperation;
-                again.Click += async (_, _) => await ReviewAndExecuteAsync(job.Row);
-                card.Children.Add(again);
+                // A fresh review of this app only; never a replay of the earlier approval.
+                IReadOnlyList<InventoryRow> again = item.StableProductKey is { } key ? RowsFor([key]) : job.Rows;
+                Button reviewAgain = StewardVisuals.ActionButton("Review again", $"the update for {item.AppName}");
+                reviewAgain.IsEnabled = !HasActiveOperation && again.Count > 0;
+                reviewAgain.Click += async (_, _) => await ReviewAndExecuteAsync(again);
+                card.Children.Add(reviewAgain);
             }
             panel.Children.Add(Card(card));
         }
@@ -2659,7 +2725,7 @@ public sealed class MainWindow : Window
             Button review = StewardVisuals.PrimaryButton("Review and update", $"this verified package. {administratorRequirement.Label}");
             AutomationProperties.SetHelpText(review, administratorRequirement.Explanation);
             review.IsEnabled = !HasActiveOperation && reviewDecision is null;
-            review.Click += async (_, _) => await ReviewAndExecuteAsync(row);
+            review.Click += async (_, _) => await ReviewAndExecuteAsync([row]);
             decisionActions.Children.Add(review);
         }
         decisions.Children.Add(decisionActions);
@@ -2796,17 +2862,28 @@ public sealed class MainWindow : Window
         updateProgressTarget = null;
     }
 
-    private async Task ReviewAndExecuteAsync(InventoryRow row)
+    /// <summary>The current inventory rows for <paramref name="keys"/>, in order; keys without a row are left out.</summary>
+    private IReadOnlyList<InventoryRow> RowsFor(IEnumerable<string> keys) =>
+        [.. keys.Select(key => viewModel.AllRows.FirstOrDefault(row => row.StableProductKey == key)).OfType<InventoryRow>()];
+
+    /// <summary>
+    /// FR-UPD-01/04–11, AC-UPD-01/09/10, SPEC §9.13 G4 (Task 73 Phases 2 and 6): the one review and confirmation site, for one app or a
+    /// frozen set. It prepares a fresh review of every app, shows one review sheet, waits for the single explicit confirmation, then
+    /// runs the apps one at a time through the existing per-app revalidation, approval and (per machine-wide app) elevation.
+    /// </summary>
+    private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)
     {
-        if (HasActiveOperation || windowClosed || reviewDecision is not null) return;
+        if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;
         // Independent review: while the review is prepared every review entry point is disabled (HasActiveOperation) and the band
         // says "Preparing review…", so a second review cannot start. The flag covers preparation only, never the sheet.
         preparingReview = true;
         jobResultPending = false;
         Render();
-        UpdateReviewPreparation? prepared = null;
+        string[] keys = [.. rows.Select(row => row.StableProductKey).Distinct(StringComparer.Ordinal)];
+        string NameOf(string key) => rows.FirstOrDefault(row => row.StableProductKey == key)?.Name ?? key;
+        UpdateBatchReviewPreparation? prepared = null;
         bool leaseUnavailable = false;
-        try { prepared = await DataOperationLease.RunAsync(token => updates.BeginReviewAsync(row.StableProductKey, token), CancellationToken.None); }
+        try { prepared = await DataOperationLease.RunAsync(token => updates.BeginBatchReviewAsync(keys, token), CancellationToken.None); }
         catch (InvalidOperationException) { leaseUnavailable = true; }
         catch (Exception) { prepared = null; }
         finally { preparingReview = false; }
@@ -2818,28 +2895,30 @@ public sealed class MainWindow : Window
             else await ShowUpdateOutcomeAsync("Update not available", "PC Steward could not prepare this update. No update was started.");
             return;
         }
-        UpdateReviewPreparation preparation = prepared;
-        if (preparation.Review is null)
+        UpdateBatchReviewPreparation preparation = prepared;
+        if (preparation.Items.Count == 0)
         {
             Render();
-            await ShowUpdateOutcomeAsync("Update not available", preparation.Message);
+            await ShowUpdateOutcomeAsync(keys.Length == 1 ? "Update not available" : "Updates not available",
+                keys.Length == 1 ? preparation.Excluded[0].Message : string.Join(Environment.NewLine, preparation.Excluded.Select(excluded => $"{NameOf(excluded.StableProductKey)}: {excluded.Message}")));
             return;
         }
-        PCSteward.Domain.UpdateJobSelection selection = preparation.Review.Selection;
-        PCSteward.Application.AdministratorRequirementPresentation administratorRequirement =
-            PCSteward.Application.AdministratorRequirementPresenter.ForSelection(selection);
-        // FR-UI-03/04, SPEC §17.2 (audit P-H6): the structured review sheet replaces the wall-of-text confirmation. It shows only the
+        // FR-UI-03/04, SPEC §17.2 (audit P-H6): the structured review sheet replaces the wall-of-text confirmation. It shows only each
         // reviewed immutable selection, the computed confidence, the running-app warning with its CoverageDisclosure, and the
-        // administrator requirement. Cancel is the default, and leaving the page cancels the review.
-        UpdateReviewSheet sheet = UpdateReviewSheet.Create(selection, row.Name, row.Publisher, viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey),
-            preparation.RunningApplication, administratorRequirement);
-        UpdateJobSession job = new(row, sheet);
+        // administrator requirement (AdministratorRequirementPresenter.ForSelection per app). Cancel is the default, and leaving the
+        // page cancels the review.
+        UpdateReviewSheetInput[] inputs = [.. preparation.Items.Select(item => new UpdateReviewSheetInput(item.Preparation.Review!.Selection,
+            NameOf(item.StableProductKey), rows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Publisher ?? string.Empty,
+            viewModel.UpdateDetails.GetValueOrDefault(item.StableProductKey), item.Preparation.RunningApplication))];
+        UpdateReviewSheet sheet = UpdateReviewSheet.CreateBatch(inputs,
+            [.. preparation.Excluded.Select(excluded => new UpdateReviewExclusion(NameOf(excluded.StableProductKey), excluded.Message))]);
+        UpdateJobSession job = new([.. preparation.Items.Select(item => rows.First(row => row.StableProductKey == item.StableProductKey))], sheet);
         updateJob = job;
         TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
         reviewDecision = decision;
         // A new review (for example "Start a new review" from the job page) always gets a fresh page: focus on Cancel, scroll at top.
         if (navigation.Current == ShellPage.UpdateJob) ShowCurrentPage(preserveViewState: false); else NavigateTo(ShellPage.UpdateJob);
-        AnnounceCompletion(OperationAnnouncements.ReviewReady(row.Name), "review-ready");
+        AnnounceCompletion(OperationAnnouncements.ReviewReady(sheet.AppName), "review-ready");
         bool confirmed = await decision.Task;
         if (ReferenceEquals(reviewDecision, decision)) reviewDecision = null;
         if (!confirmed || windowClosed)
@@ -2854,36 +2933,66 @@ public sealed class MainWindow : Window
         isExecuting = true;
         executionPending = false;
         job.Step = UpdateJobStep.Update;
-        updateProgressMailbox = preparation.Progress;
-        updateProgressPresentation = new(preparation.Review.JobId, preparation.Review.CorrelationId, selection.Scope);
-        updateProgressLabel = preparation.Progress is null ? "Progress unavailable" : "Revalidating reviewed update";
-        ReviewedUpdateExecutionResult result;
+        // Progress follows the app that is updating now: each app's own review-bound mailbox is attached when its turn starts.
+        updateProgressMailbox = null;
+        updateProgressPresentation = null;
+        updateProgressLabel = "Revalidating reviewed update";
+        Microsoft.UI.Dispatching.DispatcherQueue dispatcher = DispatcherQueue;
+        UpdateBatchRunResult? run = null;
+        ReviewedUpdateExecutionResult? result = null;
         // Set only once the data lease has run the operation: a lease refusal (busy, reset pending or an unresolved earlier
         // update) happens before the workflow is entered, so nothing was started and nothing was changed.
         bool operationEntered = false;
         try
         {
             Render();
-            StartUpdateProgressPolling();
-            result = await DataOperationLease.RunAsync(token =>
+            run = await DataOperationLease.RunAsync(token =>
             {
                 Volatile.Write(ref operationEntered, true);
-                return updates.ConfirmAndRunAsync(preparation.Review, preparation.RunningApplication.AppearsToBeRunning, token, preparation.Progress);
+                return updates.ConfirmAndRunBatchAsync(preparation, job.Stop, notice => dispatcher.TryEnqueue(() => OnBatchItemNotice(job, preparation, notice)), token);
             }, CancellationToken.None);
         }
         catch (InvalidOperationException) when (!Volatile.Read(ref operationEntered)) { result = new(false, UpdateOutcomePresenter.DataUnavailableNotStartedMessage, null); }
         catch (Exception) { result = new(true, "The reviewed update did not produce a recorded outcome. Execution or verification may have been interrupted. No verified success was recorded; refresh inventory before deciding what to do next.", null); }
         finally { StopUpdateProgressPolling(); isExecuting = false; updateProgressMailbox = null; updateProgressPresentation = null; if (!windowClosed) LoadSavedInventory(); }
         if (windowClosed) return;
-        // FR-UPD-08/09, UJ-04 step 8 (audit P-H3): the recorded batch is authoritative and maps to Verified, Restart required,
-        // Installed, not verified, Failed or Not started — never a flattened "Update failed". A refused UAC prompt returns quietly
-        // to Review. The retained terminal may still be rate-limited; do not fabricate a progress frame or sequence.
-        job.Completion = UpdateOutcomePresenter.ForResult(result, selection, row.Name);
+        // FR-UPD-08/09, AC-UPD-09/10, UJ-04 step 8 (audit P-H3): each app's recorded result is authoritative and maps to Verified,
+        // Restart required, Installed, not verified, Failed or Not started — never a flattened "Update failed". Earlier results are
+        // kept as recorded. A refused UAC prompt for every app returns quietly to Review.
+        job.Completion = run is not null
+            ? UpdateOutcomePresenter.ForBatch(run, NameOf)
+            : new([.. preparation.Items.SelectMany(item => UpdateOutcomePresenter.ForResult(result!, item.Preparation.Review!.Selection, NameOf(item.StableProductKey)).Items)]);
         job.Step = job.Completion.ReturnsToReview ? UpdateJobStep.Review : UpdateJobStep.Verify;
         // Independent review: never move the user. Elsewhere, the band shows the result with "View result".
         jobResultPending = navigation.Current != ShellPage.UpdateJob;
         Render();
-        AnnounceCompletion(OperationAnnouncements.JobFinished(row.Name, job.Completion.Headline), "update-job-finished");
+        AnnounceCompletion(OperationAnnouncements.JobFinished(sheet.AppName, job.Completion.Headline), "update-job-finished");
+    }
+
+    /// <summary>
+    /// Task 73 Phase 6: a presentation notice from the batch, on the UI thread. A starting app attaches its own review-bound progress
+    /// mailbox; a finished app shows its recorded outcome label. It never changes a result and is ignored once the job is gone.
+    /// </summary>
+    private void OnBatchItemNotice(UpdateJobSession job, UpdateBatchReviewPreparation preparation, UpdateBatchItemNotice notice)
+    {
+        if (windowClosed || !isExecuting || !ReferenceEquals(updateJob, job) || notice.Index < 0 || notice.Index >= preparation.Items.Count) return;
+        if (notice.Finished)
+        {
+            if (notice.Result is { } finished)
+                job.FinishedLabels[notice.Index] = UpdateOutcomePresenter.ForBatch(new([finished], false), _ => null).Items.Single().Outcome.Label;
+            if (notice.Index == job.CurrentIndex) { StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; }
+        }
+        else
+        {
+            UpdateReviewPreparation item = preparation.Items[notice.Index].Preparation;
+            job.CurrentIndex = notice.Index;
+            updateProgressMailbox = item.Progress;
+            updateProgressPresentation = new(item.Review!.JobId, item.Review.CorrelationId, item.Review.Selection.Scope);
+            updateProgressLabel = item.Progress is null ? "Progress unavailable"
+                : preparation.Items.Count == 1 ? "Revalidating reviewed update" : $"Revalidating reviewed update ({notice.Index + 1} of {preparation.Items.Count})";
+            StartUpdateProgressPolling();
+        }
+        Render();
     }
 
     private Task<ContentDialogResult> ShowUpdateOutcomeAsync(string title, string message) => new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = message, CloseButtonText = "Close" }.ShowAsync().AsTask();

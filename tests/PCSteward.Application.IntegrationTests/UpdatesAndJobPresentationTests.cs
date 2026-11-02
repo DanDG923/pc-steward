@@ -60,20 +60,26 @@ public sealed class UpdatesAndJobPresentationTests
         CollectionAssert.AreEqual(ReadyKeys, page.Ready.Select(row => row.StableProductKey).ToArray());
         CollectionAssert.AreEquivalent(NeedsReviewKeys, page.NeedsReview.Select(row => row.StableProductKey).ToArray());
         CollectionAssert.AreEquivalent(IgnoredKeys, page.IgnoredAndSkipped.Select(row => row.StableProductKey).ToArray());
-        Assert.IsNull(page.SelectedKey, "nothing is preselected");
+        Assert.IsEmpty(page.SelectedKeys, "nothing is preselected");
         Assert.IsFalse(page.CanReview);
-        Assert.AreEqual("Review update", page.ReviewButtonLabel);
+        Assert.AreEqual("Review selected updates", page.ReviewButtonLabel);
+        Assert.IsTrue(page.CanReviewAll);
+        Assert.AreEqual("Review all ready (1)", page.ReviewAllLabel);
+        CollectionAssert.AreEqual(ReadyKeys, page.ReadyKeys.ToArray(), "Review all ready chooses exactly the Ready group");
         Assert.IsTrue(page.HasAnyRow);
         Assert.AreEqual(decisions[0].Id, page.IgnoredAndSkipped.Single(row => row.StableProductKey == "ignored").DecisionId);
         Assert.AreEqual(decisions[1].Id, page.IgnoredAndSkipped.Single(row => row.StableProductKey == "pinned").DecisionId);
         StringAssert.Contains(page.IgnoredAndSkipped.Single(row => row.StableProductKey == "pinned").ReasonText, "version 3.0");
         Assert.IsTrue(page.IgnoredAndSkipped.All(row => row.Actions.Any(action => action.Action == UpdateRowAction.Reverse)), "ignored and pinned rows are reversible");
 
-        UpdatesPagePresentation selected = UpdatesPagePresenter.Build(rows, details, true, decisions, "ready", Now);
+        UpdatesPagePresentation selected = UpdatesPagePresenter.Build(rows, details, true, decisions, ["ready"], Now);
         Assert.IsTrue(selected.CanReview);
+        Assert.IsTrue(selected.AllReadySelected);
         Assert.AreEqual("Review update for App ready", selected.ReviewButtonLabel);
-        Assert.IsNull(UpdatesPagePresenter.Build(rows, details, true, decisions, "review", Now).SelectedKey, "a needs-review row can never be selected");
-        Assert.IsNull(UpdatesPagePresenter.Build(rows, details, true, decisions, "ignored", Now).SelectedKey);
+        Assert.IsEmpty(UpdatesPagePresenter.Build(rows, details, true, decisions, ["review"], Now).SelectedKeys, "a needs-review row can never be selected");
+        Assert.IsEmpty(UpdatesPagePresenter.Build(rows, details, true, decisions, ["ignored"], Now).SelectedKeys);
+        CollectionAssert.AreEqual(ReadyKeys, UpdatesPagePresenter.Build(rows, details, true, decisions, ["unmanaged", "ready", "pinned", "current", "unavailable"], Now).SelectedKeys.ToArray(),
+            "only Ready keys survive a selection, whatever is passed in");
     }
 
     [TestMethod]
@@ -100,7 +106,7 @@ public sealed class UpdatesAndJobPresentationTests
             ["incomplete"] = Detail("incomplete", "1.0", null)
         };
 
-        UpdatesPagePresentation page = UpdatesPagePresenter.Build(rows, details, true, [], "incomplete", Now);
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build(rows, details, true, [], ["incomplete"], Now);
 
         Assert.IsEmpty(page.Ready, "a verified row without complete evidence fails closed into Needs review");
         Assert.HasCount(rows.Length, page.NeedsReview);
@@ -121,12 +127,13 @@ public sealed class UpdatesAndJobPresentationTests
         StringAssert.Contains(Reason(page, "incomparable"), "Another evidence check needs your review.");
         StringAssert.Contains(Reason(page, "incomplete"), "incomplete");
         StringAssert.Contains(Reason(page, "nodetail"), "needs your review");
-        Assert.IsNull(page.SelectedKey);
+        Assert.IsEmpty(page.SelectedKeys);
+        Assert.IsFalse(page.CanReviewAll);
         Assert.IsFalse(page.NeedsReview.Single(row => row.StableProductKey == "unavailable").Actions.Any(action => action.Action is UpdateRowAction.IgnoreApp or UpdateRowAction.PinCurrentVersion),
             "unavailable evidence offers no decision");
 
         UpdatesPagePresentation sourcesOff = UpdatesPagePresenter.Build([Row("ready", "VerifiedUpdate", "1.0")],
-            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, false, [], "ready", Now);
+            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, false, [], ["ready"], Now);
         Assert.IsEmpty(sourcesOff.Ready, "with sources off nothing is ready");
         StringAssert.Contains(sourcesOff.NeedsReview.Single().ReasonText, "Package sources are off");
     }

@@ -73,8 +73,8 @@ public sealed partial class UiAccessibilityContractTests
         [
             ("private async Task StartScanAsync()", "private async Task CheckUpdateSourcesAsync()", "AnnounceCompletion(OperationAnnouncements.ScanFinished("),
             ("private async Task CheckUpdateSourcesAsync()", "private void AddDataAndResetSection", "AnnounceCompletion(OperationAnnouncements.UpdateCheckFinished("),
-            ("private async Task ReviewAndExecuteAsync(InventoryRow row)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.ReviewReady(row.Name), \"review-ready\");"),
-            ("private async Task ReviewAndExecuteAsync(InventoryRow row)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.JobFinished(row.Name, job.Completion.Headline), \"update-job-finished\");"),
+            ("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.ReviewReady(sheet.AppName), \"review-ready\");"),
+            ("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.JobFinished(sheet.AppName, job.Completion.Headline), \"update-job-finished\");"),
             ("private async Task ApplyScheduleAsync(", "private void CopyDiagnostic(", "AnnounceCompletion("),
             ("private async Task ConfirmAndClearScanDataAsync()", "private async Task ConfirmAndClearDownloadedFilesAsync(", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
             ("private async Task ConfirmAndClearDownloadedFilesAsync(", "private StackPanel BuildProductDetailPage()", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
@@ -83,9 +83,9 @@ public sealed partial class UiAccessibilityContractTests
         foreach ((string start, string end, string call) in completions) StringAssert.Contains(Between(source, start, end), call, start);
 
         // The job outcome is announced only after the recorded result exists (never before execution finishes).
-        string execute = Between(source, "private async Task ReviewAndExecuteAsync(InventoryRow row)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
-        Assert.IsTrue(execute.IndexOf("job.Completion = UpdateOutcomePresenter.ForResult(", StringComparison.Ordinal) < execute.IndexOf("OperationAnnouncements.JobFinished(", StringComparison.Ordinal));
-        Assert.IsTrue(execute.IndexOf("updates.ConfirmAndRunAsync(", StringComparison.Ordinal) < execute.IndexOf("OperationAnnouncements.JobFinished(", StringComparison.Ordinal));
+        string execute = Between(source, "private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync");
+        Assert.IsTrue(execute.IndexOf("job.Completion = run is not null", StringComparison.Ordinal) < execute.IndexOf("OperationAnnouncements.JobFinished(", StringComparison.Ordinal));
+        Assert.IsTrue(execute.IndexOf("updates.ConfirmAndRunBatchAsync(", StringComparison.Ordinal) < execute.IndexOf("OperationAnnouncements.JobFinished(", StringComparison.Ordinal));
 
         string visuals = Between(source, "private void RefreshOperationVisuals()", "private void AnnounceCompletion(");
         StringAssert.Contains(visuals, "string state = OperationAnnouncements.StateKey(label);");
@@ -94,7 +94,7 @@ public sealed partial class UiAccessibilityContractTests
         // shown in the band is spoken once, by the completion notification.
         StringAssert.Contains(source, "private bool BandAnnouncesState => !ShowsJobResultInBand && !(navigation.Current == ShellPage.UpdateJob && (isExecuting || executionPending));");
         StringAssert.Contains(visuals, "if (jobProgressStateText is not null && isExecuting) StewardVisuals.SetLiveText(jobProgressStateText,");
-        StringAssert.Contains(execute, "AnnounceCompletion(OperationAnnouncements.JobFinished(row.Name, job.Completion.Headline), \"update-job-finished\");");
+        StringAssert.Contains(execute, "AnnounceCompletion(OperationAnnouncements.JobFinished(sheet.AppName, job.Completion.Headline), \"update-job-finished\");");
         Assert.AreEqual(1, Count(source, "OperationAnnouncements.JobFinished("), "the job result is raised by one notification only");
         Assert.AreEqual(0, Count(source, "operationStatusText.Text ="), "the band text changes only through the live-region helper");
         StringAssert.Contains(source, "AutomationProperties.SetLiveSetting(operationStatusText, AutomationLiveSetting.Polite);");
@@ -181,7 +181,9 @@ public sealed partial class UiAccessibilityContractTests
         Assert.IsFalse(reviewStep.Contains("AccessKey", StringComparison.Ordinal), "the update confirmation has no access key");
         Assert.IsFalse(reviewStep.Contains("KeyboardAccelerator", StringComparison.Ordinal), "the update confirmation has no accelerator");
         // The Updates page review button only opens the review sheet; its confirmation happens on that sheet.
-        StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "await ReviewAndExecuteAsync(row)");
+        // Task 73 Phase 6: both Updates buttons (selected apps, all ready apps) only open the review sheet for a frozen set.
+        StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "await ReviewAndExecuteAsync(RowsFor(page.SelectedKeys))");
+        StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "await ReviewAndExecuteAsync(RowsFor(page.ReadyKeys))");
         Assert.AreEqual(1, Count(source, "TrySetResult(true)"), "still exactly one confirmation path");
     }
 

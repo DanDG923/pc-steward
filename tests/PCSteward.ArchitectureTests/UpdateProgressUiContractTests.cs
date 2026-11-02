@@ -39,14 +39,18 @@ public sealed class UpdateProgressUiContractTests
         string source = Source();
         string review = source[source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal)..];
         // Task 73 Phase 2: the running-app warning and its coverage disclosure reach the review sheet page, which shows them.
-        StringAssert.Contains(review, "preparation.RunningApplication, administratorRequirement);");
+        StringAssert.Contains(review, "item.Preparation.RunningApplication))];");
         StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "running.CoverageDisclosure");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "sheet.CoverageDisclosure");
-        StringAssert.Contains(review, "token, preparation.Progress)");
+        // Task 73 Phase 6: each app's own review-bound mailbox is passed to its confirm-and-run and attached to the UI when its turn starts.
+        StringAssert.Contains(ApplicationSource("ReviewedUpdateExecutionWorkflow.cs"), "ConfirmAndRunAsync(jobReview, item.Preparation.RunningApplication.AppearsToBeRunning, cancellationToken, item.Preparation.Progress)");
+        StringAssert.Contains(source, "updateProgressMailbox = item.Progress;");
+        StringAssert.Contains(source, "updateProgressPresentation = new(item.Review!.JobId, item.Review.CorrelationId, item.Review.Selection.Scope);");
+        StringAssert.Contains(review, "dispatcher.TryEnqueue(() => OnBatchItemNotice(job, preparation, notice))");
         StringAssert.Contains(review, "CancellationToken.None");
         StringAssert.Contains(review, "finally { StopUpdateProgressPolling();");
         // The authoritative recorded batch, not a progress frame, decides the outcome (audit P-H3).
-        StringAssert.Contains(review, "UpdateOutcomePresenter.ForResult(result, selection, row.Name)");
+        StringAssert.Contains(review, "UpdateOutcomePresenter.ForBatch(run, NameOf)");
         StringAssert.Contains(review, "if (windowClosed) return");
         StringAssert.Contains(source, "IsIndeterminate = true");
         Assert.IsFalse(review.Contains("new UpdateProgressFrame", StringComparison.Ordinal));

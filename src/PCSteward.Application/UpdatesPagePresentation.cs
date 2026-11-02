@@ -173,20 +173,41 @@ public sealed record UpdateRowPresentation(
     public string ReasonText => string.Join(" ", Reasons);
 }
 
-/// <summary>The grouped Updates page. Nothing is preselected: <see cref="SelectedKey"/> is null unless the user chose a Ready row.</summary>
+/// <summary>
+/// The grouped Updates page. Nothing is preselected: <see cref="SelectedKeys"/> is empty unless the user chose Ready rows, and it can
+/// only ever hold Ready keys (Task 73 Phase 6, SPEC §9.13 G4: multi-select replaces the single choice).
+/// </summary>
 public sealed record UpdatesPagePresentation(
     IReadOnlyList<UpdateRowPresentation> Ready,
     IReadOnlyList<UpdateRowPresentation> NeedsReview,
     IReadOnlyList<UpdateRowPresentation> IgnoredAndSkipped,
-    string? SelectedKey)
+    IReadOnlyList<string> SelectedKeys)
 {
-    public UpdateRowPresentation? Selected => SelectedKey is null ? null : Ready.SingleOrDefault(row => row.StableProductKey == SelectedKey);
+    /// <summary>The chosen Ready rows, in Ready order.</summary>
+    public IReadOnlyList<UpdateRowPresentation> Selected => [.. Ready.Where(row => SelectedKeys.Contains(row.StableProductKey, StringComparer.Ordinal))];
 
-    /// <summary>The review button is enabled only once the user has chosen one Ready row.</summary>
-    public bool CanReview => Selected is not null;
+    /// <summary>Every Ready key, in order: what "Select all ready" and "Review all ready" choose — exactly the Ready group.</summary>
+    public IReadOnlyList<string> ReadyKeys => [.. Ready.Select(row => row.StableProductKey)];
 
-    /// <summary>A specific label: it names the chosen app. Opening the review never starts an update.</summary>
-    public string ReviewButtonLabel => Selected is { } row ? $"Review update for {row.Name}" : "Review update";
+    public bool IsSelected(string stableProductKey) => SelectedKeys.Contains(stableProductKey, StringComparer.Ordinal);
+
+    /// <summary>The review button is enabled only once the user has chosen at least one Ready row.</summary>
+    public bool CanReview => SelectedKeys.Count > 0;
+
+    /// <summary>"Review all ready (N)" is offered whenever something is ready. It opens the review; it never starts an update.</summary>
+    public bool CanReviewAll => Ready.Count > 0;
+
+    public bool AllReadySelected => Ready.Count > 0 && SelectedKeys.Count == Ready.Count;
+
+    /// <summary>A specific label: it names the chosen app, or counts the chosen apps. Opening the review never starts an update.</summary>
+    public string ReviewButtonLabel => Selected switch
+    {
+        [] => "Review selected updates",
+        [var row] => $"Review update for {row.Name}",
+        var rows => $"Review {rows.Count} selected updates"
+    };
+
+    public string ReviewAllLabel => $"Review all ready ({Ready.Count})";
 
     public bool HasAnyRow => Ready.Count + NeedsReview.Count + IgnoredAndSkipped.Count > 0;
 }
@@ -207,7 +228,7 @@ public static class UpdatesPagePresenter
         IReadOnlyDictionary<string, UpdateDetail> details,
         bool sourcesEnabled,
         IReadOnlyCollection<StableDecision> decisions,
-        string? selectedKey,
+        IReadOnlyCollection<string>? selectedKeys,
         DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(rows);
@@ -258,7 +279,8 @@ public static class UpdatesPagePresenter
                     break;
             }
         }
-        string? selected = selectedKey is not null && ready.Any(row => row.StableProductKey == selectedKey) ? selectedKey : null;
+        // Only Ready keys survive: needs-review, ignored, skipped and pinned rows can never be selected, whatever was passed in.
+        string[] selected = selectedKeys is null ? [] : [.. ready.Select(row => row.StableProductKey).Where(key => selectedKeys.Contains(key, StringComparer.Ordinal))];
         return new(ready, review, ignored, selected);
     }
 
