@@ -306,6 +306,8 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 
 **Approval record (2026-11-01).** The owner replied **"Approved"** to a message that quoted the complete **Default** approval text above, with the Final SHA-256 `0a1c4377d3a0ebf5ed2778a38aa9ba4c05bb477f3aea9f54b03790bd930584d4` written in. That approves blocks H1, H1b (H1-X only under its stated conditions), H2 once, H5, and H6 once. The optional **H3** and **H4** sub-cases were presented as separate approvals and are **not** approved. The owner runs every step; the agent runs nothing on the host. No host step has been reported yet.
 
+**Approval record 2 (2026-11-02): re-run after the owner aligned Chocolatey to 2.7.5.** The owner replied **"Approved"** to a request to re-run the same **Default** set: H1, H1b (H1-X only under its stated conditions), H2 once, H5, and H6 once. The script bytes are unchanged (SHA-256 `0a1c4377d3a0ebf5ed2778a38aa9ba4c05bb477f3aea9f54b03790bd930584d4` at branch head `6de0a29`). H3 and H4 are **not** approved. The owner runs every step; the agent runs nothing on the host.
+
 ## 11. Explicitly NOT authorized by this plan or by any approval above
 
 - Executing `choco.exe` or any Chocolatey script or shim; changing Chocolatey configuration, cache, ACLs or packages; installing, repairing or upgrading Chocolatey.
