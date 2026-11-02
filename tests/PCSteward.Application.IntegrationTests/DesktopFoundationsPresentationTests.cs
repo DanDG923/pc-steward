@@ -169,10 +169,10 @@ public sealed class DesktopFoundationsPresentationTests
         Assert.AreEqual("Pinned", StatusVocabulary.For(UpdateIntelligenceStatus.Pinned).Label);
         Assert.AreEqual("Ignored", StatusVocabulary.For(UpdateIntelligenceStatus.Ignored).Label);
         Assert.AreEqual("Source not checked", StatusVocabulary.For(StatusVocabulary.InstalledKey).Label);
-        Assert.AreEqual("Self-managed", StatusVocabulary.For(StatusVocabulary.SelfManagedKey).Label);
-        Assert.AreEqual("Unknown version", StatusVocabulary.For(StatusVocabulary.UnknownVersionKey).Label);
-        Assert.AreEqual("Update failed", StatusVocabulary.For(StatusVocabulary.UpdateFailedKey).Label);
-        Assert.AreEqual("Restart required", StatusVocabulary.For(StatusVocabulary.RestartRequiredKey).Label);
+        // Final review L3: the unreferenced outcome chips are gone; outcomes are presented by UpdateOutcomePresenter only.
+        foreach (string removed in new[] { "SelfManaged", "UnknownVersion", "UpdateFailed", "RestartRequired" })
+            Assert.AreEqual("Status unavailable", StatusVocabulary.For(removed).Label, removed);
+        Assert.IsFalse(StatusVocabulary.All.Any(chip => chip.Label is "Update failed" or "Restart required"), "no second outcome vocabulary");
         Assert.AreEqual("Status unavailable", StatusVocabulary.For("NotAStatus").Label);
         Assert.AreEqual("Status unavailable", StatusVocabulary.For((string?)null).Label);
 
@@ -198,8 +198,10 @@ public sealed class DesktopFoundationsPresentationTests
         StatusChipPresentation unmanaged = StatusVocabulary.For(UpdateIntelligenceStatus.Unmanaged);
         Assert.AreEqual(StatusTone.Neutral, unmanaged.Tone);
         StringAssert.Contains(unmanaged.Meaning, "not a safety warning");
-        foreach (StatusChipPresentation chip in StatusVocabulary.All.Where(chip => chip.Tone == StatusTone.Critical))
-            Assert.AreEqual(StatusVocabulary.UpdateFailedKey, chip.Key);
+        Assert.IsFalse(StatusVocabulary.All.Any(chip => chip.Tone == StatusTone.Critical), "no inventory status is critical; only a failed update outcome is");
+        // Final review L3: Restart required has one tone everywhere (Verify, Home, Activity): Information, never alarming.
+        Assert.AreEqual(StatusTone.Information, UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.RestartRequired, null, null, "2.0").Tone);
+        Assert.AreEqual(StatusTone.Critical, UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed, null, 1, "2.0").Tone);
         Assert.AreEqual(StatusTone.Success, StatusVocabulary.For(UpdateIntelligenceStatus.Current).Tone);
         StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.VerifiedUpdate).Meaning, "review and confirmation");
         StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.ReviewRequired).Meaning, "cannot be updated");

@@ -21,7 +21,7 @@ public sealed record StatusChipPresentation(string Key, string Label, string Gly
 
 /// <summary>
 /// FR-UI-01/05, AC-UX-03 (Task 73 Phase 1, ADR-030 foundation 2): the single status vocabulary. It maps the SPEC §7.2 user-facing
-/// statuses to one label set used by every list, chip and filter, so filters show the same words as rows and never raw enum
+/// inventory statuses to one label set used by every list, chip and filter, so filters show the same words as rows and never raw enum
 /// names. Presentation only: it never decides whether anything is actionable.
 /// </summary>
 public static class StatusVocabulary
@@ -29,11 +29,9 @@ public static class StatusVocabulary
     /// <summary>Key for an inventoried row whose sources have not been checked.</summary>
     public const string InstalledKey = "Installed";
 
-    /// <summary>SPEC §7.2 statuses that come from outcomes or product facts rather than <see cref="UpdateIntelligenceStatus"/>.</summary>
-    public const string SelfManagedKey = "SelfManaged";
-    public const string UnknownVersionKey = "UnknownVersion";
-    public const string UpdateFailedKey = "UpdateFailed";
-    public const string RestartRequiredKey = "RestartRequired";
+    // Task 73 final review L3: the unreferenced outcome/product-fact chips (Self-managed, Unknown version, Update failed, Restart
+    // required) were removed. Update outcomes, including "Restart required" (Information tone), are presented only by
+    // UpdateOutcomePresenter, so there is one tone per outcome and no flattened "Update failed" chip.
 
     /// <summary>The filter entry that shows every status.</summary>
     public const string AllStatusesLabel = "All statuses";
@@ -57,15 +55,7 @@ public static class StatusVocabulary
         new(nameof(UpdateIntelligenceStatus.Ignored), "Ignored", "", StatusTone.Neutral,
             "You chose not to be told about updates for this app. It stays in the inventory."),
         new(InstalledKey, "Source not checked", "", StatusTone.Neutral,
-            "Found on this PC. No package source has been checked for it yet."),
-        new(SelfManagedKey, "Self-managed", "", StatusTone.Neutral,
-            "This app is expected to update itself through its own updater."),
-        new(UnknownVersionKey, "Unknown version", "", StatusTone.Neutral,
-            "The installed version could not be read reliably, so no update can be offered."),
-        new(UpdateFailedKey, "Update failed", "", StatusTone.Critical,
-            "An update attempt failed or could not be verified. View the details and try again."),
-        new(RestartRequiredKey, "Restart required", "", StatusTone.Attention,
-            "Restart Windows to finish the update and verification.")
+            "Found on this PC. No package source has been checked for it yet.")
     }.ToDictionary(chip => chip.Key, StringComparer.Ordinal);
 
     /// <summary>Inventory statuses in filter order: what can be acted on first, then everything else.</summary>
