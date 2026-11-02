@@ -19,6 +19,9 @@ public sealed class RedeployToolingScriptTests
     private const string Sidecar = "A SQLite sidecar exists beside the preserved user database.";
     private const string Reparse = "Reparse path refused for user data or a pinned file.";
     private const string Malformed = "Malformed pinned user database entry.";
+    private const string TaskEnabled = "The PC Steward scheduled check task is enabled or unreadable; disable it before the redeploy.";
+    private const string NotReviewedHelper = "OwnerOnlyExecution.ps1 is not the reviewed version embedded in this caller; regenerate the plan from the reviewed scripts.";
+    private static readonly string[] PinnedFiles = ["OwnerOnlyExecution.ps1", "Wait-OwnerOnlyDeploymentProcess.ps1", "Invoke-OwnerOnlyApprovedRedeployment.ps1"];
     private const string SystemPowerShell = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
     private static readonly string[] WindowsOnlyRows = ["realProgramNonElevated", "resultAcl", "reparseKind"];
 
@@ -97,6 +100,26 @@ public sealed class RedeployToolingScriptTests
             }
             foreach (string name in new[] { "preflightV3Pinned", "removalV3Unchanged", "finalV3Unchanged" }) Assert.AreEqual(preserved, Text(guards.GetProperty(name), "preservedSha256"), name);
 
+            // Review M1: an enabled PCSteward.ScheduledCheck task stops a v3 run at preflight and again immediately before
+            // removal, together with a process re-check; v1/v2 behaviour is unchanged.
+            (string Case, string? Failure)[] scheduled =
+            [
+                ("preflightV3TaskEnabled", TaskEnabled), ("preflightV2TaskEnabled", null), ("preRemovalV3Clean", null),
+                ("preRemovalV3Process", "A PC Steward process is running; user data cannot be preserved."), ("preRemovalV3TaskEnabled", TaskEnabled), ("preRemovalV2Process", null),
+            ];
+            foreach ((string name, string? failure) in scheduled)
+            {
+                JsonElement outcome = guards.GetProperty(name);
+                if (failure is null) Assert.AreEqual(JsonValueKind.Null, outcome.GetProperty("failure").ValueKind, name + ": " + outcome);
+                else Assert.AreEqual(failure, Text(outcome, "failure"), name);
+            }
+            Assert.AreEqual("if($preserveUserData){Assert-OwnerOnlyScheduledCheckInactive;Assert-OwnerOnlyNoPCStewardProcess}", Text(guards, "preRemovalText"));
+            Assert.IsTrue(guards.GetProperty("preRemovalFollowsPhase").GetBoolean());
+            JsonElement task = r.GetProperty("scheduledCheck");
+            foreach (string name in new[] { "absent", "disabled" }) Assert.AreEqual(JsonValueKind.Null, task.GetProperty(name).ValueKind, name + ": " + task.GetProperty(name));
+            foreach (string name in new[] { "ready", "running", "oneOfTwoEnabled", "queryDenied" }) Assert.AreEqual(TaskEnabled, Text(task, name), name);
+            Assert.IsTrue(task.GetProperty("importsFromPSHome").GetBoolean(), "ScheduledTasks must load from the $PSHOME module path");
+
             // G1: result record; v1/v2 keys and order unchanged.
             JsonElement record = r.GetProperty("resultRecord");
             Assert.AreEqual("exitCode,phase,payloadOrigin,candidateManifestSha256,certificateThumbprint,launched,applicationUpdates,userDataRootAbsent,executionRoot", Text(record, "v2Keys"));
@@ -106,6 +129,7 @@ public sealed class RedeployToolingScriptTests
             // G1: the guarded remover deletes only the install and state roots and reports preserved user data.
             JsonElement remover = r.GetProperty("remover");
             Assert.AreEqual("$installRoot,$stateRoot", Text(remover, "removeTargets"));
+            Assert.AreEqual("'PCSteward*'", Text(remover, "processNames"), "review M1: the remover refuses any PCSteward* process, including ScheduledHost");
             Assert.IsTrue(remover.GetProperty("reportsUserDataPreserved").GetBoolean());
             Assert.AreEqual(0, remover.GetProperty("mentionsUserData").GetInt32());
 
@@ -177,6 +201,75 @@ public sealed class RedeployToolingScriptTests
             Assert.AreEqual("A pinned helper must contain only function definitions.", Text(attempt, "statementHelperRefused"));
             Assert.IsTrue(attempt.GetProperty("sqliteNotLoaded").GetBoolean());
 
+            // Review L1/L4: the real execution function with the start, waiter, result reader and post-check stubbed.
+            JsonElement execute = r.GetProperty("execute");
+            JsonElement cancel = execute.GetProperty("cancel");
+            AssertExecution(cancel, "NotStarted", startCalls: 1, waitCalls: 0);
+            Assert.AreEqual("Claimed", Text(cancel, "statusAtStart"), "the one-use claim is on disk before the single UAC request");
+            Assert.AreEqual("The operation was canceled by the user.", Text(cancel, "attemptFailure"));
+            Assert.AreEqual(JsonValueKind.Null, cancel.GetProperty("processId").ValueKind);
+            JsonElement timeout = execute.GetProperty("timeout");
+            AssertExecution(timeout, "PendingOrUnknown", startCalls: 1, waitCalls: 1);
+            Assert.AreEqual("Started", Text(timeout, "statusAtWait"));
+            Assert.AreEqual(900000, timeout.GetProperty("waitTimeout").GetInt32());
+            Assert.AreEqual(4242, timeout.GetProperty("processId").GetInt32());
+            Assert.AreEqual(JsonValueKind.Null, timeout.GetProperty("nativeExitCode").ValueKind);
+            JsonElement unwritten = execute.GetProperty("startedWriteFails");
+            AssertExecution(unwritten, "StoppedOrUnknown", startCalls: 1, waitCalls: 1);
+            Assert.AreEqual("FIXTURE: the Started record write failed.", Text(unwritten, "recordFailure"), "a failed Started write is recorded and the child is still observed");
+            Assert.AreEqual(0, unwritten.GetProperty("nativeExitCode").GetInt32());
+            AssertExecution(execute.GetProperty("validated"), "Validated", startCalls: 1, waitCalls: 1);
+            JsonElement mismatch = execute.GetProperty("approvalMismatch");
+            Assert.AreEqual("The plan or encoded command differs from the approved pins.", Text(mismatch, "failure"));
+            Assert.IsFalse(mismatch.GetProperty("recordExists").GetBoolean());
+            Assert.AreEqual(0, mismatch.GetProperty("startCalls").GetInt32());
+
+            // Review M2: helpers and the template load only at the caller's reviewed constants; helpers only add functions.
+            JsonElement pins = r.GetProperty("pins");
+            Assert.AreEqual("Assert-OwnerOnlyScheduledCheckInactive,Wait-OwnerOnlyDeploymentProcess", Text(pins, "committedHelpersLoadInFreshRunspace"), Text(pins, "freshRunspaceErrors"));
+            Assert.AreEqual(NotReviewedHelper, Text(pins, "unreviewedHelperRefused"));
+            StringAssert.StartsWith(Text(pins, "reviewedHelperShadowingRefused"), "A pinned helper may not define or replace the command ");
+            Assert.AreEqual(JsonValueKind.Null, pins.GetProperty("templateAccepted").ValueKind, pins.GetProperty("templateAccepted").ToString());
+            Assert.AreEqual("Invoke-OwnerOnlyApprovedRedeployment.ps1 is not the reviewed version embedded in this caller; regenerate the plan from the reviewed scripts.", Text(pins, "templateChangedRefused"));
+            Assert.AreEqual("A pinned helper may not define or replace the command Get-OwnerOnlySha256Hex.", Text(pins, "shadowCallerFunction"));
+            Assert.AreEqual("A pinned helper may not define or replace the command Get-ChildItem.", Text(pins, "shadowCmdlet"));
+            Assert.AreEqual("A pinned helper may not define or replace the command Get-Item.", Text(pins, "shadowNested"));
+            Assert.AreEqual(JsonValueKind.Null, pins.GetProperty("newFunctionAllowed").ValueKind, pins.GetProperty("newFunctionAllowed").ToString());
+
+            // Review L1/L2/L5: environment, absolute paths, working directory, old signer (no certificate store is opened).
+            bool desktop = Text(r, "shell").StartsWith("Desktop ", StringComparison.Ordinal);
+            JsonElement environment = r.GetProperty("environment");
+            if (desktop)
+            {
+                Assert.AreEqual("The current Windows user is not the approved installing user.", Text(environment, "wrongSid"));
+                Assert.AreEqual(JsonValueKind.Null, environment.GetProperty("currentSid").ValueKind, environment.GetProperty("currentSid").ToString());
+                Assert.IsTrue(environment.GetProperty("elevationIsBool").GetBoolean());
+            }
+            else Assert.AreEqual("Run this caller in Windows PowerShell 5.1.", Text(environment, "notDesktop"));
+            JsonElement absolute = r.GetProperty("absolutePath");
+            Assert.AreEqual(JsonValueKind.Null, absolute.GetProperty("local").ValueKind, absolute.GetProperty("local").ToString());
+            foreach (string name in new[] { "relative", "driveRelative", "unc" }) Assert.AreEqual(@"ScriptSource must be an absolute local path such as C:\...; relative, UNC and device paths are refused.", Text(absolute, name), name);
+            Assert.AreEqual(@"NewPlanPath must be an absolute local path such as C:\...; relative, UNC and device paths are refused.", Text(absolute, "stream"));
+            JsonElement directory = r.GetProperty("workingDirectory");
+            Assert.AreEqual(JsonValueKind.Null, directory.GetProperty("outside").ValueKind, directory.GetProperty("outside").ToString());
+            foreach (string name in new[] { "locationInsideInstall", "processInsideState", "exactInstallRoot" }) Assert.AreEqual("Run the caller from a working directory outside the PC Steward install and state roots.", Text(directory, name), name);
+            JsonElement signer = r.GetProperty("oldSigner");
+            foreach (string name in new[] { "notSigned", "otherSigner" }) Assert.AreEqual("The old signed deployment is not valid for the approved signer.", Text(signer, name), name);
+
+            // Review L1: the real caller main dispatch (Windows PowerShell 5.1 only).
+            if (desktop)
+            {
+                JsonElement main = r.GetProperty("callerMain");
+                JsonElement checkOnly = main.GetProperty("checkOnlyReachesLedger");
+                Assert.AreEqual(@"FIXTURE-LEDGER-REACHED PC Steward OwnerOnlyTest State\deployment.json", Text(checkOnly, "failure"), "CheckOnly must pass every earlier check and stop at the ledger");
+                Assert.AreEqual("CheckOnly", Text(checkOnly, "mode"));
+                Assert.AreEqual("Fail", Text(checkOnly, "result"));
+                Assert.AreNotEqual(0, checkOnly.GetProperty("exitCode").GetInt32());
+                Assert.AreEqual(NotReviewedHelper, Text(main.GetProperty("checkOnlyUnreviewedHelper"), "failure"));
+                Assert.AreEqual(@"ScriptSource must be an absolute local path such as C:\...; relative, UNC and device paths are refused.", Text(main.GetProperty("newPlanRelativeSource"), "failure"), "the path is refused before any read");
+            }
+            else Assert.IsFalse(string.IsNullOrWhiteSpace(Text(r.GetProperty("notRun"), "callerMain")));
+
             // G2: candidate tree and old ledger pins.
             JsonElement candidate = r.GetProperty("candidate");
             Assert.AreEqual(3, candidate.GetProperty("valid").GetInt32());
@@ -201,6 +294,13 @@ public sealed class RedeployToolingScriptTests
             StringAssert.StartsWith(Text(copy, "sidecar"), "A SQLite sidecar exists;");
             Assert.AreEqual("A PC Steward process is running; user data cannot be preserved.", Text(copy, "process"));
             Assert.AreEqual(Reparse, Text(copy, "reparse"));
+            Assert.AreEqual(Reparse, Text(copy, "reparseAncestor"));
+            Assert.IsTrue(copy.GetProperty("reparseAncestorCreatedNothing").GetBoolean(), "review L3: no folder is created on a reparse refusal");
+            Assert.AreEqual(JsonValueKind.Null, copy.GetProperty("helperLoadsCommitted").ValueKind, copy.GetProperty("helperLoadsCommitted").ToString());
+            Assert.AreEqual("OwnerOnlyExecution.ps1 is not the reviewed version embedded in this copy script; nothing was copied.", Text(copy, "helperRefusesUnreviewed"));
+            Assert.AreEqual("Run this copy with powershell.exe -File; the pinned helper is found only beside the script.", Text(copy, "helperNeedsScriptRoot"));
+            Assert.AreEqual(JsonValueKind.Null, copy.GetProperty("destinationLocal").ValueKind, copy.GetProperty("destinationLocal").ToString());
+            foreach (string name in new[] { "destinationRelative", "destinationUnc" }) Assert.AreEqual(@"DestinationParent must be an absolute local path such as C:\...; relative, UNC and device paths are refused.", Text(copy, name), name);
             Assert.AreEqual(0, copy.GetProperty("forbiddenCommands").GetInt32());
             Assert.IsFalse(copy.GetProperty("mentionsEngine").GetBoolean());
 
@@ -219,8 +319,8 @@ public sealed class RedeployToolingScriptTests
             }
             else
             {
-                string reasons = string.Join("; ", WindowsOnlyRows.Select(name => name + ": " + Text(notRun, name)));
-                Assert.Inconclusive("Portable redeploy-tooling rows passed under " + Text(r, "shell") + ". Windows-only rows not run here (Windows-CI evidence): " + reasons);
+                string reasons = string.Join("; ", WindowsOnlyRows.Append("callerMain").Select(name => name + ": " + Text(notRun, name)));
+                Assert.Inconclusive("Portable redeploy-tooling rows passed under " + Text(r, "shell") + $" (encoded command {length} characters). Windows-only rows not run here (Windows-CI evidence): " + reasons);
             }
         }
         finally { DeleteFixtureTree(work); }
@@ -296,6 +396,56 @@ public sealed class RedeployToolingScriptTests
         StringAssert.Contains(ci, "./scripts/Test-CI.ps1");
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "scripts", "Test.ps1")), "dotnet test PCSteward.slnx");
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "PCSteward.slnx")), "tests/PCSteward.Security.FixtureTests/PCSteward.Security.FixtureTests.csproj");
+    }
+
+    /// <summary>
+    /// Review M2 ordering guard: the caller and the copy script embed reviewed SHA-256 constants for the helper, the waiter and
+    /// the bootstrap template. They are recomputed here from the committed bytes (LF form, and CRLF by converting), so any edit
+    /// to those files fails this test until the constants are updated and re-reviewed.
+    /// </summary>
+    [TestMethod]
+    public void CallerAndCopyConstantsPinTheCommittedHelperWaiterAndTemplate()
+    {
+        string caller = ReadScript("Invoke-OwnerOnlyRedeployCaller.ps1");
+        string copy = ReadScript("Copy-OwnerOnlyUserDatabase.ps1");
+        foreach (string name in PinnedFiles)
+        {
+            (string lf, string crlf) = CommittedHashes(name);
+            string pair = $"'{name}'=@('{lf}','{crlf}')";
+            Assert.AreEqual(1, Count(caller, pair), $"Invoke-OwnerOnlyRedeployCaller.ps1 must pin {name} as {pair}");
+        }
+        Assert.AreEqual(PinnedFiles.Length, System.Text.RegularExpressions.Regex.Count(caller, "'[A-Za-z-]+\\.ps1'=@\\('[A-F0-9]{64}','[A-F0-9]{64}'\\)"), "exactly the three reviewed pins");
+        (string helperLf, string helperCrlf) = CommittedHashes("OwnerOnlyExecution.ps1");
+        Assert.AreEqual(1, Count(copy, $"$hash -cnotin @('{helperLf}','{helperCrlf}')"), "the copy script loads the same reviewed helper");
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(copy, "[A-F0-9]{64}") / 2, "the copy script pins only the helper");
+    }
+
+    [TestMethod]
+    public void RemoverRefusesAnyPCStewardProcess()
+    {
+        // Review M1: the scheduled host (PCSteward.ScheduledHost) holds e_sqlite3.dll and the database like the desktop does.
+        string remover = ReadScript("Remove-OwnerOnlyProtectedTestDeployment.ps1");
+        StringAssert.Contains(remover, "Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue | ForEach-Object { throw \"Refusing removal while PC Steward is running");
+        Assert.IsFalse(remover.Contains("'PCSteward.Desktop','PCSteward.ElevatedHelper'", StringComparison.Ordinal));
+        string helpers = ReadScript("OwnerOnlyExecution.ps1");
+        StringAssert.Contains(helpers, "Import-Module ([IO.Path]::Combine($PSHOME,'Modules','ScheduledTasks','ScheduledTasks.psd1')) -ErrorAction Stop");
+        StringAssert.Contains(helpers, "Get-ScheduledTask -TaskName 'PCSteward.ScheduledCheck' -ErrorAction SilentlyContinue -ErrorVariable failures");
+    }
+
+    private static (string Lf, string Crlf) CommittedHashes(string name)
+    {
+        string lf = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", name), Encoding.ASCII).Replace("\r\n", "\n", StringComparison.Ordinal);
+        return (Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(lf))), Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(lf.Replace("\n", "\r\n", StringComparison.Ordinal)))));
+    }
+
+    private static void AssertExecution(JsonElement outcome, string status, int startCalls, int waitCalls)
+    {
+        Assert.AreEqual(JsonValueKind.Null, outcome.GetProperty("failure").ValueKind, outcome.ToString());
+        Assert.AreEqual(status, Text(outcome, "returned"), outcome.ToString());
+        Assert.AreEqual(status, Text(outcome, "status"), "attempt record: " + outcome);
+        Assert.IsFalse(outcome.GetProperty("retry").GetBoolean());
+        Assert.AreEqual(startCalls, outcome.GetProperty("startCalls").GetInt32(), "exactly one start request");
+        Assert.AreEqual(waitCalls, outcome.GetProperty("waitCalls").GetInt32());
     }
 
     private static void AssertPlan(JsonElement outcome, string oldOrigin, string newOrigin, bool preserve)

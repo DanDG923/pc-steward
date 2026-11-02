@@ -80,7 +80,7 @@ $hasSubject = ![string]::IsNullOrWhiteSpace($state.certificateSubject)
 $pendingCertificate = !$state.completed -and !$hasThumbprint -and $hasSubject -and $state.certificateSubject -like 'CN=PC Steward Owner-Only Test *' -and $stores.Count -eq 1 -and $stores[0] -eq 'My'
 $emptyIncomplete = !$state.completed -and !$hasThumbprint -and !$hasSubject -and $stores.Count -eq 0
 if ($state.schema -ne $schema -or $state.installRoot -ne $installRoot -or $state.installerSid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -or @($stores | Where-Object { $_ -notin @('My', 'Root', 'TrustedPublisher') }).Count -ne 0 -or (!$hasThumbprint -and !$pendingCertificate -and !$emptyIncomplete)) { throw 'Refusing removal because the protected deployment state is not recognised for the current Windows user.' }
-Get-Process -Name 'PCSteward.Desktop','PCSteward.ElevatedHelper' -ErrorAction SilentlyContinue | ForEach-Object { throw "Refusing removal while PC Steward is running (PID $($_.Id)). Close it and retry." }
+Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue | ForEach-Object { throw "Refusing removal while PC Steward is running (PID $($_.Id)). Close it and retry." }
 if (Test-Path -LiteralPath $installRoot) { Assert-TrustedRemovalTree $installRoot; Remove-Item -LiteralPath $installRoot -Recurse -Force }
 if ($hasThumbprint -and $stores.Count -gt 0) { Remove-ExactCertificate -Thumbprint $state.certificateThumbprint -Stores $stores; Assert-ExactCertificateAbsent -Thumbprint $state.certificateThumbprint -Stores $stores }
 if ($pendingCertificate) { Remove-PendingCertificate -Subject $state.certificateSubject; Assert-PendingCertificateAbsent -Subject $state.certificateSubject }

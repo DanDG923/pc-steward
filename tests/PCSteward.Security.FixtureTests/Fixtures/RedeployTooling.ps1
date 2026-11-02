@@ -4,13 +4,16 @@ param(
 )
 # Task 50 G1/G2/G4: FR-UPD-15, TM-03/04/06/07/13, ADR-022. Runs under pwsh 7 (Linux or Windows) and Windows PowerShell 5.1.
 # It executes the REAL text of the redeploy template statements and of the caller, helper and copy-script functions, taken
-# from their parsed AST, against temp directories only. Get-Process is stubbed. No elevation, no certificate store, no
+# from their parsed AST, against temp directories only. Get-Process, Get-ScheduledTask and Import-Module are stubbed (no
+# scheduled task is queried; no certificate store is opened). No elevation, no certificate store, no
 # Program Files, no installed root and no real user data is touched. Windows-only rows (ACL objects, junctions, the real
 # generated program refusing non-elevated) are recorded as notRun with a reason on other platforms.
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -eq 'Desktop') {
     # A .NET-launched Windows PowerShell child can inherit another host's module path; bind this host's modules.
     foreach ($module in @('Utility', 'Management', 'Security')) { Import-Module (Join-Path $PSHOME ('Modules\Microsoft.PowerShell.' + $module + '\Microsoft.PowerShell.' + $module + '.psd1')) -Force }
+    # Command discovery (the caller's helper shadow check) and child shells then see only this host's modules.
+    $env:PSModulePath = Join-Path $PSHOME 'Modules'
 }
 $onWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or ((Get-Variable -Name IsWindows -ValueOnly -ErrorAction SilentlyContinue) -eq $true)
 $shellPath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
@@ -50,6 +53,16 @@ foreach ($definition in @($callerAst.EndBlock.Statements + $copyAst.EndBlock.Sta
 # Stub: the fixture decides which PCSteward* processes exist.
 $script:FakeProcesses = @()
 function Get-Process { [CmdletBinding()] param([string[]]$Name) @($script:FakeProcesses) }
+# Stubs: the fixture decides whether the PCSteward.ScheduledCheck task exists and its state; no real task is queried.
+$notFoundId = 'CmdletizationQuery_NotFound_TaskName'
+$script:FakeTasks = @(); $script:FakeTaskErrorId = $notFoundId; $script:ImportedModules = @()
+function Import-Module { [CmdletBinding()] param([Parameter(Position = 0)][string]$Name) $script:ImportedModules += $Name }
+function Get-ScheduledTask {
+    [CmdletBinding()] param([string]$TaskName)
+    if ($script:FakeTaskErrorId) { Write-Error -Message "fixture task query: $TaskName" -ErrorId $script:FakeTaskErrorId }
+    @($script:FakeTasks)
+}
+function New-FakeTask([string]$State) { [pscustomobject]@{ TaskName = 'PCSteward.ScheduledCheck'; State = $State } }
 
 # Sample inputs.
 $hex = { param([string]$Seed) Get-TextSha256 $Seed }
@@ -159,6 +172,7 @@ function Invoke-Guard([scriptblock]$Guard, [string]$Schema, [string]$Setup) {
     if ($Setup -match 'reparse') { $real = Join-Path $root 'real-data'; [IO.Directory]::Move($data, $real); New-Link $data $real }
     if ($Setup -match 'installPresent') { New-Directory $install | Out-Null }
     $script:FakeProcesses = if ($Setup -match 'process') { @([pscustomobject]@{ Name = 'PCSteward.ScheduledHost'; Id = 4242 }) } else { @() }
+    if ($Setup -match 'taskEnabled') { $script:FakeTasks = @(New-FakeTask 'Ready'); $script:FakeTaskErrorId = '' }
     $preserveUserData = $Schema -ceq 'v3'
     $userDataPins = @($pin)
     $userData = $null
@@ -168,9 +182,14 @@ function Invoke-Guard([scriptblock]$Guard, [string]$Schema, [string]$Setup) {
     $proof = [pscustomobject]@{ validation = 'Pass'; payloadOrigin = 'pinned-unsigned-v2'; helperProtocol = '2'; candidateManifestSha256 = (& $hex 'manifest') }
     try { . $Guard; $outcome = [ordered]@{ failure = $null; preservedSha256 = $(if ($userData) { @($userData)[0].sha256 } else { $null }) } }
     catch { $outcome = [ordered]@{ failure = $_.Exception.Message } }
-    finally { $script:FakeProcesses = @() }
+    finally { $script:FakeProcesses = @(); $script:FakeTasks = @(); $script:FakeTaskErrorId = $notFoundId }
     $outcome
 }
+# Review M1: the v3-only re-check of the scheduled task and processes sits immediately before the removal call.
+$tryStatements = @($tryBlock.Statements)
+$removalIndex = [array]::IndexOf($tryStatements, @($tryStatements | Where-Object { $_.Extent.Text -like "`$removal=*" })[0])
+$preRemoval = $tryStatements[$removalIndex - 1]
+$preRemovalGuard = [scriptblock]::Create($preRemoval.Extent.Text)
 $guardResults = [ordered]@{
     preflightV2DataAbsent = Invoke-Guard $preflight 'v2' 'noData'
     preflightV2DataPresent = Invoke-Guard $preflight 'v2' ''
@@ -195,6 +214,29 @@ $guardResults = [ordered]@{
     finalV3Shm = Invoke-Guard $finalGuard 'v3' 'sidecar-shm'
     finalV3Process = Invoke-Guard $finalGuard 'v3' 'process'
     finalV3Changed = Invoke-Guard $finalGuard 'v3' 'changed'
+    preflightV3TaskEnabled = Invoke-Guard $preflight 'v3' 'taskEnabled'
+    preflightV2TaskEnabled = Invoke-Guard $preflight 'v2' 'noData taskEnabled'
+    preRemovalV3Clean = Invoke-Guard $preRemovalGuard 'v3' ''
+    preRemovalV3Process = Invoke-Guard $preRemovalGuard 'v3' 'process'
+    preRemovalV3TaskEnabled = Invoke-Guard $preRemovalGuard 'v3' 'taskEnabled'
+    preRemovalV2Process = Invoke-Guard $preRemovalGuard 'v2' 'process'
+}
+$guardResults.preRemovalText = $preRemoval.Extent.Text
+$guardResults.preRemovalFollowsPhase = $tryStatements[$removalIndex - 2].Extent.Text -ceq "`$phase='approved-removal'"
+# The scheduled-check policy itself (OwnerOnlyExecution.ps1), with the ScheduledTasks module path and task query stubbed.
+function Invoke-TaskCase([object[]]$Tasks, [string]$ErrorId) {
+    $script:FakeTasks = $Tasks; $script:FakeTaskErrorId = $ErrorId
+    try { Get-Failure { Assert-OwnerOnlyScheduledCheckInactive } } finally { $script:FakeTasks = @(); $script:FakeTaskErrorId = $notFoundId }
+}
+$script:ImportedModules = @()
+$results.scheduledCheck = [ordered]@{
+    absent = Invoke-TaskCase @() $notFoundId
+    disabled = Invoke-TaskCase @(New-FakeTask 'Disabled') ''
+    ready = Invoke-TaskCase @(New-FakeTask 'Ready') ''
+    running = Invoke-TaskCase @(New-FakeTask 'Running') ''
+    oneOfTwoEnabled = Invoke-TaskCase @((New-FakeTask 'Disabled'), (New-FakeTask 'Queued')) ''
+    queryDenied = Invoke-TaskCase @() 'AccessDenied'
+    importsFromPSHome = @($script:ImportedModules | Select-Object -Unique).Count -eq 1 -and $script:ImportedModules[0] -ceq [IO.Path]::Combine($PSHOME, 'Modules', 'ScheduledTasks', 'ScheduledTasks.psd1')
 }
 $guardResults.expectedPreservedSha256 = Get-Sha256 $sqlite
 $results.guards = $guardResults
@@ -209,12 +251,18 @@ $preserveUserData = $true; . $resultBlock; $v3Keys = @($result.Keys); $v3Sha = $
 $preserveUserData = $false; . $resultBlock; $v2Keys = @($result.Keys)
 $results.resultRecord = [ordered]@{ v3Keys = ($v3Keys -join ','); v3Sha256 = $v3Sha; v2Keys = ($v2Keys -join ',') }
 
-# 7. The guarded remover and the installer never address the per-user data root.
+# 7. The guarded remover and the installer never address the per-user data root; the remover refuses any PCSteward* process.
+function Get-ParameterValueText($Command, [string]$Name) {
+    $elements = @($Command.CommandElements)
+    for ($i = 0; $i -lt $elements.Count; $i++) { if ($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -eq $Name) { return $elements[$i + 1].Extent.Text } }
+    $null
+}
 $removerText = [IO.File]::ReadAllText((Join-Path $scripts 'Remove-OwnerOnlyProtectedTestDeployment.ps1'))
 $removerAst = (Read-ScriptAst (Join-Path $scripts 'Remove-OwnerOnlyProtectedTestDeployment.ps1')).Ast
 $removeTargets = @($removerAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Remove-Item' }, $true) | ForEach-Object { $_.CommandElements[2].Extent.Text })
 $results.remover = [ordered]@{
     removeTargets = ($removeTargets -join ',')
+    processNames = (@($removerAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Get-Process' }, $true) | ForEach-Object { (Get-ParameterValueText $_ 'Name') }) -join ';')
     reportsUserDataPreserved = $removerText.Contains('userDataPreserved = $true')
     mentionsUserData = @('Remove-OwnerOnlyProtectedTestDeployment.ps1', 'Install-OwnerOnlyProtectedTestDeployment.ps1', 'Test-OwnerOnlyProtectedTestDeployment.ps1' | Where-Object { [IO.File]::ReadAllText((Join-Path $scripts $_)) -match 'LocalApplicationData|LOCALAPPDATA|PCSteward\\pcsteward' }).Count
 }
@@ -366,6 +414,179 @@ $results.attempt = [ordered]@{
     sqliteNotLoaded = (Get-Failure { Assert-OwnerOnlyNoSqliteLoaded }) -eq $null
 }
 
+# 11b. Review L1/L4: the real Invoke-OwnerOnlyRedeployExecution with the check, the elevated start, the native waiter, the
+#      result reader and the post-check stubbed. Nothing is started or elevated; the attempt record is a temp file.
+if (!('PCSteward.Deployment.ChildExit' -as [type])) { Add-Type -TypeDefinition 'namespace PCSteward.Deployment { public static class ChildExit { } }' }
+$executeDir = New-Directory (Join-Path $WorkRoot 'execute')
+function Invoke-ExecuteCase([string]$Case) {
+    $recordPath = Join-Path $executeDir ("redeploy-attempt-$Case.json")
+    $log = [ordered]@{ startCalls = 0; statusAtStart = $null; waitCalls = 0; statusAtWait = $null; waitTimeout = $null; lastWritten = $null }
+    $outcome = & {
+        function Invoke-OwnerOnlyRedeployCheck { param([string]$PlanPath) [pscustomobject]@{ Report = [ordered]@{ planSha256 = ('A' * 64); encodedCommandSha256 = ('B' * 64); userDatabase = [ordered]@{ sha256 = $dbPin.sha256 } }; Encoded = 'AAAA'; ExecutionRoot = (Join-Path $executeDir 'absent-execution-root'); UserDataRoot = $executeDir; Pins = @($dbPin); AttemptRecordPath = $recordPath } }
+        function Start-OwnerOnlyElevatedRedeploy {
+            param([string]$EncodedCommand)
+            $log.startCalls++; $log.statusAtStart = $log.lastWritten
+            if ($Case -ceq 'cancel') { throw 'The operation was canceled by the user.' }
+            [pscustomobject]@{ Id = 4242 }
+        }
+        function Wait-OwnerOnlyDeploymentProcess {
+            param($Process, [int]$TimeoutMilliseconds)
+            if ($TimeoutMilliseconds -eq 1) { return }
+            $log.waitCalls++; $log.waitTimeout = $TimeoutMilliseconds; $log.statusAtWait = $log.lastWritten
+            if ($Case -ceq 'timeout') { throw [TimeoutException]::new('Authorized deployment child is still running; do not retry or kill it.') }
+            return 0
+        }
+        function Read-OwnerOnlyBootstrapResult { param([string]$ExecutionRoot) if ($Case -ceq 'validated') { $okResult } else { $null } }
+        function Assert-OwnerOnlyUserDataPreserved { param([string]$DataRoot, [object[]]$Files) @($dbPin) }
+        # The caller holds the one-use record open with FileShare.None, which Windows enforces (Linux does not), so the
+        # stubs observe the last status the real writer committed to that stream instead of re-reading the file.
+        $realWrite = ${function:Write-OwnerOnlyAttemptRecord}
+        function Write-OwnerOnlyAttemptRecord {
+            param($Stream, $Value)
+            if ($Case -ceq 'startedWriteFails' -and $Value.status -ceq 'Started') { throw 'FIXTURE: the Started record write failed.' }
+            & $realWrite -Stream $Stream -Value $Value
+            $log.lastWritten = $Value.status
+        }
+        $approved = if ($Case -ceq 'approvalMismatch') { 'C' * 64 } else { 'B' * 64 }
+        try { $attempt = Invoke-OwnerOnlyRedeployExecution -PlanPath 'plan.json' -ApprovedPlanSha256 ('A' * 64) -ApprovedEncodedCommandSha256 $approved; [ordered]@{ failure = $null; returned = $attempt.status } }
+        catch { [ordered]@{ failure = $_.Exception.Message; returned = $null } }
+    }
+    $record = if (Test-Path -LiteralPath $recordPath) { ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($recordPath)) } else { $null }
+    [ordered]@{
+        failure = $outcome.failure; returned = $outcome.returned; recordExists = $null -ne $record
+        status = $(if ($record) { $record.status } else { $null }); recordFailure = $(if ($record) { $record.recordFailure } else { $null })
+        attemptFailure = $(if ($record) { $record.failure } else { $null }); processId = $(if ($record) { $record.processId } else { $null })
+        nativeExitCode = $(if ($record) { $record.nativeExitCode } else { $null }); retry = $(if ($record) { $record.retry } else { $null })
+        startCalls = $log.startCalls; statusAtStart = $log.statusAtStart; waitCalls = $log.waitCalls; statusAtWait = $log.statusAtWait; waitTimeout = $log.waitTimeout
+    }
+}
+$results.execute = [ordered]@{
+    cancel = Invoke-ExecuteCase 'cancel'
+    timeout = Invoke-ExecuteCase 'timeout'
+    startedWriteFails = Invoke-ExecuteCase 'startedWriteFails'
+    validated = Invoke-ExecuteCase 'validated'
+    approvalMismatch = Invoke-ExecuteCase 'approvalMismatch'
+}
+
+# 11c. Review M2: helpers and the template load only at the reviewed constants embedded in the caller, and a helper can only
+#      ADD Verb-OwnerOnly* functions. A fresh runspace (no helper defined yet) proves the committed helper and waiter load.
+$untrustedSource = New-Directory (Join-Path $WorkRoot 'untrusted-scripts')
+$untrustedHelper = [Text.Encoding]::ASCII.GetBytes($helperText + "`nfunction Get-OwnerOnlyFixtureExtra { }`n")
+[IO.File]::WriteAllBytes((Join-Path $untrustedSource 'OwnerOnlyExecution.ps1'), $untrustedHelper)
+$callerFunctionText = (@($callerAst.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.FunctionDefinitionAst] }) | ForEach-Object { $_.Extent.Text }) -join "`n"
+$freshBody = @'
+$ErrorActionPreference = 'Stop'
+foreach ($name in @('OwnerOnlyExecution.ps1', 'Wait-OwnerOnlyDeploymentProcess.ps1')) {
+    $sha = Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $Source $name) -MaxBytes 1048576)
+    . (Get-OwnerOnlyPinnedScriptBlock -Source $Source -Name $name -Sha256 $sha)
+}
+@((Get-Command -Name Assert-OwnerOnlyScheduledCheckInactive -CommandType Function).Name, (Get-Command -Name Wait-OwnerOnlyDeploymentProcess -CommandType Function).Name) -join ','
+'@
+$fresh = [powershell]::Create()
+try {
+    [void]$fresh.AddScript("param(`$Source)`n" + $callerFunctionText + "`n" + $freshBody).AddParameter('Source', $scripts)
+    $freshOutput = @($fresh.Invoke()) -join ''
+    $freshErrors = @($fresh.Streams.Error | ForEach-Object { $_.ToString() }) -join '; '
+} catch { $freshOutput = $null; $freshErrors = $_.Exception.Message } finally { $fresh.Dispose() }
+$templateBytes = [IO.File]::ReadAllBytes((Join-Path $scripts 'Invoke-OwnerOnlyApprovedRedeployment.ps1'))
+$results.pins = [ordered]@{
+    committedHelpersLoadInFreshRunspace = $freshOutput
+    freshRunspaceErrors = $freshErrors
+    unreviewedHelperRefused = Get-Failure { Get-OwnerOnlyPinnedScriptBlock -Source $untrustedSource -Name 'OwnerOnlyExecution.ps1' -Sha256 (Get-Sha256 $untrustedHelper) }
+    reviewedHelperShadowingRefused = Get-Failure { Get-OwnerOnlyPinnedScriptBlock -Source $scripts -Name 'OwnerOnlyExecution.ps1' -Sha256 (Get-Sha256 ([IO.File]::ReadAllBytes((Join-Path $scripts 'OwnerOnlyExecution.ps1')))) }
+    templateAccepted = Get-Failure { Assert-OwnerOnlyReviewedHelperPin -Name 'Invoke-OwnerOnlyApprovedRedeployment.ps1' -Sha256 (Get-Sha256 $templateBytes) }
+    templateChangedRefused = Get-Failure { Assert-OwnerOnlyReviewedHelperPin -Name 'Invoke-OwnerOnlyApprovedRedeployment.ps1' -Sha256 (Get-Sha256 ([byte[]]($templateBytes + [byte]10))) }
+    shadowCallerFunction = Get-Failure { Assert-OwnerOnlyHelperShadowsNothing -Text 'function Get-OwnerOnlySha256Hex { }' }
+    shadowCmdlet = Get-Failure { Assert-OwnerOnlyHelperShadowsNothing -Text 'function Get-ChildItem { }' }
+    shadowNested = Get-Failure { Assert-OwnerOnlyHelperShadowsNothing -Text 'function New-OwnerOnlyFixtureOuter { function Get-Item { } }' }
+    newFunctionAllowed = Get-Failure { Assert-OwnerOnlyHelperShadowsNothing -Text 'function Get-OwnerOnlyFixtureBrandNew { }' }
+}
+
+# 11d. Review L1/L2/L5: environment, absolute input paths, working directory and old-signer refusals (no store is opened).
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $results.environment = & {
+        function Test-OwnerOnlyElevated { $false }
+        [ordered]@{
+            wrongSid = Get-Failure { Assert-OwnerOnlyCallerEnvironment -InstallerSid 'S-1-5-21-1-2-3-4' }
+            currentSid = Get-Failure { Assert-OwnerOnlyCallerEnvironment -InstallerSid $currentSid }
+        }
+    }
+    $results.environment.elevationIsBool = (Test-OwnerOnlyElevated) -is [bool]
+} else {
+    $results.environment = [ordered]@{ notDesktop = Get-Failure { Assert-OwnerOnlyCallerEnvironment -InstallerSid $sid } }
+}
+$results.absolutePath = [ordered]@{
+    local = Get-Failure { Assert-OwnerOnlyAbsoluteInputPath -Path 'C:\Owner\scripts' -Name 'ScriptSource' }
+    relative = Get-Failure { Assert-OwnerOnlyAbsoluteInputPath -Path 'scripts' -Name 'ScriptSource' }
+    driveRelative = Get-Failure { Assert-OwnerOnlyAbsoluteInputPath -Path 'C:scripts' -Name 'ScriptSource' }
+    unc = Get-Failure { Assert-OwnerOnlyAbsoluteInputPath -Path '\\server\share\scripts' -Name 'ScriptSource' }
+    stream = Get-Failure { Assert-OwnerOnlyAbsoluteInputPath -Path 'C:\Owner\plan.json:alt' -Name 'NewPlanPath' }
+}
+$wdRoot = New-Directory (Join-Path $WorkRoot 'wd')
+$wdInstall = New-Directory (Join-Path $wdRoot 'PC Steward'); $wdInside = New-Directory (Join-Path $wdInstall 'sub')
+$wdState = New-Directory (Join-Path $wdRoot 'PC Steward OwnerOnlyTest State'); $wdSibling = New-Directory (Join-Path $wdRoot 'PC Steward OwnerOnlyTest Execution 0')
+$wdRoots = @($wdInstall, $wdState)
+function Invoke-WorkingDirectoryCase([string]$Location, [string]$Current) {
+    $savedLocation = Get-Location; $savedCurrent = [Environment]::CurrentDirectory
+    try { Set-Location -LiteralPath $Location; [Environment]::CurrentDirectory = $Current; Get-Failure { Assert-OwnerOnlyWorkingDirectoryOutside -Roots $wdRoots } }
+    finally { Set-Location -LiteralPath $savedLocation.Path; [Environment]::CurrentDirectory = $savedCurrent }
+}
+$results.workingDirectory = [ordered]@{
+    outside = Invoke-WorkingDirectoryCase $wdSibling $wdSibling
+    locationInsideInstall = Invoke-WorkingDirectoryCase $wdInside $wdSibling
+    processInsideState = Invoke-WorkingDirectoryCase $wdSibling $wdState
+    exactInstallRoot = Invoke-WorkingDirectoryCase $wdInstall $wdInstall
+}
+$script:FakeSignature = $null
+$results.oldSigner = & {
+    function Get-AuthenticodeSignature { param([string]$LiteralPath) $script:FakeSignature }
+    $script:FakeSignature = [pscustomobject]@{ Status = 'NotSigned'; SignerCertificate = $null }
+    $notSigned = Get-Failure { Assert-OwnerOnlyOldSigner -InstallRoot $WorkRoot -Thumbprint ('A' * 40) }
+    $script:FakeSignature = [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Thumbprint = ('B' * 40) } }
+    $otherSigner = Get-Failure { Assert-OwnerOnlyOldSigner -InstallRoot $WorkRoot -Thumbprint ('A' * 40) }
+    [ordered]@{ notSigned = $notSigned; otherSigner = $otherSigner }
+}
+
+# 11e. Review L1: the REAL caller main dispatch in a fresh Windows PowerShell 5.1 process (a harness of the caller text with
+#      named functions overridden after their definitions). CheckOnly with a synthetic plan must pass every earlier check and
+#      stop at the old-ledger check, which is replaced by a sentinel so Program Files is never read.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $callerText = [IO.File]::ReadAllText((Join-Path $scripts 'Invoke-OwnerOnlyRedeployCaller.ps1'))
+    $mainStart = @($callerAst.EndBlock.Statements | Where-Object { $_.Extent.Text -like '$mode=$PSCmdlet.ParameterSetName*' })[0].Extent.StartOffset
+    $harnessImports = "foreach (`$m in @('Utility', 'Management', 'Security')) { Import-Module (Join-Path `$PSHOME ('Modules\Microsoft.PowerShell.' + `$m + '\Microsoft.PowerShell.' + `$m + '.psd1')) -Force }`n"
+    $script:harnessCount = 0
+    function Invoke-CallerMain([string]$Stubs, [string[]]$Arguments) {
+        $script:harnessCount++
+        $harness = Join-Path $WorkRoot ("caller-harness-$script:harnessCount.ps1")
+        [IO.File]::WriteAllText($harness, $callerText.Substring(0, $mainStart) + "`n" + $harnessImports + $Stubs + "`n" + $callerText.Substring($mainStart), [Text.Encoding]::ASCII)
+        $ErrorActionPreference = 'Continue'
+        $lines = @(& $shellPath -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $harness @Arguments 2>&1)
+        $exit = $LASTEXITCODE
+        $stdout = (@($lines | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }) | ForEach-Object { [string]$_ }) -join "`n"
+        $report = $null; try { $report = ConvertFrom-Json -InputObject $stdout } catch { $report = $null }
+        if ($report) { [ordered]@{ exitCode = $exit; mode = $report.mode; result = $report.result; failure = $report.failure } }
+        else { [ordered]@{ exitCode = $exit; mode = $null; result = $null; failure = ($stdout + ' | ' + ((@($lines | Where-Object { $_ -is [Management.Automation.ErrorRecord] }) | ForEach-Object { $_.ToString() }) -join ' ')) } }
+    }
+    function New-MainScriptSource([string]$Name, [byte[]]$HelperBytes) {
+        $folder = New-Directory (Join-Path $WorkRoot $Name)
+        foreach ($leaf in @(@(Get-OwnerOnlyReviewedScriptNames) + @('Invoke-OwnerOnlyApprovedRedeployment.ps1'))) { [IO.File]::Copy((Join-Path $scripts $leaf), (Join-Path $folder $leaf)) }
+        if ($HelperBytes) { [IO.File]::WriteAllBytes((Join-Path $folder 'OwnerOnlyExecution.ps1'), $HelperBytes) }
+        $pins = [object[]]@(Get-OwnerOnlyReviewedScriptNames | ForEach-Object { [pscustomobject]@{ path = $_; sha256 = (Get-Sha256 ([IO.File]::ReadAllBytes((Join-Path $folder $_)))) } })
+        $plan = New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) @{ installerSid = $currentSid; scriptSource = $folder; scripts = $pins }
+        $planPath = Join-Path $folder 'plan.json'
+        [IO.File]::WriteAllBytes($planPath, [Text.Encoding]::ASCII.GetBytes((ConvertTo-OwnerOnlyCanonicalPlanJson -Plan $plan)))
+        $planPath
+    }
+    $ledgerSentinel = "function Test-OwnerOnlyElevated { `$false }`nfunction Assert-OwnerOnlyOldLedger { param(`$LedgerPath, `$Plan, `$InstallRoot) throw ('FIXTURE-LEDGER-REACHED ' + (Split-Path -Leaf (Split-Path -Parent `$LedgerPath)) + '\' + (Split-Path -Leaf `$LedgerPath)) }"
+    $readSentinel = "function Read-OwnerOnlyStableBytes { param(`$Path, `$MaxBytes) throw 'FIXTURE-READ' }"
+    $results.callerMain = [ordered]@{
+        checkOnlyReachesLedger = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-reviewed' $null))
+        checkOnlyUnreviewedHelper = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-unreviewed' $untrustedHelper))
+        newPlanRelativeSource = Invoke-CallerMain $readSentinel @('-NewPlanPath', (Join-Path $WorkRoot 'new-plan.json'), '-ScriptSource', 'relative\scripts', '-CandidateRoot', 'C:\candidate', '-CandidateManifestPath', 'C:\candidate.json', '-ExpectedOldOrigin', 'pinned-unsigned-v1', '-ExpectedNewOrigin', 'pinned-unsigned-v2')
+    }
+} else { $results.notRun.callerMain = 'The caller main dispatch requires Windows PowerShell 5.1 (Desktop edition, Windows only); Windows-CI evidence in the windows-powershell row.' }
+
 # 12. Candidate tree and old-ledger pins.
 $payload = New-Directory (Join-Path $WorkRoot 'candidate\payload')
 New-Directory (Join-Path $payload 'Resources') | Out-Null
@@ -429,6 +650,19 @@ $script:FakeProcesses = @()
 $copyResults.noFolderOnRefusal = @(Get-ChildItem -LiteralPath $destination -Directory).Count -eq $foldersBefore
 $realCopyData = Join-Path $copyRoot 'real-data'; [IO.Directory]::Move($copyData, $realCopyData); New-Link $copyData $realCopyData
 $copyResults.reparse = Get-Failure { Copy-OwnerOnlyUserDatabase -DataRoot $copyData -DestinationParent $destination -ForbiddenRoots @() }
+# Review L3: a reparse point on an existing ancestor of a NEW destination is refused before any folder is created.
+$copyData2 = Join-Path $copyRoot 'PCSteward2'; $null = New-UserData $copyData2 $sqlite
+$linkedParentTarget = New-Directory (Join-Path $copyRoot 'linked-parent-target')
+New-Link (Join-Path $copyRoot 'linked-parent') $linkedParentTarget
+$copyResults.reparseAncestor = Get-Failure { Copy-OwnerOnlyUserDatabase -DataRoot $copyData2 -DestinationParent (Join-Path (Join-Path (Join-Path $copyRoot 'linked-parent') 'new') 'copies') -ForbiddenRoots @() }
+$copyResults.reparseAncestorCreatedNothing = @(Get-ChildItem -LiteralPath $linkedParentTarget -Force).Count -eq 0
+# Review L2/M2: the copy script loads OwnerOnlyExecution.ps1 only at the reviewed constant and needs $PSScriptRoot.
+$copyResults.helperLoadsCommitted = Get-Failure { Get-OwnerOnlyCopyHelperScriptBlock -ScriptRoot $scripts }
+$copyResults.helperRefusesUnreviewed = Get-Failure { Get-OwnerOnlyCopyHelperScriptBlock -ScriptRoot $untrustedSource }
+$copyResults.helperNeedsScriptRoot = Get-Failure { Get-OwnerOnlyCopyHelperScriptBlock -ScriptRoot '' }
+$copyResults.destinationLocal = Get-Failure { Assert-OwnerOnlyCopyDestinationPath -Path 'C:\Users\owner\PCSteward-DatabaseCopies' }
+$copyResults.destinationRelative = Get-Failure { Assert-OwnerOnlyCopyDestinationPath -Path 'copies' }
+$copyResults.destinationUnc = Get-Failure { Assert-OwnerOnlyCopyDestinationPath -Path '\\server\share\copies' }
 $copyText = [IO.File]::ReadAllText((Join-Path $scripts 'Copy-OwnerOnlyUserDatabase.ps1'))
 $copyResults.forbiddenCommands = @($copyAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Add-Type', 'Remove-Item', 'Start-Process', 'Invoke-Expression', 'Move-Item', 'Set-Content') }, $true)).Count
 $copyResults.mentionsEngine = $copyText -match 'DllImport|Microsoft\.Data\.Sqlite|SQLitePCL|LoadLibrary'
