@@ -15,7 +15,7 @@ namespace PCSteward.Security.FixtureTests;
 [TestClass]
 public sealed class ChocolateyClientUpdatePostcheckTests
 {
-    private const string User = "S-1-5-21-11-22-33-1001";
+    internal const string User = "S-1-5-21-11-22-33-1001";
 
     [TestMethod]
     public void OnlyAnExactTargetReleaseObservationIsVerified()
@@ -125,6 +125,34 @@ public sealed class ChocolateyClientUpdatePostcheckTests
         Assert.AreEqual(PostUpdateVerificationNote.None, result.Note);
     }
 
+    [TestMethod]
+    public void TheInterpreterFactOverloadOnlyLowersTheVerdict()
+    {
+        // ADR-031 design §8.3 (W1): the desktop overload applies the accepted reply's fact first, exactly like the binding
+        // overload; None leaves the exact-match rule in charge, so Verified still needs the target release.
+        (_, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) = Releases();
+        ReviewedClientRunFault none = ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, false);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.Verified, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), none, source, target, User));
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.NotTargetRelease, ChocolateyClientUpdatePostcheck.Evaluate(Observation(source), none, source, target, User));
+        (ReviewedClientWatchdogStop Stop, ChocolateyClientUpdateVerdict Verdict)[] stops =
+        [
+            (ReviewedClientWatchdogStop.SetupOverrideDuringRun, ChocolateyClientUpdateVerdict.SetupOverrideDuringRun),
+            (ReviewedClientWatchdogStop.RootWritableDuringRun, ChocolateyClientUpdateVerdict.RootWritableDuringRun),
+            (ReviewedClientWatchdogStop.WatchFailedDuringRun, ChocolateyClientUpdateVerdict.WatchFailedDuringRun),
+        ];
+        foreach ((ReviewedClientWatchdogStop stop, ChocolateyClientUpdateVerdict verdict) in stops)
+            foreach (bool releaseIncomplete in new[] { false, true })
+            {
+                ReviewedClientRunFault fault = ReviewedClientRunFault.FromAcceptedHelperReply(stop, releaseIncomplete);
+                Assert.AreEqual(verdict, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), fault, source, target, User), fault.ToString());
+                Assert.AreEqual(verdict, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target, leftoverOf: source), fault, source, target, User));
+            }
+        ReviewedClientRunFault release = ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, true);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete, ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), release, source, target, User));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), (ReviewedClientRunFault)null!, source, target, User));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => ReviewedClientRunFault.FromAcceptedHelperReply((ReviewedClientWatchdogStop)9, false));
+    }
+
     private static ChocolateyReleaseEntry WithModule(ChocolateyReleaseEntry entry, ChocolateyReleaseFile module) =>
         entry with { Files = [.. entry.Files.Select(file => file.Path == module.Path ? module : file)] };
 
@@ -159,13 +187,13 @@ public sealed class ChocolateyClientUpdatePostcheckTests
     private static ChocolateyClientUpdateVerdict Check(ChocolateyProfileResult result, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) =>
         ChocolateyClientUpdatePostcheck.EvaluateForTests(result, source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: false);
 
-    private static (ChocolateyReleaseList, ChocolateyReviewedRelease, ChocolateyReviewedRelease) Releases()
+    internal static (ChocolateyReleaseList, ChocolateyReviewedRelease, ChocolateyReviewedRelease) Releases()
     {
         ChocolateyReleaseList list = ChocolateyReleaseListTests.Three();
         return (list, list.Releases[0], list.Releases[2]);
     }
 
-    private static ChocolateyProfileResult.Observed Observation(ChocolateyReviewedRelease release, string? installed = null, string? archive = null,
+    internal static ChocolateyProfileResult.Observed Observation(ChocolateyReviewedRelease release, string? installed = null, string? archive = null,
         string sid = User, string? extension = null, ChocolateyReviewedRelease? leftoverOf = null, ChocolateyReleaseResidue? residue = null)
     {
         Assert.IsTrue(ChocolateyConfigurationParser.TryRead(Encoding.UTF8.GetBytes("<chocolatey></chocolatey>"), out ChocolateyConfigurationObservation? configuration));

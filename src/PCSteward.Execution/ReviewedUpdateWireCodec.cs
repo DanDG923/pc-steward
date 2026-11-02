@@ -62,11 +62,35 @@ internal enum ReviewedHelperRefusalReason
 internal sealed record ReviewedHelperFacts(ReviewedHelperQualification Qualification, ReviewedHelperRefusalReason RefusalReason,
     string? ObservedInstalledVersion, string? ObservedCandidateVersion, string? ObservedProfileFingerprint);
 
-internal sealed record FramedUpdateResponse(UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, string Diagnostic);
+/// <summary>
+/// ADR-031 design §8 (owner-approved W1): the closed <c>clientRunFault</c> value of a client self-update reply. Exactly the
+/// rows of the allowed-combination table: no watchdog stop or one watchdog kind (the binding keeps only the first), each
+/// with or without an incomplete hold release. Wire text comes only from <see cref="ReviewedUpdateWireCodec.ClientRunFaultText"/>.
+/// </summary>
+internal enum ReviewedClientRunFaultWire
+{
+    None, SetupOverrideDuringRun, RootWritableDuringRun, WatchFailedDuringRun, ReleaseIncomplete,
+    SetupOverrideDuringRunAndReleaseIncomplete, RootWritableDuringRunAndReleaseIncomplete, WatchFailedDuringRunAndReleaseIncomplete
+}
+
+/// <summary>
+/// The reply shape a reader expects (design §8.2 S14a): <see cref="Package"/> for every route except the client self-update
+/// (the reviewed 20 properties, no <c>clientRunFault</c>); <see cref="ClientSelfUpdate"/> only for
+/// <c>ChocolateyClientSelfUpdateV1</c> (21 properties, <c>clientRunFault</c> at position 19).
+/// </summary>
+internal enum ReviewedHelperReplyShape { Package, ClientSelfUpdate }
+
+/// <summary>
+/// An accepted reply. <see cref="ClientRunFault"/> is non-null exactly for the <see cref="ReviewedHelperReplyShape.ClientSelfUpdate"/>
+/// shape.
+/// </summary>
+internal sealed record FramedUpdateResponse(UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, string Diagnostic,
+    ReviewedClientRunFaultWire? ClientRunFault = null);
 
 /// <summary>
 /// Passive protocol-2 framing prerequisite. No active endpoint uses this codec. Protocol "2" is redefined in place
 /// (Task 50 reviewed fact extension rev 3, O1): the response has exactly 20 properties; the 15-field shape is not accepted.
+/// ADR-031 design §8 (W1): a client self-update reply alone adds <c>clientRunFault</c> (21 properties, rule S14).
 /// The future endpoint must independently admit schema, peer, freshness, capability and native evidence.
 /// </summary>
 internal static class ReviewedUpdateWireCodec
@@ -93,6 +117,65 @@ internal static class ReviewedUpdateWireCodec
         "observedInstalledVersion", "observedCandidateVersion", "observedProfileFingerprint", "diagnostic"
     ];
     internal const int MaximumVersionLength = 128;
+
+    /// <summary>Design §8.1: the exact property name and its position in a client self-update reply (before <c>diagnostic</c>).</summary>
+    internal const string ClientRunFaultField = "clientRunFault";
+    internal const int ClientRunFaultPosition = 19;
+    private static readonly string[] ClientResponseFields =
+        [.. ResponseFields[..ClientRunFaultPosition], ClientRunFaultField, .. ResponseFields[ClientRunFaultPosition..]];
+
+    /// <summary>Design §8.1 allowed-combination table: the only wire texts, one per closed value (looked up, never parsed).</summary>
+    private static readonly (ReviewedClientRunFaultWire Value, string Text)[] ClientRunFaultTable =
+    [
+        (ReviewedClientRunFaultWire.None, "None"),
+        (ReviewedClientRunFaultWire.SetupOverrideDuringRun, "SetupOverrideDuringRun"),
+        (ReviewedClientRunFaultWire.RootWritableDuringRun, "RootWritableDuringRun"),
+        (ReviewedClientRunFaultWire.WatchFailedDuringRun, "WatchFailedDuringRun"),
+        (ReviewedClientRunFaultWire.ReleaseIncomplete, "ReleaseIncomplete"),
+        (ReviewedClientRunFaultWire.SetupOverrideDuringRunAndReleaseIncomplete, "SetupOverrideDuringRun+ReleaseIncomplete"),
+        (ReviewedClientRunFaultWire.RootWritableDuringRunAndReleaseIncomplete, "RootWritableDuringRun+ReleaseIncomplete"),
+        (ReviewedClientRunFaultWire.WatchFailedDuringRunAndReleaseIncomplete, "WatchFailedDuringRun+ReleaseIncomplete"),
+    ];
+
+    /// <summary>The fixed wire text of a table value; throws for anything outside the table.</summary>
+    internal static string ClientRunFaultText(ReviewedClientRunFaultWire value)
+    {
+        foreach ((ReviewedClientRunFaultWire candidate, string text) in ClientRunFaultTable)
+            if (candidate == value) return text;
+        throw new ArgumentOutOfRangeException(nameof(value), "Not a row of the clientRunFault table.");
+    }
+
+    /// <summary>S14b: exact ordinal match against the table; every other text (case, whitespace, order, aliases) is false.</summary>
+    internal static bool TryParseClientRunFault(string? text, out ReviewedClientRunFaultWire value)
+    {
+        foreach ((ReviewedClientRunFaultWire candidate, string row) in ClientRunFaultTable)
+            if (string.Equals(row, text, StringComparison.Ordinal))
+            {
+                value = candidate;
+                return true;
+            }
+        value = ReviewedClientRunFaultWire.None;
+        return false;
+    }
+
+    /// <summary>
+    /// Design §8.2 S14 over the reviewed facts: "S14b" when the value is not a table row, "S14c" when a value other than
+    /// <c>None</c> accompanies anything but <c>Matched</c> with a Started or Unknown invocation (a watchdog runs and the holds
+    /// are released only after resume). Presence (S14a) is the reader's shape check. Empty means valid.
+    /// </summary>
+    internal static IReadOnlyList<string> ClientRunFaultViolations(UpdateWireFacts facts, ReviewedHelperFacts reviewed, ReviewedClientRunFaultWire value)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(reviewed);
+        List<string> violations = [];
+        bool defined = ClientRunFaultTable.Any(row => row.Value == value);
+        if (!defined) violations.Add("S14b");
+        if (defined && value != ReviewedClientRunFaultWire.None &&
+            (reviewed.Qualification != ReviewedHelperQualification.Matched ||
+             facts.Invocation is not (UpdateWireInvocation.Started or UpdateWireInvocation.Unknown)))
+            violations.Add("S14c");
+        return violations;
+    }
 
     internal static byte[] CreateRequest(ReadOnlySpan<byte> payload, string digest, string nonce, DateTimeOffset issuedAt)
     {
@@ -135,11 +218,24 @@ internal static class ReviewedUpdateWireCodec
         catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException) { return false; }
     }
 
+    /// <summary>The reviewed 20-property reply of every route except the client self-update (no <c>clientRunFault</c>; bytes unchanged).</summary>
     internal static byte[] CreateResponse(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
-        string diagnostic)
+        string diagnostic) => CreateResponseCore(jobId, digest, nonce, facts, reviewed, null, diagnostic);
+
+    /// <summary>
+    /// Design §8: the 21-property client self-update reply, <c>clientRunFault</c> at position 19. Throws (nothing may be
+    /// written) unless S1–S13 and S14 hold.
+    /// </summary>
+    internal static byte[] CreateClientResponse(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
+        ReviewedClientRunFaultWire clientRunFault, string diagnostic) =>
+        CreateResponseCore(jobId, digest, nonce, facts, reviewed, clientRunFault, diagnostic);
+
+    private static byte[] CreateResponseCore(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
+        ReviewedClientRunFaultWire? clientRunFault, string diagnostic)
     {
         if (jobId == Guid.Empty || !IsHex(digest) || !IsHex(nonce) || facts is null || reviewed is null || diagnostic is null ||
-            StructuralViolations(facts, reviewed).Count != 0)
+            StructuralViolations(facts, reviewed).Count != 0 ||
+            (clientRunFault is { } fault && ClientRunFaultViolations(facts, reviewed, fault).Count != 0))
             throw new ArgumentException("Exact correlation, consistent native observations and structurally valid reviewed facts required.");
         string safeDiagnostic = AsciiDiagnostic(diagnostic);
         using MemoryStream stream = new();
@@ -166,18 +262,31 @@ internal static class ReviewedUpdateWireCodec
             WriteNullable(writer, "observedInstalledVersion", reviewed.ObservedInstalledVersion);
             WriteNullable(writer, "observedCandidateVersion", reviewed.ObservedCandidateVersion);
             WriteNullable(writer, "observedProfileFingerprint", reviewed.ObservedProfileFingerprint);
+            if (clientRunFault is { } run) writer.WriteString(ClientRunFaultField, ClientRunFaultText(run));
             writer.WriteString("diagnostic", safeDiagnostic);
             writer.WriteEndObject();
         }
         return Bounded(stream);
     }
 
+    /// <summary>Reads a package-shape reply (the reviewed 20 properties); a frame carrying <c>clientRunFault</c> is rejected (S14a).</summary>
     internal static bool TryReadResponse(ReadOnlySpan<byte> frame, Guid expectedJob, string expectedDigest, string expectedNonce,
-        out FramedUpdateResponse? response)
+        out FramedUpdateResponse? response) =>
+        TryReadResponse(frame, expectedJob, expectedDigest, expectedNonce, ReviewedHelperReplyShape.Package, out response);
+
+    /// <summary>
+    /// Reads a reply of the expected <paramref name="shape"/> (design §8.2): the client shape requires <c>clientRunFault</c> at
+    /// position 19 (S14a) with a table value (S14b) consistent with the facts (S14c); the package shape forbids it. Any
+    /// failure returns false, which the interpreter turns into Uncertain.
+    /// </summary>
+    internal static bool TryReadResponse(ReadOnlySpan<byte> frame, Guid expectedJob, string expectedDigest, string expectedNonce,
+        ReviewedHelperReplyShape shape, out FramedUpdateResponse? response)
     {
         response = null;
+        if (!Enum.IsDefined(shape)) return false;
+        bool client = shape == ReviewedHelperReplyShape.ClientSelfUpdate;
         if (expectedJob == Guid.Empty || !IsHex(expectedDigest) || !IsHex(expectedNonce) ||
-            !TryReadObject(frame, ResponseFields, out Dictionary<string, JsonElement> fields)) return false;
+            !TryReadObject(frame, client ? ClientResponseFields : ResponseFields, out Dictionary<string, JsonElement> fields)) return false;
         try
         {
             if (String(fields, "protocolVersion") != ProtocolVersion ||
@@ -194,10 +303,18 @@ internal static class ReviewedUpdateWireCodec
             ReviewedHelperFacts reviewed = new(qualification, reason, NullableString(fields, "observedInstalledVersion"),
                 NullableString(fields, "observedCandidateVersion"), NullableString(fields, "observedProfileFingerprint"));
             string diagnostic = String(fields, "diagnostic");
+            ReviewedClientRunFaultWire? clientRunFault = null;
+            if (client)
+            {
+                if (!TryParseClientRunFault(String(fields, ClientRunFaultField), out ReviewedClientRunFaultWire run) ||
+                    ClientRunFaultViolations(facts, reviewed, run).Count != 0) return false;
+                clientRunFault = run;
+            }
             if (StructuralViolations(facts, reviewed).Count != 0 ||
                 diagnostic.Length > MaximumDiagnosticBytes || diagnostic.Any(c => c is < ' ' or > '~') ||
-                !frame.SequenceEqual(CreateResponse(expectedJob, expectedDigest, expectedNonce, facts, reviewed, diagnostic))) return false;
-            response = new(facts, reviewed, diagnostic);
+                !frame.SequenceEqual(CreateResponseCore(expectedJob, expectedDigest, expectedNonce, facts, reviewed, clientRunFault, diagnostic)))
+                return false;
+            response = new(facts, reviewed, diagnostic, clientRunFault);
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException or OverflowException) { return false; }

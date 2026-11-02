@@ -167,6 +167,16 @@ internal abstract record ChocolateyStageValues
 }
 
 /// <summary>
+/// ADR-031 design §8.1: a client self-update launch's settled binding state as a plain closed value (the rows of the
+/// allowed-combination table) for the stage machine; no watchdog type crosses into Execution.
+/// </summary>
+internal enum ChocolateyClientRunFault
+{
+    None, SetupOverrideDuringRun, RootWritableDuringRun, WatchFailedDuringRun, ReleaseIncomplete,
+    SetupOverrideDuringRunAndReleaseIncomplete, RootWritableDuringRunAndReleaseIncomplete, WatchFailedDuringRunAndReleaseIncomplete
+}
+
+/// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 design rev 6 §5.4 (rev-5 F1): the upgrade result, a closed record with exactly two
 /// arms. <see cref="Observed"/> carries the launcher's wire facts; <see cref="OutOfOrder"/> is the dedicated pre-I/O value
 /// returned without any launch when the one-use launch permission is absent (rev-4 L5).
@@ -180,7 +190,34 @@ internal abstract record ChocolateyUpgradeResult
         internal Observed(NativeProcessObservation observation) =>
             Observation = observation ?? throw new ArgumentNullException(nameof(observation));
 
+        /// <summary>
+        /// ADR-031 design §8.1: a client self-update launch also carries its binding's run state, read after the launch settled
+        /// (the watchdog is joined and its first fault recorded before the launch task completes).
+        /// </summary>
+        internal Observed(NativeProcessObservation observation, ChocolateyClientWatchdogFault watchdogFault, bool releaseIncomplete)
+            : this(observation) => RunFault = ToRunFault(watchdogFault, releaseIncomplete);
+
         internal NativeProcessObservation Observation { get; }
+
+        /// <summary>The binding's run state as a plain closed value (None for the package route); the only one Execution reads.</summary>
+        internal ChocolateyClientRunFault RunFault { get; }
+
+        /// <summary>
+        /// ADR-031 design §8.1 allowed-combination table. An undefined watchdog value is a failed watch (fail closed, as in the
+        /// postcheck).
+        /// </summary>
+        internal static ChocolateyClientRunFault ToRunFault(ChocolateyClientWatchdogFault watchdogFault, bool releaseIncomplete) =>
+            (watchdogFault, releaseIncomplete) switch
+            {
+                (ChocolateyClientWatchdogFault.None, false) => ChocolateyClientRunFault.None,
+                (ChocolateyClientWatchdogFault.None, true) => ChocolateyClientRunFault.ReleaseIncomplete,
+                (ChocolateyClientWatchdogFault.SetupOverrideDuringRun, false) => ChocolateyClientRunFault.SetupOverrideDuringRun,
+                (ChocolateyClientWatchdogFault.SetupOverrideDuringRun, true) => ChocolateyClientRunFault.SetupOverrideDuringRunAndReleaseIncomplete,
+                (ChocolateyClientWatchdogFault.RootWritableDuringRun, false) => ChocolateyClientRunFault.RootWritableDuringRun,
+                (ChocolateyClientWatchdogFault.RootWritableDuringRun, true) => ChocolateyClientRunFault.RootWritableDuringRunAndReleaseIncomplete,
+                (_, false) => ChocolateyClientRunFault.WatchFailedDuringRun,
+                (_, true) => ChocolateyClientRunFault.WatchFailedDuringRunAndReleaseIncomplete,
+            };
     }
 
     internal sealed record OutOfOrder : ChocolateyUpgradeResult

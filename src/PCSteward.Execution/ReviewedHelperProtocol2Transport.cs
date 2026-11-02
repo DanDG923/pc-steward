@@ -221,7 +221,8 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
     public async Task<ReviewedHelperExchange> ExchangeAsync(ReviewedUpdateOperation operation, string nonce, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        if (!OperatingSystem.IsWindows() || !ReviewedUpdateProtocol2Interpreter.TryGetProfileDigest(operation, out _) ||
+        // ADR-031 design §7.1: either route shape; the capability hold below still refuses a route outside the allow-list.
+        if (!OperatingSystem.IsWindows() || !ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out _, out _) ||
             !TryCreateRequest(operation, nonce, out _) || !Trusted(providerCallerTrusted))
             return Refused();
         HelperLaunchPaths? paths;

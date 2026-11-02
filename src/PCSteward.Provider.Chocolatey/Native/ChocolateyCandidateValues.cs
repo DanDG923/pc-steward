@@ -244,3 +244,59 @@ internal static class ChocolateyStageCMapping
     private static ChocolateyCandidateValues.Refused CandidateMismatch(ChocolateyStageCBaseline baseline, string listed, string? candidate) =>
         new(ChocolateyCandidateRefusal.CandidateMismatch, listed, candidate, baseline.StageBFingerprint, false);
 }
+
+/// <summary>
+/// FR-UPD-15, TM-03/04/07/13; ADR-031 design §7.1 C: the pure stage-C decision of the client self-update over the strict
+/// <c>list chocolatey --exact</c> outcome alone (no <c>outdated</c>: the candidate is the compiled offer rule's target).
+/// Rows, in order: an interrupted or unsettled query → <see cref="ChocolateyCandidateValues.Undetermined"/>; a settled query
+/// failure (including either output bound) → <c>PreflightQueryFailed</c>; no record → <c>InstalledMismatch</c> with installed
+/// null; a malformed, duplicate or foreign record → <c>PreflightQueryFailed</c>; a listed version ≠ the stage-B source release
+/// → <c>InstalledMismatch</c> with the stage-C value (N3); no strictly newer listed release → <c>CandidateMismatch</c>,
+/// candidate null; the list's offer ≠ the frozen candidate → <c>CandidateMismatch</c> with the offer; otherwise
+/// <see cref="ChocolateyCandidateValues.Matched"/> with the offer, which field 17 then reports (equality-checked by P1/P4/P5).
+/// Field 18 is the stage-B fingerprint (N1).
+/// </summary>
+internal static class ChocolateyClientStageCMapping
+{
+    internal static ChocolateyCandidateValues Map(ChocolateyReviewedRelease installed, string stageBInstalled, string stageBFingerprint,
+        string frozenCandidate, ChocolateyQueryOutcome<ChocolateyInstalledRecord> list)
+    {
+        ArgumentNullException.ThrowIfNull(installed);
+        ArgumentNullException.ThrowIfNull(list);
+        if (!installed.List.Contains(installed) || !string.Equals(stageBInstalled, installed.Version, StringComparison.Ordinal) ||
+            !ChocolateyCandidateValues.IsFingerprint(stageBFingerprint) || !ChocolateyQueryParser.IsNormalizedVersion(frozenCandidate))
+            throw new ArgumentException("Stage C runs only after a stage-B client observation of the frozen source release.", nameof(stageBInstalled));
+        NativeProcessObservation observation = list.Observation;
+        switch (list.Status)
+        {
+            case ChocolateyQueryStatus.Parsed:
+                break;
+            case ChocolateyQueryStatus.Interrupted or ChocolateyQueryStatus.Unsettled:
+                return new ChocolateyCandidateValues.Undetermined(observation.Cancelled, observation.TimedOut,
+                    observation.AggregateSettled && observation.Invocation != NativeInvocation.Unknown && list.Status != ChocolateyQueryStatus.Unsettled,
+                    observation.OutputLimitExceeded);
+            case ChocolateyQueryStatus.OutputLimitExceeded or ChocolateyQueryStatus.RecordLimitExceeded:
+                return QueryFailed(stageBInstalled, stageBFingerprint, outputLimitExceeded: true);
+            default:
+                return QueryFailed(stageBInstalled, stageBFingerprint, outputLimitExceeded: false);
+        }
+        if (list.Records.Count == 0)
+            return new ChocolateyCandidateValues.Refused(ChocolateyCandidateRefusal.InstalledMismatch, null, null, stageBFingerprint, false);
+        if (list.Records.Count != 1 ||
+            !string.Equals(list.Records[0].Id, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.OrdinalIgnoreCase) ||
+            !ChocolateyQueryParser.IsNormalizedVersion(list.Records[0].Version))
+            return QueryFailed(stageBInstalled, stageBFingerprint, outputLimitExceeded: false);
+        string listed = list.Records[0].Version;
+        if (!string.Equals(listed, installed.Version, StringComparison.Ordinal))
+            return new ChocolateyCandidateValues.Refused(ChocolateyCandidateRefusal.InstalledMismatch, listed, null, stageBFingerprint, false);
+        ChocolateyReviewedRelease? offer = installed.List.OfferTarget(installed);
+        if (offer is null)
+            return new ChocolateyCandidateValues.Refused(ChocolateyCandidateRefusal.CandidateMismatch, listed, null, stageBFingerprint, false);
+        if (!string.Equals(offer.Version, frozenCandidate, StringComparison.Ordinal))
+            return new ChocolateyCandidateValues.Refused(ChocolateyCandidateRefusal.CandidateMismatch, listed, offer.Version, stageBFingerprint, false);
+        return new ChocolateyCandidateValues.Matched(offer.Version);
+    }
+
+    private static ChocolateyCandidateValues.Refused QueryFailed(string installed, string fingerprint, bool outputLimitExceeded) =>
+        new(ChocolateyCandidateRefusal.PreflightQueryFailed, installed, null, fingerprint, outputLimitExceeded);
+}

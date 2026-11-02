@@ -86,13 +86,14 @@ public sealed class ClientQueriesBoundaryTests
         (Command + "+Outdated", "Create", [Command + ".CreateOutdated"]),
         (Command + "+Upgrade", "TryCreate", [Command + ".TryUpgrade"]),
         (Native + "ChocolateyExactListArguments", "Build", [Command + "+ListExact.TryCreate"]),
-        // ADR-031 design §3.5: the client commands come only from their list-bound builders; no src caller admits them yet.
+        // ADR-031 design §3.5: the client commands come only from their list-bound builders. Design §7.1: the native item's
+        // stage B is their only caller; nothing admits the route (A3's allow-list and HasSupportedMode still refuse it).
         (Command + "+UpgradeClient", "TryCreate", [Command + ".TryUpgradeClient"]),
         (Command + "+ListClient", "TryCreate", [Command + ".TryListClient"]),
         (Native + "ChocolateyClientUpdateArguments", "BuildUpgrade", [Command + "+UpgradeClient.TryCreate"]),
         (Native + "ChocolateyClientUpdateArguments", "BuildList", [Command + "+ListClient.TryCreate"]),
-        (Command, "TryUpgradeClient", []),
-        (Command, "TryListClient", []),
+        (Command, "TryUpgradeClient", [ItemWork + ".ObserveProfile"]),
+        (Command, "TryListClient", [ItemWork + ".ObserveProfile"]),
         (Outcome, "Create", [Native + "ChocolateyQueryParser.ParseListExact", Native + "ChocolateyQueryParser.ParseOutdated"]),
         // N4b (design rev 6 §4, §5.4): the native item owns the commands, the launches and the stage-C decision.
         (Command, "TryListExact", [ItemWork + ".ObserveProfile"]),
@@ -101,6 +102,9 @@ public sealed class ClientQueriesBoundaryTests
         (Native + "ChocolateyClientQueries", "ListExactAsync", [ItemWork + ".QueryCandidateAsync"]),
         (Native + "ChocolateyClientQueries", "OutdatedAsync", [ItemWork + ".QueryCandidateAsync"]),
         (Native + "ChocolateyClientQueries", "UpgradeAsync", [ItemWork + ".UpgradeAsync"]),
+        (Native + "ChocolateyClientQueries", "ListClientAsync", [ItemWork + ".QueryClientAsync"]),
+        (Native + "ChocolateyClientQueries", "UpgradeClientAsync", [ItemWork + ".UpgradeAsync"]),
+        (Native + "ChocolateyClientStageCMapping", "Map", [ItemWork + ".QueryClientAsync"]),
         (Native + "ChocolateyStageCMapping", "Map", [ItemWork + ".QueryCandidateAsync"]),
         (Native + "ChocolateyStageCMapping", "AfterList", [Native + "ChocolateyStageCMapping.Map", ItemWork + ".QueryCandidateAsync"]),
     ];

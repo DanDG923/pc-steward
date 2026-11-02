@@ -58,9 +58,20 @@ public static class ChocolateyClientUpdatePresentation
         "the one this update started from. PC Steward never deletes files in Chocolatey's folder. Next step: run any Chocolatey package " +
         "install or upgrade from an administrator prompt (Chocolatey removes the leftover itself), then check again.";
 
+    /// <summary>
+    /// The closing sentence of every release-incomplete and not-reported message, kept in the combined watchdog-and-release
+    /// messages too (independent review I2), so no required warning is dropped when two faults are reported together.
+    /// </summary>
+    public const string StaysUnavailableUntilReviewedText =
+        "Chocolatey updates stay unavailable until its files match a reviewed release again.";
+
+    /// <summary>
+    /// Independent review L1: "Ran, not verified" (never "Installed"): the run did not happen under the reviewed conditions, so
+    /// nothing is known about what was installed.
+    /// </summary>
     public const string NotVerifiedReleaseIncompleteMessage =
-        "Installed, not verified: PC Steward could not fully release its hold on Chocolatey's files after the update started, so the " +
-        "update did not run under the reviewed conditions. Chocolatey updates stay unavailable until its files match a reviewed release again.";
+        "Ran, not verified: PC Steward could not fully release its hold on Chocolatey's files after the update started, so the " +
+        "update did not run under the reviewed conditions. " + StaysUnavailableUntilReviewedText;
 
     /// <summary>
     /// The manual recovery step after a watchdog stop that never showed Chocolatey's folder as changeable by the user
@@ -95,6 +106,64 @@ public static class ChocolateyClientUpdatePresentation
     public const string StoppedWatchFailedMessage =
         "Stopped, not verified: PC Steward could not keep checking Chocolatey's folder and settings while the update ran, so it " +
         "stopped the update. Chocolatey may be partly updated. " + WatchdogRecoveryStep;
+
+    /// <summary>
+    /// ADR-031 design §8.3: shown after a watchdog stop message when the hold release was also incomplete, so both warnings are
+    /// retained; the watchdog message keeps its own action advice (the untrusted-folder advice is never replaced).
+    /// </summary>
+    public const string ReleaseIncompleteAlsoNote =
+        "PC Steward also could not fully release its hold on Chocolatey's files after the update started, so the update did not run " +
+        "under the reviewed conditions. " + StaysUnavailableUntilReviewedText;
+
+    public const string StoppedSetupOverrideReleaseIncompleteMessage = StoppedSetupOverrideMessage + " " + ReleaseIncompleteAlsoNote;
+
+    public const string StoppedRootWritableReleaseIncompleteMessage = StoppedRootWritableMessage + " " + ReleaseIncompleteAlsoNote;
+
+    public const string StoppedWatchFailedReleaseIncompleteMessage = StoppedWatchFailedMessage + " " + ReleaseIncompleteAlsoNote;
+
+    /// <summary>
+    /// ADR-031 design §8.3: a started client self-update whose accepted helper reply did not reach the workflow with a run-fault
+    /// value. Never Success: verification is not attempted.
+    /// </summary>
+    public const string RunFaultNotReportedMessage =
+        "Ran, not verified: PC Steward's administrator helper did not report whether the update ran under the reviewed " +
+        "conditions, so PC Steward did not verify it. " + StaysUnavailableUntilReviewedText;
+
+    /// <summary>
+    /// Independent review M1 (ADR-031 design §8.6): appended to an Uncertain client self-update whose launch may have started
+    /// (invocation Unknown or Started) while no watchdog stop or release fault was reported (run fault None or missing) — for
+    /// example a helper timeout, throw or unknown result after the launch. The watchdog's verdict is then unknown, so the
+    /// folder may have been left changeable by the user: the advice is the untrusted-folder step, never a choco command.
+    /// The outcome stays Uncertain (never Success).
+    /// </summary>
+    public const string LostTrackCautionMessage =
+        "PC Steward lost track of the Chocolatey update, so it cannot tell whether the Chocolatey folder was left writable. " +
+        UntrustedFolderRecoveryStep;
+
+    /// <summary>
+    /// ADR-031 design §8.3: the fixed recovery message for a helper-reported client run fault, or null for
+    /// <see cref="ReviewedClientRunFault.IsNone"/>. A watchdog stop selects its own message (setup override and user-changeable
+    /// folder: the untrusted-folder advice, never <c>choco upgrade</c>; failed watch: the forced reinstall advice); an incomplete
+    /// release alone selects <see cref="NotVerifiedReleaseIncompleteMessage"/>; both together keep the watchdog message and add
+    /// <see cref="ReleaseIncompleteAlsoNote"/>.
+    /// </summary>
+    public static string? RunFaultMessage(ReviewedClientRunFault fault)
+    {
+        ArgumentNullException.ThrowIfNull(fault);
+        return (fault.WatchdogStop, fault.ReleaseIncomplete) switch
+        {
+            (ReviewedClientWatchdogStop.None, false) => null,
+            (ReviewedClientWatchdogStop.None, true) => NotVerifiedReleaseIncompleteMessage,
+            (ReviewedClientWatchdogStop.SetupOverrideDuringRun, false) => StoppedSetupOverrideMessage,
+            (ReviewedClientWatchdogStop.SetupOverrideDuringRun, true) => StoppedSetupOverrideReleaseIncompleteMessage,
+            (ReviewedClientWatchdogStop.RootWritableDuringRun, false) => StoppedRootWritableMessage,
+            (ReviewedClientWatchdogStop.RootWritableDuringRun, true) => StoppedRootWritableReleaseIncompleteMessage,
+            (ReviewedClientWatchdogStop.WatchFailedDuringRun, false) => StoppedWatchFailedMessage,
+            (ReviewedClientWatchdogStop.WatchFailedDuringRun, true) => StoppedWatchFailedReleaseIncompleteMessage,
+            // Unreachable for a constructed value; fail closed with the strongest advice rather than none.
+            _ => StoppedRootWritableReleaseIncompleteMessage,
+        };
+    }
 
     public const string VerifiedMessage = "Verified: Chocolatey's files and package match the reviewed release that was approved.";
 
@@ -152,7 +221,15 @@ public static class ChocolateyClientUpdatePresentation
     /// <summary>True for exactly one of the fixed client self-update not-verified messages (history recognition).</summary>
     internal static bool IsNotVerifiedMessage(string? message) => message is NotVerifiedLeftoverMessage or NotVerifiedLeftoverNotSourceMessage or
         NotVerifiedReleaseIncompleteMessage or NotVerifiedReleaseMessage or NotVerifiedUnreadableMessage or StoppedSetupOverrideMessage or
-        StoppedRootWritableMessage or StoppedWatchFailedMessage;
+        StoppedRootWritableMessage or StoppedWatchFailedMessage or StoppedSetupOverrideReleaseIncompleteMessage or
+        StoppedRootWritableReleaseIncompleteMessage or StoppedWatchFailedReleaseIncompleteMessage or RunFaultNotReportedMessage;
+
+    /// <summary>
+    /// History recognition of <see cref="LostTrackCautionMessage"/> (independent review M1): true only when an Uncertain record's
+    /// diagnostic ends with the fixed caution, where the workflow appends it. Display only.
+    /// </summary>
+    internal static bool EndsWithLostTrackCaution(string? diagnostic) =>
+        diagnostic is not null && diagnostic.EndsWith(" " + LostTrackCautionMessage, StringComparison.Ordinal);
 
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>

@@ -133,7 +133,8 @@ internal static class ReviewedUpdateProtocol2Interpreter
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(desktop);
-        if (!TryGetProfileDigest(operation, out string profileDigest)) return Rejected(desktop);
+        // ADR-031 design §8: the frozen route selects the reply shape; the client self-update requires clientRunFault (S14).
+        if (!TryGetRouteProfileDigest(operation, out string profileDigest, out ReviewedHelperReplyShape shape)) return Rejected(desktop);
         // Pre-request rows (review 9 L1): an accompanying frame or unsettled desktop facts are inconsistent transport input and
         // fail closed instead of settling as NotStarted.
         bool quietPreRequest = responseFrame.IsEmpty && !desktop.TerminationFailed && desktop.OwnedRootSnapshot is { IsCompletedSuccessfully: true };
@@ -160,8 +161,10 @@ internal static class ReviewedUpdateProtocol2Interpreter
         }
 
         if (!desktop.H ||
-            !ReviewedUpdateWireCodec.TryReadResponse(responseFrame, operation.JobId, operation.Digest, requestNonce, out FramedUpdateResponse? response) ||
+            !ReviewedUpdateWireCodec.TryReadResponse(responseFrame, operation.JobId, operation.Digest, requestNonce, shape, out FramedUpdateResponse? response) ||
             response is null || ReviewedUpdateWireCodec.StructuralViolations(response.Facts, response.Reviewed).Count != 0 ||
+            (shape == ReviewedHelperReplyShape.ClientSelfUpdate) != response.ClientRunFault.HasValue ||
+            (response.ClientRunFault is { } run && ReviewedUpdateWireCodec.ClientRunFaultViolations(response.Facts, response.Reviewed, run).Count != 0) ||
             OperationBoundViolations(operation.Selection.InstalledVersion, operation.Selection.CandidateVersion, profileDigest, response.Reviewed).Count != 0 ||
             IsImpossibleLaunchFailure(response))
             return Rejected(desktop);
@@ -179,7 +182,8 @@ internal static class ReviewedUpdateProtocol2Interpreter
             PipeEndOfFile: wire.PipeEofObserved && desktop.PipeEndOfFile,
             TerminationFailed: wire.AggregateTerminationFailed || desktop.TerminationFailed,
             ExecutionUncertain: !wire.AggregateSettlementConfirmed || !h || wire.Invocation == UpdateWireInvocation.Unknown,
-            RestartReported: false);
+            RestartReported: false,
+            ClientRunFault: response.ClientRunFault is { } accepted ? ToRunFault(accepted) : null);
         return new(observation, ReviewedHelperCandidateCheck.FromAcceptedFacts(response.Reviewed));
     }
 
@@ -241,6 +245,69 @@ internal static class ReviewedUpdateProtocol2Interpreter
             operation.Mode != ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled) ||
             !operation.EvidenceId.StartsWith(ReviewedUpdateOperation.ProfileEvidencePrefix, StringComparison.Ordinal)) return false;
         // Defence in depth: the Domain constructor already enforces this form for the route (adapter gates §A.6).
+        string digest = operation.EvidenceId[ReviewedUpdateOperation.ProfileEvidencePrefix.Length..];
+        if (!IsUpperHex64(digest)) return false;
+        profileDigest = digest;
+        return true;
+    }
+
+    /// <summary>
+    /// ADR-031 design §8.3: the only <c>src</c> call site of <see cref="ReviewedClientRunFault.FromAcceptedHelperReply"/>
+    /// (architecture test), reached only for an accepted client self-update reply. Explicit mapping of each table row.
+    /// </summary>
+    private static ReviewedClientRunFault ToRunFault(ReviewedClientRunFaultWire accepted) => accepted switch
+    {
+        ReviewedClientRunFaultWire.None => ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, false),
+        ReviewedClientRunFaultWire.SetupOverrideDuringRun => ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.SetupOverrideDuringRun, false),
+        ReviewedClientRunFaultWire.RootWritableDuringRun => ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.RootWritableDuringRun, false),
+        ReviewedClientRunFaultWire.WatchFailedDuringRun => ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.WatchFailedDuringRun, false),
+        ReviewedClientRunFaultWire.ReleaseIncomplete => ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, true),
+        ReviewedClientRunFaultWire.SetupOverrideDuringRunAndReleaseIncomplete =>
+            ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.SetupOverrideDuringRun, true),
+        ReviewedClientRunFaultWire.RootWritableDuringRunAndReleaseIncomplete =>
+            ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.RootWritableDuringRun, true),
+        ReviewedClientRunFaultWire.WatchFailedDuringRunAndReleaseIncomplete =>
+            ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.WatchFailedDuringRun, true),
+        _ => throw new InvalidOperationException("Not a row of the clientRunFault table."),
+    };
+
+    /// <summary>
+    /// The route-discriminated form of <see cref="TryGetProfileDigest"/> (ADR-031 design §7.1, §8.2): the package route gives
+    /// the package reply shape, the exact client self-update shape (<see cref="TryGetClientProfileDigest"/>) the client shape.
+    /// Anything else is unsupported.
+    /// </summary>
+    internal static bool TryGetRouteProfileDigest(ReviewedUpdateOperation operation, out string profileDigest, out ReviewedHelperReplyShape shape)
+    {
+        shape = ReviewedHelperReplyShape.Package;
+        if (TryGetProfileDigest(operation, out profileDigest)) return true;
+        shape = ReviewedHelperReplyShape.ClientSelfUpdate;
+        if (TryGetClientProfileDigest(operation, out profileDigest)) return true;
+        shape = ReviewedHelperReplyShape.Package;
+        return false;
+    }
+
+    /// <summary>
+    /// ADR-031 design §7.1 A1 client arm: schema 3 <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> with guard
+    /// <see cref="ReviewedProviderGuardContract.ChocolateyClientSelfUpdate"/>, provenance
+    /// <see cref="ReviewedCandidateProvenance.TrustedDesktopEvidenceRequired"/>, Chocolatey/ChocolateyCommunity/Machine/Stable,
+    /// provider-script architecture and mode, package ID exactly <c>chocolatey</c>, and <c>EvidenceId = "choco-profile-v2:" + F</c>.
+    /// Never accepts a mixed route/guard/provenance. Shape only: it admits nothing (the capability allow-list and
+    /// <c>HasSupportedMode</c> still refuse the route).
+    /// </summary>
+    internal static bool TryGetClientProfileDigest(ReviewedUpdateOperation operation, out string profileDigest)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        profileDigest = string.Empty;
+        ReviewedUpdateSelection selection = operation.Selection;
+        if (!operation.HasCurrentSchema || operation.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1 ||
+            operation.ProviderGuardContract != ReviewedProviderGuardContract.ChocolateyClientSelfUpdate ||
+            operation.CandidateProvenance != ReviewedCandidateProvenance.TrustedDesktopEvidenceRequired ||
+            selection.Provider != UpdateProvider.Chocolatey || selection.Source != UpdateSource.ChocolateyCommunity ||
+            selection.Scope != UpdateScope.Machine || selection.Channel != UpdateChannel.Stable ||
+            selection.Architecture.Binding != ReviewedArchitectureBinding.ProviderScriptSelected ||
+            operation.Mode != ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled) ||
+            !string.Equals(selection.PackageId, ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.Ordinal) ||
+            !operation.EvidenceId.StartsWith(ReviewedUpdateOperation.ProfileEvidencePrefix, StringComparison.Ordinal)) return false;
         string digest = operation.EvidenceId[ReviewedUpdateOperation.ProfileEvidencePrefix.Length..];
         if (!IsUpperHex64(digest)) return false;
         profileDigest = digest;

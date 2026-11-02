@@ -162,7 +162,9 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         {
             using CancellationTokenSource linked = Link(cancellationToken);
             NativeProcessObservation observation = await work.UpgradeAsync(remaining, linked.Token).ConfigureAwait(false);
-            return new ChocolateyUpgradeResult.Observed(observation);
+            // ADR-031 design §8.1: the binding's run state after settlement (None/false for a package binding).
+            (ChocolateyClientWatchdogFault watchdogFault, bool releaseIncomplete) = work.RunState;
+            return new ChocolateyUpgradeResult.Observed(observation, watchdogFault, releaseIncomplete);
         }
         finally { Exit(Phase.Closed, exclusive: true); }
     }
@@ -237,10 +239,17 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         lifetime.Dispose();
     }
 
+    /// <summary>
+    /// ADR-031 design §7.1 B/D: the client registration <c>chocolatey</c> is observed in client mode (setup-override guard,
+    /// release selected by engine digest, client binding); every other target in package mode (which refuses the client target).
+    /// </summary>
     private static ChocolateyProfileResult ProductionObserve(RequesterToken token, string targetId, ChocolateyNativeVersion frozenInstalled,
         string expectedFingerprint, TimeSpan remaining, CancellationToken cancellationToken) =>
-        ChocolateyProfileObserver.Observe(token, ChocolateyObserverRole.Helper, targetId, frozenInstalled, expectedFingerprint, remaining,
-            cancellationToken);
+        string.Equals(targetId, ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.Ordinal)
+            ? ChocolateyProfileObserver.ObserveClient(token, ChocolateyObserverRole.Helper, frozenInstalled, expectedFingerprint, remaining,
+                cancellationToken)
+            : ChocolateyProfileObserver.Observe(token, ChocolateyObserverRole.Helper, targetId, frozenInstalled, expectedFingerprint, remaining,
+                cancellationToken);
 
     /// <summary>The stage work behind the item's ordering rules: native in production, scripted only under the test seam.</summary>
     private interface IWork : IDisposable
@@ -256,6 +265,9 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         ChocolateyStageValues RevalidateBeforeLaunch(TimeSpan remaining, CancellationToken cancellationToken);
 
         Task<NativeProcessObservation> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken);
+
+        /// <summary>ADR-031 design §8.1: the held binding's watchdog fault and incomplete release, read after the upgrade settled.</summary>
+        (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState { get; }
     }
 
     /// <summary>
@@ -277,6 +289,11 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         private ChocolateyNativeVersion? frozenInstalled;
         private ChocolateyCompiledCommand.ListExact? listCommand;
         private ChocolateyCompiledCommand.Upgrade? upgradeCommand;
+        // ADR-031 design §7.1: the client self-update arm (source release from the compiled list and its two client commands).
+        private bool clientMode;
+        private ChocolateyReviewedRelease? clientRelease;
+        private ChocolateyCompiledCommand.ListClient? listClientCommand;
+        private ChocolateyCompiledCommand.UpgradeClient? upgradeClientCommand;
         private ChocolateyProfileObservation? stageB;
         private ChocolateyBindingIdentity? stageBIdentity;
 
@@ -318,15 +335,33 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
                 !ChocolateyNativeVersion.TryParse(installed, out ChocolateyNativeVersion? frozen) || frozen is null ||
                 !string.Equals(frozen.Normalized, installed, StringComparison.Ordinal))
                 return Unsupported();
-            // The only command factory call sites (architecture test): both refuse anything but the exact route shape.
-            ChocolateyCompiledCommand.ListExact? list = ChocolateyCompiledCommand.TryListExact(operation);
-            ChocolateyCompiledCommand.Upgrade? upgrade = ChocolateyCompiledCommand.TryUpgrade(operation);
-            if (list is null || upgrade is null) return Unsupported();
+            if (operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1)
+            {
+                // ADR-031 design §7.1 B: the frozen source release and its offer come only from the compiled list; the two client
+                // command factories (their only call sites, architecture test) refuse anything but the exact shape and list data.
+                ChocolateyReviewedRelease? release = ChocolateyReleaseList.Listed.FindByVersion(installed);
+                ChocolateyReviewedRelease? offer = ChocolateyReleaseList.Listed.OfferTarget(release);
+                if (release is null || offer is null) return Unsupported();
+                ChocolateyCompiledCommand.ListClient? listClient = ChocolateyCompiledCommand.TryListClient(operation, release);
+                ChocolateyCompiledCommand.UpgradeClient? upgradeClient = ChocolateyCompiledCommand.TryUpgradeClient(operation, release, offer);
+                if (listClient is null || upgradeClient is null) return Unsupported();
+                clientMode = true;
+                clientRelease = release;
+                listClientCommand = listClient;
+                upgradeClientCommand = upgradeClient;
+            }
+            else
+            {
+                // The only command factory call sites (architecture test): both refuse anything but the exact route shape.
+                ChocolateyCompiledCommand.ListExact? list = ChocolateyCompiledCommand.TryListExact(operation);
+                ChocolateyCompiledCommand.Upgrade? upgrade = ChocolateyCompiledCommand.TryUpgrade(operation);
+                if (list is null || upgrade is null) return Unsupported();
+                listCommand = list;
+                upgradeCommand = upgrade;
+            }
             this.operation = operation;
             fingerprint = expectedFingerprint;
             frozenInstalled = frozen;
-            listCommand = list;
-            upgradeCommand = upgrade;
 
             ChocolateyProfileResult result = observe(token, operation.Selection.PackageId, frozen, expectedFingerprint, remaining, cancellationToken);
             if (result is not ChocolateyProfileResult.Observed observed) return Values(result);
@@ -358,6 +393,7 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         {
             ChocolateyHeldClientBinding binding = RequireBinding();
             if (stageCForTests is not null) return stageCForTests();
+            if (clientMode) return await QueryClientAsync(binding, remaining, cancellationToken).ConfigureAwait(false);
             ReviewedUpdateOperation frozen = operation!;
             ChocolateyStageCBaseline baseline = new(frozen.Selection.PackageId, stageB!.InstalledVersion.Normalized, stageB.Fingerprint, fingerprint,
                 frozen.Selection.InstalledVersion, frozen.Selection.CandidateVersion);
@@ -374,6 +410,22 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
                 () => ChocolateyClientQueries.OutdatedAsync(binding, ChocolateyCompiledCommand.CreateOutdated(), left, cancellationToken),
                 static outcome => outcome.Observation).ConfigureAwait(false);
             return ChocolateyStageCMapping.Map(baseline, list, outdated);
+        }
+
+        /// <summary>
+        /// ADR-031 design §7.1 C: <c>list chocolatey --exact</c> only, through the client binding, decided by
+        /// <see cref="ChocolateyClientStageCMapping"/> against the stage-B source release and the compiled offer rule.
+        /// </summary>
+        private async Task<ChocolateyCandidateValues> QueryClientAsync(ChocolateyHeldClientBinding binding, TimeSpan remaining,
+            CancellationToken cancellationToken)
+        {
+            Stopwatch clock = Stopwatch.StartNew();
+            if (Interrupted(remaining, clock, cancellationToken) is { } before) return before;
+            ChocolateyQueryOutcome<ChocolateyInstalledRecord> list = await Launch(
+                () => ChocolateyClientQueries.ListClientAsync(binding, listClientCommand!, remaining, cancellationToken),
+                static outcome => outcome.Observation).ConfigureAwait(false);
+            return ChocolateyClientStageCMapping.Map(clientRelease!, stageB!.InstalledVersion.Normalized, stageB.Fingerprint,
+                operation!.Selection.CandidateVersion, list);
         }
 
         public ChocolateyStageValues RevalidateBeforeLaunch(TimeSpan remaining, CancellationToken cancellationToken)
@@ -400,8 +452,15 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         {
             ChocolateyHeldClientBinding binding = RequireBinding();
             if (!binding.CanLaunch) throw new InvalidOperationException("The stage-B binding can no longer launch.");
+            // ADR-031 design §7.1 Launch: the client upgrade through the client binding (release-all at resume, watchdog armed).
+            if (clientMode)
+                return Launch(() => ChocolateyClientQueries.UpgradeClientAsync(binding, upgradeClientCommand!, remaining, cancellationToken),
+                    static observation => observation);
             return Launch(() => ChocolateyClientQueries.UpgradeAsync(binding, upgradeCommand!, remaining, cancellationToken), static observation => observation);
         }
+
+        public (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState =>
+            stageB?.HeldClient is { } binding ? (binding.WatchdogFault, binding.ReleaseIncomplete) : (ChocolateyClientWatchdogFault.None, false);
 
         public void Dispose()
         {
@@ -411,13 +470,20 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         }
 
         private ChocolateyHeldClientBinding RequireBinding() =>
-            stageB?.HeldClient is { } binding && operation is not null && listCommand is not null && upgradeCommand is not null && frozenInstalled is not null
+            stageB?.HeldClient is { } binding && operation is not null && frozenInstalled is not null &&
+            (clientMode ? listClientCommand is not null && upgradeClientCommand is not null : listCommand is not null && upgradeCommand is not null)
                 ? binding
                 : throw new InvalidOperationException("No stage-B binding is held.");
 
-        /// <summary>The observation is the Helper-role one for the frozen installed value and F.</summary>
+        /// <summary>
+        /// The observation is the Helper-role one for the frozen installed value and F, holding a binding of the route's purpose
+        /// (ADR-031: a client binding for exactly the frozen source release; a package binding otherwise).
+        /// </summary>
         private bool Consistent(ChocolateyProfileObservation observation) =>
             observation.HeldClient is not null && observation.HeldClient.CanLaunch &&
+            (clientMode
+                ? observation.HeldClient.Purpose == ChocolateyBindingPurpose.ClientSelfUpdate && ReferenceEquals(observation.HeldClient.InstalledRelease, clientRelease)
+                : observation.HeldClient.Purpose == ChocolateyBindingPurpose.PackageUpdate) &&
             string.Equals(observation.InstalledVersion.Normalized, frozenInstalled!.Normalized, StringComparison.Ordinal) &&
             ChocolateyCandidateValues.IsFingerprint(observation.Fingerprint) &&
             CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(observation.Fingerprint), Encoding.ASCII.GetBytes(fingerprint));
@@ -514,6 +580,8 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
 
         public Task<NativeProcessObservation> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken) =>
             seam.Upgrade(remaining, cancellationToken);
+
+        public (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState => (ChocolateyClientWatchdogFault.None, false);
 
         public void Dispose() => seam.Released();
     }

@@ -43,19 +43,24 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
     internal const string UserCacheDisclosure = ChocolateyReviewDisclosurePresentation.UserCacheDisclosure;
 
     private readonly ChocolateyDesktopObserve observe;
+    private readonly ChocolateyDesktopObserve observeClient;
+    private readonly ChocolateyReleaseList releases;
     private readonly ChocolateyDispatchBaselines baselines;
     private readonly TimeProvider time;
     private readonly TimeSpan budget;
 
     internal ChocolateyProfileEvidenceSource(ChocolateyDispatchBaselines baselines)
-        : this(ChocolateyDesktopObservation.ProductionObserve, baselines, TimeProvider.System, ChocolateyDesktopObservation.Budget)
+        : this(ChocolateyDesktopObservation.ProductionObserve, ChocolateyDesktopObservation.ProductionObserveClient, ChocolateyReleaseList.Listed,
+            baselines, TimeProvider.System, ChocolateyDesktopObservation.Budget)
     {
     }
 
-    private ChocolateyProfileEvidenceSource(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines, TimeProvider time,
-        TimeSpan budget)
+    private ChocolateyProfileEvidenceSource(ChocolateyDesktopObserve observe, ChocolateyDesktopObserve observeClient, ChocolateyReleaseList releases,
+        ChocolateyDispatchBaselines baselines, TimeProvider time, TimeSpan budget)
     {
         this.observe = observe ?? throw new ArgumentNullException(nameof(observe));
+        this.observeClient = observeClient ?? throw new ArgumentNullException(nameof(observeClient));
+        this.releases = releases ?? throw new ArgumentNullException(nameof(releases));
         this.baselines = baselines ?? throw new ArgumentNullException(nameof(baselines));
         this.time = time ?? throw new ArgumentNullException(nameof(time));
         this.budget = budget;
@@ -63,13 +68,24 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
 
     /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the source over a supplied observation and budget.</summary>
     internal static ChocolateyProfileEvidenceSource CreateForTests(ChocolateyDesktopObserve observe, ChocolateyDispatchBaselines baselines,
-        TimeProvider time, TimeSpan budget) => new(observe, baselines, time, budget);
+        TimeProvider time, TimeSpan budget) =>
+        new(observe, ChocolateyDesktopObservation.ProductionObserveClient, ChocolateyReleaseList.Listed, baselines, time, budget);
+
+    /// <summary>
+    /// Test-only (an architecture test bans every <c>src</c> caller): ADR-031 F′ over a supplied client-mode observation and a
+    /// fixture release list.
+    /// </summary>
+    internal static ChocolateyProfileEvidenceSource CreateClientForTests(ChocolateyDesktopObserve observeClient, ChocolateyReleaseList releases,
+        ChocolateyDispatchBaselines baselines, TimeProvider time, TimeSpan budget) =>
+        new((_, _, _, _) => null, observeClient, releases, baselines, time, budget);
 
     public async Task<FreshUpdateDispatchEvidence?> ObserveAsync(ReviewedUpdateOperation operation, OperationOwnership ownership,
         CancellationToken cancellationToken)
     {
-        if (operation is null || ownership is null || !ownership.CanDispatchFor(operation) ||
-            !ChocolateyDesktopObservation.TryGetRouteTarget(operation, out string? targetId, out ChocolateyNativeVersion? installed, out _))
+        if (operation is null || ownership is null || !ownership.CanDispatchFor(operation)) return null;
+        if (ChocolateyDesktopObservation.TryGetClientRouteTarget(operation, releases, out ChocolateyReviewedRelease? source, out _))
+            return await ObserveClientAsync(operation, source, cancellationToken).ConfigureAwait(false);
+        if (!ChocolateyDesktopObservation.TryGetRouteTarget(operation, out string? targetId, out ChocolateyNativeVersion? installed, out _))
             return null;
         // L4: the evidence time is when the observation started, never after it (the conservative end for freshness).
         DateTimeOffset observedAt = time.GetUtcNow();
@@ -81,18 +97,46 @@ internal sealed class ChocolateyProfileEvidenceSource : IReviewedUpdateDispatchE
 
         // F′ comes only from the fresh observation (A2-L6).
         string freshEvidenceId = ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint;
-        FreshUpdateDispatchEvidence evidence;
+        if (CreateEvidence(operation, requester, freshEvidenceId, observedAt) is not { } evidence) return null;
+        baselines.Record(operation, new ChocolateyDispatchBaseline(targetId, requester, observation.ClientState));
+        return evidence;
+    }
+
+    /// <summary>
+    /// ADR-031 design §7.1 F′ for the client self-update: a fresh Desktop-role client-mode observation that must select exactly
+    /// the frozen source release of the same reviewed list (whose offer is the frozen target), for the same requester. The
+    /// evidence identity is <c>choco-profile-v2:</c> plus the fresh fingerprint; the baseline records the source release for
+    /// the verifier's postcheck. Anything else returns null (nothing is dispatched).
+    /// </summary>
+    private async Task<FreshUpdateDispatchEvidence?> ObserveClientAsync(ReviewedUpdateOperation operation, ChocolateyReviewedRelease source,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset observedAt = time.GetUtcNow();
+        using ChocolateyProfileObservation? observation = await ChocolateyDesktopObservation.TryObserveAsync(observeClient,
+            ReviewedUpdateOperation.ChocolateyClientPackageId, source.NativeVersion, budget, time, cancellationToken).ConfigureAwait(false);
+        if (observation is null || cancellationToken.IsCancellationRequested || !ReferenceEquals(observation.Release, source)) return null;
+        string requester = observation.Common.RequestingUserSid;
+        if (!string.Equals(requester, operation.RequestingUserSid, StringComparison.Ordinal)) return null;
+        string freshEvidenceId = ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint;
+        if (CreateEvidence(operation, requester, freshEvidenceId, observedAt) is not { } evidence) return null;
+        baselines.Record(operation, new ChocolateyDispatchBaseline(ReviewedUpdateOperation.ChocolateyClientPackageId, requester,
+            observation.ClientState, source));
+        return evidence;
+    }
+
+    /// <summary>The single evidence construction: the fresh identity, the fresh requester and the observation start time.</summary>
+    private static FreshUpdateDispatchEvidence? CreateEvidence(ReviewedUpdateOperation operation, string requester, string freshEvidenceId,
+        DateTimeOffset observedAt)
+    {
         try
         {
-            evidence = new FreshUpdateDispatchEvidence(operation.Selection, requester, operation.NativeInstanceId, operation.InstallationContextId,
+            return new FreshUpdateDispatchEvidence(operation.Selection, requester, operation.NativeInstanceId, operation.InstallationContextId,
                 freshEvidenceId, observedAt, operation.RouteContract, operation.Mode, actionable: true, sourceIsFresh: true);
         }
         catch (ArgumentException)
         {
             return null;
         }
-        baselines.Record(operation, new ChocolateyDispatchBaseline(targetId, requester, observation.ClientState));
-        return evidence;
     }
 
     /// <summary>
