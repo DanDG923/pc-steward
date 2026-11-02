@@ -53,3 +53,14 @@ Option 2:
 
 1. Option 2 is accepted.
 2. First alignment is done by the owner: the host's Chocolatey has been updated by hand to **2.7.5**, the release already on the reviewed list. Host evidence must be re-run to confirm the installed files match the 2.7.5 manifest; the earlier run predates the update.
+
+3. **Runtime watchdog (2026-11-02):** option 1 is approved. The residual race remains, and the owner's acceptance of it is required separately before admission.
+4. **Helper reply field (2026-11-02):** option W1 is approved, with these owner conditions:
+   - a dedicated, strictly validated field in the helper reply;
+   - it may only preserve or downgrade the result;
+   - every required recovery warning is retained;
+   - a missing or invalid field must never allow success;
+   - explicit compatibility handling;
+   - tests for a watchdog stop, a protection-release failure, and both combined.
+
+   The Chocolatey self-update route stays disabled, pending the required review and the owner's separate acceptance of the remaining runtime risk.
