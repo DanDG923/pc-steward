@@ -111,7 +111,10 @@ public sealed class NativePrimitivesBoundaryTests
         string[] ambient = ["GetEnvironmentVariable", "ExpandEnvironmentVariables", "EnvironmentVariableTarget", "GetEnvironmentStrings",
             "Registry", "RegOpenKey", "RegQueryValue", "RegGetValue"];
         // The generated release table is data only (pinned by ProfileObserverBoundaryTests); its paths name a helper script.
-        foreach ((string path, string source) in SourceFiles(NativeDirectory()).Where(pair => Path.GetFileName(pair.Key) != "ChocolateyReleaseManifest2_7_5.cs"))
+        // ADR-031 design §2 R5: the single read-only setup-environment reader is the one pinned exception
+        // (SetupEnvironmentReaderBoundaryTests names exactly that file, its keys and value names).
+        foreach ((string path, string source) in SourceFiles(NativeDirectory()).Where(pair =>
+                     Path.GetFileName(pair.Key) is not ("ChocolateyReleaseManifest2_7_5.cs" or SetupEnvironmentReaderBoundaryTests.ReaderFile)))
         {
             foreach (string token in ambient)
                 Assert.IsFalse(source.Contains(token, StringComparison.Ordinal), $"{path} uses {token}");

@@ -176,6 +176,30 @@ internal sealed class ChocolateyHeldClientBinding : IDisposable
         files.ReleaseAll();
     }
 
+    private int releaseIncomplete;
+    private int setupAccessOverrideRefused;
+
+    /// <summary>
+    /// Design §2 R3 (client self-update only): the resumed upgrade's release of every hold failed part-way. The postcheck then
+    /// reports <c>ReleaseIncomplete</c> (Unverified) whatever the re-observation shows. Never set for a package binding.
+    /// </summary>
+    internal bool ReleaseIncomplete => Volatile.Read(ref releaseIncomplete) != 0;
+
+    /// <summary>
+    /// Design §2 R5: the launcher refused to create the client upgrade process because a setup override name was set
+    /// immediately before launch (the launch reports NotStarted; no process exists).
+    /// </summary>
+    internal bool SetupAccessOverrideRefused => Volatile.Read(ref setupAccessOverrideRefused) != 0;
+
+    /// <summary>Launch spec only (an architecture test pins the call site): records a failed release after resume (client binding only).</summary>
+    internal void RecordReleaseIncomplete()
+    {
+        if (Purpose == ChocolateyBindingPurpose.ClientSelfUpdate) Volatile.Write(ref releaseIncomplete, 1);
+    }
+
+    /// <summary>Launch spec only (an architecture test pins the call site): records the pre-creation setup-override refusal.</summary>
+    internal void RecordSetupAccessOverrideRefused() => Volatile.Write(ref setupAccessOverrideRefused, 1);
+
     private int upgradeClaimed;
 
     /// <summary>

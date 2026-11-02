@@ -71,7 +71,9 @@ public sealed class NativeLauncherBoundaryTests
             "Registry", "RegOpenKey", "RegQueryValue", "RegGetValue", "GetEnvironmentStrings"
         ];
         // The generated release table is data only (pinned by ProfileObserverBoundaryTests); its paths name a helper script.
-        foreach ((string path, string source) in native.Where(pair => !IsNativeFile(pair.Key, "ChocolateyReleaseManifest2_7_5.cs")))
+        // ADR-031 design §2 R5: the single read-only setup-environment reader is the one pinned exception.
+        foreach ((string path, string source) in native.Where(pair => !IsNativeFile(pair.Key, "ChocolateyReleaseManifest2_7_5.cs") &&
+                     !IsNativeFile(pair.Key, SetupEnvironmentReaderBoundaryTests.ReaderFile)))
             foreach (string token in forbidden)
                 Assert.IsFalse(source.Contains(token, StringComparison.Ordinal), $"{path} uses {token}");
     }

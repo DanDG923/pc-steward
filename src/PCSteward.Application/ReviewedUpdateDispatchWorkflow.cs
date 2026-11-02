@@ -114,6 +114,8 @@ public sealed class ReviewedUpdateDispatchWorkflow
         "The verifier reported a restart-pending state, which this Chocolatey route never infers; the result is unverified.";
     /// <summary>Fixed verification messages, recognised by history (N6) to show fixed verification text.</summary>
     public const string TargetVerifiedMessage = "Target version verified by post-update inventory.";
+    /// <summary>ADR-031 design §3a: Success of a Chocolatey client self-update with the reviewed leftover disclosed.</summary>
+    public const string TargetVerifiedWithLeftoverMessage = TargetVerifiedMessage + " " + ChocolateyClientUpdatePresentation.VerifiedLeftoverNote;
     public const string TargetNotDetectedMessage = "Provider completed but the target version was not detected.";
     public const string VerificationDidNotFinishMessage = "Provider completed but post-update verification did not finish.";
     public const string ExitCodeNotObservedMessage = "The provider ran but its exit code was not observed; the resulting version is unverified.";
@@ -326,7 +328,8 @@ public sealed class ReviewedUpdateDispatchWorkflow
                         ? "The target version was detected, but the installer's restart request could not be confirmed as a reliable restart-pending state."
                         : "The installer reported that a restart is needed, but neither the target version nor a reliable restart-pending state was verified.");
             return verification.ExpectedVersionDetected
-                ? (UpdateDispatchOutcome.Success, TargetVerifiedMessage)
+                ? (UpdateDispatchOutcome.Success, verification.Note == PostUpdateVerificationNote.ClientReviewedLeftover
+                    ? TargetVerifiedWithLeftoverMessage : TargetVerifiedMessage)
                 : verification.RestartPending
                     ? (UpdateDispatchOutcome.RestartRequired, "Provider completed; a reliable restart-pending state was detected.")
                     : (UpdateDispatchOutcome.Unverified, TargetNotDetectedMessage);
@@ -351,6 +354,11 @@ public sealed class ReviewedUpdateDispatchWorkflow
         if (verification.Detail != PostUpdateVerificationDetail.None)
             return (UpdateDispatchOutcome.Unverified, operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1
                 ? ChocolateyClientUpdatePresentation.NotVerifiedMessage(verification.Detail) : ClientNotVerifiedMessage);
+        // ADR-031 design §3a: a disclosure note exists only for the client self-update; any other note is a contract violation.
+        if (verification.Note != PostUpdateVerificationNote.None &&
+            (verification.Note != PostUpdateVerificationNote.ClientReviewedLeftover ||
+             operation.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1))
+            return (UpdateDispatchOutcome.Unverified, ClientNotVerifiedMessage);
         // ADR-031: a client self-update is Success only on the exact target manifest; restart-pending is never Success either.
         if (operation.RouteContract is UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
             verification.RestartPending)

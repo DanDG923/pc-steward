@@ -63,6 +63,60 @@ public sealed class ChocolateyClientUpdatePresentationTests
     }
 
     [TestMethod]
+    public void TheReviewedLeftoverNoteIsCarriedToVerifyAndHistoryAndOnlyForTheClientRoute()
+    {
+        // ADR-031 design §3a (MEDIUM-2b): VerifiedWithLeftover is a distinct note on a verified result, never a detail.
+        ReviewedUpdateOperation operation = Operation("2.7.5", "2.8.0");
+        PostUpdateInventoryResult noted = new(true, false, PostUpdateVerificationDetail.None, PostUpdateVerificationNote.ClientReviewedLeftover);
+        Assert.IsNull(ReviewedUpdateDispatchWorkflow.RejectVerification(operation, noted));
+        StringAssert.EndsWith(ReviewedUpdateDispatchWorkflow.TargetVerifiedWithLeftoverMessage, ChocolateyClientUpdatePresentation.VerifiedLeftoverNote);
+        Assert.AreEqual(ChocolateyClientUpdatePresentation.VerifiedMessage + " " + ChocolateyClientUpdatePresentation.VerifiedLeftoverNote,
+            ChocolateyClientUpdatePresentation.VerifiedText(PostUpdateVerificationNote.ClientReviewedLeftover));
+        Assert.AreEqual(ChocolateyClientUpdatePresentation.VerifiedMessage, ChocolateyClientUpdatePresentation.VerifiedText(PostUpdateVerificationNote.None));
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.VerifiedLeftoverNote, @"helpers\Chocolatey.PowerShell.dll.old");
+
+        // History shows the note beside the verified text, and only for a Success recorded with that exact message.
+        Assert.AreEqual(ReviewedUpdateHistoryPresentation.TargetVerifiedText + " " + ChocolateyClientUpdatePresentation.VerifiedLeftoverNote,
+            ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Success, ReviewedUpdateDispatchWorkflow.TargetVerifiedWithLeftoverMessage)));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Unverified,
+            ReviewedUpdateDispatchWorkflow.TargetVerifiedWithLeftoverMessage)));
+
+        // A note on another route, an undefined note, or a note without a detail of None is never Success.
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(PackageOperation(), noted));
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ReviewedUpdateDispatchWorkflow.ClientNotVerifiedMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(operation, noted with { Note = (PostUpdateVerificationNote)99 }));
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ChocolateyClientUpdatePresentation.NotVerifiedReleaseMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(operation, noted with { Detail = PostUpdateVerificationDetail.ClientChanged }));
+    }
+
+    [TestMethod]
+    public void TheLeftoverOfAnotherReleaseAndAnIncompleteReleaseAreNamedAndShownInHistory()
+    {
+        ReviewedUpdateOperation operation = Operation("2.7.5", "2.8.0");
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ChocolateyClientUpdatePresentation.NotVerifiedLeftoverNotSourceMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(operation,
+                new PostUpdateInventoryResult(true, false, PostUpdateVerificationDetail.ClientLeftoverNotSource)));
+        Assert.AreEqual((UpdateDispatchOutcome.Unverified, ChocolateyClientUpdatePresentation.NotVerifiedReleaseIncompleteMessage),
+            ReviewedUpdateDispatchWorkflow.RejectVerification(operation,
+                new PostUpdateInventoryResult(true, false, PostUpdateVerificationDetail.ClientReleaseIncomplete)));
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.NotVerifiedLeftoverNotSourceMessage, @"helpers\Chocolatey.PowerShell.dll.old");
+        foreach (string message in new[]
+                 {
+                     ChocolateyClientUpdatePresentation.NotVerifiedLeftoverMessage, ChocolateyClientUpdatePresentation.NotVerifiedLeftoverNotSourceMessage,
+                     ChocolateyClientUpdatePresentation.NotVerifiedReleaseIncompleteMessage, ChocolateyClientUpdatePresentation.NotVerifiedReleaseMessage,
+                     ChocolateyClientUpdatePresentation.NotVerifiedUnreadableMessage,
+                 })
+        {
+            Assert.AreEqual(message, ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Unverified, message)));
+            Assert.IsNull(ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Success, message)));
+        }
+    }
+
+    private static ReviewedUpdateTerminalRecord Terminal(UpdateDispatchOutcome outcome, string diagnostic) =>
+        new(outcome, new DateTimeOffset(2026, 11, 2, 12, 5, 0, TimeSpan.Zero), 0, UpdateDispatchSettlementState.OwnedWorkStopped, diagnostic);
+
+    [TestMethod]
     public void HistoryNamesTheClientRouteAndFreshEvidenceMustEqualTheFrozenProfile()
     {
         Assert.AreEqual(ChocolateyClientUpdatePresentation.HistoryRouteText,

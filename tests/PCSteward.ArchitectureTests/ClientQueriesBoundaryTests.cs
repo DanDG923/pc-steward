@@ -75,6 +75,13 @@ public sealed class ClientQueriesBoundaryTests
         (Binding, "ReleaseAllAfterResume", [Spec + ".OnResumed"]),
         (Spec, "OnResumed", [LaunchJob + ".Run"]),
         (Spec, "get_MayCreateProcess", [LaunchJob + ".Run"]),
+        // ADR-031 design §2 R5 and R3: the pre-creation setup-override check and the release-fault record, launcher only.
+        (Spec, "SetupEnvironmentPermitsLaunch", [LaunchJob + ".Run"]),
+        (Spec, "OnReleaseFaulted", [LaunchJob + ".Run"]),
+        (Binding, "RecordReleaseIncomplete", [Spec + ".OnReleaseFaulted"]),
+        (Binding, "RecordSetupAccessOverrideRefused", [Spec + ".SetupEnvironmentPermitsLaunch"]),
+        (Native + "ChocolateySetupEnvironmentReader", "Read", [Spec + ".SetupEnvironmentPermitsLaunch", Native + "ChocolateyProfileObserver+Observation.Evaluate"]),
+        (Native + "ChocolateySetupEnvironmentGuard", "Permits", [Spec + ".SetupEnvironmentPermitsLaunch", Native + "ChocolateyProfileObserver+Observation.Evaluate"]),
         (Command + "+ListExact", "TryCreate", [Command + ".TryListExact"]),
         (Command + "+Outdated", "Create", [Command + ".CreateOutdated"]),
         (Command + "+Upgrade", "TryCreate", [Command + ".TryUpgrade"]),

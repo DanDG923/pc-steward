@@ -119,7 +119,8 @@ public sealed class ChocolateyCommonProfileFingerprintTests
     }
 
     private static ChocolateyCommonProfileData Data() => new("S-1-5-21-11-22-33-1001", Identity(1),
-        [new("helpers/a.ps1", Identity(3), 3, AbcHash)], Identity(2), Config(""), "git.install", Version("1.0"), Identity(4), new string('B', 64), null);
+        [new("helpers/a.ps1", Identity(3), 3, AbcHash)], Identity(2), Config(""), "git.install", Version("1.0"), Identity(4), new string('B', 64), null,
+        ChocolateyClientReleasePolicy.AssetSha256);
     private static string Identity(byte repeated) => ChocolateyCommonProfileFingerprint.FormatFileIdentity(1, Enumerable.Repeat(repeated, 16).ToArray());
     private static ChocolateyNativeVersion Version(string text)
     {

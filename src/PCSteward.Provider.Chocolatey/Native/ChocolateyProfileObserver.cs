@@ -35,6 +35,19 @@ internal sealed class ChocolateyObserverTestSeam
 
     internal Func<SafeFileHandle, string, bool> EngineTrust { get; }
 
+    /// <summary>
+    /// ADR-031 design §2 R5: the setup-override reading a Helper-role client observation uses instead of
+    /// <see cref="ChocolateySetupEnvironmentReader.Read"/> (default: complete and clean).
+    /// </summary>
+    internal ChocolateySetupEnvironmentReading SetupEnvironment { get; private init; } = ChocolateySetupEnvironmentReading.Of([], []);
+
+    /// <summary>The same seam with another setup-override reading.</summary>
+    internal ChocolateyObserverTestSeam WithSetupEnvironment(ChocolateySetupEnvironmentReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        return new ChocolateyObserverTestSeam(Roots, AncestryBase, Releases, EngineTrust) { SetupEnvironment = reading };
+    }
+
     /// <summary>One fixture release table, as a single-entry 2.7.5-shaped fixture list with the reviewed 2.7.5 asset digest.</summary>
     internal static ChocolateyObserverTestSeam CreateForTests(ChocolateyNativeRoots roots, string ancestryBase,
         IReadOnlyList<ChocolateyReleaseFile> releaseFiles, Func<SafeFileHandle, string, bool> engineTrust)
@@ -215,6 +228,12 @@ internal static class ChocolateyProfileObserver
                 (role == ChocolateyObserverRole.Helper && !HttpCache()) ||
                 !LoaderAndLicensing() || !Configuration() || !LibraryAndStore())
                 return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null);
+            // ADR-031 design §2 R5: a Helper-role client observation (stage B, and the stage-D re-observation immediately before
+            // launch) refuses while a name pinned setup.psm1 uses to weaken or skip the root ACL is set in the compiled block or
+            // the user/machine environment keys. This narrows, but cannot close, the same-user race (the value can be written later).
+            if (clientMode && held is not null && !ChocolateySetupEnvironmentGuard.Permits(ChocolateyCompiledEnvironment.Create(launchPaths!),
+                    launchPaths!.ChocolateyRoot, seam is null ? ChocolateySetupEnvironmentReader.Read() : seam.SetupEnvironment))
+                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.SetupAccessOverride);
             // ADR-031 §3a fallback: steps 1–7 otherwise passed, so the unlisted leftover was their only failure (disclosed).
             if (unlistedLeftover)
                 return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.UnlistedReleaseLeftover);
@@ -346,7 +365,10 @@ internal static class ChocolateyProfileObserver
                 string top = node.RelativePath.Split('\\')[0];
                 if (!top.Equals("helpers", StringComparison.OrdinalIgnoreCase) && !top.Equals("tools", StringComparison.OrdinalIgnoreCase)) continue;
                 if (node.Directory ? directories.Contains(node.RelativePath) : files.Contains(node.RelativePath)) continue;
-                if (node.Directory || !node.RelativePath.Equals(ChocolateyReleaseList.PowerShellModuleLeftover, StringComparison.OrdinalIgnoreCase) ||
+                // ADR-031 §3a: the reviewed leftover allowance applies to client mode only until the package route can disclose it;
+                // a package observation refuses every unlisted helpers/tools file, as before.
+                if (!clientMode || node.Directory ||
+                    !node.RelativePath.Equals(ChocolateyReleaseList.PowerShellModuleLeftover, StringComparison.OrdinalIgnoreCase) ||
                     !LeftoverObserved(node))
                     return false;
             }
@@ -407,7 +429,7 @@ internal static class ChocolateyProfileObserver
                 return false;
             ChocolateyReviewedRelease? source = release.List.MatchLeftover(node.RelativePath, observed.Length, observed.Sha256);
             if (source is null) unlistedLeftover = true;
-            else residue = new ChocolateyReleaseResidue(ChocolateyReleaseList.PowerShellModuleLeftover, source);
+            else residue = new ChocolateyReleaseResidue(ChocolateyReleaseList.PowerShellModuleLeftover, source, observed.Length, observed.Sha256);
             return true;
         }
 

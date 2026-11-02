@@ -67,6 +67,32 @@ internal sealed class NativeLaunchSpec
     }
 
     /// <summary>
+    /// Called by the launcher when <see cref="OnResumed"/> threw. Design §2 R3: a client self-update records the partial
+    /// release on its binding, which forces the postcheck to Unverified; the package route's outcome is unchanged (its code
+    /// holds only stay until the binding is disposed).
+    /// </summary>
+    internal void OnReleaseFaulted()
+    {
+        if (releaseAllAfterResume) client!.RecordReleaseIncomplete();
+    }
+
+    /// <summary>
+    /// ADR-031 design §2 R5, called by the launcher inside its handle gate immediately before process creation: a client
+    /// self-update upgrade may create its process only while <see cref="ChocolateySetupEnvironmentGuard.Permits"/> holds for
+    /// this spec's complete environment and a fresh <see cref="ChocolateySetupEnvironmentReader.Read"/>; a refusal is
+    /// recorded on the binding and nothing is created. Every other spec is unaffected. This narrows, but cannot close,
+    /// the race (the value can be written after this check).
+    /// </summary>
+    internal bool SetupEnvironmentPermitsLaunch()
+    {
+        if (!releaseAllAfterResume) return true;
+        if (ChocolateySetupEnvironmentGuard.Permits(Environment, client!.LaunchPaths.ChocolateyRoot, ChocolateySetupEnvironmentReader.Read()))
+            return true;
+        client.RecordSetupAccessOverrideRefused();
+        return false;
+    }
+
+    /// <summary>
     /// N3 (rev-5 F3): the only production factory; its only call site is <see cref="LaunchJob.RunAsync"/> (architecture
     /// test). No string comes from the caller: the image is the held engine, argv[1..] is the sealed command's fixed list,
     /// the environment is <see cref="ChocolateyCompiledEnvironment.Create"/> over the binding's launch paths, and the working

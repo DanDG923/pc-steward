@@ -706,7 +706,7 @@ public sealed class ChocolateyDesktopProducersTests
         Assert.IsTrue(ChocolateyConfigurationParser.TryRead(Encoding.UTF8.GetBytes("<chocolatey></chocolatey>"), out ChocolateyConfigurationObservation? configuration));
         ChocolateyNativeVersion version = Version(installed);
         ChocolateyCommonProfileData common = new(sid, Identity(1), [new ChocolateyCodeFileData("hooks/a.ps1", Identity(3), 3, new string('C', 64))],
-            Identity(2), configuration!, target, version, Identity(4), new string('B', 64), Identity(5));
+            Identity(2), configuration!, target, version, Identity(4), new string('B', 64), Identity(5), ChocolateyClientReleasePolicy.AssetSha256);
         return ChocolateyProfileObservation.Create(common, fingerprintOverride ?? ChocolateyCommonProfileFingerprint.Compute(common), state ?? State(),
             version, libBad, heldClient: null);
     }

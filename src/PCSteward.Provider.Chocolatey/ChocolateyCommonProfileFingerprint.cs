@@ -9,13 +9,12 @@ namespace PCSteward.Provider.Chocolatey;
 internal sealed record ChocolateyCodeFileData(string RelativePath, string Identity, long Length, string Sha256);
 /// <summary>
 /// Comparison data only. <paramref name="ReleaseAssetSha256"/> (ADR-031 design §3.2) is the asset digest of the listed release
-/// the observer matched (fingerprint field 4); the observer always passes it. Its default is the reviewed 2.7.5 asset digest,
-/// the only listed release, so existing comparison goldens keep their bytes.
+/// the observer matched (fingerprint field 4). It is required: there is no default release, so no caller can silently pin 2.7.5.
 /// </summary>
 internal sealed record ChocolateyCommonProfileData(string RequestingUserSid, string RootIdentity,
     IReadOnlyList<ChocolateyCodeFileData> CodeFiles, string CacheIdentity, ChocolateyConfigurationObservation Configuration,
     string TargetId, ChocolateyNativeVersion InstalledVersion, string ArchiveIdentity, string ArchiveSha256, string? StoreIdentity,
-    string ReleaseAssetSha256 = ChocolateyClientReleasePolicy.AssetSha256);
+    string ReleaseAssetSha256);
 
 internal static class ChocolateyCommonProfileFingerprint
 {

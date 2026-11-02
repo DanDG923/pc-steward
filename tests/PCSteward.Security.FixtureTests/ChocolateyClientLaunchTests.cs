@@ -36,6 +36,12 @@ public sealed class ChocolateyClientLaunchTests
         Assert.AreEqual(fixture.Profile.Cache, spec.Environment["TEMP"]);
         Assert.AreEqual(fixture.Profile.Root, spec.WorkingDirectory);
         Assert.IsTrue(spec.MayCreateProcess);
+        // ADR-031 design §2 R5/R3: only a client self-update upgrade consults the setup environment or records a failed release.
+        Assert.IsTrue(spec.SetupEnvironmentPermitsLaunch());
+        spec.OnReleaseFaulted();
+        client.RecordReleaseIncomplete();
+        Assert.IsFalse(client.ReleaseIncomplete, "a package binding never records a client release fault");
+        Assert.IsFalse(client.SetupAccessOverrideRefused);
         CollectionAssert.AreEqual(ChocolateyCompiledCommand.CreateOutdated().Arguments.ToArray(),
             NativeLaunchSpec.FromBinding(client, ChocolateyCompiledCommand.CreateOutdated()).Arguments.ToArray());
         CollectionAssert.AreEqual(ChocolateyCompiledCommand.TryUpgrade(fixture.Operation)!.Arguments.ToArray(),

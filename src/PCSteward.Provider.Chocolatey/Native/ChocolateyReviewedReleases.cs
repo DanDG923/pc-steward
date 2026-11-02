@@ -91,8 +91,21 @@ internal sealed class ChocolateyReviewedRelease
 internal sealed record ChocolateyReleaseEntry(string Version, string EngineFileVersion, string Asset, long AssetLength, string AssetSha256,
     IReadOnlyList<ChocolateyReleaseFile> Files);
 
-/// <summary>A closed reviewed self-upgrade leftover the observer recognised (design §3a): the fixed path and the release it matches.</summary>
-internal sealed record ChocolateyReleaseResidue(string RelativePath, ChocolateyReviewedRelease MatchedRelease);
+/// <summary>
+/// A closed reviewed self-upgrade leftover the observer recognised (design §3a): the fixed path, a listed release whose
+/// <c>Chocolatey.PowerShell.dll</c> it matches (for disclosure; several listed releases may ship the same bytes), and the
+/// observed length and SHA-256, which the client-update postcheck compares with the job's source release directly.
+/// </summary>
+internal sealed record ChocolateyReleaseResidue(string RelativePath, ChocolateyReviewedRelease MatchedRelease, long Length, string Sha256)
+{
+    /// <summary>True when the leftover's observed bytes are exactly <paramref name="release"/>'s <c>Chocolatey.PowerShell.dll</c>.</summary>
+    internal bool IsModuleOf(ChocolateyReviewedRelease release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        return release.PowerShellModule is { } module && module.Length == Length && string.Equals(module.Sha256, Sha256, StringComparison.Ordinal) &&
+            RelativePath.Equals(ChocolateyReleaseList.PowerShellModuleLeftover, StringComparison.OrdinalIgnoreCase);
+    }
+}
 
 /// <summary>
 /// FR-UPD-15, TM-03/04/13; ADR-031 design mapping §3.1, §3.3 and §3a: the compiled, immutable list of independently reviewed
@@ -172,7 +185,9 @@ internal sealed class ChocolateyReleaseList
     /// <summary>
     /// The §3a leftover rule: <paramref name="relativePath"/> is exactly <see cref="PowerShellModuleLeftover"/> (case-insensitive,
     /// as on NTFS) and its observed length and SHA-256 equal the <c>helpers/Chocolatey.PowerShell.dll</c> of a listed release.
-    /// Returns that release, or null (the file then refuses as any other unlisted file).
+    /// Returns the first such release, or null (the file then refuses as any other unlisted file). Several listed releases may
+    /// ship the same module bytes, so the returned release is for disclosure only; a decision about a specific release compares
+    /// the observed bytes with it (<see cref="ChocolateyReleaseResidue.IsModuleOf"/>).
     /// </summary>
     internal ChocolateyReviewedRelease? MatchLeftover(string relativePath, long length, string sha256)
     {

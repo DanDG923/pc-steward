@@ -116,18 +116,25 @@ internal sealed class ChocolateyHeldProfileFiles : IDisposable
     /// ADR-031 design §1 (client self-update only): closes <b>every</b> handle — engine, release tree and code — because the
     /// client's own setup must rename or delete each of them. Binding only (an architecture test pins the call site), and
     /// only after the upgrade's process creation, assignment and resume all succeeded. Identities stay readable; nothing
-    /// launches afterwards (<see cref="CodeReleased"/> is true). Idempotent.
+    /// launches afterwards (<see cref="CodeReleased"/> is true). Idempotent. Every handle is attempted; <see cref="AllReleased"/>
+    /// becomes true only when each close succeeded, otherwise this throws after the attempt (design §2 R3: the caller records
+    /// the partial release as a fault).
     /// </summary>
     internal void ReleaseAll()
     {
         lock (gate)
         {
             if (!sealedForUse) throw new InvalidOperationException("The held file set is not sealed.");
-            if (disposed) return;
+            if (disposed || allReleased) return;
             codeReleased = true;
-            allReleased = true;
-            foreach (ChocolateyHeldFile file in code) file.Handle.Dispose();
-            foreach (ChocolateyHeldFile file in release) file.Handle.Dispose();
+            bool complete = true;
+            foreach (ChocolateyHeldFile file in code.Concat(release))
+            {
+                try { file.Handle.Dispose(); }
+                catch (Exception exception) when (exception is not OutOfMemoryException) { complete = false; }
+            }
+            allReleased = complete;
+            if (!complete) throw new InvalidOperationException("Not every held client file could be released.");
         }
     }
 
@@ -230,9 +237,11 @@ internal sealed class ChocolateyProfileObservation : IDisposable
 /// <summary>
 /// ADR-031 design §3a fallback: the disclosed cause of a MachineInputsUnsupported refusal. <see cref="UnlistedReleaseLeftover"/>
 /// means the only failure was <c>helpers\Chocolatey.PowerShell.dll.old</c> whose bytes match no listed release; PC Steward never
-/// deletes it and reports it as "Installed, not verified" with a manual next step.
+/// deletes it and reports it as "Installed, not verified" with a manual next step. <see cref="SetupAccessOverride"/> (design
+/// §2 R5, client mode, Helper role only): a name pinned setup.psm1 uses to weaken or skip the root ACL is set, so the client
+/// self-update does not launch.
 /// </summary>
-internal enum ChocolateyProfileRefusalDetail { None, UnlistedReleaseLeftover }
+internal enum ChocolateyProfileRefusalDetail { None, UnlistedReleaseLeftover, SetupAccessOverride }
 
 /// <summary>
 /// Closed result of <see cref="ChocolateyProfileObserver.Observe"/> (§3, rev-4 L3): Observed, a settled Refused with the

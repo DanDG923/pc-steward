@@ -55,6 +55,44 @@ public sealed class ChocolateyClientSelfUpdateLaunchTests
     }
 
     [TestMethod]
+    [DataRow((int)LaunchJobFault.AssignFails)]
+    [DataRow((int)LaunchJobFault.ResumeFails)]
+    public async Task AFailedAssignmentOrResumeReleasesNothingAndCreatesNothing(int injected)
+    {
+        LaunchJobFault fault = (LaunchJobFault)injected;
+        // LOW-1: the release-all point is reached only after creation, assignment and resume all succeeded.
+        using ClientUpdateFixture fixture = new();
+        ChocolateyCompiledCommand.UpgradeClient upgrade = ChocolateyCompiledCommand.TryUpgradeClient(fixture.Operation,
+            fixture.Releases.Releases[0], fixture.Releases.Releases[1]) ?? throw new AssertFailedException("upgrade refused");
+        NativeLaunchSpec spec = NativeLaunchSpec.FromBinding(fixture.Client, upgrade);
+
+        NativeProcessObservation observation = await LaunchJob.RunCoreWithFaultForTestsAsync(spec, Budget, fault, CancellationToken.None);
+
+        Assert.AreEqual(NativeInvocation.NotStarted, observation.Invocation, fault.ToString());
+        Assert.IsFalse(fixture.Client.AllReleased, "nothing is released without a successful resume");
+        Assert.IsFalse(fixture.Client.ReleaseIncomplete);
+        Assert.IsTrue(fixture.Client.CanLaunch && fixture.Client.CodeHeld);
+        AssertHeld(fixture.Profile.RootPath("choco.exe"));
+        AssertHeld(fixture.Profile.RootPath(@"tools\7z.exe"));
+        AssertHeld(fixture.Profile.RootPath(@"extensions\fixture\fixture.psm1"));
+    }
+
+    [TestMethod]
+    public void AFailedReleaseIsRecordedOnTheClientBindingOnly()
+    {
+        // LOW-2 (design §2 R3): the launcher reports a release that threw; only the client upgrade spec records it.
+        using ClientUpdateFixture fixture = new();
+        ChocolateyCompiledCommand.ListClient list = ChocolateyCompiledCommand.TryListClient(fixture.Operation, fixture.Releases.Releases[0])
+            ?? throw new AssertFailedException("list refused");
+        NativeLaunchSpec.FromBinding(fixture.Client, list).OnReleaseFaulted();
+        Assert.IsFalse(fixture.Client.ReleaseIncomplete, "a query spec records nothing");
+        ChocolateyCompiledCommand.UpgradeClient upgrade = ChocolateyCompiledCommand.TryUpgradeClient(fixture.Operation,
+            fixture.Releases.Releases[0], fixture.Releases.Releases[1]) ?? throw new AssertFailedException("upgrade refused");
+        NativeLaunchSpec.FromBinding(fixture.Client, upgrade).OnReleaseFaulted();
+        Assert.IsTrue(fixture.Client.ReleaseIncomplete);
+    }
+
+    [TestMethod]
     public void ClientModeNeedsTheRegistrationAtTheMatchedReleaseAndNoLicensedExtension()
     {
         using RequesterToken token = N1NativeFixture.DerivedToken();

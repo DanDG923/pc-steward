@@ -15,6 +15,16 @@ internal enum ChocolateyClientUpdateVerdict
     UnlistedLeftover,
     /// <summary>The check did not finish (timed out or cancelled).</summary>
     NotFinished,
+    /// <summary>
+    /// As <see cref="Verified"/> otherwise, but the reviewed leftover's bytes are a listed release other than the job's source
+    /// (named in the message; never deleted).
+    /// </summary>
+    LeftoverNotSource,
+    /// <summary>
+    /// Design §2 R3 (LOW-2): the resumed upgrade's release of the binding's holds failed part-way, so the run did not happen
+    /// under the reviewed conditions; never verified, whatever the re-observation shows.
+    /// </summary>
+    ReleaseIncomplete,
 }
 
 /// <summary>
@@ -22,18 +32,22 @@ internal enum ChocolateyClientUpdateVerdict
 /// self-update, over a Desktop-role client observation made with the target version as the expected installed version.
 /// Verified only when the observation matched exactly the target release of the same list (complete manifest and engine trust),
 /// the unique <c>chocolatey</c> registration is the target version, its archive equals the reviewed asset digest, and the
-/// requester is the job's; a leftover is accepted only when its bytes are the job's <b>source</b> release. Everything else
-/// is not verified. A restart-pending result never exists here: <see cref="ToResult"/> always reports it false.
+/// requester is the job's; a leftover is accepted only when its observed bytes are the job's <b>source</b> release's
+/// <c>Chocolatey.PowerShell.dll</c> (compared directly, so two listed releases sharing that file cannot cause a false
+/// mismatch). <c>holdReleaseIncomplete</c> (the binding's <c>ReleaseIncomplete</c>) forces
+/// <see cref="ChocolateyClientUpdateVerdict.ReleaseIncomplete"/>. Everything else is not verified. A restart-pending
+/// result never exists here: <see cref="ToResult"/> always reports it false.
 /// </summary>
 internal static class ChocolateyClientUpdatePostcheck
 {
     internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
-        ChocolateyReviewedRelease target, string requestingUserSid)
+        ChocolateyReviewedRelease target, string requestingUserSid, bool holdReleaseIncomplete)
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(requestingUserSid);
+        if (holdReleaseIncomplete) return ChocolateyClientUpdateVerdict.ReleaseIncomplete;
         switch (result)
         {
             case ChocolateyProfileResult.TimedOut or ChocolateyProfileResult.Cancelled:
@@ -56,7 +70,9 @@ internal static class ChocolateyClientUpdatePostcheck
                 return observation.ReleaseResidue switch
                 {
                     null => ChocolateyClientUpdateVerdict.Verified,
-                    { MatchedRelease: var matched } when ReferenceEquals(matched, source) => ChocolateyClientUpdateVerdict.VerifiedWithLeftover,
+                    { } residue when residue.IsModuleOf(source) => ChocolateyClientUpdateVerdict.VerifiedWithLeftover,
+                    { } residue when target.List.Contains(residue.MatchedRelease) && residue.IsModuleOf(residue.MatchedRelease) =>
+                        ChocolateyClientUpdateVerdict.LeftoverNotSource,
                     _ => ChocolateyClientUpdateVerdict.NotTargetRelease,
                 };
             default:
@@ -64,11 +80,18 @@ internal static class ChocolateyClientUpdatePostcheck
         }
     }
 
-    /// <summary>The workflow result: Success only for the two verified verdicts; never restart-pending.</summary>
+    /// <summary>
+    /// The workflow result: Success only for the two verified verdicts, and the reviewed leftover is carried as a distinct
+    /// note so Verify and history disclose it; never restart-pending.
+    /// </summary>
     internal static PostUpdateInventoryResult ToResult(ChocolateyClientUpdateVerdict verdict) => verdict switch
     {
-        ChocolateyClientUpdateVerdict.Verified or ChocolateyClientUpdateVerdict.VerifiedWithLeftover => new PostUpdateInventoryResult(true, false),
+        ChocolateyClientUpdateVerdict.Verified => new PostUpdateInventoryResult(true, false),
+        ChocolateyClientUpdateVerdict.VerifiedWithLeftover =>
+            new PostUpdateInventoryResult(true, false, PostUpdateVerificationDetail.None, PostUpdateVerificationNote.ClientReviewedLeftover),
         ChocolateyClientUpdateVerdict.UnlistedLeftover => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientLeftoverNotListed),
+        ChocolateyClientUpdateVerdict.LeftoverNotSource => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientLeftoverNotSource),
+        ChocolateyClientUpdateVerdict.ReleaseIncomplete => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientReleaseIncomplete),
         ChocolateyClientUpdateVerdict.NotTargetRelease => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientChanged),
         _ => new PostUpdateInventoryResult(false, false, PostUpdateVerificationDetail.ClientUnverifiable),
     };

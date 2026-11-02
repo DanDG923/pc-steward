@@ -53,6 +53,17 @@ public static class ChocolateyClientUpdatePresentation
         "PC Steward has reviewed. PC Steward never deletes files in Chocolatey's folder. Next step: run any Chocolatey package install or " +
         "upgrade from an administrator prompt (Chocolatey removes the leftover itself), then check again.";
 
+    public const string NotVerifiedLeftoverNotSourceMessage =
+        @"Installed, not verified: Chocolatey's folder contains helpers\Chocolatey.PowerShell.dll.old from a reviewed release other than " +
+        "the one this update started from. PC Steward never deletes files in Chocolatey's folder. Next step: run any Chocolatey package " +
+        "install or upgrade from an administrator prompt (Chocolatey removes the leftover itself), then check again.";
+
+    public const string NotVerifiedReleaseIncompleteMessage =
+        "Installed, not verified: PC Steward could not fully release its hold on Chocolatey's files after the update started, so the " +
+        "update did not run under the reviewed conditions. Chocolatey updates stay unavailable until its files match a reviewed release again.";
+
+    public const string VerifiedMessage = "Verified: Chocolatey's files and package match the reviewed release that was approved.";
+
     public const string NotVerifiedReleaseMessage =
         "Installed, not verified: Chocolatey's files do not exactly match the reviewed release that was approved, so Chocolatey updates " +
         "stay unavailable until its files match a reviewed release again.";
@@ -84,13 +95,26 @@ public static class ChocolateyClientUpdatePresentation
             VerificationText, ReviewedUpdateReview.HasSupportedMode(operation) ? null : UnavailableText);
     }
 
+    /// <summary>
+    /// ADR-031 design §3a: the Verify text for a verified client self-update; the reviewed-leftover note adds
+    /// <see cref="VerifiedLeftoverNote"/>. Any other note is not a verified client result (the workflow refuses it).
+    /// </summary>
+    public static string VerifiedText(PostUpdateVerificationNote note) => note == PostUpdateVerificationNote.ClientReviewedLeftover
+        ? VerifiedMessage + " " + VerifiedLeftoverNote : VerifiedMessage;
+
     /// <summary>The Verify/history message for a client self-update verification detail that is not plain Success.</summary>
     public static string NotVerifiedMessage(PostUpdateVerificationDetail detail) => detail switch
     {
         PostUpdateVerificationDetail.ClientLeftoverNotListed => NotVerifiedLeftoverMessage,
+        PostUpdateVerificationDetail.ClientLeftoverNotSource => NotVerifiedLeftoverNotSourceMessage,
+        PostUpdateVerificationDetail.ClientReleaseIncomplete => NotVerifiedReleaseIncompleteMessage,
         PostUpdateVerificationDetail.ClientChanged or PostUpdateVerificationDetail.None => NotVerifiedReleaseMessage,
         _ => NotVerifiedUnreadableMessage,
     };
+
+    /// <summary>True for exactly one of the fixed client self-update not-verified messages (history recognition).</summary>
+    internal static bool IsNotVerifiedMessage(string? message) => message is NotVerifiedLeftoverMessage or NotVerifiedLeftoverNotSourceMessage or
+        NotVerifiedReleaseIncompleteMessage or NotVerifiedReleaseMessage or NotVerifiedUnreadableMessage;
 
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>
