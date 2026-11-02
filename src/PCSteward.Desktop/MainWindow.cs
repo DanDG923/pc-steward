@@ -352,7 +352,7 @@ public sealed class MainWindow : Window
                     details = $"Reset marker state: {outcome.MarkerState}";
                 }
                 // Blame-free message; the residual reasons and marker state stay available under "Technical details".
-                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset still needs attention", Content = StewardVisuals.MessageWithDetails("PC Steward couldn't confirm that the reset finished. Nothing was scanned. Close apps that might be using PC Steward's files, then try again.", details), CloseButtonText = "Close" }.ShowAsync();
+                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset still needs attention", Content = StewardVisuals.MessageWithDetails("PC Steward couldn't confirm that the reset finished. Nothing was scanned. Close apps that might be using PC Steward's files, then try again.", StartupNoticeText.SanitizedDetails(details)), CloseButtonText = "Close" }.ShowAsync();
                 onboardingAcknowledging = false;
                 continueButton.IsEnabled = true;
                 return;
@@ -2373,8 +2373,8 @@ public sealed class MainWindow : Window
         catch (Exception exception)
         {
             if (FactoryReset.IsPending()) { Close(); return; }
-            // Blame-free message; the exception text stays available under "Technical details".
-            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset was not started", Content = StewardVisuals.MessageWithDetails("PC Steward couldn't start the factory reset. Nothing was deleted. Close PC Steward and try again.", exception.Message), CloseButtonText = "Close" }.ShowAsync();
+            // Blame-free message; the sanitized exception text (profile folder, paths and secrets removed) stays under "Technical details".
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset was not started", Content = StewardVisuals.MessageWithDetails("PC Steward couldn't start the factory reset. Nothing was deleted. Close PC Steward and try again.", StartupNoticeText.SanitizedDetails(exception.Message)), CloseButtonText = "Close" }.ShowAsync();
         }
     }
 

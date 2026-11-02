@@ -303,6 +303,14 @@ public sealed class SettingsDataResetPresentationTests
         StringAssert.StartsWith(residual, "Logs: Locked — ");
 
         Assert.AreEqual("IOException: The file is locked.", StartupNoticeText.ExceptionDetails("IOException", "The file is locked."));
+        // Final review L4: dialog technical details (for example "Factory reset was not started") use the same redaction.
+        string dialogDetail = StartupNoticeText.SanitizedDetails(@"Access denied: C:\Users\Alice Smith\AppData\Local\PCSteward\reset.marker password=hunter2", @"C:\Users\Alice Smith");
+        Assert.IsFalse(dialogDetail.Contains("Smith", StringComparison.Ordinal), dialogDetail);
+        Assert.IsFalse(dialogDetail.Contains(@"C:\Users", StringComparison.OrdinalIgnoreCase), dialogDetail);
+        Assert.IsFalse(dialogDetail.Contains("hunter2", StringComparison.Ordinal), dialogDetail);
+        StringAssert.StartsWith(dialogDetail, "Access denied: ");
+        Assert.AreEqual("The file is locked.", StartupNoticeText.SanitizedDetails("The file is locked."));
+        Assert.AreEqual(string.Empty, StartupNoticeText.SanitizedDetails(null));
         Assert.AreEqual("Reset marker: InvalidMarker — The reset control state is invalid.\nLogs: Locked",
             StartupNoticeText.ResidualDetails([("Reset marker", "InvalidMarker", "The reset control state is invalid."), ("Logs", "Locked", "")]));
         Assert.AreEqual("Copy details", StartupNoticeText.CopyDetailsLabel);

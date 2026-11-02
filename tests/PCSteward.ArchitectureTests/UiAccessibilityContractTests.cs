@@ -195,7 +195,10 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "IsTextSelectionEnabled = true");
         // Blame-free errors keep the technical text (exception, residuals, reset marker) behind the expander.
-        StringAssert.Contains(source, "StewardVisuals.MessageWithDetails(\"PC Steward couldn't start the factory reset. Nothing was deleted. Close PC Steward and try again.\", exception.Message)");
+        // Final review L4: the exception text is sanitized (profile folder, paths, secrets) before it is shown.
+        StringAssert.Contains(source, "StewardVisuals.MessageWithDetails(\"PC Steward couldn't start the factory reset. Nothing was deleted. Close PC Steward and try again.\", StartupNoticeText.SanitizedDetails(exception.Message))");
+        StringAssert.Contains(source, "then try again.\", StartupNoticeText.SanitizedDetails(details))");
+        Assert.AreEqual(0, System.Text.RegularExpressions.Regex.Count(source, @"(?<!SanitizedDetails\()\bexception\.Message\b"), "no raw exception text in any dialog or technical details");
         StringAssert.Contains(source, "StewardVisuals.MessageWithDetails(result.Message, residuals)");
         Assert.IsFalse(source.Contains("Content = exception.Message", StringComparison.Ordinal), "no raw exception text as a dialog's whole message");
         StringAssert.Contains(DesktopSource("App.xaml.cs"), "IsTextSelectionEnabled = true");

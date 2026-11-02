@@ -18,6 +18,12 @@ public static class StartupNoticeText
         $"{Safe(typeName, userProfile)}: {Safe(message, userProfile)}";
 
     /// <summary>
+    /// Any diagnostic shown under "Technical details" in a dialog (for example an exception message): the current user's profile
+    /// folder is redacted, then <see cref="SanitizedDiagnosticBundle.Sanitize"/> removes paths, passwords and tokens.
+    /// </summary>
+    public static string SanitizedDetails(string? text, string? userProfile = null) => Safe(text, userProfile);
+
+    /// <summary>
     /// The reset-recovery details: one line per remaining item, "Category: Reason", followed by its sanitized description when one
     /// was recorded.
     /// </summary>
