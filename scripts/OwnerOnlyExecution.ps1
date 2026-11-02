@@ -52,3 +52,92 @@ function Assert-OwnerOnlyExecutionEnvironment {
     Assert-OwnerOnlyExecutionAcl -Acl (Get-Acl -LiteralPath $compiler) -Directory -Compiler
     foreach($file in Get-ChildItem -LiteralPath $root -File -Force){$null=Assert-OwnerOnlyExecutionPath -Path $file.FullName;Assert-OwnerOnlyExecutionAcl -Acl (Get-Acl -LiteralPath $file.FullName)}
 }
+
+# Task 50 G1: user-data preservation policy for redeploy plan schema v3. Pure and read-only: the database is read only as
+# bytes through a FileShare.Read handle (an open writer makes the read fail) and no SQLite engine is ever loaded.
+function Get-OwnerOnlyUserDataRoot {
+    return (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward')
+}
+
+function Assert-OwnerOnlyRedeployPlanV3 {
+    param([Parameter(Mandatory)]$Plan)
+    $keys=@('candidateManifestPath','candidateManifestSha256','candidateRoot','executionRoot','expectedNewOrigin','expectedOldOrigin','installerSid','oldLedgerSha256','oldThumbprint','preserveUserData','schema','scriptSource','scripts','userDataFiles','userDataRoot')
+    if((@($Plan.PSObject.Properties.Name|Sort-Object) -join ',') -cne ($keys -join ',')){throw 'Plan schema v3 requires exactly the reviewed key set.'}
+    if($Plan.schema -cne 'pc-steward-exact-redeploy-v3'){throw 'Plan schema v3 is required.'}
+    if($Plan.preserveUserData -isnot [bool] -or !$Plan.preserveUserData){throw 'Plan schema v3 requires preserveUserData true.'}
+    if($Plan.expectedOldOrigin -isnot [string] -or $Plan.expectedOldOrigin -cnotin @('legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2') -or $Plan.expectedNewOrigin -isnot [string] -or $Plan.expectedNewOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2')){throw 'Plan schema v3 must name an allowlisted expected old and new payload origin.'}
+    if($Plan.installerSid -isnot [string] -or $Plan.installerSid -cnotmatch '^S-1-5-21-\d+-\d+-\d+-\d+$'){throw 'Plan schema v3 requires a user installer SID.'}
+    foreach($name in @('candidateManifestPath','candidateRoot','executionRoot','scriptSource','userDataRoot')){if($Plan.$name -isnot [string] -or [string]::IsNullOrWhiteSpace($Plan.$name)){throw "Plan schema v3 requires the path $name."}}
+    foreach($name in @('candidateManifestSha256','oldLedgerSha256')){if($Plan.$name -isnot [string] -or $Plan.$name -cnotmatch '^[A-F0-9]{64}$'){throw "Plan schema v3 requires an uppercase SHA-256 $name."}}
+    if($Plan.oldThumbprint -isnot [string] -or $Plan.oldThumbprint -cnotmatch '^[A-F0-9]{40}$'){throw 'Plan schema v3 requires an uppercase old signer thumbprint.'}
+    if($Plan.scripts -isnot [array] -or @($Plan.scripts).Count -ne 6){throw 'Plan schema v3 requires exactly six reviewed script pins.'}
+    foreach($entry in @($Plan.scripts)){if($null -eq $entry -or (@($entry.PSObject.Properties.Name|Sort-Object) -join ',') -cne 'path,sha256' -or $entry.path -isnot [string] -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed reviewed script entry.'}}
+    if($Plan.userDataFiles -isnot [array] -or @($Plan.userDataFiles).Count -lt 1 -or @($Plan.userDataFiles).Count -gt 8){throw 'Plan schema v3 requires one to eight pinned user database files.'}
+    $seen=@{};$pins=[Collections.Generic.List[object]]::new()
+    foreach($entry in @($Plan.userDataFiles)){
+        if($null -eq $entry -or (@($entry.PSObject.Properties.Name|Sort-Object) -join ',') -cne 'bytes,path,sha256' -or $entry.path -isnot [string] -or $entry.path -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $entry.path -match '-(wal|shm|journal)$' -or $entry.path.EndsWith('.') -or $seen.ContainsKey($entry.path.ToUpperInvariant()) -or ($entry.bytes -isnot [int] -and $entry.bytes -isnot [long]) -or $entry.bytes -lt 1 -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed pinned user database entry.'}
+        $seen[$entry.path.ToUpperInvariant()]=$true
+        $pins.Add([pscustomobject]@{path=[string]$entry.path;bytes=[long]$entry.bytes;sha256=[string]$entry.sha256})
+    }
+    if(@($pins|Where-Object{$_.path -ceq 'pcsteward.db'}).Count -ne 1){throw 'Plan schema v3 must pin pcsteward.db.'}
+    return $pins.ToArray()
+}
+
+function Get-OwnerOnlyStableFileIdentity {
+    param([Parameter(Mandatory)][string]$Path)
+    $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read,65536,[IO.FileOptions]::SequentialScan)
+    try{
+        $length=$stream.Length
+        $sha=[Security.Cryptography.SHA256]::Create()
+        try{$hash=[BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','')}finally{$sha.Dispose()}
+        if($stream.Length -ne $length){throw 'A pinned file changed while it was read.'}
+        return [pscustomobject]@{bytes=[long]$length;sha256=$hash}
+    }finally{$stream.Dispose()}
+}
+
+function Assert-OwnerOnlyNoReparseChain {
+    param([Parameter(Mandatory)][string]$Path)
+    for($current=Get-Item -LiteralPath $Path -Force;$null -ne $current;){
+        if($current.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'User data reparse path refused.'}
+        $current=if($current -is [IO.DirectoryInfo]){$current.Parent}else{$current.Directory}
+    }
+}
+
+function Get-OwnerOnlyUserDataSidecars {
+    param([Parameter(Mandatory)][string]$DataRoot,[Parameter(Mandatory)][string[]]$Leaves)
+    $present=[Collections.Generic.List[string]]::new()
+    foreach($leaf in @(@($Leaves)+@('pcsteward.db')|Sort-Object -Unique)){foreach($suffix in @('-wal','-shm','-journal')){if(Test-Path -LiteralPath (Join-Path $DataRoot ($leaf+$suffix))){$present.Add($leaf+$suffix)}}}
+    return $present.ToArray()
+}
+
+function Assert-OwnerOnlyNoPCStewardProcess {
+    if(@(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'A PC Steward process is running; user data cannot be preserved.'}
+}
+
+function Assert-OwnerOnlyUserDataPreserved {
+    param([Parameter(Mandatory)][string]$DataRoot,[Parameter(Mandatory)][object[]]$Files)
+    if(!(Test-Path -LiteralPath $DataRoot -PathType Container)){throw 'The preserved user data root is absent.'}
+    Assert-OwnerOnlyNoReparseChain -Path $DataRoot
+    Assert-OwnerOnlyNoPCStewardProcess
+    $leaves=@($Files|ForEach-Object{[string]$_.path})
+    if(@(Get-OwnerOnlyUserDataSidecars -DataRoot $DataRoot -Leaves $leaves).Count){throw 'A SQLite sidecar exists beside the preserved user database.'}
+    $observed=[Collections.Generic.List[object]]::new()
+    foreach($file in $Files){
+        $path=Join-Path $DataRoot $file.path
+        if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'A pinned user database file is absent.'}
+        Assert-OwnerOnlyNoReparseChain -Path $path
+        $identity=Get-OwnerOnlyStableFileIdentity -Path $path
+        if($identity.bytes -ne [long]$file.bytes -or $identity.sha256 -cne $file.sha256){throw 'The preserved user database differs from its pin.'}
+        $observed.Add([pscustomobject]@{path=[string]$file.path;bytes=$identity.bytes;sha256=$identity.sha256})
+    }
+    # A writer that started during the read leaves a sidecar or a process behind; refuse rather than trust the hash.
+    if(@(Get-OwnerOnlyUserDataSidecars -DataRoot $DataRoot -Leaves $leaves).Count){throw 'A SQLite sidecar exists beside the preserved user database.'}
+    Assert-OwnerOnlyNoPCStewardProcess
+    return $observed.ToArray()
+}
+
+function Assert-OwnerOnlyNoSqliteLoaded {
+    # Task 49: a waiting caller that had loaded the installed e_sqlite3.dll blocked removal. No SQLite engine may be loaded here.
+    foreach($module in @([Diagnostics.Process]::GetCurrentProcess().Modules)){if($module.ModuleName -match 'sqlite'){throw 'A SQLite engine is loaded in this process; start a fresh process that never loads SQLite.'}}
+    foreach($assembly in @([AppDomain]::CurrentDomain.GetAssemblies())){if($assembly.GetName().Name -match 'sqlite'){throw 'A SQLite engine is loaded in this process; start a fresh process that never loads SQLite.'}}
+}
