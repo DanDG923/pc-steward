@@ -89,7 +89,7 @@ internal static class ChocolateySetupEnvironmentReader
     /// <summary>REG_NOTIFY_THREAD_AGNOSTIC: the registration does not end with the arming thread (it is armed on the launcher thread and re-armed on the watchdog thread).</summary>
     private const uint NotifyThreadAgnostic = 0x10000000;
     private const uint NotifyFilter = NotifyChangeName | NotifyChangeLastSet | NotifyThreadAgnostic;
-    private const string TestKeyPrefix = @"Software\PCSteward.Tests\";
+    private const string TestKeyRoot = @"Software\PCSteward.Tests";
     private static readonly IntPtr CurrentUserHive = new(unchecked((int)0x80000001));
     private static readonly IntPtr LocalMachineHive = new(unchecked((int)0x80000002));
 
@@ -110,10 +110,14 @@ internal static class ChocolateySetupEnvironmentReader
     {
         ArgumentNullException.ThrowIfNull(userTestKey);
         ArgumentNullException.ThrowIfNull(machineTestKey);
-        if (!userTestKey.StartsWith(TestKeyPrefix, StringComparison.Ordinal) || !machineTestKey.StartsWith(TestKeyPrefix, StringComparison.Ordinal))
+        if (!IsTestKey(userTestKey) || !IsTestKey(machineTestKey))
             throw new ArgumentException("Test keys must be below the PC Steward test key.", nameof(userTestKey));
         return ArmKeys(CurrentUserHive, userTestKey, CurrentUserHive, machineTestKey);
     }
+
+    private static bool IsTestKey(string key) =>
+        key.Length > TestKeyRoot.Length + 1 && key.StartsWith(TestKeyRoot, StringComparison.Ordinal) && key[TestKeyRoot.Length] == '\\' &&
+        !key.Contains("..", StringComparison.Ordinal);
 
     private static ChocolateySetupEnvironmentReading ReadKeys(IntPtr userHive, string userPath, IntPtr machineHive, string machinePath)
     {

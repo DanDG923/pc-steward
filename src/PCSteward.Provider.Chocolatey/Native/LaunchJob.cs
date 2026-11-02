@@ -156,7 +156,9 @@ internal sealed class LaunchJob : IDisposable
             // ADR-031 design §2.1 R5: a client self-update is watched from before its last pre-creation checks (the setup
             // override re-read and the watchdog's own check below), so no change can fall between a check and the watch. A
             // watch that cannot be armed launches nothing.
-            ChocolateyClientWatchTargets? watchTargets = testWatch ?? spec.WatchTargets();
+            ChocolateyClientWatchTargets? watchTargets;
+            try { watchTargets = testWatch ?? spec.WatchTargets(); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException) { return NotStarted(cancelled: false); }
             if (watchTargets is not null)
             {
                 watchdog = ChocolateyClientUpdateWatchdog.TryArm(watchTargets);

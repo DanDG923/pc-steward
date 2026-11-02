@@ -10,7 +10,7 @@ namespace PCSteward.ArchitectureTests;
 /// <item><c>LaunchJob.RunCoreAsync</c>: only <c>LaunchJob.RunAsync</c>;</item>
 /// <item><c>NativeLaunchSpec.FromBinding</c>: only <c>LaunchJob.RunAsync</c>;</item>
 /// <item><c>LaunchJob.RunAsync</c>: only the three <c>ChocolateyClientQueries</c> methods, each of which calls it;</item>
-/// <item>the test-only spec factory and fault entry: no <c>src</c> caller outside their own type.</item>
+/// <item>the test-only spec factory, fault entry and watchdog entry (ADR-031 R5): no <c>src</c> caller outside their own type.</item>
 /// </list>
 /// </summary>
 [TestClass]
@@ -23,6 +23,8 @@ public sealed class NativeLauncherCompiledReferenceTests
     private static readonly (string Type, string Member)[] Forbidden =
     [
         (LaunchJob, "RunCoreWithFaultForTestsAsync"),
+        // ADR-031 design §2.1 R5: the test-only watchdog launch entry.
+        (LaunchJob, "RunCoreWithWatchdogForTestsAsync"),
         (Spec, "ForTests"),
     ];
 
@@ -68,7 +70,7 @@ public sealed class NativeLauncherCompiledReferenceTests
 
         // The scanner works: it sees the core's own internal calls, and a meaningful volume of calls overall.
         Assert.IsTrue(resolvedCalls > 1000, $"only {resolvedCalls} calls resolved");
-        Assert.AreEqual(2, launchJobInternalCalls, "RunCoreAsync and the fault entry each call StartAsync once");
+        Assert.AreEqual(3, launchJobInternalCalls, "RunCoreAsync, the fault entry and the watchdog test entry each call StartAsync once");
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
         // Every pinned caller really calls its target (the pin is the exact set, not merely an allow-list).
         foreach ((string type, string member, string[] callers) in Pinned)
