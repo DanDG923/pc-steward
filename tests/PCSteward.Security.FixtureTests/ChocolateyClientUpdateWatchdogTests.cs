@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
+using System.Security.Principal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 using PCSteward.Provider.Chocolatey.Native;
 
 namespace PCSteward.Security.FixtureTests;
@@ -13,7 +16,9 @@ namespace PCSteward.Security.FixtureTests;
 /// <c>HKEY_CURRENT_USER\Software\PCSteward.Tests\</c> standing in for the user and machine environment keys (CI never writes
 /// the real <c>HKCU\Environment</c>): a pinned name written into a watched key or an ACL grant to the requester on the root or
 /// a listed directory terminates the job; an unrelated change or no change lets it complete; a watch that cannot be armed,
-/// or a fault already visible at arming, creates no process.
+/// or a fault already visible at arming, creates no process. Independent review M2/L1: setup's own Ensure-Permissions-shaped
+/// rewrite of the root is not a fault; a grant on the root's parent (Ancestor mode, caught by the backstop poll) is; a watched
+/// key deleted or renamed away mid-run fails closed; a watch thread that cannot start fails closed and terminates the job.
 /// </summary>
 [TestClass]
 public sealed class ChocolateyClientUpdateWatchdogTests
@@ -226,6 +231,99 @@ public sealed class ChocolateyClientUpdateWatchdogTests
 
     [TestMethod]
     [DoNotParallelize]
+    public async Task AnEnsurePermissionsShapedRewriteOfTheRootIsNotAFault()
+    {
+        // Review M2a: setup.psm1's Ensure-Permissions resets the root to a protected DACL (Administrators and SYSTEM Full
+        // Control, Users Read & Execute, owner Administrators). The watchdog wakes on that security change, re-evaluates the
+        // requester (Administrators deny-only in the derived token, so only Users Read & Execute applies) and lets the job finish.
+        using WatchFixture fixture = new();
+        Task<(NativeProcessObservation, ChocolateyClientWatchdogFault)> run = fixture.RunAsync(Long, fixture.StartedThenPing(4));
+        await fixture.WaitUntilStartedAsync();
+        fixture.RewriteRootLikeEnsurePermissions();
+        Assert.AreEqual(RequesterModification.Denied, fixture.EvaluateRoot(), "the rewritten root is not requester-modifiable (not a vacuous None)");
+        (NativeProcessObservation observation, ChocolateyClientWatchdogFault fault) = await run;
+
+        Assert.AreEqual(NativeInvocation.Started, observation.Invocation);
+        Assert.AreEqual(0, observation.ExitCode, "setup's own default reset must not stop the update");
+        Assert.IsTrue(observation.AggregateSettled && observation.DirectExitObserved);
+        Assert.AreEqual(ChocolateyClientWatchdogFault.None, fault);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task AGrantToTheRequesterOnTheRootsParentTerminatesTheJob()
+    {
+        // Review M2b: the parent is evaluated in Ancestor mode (delete-child/delete/WRITE_DAC/WRITE_OWNER); its own descriptor
+        // change is not reported by the non-recursive parent watch, so the backstop poll catches it.
+        using WatchFixture fixture = new();
+        Task<(NativeProcessObservation, ChocolateyClientWatchdogFault)> run = fixture.RunAsync(Long, fixture.StartedThenPing(40));
+        await fixture.WaitUntilStartedAsync();
+        Stopwatch latency = Stopwatch.StartNew();
+        fixture.Profile.Protect(fixture.Parent, ownerRights: true, FileSystemRights.ReadAndExecute | FileSystemRights.Modify);
+        (NativeProcessObservation observation, ChocolateyClientWatchdogFault fault) = await run;
+        latency.Stop();
+
+        Assert.AreEqual(ChocolateyClientWatchdogFault.RootWritableDuringRun, fault);
+        AssertTerminated(observation, latency.Elapsed);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("delete-user")]
+    [DataRow("delete-machine")]
+    [DataRow("rename-user")]
+    public async Task AWatchedKeyDeletedOrRenamedAwayMidRunFailsClosed(string change)
+    {
+        // Review M2c/L1: a deleted key fails its kept query handle (ERROR_KEY_DELETED) and its re-arm; a key renamed away no
+        // longer exists by path. Either is WatchFailedDuringRun, never a clean reading.
+        using WatchFixture fixture = new();
+        Task<(NativeProcessObservation, ChocolateyClientWatchdogFault)> run = fixture.RunAsync(Long, fixture.StartedThenPing(40));
+        await fixture.WaitUntilStartedAsync();
+        Stopwatch latency = Stopwatch.StartNew();
+        switch (change)
+        {
+            case "delete-user": fixture.DeleteKey(user: true); break;
+            case "delete-machine": fixture.DeleteKey(user: false); break;
+            default: fixture.RenameUserKey(); break;
+        }
+        (NativeProcessObservation observation, ChocolateyClientWatchdogFault fault) = await run;
+        latency.Stop();
+
+        Assert.AreEqual(ChocolateyClientWatchdogFault.WatchFailedDuringRun, fault, change);
+        AssertTerminated(observation, latency.Elapsed);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("throws")]
+    [DataRow("already-started")]
+    public async Task AWatchThreadThatCannotStartFailsClosedAndTerminatesTheJob(string failure)
+    {
+        // Review M2d (design §2.1 R5): the process already runs when the watch thread starts; an unwatched run is not
+        // permitted, so the failure is recorded as WatchFailedDuringRun and the job is terminated at once.
+        using WatchFixture fixture = new();
+        Func<ThreadStart, Thread> factory = failure == "throws"
+            ? _ => throw new InvalidOperationException("injected watch thread failure")
+            : _ => AlreadyStarted();
+        Stopwatch latency = Stopwatch.StartNew();
+        (NativeProcessObservation observation, ChocolateyClientWatchdogFault fault) =
+            await fixture.RunAsync(Long, factory, fixture.StartedThenPing(40));
+        latency.Stop();
+
+        Assert.AreEqual(ChocolateyClientWatchdogFault.WatchFailedDuringRun, fault, failure);
+        AssertTerminated(observation, latency.Elapsed);
+    }
+
+    private static Thread AlreadyStarted()
+    {
+        Thread started = new(() => { }) { IsBackground = true };
+        started.Start();
+        started.Join();
+        return started;
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     [DataRow("missing-key")]
     [DataRow("missing-directory")]
     [DataRow("override-present")]
@@ -345,6 +443,7 @@ public sealed class ChocolateyClientUpdateWatchdogTests
 
         internal N1NativeFixture Profile { get; }
         internal string Root { get; } = string.Empty;
+        internal string Parent => Path.GetDirectoryName(Root) ?? throw new InvalidOperationException("No parent.");
         internal string Work { get; } = string.Empty;
         internal string Marker => Path.Combine(Work, "ran.txt");
         private string UserKey => keyBase + @"\User";
@@ -380,7 +479,68 @@ public sealed class ChocolateyClientUpdateWatchdogTests
             key.SetValue(name, value, RegistryValueKind.String);
         }
 
-        internal async Task<(NativeProcessObservation, ChocolateyClientWatchdogFault)> RunAsync(TimeSpan deadline, params string[] arguments)
+        /// <summary>
+        /// Rewrites the root as pinned setup.psm1 <c>Ensure-Permissions</c> does: protected, inheritable Administrators and
+        /// SYSTEM Full Control and Users Read &amp; Execute, owner Administrators (the CI runner is an administrator without a
+        /// split token, so it may assign that owner). A runner that cannot assign it keeps the user as owner with OWNER RIGHTS
+        /// Read &amp; Execute, which removes the owner's implicit rights. The logon-SID Full Control ACE is fixture cleanup only:
+        /// it is deny-only in the derived requester token and never credited to it.
+        /// </summary>
+        internal void RewriteRootLikeEnsurePermissions()
+        {
+            SecurityIdentifier administrators = new(WellKnownSidType.BuiltinAdministratorsSid, null);
+            SecurityIdentifier users = new(WellKnownSidType.BuiltinUsersSid, null);
+            try
+            {
+                new DirectoryInfo(Root).SetAccessControl(EnsurePermissionsShape(administrators, users, administrators));
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException or PrivilegeNotHeldException)
+            {
+                new DirectoryInfo(Root).SetAccessControl(EnsurePermissionsShape(administrators, users, Profile.User));
+            }
+        }
+
+        private DirectorySecurity EnsurePermissionsShape(SecurityIdentifier administrators, SecurityIdentifier users, SecurityIdentifier owner)
+        {
+            const InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+            DirectorySecurity security = new();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.SetOwner(owner);
+            security.AddAccessRule(new FileSystemAccessRule(administrators, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(N1NativeFixture.LocalSystem, FileSystemRights.FullControl, inherit, PropagationFlags.None,
+                AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(users, FileSystemRights.ReadAndExecute, inherit, PropagationFlags.None, AccessControlType.Allow));
+            if (owner != administrators)
+                security.AddAccessRule(new FileSystemAccessRule(N1NativeFixture.OwnerRights, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(Profile.Logon, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            return security;
+        }
+
+        /// <summary>The requester's Node-mode verdict on the root, as the watchdog evaluates it.</summary>
+        internal RequesterModification EvaluateRoot()
+        {
+            using SafeFileHandle root = N1NativeFixture.Open(Root, directory: true, out _);
+            return RequesterAccess.Evaluate(token, root, directory: true, parentDirectory: null, AccessMode.Node);
+        }
+
+        internal void DeleteKey(bool user) => Registry.CurrentUser.DeleteSubKeyTree(user ? UserKey : MachineKey, throwOnMissingSubKey: true);
+
+        /// <summary>Renames the user test key away (RegRenameKey); the watchdog's kept handles then point at the renamed key.</summary>
+        internal void RenameUserKey()
+        {
+            using RegistryKey parent = Registry.CurrentUser.OpenSubKey(keyBase, writable: true) ?? throw new AssertFailedException("no test key base");
+            Assert.AreEqual(0, RegRenameKey(parent.Handle, "User", "UserRenamed"), "RegRenameKey failed");
+        }
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern int RegRenameKey(SafeRegistryHandle key, string subKeyName, string newKeyName);
+
+        internal Task<(NativeProcessObservation, ChocolateyClientWatchdogFault)> RunAsync(TimeSpan deadline, params string[] arguments) =>
+            RunAsync(deadline, watchThread: null, arguments);
+
+        internal async Task<(NativeProcessObservation, ChocolateyClientWatchdogFault)> RunAsync(TimeSpan deadline,
+            Func<ThreadStart, Thread>? watchThread, params string[] arguments)
         {
             string system32 = Environment.SystemDirectory;
             string windows = Path.GetDirectoryName(system32) ?? throw new InvalidOperationException("No Windows directory.");
@@ -392,7 +552,7 @@ public sealed class ChocolateyClientUpdateWatchdogTests
             };
             NativeLaunchSpec spec = NativeLaunchSpec.ForTests(cmd, ["/d", "/c", .. arguments], environment, Work);
             ChocolateyClientWatchTargets targets = ChocolateyClientWatchTargets.CreateForTests(token, Root, listed,
-                () => ChocolateySetupEnvironmentReader.TryWatchForTests(UserKey, MachineKey));
+                () => ChocolateySetupEnvironmentReader.TryWatchForTests(UserKey, MachineKey), watchThread);
             ChocolateyClientWatchdogFault fault = (ChocolateyClientWatchdogFault)(-1);
             NativeProcessObservation observation = await LaunchJob.RunCoreWithWatchdogForTestsAsync(spec, deadline, targets,
                 stopped => fault = stopped, CancellationToken.None);

@@ -20,6 +20,16 @@ public sealed class ChocolateyClientLaunchTests
     private static readonly TimeSpan Remaining = TimeSpan.FromMinutes(11);
 
     [TestMethod]
+    public void APackageBindingHasNoClientPostcheck()
+    {
+        // Review L3: the client postcheck reads its inputs from a client self-update binding only.
+        using ClientFixture fixture = new();
+        ChocolateyReviewedRelease target = ChocolateyReleaseListTests.Three().Releases[2];
+        Assert.ThrowsExactly<ArgumentException>(() => ChocolateyClientUpdatePostcheck.Evaluate(ChocolateyProfileResult.Cancelled.Create(),
+            fixture.Client, target, "S-1-5-21-11-22-33-1001"));
+    }
+
+    [TestMethod]
     public void TheSpecIsTheHeldEngineTheCompiledArgumentsTheCompiledEnvironmentAndTheRoot()
     {
         using ClientFixture fixture = new();

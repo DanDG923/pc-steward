@@ -53,7 +53,10 @@ internal sealed class ChocolateySetupEnvironmentReading
 /// can re-read the pinned names whenever either key changes. Still read-only: no write, create, delete or enumerate
 /// capability exists. The watched key paths are fixed; only the architecture-banned <see cref="TryWatchForTests"/> may
 /// substitute two test keys below <c>HKEY_CURRENT_USER\Software\PCSteward.Tests\</c>, so CI never writes the real
-/// environment keys.
+/// environment keys. Independent review L1: the watch also keeps the arming-time <c>KEY_QUERY_VALUE</c> handle of each key
+/// and re-reads presence through it on every wake, so a watched key deleted during the run (<c>ERROR_KEY_DELETED</c>, or
+/// any other error) is an incomplete reading; the by-path re-read additionally requires each key to still exist, so a key
+/// renamed away and replaced is an incomplete reading too.
 /// </para>
 /// </summary>
 internal static class ChocolateySetupEnvironmentReader
@@ -94,7 +97,8 @@ internal static class ChocolateySetupEnvironmentReader
     private static readonly IntPtr LocalMachineHive = new(unchecked((int)0x80000002));
 
     /// <summary>Reads presence of the pinned names; never throws (an unexpected failure is an incomplete reading).</summary>
-    internal static ChocolateySetupEnvironmentReading Read() => ReadKeys(CurrentUserHive, UserKeyPath, LocalMachineHive, MachineKeyPath);
+    internal static ChocolateySetupEnvironmentReading Read() =>
+        ReadKeys(CurrentUserHive, UserKeyPath, LocalMachineHive, MachineKeyPath, keysRequired: false, held: null);
 
     /// <summary>
     /// R5 watchdog: arms change notifications on the two environment keys (<c>KEY_NOTIFY</c> handles only). Null when either
@@ -119,15 +123,26 @@ internal static class ChocolateySetupEnvironmentReader
         key.Length > TestKeyRoot.Length + 1 && key.StartsWith(TestKeyRoot, StringComparison.Ordinal) && key[TestKeyRoot.Length] == '\\' &&
         !key.Contains("..", StringComparison.Ordinal);
 
-    private static ChocolateySetupEnvironmentReading ReadKeys(IntPtr userHive, string userPath, IntPtr machineHive, string machinePath)
+    /// <summary>
+    /// Presence of the pinned names by path; with <paramref name="keysRequired"/> (the watch) a missing key is an incomplete
+    /// reading, and with <paramref name="held"/> (the watch's arming-time query handles) presence is also queried through those
+    /// handles, so a deleted or replaced key cannot read as clean. Names found either way are reported.
+    /// </summary>
+    private static ChocolateySetupEnvironmentReading ReadKeys(IntPtr userHive, string userPath, IntPtr machineHive, string machinePath,
+        bool keysRequired, SafeRegistryHandle?[]? held)
     {
         if (!OperatingSystem.IsWindows()) return ChocolateySetupEnvironmentReading.Unreadable;
         try
         {
             List<string> user = [], machine = [];
-            if (!Probe(userHive, userPath, UserScopeNames, user) || !Probe(machineHive, machinePath, MachineScopeNames, machine))
+            if (!Probe(userHive, userPath, keysRequired, UserScopeNames, user) ||
+                !Probe(machineHive, machinePath, keysRequired, MachineScopeNames, machine))
                 return ChocolateySetupEnvironmentReading.Unreadable;
-            return ChocolateySetupEnvironmentReading.Of(user, machine);
+            if (held is not null &&
+                (held[0] is not { IsInvalid: false, IsClosed: false } heldUser || !ProbeKey(heldUser, UserScopeNames, user) ||
+                 held[1] is not { IsInvalid: false, IsClosed: false } heldMachine || !ProbeKey(heldMachine, MachineScopeNames, machine)))
+                return ChocolateySetupEnvironmentReading.Unreadable;
+            return ChocolateySetupEnvironmentReading.Of([.. user.Distinct(StringComparer.Ordinal)], [.. machine.Distinct(StringComparer.Ordinal)]);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -135,23 +150,38 @@ internal static class ChocolateySetupEnvironmentReader
         }
     }
 
-    private static bool Probe(IntPtr hive, string path, IReadOnlyList<string> names, List<string> present)
+    private static bool Probe(IntPtr hive, string path, bool keyRequired, IReadOnlyList<string> names, List<string> present)
     {
-        int opened = RegOpenKeyEx(hive, path, 0, ReadOnlyKeyAccess, out SafeRegistryHandle key);
+        int opened = OpenForQuery(hive, path, out SafeRegistryHandle key);
         using (key)
         {
-            // A missing environment key (for example on Server Core without HKCU\Environment) holds no value.
-            if (opened == ErrorFileNotFound) return true;
+            // A missing environment key (for example on Server Core without HKCU\Environment) holds no value; a watched key
+            // existed at arming, so its absence during the run is not a clean reading.
+            if (opened == ErrorFileNotFound) return !keyRequired;
             if (opened != ErrorSuccess || key.IsInvalid) return false;
-            foreach (string name in names)
-            {
-                uint size = 0;
-                int queried = RegQueryValueEx(key, name, IntPtr.Zero, out _, IntPtr.Zero, ref size);
-                if (queried is ErrorSuccess or ErrorMoreData) present.Add(name);
-                else if (queried != ErrorFileNotFound) return false;
-            }
-            return true;
+            return ProbeKey(key, names, present);
         }
+    }
+
+    /// <summary>Presence of <paramref name="names"/> through an open query handle; any error but "not found" (for example <c>ERROR_KEY_DELETED</c>) fails.</summary>
+    private static bool ProbeKey(SafeRegistryHandle key, IReadOnlyList<string> names, List<string> present)
+    {
+        foreach (string name in names)
+        {
+            uint size = 0;
+            int queried = RegQueryValueEx(key, name, IntPtr.Zero, out _, IntPtr.Zero, ref size);
+            if (queried is ErrorSuccess or ErrorMoreData) present.Add(name);
+            else if (queried != ErrorFileNotFound) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The single read-only key open: <c>KEY_QUERY_VALUE | KEY_WOW64_64KEY</c>.</summary>
+    private static int OpenForQuery(IntPtr hive, string path, out SafeRegistryHandle opened)
+    {
+        int result = RegOpenKeyEx(hive, path, 0, ReadOnlyKeyAccess, out SafeRegistryHandle key);
+        opened = key;
+        return result;
     }
 
     private static Watch? ArmKeys(IntPtr userHive, string userPath, IntPtr machineHive, string machinePath)
@@ -181,12 +211,15 @@ internal static class ChocolateySetupEnvironmentReader
     /// <summary>
     /// R5 watchdog: change notifications on the user key (index 0) and the machine key (index 1), each through a
     /// <c>KEY_NOTIFY</c>-only handle and its own auto-reset event. A signalled event is re-armed with <see cref="TryRearm"/>
-    /// before the names are re-read, so a change between the read and the re-arm cannot be missed. Disposal closes the key
-    /// handles first (which ends both registrations), then the events.
+    /// before the names are re-read, so a change between the read and the re-arm cannot be missed. Review L1: each key's
+    /// arming-time <c>KEY_QUERY_VALUE</c> handle is kept and every <see cref="Read"/> also queries through it, so a key
+    /// deleted while watched is an incomplete reading. Disposal closes the key handles first (which ends both registrations),
+    /// then the events.
     /// </summary>
     internal sealed class Watch : IDisposable
     {
         private readonly SafeRegistryHandle?[] keys = new SafeRegistryHandle?[2];
+        private readonly SafeRegistryHandle?[] queries = new SafeRegistryHandle?[2];
         private readonly AutoResetEvent[] changed = [new(false), new(false)];
         private readonly IntPtr userHive;
         private readonly string userPath;
@@ -205,9 +238,15 @@ internal static class ChocolateySetupEnvironmentReader
         /// <summary>The two change events (user, machine); the watchdog waits on them.</summary>
         internal IReadOnlyList<WaitHandle> Changed => changed;
 
-        /// <summary>Re-reads the pinned names from exactly the watched keys (never throws; a failure is an incomplete reading).</summary>
-        internal ChocolateySetupEnvironmentReading Read() => ReadKeys(userHive, userPath, machineHive, machinePath);
+        /// <summary>
+        /// Re-reads the pinned names from exactly the watched keys, by path (each key must still exist) and through the
+        /// arming-time query handles (never throws; a failure, a missing or a deleted key is an incomplete reading).
+        /// </summary>
+        internal ChocolateySetupEnvironmentReading Read() =>
+            Volatile.Read(ref disposed) != 0 ? ChocolateySetupEnvironmentReading.Unreadable
+                : ReadKeys(userHive, userPath, machineHive, machinePath, keysRequired: true, held: queries);
 
+        /// <summary>Opens key <paramref name="index"/> twice: a <c>KEY_NOTIFY</c> handle for the watch and a <c>KEY_QUERY_VALUE</c> handle kept for re-reads.</summary>
         internal bool TryOpen(int index, IntPtr hive, string path)
         {
             int opened = RegOpenKeyEx(hive, path, 0, NotifyKeyAccess, out SafeRegistryHandle key);
@@ -217,6 +256,13 @@ internal static class ChocolateySetupEnvironmentReader
                 return false;
             }
             keys[index] = key;
+            int queried = OpenForQuery(hive, path, out SafeRegistryHandle query);
+            if (queried != ErrorSuccess || query.IsInvalid)
+            {
+                query.Dispose();
+                return false;
+            }
+            queries[index] = query;
             return true;
         }
 
@@ -238,6 +284,7 @@ internal static class ChocolateySetupEnvironmentReader
         {
             if (Interlocked.Exchange(ref disposed, 1) != 0) return;
             foreach (SafeRegistryHandle? key in keys) key?.Dispose();
+            foreach (SafeRegistryHandle? query in queries) query?.Dispose();
             foreach (AutoResetEvent signal in changed) signal.Dispose();
         }
     }

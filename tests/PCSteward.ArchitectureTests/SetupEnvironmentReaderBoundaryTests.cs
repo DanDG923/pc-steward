@@ -13,7 +13,9 @@ namespace PCSteward.ArchitectureTests;
 /// to weaken or skip the root ACL, never reads value data, and has no write, create, delete, enumerate or expand capability.
 /// The only alternative key paths come through the test-only <c>TryWatchForTests</c> (below <c>HKCU\Software\PCSteward.Tests\</c>,
 /// no <c>src</c> caller). No other <c>src</c> file declares or calls a registry API. Its <c>Read</c> callers are pinned in
-/// <c>ClientQueriesBoundaryTests</c>; <c>TryWatch</c> is pinned there to the watchdog targets.
+/// <c>ClientQueriesBoundaryTests</c>; <c>TryWatch</c> is pinned there to the watchdog targets. Review L1: the watch keeps
+/// each key's arming-time <c>KEY_QUERY_VALUE</c> handle (through the same single read-only open) and every watch re-read
+/// queries through it and requires each key to exist by path, so a deleted or replaced key is an incomplete reading.
 /// </summary>
 [TestClass]
 public sealed class SetupEnvironmentReaderBoundaryTests
@@ -45,6 +47,12 @@ public sealed class SetupEnvironmentReaderBoundaryTests
         StringAssert.Contains(code, "private const uint KeyWow64View64 = 0x0100;");
         StringAssert.Contains(code, "private const uint ReadOnlyKeyAccess = KeyQueryValue | KeyWow64View64;");
         Assert.AreEqual(1, Regex.Count(code, @"RegOpenKeyEx\(hive, path, 0, ReadOnlyKeyAccess, out SafeRegistryHandle key\)"), "one read-only open");
+        // Review L1: the read-only open is the one helper; the watch keeps its query handle and re-reads strictly through it.
+        Assert.AreEqual(3, Regex.Count(code, @"\bOpenForQuery\("), "declaration, the presence probe and the watch's kept query handle");
+        StringAssert.Contains(code, "int queried = OpenForQuery(hive, path, out SafeRegistryHandle query);");
+        StringAssert.Contains(code, "ReadKeys(userHive, userPath, machineHive, machinePath, keysRequired: true, held: queries)");
+        StringAssert.Contains(code, "ReadKeys(CurrentUserHive, UserKeyPath, LocalMachineHive, MachineKeyPath, keysRequired: false, held: null)");
+        StringAssert.Contains(code, "if (opened == ErrorFileNotFound) return !keyRequired;");
         // R5 watchdog: one KEY_NOTIFY-only open, one asynchronous non-subtree notification with the pinned filter.
         StringAssert.Contains(code, "private const uint KeyNotify = 0x0010;");
         StringAssert.Contains(code, "private const uint NotifyKeyAccess = KeyNotify | KeyWow64View64;");

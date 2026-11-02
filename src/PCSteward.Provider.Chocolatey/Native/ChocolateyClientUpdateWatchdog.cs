@@ -143,14 +143,16 @@ internal sealed class ChocolateyClientWatchMonitor
 /// its Chocolatey root, the root's parent and the top-level release directories of its held release files (<c>helpers</c>,
 /// <c>tools</c>), with the fixed environment keys. Deeper release directories are not opened during the run: setup.psm1
 /// deletes and recreates them, and they inherit from the watched ones. The test-only <see cref="CreateForTests"/> (banned
-/// from every <c>src</c> caller) takes a fixture root and an environment-watch factory over test keys.
+/// from every <c>src</c> caller) takes a fixture root and an environment-watch factory over test keys, and optionally a
+/// watch-thread factory (review M2d: a thread that cannot be created or started); production targets always use the
+/// watchdog's own thread.
 /// </summary>
 internal sealed class ChocolateyClientWatchTargets
 {
     private readonly Func<ChocolateySetupEnvironmentReader.Watch?> armEnvironment;
 
     private ChocolateyClientWatchTargets(RequesterToken requester, string root, IReadOnlyList<string> listedDirectories,
-        Func<ChocolateySetupEnvironmentReader.Watch?> armEnvironment)
+        Func<ChocolateySetupEnvironmentReader.Watch?> armEnvironment, Func<ThreadStart, Thread>? watchThreadForTests)
     {
         ArgumentNullException.ThrowIfNull(requester);
         ArgumentNullException.ThrowIfNull(listedDirectories);
@@ -166,6 +168,7 @@ internal sealed class ChocolateyClientWatchTargets
         Parent = separator == 2 ? root[..3] : root[..separator];
         ListedDirectories = Array.AsReadOnly(names);
         this.armEnvironment = armEnvironment;
+        WatchThreadForTests = watchThreadForTests;
     }
 
     /// <summary>The token the requester's access is evaluated with.</summary>
@@ -180,6 +183,9 @@ internal sealed class ChocolateyClientWatchTargets
     /// <summary>Top-level release directory names below the root (evaluated in Node mode with the root as parent).</summary>
     internal IReadOnlyList<string> ListedDirectories { get; }
 
+    /// <summary>Test targets only (null in production): creates the watch thread instead of the watchdog.</summary>
+    internal Func<ThreadStart, Thread>? WatchThreadForTests { get; }
+
     /// <summary>Arms the environment-key watch (production: the two fixed keys).</summary>
     internal ChocolateySetupEnvironmentReader.Watch? ArmEnvironment() => armEnvironment();
 
@@ -191,15 +197,19 @@ internal sealed class ChocolateyClientWatchTargets
             throw new InvalidOperationException("Only a client self-update binding is watched.");
         string[] directories = [.. client.ReleaseFiles.Select(file => file.RelativePath.Split('/'))
             .Where(parts => parts.Length > 1).Select(parts => parts[0]).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal)];
-        return new ChocolateyClientWatchTargets(requester, client.LaunchPaths.ChocolateyRoot, directories, ChocolateySetupEnvironmentReader.TryWatch);
+        return new ChocolateyClientWatchTargets(requester, client.LaunchPaths.ChocolateyRoot, directories, ChocolateySetupEnvironmentReader.TryWatch,
+            watchThreadForTests: null);
     }
 
-    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): fixture root, directories and test-key watch factory.</summary>
+    /// <summary>
+    /// Test-only (an architecture test bans every <c>src</c> caller): fixture root, directories, test-key watch factory and an
+    /// optional watch-thread factory.
+    /// </summary>
     internal static ChocolateyClientWatchTargets CreateForTests(RequesterToken requester, string root, IReadOnlyList<string> listedDirectories,
-        Func<ChocolateySetupEnvironmentReader.Watch?> armEnvironment)
+        Func<ChocolateySetupEnvironmentReader.Watch?> armEnvironment, Func<ThreadStart, Thread>? watchThreadForTests = null)
     {
         ArgumentNullException.ThrowIfNull(armEnvironment);
-        return new ChocolateyClientWatchTargets(requester, root, listedDirectories, armEnvironment);
+        return new ChocolateyClientWatchTargets(requester, root, listedDirectories, armEnvironment, watchThreadForTests);
     }
 }
 
@@ -314,7 +324,8 @@ internal sealed class ChocolateyClientUpdateWatchdog : IDisposable
         monitor.Attach(terminateJob);
         try
         {
-            Thread watch = new(RunWatch) { IsBackground = true, Name = "PCSteward client update watchdog" };
+            Thread watch = targets.WatchThreadForTests is { } create ? create(RunWatch)
+                : new(RunWatch) { IsBackground = true, Name = "PCSteward client update watchdog" };
             watch.Start();
             thread = watch;
         }
@@ -472,7 +483,11 @@ internal sealed class ChocolateyClientUpdateWatchdog : IDisposable
             return null;
         }
 
-        /// <summary>Collects the completed read and issues the next one; false when the watch cannot continue.</summary>
+        /// <summary>
+        /// Called only after <see cref="Completed"/> was signalled: collects the completed read and issues the next one; false
+        /// when the watch cannot continue. Review L2: a read still incomplete while its manual-reset event is signalled would
+        /// leave the event set and spin the wait loop, so it is a failed re-arm (fail closed), not a continue.
+        /// </summary>
         internal bool TryRearm()
         {
             if (Volatile.Read(ref disposed) != 0) return false;
@@ -481,7 +496,7 @@ internal sealed class ChocolateyClientUpdateWatchdog : IDisposable
                 if (!WatchdogNativeMethods.GetOverlappedResult(handle, overlapped, out _, false))
                 {
                     int error = Marshal.GetLastWin32Error();
-                    if (error == ErrorIoIncomplete) return true;
+                    if (error == ErrorIoIncomplete) return false;
                     pending = false;
                     if (error != ErrorNotifyEnumDir) return false;
                 }

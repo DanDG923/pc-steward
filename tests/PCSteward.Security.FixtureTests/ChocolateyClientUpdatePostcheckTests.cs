@@ -90,9 +90,9 @@ public sealed class ChocolateyClientUpdatePostcheckTests
         // LOW-2 (design §2 R3): the binding's recorded partial release forces Unverified with its own detail.
         (_, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) = Releases();
         Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete,
-            ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: true));
+            ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target), source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: true));
         Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete,
-            ChocolateyClientUpdatePostcheck.Evaluate(Observation(target, leftoverOf: source), source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: true));
+            ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target, leftoverOf: source), source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: true));
         PostUpdateInventoryResult result = ChocolateyClientUpdatePostcheck.ToResult(ChocolateyClientUpdateVerdict.ReleaseIncomplete);
         Assert.IsFalse(result.ExpectedVersionDetected);
         Assert.AreEqual(PostUpdateVerificationDetail.ClientReleaseIncomplete, result.Detail);
@@ -115,9 +115,9 @@ public sealed class ChocolateyClientUpdatePostcheckTests
         foreach (bool releaseIncomplete in new[] { false, true })
         {
             Assert.AreEqual((ChocolateyClientUpdateVerdict)expectedVerdict,
-                ChocolateyClientUpdatePostcheck.Evaluate(Observation(target), source, target, User, fault, releaseIncomplete));
+                ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target), source, target, User, fault, releaseIncomplete));
             Assert.AreEqual((ChocolateyClientUpdateVerdict)expectedVerdict,
-                ChocolateyClientUpdatePostcheck.Evaluate(Observation(target, leftoverOf: source), source, target, User, fault, releaseIncomplete));
+                ChocolateyClientUpdatePostcheck.EvaluateForTests(Observation(target, leftoverOf: source), source, target, User, fault, releaseIncomplete));
         }
         PostUpdateInventoryResult result = ChocolateyClientUpdatePostcheck.ToResult((ChocolateyClientUpdateVerdict)expectedVerdict);
         Assert.IsFalse(result.ExpectedVersionDetected || result.RestartPending);
@@ -157,7 +157,7 @@ public sealed class ChocolateyClientUpdatePostcheckTests
     }
 
     private static ChocolateyClientUpdateVerdict Check(ChocolateyProfileResult result, ChocolateyReviewedRelease source, ChocolateyReviewedRelease target) =>
-        ChocolateyClientUpdatePostcheck.Evaluate(result, source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: false);
+        ChocolateyClientUpdatePostcheck.EvaluateForTests(result, source, target, User, ChocolateyClientWatchdogFault.None, holdReleaseIncomplete: false);
 
     private static (ChocolateyReleaseList, ChocolateyReviewedRelease, ChocolateyReviewedRelease) Releases()
     {

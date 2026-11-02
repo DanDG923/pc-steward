@@ -124,6 +124,26 @@ public sealed class ChocolateyClientSelfUpdateLaunchTests
     }
 
     [TestMethod]
+    public void TheClientPostcheckReadsTheSourceTheWatchdogFaultAndTheReleaseStateFromTheBinding()
+    {
+        // Review L3 (design §2.1 R5, §2 R3): src callers pass the binding, never a free fault or release flag.
+        using ClientUpdateFixture fixture = new();
+        ChocolateyReviewedRelease target = fixture.Releases.Releases[1];
+        string sid = fixture.Client.Requester!.Sid;
+        ChocolateyProfileResult refused = ChocolateyProfileResult.Refused.Create(ChocolateyProfileRefusal.InstalledMismatch, "2.7.5", null);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.NotTargetRelease, ChocolateyClientUpdatePostcheck.Evaluate(refused, fixture.Client, target, sid));
+
+        ChocolateyCompiledCommand.UpgradeClient upgrade = ChocolateyCompiledCommand.TryUpgradeClient(fixture.Operation,
+            fixture.Releases.Releases[0], target) ?? throw new AssertFailedException("upgrade refused");
+        NativeLaunchSpec spec = NativeLaunchSpec.FromBinding(fixture.Client, upgrade);
+        spec.OnReleaseFaulted();
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.ReleaseIncomplete, ChocolateyClientUpdatePostcheck.Evaluate(refused, fixture.Client, target, sid));
+        spec.OnWatchdogStopped(ChocolateyClientWatchdogFault.RootWritableDuringRun);
+        Assert.AreEqual(ChocolateyClientUpdateVerdict.RootWritableDuringRun,
+            ChocolateyClientUpdatePostcheck.Evaluate(refused, fixture.Client, target, sid), "the recorded watchdog fault comes first");
+    }
+
+    [TestMethod]
     public void ClientModeNeedsTheRegistrationAtTheMatchedReleaseAndNoLicensedExtension()
     {
         using RequesterToken token = N1NativeFixture.DerivedToken();

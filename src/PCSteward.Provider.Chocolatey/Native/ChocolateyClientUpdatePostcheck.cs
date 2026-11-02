@@ -45,10 +45,34 @@ internal enum ChocolateyClientUpdateVerdict
 /// <c>holdReleaseIncomplete</c> (the binding's <c>ReleaseIncomplete</c>) then forces
 /// <see cref="ChocolateyClientUpdateVerdict.ReleaseIncomplete"/>. Everything else is not verified. A restart-pending
 /// result never exists here: <see cref="ToResult"/> always reports it false.
+/// <para>
+/// Independent review L3: <c>src</c> callers must use <see cref="Evaluate"/> over the client self-update binding, which
+/// reads the source release (<c>InstalledRelease</c>), <c>WatchdogFault</c> and <c>ReleaseIncomplete</c> from the binding
+/// itself, so no caller can pass a watchdog fault or a release state that is not the job's. The free-parameter
+/// <see cref="EvaluateForTests"/> has no <c>src</c> caller (architecture-banned).
+/// </para>
 /// </summary>
 internal static class ChocolateyClientUpdatePostcheck
 {
-    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
+    /// <summary>
+    /// The postcheck for the client self-update job of <paramref name="client"/>: its matched installed release is the
+    /// source, and its recorded watchdog fault and incomplete hold release are applied first. Throws for a package binding.
+    /// </summary>
+    internal static ChocolateyClientUpdateVerdict Evaluate(ChocolateyProfileResult result, ChocolateyHeldClientBinding client,
+        ChocolateyReviewedRelease target, string requestingUserSid)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        if (client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate || client.InstalledRelease is not { } source)
+            throw new ArgumentException("Only a client self-update binding has a client postcheck.", nameof(client));
+        return EvaluateCore(result, source, target, requestingUserSid, client.WatchdogFault, client.ReleaseIncomplete);
+    }
+
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the rule over free parameters.</summary>
+    internal static ChocolateyClientUpdateVerdict EvaluateForTests(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
+        ChocolateyReviewedRelease target, string requestingUserSid, ChocolateyClientWatchdogFault watchdogFault, bool holdReleaseIncomplete) =>
+        EvaluateCore(result, source, target, requestingUserSid, watchdogFault, holdReleaseIncomplete);
+
+    private static ChocolateyClientUpdateVerdict EvaluateCore(ChocolateyProfileResult result, ChocolateyReviewedRelease source,
         ChocolateyReviewedRelease target, string requestingUserSid, ChocolateyClientWatchdogFault watchdogFault, bool holdReleaseIncomplete)
     {
         ArgumentNullException.ThrowIfNull(result);

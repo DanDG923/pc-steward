@@ -8,7 +8,9 @@ namespace PCSteward.ArchitectureTests;
 /// <list type="bullet">
 /// <item>the watchdog is used only by the client self-update route: its arming and start are called only by the launcher,
 /// its production targets come only from the client upgrade spec, and the fault reaches only the client binding;</item>
-/// <item>its test-only seams (test targets, test keys, the watchdog launch entry) have no <c>src</c> caller;</item>
+/// <item>its test-only seams (test targets and their watch-thread factory, test keys, the watchdog launch entry) and the
+/// postcheck's free-parameter overload (review L3: <c>src</c> must pass the client binding) have no <c>src</c> caller;</item>
+/// <item>review L2: an incomplete read whose event is signalled is a failed re-arm, never a busy-spinning continue;</item>
 /// <item>its file is read-only: exactly two directory opens (<c>FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES</c> for the
 /// change watch, <c>READ_CONTROL | FILE_READ_ATTRIBUTES</c> for the access re-check), both with full sharing and
 /// <c>OPEN_EXISTING</c>, one <c>ReadDirectoryChangesW</c> filter (<c>FILE_NOTIFY_CHANGE_SECURITY</c>), no write right,
@@ -27,6 +29,7 @@ public sealed class ClientUpdateWatchdogBoundaryTests
     private const string Spec = Native + "NativeLaunchSpec";
     private const string Binding = Native + "ChocolateyHeldClientBinding";
     private const string LaunchJob = Native + "LaunchJob";
+    private const string Postcheck = Native + "ChocolateyClientUpdatePostcheck";
 
     private static readonly string[] WatchdogTypes =
     [
@@ -42,6 +45,7 @@ public sealed class ClientUpdateWatchdogBoundaryTests
         (Targets, "CreateForTests"),
         (Reader, "TryWatchForTests"),
         (LaunchJob, "RunCoreWithWatchdogForTestsAsync"),
+        (Postcheck, "EvaluateForTests"),
     ];
 
     /// <summary>(target type, member) → the exact set of source-level callers in <c>src</c>.</summary>
@@ -55,6 +59,7 @@ public sealed class ClientUpdateWatchdogBoundaryTests
         (Targets, "FromBinding", [Spec + ".WatchTargets"]),
         (Binding, "RecordWatchdogFault", [Spec + ".OnWatchdogStopped"]),
         (Reader, "TryWatch", [Targets + ".FromBinding"]),
+        (Targets, "get_WatchThreadForTests", [Watchdog + ".Start"]),
     ];
 
     [TestMethod]
@@ -100,6 +105,14 @@ public sealed class ClientUpdateWatchdogBoundaryTests
         StringAssert.Contains(spec, "releaseAllAfterResume ? ChocolateyClientWatchTargets.FromBinding(client!) : null;");
         string targets = Code(File.ReadAllText(Path.Combine(NativeDirectory(), WatchdogFile)));
         StringAssert.Contains(targets, "client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate");
+        // Production targets never carry a watch-thread factory (M2d seam): only CreateForTests can pass one.
+        Assert.IsTrue(Regex.IsMatch(targets, @"ChocolateySetupEnvironmentReader\.TryWatch,\s+watchThreadForTests: null\);"),
+            "FromBinding passes no watch-thread factory");
+        Assert.AreEqual(1, Regex.Count(targets, @"watchThreadForTests: null"), "only FromBinding names the factory as null");
+        // L3: the binding overload reads the fault and release state from the client self-update binding itself.
+        string postcheck = Code(File.ReadAllText(Path.Combine(NativeDirectory(), "ChocolateyClientUpdatePostcheck.cs")));
+        StringAssert.Contains(postcheck, "client.Purpose != ChocolateyBindingPurpose.ClientSelfUpdate || client.InstalledRelease is not { } source");
+        StringAssert.Contains(postcheck, "return EvaluateCore(result, source, target, requestingUserSid, client.WatchdogFault, client.ReleaseIncomplete);");
     }
 
     [TestMethod]
@@ -136,6 +149,9 @@ public sealed class ClientUpdateWatchdogBoundaryTests
         Assert.AreEqual(2, Regex.Count(code, @"DirectoryWatch\.TryArm\("), "root and parent watches only");
         StringAssert.Contains(code, "DirectoryWatch.TryArm(targets.Root, subtree: true)");
         StringAssert.Contains(code, "DirectoryWatch.TryArm(targets.Parent, subtree: false)");
+        // Review L2: TryRearm runs only after the manual-reset event fired; an incomplete read there fails closed (no spin).
+        StringAssert.Contains(code, "if (error == ErrorIoIncomplete) return false;");
+        Assert.IsFalse(code.Contains("ErrorIoIncomplete) return true", StringComparison.Ordinal), "an incomplete read must not continue");
 
         foreach (string token in new[]
                  {
