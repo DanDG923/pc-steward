@@ -30,6 +30,7 @@ public sealed class MainWindow : Window
     private readonly IReviewedUpdateHistoryReader reviewedHistory;
     private readonly IActivityHistoryReader activityHistory;
     private readonly Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken;
+    private readonly ChocolateyClientReleaseCatalogFacts chocolateyClientReleases;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
@@ -123,10 +124,10 @@ public sealed class MainWindow : Window
         public UpdateBatchStop Stop { get; } = new();
     }
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, ChocolateyClientReleaseCatalogFacts chocolateyClientReleases, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
         this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration; this.acknowledgeResetOnboarding = acknowledgeResetOnboarding;
-        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken));
+        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken)); this.chocolateyClientReleases = chocolateyClientReleases ?? throw new ArgumentNullException(nameof(chocolateyClientReleases));
         updateProgressTimer = DispatcherQueue.CreateTimer();
         updateProgressTimer.Interval = TimeSpan.FromMilliseconds(250);
         Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false); reviewPreparationCancellation?.Cancel(); StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
@@ -2155,6 +2156,13 @@ public sealed class MainWindow : Window
         sources.Children.Add(StewardVisuals.EvidenceRow("Current evidence", viewModel.UpdateFreshnessLabel));
         panel.Children.Add(StewardVisuals.SettingsCard("", "Update sources", "Optional package sources that tell PC Steward which updates exist. They are off until you approve them.", sources));
 
+        // ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update, shown as unavailable while the route is not admitted.
+        // The summary is display only (the last scan's reported release and the compiled reviewed list); opening it starts nothing.
+        StackPanel chocolateyClient = new() { Spacing = StewardSpacing.Small };
+        ChocolateyClientUpdateViewModel chocolateyClientSummary = ChocolateyClientUpdateView();
+        chocolateyClient.Children.Add(StewardVisuals.SettingsRow(chocolateyClientSummary.Summary, chocolateyClientSummary.UnavailableFields[0].Text, ChocolateyClientUpdateEntry(chocolateyClientSummary)));
+        panel.Children.Add(StewardVisuals.SettingsCard("\uE7B8", ChocolateyClientUpdateViewModel.SettingsCardTitle, ChocolateyClientUpdateViewModel.SettingsCardDescription, chocolateyClient));
+
         // Scan scope / AppX.
         StackPanel scope = new() { Spacing = StewardSpacing.Small };
         CheckBox local = new() { Content = "Always on", IsChecked = true, IsEnabled = false };
@@ -2768,6 +2776,17 @@ public sealed class MainWindow : Window
             panel.Children.Add(Card(reviewedRoute));
         }
 
+        if (ChocolateyClientUpdateViewModel.IsClientRow(row))
+        {
+            StackPanel clientUpdate = new() { Spacing = StewardSpacing.Small };
+            clientUpdate.Children.Add(SectionHeading(ChocolateyClientUpdateViewModel.DetailHeading));
+            clientUpdate.Children.Add(PageCopy(ChocolateyClientUpdateViewModel.DetailCopy));
+            ChocolateyClientUpdateViewModel clientSummary = ChocolateyClientUpdateView();
+            clientUpdate.Children.Add(StewardVisuals.EvidenceRow("Status", clientSummary.Summary));
+            clientUpdate.Children.Add(ChocolateyClientUpdateEntry(clientSummary));
+            panel.Children.Add(Card(clientUpdate));
+        }
+
         // FR-HIS-02: the app's own timeline as a list, newest first.
         StackPanel history = new() { Spacing = 0 };
         history.Children.Add(SectionHeading("History for this app"));
@@ -2846,6 +2865,35 @@ public sealed class MainWindow : Window
         // No dispatch path is composed for this route, so nothing can start either way.
         _ = review.TryConfirm();
         await ShowUpdateOutcomeAsync("Update not started", ChocolateyReviewedRouteReviewViewModel.NotStartedText);
+    }
+
+    /// <summary>
+    /// ADR-031 (FR-UPD-15, FR-UI-03/04): a display-only Chocolatey client update view from the compiled reviewed list and the last
+    /// scan's reported release. Summaries do not probe the token; the review dialog opens a fresh view, which probes it.
+    /// </summary>
+    private ChocolateyClientUpdateViewModel ChocolateyClientUpdateView(Func<ReviewedRouteSplitTokenState>? probe = null) =>
+        ChocolateyClientUpdateViewModel.Open(chocolateyClientReleases, ChocolateyClientUpdateViewModel.ReportedInstalledVersion(viewModel.AllRows),
+            probe ?? (() => ReviewedRouteSplitTokenState.Unknown));
+
+    private Button ChocolateyClientUpdateEntry(ChocolateyClientUpdateViewModel summary)
+    {
+        Button entry = ChocolateyClientUpdateSurfaces.EntryButton(summary);
+        entry.Click += async (_, _) => await ShowChocolateyClientUpdateAsync();
+        return entry;
+    }
+
+    /// <summary>
+    /// ADR-031 (FR-UPD-15, FR-UI-03/04): the "Update Chocolatey to X" review. The split-token state is probed afresh for this
+    /// review. The route is not admitted, so Confirm is bound to <c>IsConfirmEnabled</c> (false) and no review, permit or dispatch
+    /// path exists for it; if Confirm were ever chosen, only the not-started message is shown.
+    /// </summary>
+    private async Task ShowChocolateyClientUpdateAsync()
+    {
+        if (windowClosed) return;
+        ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateView(probeReviewedRouteSplitToken);
+        ContentDialog dialog = ChocolateyClientUpdateSurfaces.ReviewDialog(Content.XamlRoot, model);
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || windowClosed) return;
+        await ShowUpdateOutcomeAsync("Update not started", ChocolateyClientUpdateViewModel.NotStartedText);
     }
 
     private async Task ShowDetailsAsync(InventoryRow row)

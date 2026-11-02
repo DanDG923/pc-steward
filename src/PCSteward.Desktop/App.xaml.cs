@@ -113,7 +113,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         // Task 73 Phase 6 review M2: a batch review shares one fresh inventory observation; each app is still re-prepared alone before it starts.
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications,
             prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync);
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalog.Current, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
         ActivateWindow(window);
         }
         catch (Exception exception)
