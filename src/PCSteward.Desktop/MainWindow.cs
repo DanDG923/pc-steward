@@ -1793,6 +1793,7 @@ public sealed class MainWindow : Window
         jobProgressStateText = null;
         if (updateJob is not { } job)
         {
+            panel.Children.Add(StewardVisuals.PageTitle("Update"));
             Button open = StewardVisuals.ActionButton("Open Updates");
             open.Click += (_, _) => NavigateTo(ShellPage.Updates);
             panel.Children.Add(StewardVisuals.EmptyState("", "No update is open", "Choose an app that's ready on the Updates page to review its update.", open));
@@ -2460,6 +2461,7 @@ public sealed class MainWindow : Window
         if (detailRow is null)
         {
             StackPanel missing = CreatePagePanel(760);
+            missing.Children.Add(StewardVisuals.PageTitle("App details"));
             Button leave = StewardVisuals.ActionButton("Open Installed apps");
             leave.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
             missing.Children.Add(StewardVisuals.EmptyState("", "App details are no longer open", "Open an app from Installed apps, Updates or the scan results to see its details.", leave));
@@ -2626,9 +2628,9 @@ public sealed class MainWindow : Window
         IReadOnlyList<DetailItem> instances = AppDetailPresenter.Instances(row.Instances);
         if (instances.Count == 0) technical.Children.Add(PageCopy("No installed instance details are recorded."));
         foreach (DetailItem instance in instances) technical.Children.Add(DetailItemCard(instance));
-        technical.Children.Add(SectionHeading("Source candidates", AutomationHeadingLevel.Level3));
+        technical.Children.Add(SectionHeading("Packages found in your sources", AutomationHeadingLevel.Level3));
         IReadOnlyList<DetailItem> candidates = AppDetailPresenter.Candidates(detail?.ReviewCandidates ?? []);
-        if (candidates.Count == 0) technical.Children.Add(PageCopy("No source candidates are available."));
+        if (candidates.Count == 0) technical.Children.Add(PageCopy("No packages were found in your sources."));
         foreach (DetailItem candidate in candidates) technical.Children.Add(DetailItemCard(candidate));
         technical.Children.Add(SectionHeading("Match a package by ID", AutomationHeadingLevel.Level3));
         ComboBox mappingSource = FilterBox(detail?.SourceId ?? "winget", "winget", "msstore");

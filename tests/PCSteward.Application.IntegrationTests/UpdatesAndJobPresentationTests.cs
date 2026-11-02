@@ -211,6 +211,7 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsTrue(sheet.ShowsAdministratorShield, "machine-wide: the shield is shown");
         Assert.AreEqual("Update 1 app", sheet.PrimaryButtonLabel);
         StringAssert.Contains(sheet.PrimaryAutomationName, sheet.PrimaryButtonLabel);
+        StringAssert.StartsWith(sheet.PrimaryAutomationName, sheet.PrimaryButtonLabel, "label-in-name (WCAG 2.5.3, Task 73 Phase 5)");
         Assert.AreEqual("Cancel", UpdateReviewSheet.CancelButtonLabel);
         Assert.AreEqual(RunningApplicationDetection.NotDetected.CoverageDisclosure, sheet.CoverageDisclosure, "the existing coverage disclosure is kept");
         StringAssert.Contains(sheet.Attestation, "By choosing Update 1 app");
