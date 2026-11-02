@@ -41,7 +41,7 @@ public sealed class ReviewedRouteDesktopUiBoundaryTests
         }
 
         string app = File.ReadAllText(Path.Combine(desktop, "App.xaml.cs"));
-        StringAssert.Contains(app, "database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, showPostResetOnboarding");
+        StringAssert.Contains(app, "database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalog.Current, showPostResetOnboarding");
         Assert.AreEqual(1, Regex.Count(string.Concat(files.Select(File.ReadAllText)), @"\bChocolateyReviewedRouteProbe\b"), "one composition site of the probe");
 
         // The probe references only the composition's static split-token probe in the native layer, never its constructor.
