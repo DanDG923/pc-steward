@@ -103,6 +103,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
                 Assert.AreEqual(FixturePaths.Length, integrity.GetProperty("files").GetInt32());
                 Assert.AreEqual(1024, integrity.GetProperty("imageBytes").GetInt64());
                 Assert.AreEqual(JsonValueKind.String, integrity.GetProperty("driftRefused").ValueKind, "a byte changed after pinning must be refused");
+                Assert.IsTrue(integrity.GetProperty("restoredAccepted").GetBoolean(), "the drift probe must restore the pinned bytes");
             }
             else
             {
@@ -133,8 +134,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
 
         string windowsPowerShell = ResolveShell("windows-powershell")!;
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        // Not TEMP: CI points TEMP inside the checkout (refused as a repository location) and TEMP may be an 8.3 short path.
-        DirectoryInfo existing = Directory.CreateDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "pc-steward-candidate-existing-" + Guid.NewGuid().ToString("N")));
+        DirectoryInfo existing = CreateExistingOutputRoot(root);
         try
         {
             (string Path, string Message)[] refusals =
@@ -176,7 +176,35 @@ public sealed class OwnerOnlyCandidateBuilderTests
         foreach (string argument in new[] { "-NoProfile", "-File", Path.Combine(root, "scripts", "Test-OwnerOnlyCandidateBuilderCI.ps1") }) start.ArgumentList.Add(argument);
         (int code, string output, string error) = await RunAsync(start, TimeSpan.FromSeconds(60));
         Assert.AreNotEqual(0, code, output);
-        StringAssert.Contains(error, "this launcher requires an administrator on a GitHub-hosted runner");
+        // Windows PowerShell wraps redirected error text at the console width; compare with whitespace collapsed.
+        StringAssert.Contains(System.Text.RegularExpressions.Regex.Replace(error, @"\s+", " "), "this launcher requires an administrator on a GitHub-hosted runner");
+    }
+
+    /// <summary>
+    /// An existing directory the builder must refuse only as "must not exist": not under TEMP (CI points TEMP inside the
+    /// checkout, a refused repository location, and TEMP may be an 8.3 short path) and writable by the CI standard user,
+    /// whose inherited LOCALAPPDATA names the inaccessible runneradmin profile. The first writable candidate wins.
+    /// </summary>
+    private static DirectoryInfo CreateExistingOutputRoot(string repositoryRoot)
+    {
+        string leaf = "pc-steward-candidate-existing-" + Guid.NewGuid().ToString("N");
+        string?[] parents =
+        [
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetEnvironmentVariable("RUNNER_TEMP"),
+            Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.System)),
+        ];
+        List<string> skipped = [];
+        foreach (string? parent in parents)
+        {
+            if (string.IsNullOrEmpty(parent) || parent.Contains('~', StringComparison.Ordinal) || !Path.IsPathFullyQualified(parent)) continue;
+            string candidate = Path.Combine(parent, leaf);
+            if (candidate.StartsWith(repositoryRoot.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) continue;
+            try { return Directory.CreateDirectory(candidate); }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { skipped.Add($"{candidate}: {exception.Message}"); }
+        }
+        Assert.Fail("No writable location outside the repository for the existing-OutputRoot refusal:\n" + string.Join("\n", skipped));
+        throw new UnreachableException();
     }
 
     [TestMethod]

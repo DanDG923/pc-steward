@@ -217,9 +217,13 @@ if ($isWindowsPowerShell -and [Environment]::OSVersion.Platform -eq [PlatformID]
     [PCSteward.Deployment.PayloadIntegrity]::AssertTree($tree, $candidate.Files)
     Assert-OwnerOnlyPayloadProfile -Origin $candidate.PayloadOrigin
     $image = [PCSteward.Deployment.PayloadIntegrity]::GetUnsignedImage((Join-Path $tree 'PCSteward.Desktop.exe'))
-    $drift = Join-Path $tree 'a.txt'; [IO.File]::AppendAllText($drift, 'x')
-    $driftRefused = Get-Failure { [PCSteward.Deployment.PayloadIntegrity]::AssertTree($tree, $candidate.Files) }
-    $results.integrity = [ordered]@{ ran = $true; accepted = $true; payloadOrigin = $candidate.PayloadOrigin; helperProtocol = $candidate.HelperProtocol; files = $candidate.Files.Count; imageBytes = $image.bytes; driftRefused = $driftRefused }
+    # Drift probe: change one pinned byte, require refusal, then restore the exact bytes so the C# test's independent
+    # re-derivation of the manifest from the tree still sees the pinned payload (the probe must not leak into it).
+    $drift = Join-Path $tree 'a.txt'; $pinnedBytes = [IO.File]::ReadAllBytes($drift); [IO.File]::AppendAllText($drift, 'x')
+    try { $driftRefused = Get-Failure { [PCSteward.Deployment.PayloadIntegrity]::AssertTree($tree, $candidate.Files) } }
+    finally { [IO.File]::WriteAllBytes($drift, $pinnedBytes) }
+    $restoredAccepted = $null -eq (Get-Failure { [PCSteward.Deployment.PayloadIntegrity]::AssertTree($tree, $candidate.Files) })
+    $results.integrity = [ordered]@{ ran = $true; accepted = $true; payloadOrigin = $candidate.PayloadOrigin; helperProtocol = $candidate.HelperProtocol; files = $candidate.Files.Count; imageBytes = $image.bytes; driftRefused = $driftRefused; restoredAccepted = $restoredAccepted }
 }
 else {
     $results.integrity = [ordered]@{ ran = $false; reason = 'Read-OwnerOnlyCandidateManifest compiles Windows file primitives and runs under Windows PowerShell 5.1 only.' }
