@@ -223,7 +223,32 @@ public sealed class RedeployToolingScriptTests
                 Assert.Inconclusive("Portable redeploy-tooling rows passed under " + Text(r, "shell") + ". Windows-only rows not run here (Windows-CI evidence): " + reasons);
             }
         }
-        finally { work.Delete(recursive: true); }
+        finally { DeleteFixtureTree(work); }
+    }
+
+    /// <summary>
+    /// Best-effort removal of the per-test temp tree. Windows CI refused the recursive delete at the fixture's junction
+    /// ('linked') after every assertion had passed, so links are removed as links first (never followed) and a residual
+    /// temp folder is not a test failure, as in <see cref="N1NativeFixture"/>.
+    /// </summary>
+    private static void DeleteFixtureTree(DirectoryInfo root)
+    {
+        try
+        {
+            foreach (FileSystemInfo entry in root.EnumerateFileSystemInfos("*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0 }))
+            {
+                if ((entry.Attributes & FileAttributes.ReparsePoint) == 0) continue;
+                try
+                {
+                    if (entry is DirectoryInfo link) Directory.Delete(link.FullName, recursive: false);
+                    else entry.Delete();
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+            }
+            root.Refresh();
+            if (root.Exists) root.Delete(recursive: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
     }
 
     [TestMethod]
