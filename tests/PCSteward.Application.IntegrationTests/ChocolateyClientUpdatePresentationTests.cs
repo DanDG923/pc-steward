@@ -113,6 +113,34 @@ public sealed class ChocolateyClientUpdatePresentationTests
         }
     }
 
+    [TestMethod]
+    public void AWatchdogStopIsNeverVerifiedSaysChocolateyMayBePartlyUpdatedAndGivesTheManualStep()
+    {
+        // ADR-031 design §2.1 R5 runtime watchdog (FR-UPD-15, TM-07/13): each fault has its own fixed message, recognised by history.
+        ReviewedUpdateOperation operation = Operation("2.7.5", "2.8.0");
+        (PostUpdateVerificationDetail Detail, string Message)[] stops =
+        [
+            (PostUpdateVerificationDetail.ClientSetupOverrideDuringRun, ChocolateyClientUpdatePresentation.StoppedSetupOverrideMessage),
+            (PostUpdateVerificationDetail.ClientRootWritableDuringRun, ChocolateyClientUpdatePresentation.StoppedRootWritableMessage),
+            (PostUpdateVerificationDetail.ClientWatchFailedDuringRun, ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage),
+        ];
+        foreach ((PostUpdateVerificationDetail detail, string message) in stops)
+        {
+            // Even an otherwise verified result is rejected once the watchdog stopped the run.
+            Assert.AreEqual((UpdateDispatchOutcome.Unverified, message),
+                ReviewedUpdateDispatchWorkflow.RejectVerification(operation, new PostUpdateInventoryResult(true, false, detail)));
+            Assert.AreEqual(message, ChocolateyClientUpdatePresentation.NotVerifiedMessage(detail));
+            StringAssert.StartsWith(message, "Stopped, not verified:");
+            StringAssert.Contains(message, "may be partly updated");
+            StringAssert.Contains(message, "PC Steward does not repair Chocolatey automatically.");
+            StringAssert.Contains(message, "choco upgrade chocolatey --version <the version you approved> --force");
+            StringAssert.Contains(message, "administrator prompt");
+            Assert.AreEqual(message, ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Unverified, message)));
+        }
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedSetupOverrideMessage, "ChocolateyInstallAllowCurrentUser");
+        StringAssert.Contains(ChocolateyClientUpdatePresentation.StoppedRootWritableMessage, "changeable by your account");
+    }
+
     private static ReviewedUpdateTerminalRecord Terminal(UpdateDispatchOutcome outcome, string diagnostic) =>
         new(outcome, new DateTimeOffset(2026, 11, 2, 12, 5, 0, TimeSpan.Zero), 0, UpdateDispatchSettlementState.OwnedWorkStopped, diagnostic);
 

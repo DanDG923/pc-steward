@@ -344,7 +344,16 @@ internal sealed class ChocolateyClientUpdateWatchdog : IDisposable
             ChocolateyClientWatchWake wake = ChocolateyClientWatchWake.Poll;
             while (true)
             {
-                monitor.Observe(wake);
+                if (monitor.Observe(wake) != ChocolateyClientWatchdogFault.None)
+                {
+                    // Faulted: nothing is evaluated any more; only the termination request repeats until it succeeds.
+                    while (!monitor.TerminationConfirmed)
+                    {
+                        if (stop.WaitOne(PollInterval)) return;
+                        monitor.Observe(ChocolateyClientWatchWake.Poll);
+                    }
+                    return;
+                }
                 int index = WaitHandle.WaitAny(handles, PollInterval);
                 if (index == 0) return;
                 bool rearmed = index switch
