@@ -34,8 +34,49 @@ public sealed class ClientRunFaultBoundaryTests
             if (Path.GetFileName(path) is not (FactFile or InterpreterFile))
             {
                 Assert.AreEqual(0, Count(source, "FromAcceptedHelperReply"), path);
-                Assert.IsFalse(Regex.IsMatch(source, @"ClientRunFault\s*=(?!\s*null\b)"), $"{path}: only the interpreter sets the observation's run fault");
+                // Independent review L3: assignment/initializer ("ClientRunFault = x") and named-argument ("ClientRunFault: x")
+                // forms; "==" comparisons and the null default are not settings.
+                Assert.IsFalse(Regex.IsMatch(source, @"\bClientRunFault\s*[:=](?!=)(?!\s*null\b)"),
+                    $"{path}: only the interpreter sets the observation's run fault");
             }
+        // The named-argument form is the interpreter's own (single) setting, so the pattern really matches it.
+        Assert.AreEqual(1, Regex.Count(interpreter, @"\bClientRunFault\s*[:=](?!=)(?!\s*null\b)"), "the interpreter's single setting");
+    }
+
+    /// <summary>
+    /// Independent review L3, on compiled IL of every built <c>src</c> assembly (aliases, named arguments, Unicode escapes or
+    /// generated sources cannot hide a call): the private constructor is called only by the factory, and the factory only by
+    /// the interpreter's <c>ToRunFault</c>. The factory stays public because its one caller is in PCSteward.Execution, and an
+    /// Application → Execution <c>InternalsVisibleTo</c> would also expose Application's internal dispatch-ticket constructor.
+    /// </summary>
+    [TestMethod]
+    public void TheCompiledRunFaultConstructionHasExactlyItsPinnedCallers()
+    {
+        const string Fact = "PCSteward.Application.ReviewedClientRunFault";
+        const string Interpreter = "PCSteward.Execution.ReviewedUpdateProtocol2Interpreter";
+        IReadOnlyList<string> assemblies = CompiledIlScanner.BuiltSrcAssemblies();
+        foreach (string required in new[] { "PCSteward.Application", "PCSteward.Execution", "PCSteward.Provider.Chocolatey" })
+            Assert.IsTrue(assemblies.Any(path => Path.GetFileNameWithoutExtension(path) == required), $"{required}.dll was not built");
+        List<string> violations = [];
+        int factoryCalls = 0, constructorCalls = 0;
+        foreach (string path in assemblies)
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+            {
+                if (reference.Kind != CompiledIlScanner.ReferenceKind.Method || reference.TargetType != Fact) continue;
+                if (reference.TargetMember == "FromAcceptedHelperReply")
+                {
+                    factoryCalls++;
+                    if (reference.LogicalCaller != Interpreter + ".ToRunFault") violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} calls the factory");
+                }
+                else if (reference.TargetMember == ".ctor")
+                {
+                    constructorCalls++;
+                    if (reference.LogicalCaller != Fact + ".FromAcceptedHelperReply") violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs it");
+                }
+            }
+        Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
+        Assert.AreEqual(8, factoryCalls, "one compiled call per table row of ToRunFault");
+        Assert.AreEqual(1, constructorCalls, "the factory's single construction");
     }
 
     [TestMethod]

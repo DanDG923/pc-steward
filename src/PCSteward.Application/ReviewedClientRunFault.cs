@@ -30,8 +30,10 @@ public sealed class ReviewedClientRunFault
     public bool IsNone => WatchdogStop == ReviewedClientWatchdogStop.None && !ReleaseIncomplete;
 
     /// <summary>
-    /// The single factory. Its only <c>src</c> call site is <c>ReviewedUpdateProtocol2Interpreter</c> (architecture test), which
-    /// calls it only for an accepted client self-update reply. An undefined watchdog value throws.
+    /// The single factory. Its only <c>src</c> call site is <c>ReviewedUpdateProtocol2Interpreter</c> (architecture test, on
+    /// source and on compiled IL), which calls it only for an accepted client self-update reply. It is public only because that
+    /// caller is in PCSteward.Execution: an Application → Execution <c>InternalsVisibleTo</c> would also expose Application's
+    /// internal dispatch-ticket constructor (independent review L3). An undefined watchdog value throws.
     /// </summary>
     public static ReviewedClientRunFault FromAcceptedHelperReply(ReviewedClientWatchdogStop watchdogStop, bool releaseIncomplete) =>
         Enum.IsDefined(watchdogStop)
