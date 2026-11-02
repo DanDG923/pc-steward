@@ -136,3 +136,57 @@ Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `TM-03/04/07/13`, ADR-031. Base 
 - **W3: no response after a faulted client run** (desktop Uncertain, barrier kept). No wire change, but loses the H1 recovery texts (§2.2) and leaves a reconciliation barrier; contradicts §2.2 "Outcome".
 
 Until one is accepted, the helper item, stage rows, endpoint/interpreter/dispatcher acceptance, F′ producer and verifier wiring for this route stay unbuilt, because each would either drop the R3/R5 fault (fail open on the desktop) or invent wire semantics.
+
+## 8. W1 field (owner-approved 2026-11-02, ADR-031 owner decision 4)
+
+Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `TM-03/04/07/13`, ADR-031. Base `6277ba7`. This section fixes the exact W1 contract before any code. **Nothing here admits a route**: `HasSupportedMode` and `DeploymentCapabilityPolicy.CapabilityOperationAllowlist` stay unchanged, so a real G1 refuses `ChocolateyClientSelfUpdateV1` (`RequestNotAdmitted`) and the desktop refuses it before any claim; the route stays disabled pending review and the owner's separate R5 acceptance.
+
+### 8.1 Field
+
+- **Name** `clientRunFault`; JSON string; **position 19** of a client-route response (immediately before `diagnostic`, which stays last). A client-route response therefore has exactly 21 properties; every other response keeps the reviewed 20.
+- **Closed value set with an explicit allowed-combination table** (exact spelling, no numeric/alias/case variants; parsed by table lookup, never `Enum.Parse`):
+
+| Wire text | Watchdog stop | Release incomplete |
+|---|---|---|
+| `None` | — | no |
+| `SetupOverrideDuringRun` | SetupOverride | no |
+| `RootWritableDuringRun` | RootWritable | no |
+| `WatchFailedDuringRun` | WatchFailed | no |
+| `ReleaseIncomplete` | — | yes |
+| `SetupOverrideDuringRun+ReleaseIncomplete` | SetupOverride | yes |
+| `RootWritableDuringRun+ReleaseIncomplete` | RootWritable | yes |
+| `WatchFailedDuringRun+ReleaseIncomplete` | WatchFailed | yes |
+
+  Any other text (two watchdog kinds, reversed order, whitespace, `None+…`, lowercase, digits) is invalid. The set is complete for the binding: `RecordWatchdogFault` keeps only the **first** watchdog fault, so at most one kind can co-occur with `ReleaseIncomplete`. Longest value 39 B (+ `,"clientRunFault":""` = 19 B overhead) → the largest client frame is 5,083 + 58 = 5,141 B ≤ 16,384.
+- **Source.** Only the helper endpoint writes it, from the client binding's `WatchdogFault` and `ReleaseIncomplete` read after the launch settled (the watchdog is joined and its fault recorded in the launcher's `finally`, before the launch task completes), carried by `ChocolateyUpgradeResult.Observed`. Every other client-route decision (A1–D refusals, Undetermined, Matched ∧ NotStarted, a launch that threw) writes `None`.
+
+### 8.2 Codec rule S14 (structural, added to S1–S13)
+
+The codec is told the expected reply shape by the reader (`Package` for every existing caller and route; `ClientSelfUpdate` only when the frozen operation is `ChocolateyClientSelfUpdateV1`).
+- **S14a presence:** client shape ⇒ the property is present at position 19; package shape ⇒ it is absent. A frame of the other shape fails the exact-field-set check (missing, extra or reordered property) and is rejected whole.
+- **S14b value:** exactly one row of the table above.
+- **S14c consistency:** a value other than `None` ⇒ `qualification = Matched` ∧ `invocation ∈ {Started, Unknown}` (a watchdog runs and the holds are released only after `ResumeThread`, so a refusal, an Undetermined or a NotStarted run can never carry one).
+- `CreateResponse` throws (nothing is written; the desktop records Uncertain) and `TryReadResponse` returns false on any S14 failure. The whole-frame re-encode comparison is unchanged and covers the new property.
+
+### 8.3 Desktop validation and the downgrade-only lattice
+
+- Rejection path (unchanged §4.1 rule): a missing field on a client response, a field on a package response, an unknown value, an invalid combination or an S14c violation fails the codec, so the interpreter discards every wire fact → `Unknown`, unsettled → **Uncertain**, barrier kept, never Success.
+- An accepted value becomes `ReviewedClientRunFault` (Application; private constructor; a single factory whose only `src` call site is the interpreter, architecture-pinned like `RecordedHelperCandidateCheck.FromDesktopDerived`), carried on `ReviewedUpdateDispatchObservation.ClientRunFault`. The interpreter sets it for every accepted client-route frame (including `None`) and never for another route.
+- **Lattice (assertion strength):** `Success`/`RestartRequired` (assert the target) > `Failed` (asserts the run failed, i.e. "not updated") > `Unverified` (asserts nothing about the result) > `Uncertain` (asserts nothing; barrier kept). The existing workflow already places started-but-stopped work at `Unverified`, never "not updated". For the client route the field only moves an outcome **down** this order, never up, and never removes a barrier:
+
+| Workflow path (client route) | Field `None` | Field non-`None` | Field null (no accepted value) |
+|---|---|---|---|
+| Not settled (Uncertain) | Uncertain | Uncertain + the fault's fixed recovery text appended | Uncertain |
+| Settled NotInvoked (Refused/Failed/Cancelled/ElevationDenied) | unchanged | impossible (S14c); defensive: unchanged + text | unchanged |
+| Settled Started: Cancelled/TimedOut/Failed/ProviderFailed/exit unknown | unchanged | **Unverified** with the fault's text (no verification) | Unverified, fixed "reply missing" text |
+| Settled Started, exit 0 | client verifier (postcheck with the fact) → Success only on the exact target match | **Unverified** with the fault's text (no verification) | Unverified, fixed "reply missing" text (no verification) |
+
+- **Recovery text (every required warning retained):** SetupOverride / RootWritable → their stopped messages ending in `UntrustedFolderRecoveryStep` (never `choco upgrade` / `--force`); WatchFailed → `StoppedWatchFailedMessage` (the `--force` repair advice); ReleaseIncomplete alone → `NotVerifiedReleaseIncompleteMessage`; a watchdog kind **plus** ReleaseIncomplete → that kind's stopped message (its action advice takes precedence; the untrusted-folder advice is never replaced by `--force`) followed by the fixed `ReleaseIncompleteAlsoNote`. History recognises each fixed message, including the three combined ones.
+- **Verifier.** The client verifier calls a new `ChocolateyClientUpdatePostcheck.Evaluate(result, ReviewedClientRunFault fact, source, target, sid)` overload; it applies the fact first exactly as the binding overload does (watchdog verdict, then ReleaseIncomplete) and is the only `src` entry besides the helper-side binding overload; `EvaluateForTests` stays banned. There is no free-enum overload reachable from `src`.
+
+### 8.4 Compatibility and versioning
+
+- **(a) Package route unchanged.** Responses for `ChocolateyMachineRuntimeLimitsV3` (and every non-client route) never carry the property: `CreateResponse`/`TryReadResponse` keep their signatures and the package shape, so their bytes are identical and every existing golden and codec test stays unchanged. A package-shape reader rejects a frame that carries the field (new negative test).
+- **(b) New desktop, older helper.** An older helper never admits the client route (A1 → `RequestNotAdmitted`); its 20-property refusal fails S14a under the client shape → Uncertain, never Success. In practice the desktop never sends the client route to such a helper: `Supports` (before the claim) requires the deployed capability token `Update/ChocolateyClientSelfUpdateV1`, which older capability files lack and the current allow-list rejects. The field is therefore only ever produced by helpers that know it.
+- **(c) Older desktop, new helper.** Older desktops never send the client route, so they never receive a 21-property frame; package-route exchanges between any old/new pair are byte-identical and stay interoperable.
+- **(d) Version.** Protocol value stays `"2"`, following O1: the change is additive and scoped to a route no deployed pair has ever exchanged, and the route-scoped capability token (ADR-022 manifest) is the version gate for the client shape. Allocating `"3"` would orphan `"2"` for the unchanged package route. The fact-extension record (rev 3) is extended by this section, not rewritten; reviewers may still choose `"3"` before admission, which would only change `ProtocolVersion` and the capability file.
