@@ -4,6 +4,8 @@ Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03`, `TM-04`, `TM-07`, 
 
 Status: **draft for review; not approved; authorizes nothing.** Part A (the confirming evidence run and the optional H3 runas probe) reuses the committed, reviewed host-evidence script and is ready for owner approval. Parts B (v2 redeploy) and C (ADR-025 exact-artifact test) **cannot run yet**: the tooling they need is missing or does not fit the current host (§11). No host action has happened. The owner runs every step; the agent runs nothing on the host, including through Remote Control.
 
+**Owner decision (2026-11-02):** "You can build the tool, but we'll run the tests on my PC later today." This approves building the missing cloud tooling (G1–G4 data-preserving redeploy, caller and database preservation; G3 candidate builder; G5 exact-artifact test design). It approves no host action: the owner runs Part A on the PC later today under the §9 wordings, and Parts B and C still need their own exact approvals once the tooling is reviewed and green on Windows CI. G7 (evidence carry-over) and G9 (real-update test) remain open owner decisions.
+
 ## 0. Purpose and gate map
 
 ADR-031 owner decision 7 approves the activation step (a `HasSupportedMode`/allow-list change for the Chocolatey routes), but only after the recorded gates are met. This plan puts the owner-host gates into one ordered session. Activation itself is a later, separately reviewed code change. It is not part of this session.
