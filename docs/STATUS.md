@@ -1,5 +1,11 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — ADR-031 accepted; host Chocolatey aligned to 2.7.5 (owner, 2026-11-02).**
+- The owner accepted [ADR-031](adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) Option 2: a reviewed Chocolatey release list replacing the single pin, plus a separate reviewed "Update Chocolatey to X" job run by the trusted current client and verified against X's manifest.
+- The owner reports updating the host's Chocolatey to 2.7.5 by hand.
+- Next: re-run the host evidence probe to confirm 2.7.5 eligibility; it is also the first O5/A-Q1/A2-L3 evidence on the eligible install. The host still has no Chocolatey-managed target package. Implementation of ADR-031 is in progress.
+- The route stays non-admitted.
+
 **Task 73 — Desktop UI and UX overhaul: direction accepted (2026-11-01).** The owner chose concept A (Calm Native) as the base, with B's Ready / Needs review / Ignored grouping on Updates and D's Review → Update → Verify stepper for the job. Recorded in [ADR-030](adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md), with a five-phase [plan](review/TASK_73_UI_UX_OVERHAUL_PLAN.md); the evidence is the [audit](review/UI_UX_OVERHAUL_AUDIT.md), the [research](review/UI_UX_OVERHAUL_RESEARCH.md) and the [concepts](review/UI_UX_OVERHAUL_CONCEPTS.md). Implementation awaits owner approval of its branch and PR. No code has changed. It is not part of Task 50 admission.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
