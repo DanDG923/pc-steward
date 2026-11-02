@@ -20,6 +20,12 @@ if ($StandardUser) {
     $env:DOTNET_CLI_HOME = Join-Path $WorkRoot 'dotnet-home'
     $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = 'false'
     $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+    # Start-Process -Credential passes the runner account's environment, so APPDATA/LOCALAPPDATA still name
+    # runneradmin's profile, which this user cannot read (first CI run: NuGet "Failed to read NuGet.Config due to
+    # unauthorized access"). Give this disposable user its own per-run folders under the work root.
+    $env:APPDATA = Join-Path $WorkRoot 'appdata'
+    $env:LOCALAPPDATA = Join-Path $WorkRoot 'localappdata'
+    New-Item -ItemType Directory -Path $env:APPDATA, $env:LOCALAPPDATA -Force | Out-Null
     # Process-scoped, command-level Git configuration for this disposable user only (no Git config file is changed):
     # the checkout belongs to the runner account, so Git's ownership check would refuse rev-parse/status.
     $env:GIT_CONFIG_COUNT = '1'
