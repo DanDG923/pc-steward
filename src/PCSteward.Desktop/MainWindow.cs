@@ -819,7 +819,7 @@ public sealed class MainWindow : Window
             .ToArray();
         if (currentIdentityCandidates.Length > 0)
         {
-            panel.Children.Add(PageCopy($"{DisplayFormat.Plural(currentIdentityCandidates.Length, "item")} can be confirmed together, because the package source reports the installed version is already the newest."));
+            panel.Children.Add(PageCopy($"{DisplayFormat.Plural(currentIdentityCandidates.Length, "item")} can be confirmed together, because the package source reports the installed version is the same as the available version."));
             Button confirmAll = StewardVisuals.ActionButton("Confirm all current package identities", "that the source reports as already installed");
             confirmAll.Click += async (_, _) => await ConfirmCurrentPackageIdentitiesAsync(currentIdentityCandidates);
             panel.Children.Add(confirmAll);
@@ -981,7 +981,7 @@ public sealed class MainWindow : Window
         {
             XamlRoot = Content.XamlRoot,
             Title = "Confirm current package identities?",
-            Content = "This confirms the package identity only for the listed apps whose package source reports the installed version is already the newest. Newer, unknown, unavailable or conflicting matches are skipped. You can undo each one on the Decisions page. No update will start.",
+            Content = "This confirms the package identity only for the listed apps whose package source reports the installed version is the same as the available version. Newer, unknown, unavailable or conflicting matches are skipped. You can undo each one on the Decisions page. No update will start.",
             PrimaryButtonText = "Confirm mappings",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
@@ -1249,7 +1249,7 @@ public sealed class MainWindow : Window
 
     private bool FocusPageSearch()
     {
-        if (pageSearchTarget is not { } target || !target.Focus(FocusState.Keyboard)) return false;
+        if (IsPopupOpen() || pageSearchTarget is not { } target || !target.Focus(FocusState.Keyboard)) return false;
         if (target is TextBox box) box.SelectAll();
         return true;
     }
