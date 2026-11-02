@@ -350,7 +350,11 @@ public sealed class ChocolateyClientUpdateViewModelTests
                 }
                 shown++;
                 Assert.AreEqual(expected, item.VerificationDetail, $"{stop} {release}");
-                Assert.AreEqual(expected, ChocolateyClientUpdatePresentation.TrailingRunFaultMessage(" " + expected));
+                // Independent review L1: recorded as a fixed leading marker from the fault value; the visible diagnostic omits it.
+                string marker = ChocolateyClientUpdatePresentation.RunFaultMarker(fault)!;
+                StringAssert.StartsWith(ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, observation), marker + " Owned work");
+                Assert.IsFalse(item.Diagnostic.Contains("client-run-fault", StringComparison.Ordinal), item.Diagnostic);
+                StringAssert.StartsWith(item.Diagnostic, "Owned work or invocation is unresolved;");
                 Assert.IsTrue(item.Fields.Any(field => field.Label == "Verification" && field.Text == expected));
                 if (stop is ReviewedClientWatchdogStop.SetupOverrideDuringRun or ReviewedClientWatchdogStop.RootWritableDuringRun)
                     StringAssert.Contains(item.VerificationDetail, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
@@ -359,15 +363,58 @@ public sealed class ChocolateyClientUpdateViewModelTests
             }
         Assert.AreEqual(7, shown);
 
-        // Another route or outcome, or the text not at the end, shows nothing.
+        // Only the workflow's leading marker is recognised: message text (at the end or anywhere), another route or outcome, a
+        // marker not at the start, or a longer token, shows nothing.
         string root = ChocolateyClientUpdatePresentation.StoppedRootWritableMessage;
+        string rootMarker = ChocolateyClientUpdatePresentation.RunFaultMarker(
+            ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.RootWritableDuringRun, false))!;
         ReviewedUpdateOperation package = PackageOperation();
-        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(package, Terminal(UpdateDispatchOutcome.Uncertain, "x " + root)));
-        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, root + " x")));
-        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, root)), "only an appended message");
-        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Failed, "x " + root)));
-        Assert.IsNull(ChocolateyClientUpdatePresentation.TrailingRunFaultMessage(null));
-        Assert.IsNull(ChocolateyClientUpdatePresentation.TrailingRunFaultMessage(" " + ChocolateyClientUpdatePresentation.LostTrackCautionMessage));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, "x " + root)), "never the ending");
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, root)));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, "x " + rootMarker + " y")));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, rootMarker + "-x y")));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(package, Terminal(UpdateDispatchOutcome.Uncertain, rootMarker + " x")));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Failed, rootMarker + " x")));
+        Assert.AreEqual(root, ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, rootMarker + " x")));
+        // After the workflow's other leading markers (helper-check prefixed last, then lingering), the client marker still leads.
+        string led = ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " " + ReviewedUpdateLingeringProcesses.Token + " " + rootMarker + " x " + root;
+        Assert.AreEqual(root, ReviewedUpdateHistoryPresentation.UncertainDetail(client, Terminal(UpdateDispatchOutcome.Uncertain, led)));
+        ReviewedUpdateHistoryItemViewModel ledItem = Item(client, UpdateDispatchState.Uncertain, UpdateDispatchOutcome.Uncertain, led);
+        Assert.AreEqual(root, ledItem.VerificationDetail);
+        Assert.AreEqual(ReviewedUpdateLingeringProcesses.HistoryNote, ledItem.LingeringProcessesNote);
+        Assert.AreEqual(ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic + " x " + root, ledItem.Diagnostic, "both recognised markers are stripped");
+    }
+
+    [TestMethod]
+    public void AHelperDiagnosticEndingWithAFixedMessageIsNeverShownAsAFault()
+    {
+        // Independent review L1 (FR-HIS-01/03): a NotStarted launch with run fault None leaves an unsettled client record without a
+        // marker; its helper diagnostic ending with a watchdog message must not show the watchdog detail.
+        ReviewedUpdateOperation client = ClientOperation("2.7.5", "2.8.0");
+        string root = ChocolateyClientUpdatePresentation.StoppedRootWritableMessage;
+        ReviewedClientRunFault none = ReviewedClientRunFault.FromAcceptedHelperReply(ReviewedClientWatchdogStop.None, false);
+        ReviewedUpdateDispatchObservation notStarted = new(ReviewedUpdateInvocation.NotStarted, ReviewedUpdateProviderStatus.Failed, null,
+            "helper said: " + root, Task.CompletedTask, false, false, false, false, true, ClientRunFault: none);
+        string message = ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, notStarted);
+        StringAssert.EndsWith(message, " " + root, "the spoofed text is at the end");
+        StringAssert.StartsWith(message, "Owned work", "no marker for a not-started launch with no fault");
+        ReviewedUpdateHistoryItemViewModel item = Item(client, UpdateDispatchState.Uncertain, UpdateDispatchOutcome.Uncertain, message);
+        Assert.IsNull(item.VerificationDetail);
+        Assert.IsFalse(item.Fields.Any(field => field.Label == "Verification"));
+
+        // A launch that may have started with no fault shows the lost-track caution (marker-based), never the spoofed watchdog text.
+        foreach (ReviewedUpdateInvocation invocation in new[] { ReviewedUpdateInvocation.Started, ReviewedUpdateInvocation.Unknown })
+        {
+            string lost = ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, notStarted with { Invocation = invocation });
+            StringAssert.StartsWith(lost, ChocolateyClientUpdatePresentation.LostTrackMarker + " Owned work");
+            ReviewedUpdateHistoryItemViewModel lostItem = Item(client, UpdateDispatchState.Uncertain, UpdateDispatchOutcome.Uncertain, lost);
+            Assert.AreEqual(ChocolateyClientUpdatePresentation.LostTrackCautionMessage, lostItem.VerificationDetail);
+            Assert.IsFalse(lostItem.Diagnostic.Contains(ChocolateyClientUpdatePresentation.LostTrackMarker, StringComparison.Ordinal));
+        }
+        // The caution's text alone, at the end of a helper diagnostic, is not recognised either.
+        ReviewedUpdateDispatchObservation spoofedCaution = notStarted with { Diagnostic = "x " + ChocolateyClientUpdatePresentation.LostTrackCautionMessage };
+        Assert.IsNull(Item(client, UpdateDispatchState.Uncertain, UpdateDispatchOutcome.Uncertain,
+            ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, spoofedCaution)).VerificationDetail);
     }
 
     [TestMethod]

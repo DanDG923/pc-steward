@@ -160,18 +160,31 @@ public static class ReviewedUpdateHistoryPresentation
                 _ => record.Terminal is { } terminal ? Outcome(terminal) : "Finished, but the recorded result is unreadable.",
             };
         ReviewedUpdateTerminalRecord? trusted = record.IntegrityVerified ? record.Terminal : null;
-        int lingeringAt = 0;
+        int lingeringAt = 0, clientMarkerAt = 0, clientMarkerLength = 0;
         bool lingering = trusted is not null && LingeringRecorded(trusted.Diagnostic, out lingeringAt);
+        string? uncertainDetail = trusted is not null && record.State == UpdateDispatchState.Uncertain
+            ? ClientUncertainMarker(operation, trusted, out clientMarkerAt, out clientMarkerLength) : null;
         return new(title, status, operation is null ? "Unknown" : Mode(operation.Mode), operation is null ? "Unknown" : Candidate(operation),
             operation is null ? null : ReviewedUpdateProviderDisclosure.GetRiskText(operation), blocks,
             record.Terminal is null ? string.Empty
-                : SanitizedDiagnosticBundle.Sanitize(lingering ? WithoutLingeringMarker(trusted!.Diagnostic, lingeringAt) : record.Terminal.Diagnostic),
+                : SanitizedDiagnosticBundle.Sanitize(trusted is null ? record.Terminal.Diagnostic
+                    : WithoutRecognisedMarkers(trusted.Diagnostic, lingering, lingeringAt, clientMarkerAt, clientMarkerLength)),
             trusted is null ? null : HelperReport(trusted.HelperCheck),
             operation is null ? "Unknown" : Route(operation.RouteContract),
             trusted is null ? null
                 : record.State == UpdateDispatchState.Final ? VerificationDetail(trusted)
-                : record.State == UpdateDispatchState.Uncertain ? UncertainDetail(operation, trusted) : null,
+                : uncertainDetail,
             lingering ? ReviewedUpdateLingeringProcesses.HistoryNote : null);
+    }
+
+    /// <summary>
+    /// Display only: the user-visible diagnostic without the recognised leading markers whose fixed text is already shown — the
+    /// client Uncertain marker (independent review L1; removed first, as it follows the lingering marker) and the lingering marker.
+    /// </summary>
+    private static string WithoutRecognisedMarkers(string diagnostic, bool lingering, int lingeringAt, int clientMarkerAt, int clientMarkerLength)
+    {
+        string shown = clientMarkerLength > 0 ? diagnostic.Remove(clientMarkerAt, clientMarkerLength) : diagnostic;
+        return lingering ? WithoutLingeringMarker(shown, lingeringAt) : shown;
     }
 
     internal const string EarlierChocolateyRouteText = "Earlier Chocolatey machine route (historical record).";
@@ -258,18 +271,32 @@ public static class ReviewedUpdateHistoryPresentation
     }
 
     /// <summary>
-    /// Independent review M1 (ADR-031 design §8.6): an Uncertain client self-update whose recorded diagnostic ends with the
-    /// workflow's fixed <see cref="ChocolateyClientUpdatePresentation.LostTrackCautionMessage"/> shows that caution as its
-    /// fixed text. ADR-031 design §8.3 (Task 73 client update UI): an Uncertain client record whose diagnostic ends with a
-    /// helper-reported run fault's fixed recovery message (appended on the unsettled path by
-    /// <c>ReviewedUpdateDispatchWorkflow.WithClientRunFaultWarning</c>) shows that message, so the untrusted-folder advice and the
-    /// release-incomplete note stay visible beside the Uncertain status. Any other route, outcome or diagnostic has none.
+    /// Independent review M1/L1 (ADR-031 design §8.3/§8.6, FR-HIS-01/03): an Uncertain client self-update whose recorded message
+    /// starts (after the workflow's other leading markers) with one of the fixed client markers that
+    /// <c>ReviewedUpdateDispatchWorkflow.WithClientUncertainMarker</c> writes from the codec-validated run-fault value or the
+    /// lost-track condition shows that marker's fixed text — a run fault's recovery message (so the untrusted-folder advice and
+    /// the release-incomplete note stay visible beside the Uncertain status) or the lost-track caution. Text anywhere else,
+    /// including a helper diagnostic that ends with a fixed message, is never interpreted. Any other route or outcome has none.
     /// Display only; it never changes the recorded outcome.
     /// </summary>
     internal static string? UncertainDetail(ReviewedUpdateOperation? operation, ReviewedUpdateTerminalRecord terminal) =>
-        operation?.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1 || terminal.Outcome != UpdateDispatchOutcome.Uncertain ? null
-        : ChocolateyClientUpdatePresentation.EndsWithLostTrackCaution(terminal.Diagnostic) ? ChocolateyClientUpdatePresentation.LostTrackCautionMessage
-        : ChocolateyClientUpdatePresentation.TrailingRunFaultMessage(terminal.Diagnostic);
+        ClientUncertainMarker(operation, terminal, out _, out _);
+
+    private static string? ClientUncertainMarker(ReviewedUpdateOperation? operation, ReviewedUpdateTerminalRecord terminal, out int markerAt,
+        out int markerLength)
+    {
+        markerAt = 0;
+        markerLength = 0;
+        if (operation?.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1 || terminal.Outcome != UpdateDispatchOutcome.Uncertain ||
+            terminal.Diagnostic is not { } diagnostic)
+            return null;
+        int at = LeadingMarkersLength(diagnostic);
+        string? detail = ChocolateyClientUpdatePresentation.LeadingUncertainMarkerMessage(diagnostic.AsSpan(at), out int length);
+        if (detail is null) return null;
+        markerAt = at;
+        markerLength = length;
+        return detail;
+    }
 
     private static readonly ReviewedUpdateProviderStatus[] StoppedStatuses =
         [ReviewedUpdateProviderStatus.Cancelled, ReviewedUpdateProviderStatus.TimedOut, ReviewedUpdateProviderStatus.Failed];
@@ -277,20 +304,26 @@ public static class ReviewedUpdateHistoryPresentation
     private static readonly string[] LeadingMarkers = [ReviewedUpdateDispatchWorkflow.HelperCheckNotRecordedDiagnostic, ReviewedUpdateLingeringProcesses.Token];
 
     // The workflow may prefix its fixed markers (in either order) so truncation never drops them.
-    private static string StripLeadingMarkers(string diagnostic)
+    private static string StripLeadingMarkers(string diagnostic) => diagnostic[LeadingMarkersLength(diagnostic)..];
+
+    // The length of the workflow's fixed leading markers (each followed by one space) at the start of the diagnostic.
+    private static int LeadingMarkersLength(string diagnostic)
     {
-        string message = diagnostic;
+        int at = 0;
         for (bool stripped = true; stripped;)
         {
             stripped = false;
             foreach (string marker in LeadingMarkers)
-                if (message.StartsWith(marker + " ", StringComparison.Ordinal))
+            {
+                ReadOnlySpan<char> rest = diagnostic.AsSpan(at);
+                if (rest.Length > marker.Length && rest.StartsWith(marker, StringComparison.Ordinal) && rest[marker.Length] == ' ')
                 {
-                    message = message[(marker.Length + 1)..];
+                    at += marker.Length + 1;
                     stripped = true;
                 }
+            }
         }
-        return message;
+        return at;
     }
 
     internal const string HelperReportPrefix = "Recorded at the time: reported by PC Steward's administrator helper: ";

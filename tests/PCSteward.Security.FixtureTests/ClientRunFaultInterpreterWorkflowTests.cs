@@ -239,10 +239,14 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
         string message = ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, faulted);
         StringAssert.EndsWith(message, " " + ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage);
         Assert.IsFalse(message.Contains(caution, StringComparison.Ordinal));
-        // Nothing was launched: no caution.
+        // Independent review L1: the codec-validated fault value selects the fixed leading marker; never the lost-track marker.
+        StringAssert.StartsWith(message, "client-run-fault-watch-failed Owned work");
+        Assert.IsFalse(message.Contains(ChocolateyClientUpdatePresentation.LostTrackMarker, StringComparison.Ordinal));
+        // Nothing was launched: no caution and no marker.
         ReviewedUpdateDispatchObservation notStarted = new(ReviewedUpdateInvocation.NotStarted, ReviewedUpdateProviderStatus.Failed, null, "x",
             Task.CompletedTask, false, false, false, false, true);
         Assert.IsFalse(ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, notStarted).Contains(caution, StringComparison.Ordinal));
+        StringAssert.StartsWith(ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, notStarted), "Owned work");
         // The package route is unchanged.
         ReviewedUpdateOperation package = Protocol2InterpreterFixture.Operation();
         ReviewedUpdateDispatchObservation packageUnknown = Protocol2InterpreterFixture.Interpret(package,
@@ -250,11 +254,17 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
             .WorkflowObservation;
         Assert.AreEqual("m", ReviewedUpdateDispatchWorkflow.WithClientLostTrackCaution(package, packageUnknown, "m"));
         Assert.IsFalse(ReviewedUpdateDispatchWorkflow.UnsettledMessage(package, packageUnknown).Contains(caution, StringComparison.Ordinal));
-        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(package, UncertainTerminal("x " + caution)));
-        // History shows the caution only for an Uncertain client record whose diagnostic ends with it.
+        Assert.AreEqual("m", ReviewedUpdateDispatchWorkflow.WithClientUncertainMarker(package, packageUnknown, "m"));
+        string marker = ChocolateyClientUpdatePresentation.LostTrackMarker;
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(package, UncertainTerminal(marker + " x")));
+        // Independent review L1: history shows the caution only for an Uncertain client record that starts with the workflow's
+        // fixed marker; the caution's text (at the end or anywhere) is never interpreted.
+        Assert.AreEqual(caution, ReviewedUpdateHistoryPresentation.UncertainDetail(client, UncertainTerminal(marker + " x")));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, UncertainTerminal("x " + caution)));
         Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, UncertainTerminal(caution + " x")));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, UncertainTerminal("x " + marker + " " + caution)));
         Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, new ReviewedUpdateTerminalRecord(UpdateDispatchOutcome.Unverified,
-            Protocol2InterpreterFixture.ReviewedAt, null, UpdateDispatchSettlementState.OwnedWorkStopped, "x " + caution)));
+            Protocol2InterpreterFixture.ReviewedAt, null, UpdateDispatchSettlementState.OwnedWorkStopped, marker + " x " + caution)));
     }
 
     private static void AssertLostTrackCaution(ReviewedUpdateOperation client, ReviewedUpdateDispatchObservation observation)
@@ -262,6 +272,7 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
         string caution = ChocolateyClientUpdatePresentation.LostTrackCautionMessage;
         string message = ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, observation);
         StringAssert.EndsWith(message, " " + caution, observation.Diagnostic);
+        StringAssert.StartsWith(message, ChocolateyClientUpdatePresentation.LostTrackMarker + " ", "independent review L1: a leading fixed marker");
         StringAssert.Contains(caution, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
         Assert.IsFalse(message.Contains("choco upgrade", StringComparison.Ordinal) || message.Contains("--force", StringComparison.Ordinal), message);
         // As FinalizeAsync records it (sanitized, bounded), history recognises the caution on the Uncertain record.
@@ -270,6 +281,7 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
             UpdateDispatchState.Uncertain, Protocol2InterpreterFixture.ReviewedAt, UncertainTerminal(recorded), true));
         Assert.AreEqual(caution, view.VerificationDetail);
         StringAssert.EndsWith(view.Diagnostic, caution);
+        Assert.IsFalse(view.Diagnostic.Contains(ChocolateyClientUpdatePresentation.LostTrackMarker, StringComparison.Ordinal), "the marker is not shown");
         StringAssert.StartsWith(view.Status, "Uncertain:");
     }
 

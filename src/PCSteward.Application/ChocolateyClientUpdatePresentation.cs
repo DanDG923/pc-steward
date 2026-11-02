@@ -225,31 +225,55 @@ public static class ChocolateyClientUpdatePresentation
         StoppedRootWritableReleaseIncompleteMessage or StoppedWatchFailedReleaseIncompleteMessage or RunFaultNotReportedMessage;
 
     /// <summary>
-    /// History recognition of <see cref="LostTrackCautionMessage"/> (independent review M1): true only when an Uncertain record's
-    /// diagnostic ends with the fixed caution, where the workflow appends it. Display only.
+    /// Independent review L1 (ADR-031 design §8.3/§8.6, FR-HIS-01/03): the fixed leading marker the workflow writes at the start of
+    /// an Uncertain client self-update's recorded message when the launch may have started but no watchdog stop or release fault
+    /// was reported (<see cref="LostTrackCautionMessage"/>).
     /// </summary>
-    internal static bool EndsWithLostTrackCaution(string? diagnostic) =>
-        diagnostic is not null && diagnostic.EndsWith(" " + LostTrackCautionMessage, StringComparison.Ordinal);
+    internal const string LostTrackMarker = "client-lost-track";
+
+    // Independent review L1: one fixed leading marker per fixed Uncertain detail. Each is matched only as a whole token at the
+    // start of the recorded message (after the workflow's other leading markers), never by the message text or its ending.
+    private static readonly (string Marker, string Message)[] UncertainMarkers =
+    [
+        ("client-run-fault-release-incomplete", NotVerifiedReleaseIncompleteMessage),
+        ("client-run-fault-setup-override", StoppedSetupOverrideMessage),
+        ("client-run-fault-setup-override-release-incomplete", StoppedSetupOverrideReleaseIncompleteMessage),
+        ("client-run-fault-root-writable", StoppedRootWritableMessage),
+        ("client-run-fault-root-writable-release-incomplete", StoppedRootWritableReleaseIncompleteMessage),
+        ("client-run-fault-watch-failed", StoppedWatchFailedMessage),
+        ("client-run-fault-watch-failed-release-incomplete", StoppedWatchFailedReleaseIncompleteMessage),
+        (LostTrackMarker, LostTrackCautionMessage),
+    ];
 
     /// <summary>
-    /// ADR-031 design §8.3, history recognition (Task 73 client update UI): the fixed run-fault recovery message (one of the
-    /// non-null <see cref="RunFaultMessage"/> results) that an Uncertain record's diagnostic ends with, where the workflow appends
-    /// it on the unsettled path; otherwise null. Combined messages are matched first, so one is never read as its watchdog part.
-    /// Display only.
+    /// Independent review L1: the fixed leading marker for a codec-validated client run fault (the marker of its
+    /// <see cref="RunFaultMessage"/>), or null for <see cref="ReviewedClientRunFault.IsNone"/>. Written only by the workflow.
     /// </summary>
-    internal static string? TrailingRunFaultMessage(string? diagnostic)
+    internal static string? RunFaultMarker(ReviewedClientRunFault fault)
     {
-        if (diagnostic is null) return null;
-        foreach (string message in RunFaultMessagesCombinedFirst)
-            if (diagnostic.EndsWith(" " + message, StringComparison.Ordinal)) return message;
-        return null;
+        string? message = RunFaultMessage(fault);
+        if (message is null) return null;
+        foreach ((string marker, string fixedMessage) in UncertainMarkers)
+            if (string.Equals(fixedMessage, message, StringComparison.Ordinal)) return marker;
+        throw new InvalidOperationException("Every run-fault message has a fixed marker.");
     }
 
-    private static readonly string[] RunFaultMessagesCombinedFirst =
-    [
-        StoppedSetupOverrideReleaseIncompleteMessage, StoppedRootWritableReleaseIncompleteMessage, StoppedWatchFailedReleaseIncompleteMessage,
-        StoppedSetupOverrideMessage, StoppedRootWritableMessage, StoppedWatchFailedMessage, NotVerifiedReleaseIncompleteMessage,
-    ];
+    /// <summary>
+    /// Independent review L1, history recognition: when <paramref name="text"/> (an Uncertain client record's message after the
+    /// workflow's other leading markers) starts with one of the fixed markers as a whole token, its fixed detail message and the
+    /// token's length including one following space; otherwise null. Helper diagnostic text is never interpreted. Display only.
+    /// </summary>
+    internal static string? LeadingUncertainMarkerMessage(ReadOnlySpan<char> text, out int markerLength)
+    {
+        foreach ((string marker, string message) in UncertainMarkers)
+        {
+            if (!text.StartsWith(marker, StringComparison.Ordinal)) continue;
+            if (text.Length == marker.Length) { markerLength = marker.Length; return message; }
+            if (text[marker.Length] == ' ') { markerLength = marker.Length + 1; return message; }
+        }
+        markerLength = 0;
+        return null;
+    }
 
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>
