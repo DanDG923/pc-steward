@@ -111,3 +111,5 @@ Its findings are applied above:
   - the v2 redeploy;
   - the proxy and client-certificate disclosure decision;
   - owner approval.
+
+**Extra helper file identified (owner read-only listing, 2026-11-02):** `helpers\Chocolatey.PowerShell.dll.old`. This is Chocolatey's own rename-in-place backup of the previous release's in-use DLL, left by the self-upgrade, and not part of 2.7.5. Removing it is an owner host action, which needs administrator rights in `ProgramData\chocolatey`; PC Steward never deletes in the Chocolatey root. After removal, the listing should print nothing, and the next approved evidence run should report `matchesPinnedRelease: true`. Design input for ADR-031: self-upgrade renames in-use files to `*.old` and can leave them behind, so the client-update postcheck must handle such leftovers deterministically and fail closed.
