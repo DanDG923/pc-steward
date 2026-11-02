@@ -33,7 +33,10 @@ public sealed class ChocolateyClientUpdateViewModelTests
         StringAssert.StartsWith(model.InstalledText, "Chocolatey 2.7.5, as Chocolatey's package list reported at the last scan.");
         Assert.IsNull(model.OfferVersion);
         Assert.AreEqual("No newer reviewed Chocolatey release is available.", model.OfferText);
-        Assert.AreEqual("Chocolatey 2.7.5 · No newer reviewed release", model.Summary);
+        // Independent review L2: the version is qualified as the scan's report (Settings card and Installed apps "Status" row).
+        Assert.AreEqual("Chocolatey 2.7.5 (reported by the last scan) · No newer reviewed release", model.Summary);
+        Assert.IsTrue(model.CatalogAvailable);
+        Assert.IsTrue(model.InstalledReported);
         CollectionAssert.AreEqual(Compiled.ListedVersions.ToArray(), model.ListedVersions.ToArray());
         Assert.AreEqual("2.7.5", model.ReviewedReleasesText);
         Assert.AreEqual(Signer, model.Signer);
@@ -82,10 +85,12 @@ public sealed class ChocolateyClientUpdateViewModelTests
         {
             ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(Fixture, installed, () => ReviewedRouteSplitTokenState.SplitTokenLimited);
             Assert.AreEqual("2.9.1", model.OfferVersion, "the newest listed release, never an intermediate one");
-            Assert.AreEqual("Update Chocolatey to 2.9.1", model.Title);
-            Assert.AreEqual(ChocolateyClientUpdatePresentation.Title("2.9.1"), model.Title);
-            Assert.AreEqual($"Chocolatey {installed} → 2.9.1: the newest release on PC Steward's reviewed list.", model.OfferText);
-            Assert.AreEqual($"Chocolatey {installed} · 2.9.1 reviewed, not available yet", model.Summary);
+            // Independent review L3: until admission the offer comes from unverified scan data, so it is never asserted as an update.
+            Assert.AreEqual("A newer reviewed Chocolatey release may be available: 2.9.1", model.Title);
+            Assert.IsFalse(model.Title.StartsWith("Update Chocolatey to", StringComparison.Ordinal));
+            Assert.AreEqual($"A newer reviewed Chocolatey release may be available: 2.9.1. The last scan reported Chocolatey {installed}; 2.9.1 is the " +
+                "newest release on PC Steward's reviewed list, and PC Steward checks the installed Chocolatey's files before any update.", model.OfferText);
+            Assert.AreEqual($"Chocolatey {installed} (reported by the last scan) · 2.9.1 may be available; updating is not available yet", model.Summary);
             Assert.AreEqual("2.7.5, 2.8.0, 2.9.1", model.ReviewedReleasesText);
             // Even with an offer and a split token, the route is not admitted.
             CollectionAssert.AreEqual(new[] { ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview }, model.UnavailableReasons.ToArray());
@@ -94,6 +99,8 @@ public sealed class ChocolateyClientUpdateViewModelTests
 
         ChocolateyClientUpdateViewModel newest = ChocolateyClientUpdateViewModel.Open(Fixture, "2.9.1", () => ReviewedRouteSplitTokenState.SplitTokenLimited);
         Assert.IsNull(newest.OfferVersion, "never an equal release");
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.NoNewerReleaseText, newest.OfferText, "listed, nothing newer listed");
+        Assert.AreEqual("Chocolatey 2.9.1 (reported by the last scan) · No newer reviewed release", newest.Summary);
         CollectionAssert.Contains(newest.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.NoNewerReviewedRelease);
         AssertConfirmDisabled(newest);
 
@@ -117,7 +124,6 @@ public sealed class ChocolateyClientUpdateViewModelTests
         ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(Fixture, installed, () => ReviewedRouteSplitTokenState.SplitTokenLimited);
         Assert.IsNull(model.OfferVersion, "an unlisted installed client is never offered an update, and a newer one is never downgraded");
         Assert.AreEqual("Update Chocolatey", model.Title);
-        Assert.AreEqual(ChocolateyClientUpdateViewModel.NoNewerReleaseText, model.OfferText);
         CollectionAssert.AreEqual(new[]
         {
             ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview, ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed,
@@ -125,11 +131,42 @@ public sealed class ChocolateyClientUpdateViewModelTests
         Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledReleaseNotReviewedText, model.UnavailableFields[1].Text);
         bool wellFormed = installed is "2.4.0" or "3.0.0";
         Assert.AreEqual(wellFormed ? installed : null, model.InstalledVersion);
-        if (!wellFormed)
+        Assert.AreEqual(installed is not null, model.InstalledReported);
+        // Independent review M1: the offer text names the actual reason, never "no newer release" for an unlisted or unknown one.
+        Assert.AreNotEqual(ChocolateyClientUpdateViewModel.NoNewerReleaseText, model.OfferText);
+        if (wellFormed)
         {
-            Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledUnknownText, model.InstalledText);
-            Assert.AreEqual("Chocolatey (release unknown) · No newer reviewed release", model.Summary);
+            Assert.AreEqual("No update offered: the installed release is not on the reviewed list.", model.OfferText);
+            Assert.AreEqual($"Chocolatey {installed} (reported by the last scan) · Not on the reviewed list", model.Summary);
         }
+        else
+        {
+            Assert.AreEqual("No update offered: the installed release is unknown.", model.OfferText);
+            Assert.AreEqual("Chocolatey (release unknown) · No update offered", model.Summary);
+            // Independent review L4: no report at all is distinguished from a reported version that could not be read.
+            Assert.AreEqual(installed is null
+                ? "Unknown: no scan has reported a Chocolatey version."
+                : "Unknown: the last scan reported a Chocolatey version that could not be read.", model.InstalledText);
+        }
+        AssertConfirmDisabled(model);
+    }
+
+    [TestMethod]
+    public void AnOlderUnlistedInstalledReleaseSaysItIsNotOnTheReviewedList()
+    {
+        // Independent review M1: 2.4.0 is older than every listed release (fixture list through the test-only catalog seam), yet it is
+        // not offered anything, and the text says why: it is not on the reviewed list (never "no newer release is available").
+        ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(Fixture, "2.4.0", () => ReviewedRouteSplitTokenState.SplitTokenLimited);
+        Assert.IsNull(model.OfferVersion);
+        Assert.IsNull(ChocolateyClientUpdateViewModel.OfferTarget("2.4.0", Fixture.ListedVersions));
+        Assert.AreEqual("2.4.0", model.InstalledVersion);
+        Assert.AreEqual("Update Chocolatey", model.Title);
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledNotListedOfferText, model.OfferText);
+        Assert.AreEqual("Chocolatey 2.4.0 (reported by the last scan) · Not on the reviewed list", model.Summary);
+        Assert.AreEqual("2.7.5, 2.8.0, 2.9.1", model.ReviewedReleasesText);
+        Assert.AreEqual(model.OfferText, model.Fields.Single(field => field.Label == "Offer").Text);
+        CollectionAssert.Contains(model.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed);
+        CollectionAssert.DoesNotContain(model.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.NoNewerReviewedRelease);
         AssertConfirmDisabled(model);
     }
 
@@ -145,7 +182,12 @@ public sealed class ChocolateyClientUpdateViewModelTests
         {
             ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(catalog, "2.7.5", () => ReviewedRouteSplitTokenState.SplitTokenLimited);
             Assert.AreEqual(0, model.ListedVersions.Count);
-            Assert.AreEqual(ChocolateyClientUpdateViewModel.NoReviewedReleasesText, model.ReviewedReleasesText);
+            // Independent review L4: a list that fails validation is unavailable, never "None".
+            Assert.IsFalse(model.CatalogAvailable);
+            Assert.AreEqual("Unavailable", model.ReviewedReleasesText);
+            Assert.AreEqual("Reviewed releases: Unavailable", model.Fields.Single(field => field.Label == "Reviewed releases").AutomationName);
+            Assert.AreEqual(ChocolateyClientUpdateViewModel.CatalogUnavailableOfferText, model.OfferText);
+            Assert.AreEqual("Chocolatey 2.7.5 (reported by the last scan) · Reviewed releases unavailable", model.Summary);
             Assert.IsNull(model.OfferVersion);
             CollectionAssert.Contains(model.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.InstalledReleaseNotReviewed);
             AssertConfirmDisabled(model);
@@ -154,6 +196,46 @@ public sealed class ChocolateyClientUpdateViewModelTests
             Assert.AreEqual("Unknown", ChocolateyClientUpdateViewModel.Open(Compiled with { Signer = signer! }, "2.7.5", () => ReviewedRouteSplitTokenState.SplitTokenLimited).Signer);
         Assert.ThrowsExactly<ArgumentNullException>(() => ChocolateyClientUpdateViewModel.Open(null!, "2.7.5", () => ReviewedRouteSplitTokenState.SplitTokenLimited));
         Assert.ThrowsExactly<ArgumentNullException>(() => ChocolateyClientUpdateViewModel.Open(Compiled, "2.7.5", null!));
+    }
+
+    [TestMethod]
+    public void AFaultBuildingTheCompiledListFallsBackToAnUnavailableCatalog()
+    {
+        // Independent review L5: the composition reads the compiled list through ReadOrUnavailable, so no fault can fail startup.
+        Assert.AreSame(Compiled, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => Compiled));
+        Func<ChocolateyClientReleaseCatalogFacts>[] faulted =
+        [
+            () => throw new TypeInitializationException("PCSteward.Provider.Chocolatey.ChocolateyClientReleaseCatalog", new InvalidOperationException("list")),
+            () => throw new InvalidOperationException("list"), () => null!,
+        ];
+        foreach (Func<ChocolateyClientReleaseCatalogFacts> read in faulted)
+        {
+            ChocolateyClientReleaseCatalogFacts facts = ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(read);
+            Assert.AreSame(ChocolateyClientReleaseCatalogFacts.Unavailable, facts);
+            ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(facts, "2.7.5", () => ReviewedRouteSplitTokenState.SplitTokenLimited);
+            Assert.IsFalse(model.CatalogAvailable);
+            Assert.AreEqual(ChocolateyClientUpdateViewModel.ReviewedReleasesUnavailableText, model.ReviewedReleasesText);
+            Assert.AreEqual(ChocolateyClientUpdateViewModel.CatalogUnavailableOfferText, model.OfferText);
+            Assert.AreEqual("Unknown", model.Signer);
+            Assert.IsNull(model.OfferVersion);
+            AssertConfirmDisabled(model);
+        }
+        Assert.ThrowsExactly<ArgumentNullException>(() => ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(null!));
+
+        // A list that faults while it is read is unavailable too (the view never throws on display data).
+        ChocolateyClientUpdateViewModel throwing = ChocolateyClientUpdateViewModel.Open(new ChocolateyClientReleaseCatalogFacts(new ThrowingList(), Signer), "2.7.5",
+            () => ReviewedRouteSplitTokenState.SplitTokenLimited);
+        Assert.IsFalse(throwing.CatalogAvailable);
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.ReviewedReleasesUnavailableText, throwing.ReviewedReleasesText);
+        AssertConfirmDisabled(throwing);
+    }
+
+    private sealed class ThrowingList : IReadOnlyList<string>
+    {
+        public string this[int index] => throw new InvalidOperationException("unreadable");
+        public int Count => 1;
+        public IEnumerator<string> GetEnumerator() => throw new InvalidOperationException("unreadable");
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     [TestMethod]
@@ -201,11 +283,16 @@ public sealed class ChocolateyClientUpdateViewModelTests
         InventoryRow wingetNamedChocolatey = Row("winget", "chocolatey", "9.9.9");
         Assert.AreEqual("2.7.5", ChocolateyClientUpdateViewModel.ReportedInstalledVersion([git, client, wingetNamedChocolatey]));
         Assert.AreEqual("2.7.5", ChocolateyClientUpdateViewModel.ReportedInstalledVersion([Row("Chocolatey", "Chocolatey", "2.7.5")]));
-        Assert.IsNull(ChocolateyClientUpdateViewModel.ReportedInstalledVersion([git, wingetNamedChocolatey]), "no client row: unknown");
-        Assert.IsNull(ChocolateyClientUpdateViewModel.ReportedInstalledVersion([client, Row("chocolatey", "chocolatey", "2.8.0")]), "conflicting rows: unknown");
-        Assert.IsNull(ChocolateyClientUpdateViewModel.ReportedInstalledVersion([Row("chocolatey", "chocolatey", null)]));
-        Assert.IsNull(ChocolateyClientUpdateViewModel.ReportedInstalledVersion([Row("chocolatey", "chocolatey", "2.7.5-beta")]));
+        Assert.IsNull(ChocolateyClientUpdateViewModel.ReportedInstalledVersion([git, wingetNamedChocolatey]), "no client row: not reported");
         Assert.IsNull(ChocolateyClientUpdateViewModel.ReportedInstalledVersion([]));
+        // Independent review L4: a reported but unreadable version is the empty string (reported, unreadable), never null.
+        Assert.AreEqual(string.Empty, ChocolateyClientUpdateViewModel.ReportedInstalledVersion([client, Row("chocolatey", "chocolatey", "2.8.0")]), "conflicting rows");
+        Assert.AreEqual(string.Empty, ChocolateyClientUpdateViewModel.ReportedInstalledVersion([Row("chocolatey", "chocolatey", null)]));
+        Assert.AreEqual(string.Empty, ChocolateyClientUpdateViewModel.ReportedInstalledVersion([Row("chocolatey", "chocolatey", "2.7.5-beta")]));
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledUnreadableText, ChocolateyClientUpdateViewModel.Open(Compiled,
+            ChocolateyClientUpdateViewModel.ReportedInstalledVersion([Row("chocolatey", "chocolatey", "2.7.5-beta")]), () => ReviewedRouteSplitTokenState.SplitTokenLimited).InstalledText);
+        Assert.AreEqual(ChocolateyClientUpdateViewModel.InstalledUnknownText, ChocolateyClientUpdateViewModel.Open(Compiled,
+            ChocolateyClientUpdateViewModel.ReportedInstalledVersion([git]), () => ReviewedRouteSplitTokenState.SplitTokenLimited).InstalledText);
         Assert.ThrowsExactly<ArgumentNullException>(() => ChocolateyClientUpdateViewModel.ReportedInstalledVersion(null!));
 
         Assert.IsTrue(ChocolateyClientUpdateViewModel.IsClientRow(client));

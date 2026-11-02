@@ -2883,7 +2883,7 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>
-    /// ADR-031 (FR-UPD-15, FR-UI-03/04): the "Update Chocolatey to X" review. The split-token state is probed afresh for this
+    /// ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update review. The split-token state is probed afresh for this
     /// review. The route is not admitted, so Confirm is bound to <c>IsConfirmEnabled</c> (false) and no review, permit or dispatch
     /// path exists for it; if Confirm were ever chosen, only the not-started message is shown.
     /// </summary>

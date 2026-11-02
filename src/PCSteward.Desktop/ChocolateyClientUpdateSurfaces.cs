@@ -9,7 +9,7 @@ namespace PCSteward.Desktop;
 /// <summary>
 /// FR-UPD-15, FR-UI-03/04, TM-03/04/07/13; ADR-031 (owner decisions 1–5), ADR-030: thin rendering of
 /// <see cref="ChocolateyClientUpdateViewModel"/> — the Settings card row and Installed apps detail entry point, and the
-/// "Update Chocolatey to X" review dialog. It renders every line the view model exposes and binds Confirm's enabled state to
+/// Chocolatey client update review dialog ("may be available" until admission). It renders every line the view model exposes and binds Confirm's enabled state to
 /// <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> (always false while the route is not admitted). It holds no
 /// logic, starts nothing and has no review, confirm or dispatch path.
 /// </summary>
@@ -30,7 +30,6 @@ internal static class ChocolateyClientUpdateSurfaces
         ArgumentNullException.ThrowIfNull(model);
         StackPanel content = new() { Spacing = 4 };
         TextBlock summary = new() { Text = model.Summary, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap };
-        AutomationProperties.SetLiveSetting(summary, AutomationLiveSetting.Polite);
         content.Children.Add(summary);
         content.Children.Add(Heading(ChocolateyClientUpdateViewModel.FactsHeading));
         foreach (ReviewedDisplayField field in model.Fields) content.Children.Add(Line(field));

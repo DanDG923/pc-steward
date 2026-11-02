@@ -44,7 +44,9 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
                 !path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             .Select(File.ReadAllText));
         Assert.AreEqual(1, Regex.Count(all, @"\bChocolateyClientReleaseCatalog\b"), "one composition site of the catalog");
-        StringAssert.Contains(Desktop("App.xaml.cs"), "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalog.Current, showPostResetOnboarding");
+        // Independent review L5: the single read is wrapped so a fault building the compiled list never fails startup.
+        StringAssert.Contains(Desktop("App.xaml.cs"),
+            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), showPostResetOnboarding");
 
         // The catalog's compiled IL reads only the compiled list's versions in the native layer (the signer is a compiled constant).
         string chocolatey = CompiledIlScanner.BuiltSrcAssemblies().Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");
@@ -120,10 +122,11 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.IsFalse(Regex.IsMatch(surfaces, @"\b(TryConfirm|Click|DataOperationLease|ReviewedUpdateReview|ConfirmAndRunAsync|Dispatch\w*|LiveApprovedUpdate)\b"),
             "the surfaces hold no action");
 
-        // Accessibility (Phase 5 helpers, AC-UX best effort): level-3 headings, label-in-name entry, polite live summary, named lines.
+        // Accessibility (Phase 5 helpers, AC-UX best effort): level-3 headings, label-in-name entry, named lines. The dialog's
+        // summary is static text, so it is not a live region (independent review Info).
         StringAssert.Contains(surfaces, "StewardVisuals.SectionHeading(text, AutomationHeadingLevel.Level3)");
         StringAssert.Contains(surfaces, "AutomationProperties.SetName(entry, model.EntryAutomationName);");
-        StringAssert.Contains(surfaces, "AutomationProperties.SetLiveSetting(summary, AutomationLiveSetting.Polite);");
+        Assert.IsFalse(surfaces.Contains("SetLiveSetting", StringComparison.Ordinal), "no live region on the static summary");
         StringAssert.Contains(surfaces, "AutomationProperties.SetName(line, field.AutomationName);");
         StringAssert.Contains(surfaces, "AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);");
     }

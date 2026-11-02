@@ -7,7 +7,25 @@ namespace PCSteward.Application;
 /// normalized versions, strictly ascending, and the expected signer. Supplied once by the composition from the compiled list;
 /// never read from remote metadata, the database or a scan. Display only: it decides no trust and admits nothing.
 /// </summary>
-public sealed record ChocolateyClientReleaseCatalogFacts(IReadOnlyList<string> ListedVersions, string Signer);
+public sealed record ChocolateyClientReleaseCatalogFacts(IReadOnlyList<string> ListedVersions, string Signer)
+{
+    /// <summary>
+    /// Independent review L5: the facts shown when the compiled list cannot be read. An empty list fails validation, so the view
+    /// shows "Reviewed releases: Unavailable" and offers nothing.
+    /// </summary>
+    public static ChocolateyClientReleaseCatalogFacts Unavailable { get; } = new(Array.Empty<string>(), string.Empty);
+
+    /// <summary>
+    /// Independent review L5: the composition's single read of the compiled list. Any fault while building it (including a type
+    /// initializer failure) or a null result falls back to <see cref="Unavailable"/>, so the catalog can never fail startup.
+    /// </summary>
+    public static ChocolateyClientReleaseCatalogFacts ReadOrUnavailable(Func<ChocolateyClientReleaseCatalogFacts> read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        try { return read() ?? Unavailable; }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return Unavailable; }
+    }
+}
 
 /// <summary>Closed reasons the Chocolatey client update cannot be confirmed, in display order.</summary>
 public enum ChocolateyClientUpdateUnavailableReason
@@ -26,8 +44,8 @@ public enum ChocolateyClientUpdateUnavailableReason
 
 /// <summary>
 /// FR-UPD-15, FR-UPD-01/03–09, FR-UI-03/04, TM-03/04/07/13; ADR-031 (Option 2, owner decisions 1–5), ADR-030; design mapping
-/// §3.3, §3.7 and §8: the portable view model behind the Desktop's "Update Chocolatey to X" surface. It shows the installed
-/// Chocolatey release as the last scan reported it (or unknown), the offer (the newest strictly newer release on the compiled
+/// §3.3, §3.7 and §8: the portable view model behind the Desktop's Chocolatey client update surface. It shows the installed
+/// Chocolatey release as the last scan reported it (or why it is unknown), the offer (the newest strictly newer release on the compiled
 /// reviewed list, only from a listed installed release), the review-sheet facts and disclosures of
 /// <see cref="ChocolateyClientUpdatePresentation"/>, and every reason the update is unavailable.
 /// <list type="bullet">
@@ -36,7 +54,8 @@ public enum ChocolateyClientUpdateUnavailableReason
 /// <see cref="CanConfirm"/> is always false. This type holds no review, draft, permit or confirmation path; it starts nothing.</item>
 /// <item>The split-token state is probed through the injected function on every <see cref="Open"/>, never cached.</item>
 /// <item>The installed version comes from the scan's Chocolatey package list and is display data only: the offer is
-/// recomputed by the native observer from the held client's files before any job could exist.</item>
+/// recomputed by the native observer from the held client's files before any job could exist. Until admission the offer is
+/// therefore worded as "may be available", never as an update that will happen (independent review L3).</item>
 /// </list>
 /// </summary>
 public sealed class ChocolateyClientUpdateViewModel
@@ -57,10 +76,19 @@ public sealed class ChocolateyClientUpdateViewModel
     public const string UnavailableHeading = "Why this update cannot be confirmed";
     public const string NotStartedText = "No update was started. Updating Chocolatey itself is not available yet.";
 
-    public const string InstalledUnknownText = "Unknown: no scan has reported the installed Chocolatey release.";
+    public const string InstalledUnknownText = "Unknown: no scan has reported a Chocolatey version.";
+    public const string InstalledUnreadableText = "Unknown: the last scan reported a Chocolatey version that could not be read.";
+    public const string ReportedByLastScanText = "(reported by the last scan)";
+    public const string MayBeAvailableTitlePrefix = "A newer reviewed Chocolatey release may be available: ";
     public const string NoNewerReleaseText = "No newer reviewed Chocolatey release is available.";
-    public const string NoReviewedReleasesText = "None";
+    public const string InstalledNotListedOfferText = "No update offered: the installed release is not on the reviewed list.";
+    public const string InstalledUnknownOfferText = "No update offered: the installed release is unknown.";
+    public const string CatalogUnavailableOfferText = "No update offered: PC Steward's list of reviewed releases is unavailable.";
+    public const string ReviewedReleasesUnavailableText = "Unavailable";
     public const string NoNewerReleaseShort = "No newer reviewed release";
+    public const string InstalledNotListedShort = "Not on the reviewed list";
+    public const string InstalledUnknownShort = "No update offered";
+    public const string CatalogUnavailableShort = "Reviewed releases unavailable";
     public const string NotAvailableYetShort = "not available yet";
     public const string PermissionText =
         "Windows will ask for permission once, after you confirm. Checking for this update never asks for administrator permission.";
@@ -79,10 +107,12 @@ public sealed class ChocolateyClientUpdateViewModel
         "The installed Chocolatey release is unknown or not on PC Steward's reviewed list, so no update is offered. Bringing Chocolatey " +
         "to a reviewed release is done outside PC Steward.";
 
-    private ChocolateyClientUpdateViewModel(string? installed, IReadOnlyList<string> listed, string signer, string? offer,
-        ReviewedRouteSplitTokenState splitToken)
+    private ChocolateyClientUpdateViewModel(string? installed, bool installedReported, IReadOnlyList<string> listed, bool catalogAvailable,
+        string signer, string? offer, ReviewedRouteSplitTokenState splitToken)
     {
         InstalledVersion = installed;
+        InstalledReported = installedReported;
+        CatalogAvailable = catalogAvailable;
         ListedVersions = listed;
         OfferVersion = offer;
         SplitTokenState = splitToken;
@@ -121,8 +151,9 @@ public sealed class ChocolateyClientUpdateViewModel
 
     /// <summary>
     /// Opens the view: probes the split-token state now (a probe fault or undefined value is Unknown), validates the compiled
-    /// catalog (any malformed or non-ascending entry fails closed to an empty list), normalizes the reported installed version
-    /// (anything malformed is unknown) and applies the ADR-031 offer rule.
+    /// catalog (any malformed or non-ascending entry, or a fault reading it, fails closed to an unavailable, empty list), normalizes
+    /// the reported installed version (null: no scan reported one; anything else malformed: reported but unreadable) and applies
+    /// the ADR-031 offer rule.
     /// </summary>
     public static ChocolateyClientUpdateViewModel Open(ChocolateyClientReleaseCatalogFacts catalog, string? reportedInstalledVersion,
         Func<ReviewedRouteSplitTokenState> probeSplitToken)
@@ -134,10 +165,12 @@ public sealed class ChocolateyClientUpdateViewModel
         catch (Exception exception) when (exception is not OutOfMemoryException) { splitToken = ReviewedRouteSplitTokenState.Unknown; }
         if (!Enum.IsDefined(splitToken)) splitToken = ReviewedRouteSplitTokenState.Unknown;
 
-        IReadOnlyList<string> listed = ValidCatalog(catalog.ListedVersions) ? catalog.ListedVersions.ToArray() : [];
+        string[] listed;
+        try { listed = ValidCatalog(catalog.ListedVersions) ? catalog.ListedVersions.ToArray() : []; }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { listed = []; }
         string signer = string.IsNullOrWhiteSpace(catalog.Signer) || catalog.Signer.Length > 128 ? "Unknown" : catalog.Signer;
         string? installed = ChocolateyClientUpdatePresentation.IsReleaseVersion(reportedInstalledVersion) ? reportedInstalledVersion : null;
-        return new(installed, listed, signer, OfferTarget(installed, listed), splitToken);
+        return new(installed, reportedInstalledVersion is not null, listed, listed.Length != 0, signer, OfferTarget(installed, listed), splitToken);
     }
 
     /// <summary>
@@ -154,14 +187,17 @@ public sealed class ChocolateyClientUpdateViewModel
 
     /// <summary>
     /// The installed Chocolatey client version as the last scan's Chocolatey package list reported it: exactly one distinct,
-    /// well-formed version of the <c>chocolatey</c> package from the Chocolatey inventory, otherwise null (unknown).
+    /// well-formed version of the <c>chocolatey</c> package from the Chocolatey inventory. Null when the scan reported no
+    /// <c>chocolatey</c> package (not reported); <see cref="string.Empty"/> when it reported one whose version cannot be read
+    /// (missing, malformed or conflicting), which <see cref="Open"/> shows as reported but unreadable (independent review L4).
     /// </summary>
     public static string? ReportedInstalledVersion(IEnumerable<InventoryRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
         string[] versions = rows.SelectMany(row => row.Instances).Where(IsClientInstance).Select(instance => instance.Version ?? string.Empty)
             .Distinct(StringComparer.Ordinal).ToArray();
-        return versions.Length == 1 && ChocolateyClientUpdatePresentation.IsReleaseVersion(versions[0]) ? versions[0] : null;
+        if (versions.Length == 0) return null;
+        return versions.Length == 1 && ChocolateyClientUpdatePresentation.IsReleaseVersion(versions[0]) ? versions[0] : string.Empty;
     }
 
     /// <summary>True for the inventory row of the Chocolatey client itself (the <c>chocolatey</c> package from the Chocolatey inventory).</summary>
@@ -172,32 +208,72 @@ public sealed class ChocolateyClientUpdateViewModel
         string.Equals(instance.ProviderIdentity, ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.OrdinalIgnoreCase);
 
     public string? InstalledVersion { get; }
+
+    /// <summary>True when the last scan reported a Chocolatey client version, even one that could not be read.</summary>
+    public bool InstalledReported { get; }
+
     public IReadOnlyList<string> ListedVersions { get; }
+
+    /// <summary>False when the compiled list failed validation or could not be read: "Reviewed releases: Unavailable".</summary>
+    public bool CatalogAvailable { get; }
+
     public string? OfferVersion { get; }
     public string Signer { get; }
 
     /// <summary>The split-token state probed when this view was opened.</summary>
     public ReviewedRouteSplitTokenState SplitTokenState { get; }
 
-    /// <summary>"Update Chocolatey to X" when a reviewed newer release exists; otherwise "Update Chocolatey".</summary>
-    public string Title => OfferVersion is null ? GenericTitle : ChocolateyClientUpdatePresentation.Title(OfferVersion);
+    /// <summary>
+    /// Independent review L3: until admission the offer comes from unverified scan data, so it is never asserted as an update:
+    /// "A newer reviewed Chocolatey release may be available: X" when the rule offers X; otherwise "Update Chocolatey".
+    /// </summary>
+    public string Title => OfferVersion is null ? GenericTitle : MayBeAvailableTitlePrefix + OfferVersion;
 
-    public string InstalledText => InstalledVersion is null ? InstalledUnknownText :
-        $"Chocolatey {InstalledVersion}, as Chocolatey's package list reported at the last scan. PC Steward checks every Chocolatey file " +
-        "against the reviewed release before any update.";
+    public string InstalledText => InstalledVersion is not null
+        ? $"Chocolatey {InstalledVersion}, as Chocolatey's package list reported at the last scan. PC Steward checks every Chocolatey file " +
+          "against the reviewed release before any update."
+        : InstalledReported ? InstalledUnreadableText : InstalledUnknownText;
 
-    public string OfferText => OfferVersion is null ? NoNewerReleaseText :
-        $"Chocolatey {InstalledVersion} → {OfferVersion}: the newest release on PC Steward's reviewed list.";
+    /// <summary>Independent review M1/L3: the possible offer, or why nothing is offered (unknown, list unavailable, unlisted, none newer).</summary>
+    public string OfferText => OfferVersion is not null
+        ? $"A newer reviewed Chocolatey release may be available: {OfferVersion}. The last scan reported Chocolatey {InstalledVersion}; " +
+          $"{OfferVersion} is the newest release on PC Steward's reviewed list, and PC Steward checks the installed Chocolatey's files before any update."
+        : NoOfferState switch
+        {
+            NoOffer.InstalledUnknown => InstalledUnknownOfferText,
+            NoOffer.CatalogUnavailable => CatalogUnavailableOfferText,
+            NoOffer.InstalledNotListed => InstalledNotListedOfferText,
+            _ => NoNewerReleaseText,
+        };
 
-    public string ReviewedReleasesText => ListedVersions.Count == 0 ? NoReviewedReleasesText : string.Join(", ", ListedVersions);
+    public string ReviewedReleasesText => CatalogAvailable ? string.Join(", ", ListedVersions) : ReviewedReleasesUnavailableText;
 
     public string SignerText =>
         $"Each reviewed release is signed by {Signer}. Before anything runs, PC Steward checks the installed Chocolatey's signature and " +
         "that every file exactly matches a reviewed release.";
 
-    /// <summary>The Settings card and detail summary, for example "Chocolatey 2.7.5 · No newer reviewed release".</summary>
+    /// <summary>
+    /// The Settings card and Installed apps detail "Status" summary, for example
+    /// "Chocolatey 2.7.5 (reported by the last scan) · No newer reviewed release" (independent review L2: the version is the scan's).
+    /// </summary>
     public string Summary =>
-        $"Chocolatey {InstalledVersion ?? "(release unknown)"} · {(OfferVersion is null ? NoNewerReleaseShort : $"{OfferVersion} reviewed, {NotAvailableYetShort}")}";
+        $"Chocolatey {(InstalledVersion is null ? "(release unknown)" : InstalledVersion + " " + ReportedByLastScanText)} · " + (OfferVersion is not null
+            ? $"{OfferVersion} may be available; updating is {NotAvailableYetShort}"
+            : NoOfferState switch
+            {
+                NoOffer.InstalledUnknown => InstalledUnknownShort,
+                NoOffer.CatalogUnavailable => CatalogUnavailableShort,
+                NoOffer.InstalledNotListed => InstalledNotListedShort,
+                _ => NoNewerReleaseShort,
+            });
+
+    private enum NoOffer { InstalledUnknown, CatalogUnavailable, InstalledNotListed, NoNewerListed }
+
+    // Why nothing is offered (meaningful only when OfferVersion is null), in precedence order.
+    private NoOffer NoOfferState => InstalledVersion is null ? NoOffer.InstalledUnknown
+        : !CatalogAvailable ? NoOffer.CatalogUnavailable
+        : !ListedVersions.Contains(InstalledVersion, StringComparer.Ordinal) ? NoOffer.InstalledNotListed
+        : NoOffer.NoNewerListed;
 
     /// <summary>The review facts in display order (installed, offer, list, signer, what happens, verification, permission, watchdog, caution).</summary>
     public IReadOnlyList<ReviewedDisplayField> Fields { get; }
