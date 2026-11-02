@@ -33,6 +33,13 @@ public sealed class ClientRouteNativeEndToEndGateTests
     private const string Target = "2.8.0";
     private static readonly TimeSpan Budget = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// The Desktop-side evidence source and verifier refuse any budget above <see cref="ChocolateyDesktopObservation.Budget"/>
+    /// (60 s) and return no evidence, so the workflow pieces get exactly that cap (first Windows CI run: the 2-minute budget made
+    /// the workflow stop with "Fresh update evidence is unavailable" before dispatch).
+    /// </summary>
+    private static readonly TimeSpan DesktopBudget = ChocolateyDesktopObservation.Budget;
+
     [TestMethod]
     public async Task AnExactTargetAfterTheStandInUpgradeIsVerified()
     {
@@ -216,12 +223,12 @@ public sealed class ClientRouteNativeEndToEndGateTests
         {
             ClientRouteWorkflowAdmissionGateTests.FixedClock clock = new(Protocol2InterpreterFixture.ReviewedAt.AddMinutes(1));
             ChocolateyDispatchBaselines baselines = new();
-            ChocolateyProfileEvidenceSource evidence = ChocolateyProfileEvidenceSource.CreateClientForTests(Desktop, Releases, baselines, clock, Budget);
+            ChocolateyProfileEvidenceSource evidence = ChocolateyProfileEvidenceSource.CreateClientForTests(Desktop, Releases, baselines, clock, DesktopBudget);
             ChocolateyReviewedUpdateVerifier verifier = ChocolateyReviewedUpdateVerifier.CreateClientForTests((id, expected, budget, ct) =>
             {
                 Interlocked.Increment(ref verifyReads);
                 return Desktop(id, expected, budget, ct);
-            }, Releases, baselines, TimeProvider.System, Budget);
+            }, Releases, baselines, TimeProvider.System, DesktopBudget);
             EndpointHarness harness = new()
             {
                 PortOverride = new FixturePort(() => NativeChocolateyHelperItem.CreateClientOverFixtureForTests(N1NativeFixture.DerivedToken(), Helper, Releases)),
