@@ -258,9 +258,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
         RecordedHelperCandidateCheck helperCheck = observation.HelperCheck ?? RecordedHelperCandidateCheck.NotObserved;
         if (!settlement.ProvesSettlement)
             return await FinalizeAsync(claim, ownership, settlement, UpdateDispatchOutcome.Uncertain, observation.ExitCode,
-                WithLingeringMarker(operation, observation, WithClientRunFaultWarning(operation, observation,
-                    $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}")),
-                helperCheck).ConfigureAwait(false);
+                UnsettledMessage(operation, observation), helperCheck).ConfigureAwait(false);
         if (settlement.State == UpdateDispatchSettlementState.NotInvoked)
             return await FinalizeAsync(claim, ownership, settlement, observation.Status switch
             {
@@ -320,6 +318,29 @@ public sealed class ReviewedUpdateDispatchWorkflow
         operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 && observation.ClientRunFault is { } fault &&
         ChocolateyClientUpdatePresentation.RunFaultMessage(fault) is { } warning
             ? message + " " + warning
+            : message;
+
+    /// <summary>
+    /// The recorded message of an unsettled (Uncertain) dispatch: the fixed prefix and bounded diagnostic, a client run fault's
+    /// recovery message (<see cref="WithClientRunFaultWarning"/>), otherwise the lost-track caution
+    /// (<see cref="WithClientLostTrackCaution"/>), and the lingering marker. Never changes the outcome.
+    /// </summary>
+    internal static string UnsettledMessage(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation) =>
+        WithLingeringMarker(operation, observation, WithClientLostTrackCaution(operation, observation, WithClientRunFaultWarning(operation, observation,
+            $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}")));
+
+    /// <summary>
+    /// Independent review M1 (ADR-031 design §8.6), Uncertain path only: when a client self-update's launch may have started
+    /// (invocation Unknown or Started) but no watchdog stop or release fault reached the workflow (run fault None or missing,
+    /// for example a helper timeout, throw or unknown result after launch, or a lost reply), the watchdog's verdict is unknown,
+    /// so the fixed <see cref="ChocolateyClientUpdatePresentation.LostTrackCautionMessage"/> is appended. A reported fault keeps
+    /// its own message (<see cref="WithClientRunFaultWarning"/>); every other route and a not-started invocation are unchanged.
+    /// </summary>
+    internal static string WithClientLostTrackCaution(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation, string message) =>
+        operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
+        observation.Invocation is ReviewedUpdateInvocation.Unknown or ReviewedUpdateInvocation.Started &&
+        (observation.ClientRunFault is null || observation.ClientRunFault.IsNone)
+            ? message + " " + ChocolateyClientUpdatePresentation.LostTrackCautionMessage
             : message;
 
     /// <summary>Every <see cref="IReviewedUpdateRouteDispatcher.Supports"/> call goes through here; any exception means unsupported.</summary>

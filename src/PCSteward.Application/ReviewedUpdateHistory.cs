@@ -168,7 +168,9 @@ public static class ReviewedUpdateHistoryPresentation
                 : SanitizedDiagnosticBundle.Sanitize(lingering ? WithoutLingeringMarker(trusted!.Diagnostic, lingeringAt) : record.Terminal.Diagnostic),
             trusted is null ? null : HelperReport(trusted.HelperCheck),
             operation is null ? "Unknown" : Route(operation.RouteContract),
-            trusted is null || record.State != UpdateDispatchState.Final ? null : VerificationDetail(trusted),
+            trusted is null ? null
+                : record.State == UpdateDispatchState.Final ? VerificationDetail(trusted)
+                : record.State == UpdateDispatchState.Uncertain ? UncertainDetail(operation, trusted) : null,
             lingering ? ReviewedUpdateLingeringProcesses.HistoryNote : null);
     }
 
@@ -254,6 +256,17 @@ public static class ReviewedUpdateHistoryPresentation
             if (message.StartsWith(ReviewedUpdateDispatchWorkflow.StoppedAfterStartMessage(stopped), StringComparison.Ordinal)) return StoppedAfterStartText;
         return null;
     }
+
+    /// <summary>
+    /// Independent review M1 (ADR-031 design §8.6): an Uncertain client self-update whose recorded diagnostic ends with the
+    /// workflow's fixed <see cref="ChocolateyClientUpdatePresentation.LostTrackCautionMessage"/> shows that caution as its
+    /// fixed text. Any other route, outcome or diagnostic has none. Display only; it never changes the recorded outcome.
+    /// </summary>
+    internal static string? UncertainDetail(ReviewedUpdateOperation? operation, ReviewedUpdateTerminalRecord terminal) =>
+        operation?.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 && terminal.Outcome == UpdateDispatchOutcome.Uncertain &&
+        ChocolateyClientUpdatePresentation.EndsWithLostTrackCaution(terminal.Diagnostic)
+            ? ChocolateyClientUpdatePresentation.LostTrackCautionMessage
+            : null;
 
     private static readonly ReviewedUpdateProviderStatus[] StoppedStatuses =
         [ReviewedUpdateProviderStatus.Cancelled, ReviewedUpdateProviderStatus.TimedOut, ReviewedUpdateProviderStatus.Failed];

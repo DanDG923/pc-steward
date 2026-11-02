@@ -140,8 +140,34 @@ public sealed class ChocolateyClientUpdatePresentationTests
                 if (stop == ReviewedClientWatchdogStop.WatchFailedDuringRun) StringAssert.Contains(message, ChocolateyClientUpdatePresentation.WatchdogRecoveryStep);
                 if (release && stop != ReviewedClientWatchdogStop.None) StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.ReleaseIncompleteAlsoNote);
                 if (release && stop == ReviewedClientWatchdogStop.None) Assert.AreEqual(ChocolateyClientUpdatePresentation.NotVerifiedReleaseIncompleteMessage, message);
+                // Independent review I2: the combined messages keep the release message's closing sentence.
+                if (release) StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.StaysUnavailableUntilReviewedText);
             }
         Assert.IsTrue(ChocolateyClientUpdatePresentation.IsNotVerifiedMessage(ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage));
+        Assert.AreEqual(ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage, ReviewedUpdateHistoryPresentation.VerificationDetail(
+            Terminal(UpdateDispatchOutcome.Unverified, ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage)));
+    }
+
+    [TestMethod]
+    public void ARunThatDidNotMeetTheReviewedConditionsIsNeverCalledInstalled()
+    {
+        // Independent review L1: neutral "Ran, not verified" for the incomplete release and the unreported run fault.
+        foreach (string message in new[]
+                 {
+                     ChocolateyClientUpdatePresentation.NotVerifiedReleaseIncompleteMessage, ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage,
+                 })
+        {
+            StringAssert.StartsWith(message, "Ran, not verified:");
+            Assert.IsFalse(message.Contains("Installed", StringComparison.Ordinal), message);
+            StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.StaysUnavailableUntilReviewedText);
+            Assert.IsTrue(ChocolateyClientUpdatePresentation.IsNotVerifiedMessage(message));
+        }
+        // M1: the lost-track caution is the untrusted-folder advice and never a choco command.
+        string caution = ChocolateyClientUpdatePresentation.LostTrackCautionMessage;
+        StringAssert.EndsWith(caution, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
+        Assert.IsFalse(caution.Contains("choco upgrade", StringComparison.Ordinal) || caution.Contains("--force", StringComparison.Ordinal), caution);
+        Assert.AreEqual(caution, SanitizedDiagnosticBundle.Sanitize(caution), "recording never alters the caution");
+        Assert.IsFalse(ChocolateyClientUpdatePresentation.IsNotVerifiedMessage(caution), "an Uncertain caution is never an Unverified message");
     }
 
     [TestMethod]

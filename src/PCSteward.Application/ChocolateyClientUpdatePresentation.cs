@@ -58,9 +58,20 @@ public static class ChocolateyClientUpdatePresentation
         "the one this update started from. PC Steward never deletes files in Chocolatey's folder. Next step: run any Chocolatey package " +
         "install or upgrade from an administrator prompt (Chocolatey removes the leftover itself), then check again.";
 
+    /// <summary>
+    /// The closing sentence of every release-incomplete and not-reported message, kept in the combined watchdog-and-release
+    /// messages too (independent review I2), so no required warning is dropped when two faults are reported together.
+    /// </summary>
+    public const string StaysUnavailableUntilReviewedText =
+        "Chocolatey updates stay unavailable until its files match a reviewed release again.";
+
+    /// <summary>
+    /// Independent review L1: "Ran, not verified" (never "Installed"): the run did not happen under the reviewed conditions, so
+    /// nothing is known about what was installed.
+    /// </summary>
     public const string NotVerifiedReleaseIncompleteMessage =
-        "Installed, not verified: PC Steward could not fully release its hold on Chocolatey's files after the update started, so the " +
-        "update did not run under the reviewed conditions. Chocolatey updates stay unavailable until its files match a reviewed release again.";
+        "Ran, not verified: PC Steward could not fully release its hold on Chocolatey's files after the update started, so the " +
+        "update did not run under the reviewed conditions. " + StaysUnavailableUntilReviewedText;
 
     /// <summary>
     /// The manual recovery step after a watchdog stop that never showed Chocolatey's folder as changeable by the user
@@ -102,7 +113,7 @@ public static class ChocolateyClientUpdatePresentation
     /// </summary>
     public const string ReleaseIncompleteAlsoNote =
         "PC Steward also could not fully release its hold on Chocolatey's files after the update started, so the update did not run " +
-        "under the reviewed conditions.";
+        "under the reviewed conditions. " + StaysUnavailableUntilReviewedText;
 
     public const string StoppedSetupOverrideReleaseIncompleteMessage = StoppedSetupOverrideMessage + " " + ReleaseIncompleteAlsoNote;
 
@@ -115,8 +126,19 @@ public static class ChocolateyClientUpdatePresentation
     /// value. Never Success: verification is not attempted.
     /// </summary>
     public const string RunFaultNotReportedMessage =
-        "Installed, not verified: PC Steward's administrator helper did not report whether the update ran under the reviewed " +
-        "conditions, so PC Steward did not verify it. Chocolatey updates stay unavailable until its files match a reviewed release again.";
+        "Ran, not verified: PC Steward's administrator helper did not report whether the update ran under the reviewed " +
+        "conditions, so PC Steward did not verify it. " + StaysUnavailableUntilReviewedText;
+
+    /// <summary>
+    /// Independent review M1 (ADR-031 design §8.6): appended to an Uncertain client self-update whose launch may have started
+    /// (invocation Unknown or Started) while no watchdog stop or release fault was reported (run fault None or missing) — for
+    /// example a helper timeout, throw or unknown result after the launch. The watchdog's verdict is then unknown, so the
+    /// folder may have been left changeable by the user: the advice is the untrusted-folder step, never a choco command.
+    /// The outcome stays Uncertain (never Success).
+    /// </summary>
+    public const string LostTrackCautionMessage =
+        "PC Steward lost track of the Chocolatey update, so it cannot tell whether the Chocolatey folder was left writable. " +
+        UntrustedFolderRecoveryStep;
 
     /// <summary>
     /// ADR-031 design §8.3: the fixed recovery message for a helper-reported client run fault, or null for
@@ -201,6 +223,13 @@ public static class ChocolateyClientUpdatePresentation
         NotVerifiedReleaseIncompleteMessage or NotVerifiedReleaseMessage or NotVerifiedUnreadableMessage or StoppedSetupOverrideMessage or
         StoppedRootWritableMessage or StoppedWatchFailedMessage or StoppedSetupOverrideReleaseIncompleteMessage or
         StoppedRootWritableReleaseIncompleteMessage or StoppedWatchFailedReleaseIncompleteMessage or RunFaultNotReportedMessage;
+
+    /// <summary>
+    /// History recognition of <see cref="LostTrackCautionMessage"/> (independent review M1): true only when an Uncertain record's
+    /// diagnostic ends with the fixed caution, where the workflow appends it. Display only.
+    /// </summary>
+    internal static bool EndsWithLostTrackCaution(string? diagnostic) =>
+        diagnostic is not null && diagnostic.EndsWith(" " + LostTrackCautionMessage, StringComparison.Ordinal);
 
     /// <summary>A stable normalized release version: 3 or 4 dot-separated decimal parts without leading zeros, at most 32 characters.</summary>
     internal static bool IsReleaseVersion(string? value) =>

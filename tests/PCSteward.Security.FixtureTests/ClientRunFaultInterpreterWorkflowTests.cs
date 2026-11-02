@@ -188,7 +188,93 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
         Assert.AreEqual(UpdateDispatchOutcome.Unverified, outcome);
         Assert.AreEqual(ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage, message);
         Assert.AreEqual(0, verifier.ClientCalls + verifier.PlainCalls);
+        // Independent review L1: the run did not happen under the reviewed conditions, so the text never claims "Installed".
+        StringAssert.StartsWith(message, "Ran, not verified:");
+        Assert.IsFalse(message.Contains("Installed", StringComparison.Ordinal), message);
+        StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.StaysUnavailableUntilReviewedText);
     }
+
+    [TestMethod]
+    public void ALostLaunchOnTheClientRouteIsUncertainWithTheUntrustedFolderCaution()
+    {
+        // Independent review M1 (design §8.6): the helper's UpgradeAsync timeout ("launch-unresponsive"), throw or unknown arm
+        // ("launch-unknown") and a fault escaping after launch ("internal-fault-after-launch") reply Unknown with run fault None.
+        ReviewedUpdateOperation client = ClientOperation();
+        foreach (string diagnostic in new[] { "launch-unresponsive", "launch-unknown", "internal-fault-after-launch" })
+        {
+            ReviewedUpdateDispatchObservation observation = Protocol2InterpreterFixture.Interpret(client, ReviewedUpdateWireCodec.CreateClientResponse(
+                client.JobId, client.Digest, Nonce, Protocol2InterpreterFixture.Unknown(), ClientMatched(), ReviewedClientRunFaultWire.None, diagnostic))
+                .WorkflowObservation;
+            Assert.AreEqual(ReviewedUpdateInvocation.Unknown, observation.Invocation, diagnostic);
+            Assert.IsTrue(observation.ExecutionUncertain, "an Unknown launch never settles, so the outcome is Uncertain");
+            Assert.IsTrue(observation.ClientRunFault!.IsNone);
+            AssertLostTrackCaution(client, observation);
+        }
+
+        // A started launch whose settlement was not confirmed (Uncertain) with run fault None.
+        ReviewedUpdateDispatchObservation startedUnsettled = Accepted(client, Protocol2InterpreterFixture.Started(exit: null), ReviewedClientRunFaultWire.None);
+        Assert.AreEqual(ReviewedUpdateInvocation.Started, startedUnsettled.Invocation);
+        Assert.IsTrue(startedUnsettled.ExecutionUncertain);
+        AssertLostTrackCaution(client, startedUnsettled);
+
+        // Desktop-side: the dispatcher threw (the workflow's synthetic Unknown observation) or the reply was rejected (no field).
+        AssertLostTrackCaution(client, new ReviewedUpdateDispatchObservation(ReviewedUpdateInvocation.Unknown, ReviewedUpdateProviderStatus.Failed, null,
+            "dispatch-interrupted; invocation-unknown", Task.CompletedTask, false, false, false, false, true));
+        string valid = Encoding.UTF8.GetString(ClientFrame(client, Protocol2InterpreterFixture.Started(), ClientMatched(), ReviewedClientRunFaultWire.None));
+        ReviewedUpdateProtocol2Interpretation rejected = Protocol2InterpreterFixture.Interpret(client,
+            Encoding.UTF8.GetBytes(valid.Replace("\"clientRunFault\":\"None\"", "\"clientRunFault\":\"Unknown\"", StringComparison.Ordinal)));
+        AssertRejectedWithoutFault(rejected);
+        Assert.AreEqual(ReviewedUpdateInvocation.Unknown, rejected.WorkflowObservation.Invocation);
+        AssertLostTrackCaution(client, rejected.WorkflowObservation);
+    }
+
+    [TestMethod]
+    public void TheLostTrackCautionIsOnlyForAnUnreportedClientLaunch()
+    {
+        ReviewedUpdateOperation client = ClientOperation();
+        string caution = ChocolateyClientUpdatePresentation.LostTrackCautionMessage;
+        // A reported fault keeps its own message only (its advice is never mixed with another).
+        ReviewedUpdateDispatchObservation faulted = Protocol2InterpreterFixture.Interpret(client,
+            ClientFrame(client, Protocol2InterpreterFixture.Unknown(), ClientMatched(), ReviewedClientRunFaultWire.WatchFailedDuringRun)).WorkflowObservation;
+        string message = ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, faulted);
+        StringAssert.EndsWith(message, " " + ChocolateyClientUpdatePresentation.StoppedWatchFailedMessage);
+        Assert.IsFalse(message.Contains(caution, StringComparison.Ordinal));
+        // Nothing was launched: no caution.
+        ReviewedUpdateDispatchObservation notStarted = new(ReviewedUpdateInvocation.NotStarted, ReviewedUpdateProviderStatus.Failed, null, "x",
+            Task.CompletedTask, false, false, false, false, true);
+        Assert.IsFalse(ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, notStarted).Contains(caution, StringComparison.Ordinal));
+        // The package route is unchanged.
+        ReviewedUpdateOperation package = Protocol2InterpreterFixture.Operation();
+        ReviewedUpdateDispatchObservation packageUnknown = Protocol2InterpreterFixture.Interpret(package,
+            Protocol2InterpreterFixture.Frame(package, Protocol2InterpreterFixture.Unknown(), Protocol2InterpreterFixture.Matched(), "launch-unresponsive"))
+            .WorkflowObservation;
+        Assert.AreEqual("m", ReviewedUpdateDispatchWorkflow.WithClientLostTrackCaution(package, packageUnknown, "m"));
+        Assert.IsFalse(ReviewedUpdateDispatchWorkflow.UnsettledMessage(package, packageUnknown).Contains(caution, StringComparison.Ordinal));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(package, UncertainTerminal("x " + caution)));
+        // History shows the caution only for an Uncertain client record whose diagnostic ends with it.
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, UncertainTerminal(caution + " x")));
+        Assert.IsNull(ReviewedUpdateHistoryPresentation.UncertainDetail(client, new ReviewedUpdateTerminalRecord(UpdateDispatchOutcome.Unverified,
+            Protocol2InterpreterFixture.ReviewedAt, null, UpdateDispatchSettlementState.OwnedWorkStopped, "x " + caution)));
+    }
+
+    private static void AssertLostTrackCaution(ReviewedUpdateOperation client, ReviewedUpdateDispatchObservation observation)
+    {
+        string caution = ChocolateyClientUpdatePresentation.LostTrackCautionMessage;
+        string message = ReviewedUpdateDispatchWorkflow.UnsettledMessage(client, observation);
+        StringAssert.EndsWith(message, " " + caution, observation.Diagnostic);
+        StringAssert.Contains(caution, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
+        Assert.IsFalse(message.Contains("choco upgrade", StringComparison.Ordinal) || message.Contains("--force", StringComparison.Ordinal), message);
+        // As FinalizeAsync records it (sanitized, bounded), history recognises the caution on the Uncertain record.
+        string recorded = SanitizedDiagnosticBundle.Truncate(SanitizedDiagnosticBundle.Sanitize(message), 4000);
+        ReviewedUpdateHistoryView view = ReviewedUpdateHistoryPresentation.Present(new ReviewedUpdateHistoryRecord(client.JobId, client,
+            UpdateDispatchState.Uncertain, Protocol2InterpreterFixture.ReviewedAt, UncertainTerminal(recorded), true));
+        Assert.AreEqual(caution, view.VerificationDetail);
+        StringAssert.EndsWith(view.Diagnostic, caution);
+        StringAssert.StartsWith(view.Status, "Uncertain:");
+    }
+
+    private static ReviewedUpdateTerminalRecord UncertainTerminal(string diagnostic) =>
+        new(UpdateDispatchOutcome.Uncertain, Protocol2InterpreterFixture.ReviewedAt, null, UpdateDispatchSettlementState.InvocationUnknown, diagnostic);
 
     [TestMethod]
     public async Task ThePackageRouteIgnoresTheFieldAndKeepsItsOutcomes()
@@ -244,6 +330,9 @@ public sealed class ClientRunFaultInterpreterWorkflowTests
         if (stop == ReviewedClientWatchdogStop.WatchFailedDuringRun) StringAssert.Contains(message, ChocolateyClientUpdatePresentation.WatchdogRecoveryStep);
         if (release && stop != ReviewedClientWatchdogStop.None) StringAssert.Contains(message, ChocolateyClientUpdatePresentation.ReleaseIncompleteAlsoNote);
         if (release && stop == ReviewedClientWatchdogStop.None) Assert.AreEqual(ChocolateyClientUpdatePresentation.NotVerifiedReleaseIncompleteMessage, message);
+        // Independent review I2: every release-incomplete message, alone or combined, keeps the "stay unavailable" sentence.
+        if (release) StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.StaysUnavailableUntilReviewedText);
+        Assert.IsFalse(message.StartsWith("Installed", StringComparison.Ordinal), message);
         if (!release) Assert.IsFalse(message.Contains(ChocolateyClientUpdatePresentation.ReleaseIncompleteAlsoNote, StringComparison.Ordinal));
     }
 
