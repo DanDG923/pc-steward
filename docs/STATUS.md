@@ -127,6 +127,13 @@
     - timeline and Activity show the same outcome.
   - **Windows CI on `a5b8d1c` is green** (architecture 122, integration 1012, Security 1148).
   - **Task 73 implementation is complete pending owner review.** See [owner decisions](review/OWNER_DECISIONS_2026-11-02.md).
+- **Chocolatey client update UI (ADR-031; `b9d39eb..d0c2c56`, CRLF test fix `b8cbf53`, review fixes `d850404..fc937a7`).**
+  - Settings and Installed-apps cards plus a review dialog for "Update Chocolatey to X". The installed version is shown as reported by the last scan.
+  - The offer text depends on the reason: unlisted, unknown, list unavailable, or no newer reviewed release. Any offer reads "may be available" until the verified-offer admission gate is met.
+  - Confirm is always disabled, and "Not available yet: waiting for review and owner approval" is always shown. No dispatch path exists, pinned on compiled IL.
+  - History shows client run-fault and lost-track details only from a leading marker written by the workflow, so it can't be spoofed by helper text.
+  - A catalog fault falls back to "unavailable" and cannot stop startup.
+  - **Independent review: PASS with fixes**, all applied. Windows CI was green at `b8cbf53`; the review fixes are running in CI.
 - **Phase 6 (owner request, 2026-11-02; `a0ac5b4..2a9c31d`): Update all available (SPEC §9.13 G4) and Skip this version** (an owner decision, with SPEC and planning amended).
   - Update all: multi-select with nothing preselected and only Ready items; one frozen review sheet and one confirmation; N per-app immutable jobs, each revalidated with `EqualsEvidence` before its own approval; one UAC prompt per machine-scope app; stop only between apps; earlier results kept.
   - Skip version: stored in `stable_decisions` (kind SkipVersion), with no migration; deterministic equality; ignore and pin take precedence; never actionable.
