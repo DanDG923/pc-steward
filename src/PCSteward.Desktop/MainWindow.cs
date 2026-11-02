@@ -267,6 +267,13 @@ public sealed class MainWindow : Window
 
     private const string PreparingReviewLabel = "Preparing review…";
 
+    /// <summary>
+    /// AC-UX-09 (final review L5): one announcement per change. While an update runs on the update job page, the job's own state text
+    /// is the live region, so the band stays quiet; a job result shown in the band is spoken once, by the completion notification
+    /// (<see cref="AnnounceCompletion"/>), not also by the band's live region.
+    /// </summary>
+    private bool BandAnnouncesState => !ShowsJobResultInBand && !(navigation.Current == ShellPage.UpdateJob && (isExecuting || executionPending));
+
     private string CurrentOperationLabel => viewModel.IsScanning
         ? $"Scanning this PC · {viewModel.ScanPhase} · {viewModel.Elapsed:mm\\:ss}"
         : scanCancellation is not null
@@ -297,7 +304,7 @@ public sealed class MainWindow : Window
             string state = OperationAnnouncements.StateKey(label);
             bool stateChanged = !string.Equals(state, lastOperationState, StringComparison.Ordinal);
             lastOperationState = state;
-            StewardVisuals.SetLiveText(operationStatusText, label, announce: stateChanged && operationBand?.Visibility == Visibility.Visible);
+            StewardVisuals.SetLiveText(operationStatusText, label, announce: stateChanged && BandAnnouncesState && operationBand?.Visibility == Visibility.Visible);
         }
         if (operationCancel is not null) operationCancel.Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (scanPageStatusText is not null) scanPageStatusText.Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}";

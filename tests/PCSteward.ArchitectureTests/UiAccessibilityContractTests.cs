@@ -89,7 +89,13 @@ public sealed partial class UiAccessibilityContractTests
 
         string visuals = Between(source, "private void RefreshOperationVisuals()", "private void AnnounceCompletion(");
         StringAssert.Contains(visuals, "string state = OperationAnnouncements.StateKey(label);");
-        StringAssert.Contains(visuals, "StewardVisuals.SetLiveText(operationStatusText, label, announce: stateChanged && operationBand?.Visibility == Visibility.Visible);");
+        StringAssert.Contains(visuals, "StewardVisuals.SetLiveText(operationStatusText, label, announce: stateChanged && BandAnnouncesState && operationBand?.Visibility == Visibility.Visible);");
+        // Final review L5: no duplicate speech. The band is quiet while the job page narrates a running update, and a job result
+        // shown in the band is spoken once, by the completion notification.
+        StringAssert.Contains(source, "private bool BandAnnouncesState => !ShowsJobResultInBand && !(navigation.Current == ShellPage.UpdateJob && (isExecuting || executionPending));");
+        StringAssert.Contains(visuals, "if (jobProgressStateText is not null && isExecuting) StewardVisuals.SetLiveText(jobProgressStateText,");
+        StringAssert.Contains(execute, "AnnounceCompletion(OperationAnnouncements.JobFinished(row.Name, job.Completion.Headline), \"update-job-finished\");");
+        Assert.AreEqual(1, Count(source, "OperationAnnouncements.JobFinished("), "the job result is raised by one notification only");
         Assert.AreEqual(0, Count(source, "operationStatusText.Text ="), "the band text changes only through the live-region helper");
         StringAssert.Contains(source, "AutomationProperties.SetLiveSetting(operationStatusText, AutomationLiveSetting.Polite);");
         StringAssert.Contains(source, "StewardVisuals.SetLiveText(confirmation, SettingsPresenter.DiagnosticCopied(updateHistory.Count), announce: true);");
