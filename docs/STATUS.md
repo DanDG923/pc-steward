@@ -1,10 +1,14 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
-**Task 50 — activation host-session plan drafted (2026-11-02).** [Plan rev 1](review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md) orders the owner-host gates before activation (ADR-031 decision 7). Requirements: `FR-UPD-15`, `TM-03/04/07/13`.
-- Ready for owner approval: the confirming Default evidence run (`matchesPinnedRelease` on 2.7.5) and the optional H3 runas probe, using the unchanged reviewed script.
-- Blocked: the v2 redeploy (the committed template refuses an existing user-data root; the caller/encoder and database-preservation tooling are uncommitted; the [candidate builder](review/TASK_50_CANDIDATE_BUILDER_G3.md) (G3) is committed, reviewed and passed its first Windows CI build on `19bc296`) and the ADR-025 exact-artifact test (no script or harness exists; the non-admitted route cannot drive the signed helper). Gaps G1–G9 need build and review.
-- Time constraint: the deployed signer expires 2026-11-13T20:18:09Z, after which the redeploy preflight fails closed.
+**Task 50 — activation tooling built (2026-11-02; owner approved building it, not running it).** Requirements: `FR-UPD-15`, `TM-03/04/06/07/13`; ADR-022, ADR-025, ADR-031 decision 7; [activation plan](review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md).
+- **Admission gates (ADR-031 design §8.6/§8.7):** gate 1 (full client-route workflow, plus a real SQLite store and history variant) and gate 2 (Windows end-to-end of stages B–Launch with a stand-in engine) are green on Windows CI (`182edec`, `3f5486a`); gate 3 (verified Desktop offer) is on Task 73. The route stays non-admitted.
+- **G1/G2/G4** [redeploy tooling](review/TASK_50_REDEPLOY_TOOLING_G1_G2_G4.md): plan schema v3 that preserves the pinned `pcsteward.db`; a committed caller (NewPlan / CheckOnly / one-use ExecuteApprovedPlan); a database copy script. Independent security review: no Critical/High; M1 (refuse while `PCSteward.ScheduledCheck` is enabled; remover refuses any `PCSteward*` process) and M2 (caller pins the helper, waiter and template bytes) and L1–L5 fixed. Encoded-command margin is small (about 29.3k of 30k characters; fails closed).
+- **G3** [candidate builder](review/TASK_50_CANDIDATE_BUILDER_G3.md): reviewed; Windows CI built and re-validated a 103-file v2 candidate (`19bc296`).
+- **G5** [exact-artifact test design](review/TASK_50_EXACT_ARTIFACT_TEST_DESIGN.md) rev 2: recommends an owner-started read-only qualification probe; awaiting owner decisions 1–3.
+- **Ready for the owner:** Part A (confirming evidence run, optional H3). Part B needs exact pins on a chosen build commit (G6), the owner's G7/G9 decisions and the scheduled check turned off. Signer expiry 2026-11-13T20:18:09Z.
 - No host action; nothing authorized.
+
+**Task 50 — activation host-session plan drafted (2026-11-02).** [Plan rev 1](review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md) orders the owner-host gates before activation. Superseded in detail by the entry above.
 
 **Task 50 — ADR-031 implementation (2026-11-02; `0183de7..c63d522`).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`; design: [ADR-031 design note](review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md).
 - What it adds:

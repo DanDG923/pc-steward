@@ -1,3 +1,10 @@
+# Task 50 — data-preserving redeploy tooling (activation gaps G1, G2, G4)
+
+`FR-UPD-15`, `TM-03`, `TM-04`, `TM-06`, `TM-07`, `TM-13`; ADR-022; activation plan §11 G1/G2/G4.
+
+- [Record](../review/TASK_50_REDEPLOY_TOOLING_G1_G2_G4.md): plan schema v3 (`Invoke-OwnerOnlyApprovedRedeployment.ps1`, `OwnerOnlyExecution.ps1`), the caller `Invoke-OwnerOnlyRedeployCaller.ps1`, `Copy-OwnerOnlyUserDatabase.ps1`, and the remover's `PCSteward*` process refusal.
+- Tests: `RedeployToolingScriptTests` with `Fixtures/RedeployTooling.ps1` (pwsh and Windows PowerShell 5.1 rows; Windows-only rows on CI), `DeploymentCapabilityPolicyTests`, `DeploymentCapabilityScriptTests`.
+
 # Task 50 — candidate builder (activation gap G3)
 
 `FR-UPD-15`, `TM-03`, `TM-13`; ADR-022 and its protocol-2 alignment note; activation plan §11 G3.
