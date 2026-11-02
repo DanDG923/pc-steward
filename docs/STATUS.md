@@ -74,14 +74,16 @@
   - **Windows CI on `111bbc6` is green** (architecture 121, integration 1011, Security 1148).
 - **Final integrated review (`52244ff..111bbc6`): PASS with fixes.** No Blocker or High, and no behaviour change beyond the recorded deviations. Every protective test was kept or strengthened, outcomes are truthful everywhere, and layering is clean.
   - Docs: the F5/Ctrl+F and Phase 4 deviations are recorded in the plan and in ADR-030; traceability is updated.
-  - Code fixes in progress:
-    - TimedOut becomes "Result not verified";
-    - a confirm-tick race;
-    - unused vocabulary keys;
-    - the sanitized factory-reset error;
-    - duplicate Narrator speech;
+  - Code fixes applied in `053d04f..a5b8d1c`:
+    - TimedOut is "Result not verified";
+    - Confirm blocks other work at once, and a lease refusal is Not started;
+    - unused vocabulary chips removed;
+    - sanitized dialog details;
+    - no duplicate Narrator speech;
     - a DPI-scaled minimum window size;
-    - timeline and Activity outcome consistency.
+    - timeline and Activity show the same outcome.
+  - **Windows CI on `a5b8d1c` is green** (architecture 122, integration 1012, Security 1148).
+  - **Task 73 implementation is complete pending owner review.** See [owner decisions](review/OWNER_DECISIONS_2026-11-02.md).
   - Follow-up recorded: split `MainWindow.cs` (≈2,800 lines).
   - Owner-host evidence still needed before release: Narrator, keyboard, theme and high contrast, scaling, UAC end to end, a schedule refusal and rollback, and the clipboard after close.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
