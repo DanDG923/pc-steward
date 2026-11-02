@@ -27,7 +27,10 @@
 - Application `DesktopFoundationsPresentationTests` (shell navigation and back stack, status vocabulary, elevation story); architecture `UiRedesignContractTests`, `UpdateProgressUiContractTests`, `ReferenceBoundaryTests` and `ReviewedRouteDesktopUiBoundaryTests`, updated deliberately with protections kept. Windows CI is green at `887094d`, including the Desktop build.
 - Phase 2 (`FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-DAT-09`, `FR-HIS-03`, UJ-04): `UpdatesAndJobPresentationTests` (grouping, badges, an enum-complete outcome mapping, review-sheet completeness, no update control for needs-review items), plus the contract pins for review ordering, Cancel as default and a single confirm. Windows CI is green at `a34691b`.
 - Phase 3 (`FR-UI-01/05/06`, `FR-HIS-01–03`, `FR-POL-01–05`): `HomeActivityDecisionsPresentationTests` and the read-only activity reader test in `SqliteDatabaseTests`, plus contract pins (the reader has no write statements; Home "Check for updates" never elevates). Windows CI is green at `81f406f`.
-- Not claimed: runtime look and behaviour (Mica, drag region, focus restore, Narrator, high-contrast switching). Those are owner-host evidence.
+- Phase 4 (`FR-DAT-01/03/06–15`, `FR-HIS-05`, `AC-UX-07/08`): `SettingsDataResetPresentationTests` (cards, labels, sizes, disabled during work, sanitized startup details) and contract pins (the three labels, the RESET order, no Enter activation, a single arm site, one Save button for the schedule only, clipboard flush). Windows CI is green at `e16125e`.
+- Phase 5 (`AC-UX-01–09`, best effort): `AccessibilityTextTests` and `UiAccessibilityContractTests` (heading levels, live notifications on completion paths, label-in-name, access keys and the shortcut guard, selectable evidence, contrast ratios computed from the tokens, jargon absence with a pinned-text allowlist). Windows CI is green at `111bbc6`.
+- Final integrated review of `52244ff..111bbc6`: PASS with fixes.
+- Not claimed: runtime look and behaviour (Mica, drag region, focus restore, Narrator, high-contrast switching, scaling, UAC end to end). Those are owner-host evidence.
 
 # Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
 

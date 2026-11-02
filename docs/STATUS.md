@@ -60,7 +60,30 @@
   - Startup and recovery windows: styled, with selectable details that are sanitized (profile and user name redacted) and copied with a clipboard flush.
   - **Independent review: PASS with fixes; fixes in `e16125e`. Windows CI is green** (architecture 113, integration 1007, Security 1148).
   - Residual: the shared sanitizer misses Windows paths containing spaces outside the profile folder.
-- Phase 5 (accessibility and copy pass, then the final integrated review) is in progress.
+- **Phase 5 (`72d5261..111bbc6`): accessibility and copy pass** (best effort under ADR-021).
+  - What it adds:
+    - heading levels on every page;
+    - UIA notifications when scans, checks, reviews, jobs, saves and clears finish, with live regions only on state changes;
+    - label-in-name helpers and a source scan;
+    - F6 and Shift+F6, Ctrl+F, and a guarded F5;
+    - access keys (none on Confirm);
+    - selectable evidence;
+    - contrast fixes (light tertiary text `#5B677B` = 5.28:1 on canvas; strong borders above 3:1);
+    - wrap panels and a minimum window size;
+    - a jargon and verb sweep, with pinned safety and disclosure texts left verbatim.
+  - **Windows CI on `111bbc6` is green** (architecture 121, integration 1011, Security 1148).
+- **Final integrated review (`52244ff..111bbc6`): PASS with fixes.** No Blocker or High, and no behaviour change beyond the recorded deviations. Every protective test was kept or strengthened, outcomes are truthful everywhere, and layering is clean.
+  - Docs: the F5/Ctrl+F and Phase 4 deviations are recorded in the plan and in ADR-030; traceability is updated.
+  - Code fixes in progress:
+    - TimedOut becomes "Result not verified";
+    - a confirm-tick race;
+    - unused vocabulary keys;
+    - the sanitized factory-reset error;
+    - duplicate Narrator speech;
+    - a DPI-scaled minimum window size;
+    - timeline and Activity outcome consistency.
+  - Follow-up recorded: split `MainWindow.cs` (≈2,800 lines).
+  - Owner-host evidence still needed before release: Narrator, keyboard, theme and high contrast, scaling, UAC end to end, a schedule refusal and rollback, and the clipboard after close.
 - The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
