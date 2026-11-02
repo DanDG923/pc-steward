@@ -418,30 +418,34 @@ $results.attempt = [ordered]@{
 #      result reader and the post-check stubbed. Nothing is started or elevated; the attempt record is a temp file.
 if (!('PCSteward.Deployment.ChildExit' -as [type])) { Add-Type -TypeDefinition 'namespace PCSteward.Deployment { public static class ChildExit { } }' }
 $executeDir = New-Directory (Join-Path $WorkRoot 'execute')
-function Read-AttemptStatus([string]$Path) { if (Test-Path -LiteralPath $Path) { (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Path))).status } else { $null } }
 function Invoke-ExecuteCase([string]$Case) {
     $recordPath = Join-Path $executeDir ("redeploy-attempt-$Case.json")
-    $log = [ordered]@{ startCalls = 0; statusAtStart = $null; waitCalls = 0; statusAtWait = $null; waitTimeout = $null }
+    $log = [ordered]@{ startCalls = 0; statusAtStart = $null; waitCalls = 0; statusAtWait = $null; waitTimeout = $null; lastWritten = $null }
     $outcome = & {
         function Invoke-OwnerOnlyRedeployCheck { param([string]$PlanPath) [pscustomobject]@{ Report = [ordered]@{ planSha256 = ('A' * 64); encodedCommandSha256 = ('B' * 64); userDatabase = [ordered]@{ sha256 = $dbPin.sha256 } }; Encoded = 'AAAA'; ExecutionRoot = (Join-Path $executeDir 'absent-execution-root'); UserDataRoot = $executeDir; Pins = @($dbPin); AttemptRecordPath = $recordPath } }
         function Start-OwnerOnlyElevatedRedeploy {
             param([string]$EncodedCommand)
-            $log.startCalls++; $log.statusAtStart = Read-AttemptStatus $recordPath
+            $log.startCalls++; $log.statusAtStart = $log.lastWritten
             if ($Case -ceq 'cancel') { throw 'The operation was canceled by the user.' }
             [pscustomobject]@{ Id = 4242 }
         }
         function Wait-OwnerOnlyDeploymentProcess {
             param($Process, [int]$TimeoutMilliseconds)
             if ($TimeoutMilliseconds -eq 1) { return }
-            $log.waitCalls++; $log.waitTimeout = $TimeoutMilliseconds; $log.statusAtWait = Read-AttemptStatus $recordPath
+            $log.waitCalls++; $log.waitTimeout = $TimeoutMilliseconds; $log.statusAtWait = $log.lastWritten
             if ($Case -ceq 'timeout') { throw [TimeoutException]::new('Authorized deployment child is still running; do not retry or kill it.') }
             return 0
         }
         function Read-OwnerOnlyBootstrapResult { param([string]$ExecutionRoot) if ($Case -ceq 'validated') { $okResult } else { $null } }
         function Assert-OwnerOnlyUserDataPreserved { param([string]$DataRoot, [object[]]$Files) @($dbPin) }
-        if ($Case -ceq 'startedWriteFails') {
-            $realWrite = ${function:Write-OwnerOnlyAttemptRecord}
-            function Write-OwnerOnlyAttemptRecord { param($Stream, $Value) if ($Value.status -ceq 'Started') { throw 'FIXTURE: the Started record write failed.' }; & $realWrite -Stream $Stream -Value $Value }
+        # The caller holds the one-use record open with FileShare.None, which Windows enforces (Linux does not), so the
+        # stubs observe the last status the real writer committed to that stream instead of re-reading the file.
+        $realWrite = ${function:Write-OwnerOnlyAttemptRecord}
+        function Write-OwnerOnlyAttemptRecord {
+            param($Stream, $Value)
+            if ($Case -ceq 'startedWriteFails' -and $Value.status -ceq 'Started') { throw 'FIXTURE: the Started record write failed.' }
+            & $realWrite -Stream $Stream -Value $Value
+            $log.lastWritten = $Value.status
         }
         $approved = if ($Case -ceq 'approvalMismatch') { 'C' * 64 } else { 'B' * 64 }
         try { $attempt = Invoke-OwnerOnlyRedeployExecution -PlanPath 'plan.json' -ApprovedPlanSha256 ('A' * 64) -ApprovedEncodedCommandSha256 $approved; [ordered]@{ failure = $null; returned = $attempt.status } }
