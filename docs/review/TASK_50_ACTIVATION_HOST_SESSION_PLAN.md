@@ -21,7 +21,7 @@ Other admission items are outside this session: the §8.6 client-route admission
 
 ## 1. Source pins (repository commit `feeb156627a1003f0e4b4e351b1e7b167e01ea30`)
 
-Hashes were computed from the committed blobs (`git show feeb156:<path> | sha256sum`). **Line endings:** `Task50-HostEvidence.ps1` and the capability file are `-text` in `.gitattributes`, so every checkout has the stored bytes. The six owner-only scripts are stored as LF and are **not** `-text`. A Windows clone with `core.autocrlf=true` writes CRLF, which changes the hash. The CRLF value is the one expected on the owner's clone: Task 48 pinned the unchanged remover at `3703F0CA…0B67`, which equals its CRLF form below. A hash that matches neither column is a stop.
+Hashes were computed from the committed blobs (`git show feeb156:<path> | sha256sum`). **Line endings:** `Task50-HostEvidence.ps1` and the capability file are `-text` in `.gitattributes`, so every checkout has the stored bytes. The six owner-only scripts are stored as LF and are **not** `-text`. A Windows clone with `core.autocrlf=true` writes CRLF, which changes the hash. The CRLF value is the one expected on the owner's clone: Task 48 pinned the unchanged remover at `3703F0CA…0B67`, which equals its CRLF form below. For `Task50-HostEvidence.ps1`, a hash that matches neither column is a stop. The other rows are a feeb156 drift record only (see §2).
 
 | File | SHA-256 (stored / LF) | SHA-256 (CRLF checkout) |
 |---|---|---|
@@ -39,7 +39,7 @@ The redeploy hashes are recorded only so that drift can be detected. They are **
 
 ## 2. Prerequisites (owner side)
 
-- [ ] The owner's existing clone is checked out at `feeb156`, or at a later commit where every §1 hash still matches. No fetch is part of the session; the hashes bind the bytes however they arrive.
+- [ ] **Part A** needs only `scripts/evidence/Task50-HostEvidence.ps1` at its §1 hash (unchanged at every later commit so far; H1 checks it). Any commit of the owner's clone works for Part A, and no fetch is required. The redeploy-script hashes in §1 are for drift detection only: the G1/G2 tooling (commits `a22a623`, `cfb044b`) deliberately changed the template and `OwnerOnlyExecution.ps1`, so a later clone does not match them, and that is **not** a stop for Part A. Part B will carry its own new pins.
 - [ ] Windows 11 x64, interactive login as the installing user, in a **non-elevated** Windows PowerShell 5.1 window. Only Part B's single UAC prompt elevates.
 - [ ] **No secrets or certificates are needed or requested.** The ADR-022 installer creates a fresh signer during the install: a 14-day, non-exportable, CurrentUser RSA-2048/SHA-256 code-signing certificate, `CN=PC Steward Owner-Only Test <GUID>`, trusted only in CurrentUser Root/TrustedPublisher. There is no owner-held certificate, PFX, password or key export, and none may be supplied. This is not production signing.
 - [ ] **Signer expiry:** the deployed signer `14F34EFEFA84C367F25917B4B28803DCECE85623` expires **2026-11-13T20:18:09Z** and has no timestamp (Task 49 recovery record). After that time the redeploy preflight (`Test-…-RequirePinnedPayload`, which requires Valid Authenticode) fails closed before anything is removed (G8). The new signer's 14 days bound Part C.
