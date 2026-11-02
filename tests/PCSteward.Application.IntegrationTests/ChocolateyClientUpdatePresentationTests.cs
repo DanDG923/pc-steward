@@ -114,6 +114,37 @@ public sealed class ChocolateyClientUpdatePresentationTests
     }
 
     [TestMethod]
+    public void TheHelperReportedRunFaultKeepsEveryRecoveryWarningAndHistoryShowsIt()
+    {
+        // ADR-031 design §8.3 (W1): watchdog stop, protection-release failure and both combined; the untrusted-folder advice is
+        // never replaced by a choco command, and the release note is kept beside it.
+        ReviewedClientWatchdogStop[] stops = Enum.GetValues<ReviewedClientWatchdogStop>();
+        foreach (ReviewedClientWatchdogStop stop in stops)
+            foreach (bool release in new[] { false, true })
+            {
+                string? message = ChocolateyClientUpdatePresentation.RunFaultMessage(ReviewedClientRunFault.FromAcceptedHelperReply(stop, release));
+                if (stop == ReviewedClientWatchdogStop.None && !release)
+                {
+                    Assert.IsNull(message, "None lets verification decide");
+                    continue;
+                }
+                Assert.IsNotNull(message);
+                Assert.IsTrue(ChocolateyClientUpdatePresentation.IsNotVerifiedMessage(message), message);
+                Assert.AreEqual(message, ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Unverified, message)));
+                Assert.IsNull(ReviewedUpdateHistoryPresentation.VerificationDetail(Terminal(UpdateDispatchOutcome.Success, message)));
+                if (stop is ReviewedClientWatchdogStop.SetupOverrideDuringRun or ReviewedClientWatchdogStop.RootWritableDuringRun)
+                {
+                    StringAssert.Contains(message, ChocolateyClientUpdatePresentation.UntrustedFolderRecoveryStep);
+                    Assert.IsFalse(message.Contains("choco upgrade", StringComparison.Ordinal) || message.Contains("--force", StringComparison.Ordinal), message);
+                }
+                if (stop == ReviewedClientWatchdogStop.WatchFailedDuringRun) StringAssert.Contains(message, ChocolateyClientUpdatePresentation.WatchdogRecoveryStep);
+                if (release && stop != ReviewedClientWatchdogStop.None) StringAssert.EndsWith(message, ChocolateyClientUpdatePresentation.ReleaseIncompleteAlsoNote);
+                if (release && stop == ReviewedClientWatchdogStop.None) Assert.AreEqual(ChocolateyClientUpdatePresentation.NotVerifiedReleaseIncompleteMessage, message);
+            }
+        Assert.IsTrue(ChocolateyClientUpdatePresentation.IsNotVerifiedMessage(ChocolateyClientUpdatePresentation.RunFaultNotReportedMessage));
+    }
+
+    [TestMethod]
     public void AWatchdogStopIsNeverVerifiedSaysChocolateyMayBePartlyUpdatedAndGivesTheManualStep()
     {
         // ADR-031 design §2.1 R5 runtime watchdog (FR-UPD-15, TM-07/13): each fault has its own fixed message, recognised by history.
