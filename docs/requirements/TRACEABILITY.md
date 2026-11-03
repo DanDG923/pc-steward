@@ -20,6 +20,7 @@
 - [Plan rev 1](../review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md): Part A (confirming Default run, optional H3) reuses script SHA-256 `0A1C4377…84D4` and is ready for approval; Parts B (v2 redeploy) and C (exact-artifact test) are blocked by gaps G1–G9.
 - Part A: PASS (result 3, 2026-11-03).
 - Plan rev 2 (2026-11-03): Part B (`FR-UPD-15`, `TM-03/04/06/07/13`, ADR-022) as exact blocks on build commit `febf1ac` with LF/CRLF pins for the six protected scripts, template, caller, copy script and builder; approval 1a (B-prep, complete) and 1b (B-exec, host-placeholder template); [B-prep handover](../review/TASK_50_PART_B_LOCAL_AGENT_HANDOVER.md). G6 decided, G7 settled. Docs only; no host evidence yet for Part B.
+- Plan rev 2.1 / handover rev 2 (2026-11-03): B-prep review disposition (`FR-UPD-15`, `TM-03/04/06/07/13`): child stdin isolation, B0.2 Git stderr capture, B0.1 Git-hook stop, NuGetAudit B1 stop, §10 Git list and approval 1a effects. Docs only.
 
 # Task 50 — ADR-031 client-route admission gates (design §8.6/§8.7)
 
