@@ -59,7 +59,10 @@ Machine-scope execution is restored, the selected Windows APIs cannot prove both
 
 **Status: Proposed. It takes effect only when the owner accepts the [ADR-025 amendment](ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-03--owner-started-qualification-probe) (exception (d)).** Until then the Accepted text above is unchanged and governs.
 
-For the owner-started Chocolatey helper qualification probe only ([spec](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) revision 2), two statements in the Decision are narrowed:
+For the owner-started Chocolatey helper qualification probe only ([spec](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) revision 3), these statements are narrowed:
+- **Option A, "Elevation is delayed until execution".** The probe has no execution. Elevation happens when the owner starts the probe entry for a separately approved run, after the same pre-UAC trust checks.
+- **Option A, "the helper has one narrow provider capability".** A probe-mode helper has **no** provider capability. It only reads: the requester-token rules, the G1 deployment checks and one read-only Chocolatey client observation. It never queries, launches or updates a provider.
+- **Decision, "After confirmation, the standard-user desktop resolves only the fixed … pair".** For the probe there is no review confirmation. The trigger is the owner's start of the `--qualify-chocolatey-helper` desktop entry, and the probe proceeds only while that entry holds the common data-operation gate. The rest of the sentence and paragraph is retained: the fixed pair, every pre-launch rejection, the repeated validation immediately before launch, the restricted per-request pipe and the `runas` launch.
 - **Launch parameters.** Besides protocol version, requesting process ID, pipe locator and nonce, the probe launch carries one additional fixed compiled literal pair, `--kind qualify-chocolatey-helper`, at the start of the command line. It carries no provider operation data.
 - **Request.** A helper started with that literal accepts **no** request frame. It reads none, and any inbound byte ends the run with no response. It returns one bounded, closed probe response and exits.
 
