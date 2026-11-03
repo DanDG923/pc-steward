@@ -103,6 +103,11 @@ Why now: the default plan needs S1–S6 reviewed and green by about 2026-11-10, 
 - **(b)** No rush; the expired-signer path (for example a separately approved removal, then a fresh install) must first be reviewed and defined.
 - **(c)** No extra redeploy; no pre-activation exact-artifact evidence exists, so ADR-031 decision 7 is met only through decision 2's "confirm nothing until the probe passes".
 
+**Owner decisions recorded (2026-11-03):** the owner replied "Yes, yes and (c) on the helper test": **Decision 1 — Yes**, **Decision 2 — Yes**, **Decision 3 — (c)** (the first probe run happens on the activated build, under Decision 2: no Chocolatey review is confirmed until that run passes). Consequences:
+- The probe slices S1–S6 are approved for design and implementation. They are **not** needed in the build that Part B deploys before the signer expiry, so Part B can proceed on a pre-probe build commit (G6) without waiting for them.
+- The ADR-025 amendment text (S1) still needs the owner's **separate acceptance before deployment**, and each probe run needs its own approval.
+- No pre-activation exact-artifact evidence will exist; ADR-031 decision 7 is met through Decision 2's "confirm nothing until the probe passes" rule on the activation deployment.
+
 ## 7. Implementation slices (after a yes to decision 1)
 
 1. **S1 Spec:** an addendum to the protocol-2 fact extension: the probe command-line grammar, the closed probe response, bounds, S-rules and versioning (additive kind under protocol "2" or a capability token); the ADR-025 amendment text naming the DispatchClaimed-before-UAC exception. Independent review.
