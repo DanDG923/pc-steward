@@ -323,27 +323,12 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
             }
         }
 
-        /// <summary>§6 (rev-4 L1): ancestry on the root, then Node mode on the root and on every file directly inside it.</summary>
-        public bool RequesterCannotModify(string root, IReadOnlyList<string> files)
-        {
-            if (!OperatingSystem.IsWindows() || !ProtectedNodeReader.IsCanonicalLocalPath(root) || root.Length <= 3) return false;
-            if (Ancestry(root) != RequesterModification.Denied) return false;
-            using SafeFileHandle? directory = ProtectedNodeReader.TryOpen(root, directory: true, out _);
-            if (directory is null ||
-                RequesterAccess.Evaluate(token, directory, directory: true, parentDirectory: null, AccessMode.Node) != RequesterModification.Denied)
-                return false;
-            foreach (string file in files)
-            {
-                if (!ProtectedNodeReader.IsCanonicalLocalPath(file) || !file.StartsWith(root + '\\', StringComparison.OrdinalIgnoreCase) ||
-                    file.IndexOf('\\', root.Length + 1) >= 0)
-                    return false;
-                using SafeFileHandle? handle = ProtectedNodeReader.TryOpen(file, directory: false, out _);
-                if (handle is null ||
-                    RequesterAccess.Evaluate(token, handle, directory: false, directory, AccessMode.Node) != RequesterModification.Denied)
-                    return false;
-            }
-            return true;
-        }
+        /// <summary>
+        /// §6 (rev-4 L1): ancestry on the root, then Node mode on the root and on every file directly inside it. The rule is the
+        /// shared <see cref="ChocolateyRequesterProtection.CannotModify"/> (probe spec rev 4 §3: the probe item uses the same body).
+        /// </summary>
+        public bool RequesterCannotModify(string root, IReadOnlyList<string> files) =>
+            ChocolateyRequesterProtection.CannotModify(token, root, files, ancestryBase);
 
         public ChocolateyStageValues ObserveProfile(ReviewedUpdateOperation operation, string expectedFingerprint, TimeSpan remaining,
             CancellationToken cancellationToken)
@@ -527,31 +512,6 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
             if (cancellationToken.IsCancellationRequested) return new ChocolateyCandidateValues.Undetermined(true, false, LaunchesSettled, false);
             if (remaining - clock.Elapsed <= TimeSpan.Zero) return new ChocolateyCandidateValues.Undetermined(false, true, LaunchesSettled, false);
             return null;
-        }
-
-        /// <summary>
-        /// Production: <see cref="RequesterAccess.EvaluateAncestry"/> from the lexical drive root. Test fixture only: below the
-        /// ancestry base, Ancestor mode on every directory from the base down to the parent (as the observer's test seam).
-        /// </summary>
-        private RequesterModification Ancestry(string path)
-        {
-            if (ancestryBase is null || !path.StartsWith(ancestryBase + '\\', StringComparison.OrdinalIgnoreCase))
-                return RequesterAccess.EvaluateAncestry(token, path);
-            string[] segments = path[(ancestryBase.Length + 1)..].Split('\\');
-            string directory = ancestryBase;
-            ulong? volume = null;
-            for (int index = 0; ; index++)
-            {
-                using (SafeFileHandle? handle = ProtectedNodeReader.TryOpen(directory, directory: true, out NativeNode node))
-                {
-                    if (handle is null || (volume is not null && volume != node.Identity.VolumeSerial)) return RequesterModification.Unreadable;
-                    volume = node.Identity.VolumeSerial;
-                    RequesterModification verdict = RequesterAccess.Evaluate(token, handle, directory: true, parentDirectory: null, AccessMode.Ancestor);
-                    if (verdict != RequesterModification.Denied) return verdict;
-                }
-                if (index == segments.Length - 1) return RequesterModification.Denied;
-                directory += '\\' + segments[index];
-            }
         }
 
         private static ChocolateyStageValues Values(ChocolateyProfileResult result)

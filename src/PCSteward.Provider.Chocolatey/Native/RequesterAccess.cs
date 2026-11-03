@@ -83,7 +83,21 @@ internal static class RequesterAccess
     /// ancestor is never skipped). The first verdict other than Denied decides. A drive root as the protected root, an
     /// ancestor on another volume or any open failure is Unreadable. Runs before any node of the root is opened.
     /// </summary>
-    internal static RequesterModification EvaluateAncestry(RequesterToken token, string canonicalPath)
+    internal static RequesterModification EvaluateAncestry(RequesterToken token, string canonicalPath) =>
+        EvaluateAncestryCore(token, canonicalPath, sink: null);
+
+    /// <summary>
+    /// Probe spec rev 4 §3 (review L-4): <c>EvaluateAncestry</c> with a per-call sink that counts
+    /// each directory evaluated in Ancestor mode. The verdict is the same as without the sink; every <c>Unreadable</c> result
+    /// (an evaluation, an open failure, a volume change or a drive-root path) stays <c>Unreadable</c>.
+    /// </summary>
+    internal static RequesterModification EvaluateAncestryWithSink(RequesterToken token, string canonicalPath, RequesterAccessSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        return EvaluateAncestryCore(token, canonicalPath, sink);
+    }
+
+    private static RequesterModification EvaluateAncestryCore(RequesterToken token, string canonicalPath, RequesterAccessSink? sink)
     {
         ArgumentNullException.ThrowIfNull(token);
         if (!OperatingSystem.IsWindows() || !ProtectedNodeReader.IsCanonicalLocalPath(canonicalPath) || canonicalPath.Length <= 3)
@@ -98,6 +112,7 @@ internal static class RequesterAccess
                 if (handle is null || (volume is not null && volume != node.Identity.VolumeSerial)) return RequesterModification.Unreadable;
                 volume = node.Identity.VolumeSerial;
                 RequesterModification verdict = Evaluate(token, handle, directory: true, parentDirectory: null, AccessMode.Ancestor);
+                sink?.CountAncestor();
                 if (verdict != RequesterModification.Denied) return verdict;
             }
             if (index == segments.Length - 1) return RequesterModification.Denied;
@@ -234,5 +249,63 @@ internal static class RequesterAccess
                 return false;
         }
         return false;
+    }
+}
+
+/// <summary>
+/// Probe spec rev 4 §3 (review L-4, L7): the explicit per-call sink of one observation instance. It counts the Node-mode
+/// <see cref="RequesterAccess.Evaluate"/> calls of <see cref="ProtectedTreeWalker"/> and the Ancestor-mode evaluations of
+/// <see cref="RequesterAccess.EvaluateAncestryWithSink"/>, each saturating at its maximum
+/// instead of wrapping, and records the access verdict behind a walk refusal: a <see cref="RequesterModification"/> only when
+/// an <c>Evaluate</c> result refused, null when the refusal was not an access verdict (a failed open, a reparse point, a bound,
+/// a name, an enumeration). It is passed down explicitly; no static, thread-static or ambient state carries it. Values only:
+/// it never changes a verdict or a walk result.
+/// </summary>
+internal sealed class RequesterAccessSink
+{
+    private readonly int maximumNodes;
+    private readonly int maximumAncestors;
+    private int nodes;
+    private int ancestors;
+
+    internal RequesterAccessSink(int maximumNodes, int maximumAncestors)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumNodes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumAncestors);
+        this.maximumNodes = maximumNodes;
+        this.maximumAncestors = maximumAncestors;
+    }
+
+    /// <summary>Node-mode evaluations so far; at the maximum it means "at least this many".</summary>
+    internal int NodesEvaluated => Volatile.Read(ref nodes);
+
+    /// <summary>Ancestor-mode evaluations so far; at the maximum it means "at least this many".</summary>
+    internal int AncestorsEvaluated => Volatile.Read(ref ancestors);
+
+    /// <summary>True once a walk refusal was recorded; <see cref="WalkRefusalVerdict"/> is then its verdict or null.</summary>
+    internal bool WalkRefusalRecorded { get; private set; }
+
+    /// <summary>The <c>Evaluate</c> verdict behind the last walk refusal; null when that refusal was not an access verdict.</summary>
+    internal RequesterModification? WalkRefusalVerdict { get; private set; }
+
+    internal void CountNode() => Saturate(ref nodes, maximumNodes);
+
+    internal void CountAncestor() => Saturate(ref ancestors, maximumAncestors);
+
+    internal void RecordWalkRefusal(RequesterModification? verdict)
+    {
+        WalkRefusalRecorded = true;
+        WalkRefusalVerdict = verdict;
+    }
+
+    private static void Saturate(ref int counter, int maximum)
+    {
+        int current = Volatile.Read(ref counter);
+        while (current < maximum)
+        {
+            int seen = Interlocked.CompareExchange(ref counter, current + 1, current);
+            if (seen == current) return;
+            current = seen;
+        }
     }
 }
