@@ -308,6 +308,8 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 
 **Approval record 2 (2026-11-02): re-run after the owner aligned Chocolatey to 2.7.5.** The owner replied **"Approved"** to a request to re-run the same **Default** set: H1, H1b (H1-X only under its stated conditions), H2 once, H5, and H6 once. The script bytes are unchanged (SHA-256 `0a1c4377d3a0ebf5ed2778a38aa9ba4c05bb477f3aea9f54b03790bd930584d4` at branch head `6de0a29`). H3 and H4 are **not** approved. The owner runs every step; the agent runs nothing on the host.
 
+**Approval record 3 (2026-11-03): confirming run, Part A of the activation host-session plan.** The owner replied **"Go ahead with Part A approval 3 and 4"**, referring to the complete approval wordings 3 and 4 in §9 of the [activation host-session plan](TASK_50_ACTIVATION_HOST_SESSION_PLAN.md). That approves, on the owner's PC as the normal non-elevated user in one Windows PowerShell 5.1 window: H1 and H1b (script SHA-256 `0A1C4377D3A0EBF5ED2778A38AA9BA4C05BB477F3AEA9F54B03790BD930584D4`, unchanged at branch head `0835801`), H1-X only under its stated conditions, **H2 once** (Default, the third run), **H3 once** (one UAC prompt for the synthetic `aq1-managed.exe`, answered by the owner; no other elevation), H5, and H6 once after the evidence is shared. **H4 is not approved.** No PC Steward files, no running of Chocolatey, no retries. The owner runs every step; the agent runs nothing on the host.
+
 ## 11. Explicitly NOT authorized by this plan or by any approval above
 
 - Executing `choco.exe` or any Chocolatey script or shim; changing Chocolatey configuration, cache, ACLs or packages; installing, repairing or upgrading Chocolatey.
