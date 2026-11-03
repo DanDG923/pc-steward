@@ -54,3 +54,13 @@ Windows' default volume-root ACL grants Authenticated Users `FILE_ADD_SUBDIRECTO
 ## Reconsider when
 
 Machine-scope execution is restored, the selected Windows APIs cannot prove both endpoint identities across UAC, a future installer cannot provide a fixed non-caller-writable binary root, or security tests expose a replacement/replay/spoofing path. No caller-writable helper or persistent-service fallback is allowed without a new product and threat-model decision.
+
+## Proposed cross-note (2026-11-03) — qualification probe bootstrap
+
+**Status: Proposed. It takes effect only when the owner accepts the [ADR-025 amendment](ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-03--owner-started-qualification-probe) (exception (d)).** Until then the Accepted text above is unchanged and governs.
+
+For the owner-started Chocolatey helper qualification probe only ([spec](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) revision 2), two statements in the Decision are narrowed:
+- **Launch parameters.** Besides protocol version, requesting process ID, pipe locator and nonce, the probe launch carries one additional fixed compiled literal pair, `--kind qualify-chocolatey-helper`, at the start of the command line. It carries no provider operation data.
+- **Request.** A helper started with that literal accepts **no** request frame. It reads none, and any inbound byte ends the run with no response. It returns one bounded, closed probe response and exits.
+
+Everything else is retained: the fixed protected desktop/helper pair, pre-launch and pre-UAC trust checks, the restricted per-request pipe, the helper's and the desktop's peer verification, the one-shot nonce, one response per helper and no service or broker. A helper started for one kind refuses the other.
