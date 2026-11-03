@@ -151,3 +151,23 @@ A route cannot independently validate the reviewed operation, process/pipe ident
 ## Owner decision (2026-11-02): proxy and client-certificate disclosure
 
 The owner decided that the existing runtime-limits disclosure is sufficient. No separate disclosure of the effects of administrator-controlled proxy and client-certificate settings is required in the Chocolatey review. This resolves the Profile V2 "disclosed" note (N6 review Info; admission obligation 7).
+
+## Proposed amendment (2026-11-03) — owner-started qualification probe
+
+**Status: Proposed — awaiting the owner's separate acceptance before deployment.** The owner approved designing and implementing approach (A) on 2026-11-03 (Decision 1 "Yes", Decision 2 "Yes", Decision 3 "(c)" in the [exact-artifact test design](../review/TASK_50_EXACT_ARTIFACT_TEST_DESIGN.md) §6). Decision 1 makes acceptance of this text a separate step that must happen before any deployment containing the probe. Specification: [qualification probe spec](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md). Until accepted, this section changes nothing.
+
+1. **What it adds.** One helper request kind, `qualify-chocolatey-helper`. It is a fixed compiled literal on the protocol-2 bootstrap command line, so it is visible in the UAC details. Only the desktop's owner-started `--qualify-chocolatey-helper` entry emits it. A helper elevated for it reads no request. It runs the requester-token rules, G1 for every compiled allow-list token and one Helper-role client-mode observation, disposes every held handle, and writes one closed response. It never queries, launches or updates Chocolatey. `HasSupportedMode`, `CapabilityOperationAllowlist` and the dispatcher's `Supports` are unchanged.
+2. **Exceptions.** For this probe only, and as standing exceptions accepted in Decision 1:
+   - (a) product spec §2.3 principle 4 ("elevation is requested only for a specific reviewed operation that needs it");
+   - (b) AGENTS.md "Scanning never requests elevation";
+   - (c) this ADR's "Durable dispatch" rule that a unique `DispatchClaimed` commit precede any helper/UAC launch. The probe holds the common current-user data-operation gate for its whole run, but takes no claim and writes no database row.
+
+   No other rule is relaxed.
+3. **Limits.**
+   - **Deployments:** only ADR-022 owner-only test deployments. The desktop must hold the owner-only capability binding (`TryHold`) for every allow-list token before UAC, so no prompt can appear in any other deployment.
+   - **Starting:** owner-started only, and each run separately approved. No scan, `ScheduledHost`, UI or automatic path reaches it.
+   - **Effects:** read-only. The only effects are reads, a few seconds of share-read holds on Chocolatey files, and one result file in a fresh `%TEMP%` folder.
+   - **ADR-018 is retained:** no generic broker, one fixed kind per launch, no operation data on the command line, one response per helper. A helper elevated for one kind refuses the other.
+4. **What it does not satisfy.** It establishes UAC and pre-launch enforcement only. It does **not** satisfy the "Follow-up controls and tests" requirement for actual mode enforcement and installed-state outcomes through a real update, which stays open under G9.
+5. **Evidence scope (Decision 2).** Evidence counts only for the deployment and pins it ran on. After any redeploy, including activation, the probe is re-run under a new approval, and no Chocolatey review is confirmed until it passes. A failed result stops use.
+6. **Removal.** The probe must be removed, or re-approved by the owner, before any distribution beyond ADR-022 owner-only test deployments.
