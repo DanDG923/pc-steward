@@ -8,6 +8,8 @@ Status: **draft for review; not approved; authorizes nothing.** Part A (the conf
 
 **Part A result (2026-11-03): PASS** — O5 `PASS-READABLE` with `matchesPinnedRelease = true` (0 unlisted helper or tool files), AQ1N/AQ1M/AQ1C/A2L3S `PASS`, AQ1UAC `PASS`. See result 3 in the [host-evidence plan](TASK_50_HOST_EVIDENCE_PLAN.md). The §3 condition for moving from A to B is met; Part B still needs its own exact approval.
 
+**G6 decided (owner, 2026-11-03):** "Task 50 is the commit to install". The Part B build commit is the Task 50 branch head **`febf1ac95c207aadf0f3efe742b854d81f903037`** (Windows CI green: build-and-test and owner-only-candidate-builder). Later docs-only commits do not change it; the approval names this commit. G7 is settled by exact-artifact Decision 2 (evidence counts only for the deployment it ran on).
+
 ## 0. Purpose and gate map
 
 ADR-031 owner decision 7 approves the activation step (a `HasSupportedMode`/allow-list change for the Chocolatey routes), but only after the recorded gates are met. This plan puts the owner-host gates into one ordered session. Activation itself is a later, separately reviewed code change. It is not part of this session.
