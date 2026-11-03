@@ -46,7 +46,7 @@ internal readonly record struct QualificationProbeCapabilityEntry(string Token, 
 /// qualifies a route or authorizes anything.
 /// </summary>
 internal sealed record QualificationProbeFacts(
-    QualificationProbeTokenVerdict TokenVerdict,
+    QualificationProbeTokenVerdict Verdict,
     IReadOnlyList<QualificationProbeCapabilityEntry> G1Status,
     QualificationProbeObservation Observation,
     int? FailedStep,
@@ -63,7 +63,7 @@ internal sealed record QualificationProbeFacts(
 {
     /// <summary>Value equality, including the ordered <see cref="G1Status"/> entries.</summary>
     public bool Equals(QualificationProbeFacts? other) => other is not null &&
-        TokenVerdict == other.TokenVerdict && Observation == other.Observation && FailedStep == other.FailedStep &&
+        Verdict == other.Verdict && Observation == other.Observation && FailedStep == other.FailedStep &&
         FailedCheck == other.FailedCheck && FailedAccess == other.FailedAccess && RefusalReason == other.RefusalReason &&
         RefusalDetail == other.RefusalDetail && NodesEvaluated == other.NodesEvaluated && AncestorsEvaluated == other.AncestorsEvaluated &&
         string.Equals(ObservedClientVersion, other.ObservedClientVersion, StringComparison.Ordinal) &&
@@ -71,7 +71,7 @@ internal sealed record QualificationProbeFacts(
         string.Equals(Diagnostic, other.Diagnostic, StringComparison.Ordinal) &&
         (ReferenceEquals(G1Status, other.G1Status) || (G1Status is not null && other.G1Status is not null && G1Status.SequenceEqual(other.G1Status)));
 
-    public override int GetHashCode() => HashCode.Combine(TokenVerdict, Observation, FailedStep, RefusalReason, NodesEvaluated,
+    public override int GetHashCode() => HashCode.Combine(Verdict, Observation, FailedStep, RefusalReason, NodesEvaluated,
         AncestorsEvaluated, Diagnostic, G1Status?.Count ?? -1);
 }
 
@@ -247,7 +247,7 @@ internal static class QualificationProbeWireCodec
         ArgumentNullException.ThrowIfNull(facts);
         ArgumentNullException.ThrowIfNull(contract);
         IReadOnlyList<QualificationProbeCapabilityEntry> g1 = facts.G1Status ?? [];
-        bool accepted = facts.TokenVerdict == QualificationProbeTokenVerdict.Accepted;
+        bool accepted = facts.Verdict == QualificationProbeTokenVerdict.Accepted;
         QualificationProbeObservation o = facts.Observation;
         bool notRun = o == QualificationProbeObservation.NotRun, observed = o == QualificationProbeObservation.Observed;
         bool refused = o == QualificationProbeObservation.Refused, timedOut = o == QualificationProbeObservation.TimedOut;
@@ -265,7 +265,7 @@ internal static class QualificationProbeWireCodec
         }
 
         Require("Q2", IsHex(nonce));
-        Require("Q3", Enum.IsDefined(facts.TokenVerdict) && Enum.IsDefined(o) && Enum.IsDefined(check) && Enum.IsDefined(access) &&
+        Require("Q3", Enum.IsDefined(facts.Verdict) && Enum.IsDefined(o) && Enum.IsDefined(check) && Enum.IsDefined(access) &&
             Enum.IsDefined(reason) && Enum.IsDefined(detail) && g1.All(entry => Enum.IsDefined(entry.Status)));
         Require("Q4", facts.G1Status is not null && g1.Select(entry => entry.Token).SequenceEqual(contract.G1Keys, StringComparer.Ordinal));
         Require("Q5", accepted
@@ -291,7 +291,7 @@ internal static class QualificationProbeWireCodec
         Require("Q12", facts.NodesEvaluated is >= 0 and <= MaximumNodesEvaluated && facts.AncestorsEvaluated is >= 0 and <= MaximumAncestorsEvaluated &&
             (!notRun || (facts.NodesEvaluated == 0 && facts.AncestorsEvaluated == 0)) &&
             (!observed || (facts.NodesEvaluated >= 1 && facts.AncestorsEvaluated >= 1)));
-        Require("Q13", string.Equals(facts.Diagnostic, ExpectedDiagnostic(facts.TokenVerdict, o), StringComparison.Ordinal));
+        Require("Q13", string.Equals(facts.Diagnostic, ExpectedDiagnostic(facts.Verdict, o), StringComparison.Ordinal));
         Require("Q15", access is not (QualificationProbeFailedAccess.Granted or QualificationProbeFailedAccess.Unreadable) ||
             (reason == QualificationProbeRefusalReason.MachineInputsUnsupported && check == QualificationProbeFailedCheck.StepRule &&
              step is 1 or 4 or 5 or 6 or 7));
@@ -319,7 +319,7 @@ internal static class QualificationProbeWireCodec
             writer.WriteString("protocolVersion", ReviewedUpdateWireCodec.ProtocolVersion);
             writer.WriteString("kind", Kind);
             writer.WriteString("nonce", nonce);
-            writer.WriteString("tokenVerdict", facts.TokenVerdict.ToString());
+            writer.WriteString("tokenVerdict", facts.Verdict.ToString());
             writer.WriteStartObject("g1Status");
             foreach (QualificationProbeCapabilityEntry entry in facts.G1Status)
                 writer.WriteString(entry.Token, entry.Status.ToString());
