@@ -29,6 +29,14 @@
 - Security `ClientRouteWorkflowAdmissionGateTests` (portable 30), Application `ClientRouteSqliteAdmissionGateTests` (portable 4, real SQLite store and history reader), Security `ClientRouteNativeEndToEndGateTests` (3, Windows-only), `ClientRunFaultInterpreterWorkflowTests` (client reply carries no helper check, review M1), architecture `AdmissionGateSeamBoundaryTests`.
 - Not claimed: route admission, Windows CI evidence for the Windows-only cases, or owner-host evidence.
 
+# Task 50 — qualification probe slice S2 (probe response codec)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §4.1–§4.4, §7 S2.
+
+- Security `QualificationProbeWireCodecTests` (87): goldens, round-trips, Q1–Q16 negatives, property mutations, update-frame cross-rejection and byte pins, the 18 `TokenVerdict` wire-name pin, the §4.3 L8 allow-list bound.
+- Architecture `QualificationProbeWireBoundaryTests` (4): probe types unreferenced outside the codec, test-only contract factory unused in `src`, no probe request codec, no native/transport reference.
+- Not claimed: helper or desktop wiring (S3/S4), Windows CI evidence, deployment.
+
 # Task 50 — host evidence (O5, A-Q1, A2-L3)
 
 `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; fact extension §10 N5 (O5); adapter gates §A.4 (A-Q1) and §R A2-L3.
