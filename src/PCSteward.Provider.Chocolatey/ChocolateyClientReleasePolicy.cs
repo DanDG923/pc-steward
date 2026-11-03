@@ -24,4 +24,10 @@ internal static class ChocolateyClientReleasePolicy
 
     /// <summary>The published asset digest of a listed reviewed release.</summary>
     internal static bool IsListedAsset(string? assetSha256) => ChocolateyReleaseList.Listed.ContainsAsset(assetSha256);
+
+    /// <summary>
+    /// Task 50 qualification probe spec §4.2 Q10 (values only): the normalized versions of the compiled listed releases, strictly
+    /// ascending, so the probe response codec can check <c>observedClientVersion</c> without naming a native type.
+    /// </summary>
+    internal static IReadOnlyList<string> ListedVersions() => [.. ChocolateyReleaseList.Listed.Releases.Select(release => release.Version)];
 }
