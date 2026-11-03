@@ -310,6 +310,14 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 
 **Approval record 3 (2026-11-03): confirming run, Part A of the activation host-session plan.** The owner replied **"Go ahead with Part A approval 3 and 4"**, referring to the complete approval wordings 3 and 4 in §9 of the [activation host-session plan](TASK_50_ACTIVATION_HOST_SESSION_PLAN.md). That approves, on the owner's PC as the normal non-elevated user in one Windows PowerShell 5.1 window: H1 and H1b (script SHA-256 `0A1C4377D3A0EBF5ED2778A38AA9BA4C05BB477F3AEA9F54B03790BD930584D4`, unchanged at branch head `0835801`), H1-X only under its stated conditions, **H2 once** (Default, the third run), **H3 once** (one UAC prompt for the synthetic `aq1-managed.exe`, answered by the owner; no other elevation), H5, and H6 once after the evidence is shared. **H4 is not approved.** No PC Steward files, no running of Chocolatey, no retries. The owner runs every step; the agent runs nothing on the host.
 
+**Result 3 (2026-11-03): Part A confirming run — PASS.** Run by a local Claude agent on the owner's PC under handover revision 2 (script read from `origin/claude/sweet-franklin-j3mw4a` by `git cat-file`, `SOURCE-EXIT 0`, then hashed). Evidence: [Default](TASK_50_HOST_EVIDENCE_RESULT_3_DEFAULT.json) and [Uac](TASK_50_HOST_EVIDENCE_RESULT_3_UAC.json), as returned (redactions 0; the local agent's privacy check found nothing).
+- Script SHA-256 `0A1C4377…84D4` (`HASH-OK`, `PARSE-OK`); `stop = null` in both runs; host token Limited (`tokenElevationType` 3, not elevated).
+- **O5 `PASS-READABLE` with `matchesPinnedRelease = true`:** engine `matchesPin`; code list 56/56 matched; `helpers` 41 files and `tools` 13 files, **0 unlisted** in each (the `.old` leftover of run 2 is gone); registration `chocolatey` present with `chocolatey.nupkg` `matchesPin`; extension absent; `routeFindings = []`; `problems = []`.
+- AQ1N, AQ1M, AQ1C and A2L3S `PASS`, as in runs 1 and 2.
+- **AQ1UAC `PASS`:** the RunAs launch of the held synthetic image kept the hold (`peerEqualsHeld`, replacement refused before, during and after), so runas preserves the held-image identity for a synthetic image and the A2-L5 fallback is not triggered. The owner's count of UAC prompts is to be confirmed (expected: exactly 1).
+- Cleanup (H6 and the step-0 source folder) awaits the owner's OK.
+- This result feeds review and owner decisions only; it is not admission or a gate closure by itself.
+
 ## 11. Explicitly NOT authorized by this plan or by any approval above
 
 - Executing `choco.exe` or any Chocolatey script or shim; changing Chocolatey configuration, cache, ACLs or packages; installing, repairing or upgrading Chocolatey.
