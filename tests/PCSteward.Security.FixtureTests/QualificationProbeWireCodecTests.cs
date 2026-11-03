@@ -137,17 +137,7 @@ public sealed class QualificationProbeWireCodecTests
     [TestMethod]
     public void LargestValidFrameOnTheCompiledContractIsFoundExhaustivelyAndPinned()
     {
-        QualificationProbeContract contract = QualificationProbeContract.Compiled;
-        int valid = 0;
-        byte[] largest = [];
-        foreach (QualificationProbeFacts facts in EveryValueCombination(contract))
-        {
-            if (QualificationProbeWireCodec.RuleViolations(Nonce, facts, contract).Count != 0) continue;
-            valid++;
-            byte[] frame = QualificationProbeWireCodec.CreateProbeResponse(Nonce, facts);
-            AssertRoundTrip(frame, facts);
-            if (frame.Length > largest.Length) largest = frame;
-        }
+        (int valid, byte[] largest) = ValidCombinations(QualificationProbeContract.Compiled);
         Assert.AreEqual(44, valid, "17 token refusals, 4 capability refusals, 1 Observed, 1 TimedOut and 21 refusals");
         string expected = Prefix + "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"Refused\",\"failedStep\":7," +
             "\"failedCheck\":\"ReleaseLeftover\",\"failedAccess\":\"Other\",\"refusalReason\":\"MachineInputsUnsupported\"," +
@@ -156,24 +146,48 @@ public sealed class QualificationProbeWireCodecTests
         Assert.AreEqual(expected, Encoding.UTF8.GetString(largest));
         Assert.AreEqual(576, largest.Length);
         Assert.IsLessThanOrEqualTo(QualificationProbeWireCodec.MaximumFrameBytes, largest.Length);
+
+        // Over a two-release fixture contract exactly one more row is valid: InstalledMismatch at step 8 with the older release
+        // (Q8: InstalledMismatch ⇒ step 8 and InstalledVersion; Q10: an older listed release; Q15: access Other).
+        QualificationProbeContract two = QualificationProbeContract.CreateForTests([Token], ["2.7.4", "2.7.5"]);
+        (int validTwo, byte[] largestTwo) = ValidCombinations(two);
+        Assert.AreEqual(45, validTwo, "the 44 compiled rows plus the one InstalledMismatch row");
+        CollectionAssert.AreEqual(largest, largestTwo, "the InstalledMismatch row is not the largest frame");
+    }
+
+    private static (int Valid, byte[] Largest) ValidCombinations(QualificationProbeContract contract)
+    {
+        int valid = 0;
+        byte[] largest = [];
+        foreach (QualificationProbeFacts facts in EveryValueCombination(contract))
+        {
+            if (QualificationProbeWireCodec.RuleViolations(Nonce, facts, contract).Count != 0) continue;
+            valid++;
+            byte[] frame = QualificationProbeWireCodec.CreateProbeResponse(Nonce, facts, contract);
+            Assert.IsTrue(QualificationProbeWireCodec.TryReadProbeResponse(frame, Nonce, contract, out QualificationProbeFacts? read), Encoding.UTF8.GetString(frame));
+            Assert.AreEqual(facts, read);
+            CollectionAssert.AreEqual(frame, QualificationProbeWireCodec.CreateProbeResponse(Nonce, read!, contract));
+            if (frame.Length > largest.Length) largest = frame;
+        }
+        return (valid, largest);
     }
 
     [TestMethod]
-    public void TheSpecUpperBoundIs1338BytesAndEveryValidEightKeyFrameStaysBelowIt()
+    public void TheSpecUpperBoundIs1341BytesAndEveryValidEightKeyFrameStaysBelowIt()
     {
-        // §4.3: maxima that no valid frame holds together (8 keys × 64 B NotEvaluated, the 32-B verdict, failedStep 9, the longest
+        // §4.3: maxima that no valid frame holds together (8 keys × 64 B NotEvaluated, the 32-B verdict, failedStep null, the longest
         // check, access, reason and detail, 7- and 5-digit counts, a 128-B version, "false" with length 64, the longest diagnostic).
         string[] keys = [.. Enumerable.Range(0, 8).Select(index => "Update/" + new string('X', 56) + index)];
         Assert.IsTrue(keys.All(key => Encoding.UTF8.GetByteCount(key) == 64));
         string version128 = "1.0.0-" + new string('a', 122);
         string bound = Raw(Nonce, new QualificationProbeFacts(QualificationProbeTokenVerdict.EvaluationNotIdentificationLevel,
             [.. keys.Select(key => new QualificationProbeCapabilityEntry(key, QualificationProbeCapabilityStatus.NotEvaluated))],
-            QualificationProbeObservation.Observed, 9, QualificationProbeFailedCheck.SetupAccessGuard, QualificationProbeFailedAccess.Unreadable,
+            QualificationProbeObservation.Observed, null, QualificationProbeFailedCheck.SetupAccessGuard, QualificationProbeFailedAccess.Unreadable,
             QualificationProbeRefusalReason.MachineInputsUnsupported, QualificationProbeRefusalDetail.UnlistedReleaseLeftover,
             QualificationProbeWireCodec.MaximumNodesEvaluated, QualificationProbeWireCodec.MaximumAncestorsEvaluated, version128, false, 64,
             QualificationProbeWireCodec.ObservationTimedOutDiagnostic));
-        Assert.AreEqual(1338, Encoding.UTF8.GetByteCount(bound));
-        Assert.IsLessThanOrEqualTo(QualificationProbeWireCodec.MaximumFrameBytes, 1338);
+        Assert.AreEqual(1341, Encoding.UTF8.GetByteCount(bound));
+        Assert.IsLessThanOrEqualTo(QualificationProbeWireCodec.MaximumFrameBytes, 1341);
         Assert.AreEqual(2048, QualificationProbeWireCodec.MaximumFrameBytes);
 
         // The largest valid eight-key frames (an InstalledMismatch with a 128-B older release; a token refusal) are below the bound.
@@ -188,7 +202,7 @@ public sealed class QualificationProbeWireCodecTests
         foreach (QualificationProbeFacts facts in new[] { mismatch, token })
         {
             byte[] frame = QualificationProbeWireCodec.CreateProbeResponse(Nonce, facts, eight);
-            Assert.IsLessThan(1338, frame.Length);
+            Assert.IsLessThan(1341, frame.Length);
             Assert.IsTrue(QualificationProbeWireCodec.TryReadProbeResponse(frame, Nonce, eight, out QualificationProbeFacts? read));
             Assert.AreEqual(facts, read);
         }
@@ -220,6 +234,7 @@ public sealed class QualificationProbeWireCodecTests
     [DataRow("Q8", "sourceAtStep7")]
     [DataRow("Q8", "sourceWithGuard")]
     [DataRow("Q8", "mismatchStepRule")]
+    [DataRow("Q8", "mismatchAtStep7")]
     [DataRow("Q8", "machineInputsAtStep8")]
     [DataRow("Q8", "machineInputsInstalledVersion")]
     [DataRow("Q8", "machineInputsAtStep10")]
@@ -256,7 +271,7 @@ public sealed class QualificationProbeWireCodecTests
     public void EachQRuleViolationIsReportedThrowsOnCreateAndIsRejectedOnRead(string rule, string mutation)
     {
         QualificationProbeContract two = QualificationProbeContract.CreateForTests([Token], ["2.7.4", "2.7.5"]);
-        QualificationProbeContract contract = mutation == "mismatchNewestVersion" ? two : QualificationProbeContract.Compiled;
+        QualificationProbeContract contract = mutation is "mismatchNewestVersion" or "mismatchAtStep7" ? two : QualificationProbeContract.Compiled;
         QualificationProbeFacts refused = Refused(1, QualificationProbeFailedCheck.StepRule, QualificationProbeFailedAccess.Granted,
             QualificationProbeRefusalReason.MachineInputsUnsupported, QualificationProbeRefusalDetail.None);
         QualificationProbeFacts guard = Refused(7, QualificationProbeFailedCheck.SetupAccessGuard, QualificationProbeFailedAccess.Other,
@@ -290,6 +305,7 @@ public sealed class QualificationProbeWireCodecTests
             "sourceAtStep7" => source with { FailedStep = 7 },
             "sourceWithGuard" => source with { FailedCheck = QualificationProbeFailedCheck.SetupAccessGuard, RefusalDetail = QualificationProbeRefusalDetail.SetupAccessOverride },
             "mismatchStepRule" => mismatch with { FailedCheck = QualificationProbeFailedCheck.StepRule },
+            "mismatchAtStep7" => mismatch with { FailedStep = 7 },
             "machineInputsAtStep8" => refused with { FailedStep = 8, FailedAccess = QualificationProbeFailedAccess.Other },
             "machineInputsInstalledVersion" => refused with { FailedStep = 8, FailedCheck = QualificationProbeFailedCheck.InstalledVersion, FailedAccess = QualificationProbeFailedAccess.Other },
             "machineInputsAtStep10" => refused with { FailedStep = 10, FailedAccess = QualificationProbeFailedAccess.Other },
@@ -470,12 +486,14 @@ public sealed class QualificationProbeWireCodecTests
     }
 
     [TestMethod]
-    public void Q14FramesOverTheCodecBoundAreRejectedBeforeParsing()
+    public void Q14FramesOverTheCodecBoundAreRejected()
     {
         Assert.AreEqual(2048, QualificationProbeWireCodec.MaximumFrameBytes);
         Assert.IsLessThan(16 * 1024, QualificationProbeWireCodec.MaximumFrameBytes, "inside the unchanged pipe framing limit");
         string frame = Encoding.UTF8.GetString(QualificationProbeWireCodec.CreateProbeResponse(Nonce, Passing()));
-        // A frame padded inside a string to just over the bound; the bound refuses before the grammar does.
+        // A frame padded inside a string to just over the bound is rejected. This shows rejection only, not that the size check
+        // runs before parsing: the padded diagnostic also fails Q13. The order is by inspection of TryReadProbeResponse, whose
+        // first check is the length; no test seam observes it.
         string padded = frame.Replace("probe-observed", "probe-observed" + new string('x', 2049 - frame.Length), StringComparison.Ordinal);
         Assert.AreEqual(2049, Encoding.UTF8.GetByteCount(padded));
         Assert.IsFalse(Read(padded));
@@ -627,7 +645,7 @@ public sealed class QualificationProbeWireCodecTests
     [TestMethod]
     public void TheCompiledAllowListHasAtMostEightTokensOfAtMost64Bytes()
     {
-        // §4.3 (review L8): a larger allow-list fails here and needs a spec revision of the 1,338-B bound.
+        // §4.3 (review L8): a larger allow-list fails here and needs a spec revision of the 1,341-B bound.
         IReadOnlyList<UpdateRouteContract> allowList = DeploymentCapabilityPolicy.CapabilityOperationAllowlist;
         Assert.IsLessThanOrEqualTo(8, allowList.Count);
         foreach (UpdateRouteContract route in allowList)

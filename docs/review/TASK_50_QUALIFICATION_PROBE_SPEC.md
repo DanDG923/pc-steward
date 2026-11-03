@@ -144,7 +144,7 @@ No field carries a path, user name, SID, fingerprint value, pipe name, PID or fr
 
 ### 4.3 Bounds
 
-The upper bound combines maxima that no valid frame can hold together: 8 allow-list keys of 64 B each with `NotEvaluated`, the longest verdict (32 B), `failedStep` 9, the longest check (`SetupAccessGuard`, 16 B), access (`Unreadable`, 10 B), reason (24 B) and detail (23 B), 7- and 5-digit counts, a 128-B version and the longest diagnostic (`probe-observation-timed-out`, 27 B). It is **1,338 B ≤ 2,048 B**. A passing frame with 6- and 5-digit counts is 520 B on today's one-token allow-list and 570 B with the client token added. The 4-byte length prefix is outside the bound.
+The upper bound combines maxima that no valid frame can hold together: 8 allow-list keys of 64 B each with `NotEvaluated`, the longest verdict (32 B), `failedStep` null, the longest check (`SetupAccessGuard`, 16 B), access (`Unreadable`, 10 B), reason (24 B) and detail (23 B), 7- and 5-digit counts, a 128-B version and the longest diagnostic (`probe-observation-timed-out`, 27 B). It is **1,341 B ≤ 2,048 B**. A passing frame with 6- and 5-digit counts is 520 B on today's one-token allow-list and 570 B with the client token added. The 4-byte length prefix is outside the bound.
 
 The 8-key, 64-B assumption is pinned by a static test (review L8): the compiled `CapabilityOperationAllowlist` has at most 8 entries, and each `OperationToken` is at most 64 UTF-8 bytes (today 1 entry, `Update/ChocolateyMachineRuntimeLimitsV3`, 39 B). A larger allow-list fails that test and needs a spec revision of this bound.
 
@@ -152,7 +152,7 @@ The 8-key, 64-B assumption is pinned by a static test (review L8): the compiled 
 
 - S2 adds the probe response codec only: `CreateProbeResponse` and `TryReadProbeResponse(frame, expectedNonce)`, a separate type or a separate region in Execution. There is no probe request codec.
 - Goldens: one minimal frame per Q13 row; a passing frame on the one-token and the two-token allow-list; the largest valid frame; a `Refused` frame per `failedCheck` value and per `failedAccess` value.
-- **Wire-name golden (review L6):** a test pins the 18 `TokenVerdict` names of §4.1 as an ordered literal list and compares it with `Enum.GetNames<TokenVerdict>()`. A rename, an addition or a removal of a verdict fails the test and needs a spec revision, because the enum name is the wire value. The same pin covers the `failedCheck` and `failedAccess` enums.
+- **Wire-name golden (review L6):** a test pins the 18 `TokenVerdict` names of §4.1 as an ordered literal list and compares it with `Enum.GetNames<TokenVerdict>()`. A rename, an addition or a removal of a verdict fails the test and needs a spec revision, because the enum name is the wire value. The same pin covers the `failedCheck` and `failedAccess` enums. S2 pins those two as ordered literal lists against the Execution enums only, because their native counterparts do not exist until the S3 observer additions (§3); pinning the native `failedCheck` and `failedAccess` enums against the Execution enums by exact name and value is an **S3 obligation**, as the S2 test does for `TokenVerdict`.
 - Mutation tests: each property missing, duplicated or swapped; each Q rule violated; wrong-case enums; `Cancelled` as `observation`; `"1"`/`"3"` protocol; a frame of the update response fed to the probe reader and vice versa (both rejected).
 - The package and client request and response goldens stay **byte-unchanged**.
 

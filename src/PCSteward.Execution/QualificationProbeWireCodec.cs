@@ -130,7 +130,7 @@ internal static class QualificationProbeWireCodec
     /// <summary>§1: the fixed kind literal; the protocol value stays <see cref="ReviewedUpdateWireCodec.ProtocolVersion"/>.</summary>
     internal const string Kind = "qualify-chocolatey-helper";
 
-    /// <summary>Q14: the codec bound, inside the unchanged 16 KiB <see cref="PipeMessageFraming"/> limit (largest possible frame 1,338 B).</summary>
+    /// <summary>Q14: the codec bound, inside the unchanged 16 KiB <see cref="PipeMessageFraming"/> limit (largest possible frame 1,341 B).</summary>
     internal const int MaximumFrameBytes = 2048;
 
     /// <summary>§4.1 fields 11 and 12: the saturating maxima.</summary>

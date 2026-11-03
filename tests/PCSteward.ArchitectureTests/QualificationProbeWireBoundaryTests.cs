@@ -88,6 +88,22 @@ public sealed class QualificationProbeWireBoundaryTests
     }
 
     [TestMethod]
+    public void TheListedClientReleasesHaveExactlyOneSrcCallerTheContractStaticConstructor()
+    {
+        // Review L3: ListedVersions() feeds only the compiled Q10 contract; any new src caller needs review.
+        const string Policy = "PCSteward.Provider.Chocolatey.ChocolateyClientReleasePolicy";
+        List<string> assemblies = RequireBuilt();
+        string provider = assemblies.Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");
+        Assert.IsTrue(CompiledIlScanner.MethodDefinitions(provider).Contains((Policy, "ListedVersions")), "update the caller pin");
+        List<string> callers = [];
+        foreach (string path in assemblies)
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+                if (reference.TargetType == Policy && reference.TargetMember == "ListedVersions")
+                    callers.Add($"{Path.GetFileNameWithoutExtension(path)}: {reference.CallerType}::{reference.CallerMethod}");
+        CollectionAssert.AreEqual(new[] { "PCSteward.Execution: " + Contract + "::.cctor" }, callers.ToArray(), string.Join(Environment.NewLine, callers));
+    }
+
+    [TestMethod]
     public void ThereIsNoProbeRequestCodecAndTheCodecNamesNoNativeOrTransportType()
     {
         List<string> assemblies = RequireBuilt();
