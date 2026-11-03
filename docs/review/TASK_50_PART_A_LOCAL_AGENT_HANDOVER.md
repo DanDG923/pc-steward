@@ -29,7 +29,23 @@ PS
 
 If your shell tool is PowerShell instead, run the step's lines unchanged in one call. Every step after step 1 starts by setting `$d` again with the first H1 line; this is the plan's own rule ("re-run only the first H1 line to set `$d` again").
 
-Before step 1, find `<CHECKOUT>`: the absolute Windows path of this repository's root (in Git Bash, `pwd -W`). Check read-only that `<CHECKOUT>\scripts\evidence\Task50-HostEvidence.ps1` exists. Substitute that path for `<CHECKOUT>` in step 1 only; change nothing else.
+Before step 0, find `<CHECKOUT>`: the absolute Windows path of this repository's root (in Git Bash, `pwd -W`).
+
+**Revision 2 (2026-11-03): the script comes from the fetched Task 50 branch, not the working tree.** The owner's clone is checked out on another branch, so the script is not in the working tree. Step 0 copies the exact committed bytes out of the already-fetched remote-tracking branch `origin/claude/sweet-franklin-j3mw4a` (any commit since `e133d2b` has the same script) into a new folder `%TEMP%\pcsteward-task50-src`. It is a read-only Git object read: no checkout, fetch, branch switch or other Git state change. Step 1's hash check still binds the bytes. Do not fetch first; if the ref is missing, stop and report.
+
+**Step 0 — extract the script (read-only Git object read; one new file)** (expected: `SOURCE-EXIT 0`, then `SOURCE: <path>`)
+
+```powershell
+$src = Join-Path ([IO.Path]::GetTempPath()) 'pcsteward-task50-src'; if (Test-Path -LiteralPath $src) { 'STOP: source folder already exists' } else { New-Item -ItemType Directory -Path $src -ErrorAction Stop | Out-Null; $psi = New-Object System.Diagnostics.ProcessStartInfo 'git.exe'; $psi.Arguments = 'cat-file blob origin/claude/sweet-franklin-j3mw4a:scripts/evidence/Task50-HostEvidence.ps1'; $psi.WorkingDirectory = '<CHECKOUT>'; $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $p = [Diagnostics.Process]::Start($psi); $out = [IO.File]::Create((Join-Path $src 'Task50-HostEvidence.ps1')); try { $p.StandardOutput.BaseStream.CopyTo($out) } finally { $out.Dispose() }; $p.WaitForExit(); 'SOURCE-EXIT ' + $p.ExitCode; 'SOURCE: ' + (Join-Path $src 'Task50-HostEvidence.ps1') }
+```
+
+On a non-zero `SOURCE-EXIT` or a STOP: run nothing else; report it. In step 1, substitute the path printed after `SOURCE:` for the whole literal `<CHECKOUT>\scripts\evidence\Task50-HostEvidence.ps1`; change nothing else. After step 6 (and only with the owner's OK), remove the source folder once:
+
+```powershell
+$src = Join-Path ([IO.Path]::GetTempPath()) 'pcsteward-task50-src'; if ((Test-Path -LiteralPath (Join-Path $src 'Task50-HostEvidence.ps1')) -and @(Get-ChildItem -LiteralPath $src -Force).Count -eq 1) { Remove-Item -LiteralPath $src -Recurse -Force; 'SOURCE-REMOVED' } else { 'STOP: source folder not as created; delete nothing' }
+```
+
+Add a `source:` line to the step-7 report: `SOURCE-EXIT …` and, at the end, `SOURCE-REMOVED` (or why not).
 
 ## Steps
 
