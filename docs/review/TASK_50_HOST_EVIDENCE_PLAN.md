@@ -314,8 +314,8 @@ Each approval quotes the §4 Final SHA-256 verbatim, at the position marked `[§
 - Script SHA-256 `0A1C4377…84D4` (`HASH-OK`, `PARSE-OK`); `stop = null` in both runs; host token Limited (`tokenElevationType` 3, not elevated).
 - **O5 `PASS-READABLE` with `matchesPinnedRelease = true`:** engine `matchesPin`; code list 56/56 matched; `helpers` 41 files and `tools` 13 files, **0 unlisted** in each (the `.old` leftover of run 2 is gone); registration `chocolatey` present with `chocolatey.nupkg` `matchesPin`; extension absent; `routeFindings = []`; `problems = []`.
 - AQ1N, AQ1M, AQ1C and A2L3S `PASS`, as in runs 1 and 2.
-- **AQ1UAC `PASS`:** the RunAs launch of the held synthetic image kept the hold (`peerEqualsHeld`, replacement refused before, during and after), so runas preserves the held-image identity for a synthetic image and the A2-L5 fallback is not triggered. The owner's count of UAC prompts is to be confirmed (expected: exactly 1).
-- Cleanup (H6 and the step-0 source folder) awaits the owner's OK.
+- **AQ1UAC `PASS`:** the RunAs launch of the held synthetic image kept the hold (`peerEqualsHeld`, replacement refused before, during and after), so runas preserves the held-image identity for a synthetic image and the A2-L5 fallback is not triggered. The owner saw **exactly 1** UAC prompt.
+- Cleanup done with the owner's OK: `CLEANUP-COMPLETE: <TEMP>\pcsteward-evidence-task50 removed` and `SOURCE-REMOVED` (the step-0 folder). Part A is complete; nothing from it remains on the host.
 - This result feeds review and owner decisions only; it is not admission or a gate closure by itself.
 
 ## 11. Explicitly NOT authorized by this plan or by any approval above
