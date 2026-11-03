@@ -5,9 +5,9 @@ namespace PCSteward.ArchitectureTests;
 
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 qualification probe spec rev 4 §4.4 and §7 (slice S2), checked on compiled IL of every
-/// built <c>src</c> assembly and on source text: the probe response codec is passive until S3/S4 wire it. No <c>src</c> code
-/// outside the codec's own types references them (so <c>PCSteward.Desktop</c>, the elevated helper entry code and
-/// <c>ScheduledHost</c> cannot reach them); the test-only contract factory has no <c>src</c> caller; there is no probe request
+/// built <c>src</c> assembly and on source text: the probe response codec is wired only on the helper side (S3). No <c>src</c>
+/// code outside the codec's own types and the S3 probe entry (<c>ReviewedHelperProbeEndpoint</c>, the only producer) references
+/// them, so <c>PCSteward.Desktop</c> and <c>ScheduledHost</c> cannot reach them until S4; the test-only contract factory has no <c>src</c> caller; there is no probe request
 /// codec; and the codec names no native type. The admission pins (<c>HasSupportedMode</c>, <c>CapabilityOperationAllowlist</c>,
 /// the dispatcher's <c>Supports</c>) are covered, unchanged, by their existing tests.
 /// </summary>
@@ -18,7 +18,10 @@ public sealed class QualificationProbeWireBoundaryTests
     private const string Codec = Execution + "QualificationProbeWireCodec";
     private const string Contract = Execution + "QualificationProbeContract";
     private const string CodecFile = "QualificationProbeWireCodec.cs";
-    private static readonly string[] CodecFileOnly = [CodecFile];
+    private static readonly string[] CodecFileOnly = [CodecFile, "ReviewedHelperProbeBootstrap.cs", "ReviewedHelperProbeEndpoint.cs"];
+
+    /// <summary>S3: the probe entry is the one non-codec type that may reference the probe wire types.</summary>
+    private const string ProbeEndpoint = Execution + "ReviewedHelperProbeEndpoint";
 
     /// <summary>Every S2 type (all declared in <see cref="CodecFile"/>).</summary>
     private static readonly string[] ProbeTypes =
@@ -49,6 +52,7 @@ public sealed class QualificationProbeWireBoundaryTests
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path).Where(reference => IsProbeType(reference.TargetType)))
             {
                 if (execution && IsProbeType(reference.Caller)) internalReferences++;
+                else if (execution && reference.Caller == ProbeEndpoint) { }
                 else violations.Add($"{Path.GetFileName(path)}: {reference.Caller} references {reference.TargetType}.{reference.TargetMember}");
             }
         }
@@ -66,8 +70,8 @@ public sealed class QualificationProbeWireBoundaryTests
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
         Regex names = new(@"\b(" + string.Join('|', ProbeTypes) + @")\b", RegexOptions.CultureInvariant);
         string[] declaring = [.. Sources(src).Where(path => names.IsMatch(File.ReadAllText(path))).Select(Path.GetFileName).Order(StringComparer.Ordinal)!];
-        CollectionAssert.AreEqual(CodecFileOnly, declaring, "only the S2 codec file names the probe wire types");
-        // The entry points S3/S4 will wire stay untouched in S2.
+        CollectionAssert.AreEqual(CodecFileOnly, declaring, "only the S2 codec file and the S3 helper probe files name the probe wire types");
+        // The entry points S4 will wire stay untouched in S3; the helper's Program names no probe literal (Execution owns the parser).
         foreach (string project in new[] { "PCSteward.Desktop", "PCSteward.ElevatedHelper", "PCSteward.ScheduledHost" })
             foreach (string path in Sources(Path.Combine(src, project)))
                 Assert.IsFalse(File.ReadAllText(path).Contains("qualify-chocolatey-helper", StringComparison.Ordinal), $"{path} names the probe kind");

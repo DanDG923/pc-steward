@@ -47,6 +47,21 @@ public sealed class HelperEndpointBoundaryTests
         "ChocolateyCandidateRefusal", "ChocolateyClientRunFault",
     ];
 
+    /// <summary>
+    /// Task 50 qualification probe spec rev 4 §7 H4: the Execution allow-list of native names grows only by the probe port and
+    /// item, their value record, the token verdict and the two closed enums behind <c>failedCheck</c> and <c>failedAccess</c>.
+    /// The probe entry may also use the shared peer (<c>TryReadIdentity</c>) and nothing else of the update port's surface.
+    /// </summary>
+    private static readonly string[] ProbeAllowList =
+    [
+        "IChocolateyProbePort", "IChocolateyProbeItem", "ChocolateyProbeValues", "TokenVerdict", "ChocolateyProbeFailedCheck",
+        "ChocolateyProbeFailedAccess",
+    ];
+
+    private const string ProbeEndpoint = "PCSteward.Execution.ReviewedHelperProbeEndpoint";
+    private const string ProbeBootstrap = "PCSteward.Execution.ReviewedHelperProbeBootstrap";
+    private const string NativeProbePort = Native + "NativeChocolateyProbePort";
+
     private static readonly string[] PortCalls =
     [
         "IChocolateyHelperQualificationPort.BeginItem", "IChocolateyHelperItem.ObserveProfile", "IChocolateyHelperItem.QueryCandidateAsync",
@@ -73,14 +88,16 @@ public sealed class HelperEndpointBoundaryTests
     [
         (Bootstrap, [Native + "IChocolateyHelperQualificationPort.OpenPeer"]),
         (Verifier, [Native + "IChocolateyPeer.get_ProcessId", Native + "IChocolateyPeer.get_HasExited", Native + "IChocolateyPeer.TryReadIdentity"]),
-        (EntryPoint, [NativePort + "..ctor"]),
+        (EntryPoint, [NativePort + "..ctor", NativeProbePort + "..ctor"]),
+        // Probe spec rev 4 §3 P0 (review M2): the probe bootstrap opens the peer only through the probe port.
+        (ProbeBootstrap, [Native + "IChocolateyProbePort.OpenPeer"]),
     ];
 
     /// <summary>Protocol-2 types the protocol-1 path must never reference (compiled IL).</summary>
     private static readonly string[] ProtocolTwoTypes =
     [
         Bootstrap, Endpoint, Codec, CapabilityCheck, "PCSteward.Execution.WindowsReviewedHelperTransport",
-        "PCSteward.Execution.IReviewedHelperCapabilityCheck",
+        "PCSteward.Execution.IReviewedHelperCapabilityCheck", ProbeBootstrap, ProbeEndpoint, "PCSteward.Execution.QualificationProbeWireCodec",
     ];
 
     [TestMethod]
@@ -139,7 +156,8 @@ public sealed class HelperEndpointBoundaryTests
             string assembly = Path.GetFileNameWithoutExtension(path);
             if (assembly == "PCSteward.Provider.Chocolatey") continue;
             foreach (string type in CompiledIlScanner.TypeReferences(path).Where(type => type.StartsWith(Native, StringComparison.Ordinal)))
-                if (assembly != "PCSteward.Execution" || !(IsAllowListed(type) || type == NativePort)) violations.Add($"{assembly} references type {type}");
+                if (assembly != "PCSteward.Execution" || !(IsAllowListed(type) || IsProbeAllowListed(type) || type == NativePort || type == NativeProbePort))
+                    violations.Add($"{assembly} references type {type}");
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path).Where(reference => reference.TargetType.StartsWith(Native, StringComparison.Ordinal)))
                 if (assembly != "PCSteward.Execution" || !IsPermitted(reference))
                     violations.Add($"{assembly}: {reference.Caller} references {reference.TargetType}.{reference.TargetMember}");
@@ -163,12 +181,16 @@ public sealed class HelperEndpointBoundaryTests
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Execution");
         string[] naming = [.. Sources(src).Where(path => File.ReadAllText(path).Contains("PCSteward.Provider.Chocolatey.Native", StringComparison.Ordinal))
             .Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)];
-        Assert.AreEqual("ReviewedHelperBootstrap.cs, ReviewedHelperEndpoint.cs", string.Join(", ", naming));
+        Assert.AreEqual("ReviewedHelperBootstrap.cs, ReviewedHelperEndpoint.cs, ReviewedHelperProbeBootstrap.cs, ReviewedHelperProbeEndpoint.cs",
+            string.Join(", ", naming));
     }
 
     private static bool IsPermitted(CompiledIlScanner.IlReference reference)
     {
         if (reference.Caller == Endpoint) return IsAllowListed(reference.TargetType);
+        // Probe spec rev 4 §7 H4: the probe entry reaches only the probe names and the shared peer's identity read.
+        if (reference.Caller == ProbeEndpoint)
+            return IsProbeAllowListed(reference.TargetType) || reference.TargetType + "." + reference.TargetMember == Native + "IChocolateyPeer.TryReadIdentity";
         string member = reference.TargetType + "." + reference.TargetMember;
         foreach ((string caller, string[] members) in BootstrapAllowList)
             if (reference.Caller == caller) return members.Contains(member);
@@ -223,8 +245,8 @@ public sealed class HelperEndpointBoundaryTests
         (string Type, string Member, string[] Callers)[] pinned =
         [
             (NativeItem, "Create", [NativePort + ".BeginItemWithVerdict"]),
-            (NativePeer, "TryOpen", [NativePort + ".OpenPeer"]),
-            (NativePeer, "TryAcquireRequesterToken", [NativePort + ".BeginItemWithVerdict"]),
+            (NativePeer, "TryOpen", [NativePort + ".OpenPeer", NativeProbePort + ".OpenPeer"]),
+            (NativePeer, "TryAcquireRequesterToken", [NativePort + ".BeginItemWithVerdict", NativeProbePort + ".BeginProbe"]),
             (NativePort, "BeginItemWithVerdict", [NativePort + ".BeginItem"]),
             (Native + "RequesterToken", "TryForVerifiedPeer", [NativePeer + ".TryAcquireRequesterToken"]),
             (Native + "PeerProcess", "TryOpen", [NativePeer + ".TryOpen"]),
@@ -283,7 +305,8 @@ public sealed class HelperEndpointBoundaryTests
             }
         CollectionAssert.AreEquivalent(new[] { Bootstrap + ".RunAsync" }, endpointCallers.ToArray());
         CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync" }, bootstrapCallers.ToArray());
-        CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync" }, checkConstructors.ToArray());
+        // Probe spec rev 4 §3 A3: the probe composition root constructs the same Helper-role check.
+        CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync", EntryPoint + ".RunProbeAsync" }, checkConstructors.ToArray());
 
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
         string transport = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
@@ -326,6 +349,7 @@ public sealed class HelperEndpointBoundaryTests
             // Only the composition root constructs the G1 check, and only through the production (parameterless) constructor;
             // the fixture-layout overload is reached only by that constructor's chain.
             (CapabilityCheck, ".ctor", "()", EntryPoint + ".RunReviewedAsync", null),
+            (CapabilityCheck, ".ctor", "()", EntryPoint + ".RunProbeAsync", null),
             (CapabilityCheck, ".ctor", LayoutFactory, CapabilityCheck + "..ctor", "()"),
             // The fixed helper layout is bound only by the production constructor.
             (Reader, "ResolveHelperLayout", "()", CapabilityCheck + "..ctor", "()"),
@@ -402,7 +426,12 @@ public sealed class HelperEndpointBoundaryTests
         ];
         // The entry point's protocol-2 members are the dispatch rule and the protocol-2 composition root; every other entry-point
         // method (the dispatcher, the protocol-1 provider composition and the protocol-1 run) is protocol 1.
-        string[] protocolTwoEntryMembers = [EntryPoint + ".RunReviewedAsync", EntryPoint + ".SelectsProtocol2"];
+        string[] protocolTwoEntryMembers =
+        [
+            EntryPoint + ".RunReviewedAsync", EntryPoint + ".SelectsProtocol2",
+            // Probe spec rev 4 §2: the probe dispatch rule and the probe composition root are protocol-2 members too.
+            EntryPoint + ".RunProbeAsync", EntryPoint + ".SelectsProbe",
+        ];
         List<string> violations = [];
         int scanned = 0;
         foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(execution))
@@ -432,6 +461,9 @@ public sealed class HelperEndpointBoundaryTests
         Assert.AreEqual(1, Regex.Count(source, @"PipeMessageFraming\.WriteAsync\("), "exactly one response write");
         Assert.AreEqual(1, Regex.Count(source, @"ReviewedUpdateWireCodec\.CreateResponse\("), "the response is built only through the codec");
     }
+
+    private static bool IsProbeAllowListed(string fullName) =>
+        fullName.StartsWith(Native, StringComparison.Ordinal) && ProbeAllowList.Contains(fullName[Native.Length..].Split('+')[0]);
 
     private static bool IsAllowListed(string fullName) =>
         fullName.StartsWith(Native, StringComparison.Ordinal) && AllowList.Contains(fullName[Native.Length..].Split('+')[0]);
