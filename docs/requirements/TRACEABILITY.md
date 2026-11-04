@@ -33,10 +33,10 @@
 
 `FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §2, §3, §4.4, §7 H1–H12.
 
-- Security `QualificationProbeHelperEndpointTests` (portable 42): every Q13 row over a real pipe pair, H3 disposal order, H7 inbound byte (27), EOF during A3/B′ (24), A3 cap and spent budget, H10 in-flight disposal and the 26 write window.
+- Security `QualificationProbeHelperEndpointTests` (portable 44): every Q13 row over a real pipe pair, H3 disposal order, H7 inbound byte (27), EOF during A3/B′ (24), A3 cap and spent budget, A3 abandonment ordering (an interrupted run starts no evaluation; an interruption during one refuses the protection call without reaching the item), H10 in-flight disposal and the 26 write window.
 - Security `QualificationProbeHelperBootstrapTests` (portable 39, Windows-only 4): H6 grammar, 120 permutations and mutual refusal with all three existing parsers; H8 exits 20/21 (portable) and 22/23 plus native probe-port verdicts (Windows).
 - Security `QualificationProbeHelperNativeTests` (portable 7, Windows-only 6): §4.4 native/wire enum pins, H11 one-entry release list, H9 per-instance saturating sinks, probe value shapes, native item seam ordering; H12 walker/ancestry/observer/G1 unchanged with and without the sink and native B′ binding disposal (Windows).
-- Architecture `QualificationProbeHelperBoundaryTests` (9) for H1, H2, H4, H5, H6, H9/H12, H10 and S4-not-wired; existing allow-lists grown additively per H4 (`HelperEndpointBoundaryTests`, `NativePrimitivesBoundaryTests`, `QualificationProbeWireBoundaryTests`).
+- Architecture `QualificationProbeHelperBoundaryTests` (11) for H1, H2 (including the binding disposed in a `finally`), H3 (Stop order in compiled IL and source), H4, H5, H6, H9/H12, H10 and S4-not-wired; `QualificationProbeReachabilityTests` (1) for H1a, the pinned transitive closure from `RunProbeAsync`/`SelectsProbe`; existing allow-lists grown additively per H4 (`HelperEndpointBoundaryTests`, `NativePrimitivesBoundaryTests`, `QualificationProbeWireBoundaryTests`).
 - Not claimed: Windows CI evidence for the 10 Windows-only cases, desktop wiring (S4), deployment or any host action.
 
 # Task 50 — qualification probe slice S2 (probe response codec)
