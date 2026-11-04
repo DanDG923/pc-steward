@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.ComponentModel;
 using PCSteward.Domain;
 using PCSteward.Execution;
 using Outcome = PCSteward.Execution.QualificationProbeDesktopOutcome;
@@ -198,8 +199,27 @@ public sealed class QualificationProbeDesktopTransportTests
         Assert.AreEqual(TimeSpan.FromMinutes(11), ReviewedHelperProbeTransport.Budgets.Execution);
         Assert.AreEqual(TimeSpan.FromSeconds(5), ReviewedHelperProbeTransport.Budgets.Exit);
         Assert.AreSame(ReviewedHelperBudgets.Production, ReviewedHelperProbeTransport.Budgets);
-        Assert.IsGreaterThan(TimeSpan.FromMinutes(10) + TimeSpan.FromSeconds(10), ReviewedHelperProbeTransport.Budgets.Execution,
-            "the helper's last write (10 min 10 s after t0) ends before the desktop gives up");
+        // S6 integrated review: computed from the real helper budgets, not literals. The helper's last write ends at most
+        // Probe + ExitMargin + min(ResponseWrite, ResponseMargin) after t0, before the desktop's read gives up.
+        ReviewedHelperProbeBudgets helper = ReviewedHelperProbeBudgets.Production;
+        TimeSpan lastWrite = helper.Probe + helper.ExitMargin + TimeSpan.FromTicks(Math.Min(helper.ResponseWrite.Ticks, helper.ResponseMargin.Ticks));
+        Assert.IsGreaterThan(lastWrite, ReviewedHelperProbeTransport.Budgets.Execution,
+            "the helper's last write ends before the desktop gives up");
+    }
+
+    [TestMethod]
+    public void TerminationReportsFailureInsteadOfThrowingSoTheUnownedHelperBranchStillRecordsAnOutcome()
+    {
+        // S6 integrated review: Kill(entireProcessTree: true) throws AggregateException when a descendant cannot be killed.
+        Assert.IsFalse(ReviewedHelperProbeTransport.TryTerminate(static () => false, static () => throw new AggregateException(new Win32Exception(5))));
+        foreach (Exception expected in new Exception[] { new Win32Exception(5), new InvalidOperationException(), new NotSupportedException() })
+            Assert.IsFalse(ReviewedHelperProbeTransport.TryTerminate(static () => false, () => throw expected), expected.GetType().Name);
+        Assert.IsFalse(ReviewedHelperProbeTransport.TryTerminate(static () => throw new InvalidOperationException(), static () => { }));
+        int kills = 0;
+        Assert.IsTrue(ReviewedHelperProbeTransport.TryTerminate(static () => false, () => kills++));
+        Assert.AreEqual(1, kills);
+        Assert.IsTrue(ReviewedHelperProbeTransport.TryTerminate(static () => true, () => kills++), "an exited helper is not killed");
+        Assert.AreEqual(1, kills);
     }
 
     // ---- Steps 8–10: the session over a real pipe pair ----

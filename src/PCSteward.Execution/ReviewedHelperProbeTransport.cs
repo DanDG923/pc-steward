@@ -405,7 +405,8 @@ internal sealed class ReviewedHelperProbeTransport
             try { owned = new(helper); }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                // A helper exists but cannot be owned: tear it down and keep the bindings unreleased (A-M2).
+                // A helper exists but cannot be owned: tear it down. The bindings are not released here (A-M2); the run ends,
+                // the result file is written, the gate is released and the desktop's Environment.Exit releases the holds right after.
                 return new(QualificationProbeDesktopOutcome.HelperNotConnected, statuses, facts with { TerminationFailed = !TryTerminate(helper) }, pins, null);
             }
             ReleaseAfterOwnership(owned.OwnedCompletion, bindings);
@@ -506,14 +507,23 @@ internal sealed class ReviewedHelperProbeTransport
         catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or NotSupportedException) { return null; }
     }
 
-    private static bool TryTerminate(Process process)
+    private static bool TryTerminate(Process process) =>
+        TryTerminate(() => process.HasExited, () => process.Kill(entireProcessTree: true));
+
+    /// <summary>
+    /// Kills the tree unless it has exited. False on the expected failures, including the <see cref="AggregateException"/>
+    /// that <c>Kill(entireProcessTree: true)</c> throws when a descendant cannot be killed, so the caller still records an outcome.
+    /// </summary>
+    internal static bool TryTerminate(Func<bool> hasExited, Action killTree)
     {
+        ArgumentNullException.ThrowIfNull(hasExited);
+        ArgumentNullException.ThrowIfNull(killTree);
         try
         {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            if (!hasExited()) killTree();
             return true;
         }
-        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or NotSupportedException)
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or NotSupportedException or AggregateException)
         {
             return false;
         }

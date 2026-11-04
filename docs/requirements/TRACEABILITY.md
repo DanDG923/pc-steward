@@ -40,6 +40,7 @@
 - Application `QualificationProbeGateTests` (Windows-only 9): D7 held, abandoned (one acquirer) and thread-affine gate; every non-`None` marker state unsettled with no write.
 - Security `DeploymentCapabilityReaderTests` (portable +1): the D9 signer read returns null for any failure and never throws.
 - Architecture `QualificationProbeDesktopBoundaryTests` (7) for D1, D2, D3, D4, D5, D7 (including the exact `Run(QualificationProbeLaunchGate.TryAcquire)` call) and the seams; existing pins admit the probe explicitly (`DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests`, `QualificationProbeWireBoundaryTests`, `QualificationProbeHelperBoundaryTests`); D4 admission-pin tests unmodified.
+- S6 integrated review (spec §11.6): Architecture `QualificationProbeReachabilityTests` D1 desktop closure from `QualificationProbeEntry.Run`/`Classify` (the helper bans plus the update transport and pipe writes; exactly one launch, in `LaunchProbeHelper`); Security `QualificationProbeDesktopTransportTests` (+1: `TryTerminate` reports `AggregateException` and the other expected failures as false; the budget margin is computed from `ReviewedHelperProbeBudgets.Production`).
 - Not claimed: the real Desktop build, Windows CI evidence for the 17 Windows-only cases, D4 (owner decision), deployment or any host action.
 
 # Task 50 — qualification probe slice S3 (helper side)
