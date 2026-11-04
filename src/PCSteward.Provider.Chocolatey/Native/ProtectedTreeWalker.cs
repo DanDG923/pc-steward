@@ -89,7 +89,20 @@ internal static class ProtectedTreeWalker
 
     internal static TreeWalkResult Walk(RequesterToken token, string root, TreeWalkBounds bounds,
         Func<string, bool, ChocolateyTreeContentPolicy> classify, CancellationToken cancellationToken) =>
-        WalkCore(token, root, bounds, classify, beforeChildOpen: null, cancellationToken);
+        WalkCore(token, root, bounds, classify, beforeChildOpen: null, sink: null, cancellationToken);
+
+    /// <summary>
+    /// Probe spec rev 4 §3 (review L-4): <c>Walk</c> with a per-call sink that counts every Node-mode <see cref="RequesterAccess.Evaluate"/> call (the root and each child) and
+    /// receives the verdict behind a refusal: the <c>Evaluate</c> result for <see cref="TreeWalkRefusal.RequesterModifiable"/> or
+    /// an evaluated <see cref="TreeWalkRefusal.Unreadable"/>, and null for every other refusal (a failed open included). The
+    /// result is the same as without the sink.
+    /// </summary>
+    internal static TreeWalkResult WalkWithSink(RequesterToken token, string root, TreeWalkBounds bounds,
+        Func<string, bool, ChocolateyTreeContentPolicy> classify, RequesterAccessSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        return WalkCore(token, root, bounds, classify, beforeChildOpen: null, sink, cancellationToken);
+    }
 
     /// <summary>
     /// Test-only (an architecture test bans every <c>src</c> caller): <see cref="Walk"/> with a callback that runs after
@@ -99,7 +112,7 @@ internal static class ProtectedTreeWalker
         Func<string, bool, ChocolateyTreeContentPolicy> classify, Action<string> beforeChildOpen, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(beforeChildOpen);
-        return WalkCore(token, root, bounds, classify, beforeChildOpen, cancellationToken);
+        return WalkCore(token, root, bounds, classify, beforeChildOpen, sink: null, cancellationToken);
     }
 
     /// <summary>
@@ -186,8 +199,20 @@ internal static class ProtectedTreeWalker
     }
 
     private static TreeWalkResult WalkCore(RequesterToken token, string root, TreeWalkBounds bounds,
-        Func<string, bool, ChocolateyTreeContentPolicy> classify, Action<string>? beforeChildOpen, CancellationToken cancellationToken)
+        Func<string, bool, ChocolateyTreeContentPolicy> classify, Action<string>? beforeChildOpen, RequesterAccessSink? sink,
+        CancellationToken cancellationToken)
     {
+        TreeWalkResult result = WalkTree(token, root, bounds, classify, beforeChildOpen, sink, cancellationToken, out RequesterModification? verdict);
+        // The sink sees the verdict only when an Evaluate result refused; every other refusal is not an access verdict.
+        if (sink is not null && result is TreeWalkResult.Refused) sink.RecordWalkRefusal(verdict);
+        return result;
+    }
+
+    private static TreeWalkResult WalkTree(RequesterToken token, string root, TreeWalkBounds bounds,
+        Func<string, bool, ChocolateyTreeContentPolicy> classify, Action<string>? beforeChildOpen, RequesterAccessSink? sink,
+        CancellationToken cancellationToken, out RequesterModification? refusalVerdict)
+    {
+        refusalVerdict = null;
         ArgumentNullException.ThrowIfNull(token);
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(bounds);
@@ -201,11 +226,17 @@ internal static class ProtectedTreeWalker
         Stack<Frame> stack = new();
         try
         {
-            switch (RequesterAccess.Evaluate(token, rootHandle, directory: true, parentDirectory: null, AccessMode.Node))
+            RequesterModification rootVerdict = RequesterAccess.Evaluate(token, rootHandle, directory: true, parentDirectory: null, AccessMode.Node);
+            sink?.CountNode();
+            switch (rootVerdict)
             {
-                case RequesterModification.Granted: return Refuse(TreeWalkRefusal.RequesterModifiable, string.Empty);
+                case RequesterModification.Granted:
+                    refusalVerdict = rootVerdict;
+                    return Refuse(TreeWalkRefusal.RequesterModifiable, string.Empty);
                 case RequesterModification.Denied: break;
-                default: return Refuse(TreeWalkRefusal.Unreadable, string.Empty);
+                default:
+                    refusalVerdict = RequesterModification.Unreadable;
+                    return Refuse(TreeWalkRefusal.Unreadable, string.Empty);
             }
             List<NativeNode> nodes = [rootNode];
             TreeWalkRefusal? enumerated = TryEnumerate(rootHandle, bounds.MaximumEntries - nodes.Count, cancellationToken, out List<NativeDirectoryEntry> rootEntries);
@@ -242,10 +273,18 @@ internal static class ProtectedTreeWalker
                 try
                 {
                     RequesterModification verdict = RequesterAccess.Evaluate(token, child!, directory, frame.Handle, AccessMode.Node);
-                    if (verdict == RequesterModification.Unreadable) return Refuse(TreeWalkRefusal.Unreadable, relative);
+                    sink?.CountNode();
+                    if (verdict == RequesterModification.Unreadable)
+                    {
+                        refusalVerdict = verdict;
+                        return Refuse(TreeWalkRefusal.Unreadable, relative);
+                    }
                     // NonLoadingLogContents exempts only regular files from the requester-modification rule.
                     if (verdict == RequesterModification.Granted && (directory || policy != ChocolateyTreeContentPolicy.NonLoadingLogContents))
+                    {
+                        refusalVerdict = verdict;
                         return Refuse(TreeWalkRefusal.RequesterModifiable, relative);
+                    }
                     nodes.Add(node);
                     if (!directory) continue;
                     enumerated = TryEnumerate(child!, bounds.MaximumEntries - nodes.Count, cancellationToken, out List<NativeDirectoryEntry> entries);

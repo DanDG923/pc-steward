@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
@@ -29,6 +30,31 @@ public sealed class DeploymentCapabilityReaderTests
     private const int ErrorSharingViolation = 32;
 
     // ---- Portable ----
+
+    [TestMethod]
+    public void TheSignerReadNeverThrowsSoItCannotTurnASupportedHoldIntoUnreadable()
+    {
+        // Probe spec §5.3 (D9 values only): the signer facts are never part of the status, so every failure is a null value.
+        MethodInfo read = typeof(OwnerOnlyDeploymentCapabilityReader).GetMethod("TryReadSigner", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new AssertFailedException("TryReadSigner not found");
+        string root = Path.Combine(Path.GetTempPath(), $"pcsteward-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string empty = Path.Combine(root, "empty.exe"), text = Path.Combine(root, "text.exe");
+            File.WriteAllBytes(empty, []);
+            File.WriteAllText(text, "MZ not a signed image");
+            string?[] inputs = [null, string.Empty, "\0", root, Path.Combine(root, "missing.exe"), empty, text, new string('a', 40000)];
+            foreach (string? input in inputs)
+            {
+                object? result;
+                try { result = read.Invoke(null, [input]); }
+                catch (TargetInvocationException exception) { throw new AssertFailedException($"{input?.Length}: {exception.InnerException?.GetType()}"); }
+                Assert.IsNull(result, input);
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
 
     [TestMethod]
     public void RouteOutsideTheCompiledAllowlistIsMismatchWithoutAnyRead()
@@ -480,7 +506,7 @@ public sealed class DeploymentCapabilityReaderTests
         internal static DeploymentTree Create(Fixture fixture, byte[]? capability = null) => Create(fixture.Root, capability);
 
         /// <summary>N4b: the same tree under any fixture root (for example an N1 fixture whose ACLs the test sets).</summary>
-        internal static DeploymentTree Create(string root, byte[]? capability = null)
+        internal static DeploymentTree Create(string root, byte[]? capability = null, IReadOnlyDictionary<string, byte[]>? contents = null)
         {
             DeploymentTree tree = new(root);
             Directory.CreateDirectory(tree.InstallRoot);
@@ -489,7 +515,8 @@ public sealed class DeploymentCapabilityReaderTests
             List<object?> manifest = [];
             foreach (string leaf in DeploymentCapabilityPolicy.BindingSet)
             {
-                byte[] bytes = leaf == DeploymentCapabilityPolicy.CapabilityFileName ? capability : Encoding.UTF8.GetBytes("content " + leaf);
+                byte[] bytes = contents is not null && contents.TryGetValue(leaf, out byte[]? custom) ? custom :
+                    leaf == DeploymentCapabilityPolicy.CapabilityFileName ? capability : Encoding.UTF8.GetBytes("content " + leaf);
                 File.WriteAllBytes(tree.Leaf(leaf), bytes);
                 tree.Hashes[leaf] = Convert.ToHexString(SHA256.HashData(bytes));
                 manifest.Add(DeploymentCapabilityPolicyTests.Obj(("bytes", (long)bytes.Length), ("path", leaf), ("sha256", tree.Hashes[leaf].ToLowerInvariant())));

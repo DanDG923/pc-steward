@@ -18,7 +18,9 @@
 `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; ADR-031 decision 7; composition record admission obligations 1–3.
 
 - [Plan rev 1](../review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md): Part A (confirming Default run, optional H3) reuses script SHA-256 `0A1C4377…84D4` and is ready for approval; Parts B (v2 redeploy) and C (exact-artifact test) are blocked by gaps G1–G9.
-- No host action; no evidence yet.
+- Part A: PASS (result 3, 2026-11-03).
+- Plan rev 2 (2026-11-03): Part B (`FR-UPD-15`, `TM-03/04/06/07/13`, ADR-022) as exact blocks on build commit `febf1ac` with LF/CRLF pins for the six protected scripts, template, caller, copy script and builder; approval 1a (B-prep, complete) and 1b (B-exec, host-placeholder template); [B-prep handover](../review/TASK_50_PART_B_LOCAL_AGENT_HANDOVER.md). G6 decided, G7 settled. Docs only; no host evidence yet for Part B.
+- Plan rev 2.1 / handover rev 2 (2026-11-03): B-prep review disposition (`FR-UPD-15`, `TM-03/04/06/07/13`): child stdin isolation, B0.2 Git stderr capture, B0.1 Git-hook stop, NuGetAudit B1 stop, §10 Git list and approval 1a effects. Docs only.
 
 # Task 50 — ADR-031 client-route admission gates (design §8.6/§8.7)
 
@@ -26,6 +28,37 @@
 
 - Security `ClientRouteWorkflowAdmissionGateTests` (portable 30), Application `ClientRouteSqliteAdmissionGateTests` (portable 4, real SQLite store and history reader), Security `ClientRouteNativeEndToEndGateTests` (3, Windows-only), `ClientRunFaultInterpreterWorkflowTests` (client reply carries no helper check, review M1), architecture `AdmissionGateSeamBoundaryTests`.
 - Not claimed: route admission, Windows CI evidence for the Windows-only cases, or owner-host evidence.
+
+# Task 50 — qualification probe slice S4 (desktop side)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §5.1–§5.6, §6, §7 D1–D9, §11.5.
+
+- Security `QualificationProbeDesktopEntryTests` (portable 14): D7 `Classify` (exact line, flag elsewhere, case/whitespace variants), folder before gate, a folder failure takes no gate and writes no file, GateBusy/GateUnavailable/GateRecoveryRequired/GateResetPending in the file, write before release on the acquiring thread, probe on a worker, faults record nothing, §5.4 exit codes.
+- Security `QualificationProbeDesktopTransportTests` (portable 38): steps 3–7 over fakes (D8 process check before any trust call; every token held; no launch before every check passes; a failed final trust after agreeing holds is `LaunchTrustFailed` with every binding released), hold agreement, D3 probe line against all three helper parsers, steps 8–10 over a real pipe pair including the real S3 endpoint (nothing written).
+- Security `QualificationProbeResultFileTests` (portable 23, Windows-only 3): D6 closed `:2` document (order, privacy, 4,096-B bound), location rules (8.3, UNC/device/relative, reparse, existing folder); real-folder, junction and short-name writes (Windows).
+- Security `QualificationProbeDesktopNativeTests` (Windows-only 5): D9 ledger SHA-256 and signer values; every token held through the real reader to a declined prompt with all bindings released.
+- Application `QualificationProbeGateTests` (Windows-only 9): D7 held, abandoned (one acquirer) and thread-affine gate; every non-`None` marker state unsettled with no write.
+- Security `DeploymentCapabilityReaderTests` (portable +1): the D9 signer read returns null for any failure and never throws.
+- Architecture `QualificationProbeDesktopBoundaryTests` (7) for D1, D2, D3, D4, D5, D7 (including the exact `Run(QualificationProbeLaunchGate.TryAcquire)` call) and the seams; existing pins admit the probe explicitly (`DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests`, `QualificationProbeWireBoundaryTests`, `QualificationProbeHelperBoundaryTests`); D4 admission-pin tests unmodified.
+- Not claimed: the real Desktop build, Windows CI evidence for the 17 Windows-only cases, D4 (owner decision), deployment or any host action.
+
+# Task 50 — qualification probe slice S3 (helper side)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §2, §3, §4.4, §7 H1–H12.
+
+- Security `QualificationProbeHelperEndpointTests` (portable 44): every Q13 row over a real pipe pair, H3 disposal order, H7 inbound byte (27), EOF during A3/B′ (24), A3 cap and spent budget, A3 abandonment ordering (an interrupted run starts no evaluation; an interruption during one refuses the protection call without reaching the item), H10 in-flight disposal and the 26 write window.
+- Security `QualificationProbeHelperBootstrapTests` (portable 39, Windows-only 4): H6 grammar, 120 permutations and mutual refusal with all three existing parsers; H8 exits 20/21 (portable) and 22/23 plus native probe-port verdicts (Windows).
+- Security `QualificationProbeHelperNativeTests` (portable 7, Windows-only 6): §4.4 native/wire enum pins, H11 one-entry release list, H9 per-instance saturating sinks, probe value shapes, native item seam ordering; H12 walker/ancestry/observer/G1 unchanged with and without the sink and native B′ binding disposal (Windows).
+- Architecture `QualificationProbeHelperBoundaryTests` (11) for H1, H2 (including the binding disposed in a `finally`), H3 (Stop order in compiled IL and source), H4, H5, H6, H9/H12, H10 and S4-not-wired; `QualificationProbeReachabilityTests` (1) for H1a, the pinned transitive closure from `RunProbeAsync`/`SelectsProbe`; existing allow-lists grown additively per H4 (`HelperEndpointBoundaryTests`, `NativePrimitivesBoundaryTests`, `QualificationProbeWireBoundaryTests`).
+- Not claimed: Windows CI evidence for the 10 Windows-only cases, desktop wiring (S4), deployment or any host action.
+
+# Task 50 — qualification probe slice S2 (probe response codec)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §4.1–§4.4, §7 S2.
+
+- Security `QualificationProbeWireCodecTests` (87): goldens, round-trips, Q1–Q16 negatives, property mutations, update-frame cross-rejection and byte pins, the 18 `TokenVerdict` wire-name pin, the §4.3 L8 allow-list bound.
+- Architecture `QualificationProbeWireBoundaryTests` (4): probe types unreferenced outside the codec, test-only contract factory unused in `src`, no probe request codec, no native/transport reference.
+- Not claimed: helper or desktop wiring (S3/S4), Windows CI evidence, deployment.
 
 # Task 50 — host evidence (O5, A-Q1, A2-L3)
 

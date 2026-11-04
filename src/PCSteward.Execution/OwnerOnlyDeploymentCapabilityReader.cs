@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using Microsoft.Win32.SafeHandles;
 using PCSteward.Domain;
@@ -177,8 +179,41 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
         HelperProtocolCapabilityResult result = DeploymentCapabilityPolicy.Evaluate(inputs with { ObservedHashes = observed }, route);
         if (!result.IsSupported) return result.Status;
 
-        binding = HeldHelperBinding.TryCreate(held, paths, observed, InstalledHelperLaunchTrust.HelperExecutableName);
+        // Probe spec rev 4 §5.3 pin sources (review M-1, D9): values only, for the Desktop role, and never part of the status.
+        // The ledger hash is of the exact bytes the policy verified above; the signer is read while the apphost is held.
+        string? ledgerSha256 = null;
+        HelperSignerFacts? signer = null;
+        if (role == DeploymentCapabilityRole.Desktop)
+        {
+            ledgerSha256 = Convert.ToHexString(SHA256.HashData(ledger));
+            signer = TryReadSigner(paths[InstalledHelperLaunchTrust.HelperExecutableName]);
+        }
+        binding = HeldHelperBinding.TryCreate(held, paths, observed, InstalledHelperLaunchTrust.HelperExecutableName, ledgerSha256, signer);
         return binding is null ? HelperProtocolCapabilityStatus.Unreadable : HelperProtocolCapabilityStatus.Supported;
+    }
+
+    /// <summary>
+    /// The embedded Authenticode signing certificate's SHA-1 thumbprint and <c>NotAfter</c> (UTC) of a held file, or null when
+    /// the file carries no readable embedded signature. Path-based (as <c>AuthenticodeIdentity.HaveSameSigner</c>); the caller
+    /// holds the file share-read, so the path names the held file. No trust decision is made here.
+    /// </summary>
+    private static HelperSignerFacts? TryReadSigner(string path)
+    {
+        try
+        {
+#pragma warning disable SYSLIB0057
+            using X509Certificate signed = X509Certificate.CreateFromSignedFile(path);
+            using X509Certificate2 certificate = new(signed);
+#pragma warning restore SYSLIB0057
+            string thumbprint = certificate.Thumbprint;
+            if (thumbprint.Length != 40 || !thumbprint.All(static c => c is >= '0' and <= '9' or >= 'A' and <= 'F')) return null;
+            return new(thumbprint, new DateTimeOffset(certificate.NotAfter.ToUniversalTime(), TimeSpan.Zero));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // The values are never part of the status: no failure here may turn a Supported hold into an exception (Unreadable).
+            return null;
+        }
     }
 
     /// <summary>Production layout: fixed paths under Program Files, the actual process path and the current user SID.</summary>

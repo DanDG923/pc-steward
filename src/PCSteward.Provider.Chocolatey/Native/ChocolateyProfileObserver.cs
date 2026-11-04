@@ -133,6 +133,20 @@ internal static class ChocolateyProfileObserver
         ObserveCore(token, role, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, frozenInstalled, expectedFingerprint,
             remaining, seam: null, cancellationToken, clientMode: true);
 
+    /// <summary>
+    /// Probe spec rev 4 §3 B′ (S3 observer additions): the client-mode observation with the per-observation
+    /// <paramref name="report"/>, which receives the failed step, check and access verdict and the Node/Ancestor evaluation
+    /// counts of this one observation. The result is the same as without the report.
+    /// </summary>
+    internal static ChocolateyProfileResult ObserveClientWithReport(RequesterToken token, ChocolateyObserverRole role,
+        ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObservationReport report,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return ObserveCore(token, role, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, frozenInstalled, expectedFingerprint,
+            remaining, seam: null, cancellationToken, clientMode: true, report);
+    }
+
     /// <summary>Test-only (an architecture test bans every <c>src</c> caller): <see cref="ObserveClient"/> over synthetic machine inputs.</summary>
     internal static ChocolateyProfileResult ObserveClientForTests(RequesterToken token, ChocolateyObserverRole role,
         ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObserverTestSeam seam,
@@ -143,9 +157,30 @@ internal static class ChocolateyProfileObserver
             remaining, seam, cancellationToken, clientMode: true);
     }
 
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the reporting client observation over synthetic machine inputs.</summary>
+    internal static ChocolateyProfileResult ObserveClientWithReportForTests(RequesterToken token, ChocolateyObserverRole role,
+        ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObserverTestSeam seam,
+        ChocolateyObservationReport report, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seam);
+        ArgumentNullException.ThrowIfNull(report);
+        return ObserveCore(token, role, PCSteward.Domain.ReviewedUpdateOperation.ChocolateyClientPackageId, frozenInstalled, expectedFingerprint,
+            remaining, seam, cancellationToken, clientMode: true, report);
+    }
+
+    /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the reporting package-mode observation over synthetic machine inputs.</summary>
+    internal static ChocolateyProfileResult ObserveWithReportForTests(RequesterToken token, ChocolateyObserverRole role, string targetId,
+        ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObserverTestSeam seam,
+        ChocolateyObservationReport report, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seam);
+        ArgumentNullException.ThrowIfNull(report);
+        return ObserveCore(token, role, targetId, frozenInstalled, expectedFingerprint, remaining, seam, cancellationToken, clientMode: false, report);
+    }
+
     private static ChocolateyProfileResult ObserveCore(RequesterToken token, ChocolateyObserverRole role, string targetId,
         ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint, TimeSpan remaining, ChocolateyObserverTestSeam? seam,
-        CancellationToken cancellationToken, bool clientMode = false)
+        CancellationToken cancellationToken, bool clientMode = false, ChocolateyObservationReport? report = null)
     {
         ArgumentNullException.ThrowIfNull(token);
         ArgumentNullException.ThrowIfNull(targetId);
@@ -153,7 +188,7 @@ internal static class ChocolateyProfileObserver
         if (!Enum.IsDefined(role)) throw new ArgumentOutOfRangeException(nameof(role));
         using Run run = new(remaining, cancellationToken);
         if (run.Interrupted) return run.Interrupt();
-        using Observation observation = new(token, role, targetId, seam, run, clientMode);
+        using Observation observation = new(token, role, targetId, seam, run, clientMode, report);
         ChocolateyProfileResult result = observation.Evaluate(frozenInstalled, expectedFingerprint);
         if (result is ChocolateyProfileResult.Observed) observation.Release();
         return result;
@@ -197,9 +232,12 @@ internal static class ChocolateyProfileObserver
 
     /// <summary>One observation's state. Steps 1–7 return false on the first failure (MachineInputsUnsupported).</summary>
     private sealed class Observation(RequesterToken token, ChocolateyObserverRole role, string targetId, ChocolateyObserverTestSeam? seam, Run run,
-        bool clientMode)
+        bool clientMode, ChocolateyObservationReport? report)
         : IDisposable
     {
+        // Probe spec §3: the first refusal cause that ended a step, an access verdict or not (kept only with a report).
+        private bool accessRecorded;
+        private RequesterModification? accessVerdict;
         private readonly ChocolateyHeldProfileFiles? held = role == ChocolateyObserverRole.Helper ? ChocolateyHeldProfileFiles.Begin() : null;
         private readonly Dictionary<string, NativeNode> byPath = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<ChocolateyCodeFileData> codeFiles = [];
@@ -223,39 +261,44 @@ internal static class ChocolateyProfileObserver
 
         internal ChocolateyProfileResult Evaluate(ChocolateyNativeVersion frozenInstalled, string? expectedFingerprint)
         {
-            // Steps 1–7: MachineInputsUnsupported (step 7 covers every library/store structure failure, L5).
-            if (!Roots() || !ReleaseTree() || !CodeIdentities() ||
-                (role == ChocolateyObserverRole.Helper && !HttpCache()) ||
-                !LoaderAndLicensing() || !Configuration() || !LibraryAndStore())
-                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null);
+            // Steps 1–7: MachineInputsUnsupported (step 7 covers every library/store structure failure, L5). The same steps in
+            // the same short-circuit order; the failed step's number feeds only the optional report.
+            int failed = !Roots() ? 1 : !ReleaseTree() ? 2 : !CodeIdentities() ? 3 :
+                role == ChocolateyObserverRole.Helper && !HttpCache() ? 4 : !LoaderAndLicensing() ? 5 : !Configuration() ? 6 :
+                !LibraryAndStore() ? 7 : 0;
+            if (failed != 0)
+                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, step: failed);
             // ADR-031 design §2 R5: a Helper-role client observation (stage B, and the stage-D re-observation immediately before
             // launch) refuses while a name pinned setup.psm1 uses to weaken or skip the root ACL is set in the compiled block or
             // the user/machine environment keys. This narrows, but cannot close, the same-user race (the value can be written later).
             if (clientMode && held is not null && !ChocolateySetupEnvironmentGuard.Permits(ChocolateyCompiledEnvironment.Create(launchPaths!),
                     launchPaths!.ChocolateyRoot, seam is null ? ChocolateySetupEnvironmentReader.Read() : seam.SetupEnvironment))
-                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.SetupAccessOverride);
+                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.SetupAccessOverride,
+                    step: 7, ChocolateyProbeFailedCheck.SetupAccessGuard);
             // ADR-031 §3a fallback: steps 1–7 otherwise passed, so the unlisted leftover was their only failure (disclosed).
             if (unlistedLeftover)
-                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.UnlistedReleaseLeftover);
+                return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, ChocolateyProfileRefusalDetail.UnlistedReleaseLeftover,
+                    step: 7, ChocolateyProbeFailedCheck.ReleaseLeftover);
 
             // Step 8: the compiled Community URL must stay byte-equal (S8: installed and fingerprint null).
             if (!ChocolateySourceResolution.TryResolve(configuration, out _))
-                return Refuse(ChocolateyProfileRefusal.SourceNotCommunity, null, null);
+                return Refuse(ChocolateyProfileRefusal.SourceNotCommunity, null, null, step: 8);
 
             // Step 8a: the library's installed version must equal the frozen value.
             ChocolateyNativeVersion installed = target.Version;
             if (!string.Equals(installed.Normalized, frozenInstalled.Normalized, StringComparison.Ordinal))
-                return Refuse(ChocolateyProfileRefusal.InstalledMismatch, installed.Normalized, null);
+                return Refuse(ChocolateyProfileRefusal.InstalledMismatch, installed.Normalized, null, step: 8,
+                    check: ChocolateyProbeFailedCheck.InstalledVersion);
 
             // Step 9: the common fingerprint, compared in fixed time when the helper supplies the expected value.
             ChocolateyCommonProfileData common = new(token.Sid, rootIdentity, codeFiles.AsReadOnly(), cacheIdentity, configuration,
                 targetId, installed, target.ArchiveIdentity, target.Sha256, storeIdentity, release.AssetSha256);
             string fingerprint;
             try { fingerprint = ChocolateyCommonProfileFingerprint.Compute(common); }
-            catch (ArgumentException) { return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null); }
+            catch (ArgumentException) { return Refuse(ChocolateyProfileRefusal.MachineInputsUnsupported, null, null, step: 9); }
             if (expectedFingerprint is not null && !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(fingerprint),
                     Encoding.UTF8.GetBytes(expectedFingerprint)))
-                return Refuse(ChocolateyProfileRefusal.ProfileMismatch, installed.Normalized, fingerprint);
+                return Refuse(ChocolateyProfileRefusal.ProfileMismatch, installed.Normalized, fingerprint, step: 9);
 
             ChocolateyClientStateData clientState = new(engineSha256, codeDigest,
                 ChocolateyProfileRules.ComputeRegistrationDigest(clientRecords), ChocolateyProfileRules.ComputeRegistrationDigest(extensionRecords));
@@ -281,10 +324,65 @@ internal static class ChocolateyProfileObserver
             if (!released) held?.Dispose();
         }
 
-        /// <summary>Never a settled refusal on an interrupt (§3, rev-4 L3).</summary>
+        /// <summary>
+        /// Never a settled refusal on an interrupt (§3, rev-4 L3). A settled refusal also records, in the optional report only,
+        /// the failed step, the check and the access verdict behind it (probe spec §3: an access verdict only for a step's own
+        /// rule; every other check, and every step refusal that was not an access verdict, is <c>Other</c>).
+        /// </summary>
         private ChocolateyProfileResult Refuse(ChocolateyProfileRefusal reason, string? installed, string? fingerprint,
-            ChocolateyProfileRefusalDetail detail = ChocolateyProfileRefusalDetail.None) =>
-            run.Interrupted ? run.Interrupt() : ChocolateyProfileResult.Refused.Create(reason, installed, fingerprint, detail);
+            ChocolateyProfileRefusalDetail detail = ChocolateyProfileRefusalDetail.None, int step = 0,
+            ChocolateyProbeFailedCheck check = ChocolateyProbeFailedCheck.StepRule)
+        {
+            if (run.Interrupted) return run.Interrupt();
+            ChocolateyProfileResult.Refused refused = ChocolateyProfileResult.Refused.Create(reason, installed, fingerprint, detail);
+            report?.RecordFailure(step, check, check == ChocolateyProbeFailedCheck.StepRule && accessRecorded
+                ? accessVerdict switch
+                {
+                    RequesterModification.Granted => ChocolateyProbeFailedAccess.Granted,
+                    RequesterModification.Unreadable => ChocolateyProbeFailedAccess.Unreadable,
+                    _ => ChocolateyProbeFailedAccess.Other,
+                }
+                : ChocolateyProbeFailedAccess.Other);
+            return refused;
+        }
+
+        /// <summary>Report only: the first non-Denied verdict, which ends its step (every caller refuses on it at once).</summary>
+        private RequesterModification Noted(RequesterModification verdict)
+        {
+            if (report is not null && verdict != RequesterModification.Denied && !accessRecorded)
+            {
+                accessRecorded = true;
+                accessVerdict = verdict;
+            }
+            return verdict;
+        }
+
+        /// <summary>Report only: a walk refusal that was not an access verdict (a failed open, a reparse point, a bound).</summary>
+        private void NotedOther()
+        {
+            if (report is not null) accessRecorded = true;
+        }
+
+        /// <summary>Node mode on a held handle: <see cref="RequesterAccess.Evaluate"/>, counted and noted for the report only.</summary>
+        private RequesterModification Node(SafeFileHandle node, bool directory, SafeFileHandle? parentDirectory)
+        {
+            RequesterModification verdict = RequesterAccess.Evaluate(token, node, directory, parentDirectory, AccessMode.Node);
+            report?.Access.CountNode();
+            return Noted(verdict);
+        }
+
+        /// <summary>The bounded walk, with the report's sink when there is a report; a refusal notes the cause behind it.</summary>
+        private TreeWalkResult Walk(string root, Func<string, bool, ChocolateyTreeContentPolicy> classify)
+        {
+            if (report is null) return ProtectedTreeWalker.Walk(token, root, TreeWalkBounds.Profile, classify, run.Token);
+            TreeWalkResult result = ProtectedTreeWalker.WalkWithSink(token, root, TreeWalkBounds.Profile, classify, report.Access, run.Token);
+            if (result is TreeWalkResult.Refused && !accessRecorded)
+            {
+                if (report.Access.WalkRefusalVerdict is { } verdict) Noted(verdict);
+                else NotedOther();
+            }
+            return result;
+        }
 
         // Step 1. Machine roots, then the Chocolatey root's ancestry and its complete bounded walk (M3).
         private bool Roots()
@@ -301,8 +399,7 @@ internal static class ChocolateyProfileObserver
 
             // The whole root is walked: every node except regular files under logs must be requester-unmodifiable, and the
             // root itself evaluates Denied for FILE_ADD_SUBDIRECTORY, which is the M3 condition for an optional tree's absence.
-            if (ProtectedTreeWalker.Walk(token, roots.Root, TreeWalkBounds.Profile, ChocolateyTreeCoveragePolicy.Classify, run.Token)
-                is not TreeWalkResult.Complete complete)
+            if (Walk(roots.Root, ChocolateyTreeCoveragePolicy.Classify) is not TreeWalkResult.Complete complete)
                 return false;
             nodes = complete.Nodes;
             foreach (NativeNode node in nodes)
@@ -472,14 +569,19 @@ internal static class ChocolateyProfileObserver
         private bool HttpCache()
         {
             if (Ancestry(roots.HttpCache) != RequesterModification.Denied) return false;
-            if (ProtectedTreeWalker.Walk(token, roots.HttpCache, TreeWalkBounds.Profile, static (_, _) => ChocolateyTreeContentPolicy.Protected, run.Token)
-                is not TreeWalkResult.Complete complete)
+            if (Walk(roots.HttpCache, static (_, _) => ChocolateyTreeContentPolicy.Protected) is not TreeWalkResult.Complete complete)
                 return false;
             foreach (NativeNode node in complete.Nodes)
             {
                 if (run.Interrupted) return false;
                 using SafeFileHandle? handle = Reopen(node);
-                if (handle is null || RequesterAccess.IsRequesterOwned(token, handle)) return false;
+                if (handle is null) return false;
+                if (RequesterAccess.IsRequesterOwned(token, handle))
+                {
+                    // Probe spec §3: the observer treats a requester-owned node as modification authority (report only).
+                    Noted(RequesterModification.Granted);
+                    return false;
+                }
             }
             return !run.Interrupted;
         }
@@ -501,7 +603,7 @@ internal static class ChocolateyProfileObserver
                     return false;
                 using (file)
                 {
-                    if (RequesterAccess.Evaluate(token, file!, directory: false, directory, AccessMode.Node) != RequesterModification.Denied ||
+                    if (Node(file!, directory: false, directory) != RequesterModification.Denied ||
                         !ProtectedNodeReader.TryReadBounded(file!, ChocolateyProfileRules.MachineConfigMaximumBytes, out byte[] bytes) ||
                         !ChocolateyProfileRules.IsSupportedMachineConfig(bytes))
                         return false;
@@ -542,8 +644,7 @@ internal static class ChocolateyProfileObserver
             string cache = configuration.CacheLocation;
             if (!ChocolateyProfileRules.IsSupportedCacheLocation(cache) || Ancestry(cache) != RequesterModification.Denied) return false;
             using SafeFileHandle? cacheHandle = ProtectedNodeReader.TryOpen(cache, directory: true, out NativeNode cacheNode);
-            if (cacheHandle is null ||
-                RequesterAccess.Evaluate(token, cacheHandle, directory: true, parentDirectory: null, AccessMode.Node) != RequesterModification.Denied)
+            if (cacheHandle is null || Node(cacheHandle, directory: true, parentDirectory: null) != RequesterModification.Denied)
                 return false;
             cacheIdentity = ChocolateyProfileRules.FormatIdentity(cacheNode.Identity);
 
@@ -653,7 +754,7 @@ internal static class ChocolateyProfileObserver
                         out SafeFileHandle? child, out node, out _))
             {
                 case ChildPresence.Present:
-                    if (RequesterAccess.Evaluate(token, child!, directory: true, parent, AccessMode.Node) == RequesterModification.Denied)
+                    if (Node(child!, directory: true, parent) == RequesterModification.Denied)
                     {
                         handle = child;
                         return DirectoryState.Present;
@@ -661,8 +762,7 @@ internal static class ChocolateyProfileObserver
                     child!.Dispose();
                     return DirectoryState.Refused;
                 case ChildPresence.Absent:
-                    return mayBeAbsent &&
-                        RequesterAccess.Evaluate(token, parent, directory: true, parentDirectory: null, AccessMode.Node) == RequesterModification.Denied
+                    return mayBeAbsent && Node(parent, directory: true, parentDirectory: null) == RequesterModification.Denied
                         ? DirectoryState.Absent : DirectoryState.Refused;
                 default:
                     return DirectoryState.Refused;
@@ -673,10 +773,12 @@ internal static class ChocolateyProfileObserver
         /// Production: <see cref="RequesterAccess.EvaluateAncestry"/> from the lexical drive root. Test seam: below its base,
         /// Ancestor mode on every directory from the base down to the parent, each opened through the protected reader.
         /// </summary>
-        private RequesterModification Ancestry(string path)
+        private RequesterModification Ancestry(string path) => Noted(AncestryCore(path));
+
+        private RequesterModification AncestryCore(string path)
         {
             if (seam is null || !path.StartsWith(seam.AncestryBase + '\\', StringComparison.OrdinalIgnoreCase))
-                return RequesterAccess.EvaluateAncestry(token, path);
+                return report is null ? RequesterAccess.EvaluateAncestry(token, path) : RequesterAccess.EvaluateAncestryWithSink(token, path, report.Access);
             if (!ProtectedNodeReader.IsCanonicalLocalPath(path)) return RequesterModification.Unreadable;
             string[] segments = path[(seam.AncestryBase.Length + 1)..].Split('\\');
             string directory = seam.AncestryBase;
@@ -688,6 +790,7 @@ internal static class ChocolateyProfileObserver
                     if (handle is null || (volume is not null && volume != node.Identity.VolumeSerial)) return RequesterModification.Unreadable;
                     volume = node.Identity.VolumeSerial;
                     RequesterModification verdict = RequesterAccess.Evaluate(token, handle, directory: true, parentDirectory: null, AccessMode.Ancestor);
+                    report?.Access.CountAncestor();
                     if (verdict != RequesterModification.Denied) return verdict;
                 }
                 if (index == segments.Length - 1) return RequesterModification.Denied;
@@ -716,5 +819,39 @@ internal static class ChocolateyProfileObserver
 
         private static string Leaf(string relative) => relative[(relative.LastIndexOf('\\') + 1)..];
 
+    }
+}
+
+/// <summary>
+/// Probe spec rev 4 §3 (S3 observer additions; review L5, L7, L-4): what one observation instance reports besides its result,
+/// as values only. <see cref="Access"/> is this instance's own sink (counts and the walk refusal verdict), passed down
+/// explicitly to the shared walker and ancestry code; <see cref="FailedStep"/>, <see cref="FailedCheck"/> and
+/// <see cref="FailedAccess"/> are set once, by a settled refusal. A report is created per observation and never shared, so
+/// earlier runs, the G1 check and other threads cannot add to it. It never changes the observation's result.
+/// </summary>
+internal sealed class ChocolateyObservationReport
+{
+    internal ChocolateyObservationReport() =>
+        Access = new RequesterAccessSink(ChocolateyProbeValues.MaximumNodesEvaluated, ChocolateyProbeValues.MaximumAncestorsEvaluated);
+
+    internal RequesterAccessSink Access { get; }
+
+    /// <summary>1–9 once a settled refusal was recorded; null otherwise.</summary>
+    internal int? FailedStep { get; private set; }
+
+    internal ChocolateyProbeFailedCheck FailedCheck { get; private set; }
+
+    internal ChocolateyProbeFailedAccess FailedAccess { get; private set; }
+
+    internal int NodesEvaluated => Access.NodesEvaluated;
+
+    internal int AncestorsEvaluated => Access.AncestorsEvaluated;
+
+    internal void RecordFailure(int step, ChocolateyProbeFailedCheck check, ChocolateyProbeFailedAccess access)
+    {
+        if (FailedStep is not null) return;
+        FailedStep = step is >= 1 and <= 9 ? step : null;
+        FailedCheck = check;
+        FailedAccess = access;
     }
 }

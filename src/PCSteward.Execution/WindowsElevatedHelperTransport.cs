@@ -502,10 +502,13 @@ internal static class ProtectedLaunchLayout
 public static partial class ElevatedHelperEntryPoint
 {
     /// <summary>
-    /// Task 50 design rev 6 §5.1: <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every
-    /// other command line takes the unchanged protocol-1 path, which refuses anything but <c>--protocol 1</c> with exit code 20.
+    /// Task 50 design rev 6 §5.1 and qualification probe spec rev 4 §2 (dispatch order is normative): a ten-argument line with
+    /// <c>--kind</c> first goes to the probe bootstrap (<see cref="RunProbeAsync"/>), which never reads a request; otherwise
+    /// <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every other command line takes the
+    /// unchanged protocol-1 path, which refuses anything but <c>--protocol 1</c> with exit code 20.
     /// </summary>
     public static Task<int> RunAsync(string[] arguments) =>
+        SelectsProbe(arguments) ? RunProbeAsync(arguments) :
         SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : RunProtocol1Async(arguments);
 
     private static Task<int> RunProtocol1Async(string[] arguments) =>

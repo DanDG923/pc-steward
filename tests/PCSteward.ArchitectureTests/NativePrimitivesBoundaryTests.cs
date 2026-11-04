@@ -27,6 +27,9 @@ public sealed class NativePrimitivesBoundaryTests
         "ProtectedNativeMethods", "ChocolateyNativeRoots", "ChocolateyNativePathResolver",
     ];
 
+    private const string ProbeTokenVerdict = Native + "TokenVerdict";
+    private const string ProbeEndpoint = "PCSteward.Execution.ReviewedHelperProbeEndpoint";
+
     private static readonly (string Type, string Member)[] TestOnly =
     [
         (Native + "RequesterToken", "ForTestsFromDerivedToken"),
@@ -68,12 +71,15 @@ public sealed class NativePrimitivesBoundaryTests
         foreach (string path in assemblies)
         {
             bool chocolatey = Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey";
+            bool execution = Path.GetFileNameWithoutExtension(path) == "PCSteward.Execution";
             if (!chocolatey)
                 foreach (string type in CompiledIlScanner.TypeReferences(path).Where(IsN1Type))
-                    violations.Add($"{Path.GetFileName(path)} references type {type}");
+                    // Probe spec rev 4 §7 H4: the closed token verdict is the one N1 name Execution may hold (the probe entry maps it).
+                    if (!(execution && type == ProbeTokenVerdict)) violations.Add($"{Path.GetFileName(path)} references type {type}");
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path).Where(reference => IsN1Type(reference.TargetType)))
             {
                 if (reference.Caller.StartsWith(Native, StringComparison.Ordinal) && chocolatey) insideNative++;
+                else if (execution && reference.TargetType == ProbeTokenVerdict && reference.Caller == ProbeEndpoint) { }
                 else violations.Add($"{Path.GetFileName(path)}: {reference.Caller} references {reference.TargetType}.{reference.TargetMember}");
             }
         }
@@ -88,8 +94,13 @@ public sealed class NativePrimitivesBoundaryTests
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
         string native = Path.Combine(src, "PCSteward.Provider.Chocolatey", "Native") + Path.DirectorySeparatorChar;
         Regex names = new(@"\b(" + string.Join('|', N1Types) + @")\b", RegexOptions.CultureInvariant);
+        // Probe spec rev 4 §7 H4: only the probe entry file may name the closed token verdict, and no other N1 type.
+        Regex probeNames = new(@"\b(" + string.Join('|', N1Types.Where(type => type != "TokenVerdict")) + @")\b", RegexOptions.CultureInvariant);
         foreach ((string path, string source) in SourceFiles(src).Where(pair => !pair.Key.StartsWith(native, StringComparison.Ordinal)))
-            Assert.IsFalse(names.IsMatch(source), $"{path} names an N1 type ({names.Match(source).Value})");
+        {
+            Regex rule = Path.GetFileName(path) == "ReviewedHelperProbeEndpoint.cs" ? probeNames : names;
+            Assert.IsFalse(rule.IsMatch(source), $"{path} names an N1 type ({rule.Match(source).Value})");
+        }
     }
 
     [TestMethod]
