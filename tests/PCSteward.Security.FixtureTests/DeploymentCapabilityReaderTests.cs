@@ -480,7 +480,7 @@ public sealed class DeploymentCapabilityReaderTests
         internal static DeploymentTree Create(Fixture fixture, byte[]? capability = null) => Create(fixture.Root, capability);
 
         /// <summary>N4b: the same tree under any fixture root (for example an N1 fixture whose ACLs the test sets).</summary>
-        internal static DeploymentTree Create(string root, byte[]? capability = null)
+        internal static DeploymentTree Create(string root, byte[]? capability = null, IReadOnlyDictionary<string, byte[]>? contents = null)
         {
             DeploymentTree tree = new(root);
             Directory.CreateDirectory(tree.InstallRoot);
@@ -489,7 +489,8 @@ public sealed class DeploymentCapabilityReaderTests
             List<object?> manifest = [];
             foreach (string leaf in DeploymentCapabilityPolicy.BindingSet)
             {
-                byte[] bytes = leaf == DeploymentCapabilityPolicy.CapabilityFileName ? capability : Encoding.UTF8.GetBytes("content " + leaf);
+                byte[] bytes = contents is not null && contents.TryGetValue(leaf, out byte[]? custom) ? custom :
+                    leaf == DeploymentCapabilityPolicy.CapabilityFileName ? capability : Encoding.UTF8.GetBytes("content " + leaf);
                 File.WriteAllBytes(tree.Leaf(leaf), bytes);
                 tree.Hashes[leaf] = Convert.ToHexString(SHA256.HashData(bytes));
                 manifest.Add(DeploymentCapabilityPolicyTests.Obj(("bytes", (long)bytes.Length), ("path", leaf), ("sha256", tree.Hashes[leaf].ToLowerInvariant())));
