@@ -408,3 +408,20 @@ Verdict "Sound with changes". The code fixes are recorded in `docs/STATUS.md`; t
 | S3-L3 | Low | N4b: an abandoned `CannotModify` after `Dispose` may still open read-only handles | Recorded as an accepted residual in the in-flight disposal paragraph; the shared rule is unchanged. |
 | S3-L4 | Low | H1 checked only direct references | H1a: pinned transitive closure from the probe entry points. |
 | S3-N | Note | §3 Stop said exit 24 for "any fault", but an exception escaping the entry after connection exits 26 | §3 Stop row aligned with the implementation (26, as the update bootstrap), with the reason. |
+
+### 11.5 S4 implementation record (desktop side; no design change)
+
+Implemented on 2026-11-04. Types: `QualificationProbeEntry` (public `Classify` and `Run`), `QualificationProbeRunner`, `ReviewedHelperProbeTransport.ProbeAsync`, `ReviewedHelperProbeSession`, `QualificationProbeResultDocument`, `QualificationResultFile` and `WindowsQualificationResultFileSystem` (Execution); `QualificationProbeLaunchGate` (Desktop, the only Storage-facing part: `TryAcquire(TimeSpan.Zero, …)`, `Context.RecoveryRequired`, `FactoryReset.GetMarkerState`).
+
+**§5.4 exit-code table:** `ResponseAccepted` 0; `GateBusy` 41, `GateUnavailable` 42, `GateRecoveryRequired` 43, `GateResetPending` 44, `DesktopNotLimited` 45, `ConflictingProcess` 46, `LaunchTrustFailed` 47, `CapabilityNotHeld` 48, `ElevationDeclined` 49, `HelperNotStarted` 50, `HelperNotConnected` 51, `PeerNotVerified` 52, `NoValidResponse` 53, `ResponseRejected` 54; no result file 60; malformed line 61. The file stays authoritative.
+
+Conservative readings where the text left a choice:
+- **Step 6 needs complete pins.** `TryHold` keeps its status; the probe additionally requires the D9 values (ledger SHA-256 and a readable helper signer) and equal pins across every token's hold, or `CapabilityNotHeld` before any prompt. Every token is held and its status recorded (no stop at the first failure).
+- **Step 5:** a failed identity read or restricted-pipe creation after the initial trust is `LaunchTrustFailed` (no separate outcome exists).
+- **D9 values are recorded only in the Desktop role;** the helper's G1 reads are unchanged.
+- **Unowned helper process** (`HelperProcessWork` construction fails): `HelperNotConnected`, the helper is terminated and the bindings stay held (A-M2), as in the update transport. A pre-launch cancellation (no production caller passes one) is `HelperNotStarted`.
+- **Connection race:** as in the update session, a helper whose exit is observed before its connection is `HelperNotConnected`.
+- **Result file:** compact JSON; timestamps `yyyy-MM-ddTHH:mm:ss.fffZ`; `startedAtUtc` is taken before step 1; a document that is not closed and consistent (for example accepted without facts) is not written (exit 60).
+- **Public surface:** Execution's internals are not visible to the Desktop, so the entry, the launch enum and the gate-session interface are public; every test seam stays internal and has no `src` caller outside the production composition (architecture test).
+
+Existing pins changed explicitly for S4: the reader-construction and binding-file pins (`DeploymentCapabilityBoundaryTests`, plus the probe's own A-M2 release points), the G1 construction-signature pin (`HelperEndpointBoundaryTests`: the probe composition is the only caller of the Desktop-role parameterless reader), the codec consumers (`QualificationProbeWireBoundaryTests`) and the S3 "not wired" pin, now "wired only through the entry" (`QualificationProbeHelperBoundaryTests`). The D4 admission-pin tests are unmodified. D4 (G-0, G-a, G-a′) is not implemented.
