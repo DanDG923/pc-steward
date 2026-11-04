@@ -135,6 +135,45 @@ internal static class CompiledIlScanner
             .Select(method => (FullName(md, method.GetDeclaringType()), md.GetString(method.Name)))];
     }
 
+    /// <summary>One defined method: its metadata name, parameter types (as <see cref="IlReference.CallerSignature"/>) and whether it is virtual.</summary>
+    internal sealed record MethodFacts(string Name, string Signature, bool IsVirtual);
+
+    /// <summary>
+    /// One defined type: its full name, its base type and directly implemented interfaces (full names; a generic instantiation
+    /// resolves to its generic definition), whether it is an interface, and its methods.
+    /// </summary>
+    internal sealed record TypeFacts(string FullName, string? BaseType, IReadOnlyList<string> Interfaces, bool IsInterface, IReadOnlyList<MethodFacts> Methods);
+
+    /// <summary>The type hierarchy and method list of every type defined in the assembly (for call-graph closures).</summary>
+    internal static IReadOnlyList<TypeFacts> Types(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using PEReader pe = new(stream);
+        MetadataReader md = pe.GetMetadataReader();
+        List<TypeFacts> types = [];
+        foreach (TypeDefinitionHandle handle in md.TypeDefinitions)
+        {
+            TypeDefinition definition = md.GetTypeDefinition(handle);
+            string? baseType = definition.BaseType.IsNil ? null : TypeName(md, definition.BaseType);
+            List<string> interfaces = [.. definition.GetInterfaceImplementations()
+                .Select(implementation => TypeName(md, md.GetInterfaceImplementation(implementation).Interface))
+                .Where(name => name is not null).Select(name => name!)];
+            List<MethodFacts> methods = [.. definition.GetMethods().Select(methodHandle => md.GetMethodDefinition(methodHandle))
+                .Select(method => new MethodFacts(md.GetString(method.Name), Parameters(method.DecodeSignature(SignatureNames.Instance, null)),
+                    (method.Attributes & MethodAttributes.Virtual) != 0))];
+            types.Add(new TypeFacts(FullName(md, handle), baseType, interfaces, (definition.Attributes & TypeAttributes.Interface) != 0, methods));
+        }
+        return types;
+    }
+
+    private static string? TypeName(MetadataReader md, EntityHandle handle) => handle.Kind switch
+    {
+        HandleKind.TypeDefinition => FullName(md, (TypeDefinitionHandle)handle),
+        HandleKind.TypeReference => FullName(md, (TypeReferenceHandle)handle),
+        HandleKind.TypeSpecification => GenericDefinitionName(md, (TypeSpecificationHandle)handle) is { Length: > 0 } name ? name : null,
+        _ => null,
+    };
+
     /// <summary>Layout facts of a type definition: layout kind, packing, size, and each field's name and signature blob.</summary>
     internal static StructLayoutFacts? StructLayout(string path, string fullName)
     {

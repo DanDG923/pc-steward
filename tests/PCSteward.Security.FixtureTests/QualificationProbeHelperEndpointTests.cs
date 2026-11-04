@@ -388,6 +388,46 @@ public sealed class QualificationProbeHelperEndpointTests
         Assert.AreEqual(0, harness.Capability.Calls, "the evaluation is not started");
     }
 
+    [TestMethod]
+    public async Task H7ARunInterruptedBeforeAnA3TokenStartsBeginsNoEvaluation()
+    {
+        // Review (A3 abandonment race): the token is checked before Task.Run, so an interrupted run never starts an evaluation
+        // that could reach the item after abandonment.
+        using CancellationTokenSource run = new();
+        ProbeHarness harness = new() { Cancellation = run.Token };
+        harness.Peer.OnIdentity = run.Cancel; // between A2's interruption check and the first A3 token
+        ProbeRun result = await harness.RunAsync();
+
+        result.AssertNoResponse();
+        Assert.AreEqual(24, result.ExitCode);
+        StringAssert.Contains(result.Result.Diagnostic, "a3-interrupted");
+        // Under the old order the evaluation was queued anyway; give it time to run before asserting it never started.
+        Task started = await Task.WhenAny(harness.Capability.Completed.Task, Task.Delay(TimeSpan.FromMilliseconds(500)));
+        Assert.AreNotSame(harness.Capability.Completed.Task, started, "the evaluation was started after the run was interrupted");
+        Assert.AreEqual(0, harness.Capability.Calls);
+        Assert.AreEqual(0, harness.Item.ProtectCalls);
+        Assert.IsTrue(harness.Item.Disposed);
+    }
+
+    [TestMethod]
+    public async Task H7AnInterruptionDuringAnA3EvaluationIsAbandonmentAtOnceAndTheProtectionCallDoesNotReachTheItem()
+    {
+        // Review (A3 abandonment race): the protection check reads the run's token itself, so a call made after the interruption
+        // but before the entry's wait has observed it refuses without reaching the item.
+        using CancellationTokenSource run = new();
+        ProbeHarness harness = new() { Cancellation = run.Token };
+        harness.Capability.BeforeProtection = run.Cancel; // the interruption lands on the evaluating thread, just before the call
+        ProbeRun result = await harness.RunAsync();
+
+        result.AssertNoResponse();
+        Assert.AreEqual(24, result.ExitCode);
+        StringAssert.Contains(result.Result.Diagnostic, "a3-interrupted");
+        await harness.Capability.Completed.Task.WaitAsync(F.Wait);
+        Assert.IsFalse(harness.Capability.ProtectionResult, "after the interruption the protection check refuses");
+        Assert.AreEqual(0, harness.Item.ProtectCalls, "and never reaches the item");
+        Assert.AreEqual(0, harness.Item.ObserveCalls);
+    }
+
     // ---- H10: in-flight disposal and the write window ----
 
     [TestMethod]

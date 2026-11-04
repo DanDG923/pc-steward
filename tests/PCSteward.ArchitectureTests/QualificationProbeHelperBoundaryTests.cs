@@ -340,6 +340,47 @@ public sealed class QualificationProbeHelperBoundaryTests
             Assert.IsFalse(code.Contains(token, StringComparison.Ordinal), $"the probe entry uses {token}");
     }
 
+    [TestMethod]
+    public void H3StopDisposesTheItemBeforeTheResponseIsBuiltInCompiledOrder()
+    {
+        // Spec §3 Stop: the item is disposed, then the frame is built. The behavioural H3 test sees only the write, so this pins
+        // the order of the two calls in the compiled body of RunAsync (its async state machine's MoveNext), in IL order.
+        string execution = Assembly(RequireBuilt(), "PCSteward.Execution");
+        List<CompiledIlScanner.IlReference> body = [.. CompiledIlScanner.References(execution)
+            .Where(reference => reference.CallerType is { } type && type.StartsWith(ProbeEndpoint + "+<RunAsync>", StringComparison.Ordinal) &&
+                reference.CallerMethod == "MoveNext")];
+        Assert.AreNotEqual(0, body.Count, "the RunAsync state machine was not found");
+        int[] disposals = [.. body.Select((reference, index) => (reference, index))
+            .Where(pair => pair.reference.TargetType == ProbeEndpoint + "+Stages" && pair.reference.TargetMember == "DisposeItem").Select(pair => pair.index)];
+        int[] builds = [.. body.Select((reference, index) => (reference, index))
+            .Where(pair => pair.reference.TargetType == Execution + "QualificationProbeWireCodec" && pair.reference.TargetMember == "CreateProbeResponse")
+            .Select(pair => pair.index)];
+        Assert.AreEqual(1, disposals.Length, "exactly one Stop disposal of the item in RunAsync");
+        Assert.AreEqual(1, builds.Length, "exactly one response build in RunAsync");
+        Assert.IsLessThan(builds[0], disposals[0], "Stop: the item is disposed before the response is built");
+        // Source (LF-normalised, code lines only): the same order in the text.
+        string code = Code(Path.Combine("PCSteward.Execution", "ReviewedHelperProbeEndpoint.cs")).Replace("\r", string.Empty, StringComparison.Ordinal);
+        int dispose = code.IndexOf("stages.DisposeItem();", StringComparison.Ordinal);
+        int build = code.IndexOf("QualificationProbeWireCodec.CreateProbeResponse(", StringComparison.Ordinal);
+        Assert.IsTrue(dispose >= 0 && build > dispose, "Stop: stages.DisposeItem() precedes CreateProbeResponse in the source");
+    }
+
+    [TestMethod]
+    public void H2TheObservedBindingIsCapturedFirstAndDisposedInAFinally()
+    {
+        // Review (S3): a value getter that throws must not leave the binding open. The native work is Windows-only, so the
+        // structure is pinned on the source (LF-normalised, code lines only); the Faulted result is the item's existing catch.
+        string code = Code(Path.Combine("PCSteward.Provider.Chocolatey", "Native", "NativeChocolateyProbe.cs")).Replace("\r", string.Empty, StringComparison.Ordinal);
+        Match block = Regex.Match(code,
+            @"ChocolateyHeldClientBinding\? binding = null;\s*string version;\s*string fingerprint;\s*try\s*\{\s*" +
+            @"ChocolateyProfileObservation observation = observed\.Observation;\s*binding = observation\.HeldClient;\s*" +
+            @"version = observation\.InstalledVersion\.Normalized;\s*fingerprint = observation\.Fingerprint;\s*\}\s*" +
+            @"finally\s*\{\s*try\s*\{\s*binding\?\.Dispose\(\);\s*\}", RegexOptions.CultureInvariant);
+        Assert.IsTrue(block.Success, "the binding is captured before the values and disposed in a finally");
+        Assert.AreEqual(1, Regex.Count(code, @"binding\?\.Dispose\(\)"), "one disposal site");
+        StringAssert.Contains(code, "bool releasedBinding = binding is not null && binding.IsDisposed;");
+    }
+
     // ---- Helpers ----
 
     private static bool IsProbePath(CompiledIlScanner.IlReference reference) =>

@@ -199,28 +199,45 @@ internal static class ReviewedHelperProbeEndpoint
             foreach (UpdateRouteContract route in DeploymentCapabilityPolicy.CapabilityOperationAllowlist
                          .OrderBy(DeploymentCapabilityPolicy.OperationToken, StringComparer.Ordinal))
             {
+                // A run already interrupted, or a budget already spent, before a token starts counts as abandonment; the
+                // evaluation is not started.
+                if (token.IsCancellationRequested)
+                {
+                    Abandon();
+                    return Decision.None("a3-interrupted");
+                }
                 TimeSpan remaining = Remaining();
                 if (remaining <= TimeSpan.Zero)
                 {
-                    // A budget already spent before a token starts counts as the cap; the evaluation is not started.
-                    Volatile.Write(ref capabilityAbandoned, 1);
+                    Abandon();
                     return Decision.None("a3-budget-spent");
                 }
                 HelperProtocolCapabilityStatus status;
-                try
+                // The cap (on the injected clock) and the run's token end the wait. The protection check reads both, so
+                // abandonment holds from the moment either is cancelled, before this wait observes it; the registration also
+                // sets the flag, which stays set for any later call.
+                using (CancellationTokenSource cap = new(remaining, clock))
+                using (CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(token, cap.Token))
+                using (stop.Token.UnsafeRegister(static state => ((Stages)state!).Abandon(), this))
                 {
-                    status = await Task.Run(() => Evaluate(route, begun, peerImage), CancellationToken.None)
-                        .WaitAsync(remaining, clock, token).ConfigureAwait(false);
-                }
-                catch (TimeoutException)
-                {
-                    Volatile.Write(ref capabilityAbandoned, 1);
-                    return Decision.None("a3-unresponsive");
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    Volatile.Write(ref capabilityAbandoned, 1);
-                    return Decision.None("a3-interrupted");
+                    CancellationToken capToken = cap.Token;
+                    try
+                    {
+                        status = await Task.Run(() => Evaluate(route, begun, peerImage, capToken), CancellationToken.None)
+                            .WaitAsync(stop.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (stop.IsCancellationRequested)
+                    {
+                        Abandon();
+                        return Decision.None(token.IsCancellationRequested ? "a3-interrupted" : "a3-unresponsive");
+                    }
+                    // A status completed at the moment of abandonment is not used: its protection check may have refused for
+                    // that reason alone.
+                    if (token.IsCancellationRequested || capToken.IsCancellationRequested)
+                    {
+                        Abandon();
+                        return Decision.None(token.IsCancellationRequested ? "a3-interrupted" : "a3-unresponsive");
+                    }
                 }
                 g1.Add(new(DeploymentCapabilityPolicy.OperationToken(route), Status(status)));
             }
@@ -262,15 +279,19 @@ internal static class ReviewedHelperProbeEndpoint
 
         private TimeSpan Remaining() => budgets.Probe - clock.GetElapsedTime(connectedTimestamp);
 
+        /// <summary>A3 abandonment (the cap, a spent budget, end of file or an inbound byte): set once, never cleared.</summary>
+        private void Abandon() => Volatile.Write(ref capabilityAbandoned, 1);
+
         /// <summary>
-        /// One token's G1 evaluation. After the cap the protection check refuses without reaching the item. A thrown
-        /// evaluation or an undefined status is <c>Unreadable</c>, as the Helper-role check itself reports any exception.
+        /// One token's G1 evaluation. After abandonment (the flag, the run's token or this token's <paramref name="cap"/>) the
+        /// protection check refuses without reaching the item. A thrown evaluation or an undefined status is <c>Unreadable</c>,
+        /// as the Helper-role check itself reports any exception.
         /// </summary>
-        private HelperProtocolCapabilityStatus Evaluate(UpdateRouteContract route, IChocolateyProbeItem current, string peerImage)
+        private HelperProtocolCapabilityStatus Evaluate(UpdateRouteContract route, IChocolateyProbeItem current, string peerImage, CancellationToken cap)
         {
             bool Protection(string root, IReadOnlyList<string> files)
             {
-                if (Volatile.Read(ref capabilityAbandoned) != 0) return false;
+                if (Volatile.Read(ref capabilityAbandoned) != 0 || token.IsCancellationRequested || cap.IsCancellationRequested) return false;
                 try { return current.RequesterCannotModify(root, files); }
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
             }

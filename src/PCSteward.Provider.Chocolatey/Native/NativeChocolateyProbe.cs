@@ -233,20 +233,30 @@ internal sealed class NativeChocolateyProbeItem : IChocolateyProbeItem
             {
                 case ChocolateyProfileResult.Observed observed:
                 {
-                    ChocolateyProfileObservation observation = observed.Observation;
-                    string version = observation.InstalledVersion.Normalized;
-                    string fingerprint = observation.Fingerprint;
-                    bool releasedBinding;
-                    ChocolateyHeldClientBinding? binding = observation.HeldClient;
+                    // Review (S3): the binding is captured first and disposed in the finally, so a value getter that throws
+                    // still releases it; the throw then reaches the item's ObserveClient, which returns Faulted.
+                    ChocolateyHeldClientBinding? binding = null;
+                    string version;
+                    string fingerprint;
                     try
                     {
-                        binding?.Dispose();
+                        ChocolateyProfileObservation observation = observed.Observation;
+                        binding = observation.HeldClient;
+                        version = observation.InstalledVersion.Normalized;
+                        fingerprint = observation.Fingerprint;
                     }
-                    catch (Exception exception) when (exception is not OutOfMemoryException)
+                    finally
                     {
-                        // A close that failed leaves the binding not disposed, which refuses below.
+                        try
+                        {
+                            binding?.Dispose();
+                        }
+                        catch (Exception exception) when (exception is not OutOfMemoryException)
+                        {
+                            // A close that failed leaves the binding not disposed, which refuses below.
+                        }
                     }
-                    releasedBinding = binding is not null && binding.IsDisposed;
+                    bool releasedBinding = binding is not null && binding.IsDisposed;
                     // Stop (§3): a binding that is not disposed, or an observation that is not of the newest listed release with a
                     // 64-character fingerprint, yields no response.
                     if (!releasedBinding || !string.Equals(version, frozenInstalled.Normalized, StringComparison.Ordinal) ||

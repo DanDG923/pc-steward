@@ -93,11 +93,14 @@ internal sealed class FakePeer : IChocolateyPeer
     internal bool IdentityReadable { get; set; } = true;
     internal bool ThrowOnIdentity { get; set; }
     internal bool Exited { get; set; }
+    /// <summary>Runs at the start of every identity read (for example, to interrupt a run between stages).</summary>
+    internal Action? OnIdentity { get; set; }
     public int ProcessId => 4242;
     public bool HasExited => Exited;
 
     public bool TryReadIdentity(out string imagePath, out int session, out string userSid)
     {
+        OnIdentity?.Invoke();
         if (ThrowOnIdentity) throw new InvalidOperationException("synthetic");
         imagePath = IdentityReadable ? ImagePath : string.Empty;
         session = 1;

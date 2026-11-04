@@ -196,6 +196,8 @@ internal sealed class ProbeHarness
     internal TimeSpan PreElapsed { get; set; }
     internal Func<Stream, Stream>? WrapHelperPipe { get; set; }
     internal string ExpectedSid { get; set; } = ProbeFixture.Sid;
+    /// <summary>The caller's token passed to the entry (the bootstrap passes none; a test may cancel the run directly).</summary>
+    internal CancellationToken Cancellation { get; set; }
 
     internal ProbeHarness()
     {
@@ -219,7 +221,7 @@ internal sealed class ProbeHarness
             long connected = Clock.GetTimestamp() - PreElapsed.Ticks;
             Stream pipe = WrapHelperPipe?.Invoke(client) ?? client;
             return await ReviewedHelperProbeEndpoint.RunAsync(pipe, Peer, PortOverride ?? Port, CapabilityOverride ?? Capability, Clock, connected,
-                ExpectedSid, ProbeFixture.Nonce, Budgets, CancellationToken.None);
+                ExpectedSid, ProbeFixture.Nonce, Budgets, Cancellation);
         });
         using (CancellationTokenSource connect = new(TimeSpan.FromSeconds(10)))
             await server.WaitForConnectionAsync(connect.Token);
