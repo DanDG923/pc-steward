@@ -306,7 +306,9 @@ public sealed class QualificationProbeHelperNativeTests
         using N1NativeFixture fixture = new();
         string root = fixture.Directory("install");
         string file = fixture.File(@"install\PCSteward.ElevatedHelper.exe");
-        fixture.LockTree(root);
+        // Lock the whole fixture tree, as G1Fixture does: the ancestry walk starts at the fixture root, which the CI-hardened
+        // fixture leaves user-writable until it is locked (first Windows run: the locked case evaluated false).
+        fixture.LockTree(fixture.Root);
         foreach (bool locked in new[] { true, false })
         {
             if (!locked) fixture.Protect(file, ownerRights: true, FileSystemRights.ReadAndExecute | FileSystemRights.WriteData);
