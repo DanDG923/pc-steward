@@ -21,6 +21,16 @@ public partial class App : global::Microsoft.UI.Xaml.Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Qualification probe spec rev 4 §5.1 (review M3): classify first, before the gate below. A probe or malformed start
+        // never reaches that gate, reset handling, the database or any window; the probe's result file is authoritative (§5.4).
+        QualificationProbeLaunch launch = QualificationProbeEntry.Classify(Environment.GetCommandLineArgs());
+        if (launch != QualificationProbeLaunch.Normal)
+        {
+            Environment.Exit(launch == QualificationProbeLaunch.Probe
+                ? QualificationProbeEntry.Run(QualificationProbeLaunchGate.TryAcquire)
+                : QualificationProbeEntry.MalformedExitCode);
+            return;
+        }
         // Common current-user gate (Global SID gate, then legacy Local v1). The held session is passed through reset
         // completion and initial loading via the bootstrap scope: no recursive acquisition.
         CurrentUserDataOperationSession? session;

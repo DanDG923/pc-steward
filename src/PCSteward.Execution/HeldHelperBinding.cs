@@ -33,14 +33,33 @@ internal sealed class HeldHelperBinding : IDisposable
         IReadOnlyDictionary<string, string> paths,
         IReadOnlyDictionary<string, DeploymentObservedFile> verifiedHashes,
         string helperPath,
-        WindowsFileIdentity helperIdentity)
+        WindowsFileIdentity helperIdentity,
+        string? ledgerSha256,
+        HelperSignerFacts? helperSigner)
     {
         this.handles = handles;
         this.paths = paths;
         VerifiedHashes = verifiedHashes;
         HelperPath = helperPath;
         HelperIdentity = helperIdentity;
+        LedgerSha256 = ledgerSha256;
+        HelperSigner = helperSigner;
     }
+
+    /// <summary>
+    /// Qualification probe spec rev 4 §5.3 pin sources (review M-1), values only: the SHA-256 (uppercase hex) of the exact
+    /// ledger bytes the policy verified during this hold. The ledger is read once and never held, so a later change to the
+    /// file is not reflected; the value records what was verified. Null when the reader did not record it (Helper role). It
+    /// adds no authority, changes no status and is never cached.
+    /// </summary>
+    internal string? LedgerSha256 { get; }
+
+    /// <summary>
+    /// Probe spec §5.3 pin sources (review M-1), values only: the helper apphost's signing-certificate thumbprint and
+    /// <c>NotAfter</c>, read while the apphost was held share-read (so the path named the held file). Null when the signature
+    /// could not be read or the reader did not record it (Helper role). Never part of any trust or status decision.
+    /// </summary>
+    internal HelperSignerFacts? HelperSigner { get; }
 
     /// <summary>Binding-set leaf → (length, SHA-256) read through the held handles and equal to the ledger entries.</summary>
     internal IReadOnlyDictionary<string, DeploymentObservedFile> VerifiedHashes { get; }
@@ -77,7 +96,9 @@ internal sealed class HeldHelperBinding : IDisposable
         IReadOnlyDictionary<string, SafeFileHandle> handles,
         IReadOnlyDictionary<string, string> paths,
         IReadOnlyDictionary<string, DeploymentObservedFile> verifiedHashes,
-        string helperLeaf)
+        string helperLeaf,
+        string? ledgerSha256 = null,
+        HelperSignerFacts? helperSigner = null)
     {
         ArgumentNullException.ThrowIfNull(handles);
         ArgumentNullException.ThrowIfNull(paths);
@@ -86,7 +107,7 @@ internal sealed class HeldHelperBinding : IDisposable
             !handles.TryGetValue(helperLeaf, out SafeFileHandle? helper) || !paths.TryGetValue(helperLeaf, out string? helperPath) ||
             !DeploymentFileAccess.TryReadIdentity(helper, out WindowsFileIdentity identity))
             return null;
-        return new(handles, paths, verifiedHashes, helperPath, identity);
+        return new(handles, paths, verifiedHashes, helperPath, identity, ledgerSha256, helperSigner);
     }
 
     /// <summary>
@@ -131,3 +152,9 @@ internal sealed class HeldHelperBinding : IDisposable
         ReleaseHandles();
     }
 }
+
+/// <summary>
+/// Probe spec rev 4 §5.3 (review M-1): the helper apphost's signing certificate as recorded in the result file's pins: the
+/// SHA-1 thumbprint (40 uppercase hex) and <c>NotAfter</c> in UTC. Values only; read with no trust decision attached.
+/// </summary>
+internal sealed record HelperSignerFacts(string Thumbprint, DateTimeOffset NotAfterUtc);
