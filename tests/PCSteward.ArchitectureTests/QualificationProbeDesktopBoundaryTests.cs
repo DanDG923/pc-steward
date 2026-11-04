@@ -244,6 +244,12 @@ public sealed class QualificationProbeDesktopBoundaryTests
         Assert.AreEqual(1, Regex.Count(app, @"CurrentUserDataOperationSession\.TryAcquire\("), "the normal path has one TryAcquire");
         int exit = app.IndexOf("Environment.Exit(", StringComparison.Ordinal);
         Assert.IsTrue(exit > classify && exit < acquire, "a probe or malformed start exits before the gate");
+        // The probe path passes the real launch gate: the only Run call, in this exact form, between Classify and the gate.
+        const string RunWithRealGate = "QualificationProbeEntry.Run(QualificationProbeLaunchGate.TryAcquire)";
+        Assert.AreEqual(1, Regex.Count(app, @"QualificationProbeEntry\.Run\("), "one Run call");
+        Assert.AreEqual(1, Regex.Count(app, Regex.Escape(RunWithRealGate)), "Run is passed QualificationProbeLaunchGate.TryAcquire");
+        int run = app.IndexOf(RunWithRealGate, StringComparison.Ordinal);
+        Assert.IsTrue(run > exit && run < acquire, "the gated Run is the probe exit code, before the normal path's gate");
 
         string runner = Read(src, "PCSteward.Execution", "QualificationProbeEntry.cs");
         int folder = runner.IndexOf("QualificationResultFile.TryCreateFolder(", StringComparison.Ordinal);

@@ -339,11 +339,13 @@ public sealed class QualificationProbeHelperEndpointTests
     {
         ProbeHarness harness = new();
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        bool sawCancellation = false;
+        // EOF abandons the observation (never awaited, "b-interrupted"), so the run can end before the observation records
+        // what it saw: the observation completes this source and the test awaits it rather than reading a shared flag.
+        TaskCompletionSource<bool> sawCancellation = new(TaskCreationOptions.RunContinuationsAsynchronously);
         harness.Item.Observe = (_, token) =>
         {
             entered.TrySetResult();
-            sawCancellation = token.WaitHandle.WaitOne(F.Wait);
+            sawCancellation.TrySetResult(token.WaitHandle.WaitOne(F.Wait));
             return new ChocolateyProbeValues.Cancelled();
         };
         ProbeRun run = await harness.RunAsync(async server =>
@@ -353,7 +355,7 @@ public sealed class QualificationProbeHelperEndpointTests
         });
         Assert.AreEqual(ReviewedHelperProbeExit.NoResponse, run.Result.Exit, run.Result.Diagnostic);
         Assert.AreEqual(24, run.ExitCode);
-        Assert.IsTrue(sawCancellation, "EOF cancels the observation's token");
+        Assert.IsTrue(await sawCancellation.Task.WaitAsync(F.Wait), "EOF cancels the observation's token");
     }
 
     [TestMethod]

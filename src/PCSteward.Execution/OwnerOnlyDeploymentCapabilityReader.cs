@@ -209,9 +209,9 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
             if (thumbprint.Length != 40 || !thumbprint.All(static c => c is >= '0' and <= '9' or >= 'A' and <= 'F')) return null;
             return new(thumbprint, new DateTimeOffset(certificate.NotAfter.ToUniversalTime(), TimeSpan.Zero));
         }
-        catch (Exception exception) when (exception is CryptographicException or IOException or UnauthorizedAccessException or
-            ArgumentException or PlatformNotSupportedException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
+            // The values are never part of the status: no failure here may turn a Supported hold into an exception (Unreadable).
             return null;
         }
     }

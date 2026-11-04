@@ -115,6 +115,31 @@ public sealed class QualificationProbeDesktopTransportTests
     }
 
     [TestMethod]
+    public async Task AFailedFinalLaunchTrustAfterAnAgreeingHoldIsLaunchTrustFailedWithNoPromptAndEveryBindingReleased()
+    {
+        // Step 7: the initial trust passes, every token holds and agrees, then the final trust (the second call) fails.
+        ProbeTransportFakes fakes = new() { Trust = n => n == 1 };
+        using AgreeingHoldCapability capability = new(fakes.Paths!.HelperPath);
+        fakes.Capability = capability;
+        QualificationProbeRun run = await Probe(fakes);
+
+        Assert.AreEqual(Outcome.LaunchTrustFailed, run.Outcome);
+        Assert.AreEqual(2, fakes.TrustCalls, "the initial and the final launch trust");
+        Assert.AreEqual(0, fakes.Launches, "no prompt");
+        Assert.AreEqual(DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Count, capability.Bindings.Count, "every token was held");
+        Assert.IsTrue(capability.Bindings.All(static binding => binding.IsDisposed && !binding.IsHolding), "every binding is released");
+        Assert.IsTrue(capability.Handles.All(static handle => handle.IsClosed), "every held handle is closed");
+        CollectionAssert.AreEqual(DesktopProbeFixture.G1(QualificationProbeCapabilityStatus.Supported).ToArray(), run.CapabilityStatus.ToArray());
+        Assert.AreEqual(DesktopProbeFixture.Pins(), run.Pins, "the pins of the hold are recorded");
+        Assert.IsNull(run.Probe);
+        Assert.IsTrue(run.Transport.InitialLaunchTrust);
+        Assert.IsFalse(run.Transport.FinalLaunchTrust);
+        Assert.IsFalse(run.Transport.HelperProcessCreated || run.Transport.PipeConnected);
+        CollectionAssert.AreEqual(UpdateOnlyEvents.Append("trust").ToArray(), fakes.Events.Snapshot(), "the final trust is the last step");
+        Assert.IsNull(QualificationProbeResultDocument.Violation(run, DesktopProbeFixture.Started, DesktopProbeFixture.Started, QualificationProbeContract.Compiled));
+    }
+
+    [TestMethod]
     public void TheHoldsMustAllBeSupportedHoldingOnTheFixedHelperWithOneIdentityAndEqualCompletePins()
     {
         const string Helper = @"C:\Program Files\PC Steward\PCSteward.ElevatedHelper.exe";

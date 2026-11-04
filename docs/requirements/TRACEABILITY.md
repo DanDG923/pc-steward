@@ -34,11 +34,12 @@
 `FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §5.1–§5.6, §6, §7 D1–D9, §11.5.
 
 - Security `QualificationProbeDesktopEntryTests` (portable 14): D7 `Classify` (exact line, flag elsewhere, case/whitespace variants), folder before gate, a folder failure takes no gate and writes no file, GateBusy/GateUnavailable/GateRecoveryRequired/GateResetPending in the file, write before release on the acquiring thread, probe on a worker, faults record nothing, §5.4 exit codes.
-- Security `QualificationProbeDesktopTransportTests` (portable 37): steps 3–7 over fakes (D8 process check before any trust call; every token held; no launch before every check passes), hold agreement, D3 probe line against all three helper parsers, steps 8–10 over a real pipe pair including the real S3 endpoint (nothing written).
+- Security `QualificationProbeDesktopTransportTests` (portable 38): steps 3–7 over fakes (D8 process check before any trust call; every token held; no launch before every check passes; a failed final trust after agreeing holds is `LaunchTrustFailed` with every binding released), hold agreement, D3 probe line against all three helper parsers, steps 8–10 over a real pipe pair including the real S3 endpoint (nothing written).
 - Security `QualificationProbeResultFileTests` (portable 23, Windows-only 3): D6 closed `:2` document (order, privacy, 4,096-B bound), location rules (8.3, UNC/device/relative, reparse, existing folder); real-folder, junction and short-name writes (Windows).
 - Security `QualificationProbeDesktopNativeTests` (Windows-only 5): D9 ledger SHA-256 and signer values; every token held through the real reader to a declined prompt with all bindings released.
 - Application `QualificationProbeGateTests` (Windows-only 9): D7 held, abandoned (one acquirer) and thread-affine gate; every non-`None` marker state unsettled with no write.
-- Architecture `QualificationProbeDesktopBoundaryTests` (7) for D1, D2, D3, D4, D5, D7 and the seams; existing pins admit the probe explicitly (`DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests`, `QualificationProbeWireBoundaryTests`, `QualificationProbeHelperBoundaryTests`); D4 admission-pin tests unmodified.
+- Security `DeploymentCapabilityReaderTests` (portable +1): the D9 signer read returns null for any failure and never throws.
+- Architecture `QualificationProbeDesktopBoundaryTests` (7) for D1, D2, D3, D4, D5, D7 (including the exact `Run(QualificationProbeLaunchGate.TryAcquire)` call) and the seams; existing pins admit the probe explicitly (`DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests`, `QualificationProbeWireBoundaryTests`, `QualificationProbeHelperBoundaryTests`); D4 admission-pin tests unmodified.
 - Not claimed: the real Desktop build, Windows CI evidence for the 17 Windows-only cases, D4 (owner decision), deployment or any host action.
 
 # Task 50 — qualification probe slice S3 (helper side)

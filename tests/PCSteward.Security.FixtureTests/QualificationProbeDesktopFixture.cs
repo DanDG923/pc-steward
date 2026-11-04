@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using Microsoft.Win32.SafeHandles;
 using PCSteward.Domain;
 using PCSteward.Execution;
 
@@ -175,6 +176,59 @@ internal sealed class RecordingHoldCapability(HelperProtocolCapabilityStatus sta
         binding = null;
         if (Throw) throw new IOException("synthetic hold failure");
         return HelperProtocolCapabilityResult.For(status);
+    }
+}
+
+/// <summary>
+/// A capability that returns <c>Supported</c> with a holding, agreeing binding for every token (portable). A real binding needs a
+/// Windows <c>FileIdInfo</c>, so the test builds one through the binding's private constructor by reflection: no seam is added to
+/// shipped code. Each binding has one real share-read handle on a temp file, so its release is observable as a closed handle.
+/// </summary>
+internal sealed class AgreeingHoldCapability : IHelperProtocolCapability, IDisposable
+{
+    private readonly string file = Path.Combine(Path.GetTempPath(), $"pcsteward-test-{Guid.NewGuid():N}");
+
+    internal AgreeingHoldCapability(string helperPath)
+    {
+        HelperPath = helperPath;
+        File.WriteAllText(file, "binding");
+    }
+
+    internal string HelperPath { get; }
+    internal List<HeldHelperBinding> Bindings { get; } = [];
+    internal List<SafeFileHandle> Handles { get; } = [];
+
+    public HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route) => throw new AssertFailedException("the probe only holds");
+
+    public HelperProtocolCapabilityResult TryHold(UpdateRouteContract route, out HeldHelperBinding? binding)
+    {
+        SafeFileHandle handle = File.OpenHandle(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+        Handles.Add(handle);
+        QualificationProbePins pins = DesktopProbeFixture.Pins();
+        Dictionary<string, DeploymentObservedFile> hashes = new(StringComparer.Ordinal)
+        {
+            [DeploymentCapabilityPolicy.CapabilityFileName] = new(1, pins.CapabilityFileSha256),
+            [InstalledHelperLaunchTrust.DesktopExecutableName] = new(1, pins.DesktopImageSha256),
+            [InstalledHelperLaunchTrust.HelperExecutableName] = new(1, pins.HelperImageSha256),
+        };
+        object?[] arguments =
+        [
+            new Dictionary<string, SafeFileHandle> { [InstalledHelperLaunchTrust.HelperExecutableName] = handle },
+            new Dictionary<string, string> { [InstalledHelperLaunchTrust.HelperExecutableName] = HelperPath },
+            hashes, HelperPath, new WindowsFileIdentity(7, 42), pins.LedgerSha256, new HelperSignerFacts(pins.SignerThumbprint, pins.SignerNotAfterUtc),
+        ];
+        binding = (HeldHelperBinding)typeof(HeldHelperBinding)
+            .GetConstructors(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .Single().Invoke(arguments);
+        Bindings.Add(binding);
+        return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Supported);
+    }
+
+    public void Dispose()
+    {
+        foreach (HeldHelperBinding binding in Bindings) binding.Dispose();
+        try { File.Delete(file); }
+        catch (IOException) { }
     }
 }
 
