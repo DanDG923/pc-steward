@@ -358,6 +358,9 @@ public sealed class HelperEndpointBoundaryTests
             (Reader, ".ctor", ReaderRole, CapabilityCheck + ".Evaluate", null),
             (Reader, ".ctor", ReaderRole, Reader + "..ctor", ReaderTwo),
             (Reader, ".ctor", ReaderTwo, Reader + "..ctor", "()"),
+            // Probe spec rev 4 §5.2 step 6 (S4): the desktop probe's production composition is the only src caller of the
+            // Desktop-role production (parameterless) reader; the fixture seam constructors stay without a src caller.
+            (Reader, ".ctor", "()", "PCSteward.Execution.ReviewedHelperProbeTransport.ProductionDependencies", "()"),
             // The host facts are constructed only from the running process; the record's copy constructor only by its clone.
             (Host, ".ctor", HostFacts, Host + ".TryResolve", null),
             (Host, ".ctor", "(" + Host + ")", Host + ".Clone", "()"),

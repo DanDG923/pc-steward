@@ -16,7 +16,8 @@ public sealed class DeploymentCapabilityBoundaryTests
          "DeploymentCapabilityInputs", "DeploymentObservedFile", "DeploymentLedger", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader",
          "DeploymentCapabilityLayout", "DeploymentLayoutProtectionCheck", "DeploymentCapabilityStage", "DeploymentFileAccess", "WindowsFileIdentity"];
     private static readonly string[] BindingReferencingFiles =
-        ["HeldHelperBinding.cs", "IHelperProtocolCapability.cs", "OwnerOnlyDeploymentCapabilityReader.cs", "ReviewedHelperProtocol2Transport.cs"];
+        ["HeldHelperBinding.cs", "IHelperProtocolCapability.cs", "OwnerOnlyDeploymentCapabilityReader.cs", "ReviewedHelperProbeTransport.cs",
+         "ReviewedHelperProtocol2Transport.cs"];
     private static readonly string[] ReaderSources =
         ["OwnerOnlyDeploymentCapabilityReader.cs", "HeldHelperBinding.cs", "DeploymentFileAccess.cs"];
 
@@ -71,7 +72,9 @@ public sealed class DeploymentCapabilityBoundaryTests
     public void ProtocolOneTransportIsNotWiredToTheCapabilitySeamYet()
     {
         // The protocol-2 transport is a separate type; the protocol-1 transport stays free of the seam, and no file
-        // constructs the reader (no production caller until route admission).
+        // constructs the reader (no production update caller until route admission). Qualification probe spec rev 4 §5.2
+        // step 6 (S4): the desktop probe transport's production composition is the one file that constructs the Desktop-role
+        // reader, exactly once and only through its parameterless (production) constructor.
         string src = Path.Combine(FindRepositoryRoot(), "src");
         string transport = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
         foreach (string type in new[] { "IHelperProtocolCapability", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader", "DeploymentFileAccess", "TryHold" })
@@ -79,7 +82,13 @@ public sealed class DeploymentCapabilityBoundaryTests
         foreach (string path in Sources(src))
         {
             if (path.EndsWith("OwnerOnlyDeploymentCapabilityReader.cs", StringComparison.Ordinal)) continue;
-            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\s*\("), $"{path} constructs the reader (no production caller yet)");
+            int constructions = Regex.Count(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\s*\(");
+            if (path.EndsWith(Path.Combine("PCSteward.Execution", "ReviewedHelperProbeTransport.cs"), StringComparison.Ordinal))
+            {
+                Assert.AreEqual(1, constructions, "the probe composition constructs the Desktop-role reader once");
+                Assert.AreEqual(1, Regex.Count(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\(\)"), "only the parameterless reader");
+            }
+            else Assert.AreEqual(0, constructions, $"{path} constructs the reader (no production update caller yet)");
         }
     }
 
@@ -120,6 +129,27 @@ public sealed class DeploymentCapabilityBoundaryTests
         StringAssert.Contains(File.ReadAllText(Path.Combine(execution, "HelperProcessWork.cs")), "await Task.WhenAll(exit, finished)");
         Assert.IsTrue(Regex.IsMatch(File.ReadAllText(Path.Combine(execution, "ReviewedHelperProtocol2Transport.cs")),
             @"finally\s*\{\s*owned\.SealTransport\(\);\s*\}"), "the session seals the transport in a finally block");
+
+        // Qualification probe spec rev 4 §5.2 steps 6–10 (S4): the probe transport keeps the same A-M2 lifetime for every
+        // held binding: release without a helper only before ownership exists, otherwise only after exit and seal.
+        string probe = File.ReadAllText(Path.Combine(execution, "ReviewedHelperProbeTransport.cs"));
+        Assert.AreEqual(2, Regex.Count(probe, @"binding\.Dispose\(\)"), "the probe's only two release points");
+        Assert.IsTrue(Regex.IsMatch(probe,
+            @"private static void ReleaseWithoutHelper\(List<HeldHelperBinding> bindings\)\s*\{\s*foreach \(HeldHelperBinding binding in bindings\) binding\.Dispose\(\);\s*\}"));
+        Assert.IsTrue(Regex.IsMatch(probe,
+            @"private static void ReleaseAfterOwnership\(Task ownedCompletion, List<HeldHelperBinding> bindings\) =>\s+_ = ownedCompletion\.ContinueWith\(static \(_, state\) =>"));
+        Assert.AreEqual(1, Regex.Count(probe, @"ReleaseAfterOwnership\(owned\.OwnedCompletion, bindings\);"));
+        int probeOwnership = probe.IndexOf("owned = new(helper);", StringComparison.Ordinal);
+        Assert.IsTrue(probeOwnership > 0);
+        Assert.AreEqual(4, Regex.Count(probe, @"ReleaseWithoutHelper\(bindings\);"), "capability, final trust, cancellation and no helper");
+        foreach (Match call in Regex.Matches(probe, @"ReleaseWithoutHelper\(bindings\);"))
+            Assert.IsTrue(call.Index < probeOwnership, "ReleaseWithoutHelper is called only before the helper is owned");
+        Assert.IsFalse(probe.Contains("ReleaseHandles", StringComparison.Ordinal), "the A2-L5 fallback is not used");
+        int probeRelease = probe.IndexOf("ReleaseAfterOwnership(owned.OwnedCompletion, bindings);", StringComparison.Ordinal);
+        int probeRun = probe.IndexOf("await ReviewedHelperProbeSession.RunAsync(", StringComparison.Ordinal);
+        int probeKeepAlive = probe.IndexOf("GC.KeepAlive(bindings);", StringComparison.Ordinal);
+        Assert.IsTrue(probeRelease > 0 && probeRun > probeRelease && probeKeepAlive > probeRun, "release registered before the session; reference outlives it");
+        Assert.IsTrue(Regex.IsMatch(probe, @"finally\s*\{\s*owned\.SealTransport\(\);\s*\}"), "the probe session seals the transport in a finally block");
     }
 
     [TestMethod]

@@ -272,24 +272,38 @@ public sealed class QualificationProbeHelperBoundaryTests
     }
 
     [TestMethod]
-    public void S4IsNotWiredDesktopScheduledHostAndApplicationReferenceNoProbeType()
+    public void S4DesktopReachesTheProbeOnlyThroughTheEntryAndScheduledHostAndApplicationReferenceNoProbeType()
     {
-        string[] probe = [ProbeBootstrap, ProbeEndpoint, Execution + "QualificationProbe", Execution + "ReviewedHelperProbe", ProbePort, ProbeItem, ProbeValues, NativeProbePort, NativeProbeItem];
+        // S4 (probe spec rev 4 §7 D1/D2): the desktop is wired only through the entry's public surface; ScheduledHost,
+        // Application and every other assembly reference no probe type.
+        string[] probe = [ProbeBootstrap, ProbeEndpoint, Execution + "QualificationProbe", Execution + "ReviewedHelperProbe", Execution + "IQualificationProbe",
+            Execution + "IReviewedHelperProbe", ProbePort, ProbeItem, ProbeValues, NativeProbePort, NativeProbeItem];
+        string[] desktopSurface = [Execution + "QualificationProbeEntry", Execution + "QualificationProbeLaunch", Execution + "IQualificationProbeGateSession"];
         List<string> violations = [];
         foreach (string path in RequireBuilt())
         {
             string assembly = Path.GetFileNameWithoutExtension(path);
             if (assembly is "PCSteward.Execution" or "PCSteward.Provider.Chocolatey") continue;
             foreach (string type in CompiledIlScanner.TypeReferences(path))
-                if (probe.Any(prefix => type.StartsWith(prefix, StringComparison.Ordinal))) violations.Add($"{assembly} references {type}");
+                if (probe.Any(prefix => type.StartsWith(prefix, StringComparison.Ordinal)) &&
+                    !(assembly == "PCSteward.Desktop" && desktopSurface.Contains(type, StringComparer.Ordinal)))
+                    violations.Add($"{assembly} references {type}");
         }
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
-        Regex names = new(@"\b(ReviewedHelperProbe\w*|QualificationProbe\w*|IChocolateyProbe\w*|ChocolateyProbe\w*|NativeChocolateyProbe\w*|RunProbeAsync|SelectsProbe)\b",
+        Regex names = new(@"\b(ReviewedHelperProbe\w*|QualificationProbe\w*|IQualificationProbe\w*|IReviewedHelperProbe\w*|IChocolateyProbe\w*|ChocolateyProbe\w*|NativeChocolateyProbe\w*|RunProbeAsync|SelectsProbe)\b",
             RegexOptions.CultureInvariant);
-        foreach (string project in new[] { "PCSteward.Desktop", "PCSteward.ScheduledHost", "PCSteward.Application" })
+        foreach (string project in new[] { "PCSteward.ScheduledHost", "PCSteward.Application" })
             foreach (string file in Sources(Path.Combine(src, project)))
                 Assert.IsFalse(names.IsMatch(File.ReadAllText(file)), $"{file} names a probe type");
+        string[] desktopFiles = [.. Sources(Path.Combine(src, "PCSteward.Desktop")).Where(file => names.IsMatch(File.ReadAllText(file)))
+            .Select(Path.GetFileName).Order(StringComparer.Ordinal)!];
+        string[] expectedDesktopFiles = ["App.xaml.cs", "QualificationProbeLaunchGate.cs"];
+        CollectionAssert.AreEqual(expectedDesktopFiles, desktopFiles, "only the launch branch and its gate name the probe");
+        foreach (string file in desktopFiles)
+            foreach (Match name in names.Matches(File.ReadAllText(Path.Combine(src, "PCSteward.Desktop", file!))))
+                Assert.IsTrue(name.Value is "QualificationProbeEntry" or "QualificationProbeLaunch" or "IQualificationProbeGateSession" or "QualificationProbeLaunchGate",
+                    $"{file} names {name.Value}");
     }
 
     [TestMethod]

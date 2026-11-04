@@ -5,9 +5,10 @@ namespace PCSteward.ArchitectureTests;
 
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 qualification probe spec rev 4 §4.4 and §7 (slice S2), checked on compiled IL of every
-/// built <c>src</c> assembly and on source text: the probe response codec is wired only on the helper side (S3). No <c>src</c>
-/// code outside the codec's own types and the S3 probe entry (<c>ReviewedHelperProbeEndpoint</c>, the only producer) references
-/// them, so <c>PCSteward.Desktop</c> and <c>ScheduledHost</c> cannot reach them until S4; the test-only contract factory has no <c>src</c> caller; there is no probe request
+/// built <c>src</c> assembly and on source text: the probe response codec is wired on the helper side (S3, the only producer,
+/// <c>ReviewedHelperProbeEndpoint</c>) and on the desktop side (S4: the probe transport, the only reader, and the result
+/// document) only. No other <c>src</c> code references them, so <c>PCSteward.Desktop</c> and <c>ScheduledHost</c> reach them only
+/// through the S4 entry; the test-only contract factory has no <c>src</c> caller; there is no probe request
 /// codec; and the codec names no native type. The admission pins (<c>HasSupportedMode</c>, <c>CapabilityOperationAllowlist</c>,
 /// the dispatcher's <c>Supports</c>) are covered, unchanged, by their existing tests.
 /// </summary>
@@ -18,7 +19,18 @@ public sealed class QualificationProbeWireBoundaryTests
     private const string Codec = Execution + "QualificationProbeWireCodec";
     private const string Contract = Execution + "QualificationProbeContract";
     private const string CodecFile = "QualificationProbeWireCodec.cs";
-    private static readonly string[] CodecFileOnly = [CodecFile, "ReviewedHelperProbeBootstrap.cs", "ReviewedHelperProbeEndpoint.cs"];
+    private static readonly string[] CodecFileOnly =
+        ["QualificationProbeResultFile.cs", CodecFile, "ReviewedHelperProbeBootstrap.cs", "ReviewedHelperProbeEndpoint.cs", "ReviewedHelperProbeTransport.cs"];
+
+    /// <summary>
+    /// S4: the desktop probe types (Execution only) that consume the codec: the transport reads the one frame with
+    /// <c>TryReadProbeResponse</c> and the result document copies fields 3–16 of an accepted response.
+    /// </summary>
+    private static readonly string[] DesktopConsumers =
+    [
+        Execution + "ReviewedHelperProbeTransport", Execution + "ReviewedHelperProbeSession", Execution + "ReviewedHelperProbeSessionResult",
+        Execution + "QualificationProbeRun", Execution + "QualificationProbeResultDocument",
+    ];
 
     /// <summary>S3: the probe entry is the one non-codec type that may reference the probe wire types.</summary>
     private const string ProbeEndpoint = Execution + "ReviewedHelperProbeEndpoint";
@@ -53,6 +65,7 @@ public sealed class QualificationProbeWireBoundaryTests
             {
                 if (execution && IsProbeType(reference.Caller)) internalReferences++;
                 else if (execution && reference.Caller == ProbeEndpoint) { }
+                else if (execution && DesktopConsumers.Contains(reference.Caller, StringComparer.Ordinal)) { }
                 else violations.Add($"{Path.GetFileName(path)}: {reference.Caller} references {reference.TargetType}.{reference.TargetMember}");
             }
         }
