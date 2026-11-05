@@ -98,3 +98,12 @@ These are the B5 checks, extended to confirm that neither old signer is present.
 
 - **D-R1:** approve Stage R1 as written (the owner runs it).
 - **D-R2:** approve building the R2 tooling (items 1–4). The exact R2 blocks then follow for a separate approval.
+
+## Result R1 (2026-11-05): PASS
+
+The owner ran Stage R1 in their own elevated Windows PowerShell window (`C:\WINDOWS\system32` prompt), with both blocks exactly as written.
+- Block R1 printed `REMOVER E5C4796B66A7429FED36FC9D506577FBC9F88C4E903893300214E0FC40E099D7` (the reviewed CRLF bytes). The packaged-process, elevation, ledger, database and process checks all passed. The remover returned `{"deployment": "owner-only-protected-test", "removed": true, "recoveredIncompleteDeployment": true, "certificateThumbprint": "ED6FBCE8BFB12A563B2DBE0776A9C4ACBE214C55", "userDataPreserved": true}`.
+- Block R1-check printed `STATE False INSTALL False CERTS 0 DB True SIDECARS 0 EVIDENCE True`.
+- Prompts: the owner opened the window with *Run as administrator* (one UAC prompt) and reported no other prompt.
+
+The host now matches the fresh-install preflight in R2: no install root, no state root, no owner-only test certificate in the owner's real CurrentUser My, Root or TrustedPublisher stores, and the database unchanged at its pin. Execution root `44f5b22d…` is kept as evidence.
