@@ -65,3 +65,32 @@ Unconfirmed; the Windows CI signing diagnostic (no packaged-app context) should 
 - CurrentUser\My, LocalMachine\Root and LocalMachine\TrustedPublisher never held it. The old signer `14F34EFE…5623` is in none of these stores.
 - The inventory session still reads a stale TrustedPublisher copy (Cert: provider and HKCU key), which supports the private-view hypothesis. certmgr.msc in the owner's own session is treated as authoritative.
 - Not changed: the state root's `deployment.json` (`completed` false, `rollbackRequired` true, rollback failure = the cancelled certificate removal), staging and manifest. The new signer's private key file may still exist; the recovery plan must cover it.
+
+## Signing diagnosis (2026-11-05; code, CI and read-only host evidence; no host action)
+
+Host evidence relayed from a read-only inventory: the protected staging copy `…State\staging-*\payload\PCSteward.Desktop.exe` (188,440 B) **carries a Valid Authenticode signature from the new signer** `ED6FBCE8…` (`Get-AuthenticodeSignature`: Valid, "Signature verified."). The candidate apphosts are plain PE32+ (no certificate table, no overlay, no single-file bundle marker); Smart App Control off; no CodeIntegrity events. So `Set-AuthenticodeSignature` embedded a good signature, and the installer's line-157 check of the **returned object** (`Status -eq 'Valid'`, non-null `SignerCertificate`, same thumbprint) failed at that moment. The installer discarded `Status`/`StatusMessage`.
+
+How Windows PowerShell 5.1 builds that object: after `CryptUIWizDigitalSign` succeeds it re-reads the file through `WinVerifyTrust` in the same process; a failed sign returns a Status mapped from the Win32 error instead. With a signature now present on disk, the failure is in the immediate in-process trust verification, not in the image.
+
+Ranked hypotheses:
+
+1. **Store view split in the elevated process (leading).** The installer ran from a session started by the Claude desktop app, likely a packaged (MSIX) app whose children can get a per-package HKCU/AppData view. `CurrentUser\My` (with the CNG key) and `CurrentUser\TrustedPublisher` could then land in the private view, while the protected-root prompt wrote `CurrentUser\Root` to the real store. The immediate verification inside that process then fails the chain (typically `UnknownError`, "terminated in a root certificate which is not trusted"). A later, unpackaged `Get-AuthenticodeSignature` sees the real Root and reports Valid. Supporting evidence: the owner's normal shell and the bridge session show different `CurrentUser\TrustedPublisher` contents. Task 48 and Task 49 signed successfully. Whether their elevated sessions were started the same way is not yet confirmed.
+2. **Transient trust/cache timing right after the Root add.** The Root add and the verification happened in the same second, through the protected-root (`ProtectedRoots`) service. Lower likelihood: Task 48/49 used the same sequence.
+3. **Host servicing change.** Windows PowerShell moved from 5.1.26100.9711 (Task 49, 2026-11-03 inventory) to 5.1.26100.9818 (B-prep). The new build could behave differently for the returned signer or status. CI on the current image tests this indirectly.
+4. **Payload-intrinsic causes: effectively excluded.** The causes considered were a bundle or overlay, a certificate-table or checksum effect of `GetUnsignedImage`, the WinAppSDK apphost shape, the `CopyTreeProtected` bytes and the DACL. The installer's own `GetUnsignedImage` passed, the host inventory found a plain apphost, and the staging file holds a Valid signature.
+5. **Excluded by the evidence:** `HashMismatch`, `NotSupportedFileFormat`, a read-only or locked file, Smart App Control, WDAC/HVCI (no CodeIntegrity events), and a missing timestamp (none is needed for Valid).
+
+**CI reproduction.** The `owner-only-signing-diagnostic` job in `.github/workflows/ci.yml` is informational (`continue-on-error: true`). It:
+
+- builds the candidate from `febf1ac` with that commit's own G3 launcher, as a disposable standard user;
+- runs `scripts/Test-OwnerOnlySigningDiagnosticCI.ps1` elevated under Windows PowerShell 5.1, which:
+  - creates a certificate with the installer's exact parameters;
+  - signs copies once before trust, as the baseline for an untrusted root;
+  - trusts the certificate in LocalMachine Root and TrustedPublisher and in CurrentUser TrustedPublisher;
+  - signs copies of both apphosts, a fresh console apphost and `dotnet.exe`, both in a temp folder and in a Program Files folder with the installer's protected DACL; a `signtool sign` variant is included;
+  - prints the **returned** `Set-AuthenticodeSignature` Status, StatusMessage and signer, the installer's line-157 predicate, `Get-AuthenticodeSignature`, `signtool verify /pa /v`, PE facts and whether the process is packaged;
+  - uploads `artifacts/signing-diagnostic/signing-diagnostic.json` and removes the certificate and the folders it created.
+
+CI result: pending; the first run is to be recorded here. If CI, which has no packaged context, returns Valid with the installer accepting, the payload is cleared and hypothesis 1 or 3 remains.
+
+**Hardening (proposed only; not implemented; the installer is pinned by reviewed hashes).** On a non-Valid return, record the returned `Status`, `StatusMessage` and signer, then re-verify with `Get-AuthenticodeSignature` and record that result in the failure text and the rollback ledger. Also refuse to start the installer from a packaged process (`GetCurrentPackageFullName` ≠ 15700), and list the rollback's own Root-deletion prompt in the plan.
