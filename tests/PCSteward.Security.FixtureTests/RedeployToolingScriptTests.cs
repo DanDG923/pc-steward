@@ -29,7 +29,7 @@ public sealed class RedeployToolingScriptTests
     private static readonly string[] WindowsOnlyRows = ["realProgramNonElevated", "resultAcl", "reparseKind", "packagedRealQuery", "freshEndToEnd"];
     private const string KeySet = "Plan schema v3 requires exactly the reviewed key set.";
     private const string V3Origin = "Plan schema v3 must name an allowlisted expected old and new payload origin.";
-    private const string FreshRoots = "A fresh install requires absent PC Steward install and state roots.";
+    private const string FreshRoots = "A fresh install requires absent PC Steward install and state roots (no file, folder or link).";
     private const string ProcessRunning = "A PC Steward process is running; user data cannot be preserved.";
     private const string FreshSchema = "pc-steward-exact-fresh-install-v1";
     private const string Untrusted = "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider.";
@@ -145,7 +145,7 @@ public sealed class RedeployToolingScriptTests
             // The old ledger path does not exist in these rows, so a passing row proves the template never hashes or reads it.
             (string Case, string? Failure)[] fresh =
             [
-                ("preflightFreshClean", null), ("preflightFreshInstallPresent", FreshRoots), ("preflightFreshStatePresent", FreshRoots),
+                ("preflightFreshClean", null), ("preflightFreshInstallPresent", FreshRoots), ("preflightFreshInstallDangling", FreshRoots), ("preflightFreshStatePresent", FreshRoots),
                 ("preflightFreshProcess", ProcessRunning), ("preflightFreshHashMismatch", Differs), ("preflightFreshSidecar", Sidecar),
                 ("preflightFreshDataAbsent", Absent), ("preflightFreshTaskEnabled", TaskEnabled), ("preflightFreshReparseRoot", Reparse),
                 ("recheckFreshClean", null), ("recheckFreshInstallPresent", FreshRoots), ("recheckFreshStatePresent", FreshRoots),
@@ -570,7 +570,13 @@ public sealed class RedeployToolingScriptTests
         int refuse = caller.IndexOf("    Assert-OwnerOnlyUnpackagedProcess\n", StringComparison.Ordinal);
         int claim = caller.IndexOf("$stream=New-OwnerOnlyAttemptRecord", StringComparison.Ordinal);
         Assert.IsTrue(compare > 0 && refuse > compare && claim > refuse, "packaged refusal after the approval check and before the one-use claim");
-        Assert.AreEqual(1, Count(caller, "Assert-OwnerOnlyUnpackagedProcess"));
+        // Execute (above), plus the main dispatch for NewPlan (after the pinned helper loads, before any plan is built) and for
+        // CheckOnly/Execute (after the helpers load, before the check or execution) - independent review finding 1.
+        Assert.AreEqual(3, Count(caller, "Assert-OwnerOnlyUnpackagedProcess"));
+        int main = caller.IndexOf("$mode=$PSCmdlet.ParameterSetName", StringComparison.Ordinal);
+        int newPlanRefuse = caller.IndexOf("        Assert-OwnerOnlyUnpackagedProcess\n        $report=New-OwnerOnlyRedeployPlan", main, StringComparison.Ordinal);
+        int checkRefuse = caller.IndexOf("        Assert-OwnerOnlyUnpackagedProcess\n        if($mode -ceq 'Execute'){$report=Invoke-OwnerOnlyRedeployExecution", main, StringComparison.Ordinal);
+        Assert.IsTrue(main > claim && newPlanRefuse > main && checkRefuse > newPlanRefuse, "NewPlan and CheckOnly refuse a packaged process in the main dispatch");
         StringAssert.Contains(caller, "$report['unpackagedProcess']=($package -is [int] -and $package -eq 15700)");
         StringAssert.Contains(caller, "$fresh=$ExpectedOldOrigin -ceq 'none'");
 

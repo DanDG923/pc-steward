@@ -164,7 +164,7 @@ function Assert-OwnerOnlyUnpackagedProcess {
 
 function Assert-OwnerOnlyFreshInstallBaseline {
     param([Parameter(Mandatory)][string]$InstallRoot,[Parameter(Mandatory)][string]$StateRoot)
-    if((Test-Path -LiteralPath $InstallRoot) -or (Test-Path -LiteralPath $StateRoot)){throw 'A fresh install requires absent PC Steward install and state roots.'}
+    foreach($root in @($InstallRoot,$StateRoot)){$present=try{$null=[IO.File]::GetAttributes($root);$true}catch [IO.FileNotFoundException],[IO.DirectoryNotFoundException]{$false};if($present){throw 'A fresh install requires absent PC Steward install and state roots (no file, folder or link).'}}
     foreach($name in @('My','Root','TrustedPublisher')){
         $store=[Security.Cryptography.X509Certificates.X509Store]::new($name,'CurrentUser')
         $store.Open('ReadOnly')

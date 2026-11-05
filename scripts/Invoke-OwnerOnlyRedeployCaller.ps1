@@ -67,9 +67,9 @@ function Get-OwnerOnlyReviewedHelperPins {
     # Reviewed SHA-256 of the committed bytes, LF form then CRLF form (a Windows checkout may convert line endings).
     # RedeployToolingScriptTests recomputes both from the committed files, so any edit to these three files must update them.
     return @{
-        'OwnerOnlyExecution.ps1'=@('9324DFB6110354BDBD480044E802FA8031820DBBF1FB7D6C54CC611FF6C0FBCF','EE3157A037909AC6ABCFAD8B07E3A884122492378DCBC359FA3F8D461B1AB2DD')
+        'OwnerOnlyExecution.ps1'=@('DDF07C71EB61E2BF5E69FBA6F1A672D6CC09B8668715A90119BD725023093F9C','A23F2BBB874A280B5C918DAEDBCB1E5316CACB33AA670FDA682C0E2BF2E0B948')
         'Wait-OwnerOnlyDeploymentProcess.ps1'=@('F24B3235FD34AA82421C576EB284C1F8C04D26D9C56170BE0175825ADDF46C59','2BA1A90DD230CA8587F846F75B84691BA3EA4D27C20069192F46C6602FAC520B')
-        'Invoke-OwnerOnlyApprovedRedeployment.ps1'=@('AB5D61F3C61D3FCC1F7DB14B5A43B1FEF6E0B6AF5278518110FAA856F89FAF44','A9775FCEAE897AEBA18C838DD5FCA9BC69E355ABA4376D0EE0481E9B39D831D7')
+        'Invoke-OwnerOnlyApprovedRedeployment.ps1'=@('82902E5F292F618649D99F34A964A0044EB3E1BF7A08DDEB67053993D849C26A','DA449407A5C29F9E8AE040D32B78B41D05005479E52FCB87339B0933C421DD61')
     }
 }
 
@@ -445,7 +445,7 @@ function Invoke-OwnerOnlyRedeployCheck {
     $report['userDatabase']=[ordered]@{path=$database.path;bytes=$database.bytes;sha256=$database.sha256};$report['userDataFiles']=$userData.Count
     $report['sqliteSidecars']=0;$report['pcstewardProcesses']=0;$report['scheduledCheckTask']='AbsentOrDisabled';$report['sqliteLoaded']=$false
     $report['elevated']=$false;$report['executionRootAbsent']=$true;$report['attemptRecordAbsent']=$true
-    # Reported, not enforced, here; -ExecuteApprovedPlan refuses unless the query returned exactly 15700.
+    # The main dispatch refuses CheckOnly and -ExecuteApprovedPlan unless the query returned exactly 15700.
     $report['packageQueryResult']=$package;$report['unpackagedProcess']=($package -is [int] -and $package -eq 15700)
     return [pscustomobject]@{Report=$report;Encoded=$encoded.Encoded;ExecutionRoot=$execution;UserDataRoot=$data;Pins=$record.Pins;AttemptRecordPath=$attemptPath}
 }
@@ -558,6 +558,8 @@ try{
         Assert-OwnerOnlyAbsoluteInputPath -Path $NewPlanPath -Name 'NewPlanPath'
         $helperSha=Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $ScriptSource 'OwnerOnlyExecution.ps1') -MaxBytes 1048576)
         . (Get-OwnerOnlyPinnedScriptBlock -Source $ScriptSource -Name 'OwnerOnlyExecution.ps1' -Sha256 $helperSha)
+        # R2 review: a packaged process may see a private view of %LOCALAPPDATA% and the per-user stores; plan nothing there.
+        Assert-OwnerOnlyUnpackagedProcess
         $report=New-OwnerOnlyRedeployPlan -NewPlanPath $NewPlanPath -ScriptSource $ScriptSource -CandidateRoot $CandidateRoot -CandidateManifestPath $CandidateManifestPath -ExpectedOldOrigin $ExpectedOldOrigin -ExpectedNewOrigin $ExpectedNewOrigin
     }else{
         # Execution first requires the approved plan hash. The helpers then load only when the plan's pin equals the reviewed
@@ -570,6 +572,8 @@ try{
             if($pin.Count -ne 1 -or $preview.scriptSource -isnot [string]){throw 'Malformed reviewed script entry.'}
             if($name -ceq 'OwnerOnlyExecution.ps1' -or $mode -ceq 'Execute'){. (Get-OwnerOnlyPinnedScriptBlock -Source $preview.scriptSource -Name $name -Sha256 ([string]$pin[0].sha256))}
         }
+        # R2 review: CheckOnly fails too in a packaged process, so its hashes are never offered for approval from one.
+        Assert-OwnerOnlyUnpackagedProcess
         if($mode -ceq 'Execute'){$report=Invoke-OwnerOnlyRedeployExecution -PlanPath $PlanPath -ApprovedPlanSha256 $ApprovedPlanSha256 -ApprovedEncodedCommandSha256 $ApprovedEncodedCommandSha256}
         else{$report=(Invoke-OwnerOnlyRedeployCheck -PlanPath $PlanPath).Report}
     }

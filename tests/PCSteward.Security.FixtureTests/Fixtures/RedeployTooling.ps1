@@ -203,6 +203,8 @@ function Invoke-Guard([scriptblock]$Guard, [string]$Schema, [string]$Setup) {
     foreach ($suffix in @('wal', 'shm', 'journal')) { if ($Setup -match "sidecar-$suffix") { [IO.File]::WriteAllBytes((Join-Path $data "pcsteward.db-$suffix"), [byte[]]@(1)) } }
     if ($Setup -match 'reparse') { $real = Join-Path $root 'real-data'; [IO.Directory]::Move($data, $real); New-Link $data $real }
     if ($Setup -match 'installPresent') { New-Directory $install | Out-Null }
+    # R2 review finding 2: a dangling link at the install root still counts as present.
+    if ($Setup -match 'installDangling') { $gone = New-Directory (Join-Path $root 'gone-target'); New-Link $install $gone; [IO.Directory]::Delete($gone) }
     if ($Setup -match 'statePresent') { New-Directory $state | Out-Null }
     $script:FakeProcesses = if ($Setup -match 'process') { @([pscustomobject]@{ Name = 'PCSteward.ScheduledHost'; Id = 4242 }) } else { @() }
     if ($Setup -match 'taskEnabled') { $script:FakeTasks = @(New-FakeTask 'Ready'); $script:FakeTaskErrorId = '' }
@@ -269,6 +271,7 @@ $guardResults = [ordered]@{
     preRemovalV2Process = Invoke-Guard $preRemovalGuard 'v2' 'process'
     preflightFreshClean = Invoke-Guard $freshPreflight 'fresh' ''
     preflightFreshInstallPresent = Invoke-Guard $freshPreflight 'fresh' 'installPresent'
+    preflightFreshInstallDangling = Invoke-Guard $freshPreflight 'fresh' 'installDangling'
     preflightFreshStatePresent = Invoke-Guard $freshPreflight 'fresh' 'statePresent'
     preflightFreshProcess = Invoke-Guard $freshPreflight 'fresh' 'process'
     preflightFreshHashMismatch = Invoke-Guard $freshPreflight 'fresh' 'changed'

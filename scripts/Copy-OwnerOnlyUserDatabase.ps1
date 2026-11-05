@@ -31,7 +31,7 @@ function Get-OwnerOnlyCopyHelperScriptBlock {
         $buffer=[IO.MemoryStream]::new();try{$stream.CopyTo($buffer);$bytes=$buffer.ToArray()}finally{$buffer.Dispose()}
     }finally{$stream.Dispose()}
     $sha=[Security.Cryptography.SHA256]::Create();try{$hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','')}finally{$sha.Dispose()}
-    if($hash -cnotin @('9324DFB6110354BDBD480044E802FA8031820DBBF1FB7D6C54CC611FF6C0FBCF','EE3157A037909AC6ABCFAD8B07E3A884122492378DCBC359FA3F8D461B1AB2DD')){throw 'OwnerOnlyExecution.ps1 is not the reviewed version embedded in this copy script; nothing was copied.'}
+    if($hash -cnotin @('DDF07C71EB61E2BF5E69FBA6F1A672D6CC09B8668715A90119BD725023093F9C','A23F2BBB874A280B5C918DAEDBCB1E5316CACB33AA670FDA682C0E2BF2E0B948')){throw 'OwnerOnlyExecution.ps1 is not the reviewed version embedded in this copy script; nothing was copied.'}
     $text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes).TrimStart([char]0xfeff)
     $tokens=$null;$errors=$null
     $ast=[Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)

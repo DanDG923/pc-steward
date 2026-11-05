@@ -5,7 +5,7 @@ $env:PATH=[IO.Path]::Combine($env:SystemRoot,'System32')
 if(!$OwnerOnlyPlanJson){throw 'The exact embedded approval record is required.'}
 $OwnerOnlyPlan=ConvertFrom-Json -InputObject $OwnerOnlyPlanJson
 if($null -eq $OwnerOnlyPlan -or $OwnerOnlyPlan.schema -cnotin @('pc-steward-exact-redeploy-v1','pc-steward-exact-redeploy-v2','pc-steward-exact-redeploy-v3','pc-steward-exact-fresh-install-v1')){throw 'An exact embedded owner-approved redeployment plan is required.'}
-# Executing ANY new plan (v1 or v2) needs its own separate exact owner approval.
+# Executing ANY new plan needs its own separate exact owner approval.
 $fresh=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-fresh-install-v1'
 $preserveUserData=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v3' -or $fresh;$userDataPins=$null;$userData=$null
 if($preserveUserData){$userDataPins=@(Assert-OwnerOnlyRedeployPlanV3 -Plan $OwnerOnlyPlan)}
