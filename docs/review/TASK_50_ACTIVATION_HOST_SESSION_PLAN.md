@@ -25,6 +25,8 @@ Check (cloud, 2026-11-03): every block line in §5.1–§5.3 parses on its own w
 
 **G6 decided (owner, 2026-11-03):** "Task 50 is the commit to install". The Part B build commit is the Task 50 branch head **`febf1ac95c207aadf0f3efe742b854d81f903037`** (Windows CI green: build-and-test and owner-only-candidate-builder). Later docs-only commits do not change it; the approval names this commit. G7 is settled by exact-artifact Decision 2 (evidence counts only for the deployment it ran on).
 
+**Approval 1a given (owner, 2026-11-05):** "Go with Part B stage 1", after the stage was presented with a pointer to approval 1a in §9 (revision 2.1). It authorizes Stage B-prep (B0–B3c) only, run by a child Claude session in the owner's Remote Control bridge environment on the PC under handover revision 2; the owner approves each command in the Claude app. Stage B-exec (approval 1b) is not approved.
+
 ## 0. Purpose and gate map
 
 ADR-031 owner decision 7 approves the activation step (a `HasSupportedMode`/allow-list change for the Chocolatey routes), but only after the recorded gates are met. This plan puts the owner-host gates into one ordered session. Activation itself is a later, separately reviewed code change. It is not part of this session.
