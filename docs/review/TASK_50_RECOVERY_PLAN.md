@@ -1,6 +1,6 @@
-# Task 50 — recovery plan after the B-exec stop (revision 1, draft)
+# Task 50 — recovery plan after the B-exec stop (revision 1)
 
-Requirements: `FR-UPD-15`, `TM-03/04/07/13`; ADR-022. Source of facts: [failure record](../failures/task-50-part-b-exec.md). **Nothing here is approved.** Each stage below needs the owner's own approval, given separately.
+Requirements: `FR-UPD-15`, `TM-03/04/07/13`; ADR-022. Source of facts: [failure record](../failures/task-50-part-b-exec.md). **Approvals (2026-11-05, owner, in the cloud session): "I approve D-R1 and D-R2".** D-R1 approves running Stage R1 exactly as written, by the owner, in their own elevated Windows PowerShell window. D-R2 approves building the R2 tooling only. R2-prep, R2-exec and R3 still need their own approvals.
 
 ## 1. Where things stand
 
