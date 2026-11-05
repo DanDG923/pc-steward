@@ -57,7 +57,7 @@ Machine-scope execution is restored, the selected Windows APIs cannot prove both
 
 ## Proposed cross-note (2026-11-03) — qualification probe bootstrap
 
-**Status: Proposed. It takes effect only when the owner accepts the [ADR-025 amendment](ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-03--owner-started-qualification-probe) (exception (d)).** Until then the Accepted text above is unchanged and governs.
+**Status: Accepted (owner, 2026-11-04), together with the ADR-025 amendment: "I accept the ADR-025 amendment and the ADR-018 note".** Previously: Proposed; it takes effect only when the owner accepts the [ADR-025 amendment](ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-03--owner-started-qualification-probe) (exception (d)).** Until then the Accepted text above is unchanged and governs.
 
 For the owner-started Chocolatey helper qualification probe only ([spec](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) revision 4), these statements are narrowed:
 - **Option A, "Elevation is delayed until execution".** The probe has no execution. The trigger is a start of the `--qualify-chocolatey-helper` desktop entry, intended only for the owner's separately approved run; any same-user process can start it, and the owner declines any prompt they did not start (ADR-025 amendment item 3). Elevation follows the same pre-UAC trust checks.

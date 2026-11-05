@@ -1,0 +1,100 @@
+# Task 50 — recovery plan after the B-exec stop (revision 1, draft)
+
+Requirements: `FR-UPD-15`, `TM-03/04/07/13`; ADR-022. Source of facts: [failure record](../failures/task-50-part-b-exec.md). **Nothing here is approved.** Each stage below needs the owner's own approval, given separately.
+
+## 1. Where things stand
+
+- **Safe.**
+  - The user database is unchanged (`CEB917F4…6B99`, 159,744 B).
+  - No PC Steward is installed.
+  - Neither test signer (`14F34EFE…5623`, `ED6FBCE8…4C55`) is in the real per-user My, Root or TrustedPublisher store; the owner confirmed this in certmgr.msc.
+- **Left over from the stopped rollback.** `C:\Program Files\PC Steward OwnerOnlyTest State` still holds:
+  - `deployment.json`: schema v6, `completed` false, `rollbackRequired` true, signer `ED6FBCE8…`, owned stores My, Root and TrustedPublisher;
+  - the candidate manifest copy;
+  - the protected staging folder.
+- **Kept as evidence.** The execution root `…OwnerOnlyTest Execution 44f5b22d…`.
+- **Cause.** Windows CI runs 1 and 2 show the v2 payload signs Valid wherever the signer's root is trusted. The installer's check fails, with `UnknownError` ("untrusted root") and the signature already written, when it is not trusted. On the PC, the installer ran inside a session started by the Claude desktop app, which sees a different per-user certificate store from the owner's own shell.
+- **Rule from now on.** Every elevated or certificate step runs in a Windows PowerShell window that the owner opens. Every block refuses to run inside a packaged (app-container) process.
+
+## 2. Why the existing tools are not enough
+
+- The approved-redeploy route (`Invoke-OwnerOnlyRedeployCaller.ps1`) needs a **complete old deployment** that passes the validator. None exists now, so it would stop at `old-deployment-preflight`.
+- The installer dot-sources a sibling script from its own folder. Running it elevated straight from the user-writable work folder would skip the protected, hash-pinned execution copy that ADR-022 and Task 48 require. **Rejected.**
+- **The remover can be used as it is.** `Remove-OwnerOnlyProtectedTestDeployment.ps1` already recognises an incomplete deployment that has a recorded signer. It does not use `$PSScriptRoot`, so it can be hash-checked and run from memory, the same way the B4 caller was.
+
+## 3. Plan (recommended): three stages
+
+### Stage R1 — finish the cleanup (no new tooling)
+
+One elevated Windows PowerShell window, opened by the owner, runs the febf1ac remover from the existing work folder once. It is hash-pinned to the reviewed LF bytes (`F42D7E39…248D`) or CRLF bytes (`E5C4796B…99D7`) and runs from memory.
+
+**What it does:**
+- removes the state root (ledger, manifest copy, staging);
+- removes signer `ED6FBCE8…` from CurrentUser My, Root and TrustedPublisher if it is still present (it should not be);
+- leaves `%LOCALAPPDATA%\PCSteward` and the execution root untouched.
+
+The remover's own checks refuse, deleting nothing, in any of these cases:
+- a reparse point or an ACL that is not exact;
+- a different Windows user;
+- a ledger it does not recognise;
+- a running PC Steward process.
+
+**Prompts, in order:**
+1. **UAC**, when the owner opens Windows PowerShell with *Run as administrator*. It names **Windows PowerShell**, verified publisher **Microsoft Windows** → **Yes**.
+2. **Only if `ED6FBCE8…` is still in the real Root store:** a **Root Certificate Store** prompt to **DELETE** subject `PC Steward Owner-Only Test <GUID>`, thumbprint `ED6FBCE8 BFB12A56 3B2DBE07 76A9C4AC BE214C55` → **Yes**.
+3. Anything else → **No**.
+
+**Block R1** (paste once into the elevated window; it prints either `STOP: …` or the remover's JSON):
+
+```powershell
+$ErrorActionPreference = 'Stop'; Add-Type -Namespace PCStewardRecovery -Name Package -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern int GetCurrentPackageFullName(ref int length, System.Text.StringBuilder name);'; $n = 0; $pkg = [PCStewardRecovery.Package]::GetCurrentPackageFullName([ref]$n, $null)
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator); $pf = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles); $st = Join-Path $pf 'PC Steward OwnerOnlyTest State'; $in = Join-Path $pf 'PC Steward'
+$db = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward\pcsteward.db'; $rm = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) 'PCSteward-Task50B\febf1ac\scripts\Remove-OwnerOnlyProtectedTestDeployment.ps1'
+$rb = [IO.File]::ReadAllBytes($rm); $rh = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($rb)).Replace('-', ''); $led = $null; if (Test-Path -LiteralPath (Join-Path $st 'deployment.json')) { $led = Get-Content -LiteralPath (Join-Path $st 'deployment.json') -Raw | ConvertFrom-Json }
+if ($pkg -ne 15700) { 'STOP: packaged process ' + $pkg } elseif (!$admin) { 'STOP: not elevated' } elseif ($rh -cne 'F42D7E392FDA49199754E516E1ECC53D230FF49C53569548D86DC64388F4248D' -and $rh -cne 'E5C4796B66A7429FED36FC9D506577FBC9F88C4E903893300214E0FC40E099D7') { 'STOP: remover hash differs ' + $rh } elseif (Test-Path -LiteralPath $in) { 'STOP: install root present' } elseif ($null -eq $led -or $led.certificateThumbprint -cne 'ED6FBCE8BFB12A563B2DBE0776A9C4ACBE214C55' -or $led.completed -or !$led.rollbackRequired) { 'STOP: state is not the B4 rollback ledger' } elseif ((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -cne 'CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99') { 'STOP: database changed' } elseif (@(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count) { 'STOP: PC Steward running' } else { 'REMOVER ' + $rh; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($rb))) -Remove }
+```
+
+**Block R1-check** (read-only; paste into the same window afterwards). Expected: `STATE False INSTALL False CERTS 0 DB True SIDECARS 0 EVIDENCE True`.
+
+```powershell
+$pf = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles); $db = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward\pcsteward.db'
+'STATE ' + (Test-Path -LiteralPath (Join-Path $pf 'PC Steward OwnerOnlyTest State')) + ' INSTALL ' + (Test-Path -LiteralPath (Join-Path $pf 'PC Steward')) + ' CERTS ' + @(foreach ($s in 'My', 'Root', 'TrustedPublisher') { Get-ChildItem -LiteralPath ('Cert:\CurrentUser\' + $s) | Where-Object { $_.Subject -like 'CN=PC Steward Owner-Only Test *' } }).Count + ' DB ' + ((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -ceq 'CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99') + ' SIDECARS ' + @(@('-wal', '-shm', '-journal') | Where-Object { Test-Path -LiteralPath ($db + $_) }).Count + ' EVIDENCE ' + (Test-Path -LiteralPath (Join-Path $pf 'PC Steward OwnerOnlyTest Execution 44f5b22d4271463eb91f9a00cda9ecdc'))
+```
+
+On `STOP:` or a PowerShell error, do nothing else and report it. Never retry.
+
+### Stage R2 — fresh v2 install (small tooling change first, then two steps from the owner's console)
+
+**Tooling** (cloud work, reviewed and tested on Windows CI; needs an approval to build):
+1. **Fresh-install plan mode** for the caller and the elevated template, using the same protected, hash-pinned execution copy.
+   - Preflight: install root absent; state root absent; no `CN=PC Steward Owner-Only Test *` certificate in CurrentUser My, Root or TrustedPublisher; user-data pins match; no PC Steward process; scheduled check inactive.
+   - Then: no removal step; the installer; the independent validator; a user-data re-check.
+2. **Packaged-process refusal** (`GetCurrentPackageFullName` must return 15700), in the non-elevated caller and again in the elevated template.
+3. **Installer diagnostics.** On a non-Valid signing result, the failure text and the rollback ledger record `Status`, `StatusMessage`, the signer and a fresh `Get-AuthenticodeSignature` result.
+4. Tests and CI for each of these. **Known risk:** the encoded command is 29,296 of 30,000 characters, so the template may need compacting.
+
+**R2-prep** (owner's console, not elevated, read-only apart from a new work folder):
+- check out the tooling commit into a new work folder;
+- re-verify the existing B-prep candidate (`23D7A71C…`, 103 files) and reuse it unchanged, with no rebuild;
+- run `NewPlan` and `CheckOnly` to produce the plan and encoded-command hashes.
+
+**R2-exec** (one elevated run started from the owner's console). Prompts, in order:
+1. **UAC** for **Windows PowerShell**, **Microsoft Windows** → **Yes**.
+2. **Security Warning** about installing a certificate claiming to represent `PC Steward Owner-Only Test <GUID>` → **Yes**. **Note the first 8 characters of its thumbprint.**
+3. **Only if the install then fails:** a **Root Certificate Store** prompt to **DELETE** that **same** subject and thumbprint → **Yes**, so that the rollback can finish. (B4's instructions said No to this prompt, which is why its rollback stopped.)
+4. Anything else, a second UAC prompt, or a different subject or thumbprint → **No**.
+
+### Stage R3 — read-only checks
+
+These are the B5 checks, extended to confirm that neither old signer is present. They cover: the database pin, the validator `Pass` with `pinned-unsigned-v2` and protocol 2, the manifest `23D7A71C…`, the new signer exactly once in each of My, Root and TrustedPublisher, and `launched=False`. PC Steward is **not** launched; launching it has its own approval in Part C.
+
+## 4. Residue accepted, not cleaned
+
+- **The `ED6FBCE8…` private key file.** It is non-exportable and may sit in the Claude app's private per-user view. No certificate in any store refers to it, so it trusts nothing. Deleting it would mean touching paths outside the PC Steward roots, so it is left alone unless the owner asks.
+- **A stale `ED6FBCE8…` TrustedPublisher entry** visible only inside that private view. Without a trusted root it makes nothing trusted, and it affects only processes inside that container.
+- **Execution root `44f5b22d…`.** It stays as evidence and is removed later under its own approval.
+
+## 5. Owner decisions
+
+- **D-R1:** approve Stage R1 as written (the owner runs it).
+- **D-R2:** approve building the R2 tooling (items 1–4). The exact R2 blocks then follow for a separate approval.
