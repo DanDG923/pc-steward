@@ -5,9 +5,11 @@ param(
 # Task 50 G1/G2/G4: FR-UPD-15, TM-03/04/06/07/13, ADR-022. Runs under pwsh 7 (Linux or Windows) and Windows PowerShell 5.1.
 # It executes the REAL text of the redeploy template statements and of the caller, helper and copy-script functions, taken
 # from their parsed AST, against temp directories only. Get-Process, Get-ScheduledTask and Import-Module are stubbed (no
-# scheduled task is queried; no certificate store is opened). No elevation, no certificate store, no
-# Program Files, no installed root and no real user data is touched. Windows-only rows (ACL objects, junctions, the real
-# generated program refusing non-elevated) are recorded as notRun with a reason on other platforms.
+# scheduled task is queried). No elevation, no certificate store change, no Program Files write, no installed root and no
+# real user data is touched. Task 50 R2 rows (fresh-install baseline) open the CurrentUser My, Root and TrustedPublisher
+# stores READ-ONLY to look for an owner-only test certificate. Windows-only rows (ACL objects, junctions, the real generated
+# programs refusing non-elevated, the kernel32 package query, fresh-install NewPlan/CheckOnly) are recorded as notRun with a
+# reason on other platforms.
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -eq 'Desktop') {
     # A .NET-launched Windows PowerShell child can inherit another host's module path; bind this host's modules.
@@ -117,6 +119,23 @@ $planCases = [ordered]@{
 $planResults = [ordered]@{}
 foreach ($name in $planCases.Keys) { $planResults[$name] = Get-Failure { Assert-OwnerOnlyRedeployPlanV3 -Plan (New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) $planCases[$name]) } }
 $results.planV3 = $planResults
+# Task 50 R2: the fresh-install schema is the v3 shape without the two old-deployment pins and with old origin 'none'.
+$freshChange = @{ schema = 'pc-steward-exact-fresh-install-v1'; expectedOldOrigin = 'none'; oldLedgerSha256 = '<remove>'; oldThumbprint = '<remove>' }
+function New-FreshChange([hashtable]$Extra) { $change = $freshChange.Clone(); if ($Extra) { foreach ($key in @($Extra.Keys)) { $change[$key] = $Extra[$key] } }; $change }
+$freshCases = [ordered]@{
+    valid = New-FreshChange @{}
+    withOldLedgerPin = New-FreshChange @{ oldLedgerSha256 = (& $hex 'ledger') }
+    withOldThumbprint = New-FreshChange @{ oldThumbprint = '14F34EFEFA84C367F25917B4B28803DCECE85623' }
+    oldOriginNotNone = New-FreshChange @{ expectedOldOrigin = 'pinned-unsigned-v1' }
+    preserveUserDataFalse = New-FreshChange @{ preserveUserData = $false }
+    missingDatabasePin = New-FreshChange @{ userDataFiles = [object[]]@([pscustomobject]@{ bytes = [long]1; path = 'other.db'; sha256 = (& $hex 'x') }) }
+    redeployOldOriginNone = @{ expectedOldOrigin = 'none' }
+    redeployWithoutOldPins = @{ oldLedgerSha256 = '<remove>'; oldThumbprint = '<remove>' }
+    otherSchema = New-FreshChange @{ schema = 'pc-steward-exact-fresh-install-v2' }
+}
+$freshResults = [ordered]@{}
+foreach ($name in $freshCases.Keys) { $freshResults[$name] = Get-Failure { Assert-OwnerOnlyRedeployPlanV3 -Plan (New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) $freshCases[$name]) } }
+$results.planFresh = $freshResults
 
 # 4. Template top section (schema, v3 pins, origins), executed from the real template text with an embedded plan.
 $top = @($templateAst.EndBlock.Statements)
@@ -141,16 +160,29 @@ $results.templatePlan = [ordered]@{
     v3 = Invoke-PlanSection $validV3
     v3MissingPreserve = Invoke-PlanSection ($validV3.Replace('"preserveUserData":true,', ''))
     v3MalformedDatabasePin = Invoke-PlanSection ($validV3.Replace((& $hex 'db'), 'ABC'))
+    fresh = Invoke-PlanSection (ConvertTo-OwnerOnlyCanonicalPlanJson -Plan (New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) $freshChange))
+    v2OldOriginNone = Invoke-PlanSection '{"schema":"pc-steward-exact-redeploy-v2","expectedOldOrigin":"none","expectedNewOrigin":"pinned-unsigned-v2"}'
+    v3OldOriginNone = Invoke-PlanSection ($validV3.Replace('"expectedOldOrigin":"pinned-unsigned-v1"', '"expectedOldOrigin":"none"'))
+    freshWithOldPins = Invoke-PlanSection ($validV3.Replace('"schema":"pc-steward-exact-redeploy-v3","expectedOldOrigin":"pinned-unsigned-v1"', '"schema":"pc-steward-exact-fresh-install-v1","expectedOldOrigin":"none"'))
+    v1Fresh = Invoke-PlanSection '{"schema":"pc-steward-exact-fresh-install-v1","scripts":[]}'
 }
 
 # 5. Template preflight / removal / final postconditions, executed from the real statements (each throw guard plus the
 #    v3 statement that follows it) with temp roots and a stubbed process list.
 $tryBlock = @($templateAst.FindAll({ param($node) $node -is [Management.Automation.Language.TryStatementAst] }, $true))[0].Body
+# Task 50 R2: the redeploy-only removal statements sit in the else branch of the fresh-install switch, so the guard pair is
+# looked up in every statement block of the try body (the innermost block holding the throw and its v3 follow-up).
+$tryBlocks = @($tryBlock) + @($tryBlock.FindAll({ param($node) $node -is [Management.Automation.Language.StatementBlockAst] }, $true))
 function Get-GuardPair([string]$ThrowText) {
-    $statements = @($tryBlock.Statements)
-    $index = [array]::IndexOf($statements, @($statements | Where-Object { $_.Extent.Text.Contains($ThrowText) })[0])
-    if ($index -lt 0 -or $statements[$index + 1].Extent.Text -notlike 'if($preserveUserData)*') { throw "ASSERT: guard pair not found: $ThrowText" }
-    [scriptblock]::Create($statements[$index].Extent.Text + "`n" + $statements[$index + 1].Extent.Text)
+    foreach ($block in $tryBlocks) {
+        $statements = @($block.Statements)
+        for ($index = 0; $index -lt $statements.Count - 1; $index++) {
+            if ($statements[$index].Extent.Text.Contains($ThrowText) -and $statements[$index + 1].Extent.Text -like 'if($preserveUserData)*') {
+                return [scriptblock]::Create($statements[$index].Extent.Text + "`n" + $statements[$index + 1].Extent.Text)
+            }
+        }
+    }
+    throw "ASSERT: guard pair not found: $ThrowText"
 }
 $preflight = Get-GuardPair "throw 'Approved old deployment/data/process baseline changed.'"
 $removalGuard = Get-GuardPair "throw 'Removal postconditions failed.'"
@@ -171,9 +203,13 @@ function Invoke-Guard([scriptblock]$Guard, [string]$Schema, [string]$Setup) {
     foreach ($suffix in @('wal', 'shm', 'journal')) { if ($Setup -match "sidecar-$suffix") { [IO.File]::WriteAllBytes((Join-Path $data "pcsteward.db-$suffix"), [byte[]]@(1)) } }
     if ($Setup -match 'reparse') { $real = Join-Path $root 'real-data'; [IO.Directory]::Move($data, $real); New-Link $data $real }
     if ($Setup -match 'installPresent') { New-Directory $install | Out-Null }
+    if ($Setup -match 'statePresent') { New-Directory $state | Out-Null }
     $script:FakeProcesses = if ($Setup -match 'process') { @([pscustomobject]@{ Name = 'PCSteward.ScheduledHost'; Id = 4242 }) } else { @() }
     if ($Setup -match 'taskEnabled') { $script:FakeTasks = @(New-FakeTask 'Ready'); $script:FakeTaskErrorId = '' }
-    $preserveUserData = $Schema -ceq 'v3'
+    # R2: a fresh-install plan has no old ledger at all; the template must never hash or read it.
+    $fresh = $Schema -ceq 'fresh'
+    if ($fresh) { $ledger = Join-Path $root 'absent-deployment.json' }
+    $preserveUserData = $Schema -cin @('v3', 'fresh')
     $userDataPins = @($pin)
     $userData = $null
     $planRoot = if ($Setup -match 'otherRoot') { Join-Path $root 'Other' } else { $data }
@@ -186,10 +222,21 @@ function Invoke-Guard([scriptblock]$Guard, [string]$Schema, [string]$Setup) {
     $outcome
 }
 # Review M1: the v3-only re-check of the scheduled task and processes sits immediately before the removal call.
-$tryStatements = @($tryBlock.Statements)
+$removalBlock = @($tryBlocks | Where-Object { @($_.Statements | Where-Object { $_.Extent.Text -like "`$removal=*" }).Count -eq 1 })[0]
+$tryStatements = @($removalBlock.Statements)
 $removalIndex = [array]::IndexOf($tryStatements, @($tryStatements | Where-Object { $_.Extent.Text -like "`$removal=*" })[0])
 $preRemoval = $tryStatements[$removalIndex - 1]
 $preRemovalGuard = [scriptblock]::Create($preRemoval.Extent.Text)
+# R2: the fresh-install preflight (baseline, then the shared throw guard and its v3 follow-up) and the fresh branch of the
+# removal switch, which re-checks the baseline instead of removing anything.
+$topStatements = @($tryBlock.Statements)
+$freshBaselineIndex = [array]::IndexOf($topStatements, @($topStatements | Where-Object { $_.Extent.Text -like 'if($fresh){Assert-OwnerOnlyFreshInstallBaseline*' })[0])
+$preflightIndex = [array]::IndexOf($topStatements, @($topStatements | Where-Object { $_.Extent.Text.Contains("throw 'Approved old deployment/data/process baseline changed.'") })[0])
+if ($freshBaselineIndex -lt 0 -or $preflightIndex -ne $freshBaselineIndex + 1) { throw 'ASSERT: fresh-install baseline does not immediately precede the shared preflight guard.' }
+$freshPreflight = [scriptblock]::Create((($topStatements[$freshBaselineIndex..($preflightIndex + 1)] | ForEach-Object { $_.Extent.Text }) -join "`n"))
+$freshSwitch = @($topStatements | Where-Object { $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses.Count -eq 1 -and $_.Clauses[0].Item1.Extent.Text -ceq '$fresh' -and $null -ne $_.ElseClause -and $_.ElseClause.Extent.Text.Contains('$removal=') })
+if ($freshSwitch.Count -ne 1) { throw 'ASSERT: the fresh-install/removal switch was not found.' }
+$freshRecheck = [scriptblock]::Create((@($freshSwitch[0].Clauses[0].Item2.Statements) | ForEach-Object { $_.Extent.Text }) -join "`n")
 $guardResults = [ordered]@{
     preflightV2DataAbsent = Invoke-Guard $preflight 'v2' 'noData'
     preflightV2DataPresent = Invoke-Guard $preflight 'v2' ''
@@ -220,9 +267,53 @@ $guardResults = [ordered]@{
     preRemovalV3Process = Invoke-Guard $preRemovalGuard 'v3' 'process'
     preRemovalV3TaskEnabled = Invoke-Guard $preRemovalGuard 'v3' 'taskEnabled'
     preRemovalV2Process = Invoke-Guard $preRemovalGuard 'v2' 'process'
+    preflightFreshClean = Invoke-Guard $freshPreflight 'fresh' ''
+    preflightFreshInstallPresent = Invoke-Guard $freshPreflight 'fresh' 'installPresent'
+    preflightFreshStatePresent = Invoke-Guard $freshPreflight 'fresh' 'statePresent'
+    preflightFreshProcess = Invoke-Guard $freshPreflight 'fresh' 'process'
+    preflightFreshHashMismatch = Invoke-Guard $freshPreflight 'fresh' 'changed'
+    preflightFreshSidecar = Invoke-Guard $freshPreflight 'fresh' 'sidecar-wal'
+    preflightFreshDataAbsent = Invoke-Guard $freshPreflight 'fresh' 'noData'
+    preflightFreshTaskEnabled = Invoke-Guard $freshPreflight 'fresh' 'taskEnabled'
+    preflightFreshReparseRoot = Invoke-Guard $freshPreflight 'fresh' 'reparse'
+    recheckFreshClean = Invoke-Guard $freshRecheck 'fresh' ''
+    recheckFreshInstallPresent = Invoke-Guard $freshRecheck 'fresh' 'installPresent'
+    recheckFreshStatePresent = Invoke-Guard $freshRecheck 'fresh' 'statePresent'
+    recheckFreshTaskEnabled = Invoke-Guard $freshRecheck 'fresh' 'taskEnabled'
+    recheckFreshProcess = Invoke-Guard $freshRecheck 'fresh' 'process'
+    finalFreshUnchanged = Invoke-Guard $finalGuard 'fresh' ''
+    finalFreshChanged = Invoke-Guard $finalGuard 'fresh' 'changed'
+    preflightV3IgnoresFreshBaseline = Invoke-Guard $freshPreflight 'v3' 'installPresent statePresent'
 }
 $guardResults.preRemovalText = $preRemoval.Extent.Text
 $guardResults.preRemovalFollowsPhase = $tryStatements[$removalIndex - 2].Extent.Text -ceq "`$phase='approved-removal'"
+# R2 structure: the fresh branch only re-checks (no remover); installer and validator run unconditionally afterwards; the old
+# ledger and old-deployment validator are read only for redeploy plans; the packaged-process refusal precedes every mutation.
+$freshThen = $freshSwitch[0].Clauses[0].Item2
+$templateText = [IO.File]::ReadAllText((Join-Path $scripts 'Invoke-OwnerOnlyApprovedRedeployment.ps1'))
+$oldOnly = @($topStatements | Where-Object { $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -ceq '!$fresh' -and $null -eq $_.ElseClause })
+$templateTop = @($templateAst.EndBlock.Statements)
+$packagedIndex = [array]::IndexOf($templateTop, @($templateTop | Where-Object { $_.Extent.Text -ceq 'Assert-OwnerOnlyUnpackagedProcess' })[0])
+$principalIndex = [array]::IndexOf($templateTop, @($templateTop | Where-Object { $_.Extent.Text -like "if(!`$principal.IsInRole(*" })[0])
+$tryIndex = [array]::IndexOf($templateTop, @($templateTop | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })[0])
+$switchIndex = [array]::IndexOf($topStatements, $freshSwitch[0])
+$installIndex = [array]::IndexOf($topStatements, @($topStatements | Where-Object { $_.Extent.Text -like "`$installed=& (Join-Path `$scripts 'Install-OwnerOnlyProtectedTestDeployment.ps1') -Install -CreateOwnerOnlyCertificate -CandidateRoot *" })[0])
+$validateIndex = [array]::IndexOf($topStatements, @($topStatements | Where-Object { $_.Extent.Text -ceq "`$validated=& (Join-Path `$scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -RequirePinnedPayload" })[0])
+$guardResults.fresh = [ordered]@{
+    branchCommands = (@($freshThen.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() }) -join ',')
+    branchMentionsRemover = $freshThen.Extent.Text.Contains('Remove-OwnerOnlyProtectedTestDeployment')
+    removerInvocations = ([regex]::Matches($templateText, [regex]::Escape("'Remove-OwnerOnlyProtectedTestDeployment.ps1') -Remove"))).Count
+    removerOnlyInElse = $freshSwitch[0].ElseClause.Extent.Text.Contains("'Remove-OwnerOnlyProtectedTestDeployment.ps1') -Remove")
+    installAfterSwitch = $installIndex -gt $switchIndex
+    validateAfterInstall = $validateIndex -gt $installIndex
+    oldOnlyBlocks = $oldOnly.Count
+    oldOnlyReadsLedger = $oldOnly.Count -eq 1 -and $oldOnly[0].Extent.Text.Contains('$old=Get-Content -LiteralPath $ledger -Raw|ConvertFrom-Json') -and $oldOnly[0].Extent.Text.Contains("'Test-OwnerOnlyProtectedTestDeployment.ps1') -AllowLegacyPayload")
+    ledgerHashGuardedByFresh = $topStatements[$preflightIndex].Extent.Text.Contains('(!$fresh -and (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $OwnerOnlyPlan.oldLedgerSha256)')
+    ledgerReferences = ([regex]::Matches($templateText, '-LiteralPath \$ledger')).Count
+    packagedAfterPrincipal = $packagedIndex -gt $principalIndex -and $principalIndex -ge 0
+    packagedBeforeTry = $packagedIndex -ge 0 -and $packagedIndex -lt $tryIndex
+    createDirectoryOnlyInTry = @($templateTop | Where-Object { $_ -isnot [Management.Automation.Language.TryStatementAst] -and $_.Extent.Text.Contains('CreateDirectory') }).Count -eq 0
+}
 # The scheduled-check policy itself (OwnerOnlyExecution.ps1), with the ScheduledTasks module path and task query stubbed.
 function Invoke-TaskCase([object[]]$Tasks, [string]$ErrorId) {
     $script:FakeTasks = $Tasks; $script:FakeTaskErrorId = $ErrorId
@@ -349,6 +440,20 @@ $results.canonical = [ordered]@{
     nonAscii = Get-Failure { Read-OwnerOnlyRedeployPlan -Path $nonAsciiFile }
     unicodeEscaped = $unicodePlan.Contains('J\u00fcrgen') -and ((ConvertFrom-Json -InputObject $unicodePlan).userDataRoot -ceq ('C:\Users\J' + [char]0x00FC + 'rgen\AppData\Local\PCSteward'))
 }
+# R2: the fresh-install plan is canonical too, with the v3 key order minus the two old-deployment pins.
+$freshCanonical = ConvertTo-OwnerOnlyCanonicalPlanJson -Plan (New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) $freshChange)
+$freshReparsed = ConvertFrom-Json -InputObject $freshCanonical
+$freshPlanFile = Join-Path $planDir 'fresh-plan.json'; [IO.File]::WriteAllBytes($freshPlanFile, [Text.Encoding]::ASCII.GetBytes($freshCanonical))
+$freshRead = Read-OwnerOnlyRedeployPlan -Path $freshPlanFile
+$results.canonicalFresh = [ordered]@{
+    roundTrip = $freshCanonical -ceq (ConvertTo-OwnerOnlyCanonicalPlanJson -Plan $freshReparsed)
+    keys = (@($freshReparsed.PSObject.Properties | ForEach-Object { $_.Name }) -join ',')
+    v3Keys = (@((ConvertFrom-Json -InputObject $canonical).PSObject.Properties | ForEach-Object { $_.Name }) -join ',')
+    mentionsOldPins = $freshCanonical.Contains('oldLedgerSha256') -or $freshCanonical.Contains('oldThumbprint')
+    readSchema = $freshRead.Plan.schema
+    readPins = @($freshRead.Pins).Count
+    oneDatabasePinIsArray = $freshCanonical.Contains('"userDataFiles":[{"bytes":8192,"path":"pcsteward.db","sha256":"')
+}
 
 # 10. Program and encoded command from the real helper and template text: bounded, lossless, hash-guarded.
 $helperText = [IO.File]::ReadAllText((Join-Path $scripts 'OwnerOnlyExecution.ps1'))
@@ -385,9 +490,17 @@ $results.program = [ordered]@{
     stubRunsVerifiedProgram = Invoke-Encoded "exit 7" ''
     stubRefusesChangedExpansion = Invoke-Encoded "exit 7" 'mutate'
 }
+# R2: the fresh-install program from the same helper and template text, within the same bound.
+$freshProgram = New-OwnerOnlyRedeployProgram -PlanJson $freshCanonical -ExecutionHelpersText $helperText -TemplateText $templateText
+$freshEncoded = ConvertTo-OwnerOnlyEncodedCommand -ProgramText $freshProgram
+$freshProgramErrors = $null; [void][Management.Automation.Language.Parser]::ParseInput($freshProgram, [ref]$null, [ref]$freshProgramErrors)
+$results.program.freshEncodedLength = $freshEncoded.Encoded.Length
+$results.program.freshProgramParseErrors = @($freshProgramErrors).Count
+$results.program.freshDeterministic = (ConvertTo-OwnerOnlyEncodedCommand -ProgramText $freshProgram).EncodedSha256 -ceq $freshEncoded.EncodedSha256
 if ($onWindows) {
     # The real generated v3 program, run NON-elevated with a synthetic installer SID, must refuse before creating anything.
     $results.program.realProgramNonElevated = Invoke-Encoded $program ''
+    $results.program.realFreshProgramNonElevated = Invoke-Encoded $freshProgram ''
 } else { $results.notRun.realProgramNonElevated = 'The generated bootstrap needs Windows (SystemRoot, WindowsPrincipal); Windows-CI evidence.' }
 
 # 11. One-use attempt record, attempt classification and CLR override names.
@@ -437,6 +550,8 @@ function Invoke-ExecuteCase([string]$Case) {
             return 0
         }
         function Read-OwnerOnlyBootstrapResult { param([string]$ExecutionRoot) if ($Case -ceq 'validated') { $okResult } else { $null } }
+        # R2: the real refusal text with a stubbed package query (122 = ERROR_INSUFFICIENT_BUFFER, i.e. packaged).
+        function Get-OwnerOnlyPackageFullNameResult { if ($Case -ceq 'packaged') { 122 } else { 15700 } }
         function Assert-OwnerOnlyUserDataPreserved { param([string]$DataRoot, [object[]]$Files) @($dbPin) }
         # The caller holds the one-use record open with FileShare.None, which Windows enforces (Linux does not), so the
         # stubs observe the last status the real writer committed to that stream instead of re-reading the file.
@@ -466,7 +581,22 @@ $results.execute = [ordered]@{
     startedWriteFails = Invoke-ExecuteCase 'startedWriteFails'
     validated = Invoke-ExecuteCase 'validated'
     approvalMismatch = Invoke-ExecuteCase 'approvalMismatch'
+    packaged = Invoke-ExecuteCase 'packaged'
 }
+# R2: the package-identity policy itself, with the query stubbed, and (Windows only) the real kernel32 query: CI runner
+# processes have no package identity, so the real query must return exactly 15700.
+$results.packaged = & {
+    $script:FakePackageResult = 15700
+    function Get-OwnerOnlyPackageFullNameResult { $script:FakePackageResult }
+    $unpackaged = Get-Failure { Assert-OwnerOnlyUnpackagedProcess }
+    $script:FakePackageResult = 122; $packaged = Get-Failure { Assert-OwnerOnlyUnpackagedProcess }
+    $script:FakePackageResult = 0; $success = Get-Failure { Assert-OwnerOnlyUnpackagedProcess }
+    [ordered]@{ unpackaged = $unpackaged; packaged = $packaged; zero = $success }
+}
+if ($onWindows) {
+    $results.packaged.realQuery = try { Get-OwnerOnlyPackageFullNameResult } catch { 'FAILED: ' + $_.Exception.Message }
+    $results.packaged.realAssert = Get-Failure { Assert-OwnerOnlyUnpackagedProcess }
+} else { $results.notRun.packagedRealQuery = 'GetCurrentPackageFullName is a Windows (kernel32) API; Windows-CI evidence.' }
 
 # 11c. Review M2: helpers and the template load only at the reviewed constants embedded in the caller, and a helper can only
 #      ADD Verb-OwnerOnly* functions. A fresh runspace (no helper defined yet) proves the committed helper and waiter load.
@@ -568,12 +698,13 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
         if ($report) { [ordered]@{ exitCode = $exit; mode = $report.mode; result = $report.result; failure = $report.failure } }
         else { [ordered]@{ exitCode = $exit; mode = $null; result = $null; failure = ($stdout + ' | ' + ((@($lines | Where-Object { $_ -is [Management.Automation.ErrorRecord] }) | ForEach-Object { $_.ToString() }) -join ' ')) } }
     }
-    function New-MainScriptSource([string]$Name, [byte[]]$HelperBytes) {
+    function New-MainScriptSource([string]$Name, [byte[]]$HelperBytes, [switch]$FreshInstall) {
         $folder = New-Directory (Join-Path $WorkRoot $Name)
         foreach ($leaf in @(@(Get-OwnerOnlyReviewedScriptNames) + @('Invoke-OwnerOnlyApprovedRedeployment.ps1'))) { [IO.File]::Copy((Join-Path $scripts $leaf), (Join-Path $folder $leaf)) }
         if ($HelperBytes) { [IO.File]::WriteAllBytes((Join-Path $folder 'OwnerOnlyExecution.ps1'), $HelperBytes) }
         $pins = [object[]]@(Get-OwnerOnlyReviewedScriptNames | ForEach-Object { [pscustomobject]@{ path = $_; sha256 = (Get-Sha256 ([IO.File]::ReadAllBytes((Join-Path $folder $_)))) } })
-        $plan = New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) @{ installerSid = $currentSid; scriptSource = $folder; scripts = $pins }
+        $change = if ($FreshInstall) { New-FreshChange @{ installerSid = $currentSid; scriptSource = $folder; scripts = $pins } } else { @{ installerSid = $currentSid; scriptSource = $folder; scripts = $pins } }
+        $plan = New-SamplePlanObject 'C:\Users\owner\AppData\Local\PCSteward' @($dbPin) $change
         $planPath = Join-Path $folder 'plan.json'
         [IO.File]::WriteAllBytes($planPath, [Text.Encoding]::ASCII.GetBytes((ConvertTo-OwnerOnlyCanonicalPlanJson -Plan $plan)))
         $planPath
@@ -583,9 +714,82 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
     $results.callerMain = [ordered]@{
         checkOnlyReachesLedger = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-reviewed' $null))
         checkOnlyUnreviewedHelper = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-unreviewed' $untrustedHelper))
+        # R2: a fresh-install plan passes every earlier check and the REAL fresh-install baseline (read-only: the CI runner has
+        # no PC Steward roots, owner-only test certificate or PCSteward* process), never reaches the old-ledger sentinel, and
+        # stops at the synthetic candidate root, which does not exist.
+        checkOnlyFreshPassesBaseline = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-fresh' $null -FreshInstall))
         newPlanRelativeSource = Invoke-CallerMain $readSentinel @('-NewPlanPath', (Join-Path $WorkRoot 'new-plan.json'), '-ScriptSource', 'relative\scripts', '-CandidateRoot', 'C:\candidate', '-CandidateManifestPath', 'C:\candidate.json', '-ExpectedOldOrigin', 'pinned-unsigned-v1', '-ExpectedNewOrigin', 'pinned-unsigned-v2')
     }
 } else { $results.notRun.callerMain = 'The caller main dispatch requires Windows PowerShell 5.1 (Desktop edition, Windows only); Windows-CI evidence in the windows-powershell row.' }
+
+# 11f. Task 50 R2: fresh-install NewPlan and CheckOnly end to end in this process (Windows only: fixed-NTFS paths and the
+#      real Program Files prefix). The caller environment, user-data root and fresh-install baseline are stubbed (the baseline
+#      records its call; its real policy is exercised by the guard rows); the old-ledger and old-signer checks are replaced by
+#      sentinels and every pinned read is logged, proving that a fresh-install plan never reads an old deployment.
+if ($onWindows) {
+    $e2e = New-Directory (Join-Path $WorkRoot 'fresh-e2e')
+    $e2eScripts = New-Directory (Join-Path $e2e 'scripts')
+    foreach ($leaf in @(@(Get-OwnerOnlyReviewedScriptNames) + @('Invoke-OwnerOnlyApprovedRedeployment.ps1'))) { [IO.File]::Copy((Join-Path $scripts $leaf), (Join-Path $e2eScripts $leaf)) }
+    $e2ePayload = New-Directory (Join-Path $e2e 'payload')
+    $e2eEntries = @()
+    foreach ($leaf in @('PCSteward.Desktop.exe', 'PCSteward.DeploymentCapability.txt')) {
+        $bytes = [Text.Encoding]::UTF8.GetBytes('fresh ' + $leaf); [IO.File]::WriteAllBytes((Join-Path $e2ePayload $leaf), $bytes)
+        $e2eEntries += [ordered]@{ bytes = $bytes.Length; path = $leaf; sha256 = (Get-Sha256 $bytes) }
+    }
+    $e2eManifest = Join-Path $e2e 'unsigned-candidate-manifest.json'
+    [IO.File]::WriteAllText($e2eManifest, (ConvertTo-Json -InputObject @($e2eEntries) -Depth 3), [Text.UTF8Encoding]::new($false))
+    $e2eData = Join-Path $e2e 'PCSteward'; $null = New-UserData $e2eData $sqlite
+    $e2ePlan = Join-Path $e2e 'fresh-plan.json'
+    $results.freshEndToEnd = & {
+        $log = [ordered]@{ reads = [Collections.Generic.List[string]]::new(); baselineCalls = 0; oldDeploymentCalls = 0 }
+        function Assert-OwnerOnlyCallerEnvironment { param([string]$InstallerSid) }
+        function Get-OwnerOnlyUserDataRoot { $e2eData }
+        function Assert-OwnerOnlyFreshInstallBaseline { param([string]$InstallRoot, [string]$StateRoot) $log.baselineCalls++ }
+        function Assert-OwnerOnlyOldLedger { param($LedgerPath, $Plan, $InstallRoot) $log.oldDeploymentCalls++; throw 'FIXTURE-OLD-LEDGER-READ' }
+        function Assert-OwnerOnlyOldSigner { param($InstallRoot, $Thumbprint) $log.oldDeploymentCalls++; throw 'FIXTURE-OLD-SIGNER-READ' }
+        $realRead = ${function:Read-OwnerOnlyStableBytes}
+        function Read-OwnerOnlyStableBytes { param([string]$Path, [long]$MaxBytes) $log.reads.Add([IO.Path]::GetFileName($Path)); , (& $realRead -Path $Path -MaxBytes $MaxBytes) }
+        $newPlan = $null; $check = $null; $newPlanFailure = $null; $checkFailure = $null
+        try { $newPlan = New-OwnerOnlyRedeployPlan -NewPlanPath $e2ePlan -ScriptSource $e2eScripts -CandidateRoot $e2ePayload -CandidateManifestPath $e2eManifest -ExpectedOldOrigin 'none' -ExpectedNewOrigin 'pinned-unsigned-v2' } catch { $newPlanFailure = $_.Exception.Message }
+        $newPlanBaseline = $log.baselineCalls
+        try { $check = (Invoke-OwnerOnlyRedeployCheck -PlanPath $e2ePlan).Report } catch { $checkFailure = $_.Exception.Message }
+        $planText = if (Test-Path -LiteralPath $e2ePlan) { [IO.File]::ReadAllText($e2ePlan) } else { '' }
+        [ordered]@{
+            newPlanFailure = $newPlanFailure; newPlanResult = $(if ($newPlan) { $newPlan.result } else { $null }); newPlanSchema = $(if ($newPlan) { $newPlan.schema } else { $null })
+            planMentionsOldPins = $planText.Contains('oldLedgerSha256') -or $planText.Contains('oldThumbprint')
+            planOldOrigin = $(if ($planText) { (ConvertFrom-Json -InputObject $planText).expectedOldOrigin } else { $null })
+            newPlanBaselineCalls = $newPlanBaseline; checkBaselineCalls = $log.baselineCalls - $newPlanBaseline
+            oldDeploymentCalls = $log.oldDeploymentCalls
+            readsLedger = $log.reads.Contains('deployment.json')
+            checkFailure = $checkFailure
+            checkResult = $(if ($check) { $check.result } else { $null }); checkSchema = $(if ($check) { $check.schema } else { $null })
+            checkEncodedLength = $(if ($check) { $check.encodedCommandLength } else { $null })
+            checkInstallRootAbsent = $(if ($check) { $check.installRootAbsent } else { $null })
+            checkHasOldKeys = $(if ($check) { $check.Contains('oldLedgerSha256') -or $check.Contains('oldThumbprint') -or $check.Contains('oldSignerNotAfterUtc') } else { $null })
+            checkUnpackaged = $(if ($check) { $check.unpackagedProcess } else { $null })
+            checkPackageQuery = $(if ($check) { $check.packageQueryResult } else { $null })
+        }
+    }
+} else { $results.notRun.freshEndToEnd = 'NewPlan/CheckOnly need fixed-NTFS paths and the Windows Program Files prefix; Windows-CI evidence.' }
+
+# 11g. Task 50 R2: installer signing diagnostics from the real installer function text, with Get-AuthenticodeSignature stubbed.
+$installerScriptAst = (Read-ScriptAst (Join-Path $scripts 'Install-OwnerOnlyProtectedTestDeployment.ps1')).Ast
+$installerScriptText = [IO.File]::ReadAllText((Join-Path $scripts 'Install-OwnerOnlyProtectedTestDeployment.ps1'))
+$results.installerDiagnostics = & {
+    . ([scriptblock]::Create(@($installerScriptAst.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-SigningFailureText' }, $true))[0].Extent.Text))
+    $script:FakeQuery = 'ok'
+    function Get-AuthenticodeSignature { param([string]$LiteralPath) if ($script:FakeQuery -ceq 'throw') { throw 'FIXTURE query refused' }; [pscustomobject]@{ Status = 'UnknownError'; StatusMessage = 'A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider.' } }
+    $untrusted = [pscustomobject]@{ Status = 'UnknownError'; StatusMessage = 'A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider.'; SignerCertificate = [pscustomobject]@{ Thumbprint = ('C' * 40) } }
+    $noSigner = [pscustomobject]@{ Status = 'UnknownError'; StatusMessage = 'untrusted'; SignerCertificate = $null }
+    $withSigner = Get-SigningFailureText -Leaf 'PCSteward.Desktop.exe' -Path 'C:\x\PCSteward.Desktop.exe' -Signature $untrusted -ExpectedThumbprint ('D' * 40)
+    $withoutSigner = Get-SigningFailureText -Leaf 'PCSteward.Desktop.exe' -Path 'C:\x\PCSteward.Desktop.exe' -Signature $noSigner -ExpectedThumbprint ('D' * 40)
+    $nullSignature = Get-SigningFailureText -Leaf 'PCSteward.ElevatedHelper.exe' -Path 'C:\x\PCSteward.ElevatedHelper.exe' -Signature $null -ExpectedThumbprint ('D' * 40)
+    $script:FakeQuery = 'throw'
+    $queryFails = Get-SigningFailureText -Leaf 'PCSteward.Desktop.exe' -Path 'C:\x\PCSteward.Desktop.exe' -Signature $untrusted -ExpectedThumbprint ('D' * 40)
+    [ordered]@{ withSigner = $withSigner; withoutSigner = $withoutSigner; nullSignature = $nullSignature; queryFails = $queryFails }
+}
+$results.installerDiagnostics.acceptanceUnchanged = $installerScriptText.Contains("if (`$signature.Status -ne 'Valid' -or !`$signature.SignerCertificate -or `$signature.SignerCertificate.Thumbprint -ne `$certificate.Thumbprint) { throw (Get-SigningFailureText -Leaf `$image.path -Path `$path -Signature `$signature -ExpectedThumbprint `$certificate.Thumbprint) }")
+$results.installerDiagnostics.ledgerKeepsOriginalFailure = $installerScriptText.Contains('$originalFailure = $_.Exception.Message') -and $installerScriptText.Contains('originalFailure = $originalFailure })')
 
 # 12. Candidate tree and old-ledger pins.
 $payload = New-Directory (Join-Path $WorkRoot 'candidate\payload')

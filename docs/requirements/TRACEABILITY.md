@@ -1,3 +1,10 @@
+# Task 50 — R2 tooling: fresh install, packaged-process refusal, installer diagnostics (owner decision D-R2)
+
+`FR-UPD-15`, `TM-03`, `TM-04`, `TM-07`, `TM-13`; ADR-022; [recovery plan §3 R2](../review/TASK_50_RECOVERY_PLAN.md).
+
+- Code: `Invoke-OwnerOnlyRedeployCaller.ps1` (fresh-install NewPlan/CheckOnly; packaged refusal before the one-use claim; CheckOnly reports it), `Invoke-OwnerOnlyApprovedRedeployment.ps1` (fresh-install schema, preflight, no removal, re-check; packaged refusal before any mutation), `OwnerOnlyExecution.ps1` (`Assert-OwnerOnlyRedeployPlanV3` also validates `pc-steward-exact-fresh-install-v1`; `Get-OwnerOnlyPackageFullNameResult`, `Assert-OwnerOnlyUnpackagedProcess`, `Assert-OwnerOnlyFreshInstallBaseline`), `Install-OwnerOnlyProtectedTestDeployment.ps1` (`Get-SigningFailureText`; acceptance unchanged), `Copy-OwnerOnlyUserDatabase.ps1` (helper pin).
+- Tests: `RedeployToolingScriptTests` (`RedeployToolingFunctionsHoldTheirContracts` fresh/packaged/diagnostic rows, `PackagedProcessRefusalAndFreshBaselineAreBoundAsReviewed`, `TemplateConfinesV3ToPreserveUserDataAndKeepsV1V2DataAbsence`, `CallerAndCopyConstantsPinTheCommittedHelperWaiterAndTemplate`, `ToolingScriptsArePrintableAsciiAndNeverLoadSqlite`) with `Fixtures/RedeployTooling.ps1`; Windows-only rows (real package query, fresh NewPlan/CheckOnly end to end, real fresh program non-elevated, caller main dispatch) on Windows CI.
+
 # Task 50 — data-preserving redeploy tooling (activation gaps G1, G2, G4)
 
 `FR-UPD-15`, `TM-03`, `TM-04`, `TM-06`, `TM-07`, `TM-13`; ADR-022; activation plan §11 G1/G2/G4.
