@@ -58,3 +58,10 @@ Unconfirmed; the Windows CI signing diagnostic (no packaged-app context) should 
 - Real per-user Root and TrustedPublisher stores: clean of PC Steward test certificates. TrustedPublisher was likely never written to the real store.
 - A stale TrustedPublisher entry may remain only in the desktop app's private view; it affects only processes inside that container.
 - Needs a separately approved recovery: the state root (rollback ledger, staging, manifest), then a fresh install from the owner's console. The execution root is kept as evidence.
+
+## Inventory session closing report (2026-11-05)
+
+- The owner removed the new signer `ED6FBCE8…4C55` from CurrentUser\Root and CurrentUser\TrustedPublisher by hand (Root dialog confirmed; `certutil -user -delstore` and certmgr.msc for TrustedPublisher). **certmgr.msc shows the Current User Trusted Publishers store empty.**
+- CurrentUser\My, LocalMachine\Root and LocalMachine\TrustedPublisher never held it. The old signer `14F34EFE…5623` is in none of these stores.
+- The inventory session still reads a stale TrustedPublisher copy (Cert: provider and HKCU key), which supports the private-view hypothesis. certmgr.msc in the owner's own session is treated as authoritative.
+- Not changed: the state root's `deployment.json` (`completed` false, `rollbackRequired` true, rollback failure = the cancelled certificate removal), staging and manifest. The new signer's private key file may still exist; the recovery plan must cover it.
