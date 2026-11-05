@@ -27,6 +27,8 @@ Check (cloud, 2026-11-03): every block line in §5.1–§5.3 parses on its own w
 
 **Approval 1a given (owner, 2026-11-05):** "Go with Part B stage 1", after the stage was presented with a pointer to approval 1a in §9 (revision 2.1). It authorizes Stage B-prep (B0–B3c) only, run by a child Claude session in the owner's Remote Control bridge environment on the PC under handover revision 2; the owner approves each command in the Claude app. Stage B-exec (approval 1b) is not approved.
 
+**Approval 1b given (owner, 2026-11-05):** "I approve approval 1b", for the filled approval 1b in §9 (plan `D9CAA3D8…1A6E`, encoded command `230C88E2…A668`, manifest `23D7A71C…807B`, database `CEB917F4…6B99` / 159,744 B, execution root `44f5b22d4271463eb91f9a00cda9ecdc`). Run by a child Claude session in the owner's Remote Control bridge environment under the [B-exec handover](TASK_50_PART_B_EXEC_HANDOVER.md) revision 1; the owner answers the UAC and both certificate prompts personally.
+
 ## 0. Purpose and gate map
 
 ADR-031 owner decision 7 approves the activation step (a `HasSupportedMode`/allow-list change for the Chocolatey routes), but only after the recorded gates are met. This plan puts the owner-host gates into one ordered session. Activation itself is a later, separately reviewed code change. It is not part of this session.
