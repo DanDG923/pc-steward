@@ -83,6 +83,13 @@ function New-OwnerOnlyCertificate([ref]$State, [string]$StatePath, [string]$Inst
         finally { $store.Close() }
     }
 }
+function Get-SigningFailureText([string]$Leaf, [string]$Path, [object]$Signature, [string]$ExpectedThumbprint) {
+    # Task 50 R2 (FR-UPD-15, TM-07): diagnostics only; acceptance is unchanged (Valid and the owned signer's thumbprint).
+    $returned = if ($Signature) { "Status=$($Signature.Status); StatusMessage=[$($Signature.StatusMessage)]" } else { 'no result object' }
+    $signer = if ($Signature -and $Signature.SignerCertificate) { $Signature.SignerCertificate.Thumbprint } else { 'none' }
+    $observed = try { $current = Get-AuthenticodeSignature -LiteralPath $Path; "Status=$($current.Status); StatusMessage=[$($current.StatusMessage)]" } catch { "query failed: [$($_.Exception.Message)]" }
+    return "Could not sign $Leaf with the owner-only certificate. Set-AuthenticodeSignature: $returned; SignerThumbprint=$signer; ExpectedThumbprint=$ExpectedThumbprint. Get-AuthenticodeSignature: $observed"
+}
 function Get-DeploymentFiles([string]$Path) { @(Get-ChildItem -LiteralPath $Path -File -Recurse | Sort-Object FullName | ForEach-Object { [ordered]@{ path = $_.FullName.Substring($Path.Length + 1); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } }) }
 function Assert-ExactDacl([string]$Path) {
     $expected = @{ 'S-1-5-18' = [Security.AccessControl.FileSystemRights]::FullControl; 'S-1-5-32-544' = [Security.AccessControl.FileSystemRights]::FullControl; 'S-1-5-32-545' = ([Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [Security.AccessControl.FileSystemRights]::Synchronize) }
@@ -154,7 +161,7 @@ try {
     foreach ($image in $executableImages) {
         $path = Join-Path $payloadStaging $image.path
         $signature = Set-AuthenticodeSignature -FilePath $path -Certificate $certificate -HashAlgorithm SHA256
-        if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Could not sign $($image.path) with the owner-only certificate." }
+        if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw (Get-SigningFailureText -Leaf $image.path -Path $path -Signature $signature -ExpectedThumbprint $certificate.Thumbprint) }
         $original = @($candidate.Files | Where-Object { $_.path -ceq $image.path })[0]
         $verifiedSignedFiles.Add($image.path,(Test-OwnerOnlySignedExecutable -Path $path -Identity ([PCSteward.Deployment.ImageIdentity]::new($original.bytes,$original.sha256,[uint32]$image.originalChecksum)) -ExpectedThumbprint $certificate.Thumbprint))
     }

@@ -9,7 +9,10 @@ namespace PCSteward.Security.FixtureTests;
 /// Task 50 gaps G1, G2 and G4 (FR-UPD-15, TM-03/04/06/07/13, ADR-022): redeploy plan schema v3 with user-data preservation,
 /// the committed non-elevated caller (NewPlan, CheckOnly, ExecuteApprovedPlan) and the read-only database copy. The fixture
 /// executes the REAL template statements and script functions from their parsed AST on temp directories only; no elevation,
-/// certificate store, Program Files, installed root or real user data is touched.
+/// certificate store change, Program Files write, installed root or real user data is touched.
+/// Task 50 R2 (owner decision D-R2; FR-UPD-15, TM-03/04/07/13, ADR-022) adds the fresh-install plan schema (no old deployment,
+/// no removal), the packaged-process refusal (GetCurrentPackageFullName must return 15700) and the installer's signing
+/// diagnostics; the fresh-install baseline rows open the CurrentUser My, Root and TrustedPublisher stores read-only.
 /// </summary>
 [TestClass]
 public sealed class RedeployToolingScriptTests
@@ -23,7 +26,14 @@ public sealed class RedeployToolingScriptTests
     private const string NotReviewedHelper = "OwnerOnlyExecution.ps1 is not the reviewed version embedded in this caller; regenerate the plan from the reviewed scripts.";
     private static readonly string[] PinnedFiles = ["OwnerOnlyExecution.ps1", "Wait-OwnerOnlyDeploymentProcess.ps1", "Invoke-OwnerOnlyApprovedRedeployment.ps1"];
     private const string SystemPowerShell = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
-    private static readonly string[] WindowsOnlyRows = ["realProgramNonElevated", "resultAcl", "reparseKind"];
+    private static readonly string[] WindowsOnlyRows = ["realProgramNonElevated", "resultAcl", "reparseKind", "packagedRealQuery", "freshEndToEnd"];
+    private const string KeySet = "Plan schema v3 requires exactly the reviewed key set.";
+    private const string V3Origin = "Plan schema v3 must name an allowlisted expected old and new payload origin.";
+    private const string FreshRoots = "A fresh install requires absent PC Steward install and state roots (no file, folder or link).";
+    private const string ProcessRunning = "A PC Steward process is running; user data cannot be preserved.";
+    private const string FreshSchema = "pc-steward-exact-fresh-install-v1";
+    private const string Untrusted = "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider.";
+    private static string PackagedRefusal(int code) => $"This process has a package identity (GetCurrentPackageFullName returned {code}, not 15700); run from a Windows PowerShell console started directly, not from a packaged app.";
 
     [TestMethod]
     [DataRow("pwsh")]
@@ -65,6 +75,15 @@ public sealed class RedeployToolingScriptTests
             Assert.AreEqual("Plan schema v3 must name an allowlisted expected old and new payload origin.", Text(plan, "badOrigin"));
             Assert.AreEqual("Plan schema v3 requires a user installer SID.", Text(plan, "computerSid"));
 
+            // Task 50 R2 (D-R2): fresh-install plan schema refusals. v3 itself still refuses old origin "none" and missing old pins.
+            JsonElement freshPlan = r.GetProperty("planFresh");
+            Assert.AreEqual(JsonValueKind.Null, freshPlan.GetProperty("valid").ValueKind, freshPlan.GetProperty("valid").ToString());
+            foreach (string name in new[] { "withOldLedgerPin", "withOldThumbprint", "redeployWithoutOldPins" }) Assert.AreEqual(KeySet, Text(freshPlan, name), name);
+            foreach (string name in new[] { "oldOriginNotNone", "redeployOldOriginNone" }) Assert.AreEqual(V3Origin, Text(freshPlan, name), name);
+            Assert.AreEqual("Plan schema v3 requires preserveUserData true.", Text(freshPlan, "preserveUserDataFalse"));
+            Assert.AreEqual("Plan schema v3 must pin pcsteward.db.", Text(freshPlan, "missingDatabasePin"));
+            Assert.AreEqual("Plan schema v3 is required.", Text(freshPlan, "otherSchema"));
+
             // G1: the real template plan section; v1/v2 behaviour and error texts are unchanged.
             JsonElement top = r.GetProperty("templatePlan");
             AssertPlan(top.GetProperty("v1"), "legacy-v6", "pinned-unsigned-v1", false);
@@ -77,6 +96,12 @@ public sealed class RedeployToolingScriptTests
             Assert.AreEqual(1, top.GetProperty("v3").GetProperty("pins").GetInt32());
             Assert.AreEqual("Plan schema v3 requires preserveUserData true.", Text(top.GetProperty("v3MissingPreserve"), "failure"));
             Assert.AreEqual(Malformed, Text(top.GetProperty("v3MalformedDatabasePin"), "failure"));
+            AssertPlan(top.GetProperty("fresh"), "none", "pinned-unsigned-v2", true);
+            Assert.AreEqual(1, top.GetProperty("fresh").GetProperty("pins").GetInt32());
+            Assert.AreEqual("Plan schema v2 must name an allowlisted expected old and new payload origin.", Text(top.GetProperty("v2OldOriginNone"), "failure"));
+            Assert.AreEqual(V3Origin, Text(top.GetProperty("v3OldOriginNone"), "failure"));
+            Assert.AreEqual(KeySet, Text(top.GetProperty("freshWithOldPins"), "failure"));
+            Assert.AreEqual("Plan schema v3 requires preserveUserData true.", Text(top.GetProperty("v1Fresh"), "failure"));
 
             // G1: preflight, removal and final postconditions from the real template statements.
             JsonElement guards = r.GetProperty("guards");
@@ -115,6 +140,33 @@ public sealed class RedeployToolingScriptTests
             }
             Assert.AreEqual("if($preserveUserData){Assert-OwnerOnlyScheduledCheckInactive;Assert-OwnerOnlyNoPCStewardProcess}", Text(guards, "preRemovalText"));
             Assert.IsTrue(guards.GetProperty("preRemovalFollowsPhase").GetBoolean());
+
+            // Task 50 R2: fresh-install preflight, pre-install re-check and final postconditions from the real template statements.
+            // The old ledger path does not exist in these rows, so a passing row proves the template never hashes or reads it.
+            (string Case, string? Failure)[] fresh =
+            [
+                ("preflightFreshClean", null), ("preflightFreshInstallPresent", FreshRoots), ("preflightFreshInstallDangling", FreshRoots), ("preflightFreshStatePresent", FreshRoots),
+                ("preflightFreshProcess", ProcessRunning), ("preflightFreshHashMismatch", Differs), ("preflightFreshSidecar", Sidecar),
+                ("preflightFreshDataAbsent", Absent), ("preflightFreshTaskEnabled", TaskEnabled), ("preflightFreshReparseRoot", Reparse),
+                ("recheckFreshClean", null), ("recheckFreshInstallPresent", FreshRoots), ("recheckFreshStatePresent", FreshRoots),
+                ("recheckFreshTaskEnabled", TaskEnabled), ("recheckFreshProcess", ProcessRunning),
+                ("finalFreshUnchanged", null), ("finalFreshChanged", Differs), ("preflightV3IgnoresFreshBaseline", null),
+            ];
+            foreach ((string name, string? failure) in fresh)
+            {
+                JsonElement outcome = guards.GetProperty(name);
+                if (failure is null) Assert.AreEqual(JsonValueKind.Null, outcome.GetProperty("failure").ValueKind, name + ": " + outcome);
+                else Assert.AreEqual(failure, Text(outcome, "failure"), name);
+            }
+            foreach (string name in new[] { "preflightFreshClean", "finalFreshUnchanged" }) Assert.AreEqual(preserved, Text(guards.GetProperty(name), "preservedSha256"), name);
+            JsonElement freshShape = guards.GetProperty("fresh");
+            Assert.AreEqual("Assert-OwnerOnlyScheduledCheckInactive,Assert-OwnerOnlyFreshInstallBaseline", Text(freshShape, "branchCommands"), "the fresh branch re-checks and never removes");
+            Assert.IsFalse(freshShape.GetProperty("branchMentionsRemover").GetBoolean());
+            Assert.AreEqual(1, freshShape.GetProperty("removerInvocations").GetInt32(), "the remover is invoked once, in the redeploy branch only");
+            Assert.AreEqual(2, freshShape.GetProperty("ledgerReferences").GetInt32());
+            Assert.AreEqual(1, freshShape.GetProperty("oldOnlyBlocks").GetInt32());
+            foreach (string name in new[] { "removerOnlyInElse", "installAfterSwitch", "validateAfterInstall", "oldOnlyReadsLedger", "ledgerHashGuardedByFresh", "packagedAfterPrincipal", "packagedBeforeTry", "createDirectoryOnlyInTry" })
+                Assert.IsTrue(freshShape.GetProperty(name).GetBoolean(), name);
             JsonElement task = r.GetProperty("scheduledCheck");
             foreach (string name in new[] { "absent", "disabled" }) Assert.AreEqual(JsonValueKind.Null, task.GetProperty(name).ValueKind, name + ": " + task.GetProperty(name));
             foreach (string name in new[] { "ready", "running", "oneOfTwoEnabled", "queryDenied" }) Assert.AreEqual(TaskEnabled, Text(task, name), name);
@@ -165,6 +217,13 @@ public sealed class RedeployToolingScriptTests
             Assert.AreEqual("The plan must be one line of printable ASCII JSON.", Text(canonical, "multiLine"));
             Assert.AreEqual("The plan must be one line of printable ASCII JSON.", Text(canonical, "nonAscii"));
             Assert.AreEqual("The plan is not in canonical form; regenerate it and approve the regenerated plan.", Text(canonical, "nonCanonical"));
+            JsonElement canonicalFresh = r.GetProperty("canonicalFresh");
+            foreach (string name in new[] { "roundTrip", "oneDatabasePinIsArray" }) Assert.IsTrue(canonicalFresh.GetProperty(name).GetBoolean(), name);
+            Assert.IsFalse(canonicalFresh.GetProperty("mentionsOldPins").GetBoolean());
+            Assert.AreEqual("schema,expectedOldOrigin,expectedNewOrigin,preserveUserData,userDataRoot,userDataFiles,installerSid,executionRoot,scriptSource,scripts,candidateRoot,candidateManifestPath,candidateManifestSha256", Text(canonicalFresh, "keys"));
+            Assert.AreEqual("schema,expectedOldOrigin,expectedNewOrigin,preserveUserData,userDataRoot,userDataFiles,installerSid,executionRoot,scriptSource,scripts,oldLedgerSha256,oldThumbprint,candidateRoot,candidateManifestPath,candidateManifestSha256", Text(canonicalFresh, "v3Keys"), "the v3 canonical key order is unchanged");
+            Assert.AreEqual(FreshSchema, Text(canonicalFresh, "readSchema"));
+            Assert.AreEqual(1, canonicalFresh.GetProperty("readPins").GetInt32());
 
             // G2: generated program and encoded command.
             JsonElement program = r.GetProperty("program");
@@ -177,12 +236,20 @@ public sealed class RedeployToolingScriptTests
             Assert.AreEqual("The embedded plan must be printable ASCII.", Text(program, "nonAsciiPlanRefused"));
             Assert.AreEqual(7, program.GetProperty("stubRunsVerifiedProgram").GetProperty("exitCode").GetInt32());
             Assert.AreEqual(20, program.GetProperty("stubRefusesChangedExpansion").GetProperty("exitCode").GetInt32());
+            // Task 50 R2: the fresh-install program stays within the same fixed bound.
+            int freshLength = program.GetProperty("freshEncodedLength").GetInt32();
+            Assert.IsTrue(freshLength > 0 && freshLength <= 30000, $"fresh-install encoded command length {freshLength}");
+            Assert.AreEqual(0, program.GetProperty("freshProgramParseErrors").GetInt32());
+            Assert.IsTrue(program.GetProperty("freshDeterministic").GetBoolean());
             JsonElement notRun = r.GetProperty("notRun");
             if (windows)
             {
-                JsonElement real = program.GetProperty("realProgramNonElevated");
-                Assert.AreEqual(1, real.GetProperty("exitCode").GetInt32(), Text(real, "output"));
-                StringAssert.Contains(Text(real, "output"), "Exact installing SID and elevation required.");
+                foreach (string row in new[] { "realProgramNonElevated", "realFreshProgramNonElevated" })
+                {
+                    JsonElement real = program.GetProperty(row);
+                    Assert.AreEqual(1, real.GetProperty("exitCode").GetInt32(), row + ": " + Text(real, "output"));
+                    StringAssert.Contains(Text(real, "output"), "Exact installing SID and elevation required.", row);
+                }
             }
             else Assert.IsFalse(string.IsNullOrWhiteSpace(Text(notRun, "realProgramNonElevated")));
 
@@ -223,6 +290,52 @@ public sealed class RedeployToolingScriptTests
             Assert.AreEqual("The plan or encoded command differs from the approved pins.", Text(mismatch, "failure"));
             Assert.IsFalse(mismatch.GetProperty("recordExists").GetBoolean());
             Assert.AreEqual(0, mismatch.GetProperty("startCalls").GetInt32());
+            // Task 50 R2: a packaged caller is refused before the one-use claim and before any elevation request.
+            JsonElement packagedExecute = execute.GetProperty("packaged");
+            Assert.AreEqual(PackagedRefusal(122), Text(packagedExecute, "failure"));
+            Assert.IsFalse(packagedExecute.GetProperty("recordExists").GetBoolean(), "the approval is not consumed");
+            Assert.AreEqual(0, packagedExecute.GetProperty("startCalls").GetInt32());
+            JsonElement packaged = r.GetProperty("packaged");
+            Assert.AreEqual(JsonValueKind.Null, packaged.GetProperty("unpackaged").ValueKind, packaged.ToString());
+            Assert.AreEqual(PackagedRefusal(122), Text(packaged, "packaged"));
+            Assert.AreEqual(PackagedRefusal(0), Text(packaged, "zero"), "only exactly 15700 is accepted");
+            if (windows)
+            {
+                Assert.AreEqual(JsonValueKind.Number, packaged.GetProperty("realQuery").ValueKind, packaged.GetProperty("realQuery").ToString());
+                Assert.AreEqual(15700, packaged.GetProperty("realQuery").GetInt32(), "a CI runner process has no package identity");
+                Assert.AreEqual(JsonValueKind.Null, packaged.GetProperty("realAssert").ValueKind, packaged.GetProperty("realAssert").ToString());
+
+                // Task 50 R2: fresh-install NewPlan and CheckOnly end to end (non-elevated, temp roots, stubbed baseline).
+                JsonElement e2e = r.GetProperty("freshEndToEnd");
+                Assert.AreEqual(JsonValueKind.Null, e2e.GetProperty("newPlanFailure").ValueKind, e2e.ToString());
+                Assert.AreEqual("Written", Text(e2e, "newPlanResult"));
+                Assert.AreEqual(FreshSchema, Text(e2e, "newPlanSchema"));
+                Assert.AreEqual("none", Text(e2e, "planOldOrigin"));
+                Assert.IsFalse(e2e.GetProperty("planMentionsOldPins").GetBoolean());
+                Assert.AreEqual(0, e2e.GetProperty("oldDeploymentCalls").GetInt32(), "NewPlan/CheckOnly never check an old ledger or signer");
+                Assert.IsFalse(e2e.GetProperty("readsLedger").GetBoolean(), "no old ledger is read");
+                Assert.AreEqual(1, e2e.GetProperty("newPlanBaselineCalls").GetInt32());
+                Assert.AreEqual(1, e2e.GetProperty("checkBaselineCalls").GetInt32());
+                Assert.AreEqual(JsonValueKind.Null, e2e.GetProperty("checkFailure").ValueKind, e2e.ToString());
+                Assert.AreEqual("Pass", Text(e2e, "checkResult"));
+                Assert.AreEqual(FreshSchema, Text(e2e, "checkSchema"));
+                int e2eLength = e2e.GetProperty("checkEncodedLength").GetInt32();
+                Assert.IsTrue(e2eLength > 0 && e2eLength <= 30000, $"fresh-install CheckOnly encoded command length {e2eLength}");
+                Assert.IsTrue(e2e.GetProperty("checkInstallRootAbsent").GetBoolean());
+                Assert.IsFalse(e2e.GetProperty("checkHasOldKeys").GetBoolean());
+                Assert.IsTrue(e2e.GetProperty("checkUnpackaged").GetBoolean());
+                Assert.AreEqual(15700, e2e.GetProperty("checkPackageQuery").GetInt32());
+            }
+
+            // Task 50 R2: installer signing diagnostics (FR-UPD-15, TM-07); acceptance is unchanged.
+            JsonElement diagnostics = r.GetProperty("installerDiagnostics");
+            string thumbC = new('C', 40), thumbD = new('D', 40);
+            Assert.AreEqual($"Could not sign PCSteward.Desktop.exe with the owner-only certificate. Set-AuthenticodeSignature: Status=UnknownError; StatusMessage=[{Untrusted}]; SignerThumbprint={thumbC}; ExpectedThumbprint={thumbD}. Get-AuthenticodeSignature: Status=UnknownError; StatusMessage=[{Untrusted}]", Text(diagnostics, "withSigner"));
+            Assert.AreEqual($"Could not sign PCSteward.Desktop.exe with the owner-only certificate. Set-AuthenticodeSignature: Status=UnknownError; StatusMessage=[untrusted]; SignerThumbprint=none; ExpectedThumbprint={thumbD}. Get-AuthenticodeSignature: Status=UnknownError; StatusMessage=[{Untrusted}]", Text(diagnostics, "withoutSigner"));
+            Assert.AreEqual($"Could not sign PCSteward.ElevatedHelper.exe with the owner-only certificate. Set-AuthenticodeSignature: no result object; SignerThumbprint=none; ExpectedThumbprint={thumbD}. Get-AuthenticodeSignature: Status=UnknownError; StatusMessage=[{Untrusted}]", Text(diagnostics, "nullSignature"));
+            StringAssert.EndsWith(Text(diagnostics, "queryFails"), "Get-AuthenticodeSignature: query failed: [FIXTURE query refused]");
+            Assert.IsTrue(diagnostics.GetProperty("acceptanceUnchanged").GetBoolean(), "still Valid plus the owned signer's thumbprint");
+            Assert.IsTrue(diagnostics.GetProperty("ledgerKeepsOriginalFailure").GetBoolean(), "the rollback ledger's originalFailure carries the diagnostic text");
 
             // Review M2: helpers and the template load only at the caller's reviewed constants; helpers only add functions.
             JsonElement pins = r.GetProperty("pins");
@@ -266,6 +379,11 @@ public sealed class RedeployToolingScriptTests
                 Assert.AreEqual("Fail", Text(checkOnly, "result"));
                 Assert.AreNotEqual(0, checkOnly.GetProperty("exitCode").GetInt32());
                 Assert.AreEqual(NotReviewedHelper, Text(main.GetProperty("checkOnlyUnreviewedHelper"), "failure"));
+                JsonElement freshMain = main.GetProperty("checkOnlyFreshPassesBaseline");
+                Assert.AreEqual("CheckOnly", Text(freshMain, "mode"));
+                Assert.AreEqual("Fail", Text(freshMain, "result"));
+                Assert.IsFalse(Text(freshMain, "failure").Contains("FIXTURE-LEDGER-REACHED", StringComparison.Ordinal), "a fresh-install plan never reaches the old ledger");
+                StringAssert.Contains(Text(freshMain, "failure"), "OwnerOnlyDeploymentCandidates", "it passes the real fresh-install baseline and stops at the synthetic candidate root");
                 Assert.AreEqual(@"ScriptSource must be an absolute local path such as C:\...; relative, UNC and device paths are refused.", Text(main.GetProperty("newPlanRelativeSource"), "failure"), "the path is refused before any read");
             }
             else Assert.IsFalse(string.IsNullOrWhiteSpace(Text(r.GetProperty("notRun"), "callerMain")));
@@ -320,7 +438,7 @@ public sealed class RedeployToolingScriptTests
             else
             {
                 string reasons = string.Join("; ", WindowsOnlyRows.Append("callerMain").Select(name => name + ": " + Text(notRun, name)));
-                Assert.Inconclusive("Portable redeploy-tooling rows passed under " + Text(r, "shell") + $" (encoded command {length} characters). Windows-only rows not run here (Windows-CI evidence): " + reasons);
+                Assert.Inconclusive("Portable redeploy-tooling rows passed under " + Text(r, "shell") + $" (encoded command {length} characters; fresh-install {freshLength}). Windows-only rows not run here (Windows-CI evidence): " + reasons);
             }
         }
         finally { DeleteFixtureTree(work); }
@@ -362,8 +480,13 @@ public sealed class RedeployToolingScriptTests
             + Count(template, ";$userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $userDataPins)}"));
         Assert.AreEqual(1, Count(template, "userDataRootAbsent=$true"));
         Assert.AreEqual(1, Count(template, "userDataPreserved=$true"));
-        StringAssert.Contains(template, "$preserveUserData=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v3'");
-        StringAssert.Contains(template, "@('pc-steward-exact-redeploy-v1','pc-steward-exact-redeploy-v2','pc-steward-exact-redeploy-v3')");
+        StringAssert.Contains(template, "$preserveUserData=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v3' -or $fresh;");
+        StringAssert.Contains(template, "@('pc-steward-exact-redeploy-v1','pc-steward-exact-redeploy-v2','pc-steward-exact-redeploy-v3','pc-steward-exact-fresh-install-v1')");
+        // Task 50 R2: "none" is an allowed old origin only for the fresh-install schema (whose own validator then requires it).
+        StringAssert.Contains(template, "$fresh=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-fresh-install-v1'");
+        StringAssert.Contains(template, "-cnotin @(@('legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2')+@(if($fresh){'none'}))");
+        Assert.AreEqual(2, Count(template, "Assert-OwnerOnlyFreshInstallBaseline -InstallRoot $install -StateRoot $state"), "preflight and pre-install re-check");
+        StringAssert.Contains(template, "$installed=& (Join-Path $scripts 'Install-OwnerOnlyProtectedTestDeployment.ps1') -Install -CreateOwnerOnlyCertificate -CandidateRoot $OwnerOnlyPlan.candidateRoot -CandidateManifestPath $OwnerOnlyPlan.candidateManifestPath -CandidateManifestSha256 $OwnerOnlyPlan.candidateManifestSha256");
         // The remover the template calls never names the per-user data root (it reports userDataPreserved = $true).
         string remover = ReadScript("Remove-OwnerOnlyProtectedTestDeployment.ps1");
         StringAssert.Contains(remover, "userDataPreserved = $true");
@@ -373,7 +496,7 @@ public sealed class RedeployToolingScriptTests
     [TestMethod]
     public void ToolingScriptsArePrintableAsciiAndNeverLoadSqlite()
     {
-        foreach (string name in new[] { "Invoke-OwnerOnlyApprovedRedeployment.ps1", "OwnerOnlyExecution.ps1", "Invoke-OwnerOnlyRedeployCaller.ps1", "Copy-OwnerOnlyUserDatabase.ps1" })
+        foreach (string name in new[] { "Invoke-OwnerOnlyApprovedRedeployment.ps1", "OwnerOnlyExecution.ps1", "Invoke-OwnerOnlyRedeployCaller.ps1", "Copy-OwnerOnlyUserDatabase.ps1", "Install-OwnerOnlyProtectedTestDeployment.ps1" })
         {
             byte[] bytes = File.ReadAllBytes(Path.Combine(FindRepositoryRoot(), "scripts", name));
             Assert.IsFalse(bytes.Any(value => value > 0x7E || (value < 0x20 && value is not (byte)'\n' and not (byte)'\r' and not (byte)'\t')), name + " must be ASCII so Windows PowerShell 5.1 reads it unchanged");
@@ -418,6 +541,50 @@ public sealed class RedeployToolingScriptTests
         (string helperLf, string helperCrlf) = CommittedHashes("OwnerOnlyExecution.ps1");
         Assert.AreEqual(1, Count(copy, $"$hash -cnotin @('{helperLf}','{helperCrlf}')"), "the copy script loads the same reviewed helper");
         Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(copy, "[A-F0-9]{64}") / 2, "the copy script pins only the helper");
+    }
+
+    /// <summary>
+    /// Task 50 R2 (D-R2; FR-UPD-15, TM-03/04/07/13, ADR-022): the packaged-process refusal and the fresh-install baseline. The
+    /// only native binding in the embedded helper is kernel32 GetCurrentPackageFullName, bound in memory (no Add-Type, so no
+    /// compiler and no TEMP file before the elevated template's private compiler TEMP exists); exactly 15700 is accepted; the
+    /// caller enforces it before the one-use claim and the template before its first mutation; the baseline looks for the
+    /// owner-only test subject in exactly CurrentUser My, Root and TrustedPublisher, read-only.
+    /// </summary>
+    [TestMethod]
+    public void PackagedProcessRefusalAndFreshBaselineAreBoundAsReviewed()
+    {
+        string helpers = ReadScript("OwnerOnlyExecution.ps1");
+        Assert.AreEqual(1, Count(helpers, ".DefinePInvokeMethod("));
+        StringAssert.Contains(helpers, ".DefinePInvokeMethod('GetCurrentPackageFullName','kernel32.dll','Public,Static,PinvokeImpl','Standard',[int],[Type[]]@([uint32].MakeByRefType(),[IntPtr]),'Winapi','Unicode').SetImplementationFlags('PreserveSig')");
+        StringAssert.Contains(helpers, ".Invoke($null,[object[]]@([uint32]0,[IntPtr]::Zero))");
+        StringAssert.Contains(helpers, "if($code -ne 15700){throw");
+        Assert.IsFalse(helpers.Contains("Add-Type", StringComparison.Ordinal));
+        StringAssert.Contains(helpers, "foreach($name in @('My','Root','TrustedPublisher')){");
+        StringAssert.Contains(helpers, "$store=[Security.Cryptography.X509Certificates.X509Store]::new($name,'CurrentUser')");
+        StringAssert.Contains(helpers, "$store.Open('ReadOnly')");
+        StringAssert.Contains(helpers, "Where-Object{$_.Subject -like 'CN=PC Steward Owner-Only Test *'}");
+        Assert.IsFalse(helpers.Contains(".Remove(", StringComparison.Ordinal) || helpers.Contains("ReadWrite", StringComparison.Ordinal), "the helper never changes a certificate store");
+
+        string caller = ReadScript("Invoke-OwnerOnlyRedeployCaller.ps1");
+        int compare = caller.IndexOf("{throw 'The plan or encoded command differs from the approved pins.'}", StringComparison.Ordinal);
+        int refuse = caller.IndexOf("    Assert-OwnerOnlyUnpackagedProcess\n", StringComparison.Ordinal);
+        int claim = caller.IndexOf("$stream=New-OwnerOnlyAttemptRecord", StringComparison.Ordinal);
+        Assert.IsTrue(compare > 0 && refuse > compare && claim > refuse, "packaged refusal after the approval check and before the one-use claim");
+        // Execute (above), plus the main dispatch for NewPlan (after the pinned helper loads, before any plan is built) and for
+        // CheckOnly/Execute (after the helpers load, before the check or execution) - independent review finding 1.
+        Assert.AreEqual(3, Count(caller, "Assert-OwnerOnlyUnpackagedProcess"));
+        int main = caller.IndexOf("$mode=$PSCmdlet.ParameterSetName", StringComparison.Ordinal);
+        int newPlanRefuse = caller.IndexOf("        Assert-OwnerOnlyUnpackagedProcess\n        $report=New-OwnerOnlyRedeployPlan", main, StringComparison.Ordinal);
+        int checkRefuse = caller.IndexOf("        Assert-OwnerOnlyUnpackagedProcess\n        if($mode -ceq 'Execute'){$report=Invoke-OwnerOnlyRedeployExecution", main, StringComparison.Ordinal);
+        Assert.IsTrue(main > claim && newPlanRefuse > main && checkRefuse > newPlanRefuse, "NewPlan and CheckOnly refuse a packaged process in the main dispatch");
+        StringAssert.Contains(caller, "$report['unpackagedProcess']=($package -is [int] -and $package -eq 15700)");
+        StringAssert.Contains(caller, "$fresh=$ExpectedOldOrigin -ceq 'none'");
+
+        string template = ReadScript("Invoke-OwnerOnlyApprovedRedeployment.ps1");
+        int principal = template.IndexOf("{throw 'Exact installing SID and elevation required.'}", StringComparison.Ordinal);
+        int packaged = template.IndexOf("\nAssert-OwnerOnlyUnpackagedProcess\n", StringComparison.Ordinal);
+        int firstMutation = template.IndexOf("CreateDirectory(", StringComparison.Ordinal);
+        Assert.IsTrue(principal > 0 && packaged > principal && firstMutation > packaged, "template refuses a packaged process before creating anything");
     }
 
     [TestMethod]

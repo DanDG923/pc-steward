@@ -1,3 +1,10 @@
+# Task 50 — R2 tooling: fresh install, packaged-process refusal, installer diagnostics (owner decision D-R2)
+
+`FR-UPD-15`, `TM-03`, `TM-04`, `TM-07`, `TM-13`; ADR-022; [recovery plan §3 R2](../review/TASK_50_RECOVERY_PLAN.md).
+
+- Code: `Invoke-OwnerOnlyRedeployCaller.ps1` (fresh-install NewPlan/CheckOnly; packaged refusal before the one-use claim; CheckOnly reports it), `Invoke-OwnerOnlyApprovedRedeployment.ps1` (fresh-install schema, preflight, no removal, re-check; packaged refusal before any mutation), `OwnerOnlyExecution.ps1` (`Assert-OwnerOnlyRedeployPlanV3` also validates `pc-steward-exact-fresh-install-v1`; `Get-OwnerOnlyPackageFullNameResult`, `Assert-OwnerOnlyUnpackagedProcess`, `Assert-OwnerOnlyFreshInstallBaseline`), `Install-OwnerOnlyProtectedTestDeployment.ps1` (`Get-SigningFailureText`; acceptance unchanged), `Copy-OwnerOnlyUserDatabase.ps1` (helper pin).
+- Tests: `RedeployToolingScriptTests` (`RedeployToolingFunctionsHoldTheirContracts` fresh/packaged/diagnostic rows, `PackagedProcessRefusalAndFreshBaselineAreBoundAsReviewed`, `TemplateConfinesV3ToPreserveUserDataAndKeepsV1V2DataAbsence`, `CallerAndCopyConstantsPinTheCommittedHelperWaiterAndTemplate`, `ToolingScriptsArePrintableAsciiAndNeverLoadSqlite`) with `Fixtures/RedeployTooling.ps1`; Windows-only rows (real package query, fresh NewPlan/CheckOnly end to end, real fresh program non-elevated, caller main dispatch) on Windows CI.
+
 # Task 50 — data-preserving redeploy tooling (activation gaps G1, G2, G4)
 
 `FR-UPD-15`, `TM-03`, `TM-04`, `TM-06`, `TM-07`, `TM-13`; ADR-022; activation plan §11 G1/G2/G4.
@@ -20,6 +27,7 @@
 - [Plan rev 1](../review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md): Part A (confirming Default run, optional H3) reuses script SHA-256 `0A1C4377…84D4` and is ready for approval; Parts B (v2 redeploy) and C (exact-artifact test) are blocked by gaps G1–G9.
 - Part A: PASS (result 3, 2026-11-03).
 - Plan rev 2 (2026-11-03): Part B (`FR-UPD-15`, `TM-03/04/06/07/13`, ADR-022) as exact blocks on build commit `febf1ac` with LF/CRLF pins for the six protected scripts, template, caller, copy script and builder; approval 1a (B-prep, complete) and 1b (B-exec, host-placeholder template); [B-prep handover](../review/TASK_50_PART_B_LOCAL_AGENT_HANDOVER.md). G6 decided, G7 settled. Docs only; no host evidence yet for Part B.
+- Recovery plan §6 (2026-11-05): `FR-UPD-15`, `TM-03/04/07/13`, ADR-022. Exact R2-prep/R2-exec/R3 blocks pinned to `385efe0`; R1 PASS recorded.
 - B-exec recovery plan rev 1 (2026-11-05): `FR-UPD-15`, `TM-03/04/07/13`, ADR-022 — [plan](../review/TASK_50_RECOVERY_PLAN.md). CI evidence: trusted-root signing is Valid, untrusted is `UnknownError`. Stages R1 (remover, owner console), R2 (fresh-install mode, packaged-process refusal, installer status diagnostics) and R3 (read-only checks); not approved.
 - B-exec signing diagnosis (2026-11-05): `FR-UPD-15`, `TM-03/TM-13`, ADR-022. The informational CI job `owner-only-signing-diagnostic` (`scripts/Test-OwnerOnlySigningDiagnosticCI.ps1`) is guarded by `OwnerOnlySigningDiagnosticCiTests`; the hypotheses are in [the failure record](../failures/task-50-part-b-exec.md).
 - Plan rev 2.1 / handover rev 2 (2026-11-03): B-prep review disposition (`FR-UPD-15`, `TM-03/04/06/07/13`): child stdin isolation, B0.2 Git stderr capture, B0.1 Git-hook stop, NuGetAudit B1 stop, §10 Git list and approval 1a effects. Docs only.

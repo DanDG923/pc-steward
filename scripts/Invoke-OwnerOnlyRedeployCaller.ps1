@@ -20,6 +20,28 @@
 # program built from the embedded stub below, the exact plan JSON, that OwnerOnlyExecution.ps1 text and the bootstrap
 # template at its reviewed constant. The caller is itself hash-approved, so these constants are the trust anchor; a plan
 # cannot name other helper or template bytes. No command, path or argument is taken from other data.
+#
+# Task 50 R2 (owner decision D-R2; FR-UPD-15, TM-03/04/07/13, ADR-022):
+#   Fresh install. NewPlan with -ExpectedOldOrigin none writes plan schema pc-steward-exact-fresh-install-v1: the v3 key set
+#   without oldLedgerSha256/oldThumbprint, the same user-data pins and the same protected, hash-pinned execution route. NewPlan
+#   and CheckOnly read no old ledger, signer or thumbprint; they require absent install and state roots, no
+#   'CN=PC Steward Owner-Only Test *' certificate in CurrentUser My/Root/TrustedPublisher, no PCSteward* process and an
+#   inactive scheduled check. The elevated template repeats that preflight, has NO removal step, re-checks the baseline,
+#   then runs the installer (-Install -CreateOwnerOnlyCertificate), the independent validator (-RequirePinnedPayload) and the
+#   user-data re-check, and writes the same result and attempt records. Redeploy plans (v1/v2/v3) are unchanged.
+#   Packaged-process refusal. GetCurrentPackageFullName must return 15700 (APPMODEL_ERROR_NO_PACKAGE): -ExecuteApprovedPlan
+#   refuses before the one-use claim and before any elevation; CheckOnly reports it (unpackagedProcess); the elevated
+#   template refuses again before creating anything. B-exec failed signing inside a packaged app's process context.
+#
+# Notes for the embedded OwnerOnlyExecution.ps1 and bootstrap template (kept here, outside the 30,000-character encoded
+# command): plan schema v3 (G1) is v2 plus user-data preservation for a host that already has %LOCALAPPDATA%\PCSteward (a
+# closed key set, preserveUserData true, exact database pins, no -wal/-shm/-journal sidecar, no PCSteward process or enabled
+# scheduled check, no reparse point); it replaces only the v1/v2 "data root absent" checks. Plan schema v1 fixes the legacy-v6
+# preflight and the pinned-unsigned-v1 postcondition and cannot name origins; v2 and later name both from closed lists. The
+# database is read only as bytes through a FileShare.Read handle and no SQLite engine is loaded. The package query binds
+# kernel32 GetCurrentPackageFullName in memory with Reflection.Emit (no compiler, no TEMP file), so it can run in the
+# elevated process before its private compiler TEMP exists. Only the hash-verified protected copies can execute or compile
+# privileged code; the protected code, compiler area and result are retained as evidence with no cleanup or retry.
 [CmdletBinding(DefaultParameterSetName='CheckOnly')]
 param(
     [Parameter(Mandatory,ParameterSetName='CheckOnly')][Parameter(Mandatory,ParameterSetName='Execute')][string]$PlanPath,
@@ -45,9 +67,9 @@ function Get-OwnerOnlyReviewedHelperPins {
     # Reviewed SHA-256 of the committed bytes, LF form then CRLF form (a Windows checkout may convert line endings).
     # RedeployToolingScriptTests recomputes both from the committed files, so any edit to these three files must update them.
     return @{
-        'OwnerOnlyExecution.ps1'=@('857F6DC8BCE109F412401B55A1EF966AEE037B249CFBF14CE19586D163EB2728','33B1B716E6298DCEAEF784DCFCB985FD8485DEFEDF6F886029D6BC8F8A615EF3')
+        'OwnerOnlyExecution.ps1'=@('DDF07C71EB61E2BF5E69FBA6F1A672D6CC09B8668715A90119BD725023093F9C','A23F2BBB874A280B5C918DAEDBCB1E5316CACB33AA670FDA682C0E2BF2E0B948')
         'Wait-OwnerOnlyDeploymentProcess.ps1'=@('F24B3235FD34AA82421C576EB284C1F8C04D26D9C56170BE0175825ADDF46C59','2BA1A90DD230CA8587F846F75B84691BA3EA4D27C20069192F46C6602FAC520B')
-        'Invoke-OwnerOnlyApprovedRedeployment.ps1'=@('646A3D1B054C5EB505D3BD87293C583D4018A5D0AB9B3410ACAAD694030AACB6','A3EF83B74BF8D288FEB5E4F82BFCC750E3D3583C619FCA6E16448716E07DDE4A')
+        'Invoke-OwnerOnlyApprovedRedeployment.ps1'=@('AB5D61F3C61D3FCC1F7DB14B5A43B1FEF6E0B6AF5278518110FAA856F89FAF44','A9775FCEAE897AEBA18C838DD5FCA9BC69E355ABA4376D0EE0481E9B39D831D7')
     }
 }
 
@@ -141,7 +163,8 @@ function ConvertTo-OwnerOnlyCanonicalPlanJson {
     $files=[Collections.Generic.List[object]]::new()
     foreach($key in $keys){$pin=@($pins|Where-Object{$_.path -ceq $key})[0];$record=[ordered]@{};$record['bytes']=[long]$pin.bytes;$record['path']=[string]$pin.path;$record['sha256']=[string]$pin.sha256;$files.Add($record)}
     $canonical=[ordered]@{}
-    $canonical['schema']='pc-steward-exact-redeploy-v3'
+    $fresh=$Plan.schema -ceq 'pc-steward-exact-fresh-install-v1'
+    $canonical['schema']=if($fresh){'pc-steward-exact-fresh-install-v1'}else{'pc-steward-exact-redeploy-v3'}
     $canonical['expectedOldOrigin']=[string]$Plan.expectedOldOrigin
     $canonical['expectedNewOrigin']=[string]$Plan.expectedNewOrigin
     $canonical['preserveUserData']=$true
@@ -151,8 +174,7 @@ function ConvertTo-OwnerOnlyCanonicalPlanJson {
     $canonical['executionRoot']=[string]$Plan.executionRoot
     $canonical['scriptSource']=[string]$Plan.scriptSource
     $canonical['scripts']=$scripts.ToArray()
-    $canonical['oldLedgerSha256']=[string]$Plan.oldLedgerSha256
-    $canonical['oldThumbprint']=[string]$Plan.oldThumbprint
+    if(!$fresh){$canonical['oldLedgerSha256']=[string]$Plan.oldLedgerSha256;$canonical['oldThumbprint']=[string]$Plan.oldThumbprint}
     $canonical['candidateRoot']=[string]$Plan.candidateRoot
     $canonical['candidateManifestPath']=[string]$Plan.candidateManifestPath
     $canonical['candidateManifestSha256']=[string]$Plan.candidateManifestSha256
@@ -388,8 +410,12 @@ function Invoke-OwnerOnlyRedeployCheck {
     $templateBytes=Read-OwnerOnlyStableBytes -Path (Join-Path $source 'Invoke-OwnerOnlyApprovedRedeployment.ps1') -MaxBytes 1048576
     $templateSha256=Get-OwnerOnlySha256Hex -Bytes $templateBytes
     Assert-OwnerOnlyReviewedHelperPin -Name 'Invoke-OwnerOnlyApprovedRedeployment.ps1' -Sha256 $templateSha256
-    $null=Assert-OwnerOnlyOldLedger -LedgerPath (Join-Path $stateRoot 'deployment.json') -Plan $plan -InstallRoot $installRoot
-    $notAfter=Assert-OwnerOnlyOldSigner -InstallRoot $installRoot -Thumbprint $plan.oldThumbprint
+    $fresh=$plan.schema -ceq 'pc-steward-exact-fresh-install-v1';$notAfter=$null
+    if($fresh){Assert-OwnerOnlyFreshInstallBaseline -InstallRoot $installRoot -StateRoot $stateRoot}
+    else{
+        $null=Assert-OwnerOnlyOldLedger -LedgerPath (Join-Path $stateRoot 'deployment.json') -Plan $plan -InstallRoot $installRoot
+        $notAfter=Assert-OwnerOnlyOldSigner -InstallRoot $installRoot -Thumbprint $plan.oldThumbprint
+    }
     $null=Assert-OwnerOnlyExecutionPath -Path $plan.candidateRoot
     $null=Assert-OwnerOnlyExecutionPath -Path $plan.candidateManifestPath
     $manifestBytes=Read-OwnerOnlyStableBytes -Path $plan.candidateManifestPath -MaxBytes 1048576
@@ -406,16 +432,21 @@ function Invoke-OwnerOnlyRedeployCheck {
     if(Test-Path -LiteralPath $attemptPath){throw 'An attempt record for this plan already exists; the approval is used. Never delete or reuse it to run again.'}
     $encoded=ConvertTo-OwnerOnlyEncodedCommand -ProgramText (New-OwnerOnlyRedeployProgram -PlanJson $record.Json -ExecutionHelpersText $helpers -TemplateText (ConvertFrom-OwnerOnlyScriptBytes -Bytes $templateBytes))
     $database=@($userData|Where-Object{$_.path -ceq 'pcsteward.db'})[0]
+    $package=try{Get-OwnerOnlyPackageFullNameResult}catch{$_.Exception.Message}
     $report=[ordered]@{
         mode='CheckOnly';result='Pass';schema=$plan.schema;planSha256=$record.Sha256
         programSha256=$encoded.ProgramSha256;encodedCommandSha256=$encoded.EncodedSha256;encodedCommandLength=$encoded.Encoded.Length
         bootstrapTemplateSha256=$templateSha256;scripts=$scripts.ToArray()
         expectedOldOrigin=$plan.expectedOldOrigin;expectedNewOrigin=$plan.expectedNewOrigin
         candidateManifestSha256=$plan.candidateManifestSha256;candidateFiles=$candidate.files;candidateBytes=$candidate.bytes
-        oldLedgerSha256=$plan.oldLedgerSha256;oldThumbprint=$plan.oldThumbprint;oldSignerNotAfterUtc=$notAfter.ToString('o')
-        userDatabase=[ordered]@{path=$database.path;bytes=$database.bytes;sha256=$database.sha256};userDataFiles=$userData.Count
-        sqliteSidecars=0;pcstewardProcesses=0;scheduledCheckTask='AbsentOrDisabled';sqliteLoaded=$false;elevated=$false;executionRootAbsent=$true;attemptRecordAbsent=$true
     }
+    if($fresh){$report['installRootAbsent']=$true;$report['stateRootAbsent']=$true;$report['ownerOnlyTestCertificates']=0}
+    else{$report['oldLedgerSha256']=$plan.oldLedgerSha256;$report['oldThumbprint']=$plan.oldThumbprint;$report['oldSignerNotAfterUtc']=$notAfter.ToString('o')}
+    $report['userDatabase']=[ordered]@{path=$database.path;bytes=$database.bytes;sha256=$database.sha256};$report['userDataFiles']=$userData.Count
+    $report['sqliteSidecars']=0;$report['pcstewardProcesses']=0;$report['scheduledCheckTask']='AbsentOrDisabled';$report['sqliteLoaded']=$false
+    $report['elevated']=$false;$report['executionRootAbsent']=$true;$report['attemptRecordAbsent']=$true
+    # The main dispatch refuses CheckOnly and -ExecuteApprovedPlan unless the query returned exactly 15700.
+    $report['packageQueryResult']=$package;$report['unpackagedProcess']=($package -is [int] -and $package -eq 15700)
     return [pscustomobject]@{Report=$report;Encoded=$encoded.Encoded;ExecutionRoot=$execution;UserDataRoot=$data;Pins=$record.Pins;AttemptRecordPath=$attemptPath}
 }
 
@@ -434,6 +465,8 @@ function Invoke-OwnerOnlyRedeployExecution {
     if(!(Get-Command -Name Wait-OwnerOnlyDeploymentProcess -CommandType Function -ErrorAction SilentlyContinue)){throw 'The pinned native waiter is not loaded.'}
     $check=Invoke-OwnerOnlyRedeployCheck -PlanPath $PlanPath
     if($check.Report.planSha256 -cne $ApprovedPlanSha256 -or $check.Report.encodedCommandSha256 -cne $ApprovedEncodedCommandSha256){throw 'The plan or encoded command differs from the approved pins.'}
+    # R2: never elevate from a process with package identity; refused before the one-use claim, so the approval is not used.
+    Assert-OwnerOnlyUnpackagedProcess
     # Compile the waiter's exit-code type before the claim, so a compile failure cannot follow an elevated start.
     if(!('PCSteward.Deployment.ChildExit' -as [type])){try{$null=Wait-OwnerOnlyDeploymentProcess -Process ([Diagnostics.Process]::GetCurrentProcess()) -TimeoutMilliseconds 1}catch{}}
     if(!('PCSteward.Deployment.ChildExit' -as [type])){throw 'The pinned native waiter could not be prepared.'}
@@ -478,23 +511,32 @@ function New-OwnerOnlyRedeployPlan {
     foreach($entry in @($scripts|Where-Object{$_.path -cin @('OwnerOnlyExecution.ps1','Wait-OwnerOnlyDeploymentProcess.ps1')})){Assert-OwnerOnlyReviewedHelperPin -Name $entry.path -Sha256 $entry.sha256}
     Assert-OwnerOnlyReviewedHelperPin -Name 'Invoke-OwnerOnlyApprovedRedeployment.ps1' -Sha256 (Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $source 'Invoke-OwnerOnlyApprovedRedeployment.ps1') -MaxBytes 1048576))
     $programFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
-    $ledgerPath=Join-Path (Join-Path $programFiles 'PC Steward OwnerOnlyTest State') 'deployment.json'
-    $ledger=ConvertFrom-Json -InputObject (ConvertFrom-OwnerOnlyScriptBytes -Bytes (Read-OwnerOnlyStableBytes -Path $ledgerPath -MaxBytes 4194304))
+    $installRoot=Join-Path $programFiles 'PC Steward';$stateRoot=Join-Path $programFiles 'PC Steward OwnerOnlyTest State'
+    # R2: -ExpectedOldOrigin none selects the fresh-install schema, which never reads an old ledger, signer or thumbprint.
+    $fresh=$ExpectedOldOrigin -ceq 'none'
+    $ledgerPath=Join-Path $stateRoot 'deployment.json'
     $manifestPath=Assert-OwnerOnlyExecutionPath -Path $CandidateManifestPath
     $data=Get-OwnerOnlyUserDataRoot
     $database=Get-OwnerOnlyStableFileIdentity -Path (Join-Path $data 'pcsteward.db')
-    $plan=[pscustomobject]@{
-        schema='pc-steward-exact-redeploy-v3';expectedOldOrigin=$ExpectedOldOrigin;expectedNewOrigin=$ExpectedNewOrigin;preserveUserData=$true
+    $fields=[ordered]@{
+        schema=$(if($fresh){'pc-steward-exact-fresh-install-v1'}else{'pc-steward-exact-redeploy-v3'});expectedOldOrigin=$ExpectedOldOrigin;expectedNewOrigin=$ExpectedNewOrigin;preserveUserData=$true
         userDataRoot=$data;userDataFiles=[object[]]@([pscustomobject]@{bytes=[long]$database.bytes;path='pcsteward.db';sha256=$database.sha256})
         installerSid=$sid;executionRoot=((Get-OwnerOnlyExecutionRootPrefix)+[Guid]::NewGuid().ToString('N'));scriptSource=$source;scripts=[object[]]$scripts.ToArray()
-        oldLedgerSha256=(Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path $ledgerPath -MaxBytes 4194304));oldThumbprint=[string]$ledger.certificateThumbprint
         candidateRoot=(Assert-OwnerOnlyExecutionPath -Path $CandidateRoot);candidateManifestPath=$manifestPath
         candidateManifestSha256=(Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path $manifestPath -MaxBytes 1048576))
     }
+    if(!$fresh){
+        $ledger=ConvertFrom-Json -InputObject (ConvertFrom-OwnerOnlyScriptBytes -Bytes (Read-OwnerOnlyStableBytes -Path $ledgerPath -MaxBytes 4194304))
+        $fields['oldLedgerSha256']=(Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path $ledgerPath -MaxBytes 4194304));$fields['oldThumbprint']=[string]$ledger.certificateThumbprint
+    }
+    $plan=[pscustomobject]$fields
     $json=ConvertTo-OwnerOnlyCanonicalPlanJson -Plan $plan
     # Cross-check the assembled pins against the host exactly as CheckOnly will (minus the plan file itself).
-    $null=Assert-OwnerOnlyOldLedger -LedgerPath $ledgerPath -Plan $plan -InstallRoot (Join-Path $programFiles 'PC Steward')
-    $null=Assert-OwnerOnlyOldSigner -InstallRoot (Join-Path $programFiles 'PC Steward') -Thumbprint $plan.oldThumbprint
+    if($fresh){Assert-OwnerOnlyFreshInstallBaseline -InstallRoot $installRoot -StateRoot $stateRoot}
+    else{
+        $null=Assert-OwnerOnlyOldLedger -LedgerPath $ledgerPath -Plan $plan -InstallRoot $installRoot
+        $null=Assert-OwnerOnlyOldSigner -InstallRoot $installRoot -Thumbprint $plan.oldThumbprint
+    }
     $null=Assert-OwnerOnlyCandidateTree -Root $plan.candidateRoot -ManifestBytes (Read-OwnerOnlyStableBytes -Path $manifestPath -MaxBytes 1048576) -ExpectedOrigin $ExpectedNewOrigin
     Assert-OwnerOnlyScheduledCheckInactive
     $null=Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files @(Assert-OwnerOnlyRedeployPlanV3 -Plan $plan)
@@ -503,7 +545,7 @@ function New-OwnerOnlyRedeployPlan {
     $bytes=[Text.Encoding]::ASCII.GetBytes($json)
     $output=[IO.FileStream]::new($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try{$output.Write($bytes,0,$bytes.Length);$output.Flush($true)}finally{$output.Dispose()}
-    return [ordered]@{mode='NewPlan';result='Written';planSha256=(Get-OwnerOnlySha256Hex -Bytes $bytes);schema='pc-steward-exact-redeploy-v3';userDatabaseSha256=$database.sha256;userDatabaseBytes=$database.bytes;executed=$false;elevated=$false}
+    return [ordered]@{mode='NewPlan';result='Written';planSha256=(Get-OwnerOnlySha256Hex -Bytes $bytes);schema=$plan.schema;userDatabaseSha256=$database.sha256;userDatabaseBytes=$database.bytes;executed=$false;elevated=$false}
 }
 
 # ---- Main: dispatch one mode. No exit: a failure prints a JSON report and then throws (the console stays open). ----
@@ -516,6 +558,8 @@ try{
         Assert-OwnerOnlyAbsoluteInputPath -Path $NewPlanPath -Name 'NewPlanPath'
         $helperSha=Get-OwnerOnlySha256Hex -Bytes (Read-OwnerOnlyStableBytes -Path (Join-Path $ScriptSource 'OwnerOnlyExecution.ps1') -MaxBytes 1048576)
         . (Get-OwnerOnlyPinnedScriptBlock -Source $ScriptSource -Name 'OwnerOnlyExecution.ps1' -Sha256 $helperSha)
+        # R2 review: a packaged process may see a private view of %LOCALAPPDATA% and the per-user stores; plan nothing there.
+        Assert-OwnerOnlyUnpackagedProcess
         $report=New-OwnerOnlyRedeployPlan -NewPlanPath $NewPlanPath -ScriptSource $ScriptSource -CandidateRoot $CandidateRoot -CandidateManifestPath $CandidateManifestPath -ExpectedOldOrigin $ExpectedOldOrigin -ExpectedNewOrigin $ExpectedNewOrigin
     }else{
         # Execution first requires the approved plan hash. The helpers then load only when the plan's pin equals the reviewed
@@ -528,6 +572,8 @@ try{
             if($pin.Count -ne 1 -or $preview.scriptSource -isnot [string]){throw 'Malformed reviewed script entry.'}
             if($name -ceq 'OwnerOnlyExecution.ps1' -or $mode -ceq 'Execute'){. (Get-OwnerOnlyPinnedScriptBlock -Source $preview.scriptSource -Name $name -Sha256 ([string]$pin[0].sha256))}
         }
+        # R2 review: CheckOnly fails too in a packaged process, so its hashes are never offered for approval from one.
+        Assert-OwnerOnlyUnpackagedProcess
         if($mode -ceq 'Execute'){$report=Invoke-OwnerOnlyRedeployExecution -PlanPath $PlanPath -ApprovedPlanSha256 $ApprovedPlanSha256 -ApprovedEncodedCommandSha256 $ApprovedEncodedCommandSha256}
         else{$report=(Invoke-OwnerOnlyRedeployCheck -PlanPath $PlanPath).Report}
     }

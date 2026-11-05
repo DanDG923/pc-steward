@@ -8,7 +8,6 @@ function New-OwnerOnlyExecutionSecurity {
     foreach($sid in @('S-1-5-18','S-1-5-32-544')){
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),[Security.AccessControl.FileSystemRights]::FullControl,$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))
     }
-    # This ACE replaces implicit owner WRITE_DAC with read-control only on compiler files.
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-3-4'),[Security.AccessControl.FileSystemRights]::ReadPermissions,$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))
     if(!$Compiler){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'),([Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [Security.AccessControl.FileSystemRights]::Synchronize),$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))}
     return $acl
@@ -53,14 +52,11 @@ function Assert-OwnerOnlyExecutionEnvironment {
     foreach($file in Get-ChildItem -LiteralPath $root -File -Force){$null=Assert-OwnerOnlyExecutionPath -Path $file.FullName;Assert-OwnerOnlyExecutionAcl -Acl (Get-Acl -LiteralPath $file.FullName)}
 }
 
-# Task 50 G1: user-data preservation policy for redeploy plan schema v3. Pure and read-only: the database is read only as
-# bytes through a FileShare.Read handle (an open writer makes the read fail) and no SQLite engine is ever loaded.
 function Get-OwnerOnlyUserDataRoot {
     return (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward')
 }
 
 function Get-OwnerOnlyOrdinalNames {
-    # Property names joined in ordinal order (culture-independent, so 'scriptSource' sorts before 'scripts' everywhere).
     param($Object)
     $names=[string[]]@($Object.PSObject.Properties|ForEach-Object{$_.Name})
     [Array]::Sort($names,[StringComparer]::Ordinal)
@@ -69,15 +65,16 @@ function Get-OwnerOnlyOrdinalNames {
 
 function Assert-OwnerOnlyRedeployPlanV3 {
     param([Parameter(Mandatory)]$Plan)
-    $keys=@('candidateManifestPath','candidateManifestSha256','candidateRoot','executionRoot','expectedNewOrigin','expectedOldOrigin','installerSid','oldLedgerSha256','oldThumbprint','preserveUserData','schema','scriptSource','scripts','userDataFiles','userDataRoot')
-    if($Plan.schema -cne 'pc-steward-exact-redeploy-v3'){throw 'Plan schema v3 is required.'}
+    $fresh=$Plan.schema -ceq 'pc-steward-exact-fresh-install-v1'
+    $keys=@('candidateManifestPath','candidateManifestSha256','candidateRoot','executionRoot','expectedNewOrigin','expectedOldOrigin','installerSid')+@(if(!$fresh){'oldLedgerSha256','oldThumbprint'})+@('preserveUserData','schema','scriptSource','scripts','userDataFiles','userDataRoot')
+    if($Plan.schema -cne 'pc-steward-exact-redeploy-v3' -and !$fresh){throw 'Plan schema v3 is required.'}
     if($Plan.preserveUserData -isnot [bool] -or !$Plan.preserveUserData){throw 'Plan schema v3 requires preserveUserData true.'}
     if((Get-OwnerOnlyOrdinalNames -Object $Plan) -cne ($keys -join ',')){throw 'Plan schema v3 requires exactly the reviewed key set.'}
-    if($Plan.expectedOldOrigin -isnot [string] -or $Plan.expectedOldOrigin -cnotin @('legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2') -or $Plan.expectedNewOrigin -isnot [string] -or $Plan.expectedNewOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2')){throw 'Plan schema v3 must name an allowlisted expected old and new payload origin.'}
+    if($Plan.expectedOldOrigin -isnot [string] -or $Plan.expectedOldOrigin -cnotin @(if($fresh){'none'}else{'legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2'}) -or $Plan.expectedNewOrigin -isnot [string] -or $Plan.expectedNewOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2')){throw 'Plan schema v3 must name an allowlisted expected old and new payload origin.'}
     if($Plan.installerSid -isnot [string] -or $Plan.installerSid -cnotmatch '^S-1-5-21-\d+-\d+-\d+-\d+$'){throw 'Plan schema v3 requires a user installer SID.'}
     foreach($name in @('candidateManifestPath','candidateRoot','executionRoot','scriptSource','userDataRoot')){if($Plan.$name -isnot [string] -or [string]::IsNullOrWhiteSpace($Plan.$name)){throw "Plan schema v3 requires the path $name."}}
-    foreach($name in @('candidateManifestSha256','oldLedgerSha256')){if($Plan.$name -isnot [string] -or $Plan.$name -cnotmatch '^[A-F0-9]{64}$'){throw "Plan schema v3 requires an uppercase SHA-256 $name."}}
-    if($Plan.oldThumbprint -isnot [string] -or $Plan.oldThumbprint -cnotmatch '^[A-F0-9]{40}$'){throw 'Plan schema v3 requires an uppercase old signer thumbprint.'}
+    foreach($name in @('candidateManifestSha256')+@(if(!$fresh){'oldLedgerSha256'})){if($Plan.$name -isnot [string] -or $Plan.$name -cnotmatch '^[A-F0-9]{64}$'){throw "Plan schema v3 requires an uppercase SHA-256 $name."}}
+    if(!$fresh -and ($Plan.oldThumbprint -isnot [string] -or $Plan.oldThumbprint -cnotmatch '^[A-F0-9]{40}$')){throw 'Plan schema v3 requires an uppercase old signer thumbprint.'}
     if($Plan.scripts -isnot [array] -or @($Plan.scripts).Count -ne 6){throw 'Plan schema v3 requires exactly six reviewed script pins.'}
     foreach($entry in @($Plan.scripts)){if($null -eq $entry -or (Get-OwnerOnlyOrdinalNames -Object $entry) -cne 'path,sha256' -or $entry.path -isnot [string] -or $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[A-F0-9]{64}$'){throw 'Malformed reviewed script entry.'}}
     if($Plan.userDataFiles -isnot [array] -or @($Plan.userDataFiles).Count -lt 1 -or @($Plan.userDataFiles).Count -gt 8){throw 'Plan schema v3 requires one to eight pinned user database files.'}
@@ -123,7 +120,6 @@ function Assert-OwnerOnlyNoPCStewardProcess {
 }
 
 function Assert-OwnerOnlyScheduledCheckInactive {
-    # PCSteward.ScheduledCheck starts the installed ScheduledHost (SQLite). Absent or Disabled only; other errors refuse.
     Import-Module ([IO.Path]::Combine($PSHOME,'Modules','ScheduledTasks','ScheduledTasks.psd1')) -ErrorAction Stop
     $failures=$null;$tasks=@(Get-ScheduledTask -TaskName 'PCSteward.ScheduledCheck' -ErrorAction SilentlyContinue -ErrorVariable failures)
     if(@($failures|Where-Object{[string]$_.FullyQualifiedErrorId -notlike 'CmdletizationQuery_NotFound*'}).Count -or @($tasks|Where-Object{[string]$_.State -cne 'Disabled'}).Count){throw 'The PC Steward scheduled check task is enabled or unreadable; disable it before the redeploy.'}
@@ -145,14 +141,34 @@ function Assert-OwnerOnlyUserDataPreserved {
         if($identity.bytes -ne [long]$file.bytes -or $identity.sha256 -cne $file.sha256){throw 'The preserved user database differs from its pin.'}
         $observed.Add([pscustomobject]@{path=[string]$file.path;bytes=$identity.bytes;sha256=$identity.sha256})
     }
-    # A writer that started during the read leaves a sidecar or a process behind; refuse rather than trust the hash.
     if(@(Get-OwnerOnlyUserDataSidecars -DataRoot $DataRoot -Leaves $leaves).Count){throw 'A SQLite sidecar exists beside the preserved user database.'}
     Assert-OwnerOnlyNoPCStewardProcess
     return $observed.ToArray()
 }
 
 function Assert-OwnerOnlyNoSqliteLoaded {
-    # Task 49: a waiting caller that had loaded the installed e_sqlite3.dll blocked removal. No SQLite engine may be loaded here.
     foreach($module in @([Diagnostics.Process]::GetCurrentProcess().Modules)){if($module.ModuleName -match 'sqlite'){throw 'A SQLite engine is loaded in this process; start a fresh process that never loads SQLite.'}}
     foreach($assembly in @([AppDomain]::CurrentDomain.GetAssemblies())){if($assembly.GetName().Name -match 'sqlite'){throw 'A SQLite engine is loaded in this process; start a fresh process that never loads SQLite.'}}
+}
+
+function Get-OwnerOnlyPackageFullNameResult {
+    $t=[Reflection.Emit.AssemblyBuilder]::DefineDynamicAssembly([Reflection.AssemblyName]::new('PCStewardOwnerOnlyPackage'),'Run').DefineDynamicModule('P').DefineType('P','Public,Sealed,Abstract')
+    $t.DefinePInvokeMethod('GetCurrentPackageFullName','kernel32.dll','Public,Static,PinvokeImpl','Standard',[int],[Type[]]@([uint32].MakeByRefType(),[IntPtr]),'Winapi','Unicode').SetImplementationFlags('PreserveSig')
+    return [int]$t.CreateType().GetMethod('GetCurrentPackageFullName').Invoke($null,[object[]]@([uint32]0,[IntPtr]::Zero))
+}
+
+function Assert-OwnerOnlyUnpackagedProcess {
+    $code=Get-OwnerOnlyPackageFullNameResult
+    if($code -ne 15700){throw "This process has a package identity (GetCurrentPackageFullName returned $code, not 15700); run from a Windows PowerShell console started directly, not from a packaged app."}
+}
+
+function Assert-OwnerOnlyFreshInstallBaseline {
+    param([Parameter(Mandatory)][string]$InstallRoot,[Parameter(Mandatory)][string]$StateRoot)
+    foreach($root in @($InstallRoot,$StateRoot)){$present=try{$null=[IO.File]::GetAttributes($root);$true}catch [IO.FileNotFoundException],[IO.DirectoryNotFoundException]{$false};if($present){throw 'A fresh install requires absent PC Steward install and state roots (no file, folder or link).'}}
+    foreach($name in @('My','Root','TrustedPublisher')){
+        $store=[Security.Cryptography.X509Certificates.X509Store]::new($name,'CurrentUser')
+        $store.Open('ReadOnly')
+        try{if(@($store.Certificates|Where-Object{$_.Subject -like 'CN=PC Steward Owner-Only Test *'}).Count){throw "A PC Steward owner-only test certificate is in CurrentUser\$name; a fresh install requires none."}}finally{$store.Close()}
+    }
+    Assert-OwnerOnlyNoPCStewardProcess
 }
