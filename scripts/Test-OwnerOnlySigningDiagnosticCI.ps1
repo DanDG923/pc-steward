@@ -157,7 +157,7 @@ function Invoke-SigningAttempt {
     if ($record.signError) { Write-Host "   sign error: $($record.signError)" }
 }
 
-$certificate = $null; $trusted = [Collections.Generic.List[object]]::new(); $protectedRoot = $null; $exitCode = 1
+$certificate = $null; $trusted = [Collections.Generic.List[object]]::new(); $trustLog = [Collections.Generic.List[object]]::new(); $protectedRoot = $null; $exitCode = 1
 $work = Join-Path $CandidateSearchRoot ('pcsteward-signing-diagnostic-' + [Guid]::NewGuid().ToString('N'))
 try {
     # ---- Candidate built by the G3 builder job step (disposable standard user) ----
@@ -213,9 +213,23 @@ try {
     foreach ($key in @('PCSteward.Desktop.exe', 'control-dotnet.exe')) { Invoke-SigningAttempt -Item $key -Variant 'temp-untrusted' -Path (Copy-Plain $sources[$key] $untrusted $key) -Certificate $certificate -SignTool $signTool }
 
     foreach ($store in @(@('Root', 'LocalMachine'), @('TrustedPublisher', 'LocalMachine'), @('TrustedPublisher', 'CurrentUser'))) {
-        $x509 = [Security.Cryptography.X509Certificates.X509Store]::new($store[0], [Security.Cryptography.X509Certificates.StoreLocation]($store[1]))
-        $x509.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-        try { $x509.Add($certificate); $trusted.Add($store) } finally { $x509.Close() }
+        # First CI run: X509Store.Add threw "Access is denied" here. Add a public-only copy, fall back to certutil, and
+        # record each store's outcome instead of stopping, so the trusted variants still run on whatever trust was added.
+        $outcome = $null
+        try {
+            $x509 = [Security.Cryptography.X509Certificates.X509Store]::new($store[0], [Security.Cryptography.X509Certificates.StoreLocation]($store[1]))
+            $x509.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            try { $x509.Add([Security.Cryptography.X509Certificates.X509Certificate2]::new($certificate.RawData)); $outcome = 'added (X509Store, public-only copy)' } finally { $x509.Close() }
+        } catch {
+            $first = $_.Exception.Message.Trim()
+            $cer = Join-Path $work ($certificate.Thumbprint + '.cer'); if (!(Test-Path -LiteralPath $cer)) { [IO.File]::WriteAllBytes($cer, $certificate.RawData) }
+            $certutilArguments = if ($store[1] -eq 'CurrentUser') { @('-user', '-f', '-addstore', $store[0], $cer) } else { @('-f', '-addstore', $store[0], $cer) }
+            $added = Invoke-Native 'certutil.exe' $certutilArguments
+            $outcome = if ($added.exitCode -eq 0) { "added (certutil; X509Store failed: $first)" } else { "FAILED (X509Store: $first; certutil exit $($added.exitCode): $($added.output -join ' / '))" }
+        }
+        if ($outcome -like 'added*') { $trusted.Add($store) }
+        $trustLog.Add([pscustomobject]@{ store = $store[1] + '\' + $store[0]; outcome = $outcome })
+        Write-Host "Trust $($store[1])\$($store[0]): $outcome"
     }
     $chain = [Security.Cryptography.X509Certificates.X509Chain]::new(); $chain.ChainPolicy.RevocationMode = 'NoCheck'
     Write-Host "Chain build after trust: $($chain.Build($certificate)) $((@($chain.ChainStatus | ForEach-Object { $_.Status })) -join ',')"
@@ -230,7 +244,7 @@ try {
     try { $detections = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { $_.InitialDetectionTime -ge (Get-Date).AddHours(-2) } | ForEach-Object { "$($_.InitialDetectionTime) $($_.Resources -join ';')" }) } catch { $detections = @('unavailable: ' + $_.Exception.Message) }
     Write-Host "Defender detections in the last two hours: $(if ($detections.Count) { $detections -join ' | ' } else { 'none' })"
 
-    $evidence = [ordered]@{ schema = 'pc-steward-owner-only-signing-diagnostic-v1'; environment = $environment; certificate = [ordered]@{ thumbprint = $certificate.Thumbprint; subject = $subject; trustedIn = @($trusted | ForEach-Object { $_[1] + '\' + $_[0] }) }; signtool = $signTool; defenderDetections = $detections; attempts = @($script:Results) }
+    $evidence = [ordered]@{ schema = 'pc-steward-owner-only-signing-diagnostic-v1'; environment = $environment; certificate = [ordered]@{ thumbprint = $certificate.Thumbprint; subject = $subject; trustedIn = @($trusted | ForEach-Object { $_[1] + '\' + $_[0] }); trustOutcomes = @($trustLog) }; signtool = $signTool; defenderDetections = $detections; attempts = @($script:Results) }
     [IO.File]::WriteAllText((Join-Path $evidenceRoot 'signing-diagnostic.json'), (ConvertTo-Json -InputObject $evidence -Depth 6), [Text.UTF8Encoding]::new($false))
     $table = @($script:Results | Select-Object item, variant, setStatus, getStatus, installerWouldAccept, signtoolVerifyExit, @{ n = 'overlay'; e = { $_.peBefore.overlayBytes } }, @{ n = 'bundle'; e = { $_.peBefore.dotnetSingleFileBundle } }, @{ n = 'message'; e = { if ($_.setStatusMessage) { $_.setStatusMessage } elseif ($_.signError) { $_.signError } else { $_.getStatusMessage } } })
     Write-Host '==== SUMMARY ===='
@@ -250,7 +264,11 @@ finally {
                 $x509 = [Security.Cryptography.X509Certificates.X509Store]::new($store[0], [Security.Cryptography.X509Certificates.StoreLocation]($store[1]))
                 $x509.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
                 try { foreach ($found in @($x509.Certificates.Find([Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $certificate.Thumbprint, $false))) { $x509.Remove($found) } } finally { $x509.Close() }
-            } catch { $cleanup.Add("$($store[1])\$($store[0]): $($_.Exception.Message)") }
+            } catch {
+                $removeArguments = if ($store[1] -eq 'CurrentUser') { @('-user', '-delstore', $store[0], $certificate.Thumbprint) } else { @('-delstore', $store[0], $certificate.Thumbprint) }
+                $removed = Invoke-Native 'certutil.exe' $removeArguments
+                if ($removed.exitCode -ne 0) { $cleanup.Add("$($store[1])\$($store[0]): $($_.Exception.Message); certutil exit $($removed.exitCode)") }
+            }
         }
         try { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $certificate.Thumbprint) -DeleteKey -ErrorAction Stop } catch { $cleanup.Add("CurrentUser\My: $($_.Exception.Message)") }
         foreach ($path in @('Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher', 'Cert:\CurrentUser\TrustedPublisher', 'Cert:\CurrentUser\My')) {
