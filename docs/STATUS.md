@@ -1,5 +1,7 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — Part B stage B-prep PASS (2026-11-05).** Approval 1a run on the owner's PC via the Remote Control bridge: every step B0.1–B3c OK; v2 candidate 103 files / 51,474,164 bytes, manifest `23D7A71C…807B`; database `CEB917F4…6B99` (159,744 B) copied and pinned; plan `D9CAA3D8…1A6E`, encoded command `230C88E2…A668` (29,296 chars); old deployment validates as `pinned-unsigned-v1`. Approval 1b is filled ([result](review/TASK_50_PART_B_PREP_RESULT.md); [B-exec handover](review/TASK_50_PART_B_EXEC_HANDOVER.md)); B4 must start before 2026-11-13T19:18:09Z.
+
 **Task 50 — qualification probe ADR texts accepted (owner, 2026-11-04).** The owner accepted the ADR-025 amendment (owner-started qualification probe; exceptions (a)–(d)) and the ADR-018 cross-note, as at `2172f95`. The probe (S1–S6) is implemented, reviewed per slice and end to end, and green on Windows CI. It may now go into the activation build; each probe run needs its own exact approval. D4 (Confirm guard: G-0 / G-a / G-a′) and S7 (Part C host plan for the activated build) remain. Requirements: `FR-UPD-15`, `TM-03/04/07/13`; ADR-018, ADR-025, ADR-031.
 
 **Task 50 — activation tooling built (2026-11-02; owner approved building it, not running it).** Requirements: `FR-UPD-15`, `TM-03/04/06/07/13`; ADR-022, ADR-025, ADR-031 decision 7; [activation plan](review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md).
