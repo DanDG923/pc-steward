@@ -297,7 +297,10 @@ public sealed class QualificationProbeHelperEndpointTests
         ProbeRun run = await harness.RunAsync(async server =>
         {
             await entered.Task.WaitAsync(F.Wait);
-            await PipeMessageFraming.WriteAsync(server, EndpointFixture.Request(EndpointFixture.Operation(), EndpointFixture.Start), CancellationToken.None);
+            // The probe helper stops at the first inbound byte and closes the pipe, so the rest of this frame may
+            // meet a broken pipe (Windows CI, 2026-11-05). That is the behaviour under test, not a test failure.
+            try { await PipeMessageFraming.WriteAsync(server, EndpointFixture.Request(EndpointFixture.Operation(), EndpointFixture.Start), CancellationToken.None); }
+            catch (IOException) { }
         });
         run.AssertNoResponse(ReviewedHelperProbeExit.InboundByte);
         Assert.AreEqual(27, run.ExitCode);
