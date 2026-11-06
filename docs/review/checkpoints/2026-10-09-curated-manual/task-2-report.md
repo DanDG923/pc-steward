@@ -44,7 +44,7 @@ New production boundary fixtures cover both exact native optional-provider codes
 
 ## Commands and local results
 
-Working directory: C:\Users\swigg\Documents\Codex\2026-10-09\task\pc-steward-validation.
+Working directory: <CLONE>.
 
 - dotnet --info: exit 0, host/runtimes 8.0.31, **No SDKs installed**. Preserve SDK 10.0.302 / rollForward latestPatch / no prerelease.
 - Initial focused command: dotnet test tests/PCSteward.Application.IntegrationTests/PCSteward.Application.IntegrationTests.csproj --filter "FullyQualifiedName~ProviderSetupTests|FullyQualifiedName~InstallChoiceTests" --no-restore: exit 1 before build/test, compatible SDK not found.
