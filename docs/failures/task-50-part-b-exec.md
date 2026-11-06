@@ -98,3 +98,15 @@ CI run 2 (2026-11-05, run 42120299155, `4780e84`; unpackaged process, `GetCurren
 **Conclusion.** The payload, the builder and the protected copy are cleared. The installer's check fails exactly when the signing process cannot see a trusted root for the new signer, and passes when it can. On the host the root was added through the protected-root prompt while the installer ran in a session started by the Claude desktop app, where the owner's shell and that session demonstrably see different per-user store contents. Hypothesis 1, the execution context, is therefore the confirmed mechanism class. The exact Windows path inside the packaged context is not reproduced. Recovery and any re-run must start from an unpackaged console and should fail closed if packaged; see [the recovery plan](../review/TASK_50_RECOVERY_PLAN.md). If CI, which has no packaged context, returns Valid with the installer accepting, the payload is cleared and hypothesis 1 or 3 remains.
 
 **Hardening (proposed only; not implemented; the installer is pinned by reviewed hashes).** On a non-Valid return, record the returned `Status`, `StatusMessage` and signer, then re-verify with `Get-AuthenticodeSignature` and record that result in the failure text and the rollback ledger. Also refuse to start the installer from a packaged process (`GetCurrentPackageFullName` ≠ 15700), and list the rollback's own Root-deletion prompt in the plan.
+
+## Resolution (2026-11-06)
+
+The failure is resolved through the [recovery plan](../review/TASK_50_RECOVERY_PLAN.md):
+- **R1** (2026-11-05): the febf1ac remover, run from the owner's elevated console, recovered the incomplete deployment.
+- **R2 tooling** (`385efe0`): fresh-install mode, packaged-process refusal and signing diagnostics.
+- **R2.5** (2026-11-06): `Validated` in about 22 s from the owner's console. Only the UAC prompt and the certificate warning appeared.
+- **R3:** PASS, with new signer `473DB701…53FD` once in My, Root and TrustedPublisher, the validator `Pass` with `pinned-unsigned-v2`, and the database unchanged.
+
+The B4 approval and plan (`D9CAA3D8…`) remain used and are not reused. The execution root `44f5b22d…` is still kept as evidence.
+
+**Lesson.** Elevated and certificate-store steps run only from a console the owner opens. The tooling now enforces this.

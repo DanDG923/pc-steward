@@ -307,3 +307,18 @@ The owner ran R2.5 personally in their own normal Windows PowerShell window, sta
 - `resultFailure`, `postcheckFailure`, `recordFailure` and `failure` are all null.
 - `userDatabaseSha256` `CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99`.
 - `retry` false, `launched` false. Completed 10:43:41 UTC, about 22 seconds.
+
+### Result R3 (2026-11-06): PASS; recovery complete
+
+The owner ran R3 in a new normal Windows PowerShell window.
+- `DB sha256=CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99 bytes=159744 equalsPin=True sidecars=0 pcstewardProcesses=0`
+- `VALIDATOR-EXIT 0`
+- `NEW-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 helperProtocol=2 manifest=23D7A71CBF8D14ED1471E0F0F625CF75F3D4C0A6CE0778D26C0DC17983F2807B thumbprint=473DB701E6349AF18F672151E44AC166F95C53FD launched=False`
+- `STORE My new=1 old=0`, `STORE Root new=1 old=0`, `STORE TrustedPublisher new=1 old=0`; `old` counts both `14F34EFE…` and `ED6FBCE8…`.
+- `NEW-SIGNER notAfterUtc=2026-11-20T10:43:26.0000000Z ownerOnlySubject=True`
+
+The owner did not note the thumbprint from the Security Warning. The single new signer `473DB701…53FD` is the one the validator binds to the installed, signed payload, and it is the only owner-only test certificate in each store, so no other certificate can have been the one shown.
+
+**Outcome.** The v2 owner-only test deployment (`pinned-unsigned-v2`, helper protocol 2, manifest `23D7A71C…`) is installed and independently validated. The user database is unchanged, and PC Steward has not been launched.
+
+This completes Part B of the Task 50 activation host-session plan, through the recovery route instead of the B4 redeploy. The new signer expires on 2026-11-20. Launching the app (Part C) needs its own approval.
