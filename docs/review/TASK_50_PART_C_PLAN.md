@@ -324,3 +324,15 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
 
 CB.8 above now carries these two hashes. CB.7 runs next, then approval CB-exec.
 - **CB.7:** `VALIDATOR 2CFB6C72…`, `VALIDATOR-EXIT 0`, `OLD-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 thumbprint=473DB701E6349AF18F672151E44AC166F95C53FD launched=False`, `CB7-OK`. **CB-prep complete: PASS.**
+
+### Result CB.8 (2026-11-06): Validated
+
+The owner ran CB.8 once, in their own normal Windows PowerShell window, starting at 19:53:36 UTC.
+- **Prompts** (as the owner reported them): UAC, the Root delete for `473DB701…`, and the new-certificate warning. Nothing else, which is exactly the expected success path.
+- `CALLER 62DDE7B4…`.
+- **Attempt record:** `"status": "Validated"`, plan `28B3374D…`, encoded command `07559C00…`, `nativeExitCode` 0, `resultExitCode` 0, `resultPhase` `validated`.
+- All failure fields are null.
+- `userDatabaseSha256` `78697727…55BE`.
+- `retry` false and `launched` false. Completed at 19:53:49 UTC, about 13 s.
+
+CB.9 post-checks are pending.
