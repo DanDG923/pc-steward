@@ -301,7 +301,7 @@ The R2.5 block above now carries these two hashes. It needs approval R2-exec.
 
 ### Result R2.5 (2026-11-06): Validated
 
-The owner ran R2.5 personally in their own normal Windows PowerShell window, starting at 10:43:19 UTC. They posted the output without a separate typed "I approve R2-exec"; running the block themselves is recorded as the owner's go-ahead. The prompts seen are to be confirmed by the owner.
+The owner ran R2.5 personally in their own normal Windows PowerShell window, starting at 10:43:19 UTC. They posted the output without a separate typed "I approve R2-exec"; running the block themselves is recorded as the owner's go-ahead. Prompts, as the owner reported them: one UAC prompt and the certificate Security Warning, nothing else. That is exactly the expected success path, with no rollback prompt.
 - `CALLER 62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8`
 - Attempt record: `"status": "Validated"`, `planSha256` `E05D0D08…030F`, `encodedCommandSha256` `96A577D5…F212`, `nativeExitCode` 0, `resultExitCode` 0, `resultPhase` `validated`.
 - `resultFailure`, `postcheckFailure`, `recordFailure` and `failure` are all null.
