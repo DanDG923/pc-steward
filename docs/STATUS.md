@@ -1,5 +1,11 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — Part C re-run plan drafted (2026-11-06; docs and tests only; no host action; nothing approved).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Re-run plan](review/TASK_50_PART_C_RERUN_PLAN.md). The owner chose this as the next step (handover §5 items 1–2).
+- **Route.** D2a (read-only: the host's `containsLegacyPackageInstalls` state and `cacheLocation` class, no values printed) → H1 (the owner's own `cacheLocation` change outside PC Steward; suggested `C:\ProgramData\ChocolateyCache`, protected, outside the walked Chocolatey root) → D2b → CB2 redeploy of `5606da2` (Profile V2 rev. 2.1) → C2-pre, C2-check, C2-run.
+- **Pins.** Build commit `5606da23…`; old signer `67B59B4C…` (NotAfter 2026-11-20T19:53:44Z); old ledger `CBAB8C0A…`; database `78697727…`. The ten tooling scripts, the probe script `831B5E17…` and the capability statement `50F169DD…` are byte-identical at `5606da2`. CB2.8 and the C2 blocks keep placeholders until CB2.3, CB2.6 and CB2.9 report.
+- **Deadline.** CB2.2 before 2026-11-19T19:23Z (its 24-hour check rounds); CB2.8 before **2026-11-20T18:53:44Z**.
+- **Tests.** `PartCRerunPlanBlockTests` (Windows CI parses every block with Windows PowerShell 5.1). Not run locally: this cloud container has no .NET SDK or PowerShell.
+
 **Task 50 — handover written (2026-11-06).** Start here: [Task 50 handover](review/TASK_50_HANDOVER_2026-11-06.md). It covers the branches and PRs, the owner-PC state, what is proven and what is not, the carried-over lessons, open owner decisions and the 2026-11-20 signer deadline.
 
 **Task 50 — Profile V2 revision 2.1: the `containsLegacyPackageInstalls` key (C1 fix built, 2026-11-06; code and tests only; on the Task 50 branch at `bc24a20`, independently reviewed; no host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Revision record](review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
