@@ -30,7 +30,10 @@ public sealed record ChocolateyClientReleaseCatalogFacts(IReadOnlyList<string> L
 /// <summary>Closed reasons the Chocolatey client update cannot be confirmed, in display order.</summary>
 public enum ChocolateyClientUpdateUnavailableReason
 {
-    /// <summary><see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> is not admitted (ADR-031 owner decisions 3–4).</summary>
+    /// <summary>
+    /// No reviewed Desktop composition of <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> exists and owner admission is
+    /// outstanding (ADR-031 owner decisions 3–4; design §8.6 gate 3). Always present, whatever <c>HasSupportedMode</c> admits.
+    /// </summary>
     NotAdmittedPendingReview,
     /// <summary>The installed release is listed, but no strictly newer listed release exists (ADR-031 design §3.3).</summary>
     NoNewerReviewedRelease,

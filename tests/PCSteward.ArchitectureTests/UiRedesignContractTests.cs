@@ -645,7 +645,9 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string verify = Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()");
-        StringAssert.Contains(verify, "foreach (UpdateJobItemOutcome item in completion.Items)");
+        // AC-UPD-09: cards follow the outcome groups, so an interleaved batch never shows an item under another group's heading.
+        StringAssert.Contains(verify, "foreach (UpdateJobItemOutcome item in completion.DisplayItems)");
+        Assert.IsFalse(verify.Contains("in completion.Items)", StringComparison.Ordinal), "never the raw batch order");
         StringAssert.Contains(verify, "outcome.Label");
         StringAssert.Contains(verify, "outcome.Summary");
         StringAssert.Contains(verify, "outcome.TechnicalDetail");

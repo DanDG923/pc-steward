@@ -20,7 +20,7 @@ The repaired route closes the reviewed mutable-script and compiler-file substitu
 
 ## Exact candidate, scripts and caller
 
-Payload: `C:\Users\swigg\AppData\Local\OwnerOnlyDeploymentCandidates\task-48-43F209AD1E79\payload`.
+Payload: `%USERPROFILE%\AppData\Local\OwnerOnlyDeploymentCandidates\task-48-43F209AD1E79\payload`.
 
 Manifest beside it: `unsigned-candidate-manifest.json`, SHA-256 **`43F209AD1E79E5B2A251F29D723059F419789E44FF72671D68D5C7C7A0B3B7AE`**. Same **102 files / 50,051,220 bytes / six XBFs** as the original reviewed candidate. Desktop assembly remains `12C1B111B9DD4832C5D0E49BB554A8766CC2B8795071A547102CEDB51450185D`; helper assembly `9FC90C8A4FCF9D695BAB3ADD1B5FE6B0AF8028D97EB4F409105C011139954D7D`. No rebuild or adoption of the mismatched installed desktop bytes.
 

@@ -437,6 +437,12 @@ public sealed record UpdateJobCompletion(IReadOnlyList<UpdateJobItemOutcome> Ite
     public IReadOnlyList<UpdateOutcomeGroup> Groups => [.. Items.GroupBy(item => item.Outcome.Kind).OrderBy(group => group.Key)
         .Select(group => new UpdateOutcomeGroup(group.Key, group.First().Outcome.Label, [.. group]))];
 
+    /// <summary>
+    /// AC-UPD-09: the order the Verify step shows the items in. A batch follows <see cref="Groups"/> (each group's items together,
+    /// in batch order within the group), so every item appears under its own outcome heading; a single item is unchanged.
+    /// </summary>
+    public IReadOnlyList<UpdateJobItemOutcome> DisplayItems => Items.Count > 1 ? [.. Groups.SelectMany(group => group.Items)] : Items;
+
     public string Headline => Items.Count == 0 ? "No outcome recorded"
         // A batch headline counts each outcome group, for example "2 verified · 1 not started"; the subject ("3 apps") is shown beside it.
         : Items.Count > 1 ? string.Join(" · ", Groups.Select(group => $"{group.Items.Count} {group.Label.ToLowerInvariant()}"))

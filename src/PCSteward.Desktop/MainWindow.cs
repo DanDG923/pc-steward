@@ -2088,7 +2088,7 @@ public sealed class MainWindow : Window
         // Task 73 Phase 6 (AC-UPD-09): a batch is grouped by outcome; every app keeps its own recorded outcome and evidence.
         IReadOnlyList<UpdateOutcomeGroup> groups = completion.Items.Count > 1 ? completion.Groups : [];
         if (groups.Count > 0) panel.Children.Add(PageCopy(completion.Headline));
-        foreach (UpdateJobItemOutcome item in completion.Items)
+        foreach (UpdateJobItemOutcome item in completion.DisplayItems)
         {
             if (groups.Count > 0 && groups.FirstOrDefault(group => ReferenceEquals(group.Items[0], item)) is { } group)
                 panel.Children.Add(SectionHeading(group.Heading));

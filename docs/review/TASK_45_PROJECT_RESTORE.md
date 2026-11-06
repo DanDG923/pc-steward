@@ -52,4 +52,4 @@ This repair supports `NFR-MNT-01–04`, `NFR-REL-02` and `AC-DAT-01` through the
 
 No real PC Steward database, installed application, source refresh, provider operation, deployment, signing trust, schedule, live AI call, push or release was touched. Older local 10.0.11 runtimes remain a separately recorded cleanup item; SDK 10.0.303 removal was independently verified in the earlier follow-up.
 
-After the initial commit failed for missing Git identity, the owner explicitly authorized using their identity. The established Dan Grant identity from the repository's recent commits is supplied per commit invocation only; repository/global Git configuration is unchanged. The build repair is committed separately from the accepted requirement/Proposed ADR documentation.
+After the initial commit failed for missing Git identity, the owner explicitly authorized using their identity. The established identity from the repository's recent commits is supplied per commit invocation only; repository/global Git configuration is unchanged. The build repair is committed separately from the accepted requirement/Proposed ADR documentation.

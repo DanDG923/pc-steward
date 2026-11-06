@@ -1558,7 +1558,7 @@ These decisions are intentionally left for focused design or prototype work. The
 | OD-05 | How aggressively to group runtimes and redistributables | Preserve raw instances; begin with conservative grouping |
 | OD-06 | Baseline hardware for performance tests | Product owner's PC plus an agreed, recorded Windows baseline (physical or virtual) |
 | OD-07 | Default schedule | Weekly, disabled until first-run consent |
-| OD-08 | Product licence and whether source code will be public | Undecided; private repository during initial build |
+| OD-08 | Product licence and whether source code will be public | Decided 2026-11-06: public repository under the MIT License; see ADR-008 |
 | OD-09 | Application self-update mechanism | Manual signed release for first private build; automate only after signing/distribution decision |
 | OD-10 | Whether diagnostic exports include installation paths by default | Default to redacted paths with an explicit include option |
 | OD-11 | Final default download-cache quota and retention after real installer-size testing | Start with a 2 GB soft quota, seven-day successful-file retention and 24-hour failed-file retention |

@@ -568,3 +568,7 @@ This is the cause-1 fix, Profile V2 revision 2.1. Details are in the [revision r
 - **Change.** The parser admits the key only absent or with exactly `true`; any other value still refuses at step 6. It adds no observation or fingerprint field, and `pc-steward-choco-profile:2` and its goldens are unchanged.
 - **Unchanged.** The empty-`cacheLocation` refusal (cause 2) and every other Profile V2 rule.
 - **Next.** Independent review and Windows CI. Any redeploy, the owner's `cacheLocation` change and a new probe each need their own approval. Part C stays recorded as **FAIL**.
+
+## 14. Re-run (2026-11-06)
+
+The owner chose to prepare a re-run after both step-6 causes are cleared. The route, refreshed pins and blocks are in the separate [Part C re-run plan](TASK_50_PART_C_RERUN_PLAN.md). Nothing in it is approved yet. This plan's results above stand: Part C is still **FAIL**.
