@@ -47,3 +47,7 @@ docs/review/raw/task-29-etw-*.txt
 # OS
 Thumbs.db
 Desktop.ini
+
+# Python bytecode (embeds the absolute path of the machine that compiled it)
+__pycache__/
+*.pyc
