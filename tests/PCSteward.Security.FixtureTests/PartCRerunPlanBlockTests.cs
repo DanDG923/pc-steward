@@ -62,7 +62,7 @@ public sealed partial class PartCRerunPlanBlockTests
     {
         IReadOnlyList<string> blocks = Blocks();
         Assert.IsFalse(blocks.Any(block => block.Contains("<CB2.", StringComparison.Ordinal)), "a block still has a placeholder");
-        IReadOnlyList<string> probes = blocks.Where(block => block.Contains("Task50-QualificationProbe.ps1", StringComparison.Ordinal) && block.Contains("-Mode ", StringComparison.Ordinal)).ToList();
+        List<string> probes = blocks.Where(block => block.Contains("Task50-QualificationProbe.ps1", StringComparison.Ordinal) && block.Contains("-Mode ", StringComparison.Ordinal)).ToList();
         Assert.AreEqual(2, probes.Count);
         foreach (string probe in probes)
         {
