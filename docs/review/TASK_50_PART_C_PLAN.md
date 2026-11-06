@@ -550,3 +550,12 @@ The owner ran D1 personally in a normal Windows PowerShell window. They posted t
 **Cause 2 (host precondition, refused by design).** `cacheLocation` is empty, which is Chocolatey's native default. Profile V2 requires an explicitly set, existing, canonical cache directory that the requester cannot modify. Only the owner can change this, outside PC Steward, with Chocolatey's own tooling. Neither PC Steward nor this session changes Chocolatey.
 
 Both causes must be cleared before any future probe can pass E2. Until then, the Chocolatey routes stay unusable on this host. That is fail-closed, and it is correct.
+
+## 13. Owner decision after D1 (2026-11-06): "Go with option 2"
+
+Option 2: fix **cause 1** in code now, as a reviewed Profile V2 revision. The work covers:
+- deciding, from the pinned Chocolatey 2.7.5 sources, how `containsLegacyPackageInstalls` is used;
+- whether to admit it, with which values, and whether it enters the fingerprint;
+- code, tests, independent review and Windows CI.
+
+**Host steps are deferred.** Any redeploy, the owner's own `cacheLocation` change (cause 2) and a new probe are decided later, each under its own approval. Part C stays recorded as **FAIL**, and the Chocolatey routes stay unusable on this host.
