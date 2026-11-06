@@ -294,3 +294,49 @@ LEDGER-SHA256 C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C
 `TrustedPublisher old=1` differs from the expected `old=0`. A follow-up read-only listing in the same route showed it is `ED6FBCE8BFB12A563B2DBE0776A9C4ACBE214C55` (NotAfter 2026-11-19T21:57:20Z) only. That is the stale entry already recorded as accepted residue: it is visible only in the Claude desktop app's private per-user view, the owner's certmgr.msc showed the real store empty, and with no trusted root it trusts nothing ([Part B failure record](../failures/task-50-part-b-exec.md), [recovery plan §4](TASK_50_RECOVERY_PLAN.md)). `67B59B4C…`, `473DB701…` and `14F34EFE…` are absent from every store. It does not block C2, and it expires on its own on 2026-11-19.
 
 **C2 pins** (now in §7): build record `5877F0736DFF2134C19F42A7C53706B19979CAF885C63209F0BAB524ED4759A4`, manifest `F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954`, ledger `C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C`, signer `C7372974A9E6257671E106F11E660BC29C928849`, NotAfter `2026-11-20T22:01:22Z`. **Next:** approval C2. C2-run must happen before the new signer expires.
+
+**C2 approved by the owner (2026-11-06T22:07Z): "I approve C2".** It covers C2-pre, C2-check and C2-run, each once.
+
+### Result C2-pre (2026-11-06, about 22:08Z): precondition holds
+
+The owner opened the new deployment normally, opened Activity, and saw "Reviewed update outcomes": **"No reviewed update outcomes are recorded."** He closed it without a scan or refresh.
+
+### Result C2-check (2026-11-06, about 22:09Z): PASS
+
+This ran once, read-only, through the Remote Control route, after confirming that no `PCSteward*` process was running.
+
+```text
+PROBE-SCRIPT 831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A
+C1 PINS-OK ledger=C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C manifest=F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954 desktop=6CB2345E2DA91F106FBA16F1EF16395930412F23D39D49361A161318E7AFEB3D helper=C5AE861AE3E1A6B454010AE3D42A2B684E520C2C380C7327E4D5CAB182B1E863 capability=50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B signer=C7372974A9E6257671E106F11E660BC29C928849 notAfter=2026-11-20T22:01:22Z probeBuild=true commit=5606da23c303429c7c4711e9f5cfd43640c79289
+C2 BASELINE: db=78697727CE44A1167537A04BE4554339028F660DA142E00894778D602BEC55BE data=052B458E6DECB24C07FD55D82ADC94A416D294AACC062F47D57BE05CB2AB7108 choco=75E2A69CD8977AF6536BA866FA61F1ABEB531F45B4DBE7DCFDC6C55710EBE4BD chocoFiles=144 chocoProcess=0
+CHECK-COMPLETE: nothing was launched
+PROBE-EXIT 0
+```
+
+### Result C2-run (2026-11-06T22:10:53Z–22:10:58Z): overall PASS
+
+The owner ran it once in his own normal Windows PowerShell window. He saw exactly one UAC prompt, as described: `PCSteward.ElevatedHelper.exe` at the expected location, from the owner-only test publisher, with `--kind qualify-chocolatey-helper` right after the program path. He answered Yes. That confirms E3.
+
+```text
+C1 PINS-OK (as C2-check)
+C2 BASELINE: (as C2-check)
+C3 EXIT: 0 RESULT: present
+C4 UNCHANGED: db=True data=True choco=True chocoProcess=0 pcstewardProcess=0 resultFolderClean=True
+C5 RESULT: schema pc-steward-qualification-probe-result:2, desktopOutcome ResponseAccepted, both capability tokens Supported,
+  initialLaunchTrust/finalLaunchTrust true, helperProcessCreated, pipeConnected, desktopPeerVerified, helperFileIdEqual,
+  responseFrameReceived, pipeEofObserved, helperExitObserved, bindingHeldUntilExit all true, terminationFailed false, helperExitCode 0,
+  probe: tokenVerdict Accepted, observation Observed, failedStep null, failedCheck/failedAccess/refusalReason/refusalDetail None,
+  nodesEvaluated 181, ancestorsEvaluated 52, observedClientVersion 2.7.5, fingerprint present (64), diagnostic probe-observed
+C6 VERDICT E1: PASS (tokenVerdict=Accepted)
+C6 VERDICT A3: PASS (g1Status=Supported for every token)
+C6 VERDICT E2: PASS (observed 2.7.5)
+C6 VERDICT E3: PASS (machine facts; owner prompt judgment required)
+C6 VERDICT E5: PASS (C4=C2)
+C6 OVERALL: PASS (valid only with the owner E3 prompt confirmation; proves UAC and pre-launch enforcement only)
+C7 CLEANUP-COMPLETE
+PROBE-EXIT 0
+```
+
+**Interpretation (spec §8).** This is a recorded overall PASS for this deployment and these pins. Profile V2 step 6 now admits the host: the observation is `Observed` with no refusal, and the step-6 refusal from the first Part C run is gone. The PASS proves **UAC and pre-launch enforcement only**. It does not cover the desktop's Chocolatey caller-trust check, and it is not a real update.
+
+**What stays closed.** Real Chocolatey use still needs the owner's final admission approval (obligation 8). The G9 real-launch residuals stay open and block any real Chocolatey update until they are exercised. D4 = G-0 now allows the reviewed composition to be deployed, because a probe PASS is recorded. The next steps are the Chocolatey review screen build (G9-D4), and then G9-T1 (the ripgrep test package) under the G9 plan.
