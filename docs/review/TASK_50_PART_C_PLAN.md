@@ -476,3 +476,53 @@ The database is still `78697727…` after the C-pre launch of the activated buil
 - nothing changed (E5).
 
 Diagnosis of the step-6 refusal follows in §12.
+
+## 12. Diagnosing the E2 refusal (step 6, `Configuration()`)
+
+**What step 6 checks** (`ChocolateyProfileObserver.Configuration`, Profile V2 §"Configured cacheLocation"). It reads `ProgramData\chocolatey\config\chocolatey.config` and requires all of these:
+1. **The file parses under the strict admitted 2.7.5 model** (`ChocolateyConfigurationParser`). The model allows:
+   - only the 30 known feature names;
+   - only 11 known config keys: `cacheLocation`, `commandExecutionTimeoutSeconds`, `webRequestTimeoutSeconds`, `proxy`, `proxyUser`, `proxyPassword`, `proxyBypassList`, `proxyBypassOnLocal`, `upgradeAllExceptions`, `defaultTemplateName` and `defaultPushSource`;
+   - fixed attribute sets.
+
+   Any other name refuses.
+2. **The required features** have their pinned effective values: `checksumFiles` true, `useRememberedArgumentsForUpgrades` false, `powershellHost` true, `useEnhancedExitCodes` false, `alwaysIncludeHeaders` false, `exitOnRebootDetected` false.
+3. **No source has a negative priority.**
+4. **`cacheLocation` is set** to a nonempty, canonical, absolute local path without `%`. It must exist, be a directory, and be unmodifiable by the requester, ancestors included. **Chocolatey's native default is an empty `cacheLocation`, which Profile V2 refuses by design.**
+5. **The helper's launch paths resolve.**
+
+The probe records only `failedStep=6` and `failedCheck=StepRule`, so it does not say which rule failed. Part A never probed step 6 (host-evidence interpretation: "config features and `cacheLocation` (step 6)" not probed). **Most likely cause:** the default empty `cacheLocation` (rule 4). The next possibilities are a config key or feature name outside the admitted model (rule 1), for example a legacy key kept from an older Chocolatey install. None of this is confirmed yet.
+
+### D1 — read-only configuration diagnostic (proposed; needs its own approval)
+
+D1 runs from a normal Windows PowerShell window. It reads `chocolatey.config` and prints only:
+- fixed tokens;
+- counts;
+- Chocolatey's own feature and key **names** that fall outside the admitted model;
+- the effective values of the six required features, and only when they differ;
+- the *class* of `cacheLocation` (`empty`, `has-percent`, `not-absolute-local`, or `absolute-local` with exists, under-user-profile and under-Chocolatey-root flags).
+
+It prints **no values, URLs, paths, credentials or API keys**. It does not run choco and changes nothing.
+
+```powershell
+$cf = Join-Path $env:ProgramData 'chocolatey\config\chocolatey.config'; $out = [Collections.Generic.List[string]]::new()
+$known = @('checksumFiles','allowEmptyChecksums','allowEmptyChecksumsSecure','autoUninstaller','failOnAutoUninstaller','allowGlobalConfirmation','failOnStandardError','powershellHost','logEnvironmentValues','virusCheck','failOnInvalidOrMissingLicense','ignoreInvalidOptionsSwitches','usePackageExitCodes','useEnhancedExitCodes','useFipsCompliantChecksums','showNonElevatedWarnings','showDownloadProgress','stopOnFirstPackageFailure','useRememberedArgumentsForUpgrades','ignoreUnfoundPackagesOnUpgradeOutdated','skipPackageUpgradesWhenNotInstalled','removePackageInformationOnUninstall','logWithoutColor','exitOnRebootDetected','logValidationResultsOnWarnings','usePackageRepositoryOptimizations','disableCompatibilityChecks','usePackageHashValidation','alwaysIncludeHeaders','useHttpCache'); $keys = @('cacheLocation','commandExecutionTimeoutSeconds','webRequestTimeoutSeconds','proxy','proxyUser','proxyPassword','proxyBypassList','proxyBypassOnLocal','upgradeAllExceptions','defaultTemplateName','defaultPushSource'); $req = [ordered]@{ checksumFiles = $true; useRememberedArgumentsForUpgrades = $false; powershellHost = $true; useEnhancedExitCodes = $false; alwaysIncludeHeaders = $false; exitOnRebootDetected = $false }
+if (!(Test-Path -LiteralPath $cf -PathType Leaf)) { 'D1 CONFIG absent' } else { $b = [IO.File]::ReadAllBytes($cf); $bom = if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { 'utf8-bom' } elseif ($b.Length -ge 2 -and $b[0] -eq 0xFF -and $b[1] -eq 0xFE) { 'utf16le-bom' } elseif ($b.Length -ge 2 -and $b[0] -eq 0xFE -and $b[1] -eq 0xFF) { 'utf16be-bom' } else { 'none' }; 'D1 CONFIG bytes=' + $b.Length + ' bom=' + $bom + ' overBound=' + ($b.Length -gt 65536)
+  try { $x = [xml][IO.File]::ReadAllText($cf) } catch { $x = $null; 'D1 XML parse-failed' }
+  if ($x) { $r = $x.DocumentElement; 'D1 ROOT name=' + $r.LocalName + ' attributes=' + (@($r.Attributes | ForEach-Object { $_.Name }) -join ',') + ' collections=' + (@($r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' } | ForEach-Object { $_.LocalName }) -join ',')
+    $fe = @($r.SelectNodes('features/feature')); $names = @($fe | ForEach-Object { $_.GetAttribute('name') }); 'D1 FEATURES count=' + $fe.Count + ' unknown=' + (@($names | Where-Object { $known -notcontains $_ }) -join ',') + ' duplicates=' + (@($names | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name }) -join ',') + ' otherAttributes=' + (@($fe | ForEach-Object { $_.Attributes | ForEach-Object { $_.Name } } | Where-Object { @('name','enabled','setExplicitly','description') -notcontains $_ } | Sort-Object -Unique) -join ',')
+    foreach ($k in $req.Keys) { $n = @($fe | Where-Object { $_.GetAttribute('name') -eq $k }); $eff = $req[$k]; if ($n.Count -eq 1 -and $n[0].GetAttribute('setExplicitly') -eq 'true') { $eff = $n[0].GetAttribute('enabled') -eq 'true' }; if (!$eff -eq $req[$k]) { 'D1 REQUIRED ' + $k + ' effective=' + $eff + ' required=' + $req[$k] + ' ok=False' } }; 'D1 REQUIRED-CHECKED ' + $req.Count
+    $ad = @($r.SelectNodes('config/add')); $ks = @($ad | ForEach-Object { $_.GetAttribute('key') }); 'D1 CONFIG-KEYS count=' + $ad.Count + ' unknown=' + (@($ks | Where-Object { $keys -notcontains $_ }) -join ',') + ' missingValue=' + (@($ad | Where-Object { !$_.HasAttribute('value') } | ForEach-Object { $_.GetAttribute('key') }) -join ',')
+    $cl = @($ad | Where-Object { $_.GetAttribute('key') -eq 'cacheLocation' }); $cv = if ($cl.Count -eq 1) { $cl[0].GetAttribute('value') } else { '' }; $cs = if ($cv.Length -eq 0) { 'empty' } elseif ($cv.Contains('%')) { 'has-percent' } elseif ($cv -notmatch '^[A-Za-z]:\\') { 'not-absolute-local' } else { 'absolute-local exists=' + (Test-Path -LiteralPath $cv -PathType Container) + ' underUserProfile=' + $cv.StartsWith([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile), [StringComparison]::OrdinalIgnoreCase) + ' underChocolateyRoot=' + $cv.StartsWith((Join-Path $env:ProgramData 'chocolatey'), [StringComparison]::OrdinalIgnoreCase) }; 'D1 CACHELOCATION ' + $cs
+    $so = @($r.SelectNodes('sources/source')); 'D1 SOURCES count=' + $so.Count + ' negativePriority=' + @($so | Where-Object { $_.HasAttribute('priority') -and [int]$_.GetAttribute('priority') -lt 0 }).Count + ' otherAttributes=' + (@($so | ForEach-Object { $_.Attributes | ForEach-Object { $_.Name } } | Where-Object { @('id','value','disabled','bypassProxy','selfService','adminOnly','user','password','priority','certificate','certificatePassword') -notcontains $_ } | Sort-Object -Unique) -join ',') + ' apiKeys=' + @($r.SelectNodes('apiKeys/*')).Count } }
+```
+
+Expected output: one line each of `D1 CONFIG`, `D1 ROOT`, `D1 FEATURES`, `D1 REQUIRED-CHECKED 6` (preceded by a `D1 REQUIRED … ok=False` line for each mismatch), `D1 CONFIG-KEYS`, `D1 CACHELOCATION` and `D1 SOURCES`.
+
+**What follows from D1** (owner decisions; nothing is changed by PC Steward or by this session):
+
+| D1 shows | Meaning | Possible owner choice |
+|---|---|---|
+| `CACHELOCATION empty` | The route needs a protected, explicitly set cache folder | Leave Chocolatey as it is (the route stays unusable), or decide yourself to set a protected `cacheLocation` with Chocolatey's own tool, outside PC Steward, and then run a new, separately approved probe |
+| unknown keys or features | The admitted 2.7.5 model is narrower than this host's real config | A reviewed Profile V2 revision would be needed before the route could be used; code, review, CI and redeploy, then a new probe |
+| required feature mismatch or negative priority | A deliberate local Chocolatey setting the profile does not support | Keep it (the route stays unusable), or change it yourself outside PC Steward |
