@@ -2,7 +2,7 @@
 
 This folder is the implementation-ready product-design package for the native PC Steward Windows desktop application. The sole production UI target is **WinUI 3 on the Windows App SDK for Windows 11 x64**; no website, embedded WebView or browser UI is part of the product. The product owner accepted on 2026-07-30 that unused transitive WinUI/WebView2 runtime support files may ship with the Windows App SDK payload; this does not authorize embedded browser features. This handoff is additive: no production application source was changed.
 
-`design/native-prototype/` is the authoritative interactive design prototype. It is a separate, unpackaged WinUI 3 desktop application used to review hierarchy, interaction and native window behaviour without inspecting or changing the computer.
+The interactive design prototypes (`design/native-prototype/`, a WinUI 3 app, and `design/prototype/`, an older browser-rendered visual reference) were removed on 2026-11-06 at the owner's request. The production desktop app in `src/PCSteward.Desktop` is now the reference for interaction and native window behaviour. Both prototypes can still be read in git history at commit `ee4fadb`. Older documents that mention them describe that history.
 
 ## Design direction
 
@@ -21,20 +21,6 @@ This folder is the implementation-ready product-design package for the native PC
 | `design-tokens.json` | Machine-readable global, light, dark and high-contrast token definitions |
 | `assets/svg/` | Original commercial-use vector concepts, selected identity and illustrations |
 | `assets/png/` | Raster exports for Windows packaging and review |
-| `native-prototype/` | Authoritative interactive WinUI 3 design prototype and validation instructions |
-| `prototype/` | Superseded browser-rendered visual reference; archival only and not an implementation base |
-
-## Native prototype review
-
-From the repository root, run the authoritative native prototype:
-
-```powershell
-dotnet run --project design/native-prototype/PCSteward.NativePrototype.csproj
-```
-
-Use its navigation pane and **Prototype state** selector to inspect ready, first-run, scanning, complete, no-findings, partial-failure and offline states. The native prototype is illustrative only and never reads, scans, changes or deletes anything on the computer. Production implementation belongs in `src/PCSteward.Desktop` and must follow the phased implementation brief.
-
-The older browser-rendered artifact in `design/prototype/` is retained only to preserve historical visual exploration. It is superseded, must not be published as PC Steward, and must not be used as the product architecture or implementation source.
 
 ## Scope note
 

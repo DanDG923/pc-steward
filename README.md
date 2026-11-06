@@ -1,5 +1,11 @@
 # PC Steward Codex execution pack
 
+> **Pre-release source. Not for distribution or general use.**
+> PC Steward is an unfinished, local-first Windows 11 app for keeping installed software up to date. No release is supported.
+> The source is licensed under the [MIT License](LICENSE) (see [ADR-008](docs/adr/ADR-008-LICENCE-AND-SOURCE-AVAILABILITY.md)). It comes with no warranty.
+> The owner-only install and test scripts under `scripts/` create and trust code-signing certificates, change ACLs under `%ProgramFiles%` and need an elevated session. Do not run them on a machine you care about.
+> To report a security problem, see [SECURITY.md](SECURITY.md).
+
 Start with [`CODEX_BUILD_PLAYBOOK.md`](CODEX_BUILD_PLAYBOOK.md).
 
 ## Contents

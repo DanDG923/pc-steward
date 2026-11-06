@@ -39,7 +39,7 @@ Task 26 adds scan-only scheduling/notifications. Task 26A assembles evidence bef
 | OD-05 grouping | Accepted ADR-005; verify Tasks 11/15 |
 | OD-06 baseline | Accepted ADR-006; confirm Task 29 |
 | OD-07 schedule | Accepted ADR-007/020; verify Task 26 |
-| OD-08 licence/public source | Accepted private-beta default ADR-008; product-owner decision before publication |
+| OD-08 licence/public source | Public repository under MIT (ADR-008, 2026-11-06); distribution still gated |
 | OD-09 self-update | Accepted manual path ADR-009; verify Task 30 |
 | OD-10 path export | Accepted ADR-010/016; verify Tasks 14/30 |
 | OD-11 cache defaults | Provisional ADR-011; verify Tasks 24/29 |
