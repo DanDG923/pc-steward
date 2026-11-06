@@ -1,13 +1,24 @@
-# Bootstrap template. The exact reviewed plan and pure ACL functions must be embedded
-# into the approved encoded command; never invoke this template from a mutable -File.
+# Bootstrap template: runs only embedded in the approved encoded command (see Invoke-OwnerOnlyRedeployCaller.ps1 notes).
 $ErrorActionPreference='Stop'
 $env:PSModulePath=[IO.Path]::Combine($PSHOME,'Modules')
 $env:PATH=[IO.Path]::Combine($env:SystemRoot,'System32')
 if(!$OwnerOnlyPlanJson){throw 'The exact embedded approval record is required.'}
 $OwnerOnlyPlan=ConvertFrom-Json -InputObject $OwnerOnlyPlanJson
-if($null -eq $OwnerOnlyPlan -or $OwnerOnlyPlan.schema -cne 'pc-steward-exact-redeploy-v1'){throw 'An exact embedded owner-approved redeployment plan is required.'}
+if($null -eq $OwnerOnlyPlan -or $OwnerOnlyPlan.schema -cnotin @('pc-steward-exact-redeploy-v1','pc-steward-exact-redeploy-v2','pc-steward-exact-redeploy-v3','pc-steward-exact-fresh-install-v1')){throw 'An exact embedded owner-approved redeployment plan is required.'}
+# Executing ANY new plan (v1 or v2) needs its own separate exact owner approval.
+$fresh=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-fresh-install-v1'
+$preserveUserData=$OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v3' -or $fresh;$userDataPins=$null;$userData=$null
+if($preserveUserData){$userDataPins=@(Assert-OwnerOnlyRedeployPlanV3 -Plan $OwnerOnlyPlan)}
+if($OwnerOnlyPlan.schema -ceq 'pc-steward-exact-redeploy-v1'){
+    if($null -ne $OwnerOnlyPlan.PSObject.Properties['expectedOldOrigin'] -or $null -ne $OwnerOnlyPlan.PSObject.Properties['expectedNewOrigin']){throw 'Plan schema v1 cannot name payload origins.'}
+    $expectedOldOrigin='legacy-v6';$expectedNewOrigin='pinned-unsigned-v1'
+}else{
+    $expectedOldOrigin=$OwnerOnlyPlan.expectedOldOrigin;$expectedNewOrigin=$OwnerOnlyPlan.expectedNewOrigin
+    if($expectedOldOrigin -isnot [string] -or $expectedOldOrigin -cnotin @(@('legacy-v6','pinned-unsigned-v1','pinned-unsigned-v2')+@(if($fresh){'none'})) -or $expectedNewOrigin -isnot [string] -or $expectedNewOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2')){throw 'Plan schema v2 must name an allowlisted expected old and new payload origin.'}
+}
 $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if(!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $OwnerOnlyPlan.installerSid){throw 'Exact installing SID and elevation required.'}
+Assert-OwnerOnlyUnpackagedProcess
 $programFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $execution=[IO.Path]::GetFullPath($OwnerOnlyPlan.executionRoot)
 $prefix=Join-Path $programFiles 'PC Steward OwnerOnlyTest Execution '
@@ -48,38 +59,51 @@ try{
     $env:TEMP=$compiler;$env:TMP=$compiler
     Set-Location -LiteralPath $scripts
     Assert-OwnerOnlyExecutionEnvironment -ScriptRoot $scripts
-    # Only these hash-verified protected copies can now execute/compile privileged code.
     . (Join-Path $scripts 'OwnerOnlyPayloadIntegrity.ps1')
     $install=Join-Path $programFiles 'PC Steward';$state=Join-Path $programFiles 'PC Steward OwnerOnlyTest State';$ledger=Join-Path $state 'deployment.json'
     $data=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward'
-    $phase='old-deployment-preflight'
-    if((Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $OwnerOnlyPlan.oldLedgerSha256 -or (Test-Path -LiteralPath $data) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'Approved old deployment/data/process baseline changed.'}
+    $phase=if($fresh){'fresh-install-preflight'}else{'old-deployment-preflight'}
+    if($fresh){Assert-OwnerOnlyFreshInstallBaseline -InstallRoot $install -StateRoot $state}
+    if((!$fresh -and (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $OwnerOnlyPlan.oldLedgerSha256) -or (!$preserveUserData -and (Test-Path -LiteralPath $data)) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'Approved old deployment/data/process baseline changed.'}
+    if($preserveUserData){if([IO.Path]::GetFullPath($OwnerOnlyPlan.userDataRoot).TrimEnd('\') -cne $data){throw 'The approved user data root differs.'};Assert-OwnerOnlyNoSqliteLoaded;Assert-OwnerOnlyScheduledCheckInactive;$userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $userDataPins)}
+    if(!$fresh){
     $old=Get-Content -LiteralPath $ledger -Raw|ConvertFrom-Json
     if($old.certificateThumbprint -cne $OwnerOnlyPlan.oldThumbprint){throw 'Old signer changed.'}
-    $legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -AllowLegacyPayload
-    $legacy=$legacyText|ConvertFrom-Json;if($legacy.validation -cne 'Pass' -or $legacy.payloadOrigin -cne 'legacy-v6'){throw 'Exact legacy preflight failed.'}
-    $candidate=Read-OwnerOnlyCandidateManifest -Path $OwnerOnlyPlan.candidateManifestPath -ExpectedSha256 $OwnerOnlyPlan.candidateManifestSha256
+    if($expectedOldOrigin -ceq 'legacy-v6'){$legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -AllowLegacyPayload}
+    else{$legacyText=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -RequirePinnedPayload}
+    $legacy=$legacyText|ConvertFrom-Json;if($legacy.validation -cne 'Pass' -or $legacy.payloadOrigin -cne $expectedOldOrigin){if($expectedOldOrigin -ceq 'legacy-v6'){throw 'Exact legacy preflight failed.'};throw 'Exact old-deployment preflight failed.'}
+    }
+    $candidate=Read-OwnerOnlyCandidateManifest -Path $OwnerOnlyPlan.candidateManifestPath -ExpectedSha256 $OwnerOnlyPlan.candidateManifestSha256 -PayloadRoot $OwnerOnlyPlan.candidateRoot
+    if($candidate.PayloadOrigin -cne $expectedNewOrigin){throw 'The pinned candidate payload origin differs from the plan.'}
     [PCSteward.Deployment.PayloadIntegrity]::AssertTree($OwnerOnlyPlan.candidateRoot,$candidate.Files)
+    if($fresh){$phase='fresh-install-recheck';Assert-OwnerOnlyScheduledCheckInactive;Assert-OwnerOnlyFreshInstallBaseline -InstallRoot $install -StateRoot $state}else{
     $phase='approved-removal'
+    if($preserveUserData){Assert-OwnerOnlyScheduledCheckInactive;Assert-OwnerOnlyNoPCStewardProcess}
     $removal=& (Join-Path $scripts 'Remove-OwnerOnlyProtectedTestDeployment.ps1') -Remove
     Write-OwnerOnlyProtectedJson -Path (Join-Path $execution 'removal-result.json') -Value ($removal|ConvertFrom-Json)
-    if((Test-Path -LiteralPath $install) -or (Test-Path -LiteralPath $state) -or (Test-Path -LiteralPath $data)){throw 'Removal postconditions failed.'}
+    if((Test-Path -LiteralPath $install) -or (Test-Path -LiteralPath $state) -or (!$preserveUserData -and (Test-Path -LiteralPath $data))){throw 'Removal postconditions failed.'}
+    if($preserveUserData){$userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $userDataPins)}
     foreach($store in @('My','Root','TrustedPublisher')){if(Test-Path -LiteralPath ("Cert:\CurrentUser\$store\"+$OwnerOnlyPlan.oldThumbprint)){throw 'Old owned signer remains.'}}
+    }
     $phase='approved-pinned-installation'
     $installed=& (Join-Path $scripts 'Install-OwnerOnlyProtectedTestDeployment.ps1') -Install -CreateOwnerOnlyCertificate -CandidateRoot $OwnerOnlyPlan.candidateRoot -CandidateManifestPath $OwnerOnlyPlan.candidateManifestPath -CandidateManifestSha256 $OwnerOnlyPlan.candidateManifestSha256
     Write-OwnerOnlyProtectedJson -Path (Join-Path $execution 'installation-result.json') -Value ($installed|ConvertFrom-Json)
     $phase='independent-pinned-validation'
     $validated=& (Join-Path $scripts 'Test-OwnerOnlyProtectedTestDeployment.ps1') -RequirePinnedPayload
     $proof=$validated|ConvertFrom-Json
-    if($proof.validation -cne 'Pass' -or $proof.payloadOrigin -cne 'pinned-unsigned-v1' -or $proof.candidateManifestSha256 -cne $OwnerOnlyPlan.candidateManifestSha256 -or (Test-Path -LiteralPath $data) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'New exact identity/preservation postconditions failed.'}
+    if($proof.validation -cne 'Pass' -or $proof.payloadOrigin -cne $expectedNewOrigin -or ($expectedNewOrigin -ceq 'pinned-unsigned-v2' -and $proof.helperProtocol -cne '2') -or $proof.candidateManifestSha256 -cne $OwnerOnlyPlan.candidateManifestSha256 -or (!$preserveUserData -and (Test-Path -LiteralPath $data)) -or @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count){throw 'New exact identity/preservation postconditions failed.'}
+    if($preserveUserData){$userData=@(Assert-OwnerOnlyUserDataPreserved -DataRoot $data -Files $userDataPins)}
     Write-OwnerOnlyProtectedJson -Path (Join-Path $execution 'independent-validator.json') -Value $proof
+    if($preserveUserData){
+        $database=@($userData|Where-Object{$_.path -ceq 'pcsteward.db'})[0]
+        $result=[ordered]@{exitCode=0;phase='validated';payloadOrigin=$proof.payloadOrigin;candidateManifestSha256=$proof.candidateManifestSha256;certificateThumbprint=$proof.certificateThumbprint;launched=$false;applicationUpdates=0;userDataPreserved=$true;userDatabaseBytes=$database.bytes;userDatabaseSha256=$database.sha256;executionRoot=$execution}
+    }else{
     $result=[ordered]@{exitCode=0;phase='validated';payloadOrigin=$proof.payloadOrigin;candidateManifestSha256=$proof.candidateManifestSha256;certificateThumbprint=$proof.certificateThumbprint;launched=$false;applicationUpdates=0;userDataRootAbsent=$true;executionRoot=$execution}
+    }
 }catch{
     $result=[ordered]@{exitCode=1;phase=$phase;failure=$_.Exception.Message;launched=$false;retry=$false;executionRoot=$execution}
 }finally{
     $env:TEMP=$oldTemp;$env:TMP=$oldTmp
-    # Retain the protected code, compiler area and result as declared evidence. No
-    # recursive bootstrap cleanup or retry occurs after a partial/unknown result.
     if($result -and $ownsExecution -and (Test-Path -LiteralPath $execution)){
         $json=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $result -Depth 5))
         $file=Join-Path $execution 'result.json'

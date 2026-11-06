@@ -3,7 +3,7 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 /// <summary>Fresh, typed evidence prepared by inventory before an update can be reviewed.</summary>
-public sealed record UpdateSelectionPreparation(UpdateJobSelection? Selection, string Message);
+public sealed record UpdateSelectionPreparation(UpdateJobSelection? Selection, string Message, LiveInventoryObservation? Observation = null);
 
 public sealed record UpdateReviewPreparation(UpdateJobReview? Review, string Message, RunningApplicationDetection RunningApplication,
     UpdateProgressMailbox? Progress = null);

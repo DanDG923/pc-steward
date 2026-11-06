@@ -1,0 +1,32 @@
+{
+    "schema":  "pc-steward-task50-host-evidence:1",
+    "cases":  "Default",
+    "scriptSha256":  "0A1C4377D3A0EBF5ED2778A38AA9BA4C05BB477F3AEA9F54B03790BD930584D4",
+    "runDirectory":  "\u003cEVIDENCE\u003e\\run-20261102T092427Z-14a2358d",
+    "startedUtc":  "2026-11-02T09:24:27Z",
+    "hostFacts":  {"osVersion":  "10.0.26300.0", "powerShell":  "5.1.26100.9711", "clr":  "4.0.30319.42000", "tokenElevationType":  3, "tokenElevated":  0, "evidenceVolumeEqualsProgramFilesVolume":  true, "evidenceFileSystem":  "NTFS"},
+    "results":  {
+        "O5":  {"case":  "O5", "status":  "run", "fixedRoot":  "\u003cPROGRAMDATA\u003e\\chocolatey", "environmentVariableSet":  true, "environmentVariableEqualsFixedRoot":  true, "rootIdentityRead":  true,
+                "engine":  {"path":  "choco.exe", "ok":  true, "failure":  null, "error":  0, "length":  12022880, "fileIdRead":  true, "reparse":  false, "sha256":  "4AB5785C91D6CB3CC0E9890BCA29077F7D6BAAC0DFC935DBE2DA37047ED761C0", "matchesPin":  true},
+                "codeList":  {"expected":  56, "readable":  56, "matchedPin":  56, "bytesRead":  15258758, "failures":  []},
+                "helpersTree":  {"tree":  "helpers", "present":  true, "listError":  null, "directories":  1, "files":  42, "unlistedFiles":  1, "readable":  1, "unreadable":  0, "reparse":  0, "overBound":  false, "failures":  []},
+                "toolsTree":  {"tree":  "tools", "present":  true, "listError":  null, "directories":  0, "files":  13, "unlistedFiles":  0, "readable":  0, "unreadable":  0, "reparse":  0, "overBound":  false, "failures":  []},
+                "extensionsTree":  {"tree":  "extensions", "present":  false, "listError":  null, "directories":  0, "files":  0, "unlistedFiles":  0, "readable":  0, "unreadable":  0, "reparse":  0, "overBound":  false, "failures":  []},
+                "hooksTree":  {"tree":  "hooks", "present":  false, "listError":  null, "directories":  0, "files":  0, "unlistedFiles":  0, "readable":  0, "unreadable":  0, "reparse":  0, "overBound":  false, "failures":  []},
+                "registration":  {"libListed":  true, "libListError":  null, "directories":  1, "rootNupkg":  0, "nupkgFiles":  1, "nupkgReadable":  1, "nupkgUnreadable":  0, "reparse":  0, "overBound":  false, "errorCodes":  [], "chocolatey":  "present",
+                                  "chocolateyFiles":  [{"path":  "chocolatey/chocolatey.nupkg", "ok":  true, "failure":  null, "error":  0, "length":  5719618, "fileIdRead":  true, "reparse":  false, "sha256":  "F86F99A18D236C2F99E6F67A20BE7ADC65C6C7756BF6CF3B43759E7EC0AA5839", "matchesPin":  true},
+                                                       {"path":  "chocolatey/chocolatey.nuspec", "ok":  true, "failure":  null, "error":  0, "length":  4281, "fileIdRead":  true, "reparse":  false, "sha256":  "0CAC62247C439FADA2A52F0D9AFA85D4707D072121B313E4738CEB86D384A000"}],
+                                  "extension":  "absent", "extensionFiles":  []},
+                "store":  {"present":  true, "listError":  null, "directories":  1, "clientDirectories":  1, "markerFiles":  2, "markerReadable":  2, "errorCodes":  []},
+                "problems":  [], "routeFindings":  [], "matchesPinnedRelease":  false, "elapsedMs":  777, "verdict":  "PASS-READABLE"},
+        "AQ1N":  {"verdict":  "PASS", "note":  "baseline exit 0; held: peerEqualsHeld true; replacement DELETE/WRITE_DATA=32 before launch, while running and after exit; control after release DELETE=handle"},
+        "AQ1M":  {"verdict":  "PASS", "note":  "baseline exit 42; held exe and lazy DLL: replacement DELETE/WRITE_DATA=32 before, during and after; peerEqualsHeld true; control after release DELETE=handle"},
+        "AQ1C":  {"verdict":  "PASS", "note":  "as AQ1M under the coreclr loader"},
+        "A2L3S":  {"verdict":  "PASS", "note":  "System32 file and directory: every write-class probe 5 unheld and held; own file can-modify unheld, probe-failed-closed:32 held; positive control as expected"}
+    },
+    "verdicts":  {"O5":  "PASS-READABLE", "AQ1N":  "PASS", "AQ1M":  "PASS", "AQ1C":  "PASS", "A2L3S":  "PASS"},
+    "stop":  null,
+    "elapsedMs":  13712,
+    "redactions":  0,
+    "_note":  "Owner-pasted evidence, 2026-11-02. O5 recorded field-for-field; AQ1*/A2L3S detail condensed into notes (verdicts and key outcomes unchanged)."
+}

@@ -24,6 +24,8 @@ public sealed class MainWindow : Window
     private readonly IScheduledCheckSettingsStore scheduleSettingsStore;
     private readonly ScheduledCheckRegistrationService scheduleRegistration;
     private readonly Func<FactoryResetResult>? acknowledgeResetOnboarding;
+    private readonly IReviewedUpdateHistoryReader reviewedHistory;
+    private readonly Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
@@ -55,9 +57,10 @@ public sealed class MainWindow : Window
 
     private enum ResultsFilter { All, Actionable, NeedsDecision, Unavailable, Unmanaged }
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
         this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration; this.acknowledgeResetOnboarding = acknowledgeResetOnboarding;
+        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken));
         updateProgressTimer = DispatcherQueue.CreateTimer();
         updateProgressTimer.Interval = TimeSpan.FromMilliseconds(250);
         Closed += (_, _) => { windowClosed = true; StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
@@ -71,7 +74,7 @@ public sealed class MainWindow : Window
 
     private bool LoadSavedInventory()
     {
-        try { DataOperationLease.RunSynchronous(() =>
+        try { DataOperationLease.RunReadSynchronous(() =>
         {
             InventoryDashboard dashboard = workflow.LoadAsync(viewModel.Connectors.ToArray(), CancellationToken.None).GetAwaiter().GetResult();
             foreach (ConnectorOption connector in viewModel.Connectors.ToArray()) viewModel.SetConnectorEnabled(connector.Name, dashboard.Connectors[connector.Name].Enabled);
@@ -764,8 +767,29 @@ public sealed class MainWindow : Window
             panel.Children.Add(Card(timeline));
             panel.Children.Add(PageCopy($"Showing {Math.Min(activity.Count, 50):N0} of {activity.Count:N0} locally available record{(activity.Count == 1 ? string.Empty : "s")}. Update execution outcomes remain attached to each application's technical timeline."));
         }
+        AddReviewedUpdateOutcomesSection(panel);
         panel.Children.Add(StewardVisuals.InformationBanner("Current source evidence", viewModel.UpdateFreshnessLabel, viewModel.IsUpdateSourceEnabled ? "information" : "neutral"));
         Content = BuildShell(panel);
+    }
+
+    /// <summary>Admission obligation 5: the read-only reviewed-update outcomes (route, verification, lingering processes, helper report).</summary>
+    private void AddReviewedUpdateOutcomesSection(StackPanel panel)
+    {
+        panel.Children.Add(new TextBlock { Text = ReviewedUpdateHistoryListViewModel.Heading, Style = AppStyle("StewardSectionTitleStyle") });
+        StackPanel outcomes = new() { Spacing = 8 };
+        AutomationProperties.SetName(outcomes, ReviewedUpdateHistoryListViewModel.Heading);
+        outcomes.Children.Add(PageCopy(ReviewedUpdateHistoryListViewModel.LoadingText));
+        panel.Children.Add(outcomes);
+        bool loaded = false;
+        outcomes.Loaded += async (_, _) =>
+        {
+            if (loaded) return;
+            loaded = true;
+            ReviewedUpdateHistoryListViewModel history;
+            try { history = await DataOperationLease.RunReadAsync(token => ReviewedUpdateHistoryListViewModel.LoadAsync(reviewedHistory, token), CancellationToken.None); }
+            catch (Exception) { history = ReviewedUpdateHistoryListViewModel.Unavailable; }
+            if (!windowClosed) ReviewedRouteSurfaces.RenderHistory(outcomes, history);
+        };
     }
 
     private void RenderPrivacyPage()
@@ -1133,8 +1157,8 @@ public sealed class MainWindow : Window
         try
         {
             viewModel.LoadUpdateIntelligence(await DataOperationLease.RunAsync(token => workflow.RefreshUpdateIntelligenceAsync(viewModel.IsUpdateSourceEnabled, token), CancellationToken.None));
-            activeDecisions = await DataOperationLease.RunAsync(token => workflow.GetActiveDecisionsAsync(token), CancellationToken.None);
-            manualMappings = await DataOperationLease.RunAsync(token => workflow.GetManualMappingsAsync(token), CancellationToken.None);
+            activeDecisions = await DataOperationLease.RunReadAsync(token => workflow.GetActiveDecisionsAsync(token), CancellationToken.None);
+            manualMappings = await DataOperationLease.RunReadAsync(token => workflow.GetManualMappingsAsync(token), CancellationToken.None);
             if (detailStableProductKey is not null)
             {
                 detailRow = viewModel.AllRows.SingleOrDefault(row => row.StableProductKey == detailStableProductKey) ?? detailRow;
@@ -1196,7 +1220,7 @@ public sealed class MainWindow : Window
         phrase.TextChanged += (_, _) => final.IsPrimaryButtonEnabled = string.Equals(phrase.Text, "RESET", StringComparison.Ordinal);
         if (await final.ShowAsync() != ContentDialogResult.Primary) { invoker.Focus(FocusState.Programmatic); return; }
         if (viewModel.IsScanning || isExecuting || isClearing || downloads.IsCleaning) { await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset unavailable", Content = "Cancel or wait for active work to finish, then try again.", CloseButtonText = "Close" }.ShowAsync(); return; }
-        try { FactoryReset.Arm(); Close(); }
+        try { DataOperationLease.RunSynchronous(() => FactoryReset.Arm()); Close(); }
         catch (Exception exception)
         {
             if (FactoryReset.IsPending()) { Close(); return; }
@@ -1224,7 +1248,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    private async Task SaveExportAsync(bool json) { try { InventoryExport export = await DataOperationLease.RunAsync(token => workflow.CreateExportAsync(json, token), CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }
+    private async Task SaveExportAsync(bool json) { try { InventoryExport export = await DataOperationLease.RunReadAsync(token => workflow.CreateExportAsync(json, token), CancellationToken.None); FileSavePicker picker = new(); picker.SuggestedFileName = $"pc-steward-inventory-{export.ExportedAt:yyyyMMdd-HHmmss}"; picker.FileTypeChoices.Add(json ? "JSON inventory" : "CSV inventory", [export.FileExtension]); InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this)); StorageFile? file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, export.Content); } catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); } }
 
     private async Task ConfirmAndClearScanDataAsync()
     {
@@ -1406,6 +1430,17 @@ public sealed class MainWindow : Window
         decisions.Children.Add(outcome);
         panel.Children.Add(Card(decisions));
 
+        if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId))
+        {
+            StackPanel reviewedRoute = new() { Spacing = 6 };
+            reviewedRoute.Children.Add(new TextBlock { Text = "Chocolatey reviewed update", Style = AppStyle("StewardSectionTitleStyle") });
+            reviewedRoute.Children.Add(PageCopy("PC Steward does not allow this Chocolatey update route yet. You can read what it would disclose before any confirmation; it cannot start an update."));
+            Button openReviewedRoute = ReviewedRouteSurfaces.ChocolateyReviewEntryButton();
+            openReviewedRoute.Click += async (_, _) => await ShowChocolateyReviewedRouteAsync();
+            reviewedRoute.Children.Add(openReviewedRoute);
+            panel.Children.Add(Card(reviewedRoute));
+        }
+
         ComboBox mappingSource = FilterBox(detail?.SourceId ?? "winget", "winget", "msstore");
         TextBox mappingPackage = new() { Header = "Exact approved source package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
         StackPanel technical = new() { Spacing = 8 };
@@ -1421,11 +1456,28 @@ public sealed class MainWindow : Window
         Content = BuildShell(panel);
     }
 
+    /// <summary>
+    /// Admission obligation 5: the runtime-limit Chocolatey review. The split-token state is probed afresh for this review. No
+    /// production composition prepares a reviewed operation for this route (it is admitted in code since the Task 50
+    /// activation), so the dialog shows the no-review disclosure and Confirm stays disabled (<c>IsConfirmEnabled</c>); any
+    /// confirmation goes only through the view model's <c>ReviewedUpdateReview.Confirm</c> recheck and nothing is dispatched.
+    /// </summary>
+    private async Task ShowChocolateyReviewedRouteAsync()
+    {
+        if (windowClosed) return;
+        ChocolateyReviewedRouteReviewViewModel review = ChocolateyReviewedRouteReviewViewModel.Open(null, null, probeReviewedRouteSplitToken);
+        ContentDialog dialog = ReviewedRouteSurfaces.ChocolateyReviewDialog(Content.XamlRoot, review);
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || windowClosed) return;
+        // No dispatch path is composed for this route, so nothing can start either way.
+        _ = review.TryConfirm();
+        await ShowUpdateOutcomeAsync("Update not started", ChocolateyReviewedRouteReviewViewModel.NotStartedText);
+    }
+
     private async Task ShowDetailsAsync(InventoryRow row)
     {
         detailRow = row;
         detailReturnDestination = destination;
-        try { detailRaw = await DataOperationLease.RunAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
+        try { detailRaw = await DataOperationLease.RunReadAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunReadAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         destination = "detail";
         Render();

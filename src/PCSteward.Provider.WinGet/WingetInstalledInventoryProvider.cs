@@ -19,6 +19,8 @@ public sealed record WingetProcessResult(int ExitCode, string StandardOutput, st
 internal interface IWingetProcess
 {
     Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken);
+    Task<WingetProcessResult> RunObservedQueryAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) =>
+        RunAsync(arguments, timeout, cancellationToken);
     Task<WingetProcessResult> RunUpgradeAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) =>
         RunAsync(arguments, timeout, cancellationToken);
     Task<WingetProcessResult> RunUpgradeAsync(IReadOnlyList<string> arguments, TimeSpan timeout, UpdateItemProgress? progress, CancellationToken cancellationToken) =>
@@ -475,6 +477,33 @@ internal sealed class WindowsWingetProcess : IWingetProcess
 
     public async Task<WingetProcessResult> RunUpgradeAsync(IReadOnlyList<string> arguments, TimeSpan timeout, UpdateItemProgress? progress, CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        Process process = StartOwnedProcess(arguments, cancellationToken);
+        progress?.ProcessStarted();
+        OwnedProcessReadResult result = await OwnedProcessWork.RunStartedAsync(process, timeout, cancellationToken).ConfigureAwait(false);
+        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut,
+            result.OutputLimitExceeded, result.Cancelled, result.OutputIncomplete, result.Teardown.OwnedCompletion,
+            !result.Teardown.DirectProcessExitObserved || !result.Teardown.OwnedIoCompleted);
+    }
+
+    public Task<WingetProcessResult> RunObservedQueryAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        return ObserveStartedQueryAsync(StartOwnedProcess(arguments, cancellationToken), timeout, cancellationToken);
+    }
+
+    internal static async Task<WingetProcessResult> ObserveStartedQueryAsync(Process process, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        OwnedProcessReadResult result = await OwnedProcessWork.RunStartedAsync(process, timeout, cancellationToken,
+            confirmOwnershipWithinBudget: true).ConfigureAwait(false);
+        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut,
+            result.OutputLimitExceeded, result.Cancelled, result.OutputIncomplete, result.Teardown.OwnedCompletion,
+            !result.Teardown.DirectProcessExitObserved || !result.Teardown.OwnedIoCompleted || !result.Teardown.PipeEofObserved ||
+            result.Teardown.KillFailed || !result.Teardown.OwnedCompletion.IsCompletedSuccessfully);
+    }
+
+    private static Process StartOwnedProcess(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(arguments);
         cancellationToken.ThrowIfCancellationRequested();
         ProcessStartInfo start = new() { FileName = ResolveWingetExecutable(), UseShellExecute = false,
@@ -487,11 +516,7 @@ internal sealed class WindowsWingetProcess : IWingetProcess
             if (!process.Start()) throw new InvalidOperationException("The provider process did not start.");
         }
         catch { process.Dispose(); throw; }
-        progress?.ProcessStarted();
-        OwnedProcessReadResult result = await OwnedProcessWork.RunStartedAsync(process, timeout, cancellationToken).ConfigureAwait(false);
-        return new(result.ExitCode, result.StandardOutput, result.StandardError, result.TimedOut,
-            result.OutputLimitExceeded, result.Cancelled, result.OutputIncomplete, result.Teardown.OwnedCompletion,
-            !result.Teardown.DirectProcessExitObserved || !result.Teardown.OwnedIoCompleted);
+        return process;
     }
 
     public async Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)

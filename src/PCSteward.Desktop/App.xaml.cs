@@ -21,15 +21,31 @@ public partial class App : global::Microsoft.UI.Xaml.Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        using Mutex bootstrapMutex = new(false, FactoryReset.DataOperationMutexName);
-        bool bootstrapLeaseHeld;
-        try { bootstrapLeaseHeld = bootstrapMutex.WaitOne(0); }
-        catch (AbandonedMutexException) { bootstrapLeaseHeld = true; }
-        if (!bootstrapLeaseHeld)
+        // Qualification probe spec rev 4 §5.1 (review M3): classify first, before the gate below. A probe or malformed start
+        // never reaches that gate, reset handling, the database or any window; the probe's result file is authoritative (§5.4).
+        QualificationProbeLaunch launch = QualificationProbeEntry.Classify(Environment.GetCommandLineArgs());
+        if (launch != QualificationProbeLaunch.Normal)
+        {
+            Environment.Exit(launch == QualificationProbeLaunch.Probe
+                ? QualificationProbeEntry.Run(QualificationProbeLaunchGate.TryAcquire)
+                : QualificationProbeEntry.MalformedExitCode);
+            return;
+        }
+        // Common current-user gate (Global SID gate, then legacy Local v1). The held session is passed through reset
+        // completion and initial loading via the bootstrap scope: no recursive acquisition.
+        CurrentUserDataOperationSession? session;
+        try { session = CurrentUserDataOperationSession.TryAcquire(TimeSpan.Zero, CancellationToken.None); }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            ActivateWindow(new StartupFailureWindow(exception));
+            return;
+        }
+        if (session is null)
         {
             ActivateWindow(new DataOperationBusyWindow());
             return;
         }
+        using IDisposable bootstrapScope = DataOperationLease.EnterBootstrap(session);
         try
         {
         InventoryExperienceViewModel viewModel = new();
@@ -63,8 +79,12 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             }
         }
         Directory.CreateDirectory(stateDirectory);
-        SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"));
+        SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"), new ChocolateyHelperVersionGrammar());
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
+        DataOperationLease.ConfigureReconciliation(new UpdateDispatchReconciliation(database).ReconcileAsync);
+        // An unresolved update barrier keeps read-only UI available; every mutating operation fails closed until reconciled.
+        try { DataOperationLease.ReconcileBootstrap(CancellationToken.None); }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not OperationCanceledException) { }
         if (showPostResetOnboarding && !database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult())
         {
             ActivateWindow(new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Fresh store", "VerificationFailed", "Post-reset defaults or prior state could not be verified.")])));
@@ -96,14 +116,23 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications,
             events: new BoundedUpdateExecutionEventSink());
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), showPostResetOnboarding, () => FactoryReset.AcknowledgeOnboarding(stateDirectory));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
         ActivateWindow(window);
         }
         catch (Exception exception)
         {
             ActivateWindow(new StartupFailureWindow(exception));
         }
-        finally { bootstrapMutex.ReleaseMutex(); }
+        finally { session.Dispose(); }
+    }
+
+    private static FactoryResetResult AcknowledgeOnboarding(string stateDirectory)
+    {
+        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory)); }
+        catch (InvalidOperationException)
+        {
+            return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward operation still owns the data-operation gate.")]);
+        }
     }
 
     private void ActivateWindow(Window window)

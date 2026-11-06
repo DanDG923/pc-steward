@@ -499,9 +499,19 @@ internal static class ProtectedLaunchLayout
     }
 }
 
-public static class ElevatedHelperEntryPoint
+public static partial class ElevatedHelperEntryPoint
 {
+    /// <summary>
+    /// Task 50 design rev 6 §5.1 and qualification probe spec rev 4 §2 (dispatch order is normative): a ten-argument line with
+    /// <c>--kind</c> first goes to the probe bootstrap (<see cref="RunProbeAsync"/>), which never reads a request; otherwise
+    /// <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every other command line takes the
+    /// unchanged protocol-1 path, which refuses anything but <c>--protocol 1</c> with exit code 20.
+    /// </summary>
     public static Task<int> RunAsync(string[] arguments) =>
+        SelectsProbe(arguments) ? RunProbeAsync(arguments) :
+        SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : RunProtocol1Async(arguments);
+
+    private static Task<int> RunProtocol1Async(string[] arguments) =>
         RunAsync(
             arguments,
             static (job, cancellationToken) => job.Selection.Provider switch
@@ -767,7 +777,8 @@ internal static class RestrictedNamedPipe
 {
     internal static NamedPipeServerStream Create(string pipeName, string currentUserSid)
     {
-        if (!WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(pipeName))
+        // Protocol 1 and protocol 2 each use their own fixed locator; each helper bootstrap accepts only its own (§5.1).
+        if (!IsAcceptedLocator(pipeName))
         {
             throw new ArgumentException("The pipe locator is invalid.", nameof(pipeName));
         }
@@ -812,6 +823,9 @@ internal static class RestrictedNamedPipe
         }
     }
 
+    internal static bool IsAcceptedLocator(string pipeName) =>
+        WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(pipeName) || WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(pipeName);
+
     internal static string BuildSecurityDescriptorSddl(string currentUserSid)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(currentUserSid);
@@ -838,7 +852,7 @@ internal static class RestrictedNamedPipe
     }
 }
 
-internal static class WindowsPeerIdentityVerifier
+internal static partial class WindowsPeerIdentityVerifier
 {
     internal static bool VerifyPeer(
         int processId,

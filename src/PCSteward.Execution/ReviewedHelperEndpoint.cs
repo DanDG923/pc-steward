@@ -1,0 +1,633 @@
+using System.Security.Cryptography;
+using System.Text;
+using PCSteward.Application;
+using PCSteward.Domain;
+using PCSteward.Provider.Chocolatey;
+using PCSteward.Provider.Chocolatey.Native;
+
+namespace PCSteward.Execution;
+
+/// <summary>
+/// The helper-side G1 seam (Task 50 design rev 6 §5.2 A3, §6): the pure <see cref="DeploymentCapabilityPolicy"/> evaluated
+/// over inputs the helper reads itself, with the item's requester check as the protection principal, plus
+/// the helper's own image hash and the peer desktop image hash at the given image path (read from the held
+/// peer handle) equal to their ledger entries. The Helper-role check is <see cref="HelperDeploymentCapabilityCheck"/>; any exception means unsupported.
+/// </summary>
+internal interface IReviewedHelperCapabilityCheck
+{
+    HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route, DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath);
+}
+
+/// <summary>
+/// Endpoint budgets (design rev 6 §4, fact extension rev 3 §6). <see cref="Execution"/> is the desktop's 11-minute execution
+/// budget; <c>remaining = Execution − (now − t0) − ExitMargin − ResponseMargin</c> with t0 taken at pipe connection.
+/// <see cref="LaunchFloor"/> is the Launch-row minimum before process creation. <see cref="FrameRead"/> bounds the A0 read.
+/// The monitor stop and the single response write share one window of <c>min(</c><see cref="ResponseWrite"/><c>,</c>
+/// <see cref="ResponseMargin"/><c>)</c> taken from the response margin, so a stage that runs to its real-time cap of
+/// <c>remaining + ExitMargin</c> still ends the whole run within <c>remaining + ExitMargin + ResponseMargin</c>.
+/// </summary>
+internal sealed record ReviewedHelperEndpointBudgets(TimeSpan FrameRead, TimeSpan Execution, TimeSpan ExitMargin, TimeSpan ResponseMargin,
+    TimeSpan LaunchFloor, TimeSpan ResponseWrite)
+{
+    internal static ReviewedHelperEndpointBudgets Production { get; } = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(11),
+        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(5));
+}
+
+/// <summary>What the endpoint did with the pipe. Only <see cref="ResponseWritten"/> means one frame was written.</summary>
+internal enum ReviewedHelperEndpointExit { ResponseWritten, NoResponse, ResponseWriteFailed }
+
+/// <summary>The endpoint's own result: the exit kind and a fixed diagnostic token (never wire data).</summary>
+internal sealed record ReviewedHelperEndpointResult(ReviewedHelperEndpointExit Exit, string Diagnostic);
+
+/// <summary>
+/// FR-UPD-15, FR-UPD-01, TM-03/04/07/13; Task 50 design rev 6 §4 (deadlines), §5.2 (stage machine), §5.3, §5.4 (rev-5 F2) and
+/// fact extension rev 3 §3.1, §3.2, §6 and §10 N1–N4: the protocol-2 helper stage machine over an already connected,
+/// authenticated pipe and the qualification port. It handles values and opaque interfaces only.
+/// <list type="bullet">
+/// <item><b>A0</b> one frame within <see cref="ReviewedHelperEndpointBudgets.FrameRead"/>, exact request codec, received
+/// payload hash equal to the digest, <c>TryRestore</c>, fixed-time nonce: any failure sends <b>no response</b>.</item>
+/// <item><b>A1</b> request at most 2 minutes old and not from the future, review at most 30 minutes old, exact route shape and
+/// O2 profile digest, payload SID equal to the held peer's SID; <b>A2</b> <c>BeginItem</c> and peer not exited; <b>A3</b>
+/// G1 through <see cref="IReviewedHelperCapabilityCheck"/>, capped in real time at <c>remaining</c>: any failure, including
+/// the cap, is <c>Refused/RequestNotAdmitted</c>, fields 16–18 null.</item>
+/// <item><b>B</b>, <b>C</b>, <b>D</b> and <b>Launch</b> per the §5.2 rows, with the N2 internal-fault rules: before process
+/// creation a fault is <c>MachineInputsUnsupported</c> only when every owned launch job is settled and no interrupt is
+/// present, otherwise <c>Undetermined</c>; from entering process creation any fault is <c>Unknown</c>. An out-of-order item
+/// value maps per stage (rev-5 F2) to <c>MachineInputsUnsupported</c> only when <c>AggregateSettled</c>.</item>
+/// <item>A refusal is reported only with every owned job settled; a settled-but-unprovable refusal becomes
+/// <c>Undetermined</c> with <c>¬aggregateSettlementConfirmed</c>. The candidate is nulled whenever installed is null (S7).</item>
+/// </list>
+/// The response is built only through <see cref="ReviewedUpdateWireCodec.CreateResponse"/>; if it throws, nothing is
+/// written. At most one frame is written. A disconnect monitor cancels provider work when the desktop closes the pipe.
+/// It never retries, never upgrades twice, and never reports success. Its only caller is <see cref="ReviewedHelperBootstrap"/> (N4b).
+/// </summary>
+internal static class ReviewedHelperEndpoint
+{
+    /// <summary>Request freshness (fact extension rev 3 §6): same machine clock, no tolerance.</summary>
+    internal static readonly TimeSpan RequestLifetime = TimeSpan.FromMinutes(2);
+
+    /// <summary>The review ceiling (fact extension rev 3 §6).</summary>
+    internal static readonly TimeSpan ReviewCeiling = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Launch deadline reserve (review finding 2): <c>UpgradeAsync</c> gets <c>remaining − 1 s</c>, never below the launch
+    /// floor, while the endpoint's real-time cap stays <c>remaining + ExitMargin</c>, so the launcher's own teardown (up to the
+    /// whole exit margin) and a genuine settled <c>TimedOut</c> observation fit inside the cap.
+    /// </summary>
+    internal static readonly TimeSpan LaunchDeadlineReserve = TimeSpan.FromSeconds(1);
+
+    /// <summary>The Started-launch diagnostic.</summary>
+    internal const string LaunchStartedDiagnostic = "launch-started";
+
+    /// <summary>
+    /// Design rev 6 settle window (rev-4 L4): the Started-launch diagnostic when the launch job terminated lingering
+    /// descendants. It carries the desktop's shared <see cref="ReviewedUpdateLingeringProcesses.Token"/> (a compile-time
+    /// constant), which the workflow records for the history note.
+    /// </summary>
+    internal const string LaunchStartedLingeringDiagnostic = LaunchStartedDiagnostic + "; " + ReviewedUpdateLingeringProcesses.Token;
+
+    internal static Task<ReviewedHelperEndpointResult> RunAsync(Stream pipe, IChocolateyPeer peer, IChocolateyHelperQualificationPort port,
+        IReviewedHelperCapabilityCheck capability, TimeProvider clock, long connectedTimestamp, string bootstrapNonce,
+        CancellationToken cancellationToken) =>
+        RunAsync(pipe, peer, port, capability, clock, connectedTimestamp, bootstrapNonce, ReviewedHelperEndpointBudgets.Production, cancellationToken);
+
+    internal static async Task<ReviewedHelperEndpointResult> RunAsync(Stream pipe, IChocolateyPeer peer, IChocolateyHelperQualificationPort port,
+        IReviewedHelperCapabilityCheck capability, TimeProvider clock, long connectedTimestamp, string bootstrapNonce,
+        ReviewedHelperEndpointBudgets budgets, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pipe);
+        ArgumentNullException.ThrowIfNull(peer);
+        ArgumentNullException.ThrowIfNull(port);
+        ArgumentNullException.ThrowIfNull(capability);
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(budgets);
+
+        // A0: an uncorrelatable request gets no response (fact extension rev 3 §6).
+        CorrelatedRequest? request = await ReadAndCorrelateAsync(pipe, bootstrapNonce, budgets.FrameRead, cancellationToken).ConfigureAwait(false);
+        if (request is null) return new(ReviewedHelperEndpointExit.NoResponse, "a0-request-not-correlated");
+
+        using CancellationTokenSource provider = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using CancellationTokenSource stopMonitor = new();
+        Task monitor = MonitorDesktopDisconnectAsync(pipe, provider, stopMonitor.Token);
+        using Stages stages = new(request, peer, port, capability, clock, connectedTimestamp, budgets, provider.Token);
+        // One response window on the injected clock, armed when the stages end: the monitor stop and the single write draw on
+        // it together, so neither adds its own budget after a stage cap (review finding 6).
+        using CancellationTokenSource window = new(Timeout.InfiniteTimeSpan, clock);
+        Decision decision;
+        try
+        {
+            decision = await stages.RunAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            decision = stages.UnexpectedFault();
+        }
+        finally
+        {
+            window.CancelAfter(ResponseWindow(budgets));
+            await stopMonitor.CancelAsync().ConfigureAwait(false);
+            await ObserveMonitorAsync(monitor, window.Token).ConfigureAwait(false);
+        }
+
+        byte[] frame;
+        try
+        {
+            // ADR-031 design §8.2 S14a: the frozen route selects the reply shape; only a client self-update reply carries
+            // clientRunFault, and a run fault can never be dropped silently on another route (nothing is written instead).
+            frame = IsClientRoute(request.Operation)
+                ? ReviewedUpdateWireCodec.CreateClientResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
+                    decision.Reviewed, decision.RunFault, decision.Diagnostic)
+                : decision.RunFault == ReviewedClientRunFaultWire.None
+                    ? ReviewedUpdateWireCodec.CreateResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
+                        decision.Reviewed, decision.Diagnostic)
+                    : throw new InvalidOperationException("A run fault exists only for the client self-update route.");
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // S1–S13 or fact consistency failed: no response, so the desktop records Uncertain (§5.2).
+            return new(ReviewedHelperEndpointExit.NoResponse, "response-refused-by-codec; " + decision.Diagnostic);
+        }
+
+        if (window.IsCancellationRequested) return new(ReviewedHelperEndpointExit.ResponseWriteFailed, "response-window-spent; " + decision.Diagnostic);
+        try
+        {
+            // The window also bounds a write that does not observe its token.
+            await PipeMessageFraming.WriteAsync(pipe, frame, window.Token).WaitAsync(window.Token).ConfigureAwait(false);
+            return new(ReviewedHelperEndpointExit.ResponseWritten, decision.Diagnostic);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return new(ReviewedHelperEndpointExit.ResponseWriteFailed, decision.Diagnostic);
+        }
+    }
+
+    private static async Task<CorrelatedRequest?> ReadAndCorrelateAsync(Stream pipe, string bootstrapNonce, TimeSpan budget,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!IsUpperHex64(bootstrapNonce)) return null;
+            using CancellationTokenSource read = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            read.CancelAfter(budget);
+            byte[] frame = await PipeMessageFraming.ReadAsync(pipe, read.Token).ConfigureAwait(false);
+            if (!ReviewedUpdateWireCodec.TryReadRequest(frame, out FramedUpdateRequest? framed) || framed is null) return null;
+            byte[] payload = framed.GetPayload();
+            if (!FixedEquals(Convert.ToHexString(SHA256.HashData(payload)), framed.Digest)) return null;
+            if (!ReviewedUpdateOperation.TryRestore(payload, framed.Digest, out ReviewedUpdateOperation? operation) || operation is null ||
+                !FixedEquals(operation.Digest, framed.Digest)) return null;
+            if (!FixedEquals(framed.Nonce, bootstrapNonce)) return null;
+            return new(operation, framed.Digest, framed.IssuedAt);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Any read completion (end of file or unexpected data) or read failure cancels provider work, unless stopping.</summary>
+    private static async Task MonitorDesktopDisconnectAsync(Stream pipe, CancellationTokenSource provider, CancellationToken stop)
+    {
+        byte[] unexpected = new byte[1];
+        try
+        {
+            _ = await pipe.ReadAsync(unexpected, stop).ConfigureAwait(false);
+            if (!stop.IsCancellationRequested) await provider.CancelAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            if (!stop.IsCancellationRequested)
+            {
+                try { await provider.CancelAsync().ConfigureAwait(false); }
+                catch (ObjectDisposedException) { }
+            }
+        }
+    }
+
+    private static async Task ObserveMonitorAsync(Task monitor, CancellationToken window)
+    {
+        try { await monitor.WaitAsync(window).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { }
+    }
+
+    /// <summary>The shared monitor-stop and response-write window, drawn from the response margin.</summary>
+    private static TimeSpan ResponseWindow(ReviewedHelperEndpointBudgets budgets) =>
+        budgets.ResponseWrite < budgets.ResponseMargin ? budgets.ResponseWrite : budgets.ResponseMargin;
+
+    private static bool IsUpperHex64(string? value) => value is { Length: 64 } && value.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F');
+
+    private static bool FixedEquals(string? value, string? expected) => IsUpperHex64(value) && IsUpperHex64(expected) &&
+        CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(value!), Encoding.ASCII.GetBytes(expected!));
+
+    private sealed record CorrelatedRequest(ReviewedUpdateOperation Operation, string Digest, DateTimeOffset IssuedAt);
+
+    /// <summary>ADR-031 design §8.2: the reply shape follows the frozen route; only the client self-update carries clientRunFault.</summary>
+    private static bool IsClientRoute(ReviewedUpdateOperation operation) =>
+        operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1;
+
+    /// <summary>
+    /// ADR-031 design §8.1: the item's plain run state as the closed wire value, row by row (explicit mapping by name, no
+    /// numeric cast). An undefined value is a failed watch with an incomplete release (fail closed: the strongest warning).
+    /// </summary>
+    internal static ReviewedClientRunFaultWire RunFault(ChocolateyClientRunFault runFault) => runFault switch
+    {
+        ChocolateyClientRunFault.None => ReviewedClientRunFaultWire.None,
+        ChocolateyClientRunFault.SetupOverrideDuringRun => ReviewedClientRunFaultWire.SetupOverrideDuringRun,
+        ChocolateyClientRunFault.RootWritableDuringRun => ReviewedClientRunFaultWire.RootWritableDuringRun,
+        ChocolateyClientRunFault.WatchFailedDuringRun => ReviewedClientRunFaultWire.WatchFailedDuringRun,
+        ChocolateyClientRunFault.ReleaseIncomplete => ReviewedClientRunFaultWire.ReleaseIncomplete,
+        ChocolateyClientRunFault.SetupOverrideDuringRunAndReleaseIncomplete => ReviewedClientRunFaultWire.SetupOverrideDuringRunAndReleaseIncomplete,
+        ChocolateyClientRunFault.RootWritableDuringRunAndReleaseIncomplete => ReviewedClientRunFaultWire.RootWritableDuringRunAndReleaseIncomplete,
+        _ => ReviewedClientRunFaultWire.WatchFailedDuringRunAndReleaseIncomplete,
+    };
+
+    /// <summary>
+    /// One decision. <see cref="RunFault"/> is set only from a client self-update launch's settled binding state (design §8.1);
+    /// every other decision carries None.
+    /// </summary>
+    private sealed record Decision(UpdateWireFacts Facts, ReviewedHelperFacts Reviewed, string Diagnostic,
+        ReviewedClientRunFaultWire RunFault = ReviewedClientRunFaultWire.None);
+
+    /// <summary>The stages for one admitted request. Owns the item from A2 until after the single response write.</summary>
+    private sealed class Stages(CorrelatedRequest request, IChocolateyPeer peer, IChocolateyHelperQualificationPort port,
+        IReviewedHelperCapabilityCheck capability, TimeProvider clock, long connectedTimestamp, ReviewedHelperEndpointBudgets budgets,
+        CancellationToken token) : IDisposable
+    {
+        private readonly ReviewedUpdateOperation operation = request.Operation;
+        private readonly DateTimeOffset issuedAt = request.IssuedAt;
+        private IChocolateyHelperItem? item;
+        private bool launchEntered;
+        private int capabilityAbandoned;
+        private string profileDigest = string.Empty;
+        private string? stageBInstalled, stageBFingerprint, stageCCandidate, stageDInstalled, stageDFingerprint;
+
+        private string FrozenInstalled => operation.Selection.InstalledVersion;
+
+        private string FrozenCandidate => operation.Selection.CandidateVersion;
+
+        internal async Task<Decision> RunAsync()
+        {
+            // ---- A1: admission (correlatable failures are RequestNotAdmitted, fields 16–18 null) ----
+            if (ApprovalLapsed(clock.GetUtcNow())) return NotAdmitted("a1-request-not-fresh");
+            // ADR-031 design §7.1 A1: route-discriminated shape; the client arm never accepts a mixed route/guard/provenance.
+            if (!ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out string digest, out ReviewedHelperReplyShape shape) ||
+                (shape == ReviewedHelperReplyShape.ClientSelfUpdate) != IsClientRoute(operation) || !HasExactRouteShape(shape))
+                return NotAdmitted("a1-route-not-admitted");
+            if (!TryReadPeer(out string peerImage, out string peerSid) ||
+                !string.Equals(peerSid, operation.RequestingUserSid, StringComparison.Ordinal))
+                return NotAdmitted("a1-requester-not-peer");
+            profileDigest = digest;
+
+            // ---- A2: the item (evaluation token, linked-token rules) and a live peer ----
+            ChocolateyItemRefusal refusal;
+            try { item = port.BeginItem(peer, operation.RequestingUserSid, out refusal); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { item = null; refusal = ChocolateyItemRefusal.RequesterTokenRefused; }
+            if (item is null || refusal != ChocolateyItemRefusal.None) return NotAdmitted("a2-item-refused");
+            if (PeerExited()) return NotAdmitted("a2-peer-exited");
+
+            // ---- A3 (G1): helper capability with the requester as protection principal, plus image hashes ----
+            if (await CapabilityAsync(item, peerImage).ConfigureAwait(false) is { } refusedAtA3) return refusedAtA3;
+
+            return await StageBAsync(item).ConfigureAwait(false);
+        }
+
+        private async Task<Decision> StageBAsync(IChocolateyHelperItem current)
+        {
+            if (InterruptBefore("b") is { } interrupted) return interrupted;
+            TimeSpan remaining = Remaining();
+            ChocolateyStageValues values;
+            // The synchronous observation runs off this thread under a real-time cap (review finding 1). When the cap fires the
+            // call may still be running as the item is disposed after the response. N4b obligation: the item must tolerate
+            // Dispose while ObserveProfile, QueryCandidateAsync, RevalidateBeforeLaunch or UpgradeAsync is in flight, and must not
+            // start anything on the machine after Dispose.
+            try
+            {
+                values = await Task.Run(() => current.ObserveProfile(operation, profileDigest, remaining, token), CancellationToken.None)
+                    .WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException) { return Undetermined(false, true, false, false, "b-unresponsive"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return Undetermined(true, false, Settled(), false, "b-cancelled"); }
+            catch (OperationCanceledException) { return UnexpectedCancellation("b-unexpected-cancellation"); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return Fault(null, null, null, "b-fault"); }
+            switch (values)
+            {
+                case ChocolateyStageValues.Observed observed:
+                    // Defence in depth: Observed must carry the frozen installed value and F; anything else is an internal fault.
+                    if (!string.Equals(observed.Installed, FrozenInstalled, StringComparison.Ordinal) || !FixedEquals(observed.Fingerprint, profileDigest))
+                        return Fault(null, null, null, "b-observed-inconsistent");
+                    stageBInstalled = observed.Installed;
+                    stageBFingerprint = observed.Fingerprint;
+                    return await StageCAsync(current).ConfigureAwait(false);
+                case ChocolateyStageValues.Refused refused:
+                    return Refused(Reason(refused.Reason), refused.Installed, null, refused.Fingerprint, "b-refused");
+                case ChocolateyStageValues.TimedOut:
+                    return Undetermined(false, true, Settled(), false, "b-timed-out");
+                case ChocolateyStageValues.Cancelled:
+                    return Undetermined(true, false, Settled(), false, "b-cancelled");
+                case ChocolateyStageValues.OutOfOrder:
+                    return Fault(null, null, null, "b-out-of-order");
+                default:
+                    return Fault(null, null, null, "b-fault");
+            }
+        }
+
+        private async Task<Decision> StageCAsync(IChocolateyHelperItem current)
+        {
+            if (InterruptBefore("c") is { } interrupted) return interrupted;
+            TimeSpan remaining = Remaining();
+            ChocolateyCandidateValues values;
+            try { values = await current.QueryCandidateAsync(remaining, token).WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false); }
+            catch (TimeoutException) { return Undetermined(false, true, false, false, "c-unresponsive"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return Undetermined(true, false, Settled(), false, "c-cancelled"); }
+            catch (OperationCanceledException) { return UnexpectedCancellation("c-unexpected-cancellation"); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return Fault(stageBInstalled, null, stageBFingerprint, "c-fault"); }
+            switch (values)
+            {
+                case ChocolateyCandidateValues.Matched matched:
+                    if (!string.Equals(matched.Candidate, FrozenCandidate, StringComparison.Ordinal))
+                        return Fault(stageBInstalled, null, stageBFingerprint, "c-matched-inconsistent");
+                    stageCCandidate = matched.Candidate;
+                    return await StageDAsync(current).ConfigureAwait(false);
+                case ChocolateyCandidateValues.Refused refused:
+                    return Refused(Reason(refused.Reason), refused.Installed, refused.Candidate, refused.Fingerprint, "c-refused", refused.OutputLimitExceeded);
+                case ChocolateyCandidateValues.Undetermined undetermined:
+                    return Undetermined(undetermined.Cancelled, undetermined.TimedOut, undetermined.AggregateSettlementConfirmed && Settled(),
+                        undetermined.OutputLimitExceeded, "c-undetermined");
+                case ChocolateyCandidateValues.OutOfOrder:
+                    // rev-5 F2 stage C: the stage-B installed value and fingerprint, candidate null.
+                    return Fault(stageBInstalled, null, stageBFingerprint, "c-out-of-order");
+                default:
+                    return Fault(stageBInstalled, null, stageBFingerprint, "c-fault");
+            }
+        }
+
+        private async Task<Decision> StageDAsync(IChocolateyHelperItem current)
+        {
+            // Rechecks in order: cancellation, the 2-minute and 30-minute limits, then the budget (N4).
+            if (token.IsCancellationRequested) return Undetermined(true, false, Settled(), false, "d-cancelled");
+            if (ApprovalLapsed(clock.GetUtcNow())) return Refused(ReviewedHelperRefusalReason.ApprovalExpired, null, null, null, "d-approval-expired");
+            TimeSpan remaining = Remaining();
+            if (remaining <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, "d-timed-out");
+            ChocolateyStageValues values;
+            // Real-time cap as for stage B (review finding 1); the same N4b in-flight disposal obligation applies.
+            try
+            {
+                values = await Task.Run(() => current.RevalidateBeforeLaunch(remaining, token), CancellationToken.None)
+                    .WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException) { return Undetermined(false, true, false, false, "d-unresponsive"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return Undetermined(true, false, Settled(), false, "d-cancelled"); }
+            catch (OperationCanceledException) { return UnexpectedCancellation("d-unexpected-cancellation"); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return Fault(null, null, null, "d-fault"); }
+            switch (values)
+            {
+                case ChocolateyStageValues.Observed observed:
+                    if (!string.Equals(observed.Installed, FrozenInstalled, StringComparison.Ordinal) || !FixedEquals(observed.Fingerprint, profileDigest))
+                        return Fault(null, null, null, "d-observed-inconsistent");
+                    stageDInstalled = observed.Installed;
+                    stageDFingerprint = observed.Fingerprint;
+                    return await LaunchAsync(current).ConfigureAwait(false);
+                case ChocolateyStageValues.Refused refused:
+                    // Drift: the stage-B reason with stage-D values; the stage-C candidate stays unless installed is null (S7).
+                    return Refused(Reason(refused.Reason), refused.Installed, stageCCandidate, refused.Fingerprint, "d-drift");
+                case ChocolateyStageValues.TimedOut:
+                    return Undetermined(false, true, Settled(), false, "d-timed-out");
+                case ChocolateyStageValues.Cancelled:
+                    return Undetermined(true, false, Settled(), false, "d-cancelled");
+                case ChocolateyStageValues.OutOfOrder:
+                    // rev-5 F2 stage D: no stage-D values exist, so installed, fingerprint and candidate are null.
+                    return Fault(null, null, null, "d-out-of-order");
+                default:
+                    return Fault(null, null, null, "d-fault");
+            }
+        }
+
+        private async Task<Decision> LaunchAsync(IChocolateyHelperItem current)
+        {
+            // Matched needs every preflight root settled (rev 3 §3.1); nothing has been launched yet.
+            if (!Settled()) return Undetermined(false, false, false, false, "launch-preflight-unsettled");
+            TimeSpan remaining = Remaining();
+            if (remaining < budgets.LaunchFloor) return MatchedNotStarted(false, true, "launch-floor-not-met");
+            if (token.IsCancellationRequested) return MatchedNotStarted(true, false, "launch-cancelled-before-creation");
+
+            // From here any fault follows the Launch row: Unknown (N2).
+            launchEntered = true;
+            TimeSpan deadline = remaining - LaunchDeadlineReserve;
+            if (deadline < budgets.LaunchFloor) deadline = budgets.LaunchFloor;
+            ChocolateyUpgradeResult result;
+            try { result = await current.UpgradeAsync(deadline, token).WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false); }
+            catch (TimeoutException) { return Unknown(false, false, false, false, "launch-unresponsive"); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return Unknown(false, false, false, false, "launch-unknown"); }
+            switch (result)
+            {
+                case ChocolateyUpgradeResult.Observed observed:
+                    return FromObservation(observed.Observation, RunFault(observed.RunFault));
+                case ChocolateyUpgradeResult.OutOfOrder:
+                    // rev-5 F2 Launch: the stage-D values plus the stage-C candidate; nothing was launched.
+                    return Fault(stageDInstalled, stageCCandidate, stageDFingerprint, "launch-out-of-order");
+                default:
+                    return Unknown(false, false, false, false, "launch-unknown");
+            }
+        }
+
+        /// <summary>
+        /// The Launch row. <paramref name="runFault"/> (design §8.1) rides on every launch decision; S14c lets the codec accept a
+        /// value other than None only with Started or Unknown, so an inconsistent item report writes nothing (Uncertain).
+        /// </summary>
+        private Decision FromObservation(NativeProcessObservation observation, ReviewedClientRunFaultWire runFault)
+        {
+            bool itemSettled = Settled();
+            switch (observation.Invocation)
+            {
+                case NativeInvocation.NotStarted:
+                    // A definitive launch failure: settled, nothing ran (S13). Anything less is not known to have failed.
+                    if (observation.AggregateSettled && itemSettled && !observation.TerminationFailed && !observation.OutputLimitExceeded)
+                        return Matched(new(UpdateWireInvocation.NotStarted, null, false, false, false, false, true,
+                            observation.Cancelled, observation.TimedOut, false), "launch-not-started") with { RunFault = runFault };
+                    return Unknown(observation.TerminationFailed, observation.Cancelled, observation.TimedOut, observation.OutputLimitExceeded,
+                        "launch-not-started-unsettled") with { RunFault = runFault };
+                case NativeInvocation.Started:
+                    // Facts 4–13 as observed; an inconsistent set makes CreateResponse throw, so nothing is written. Design rev 6
+                    // settle window (rev-4 L4): when the launch job closed lingering descendants, the diagnostic carries the fixed
+                    // token the desktop records for history. Diagnostic only; it never changes a fact.
+                    return Matched(new(UpdateWireInvocation.Started, observation.ExitCode, observation.DirectExitObserved,
+                        observation.OwnedIoCompleted, observation.PipeEofObserved, observation.TerminationFailed,
+                        observation.AggregateSettled && itemSettled, observation.Cancelled, observation.TimedOut,
+                        observation.OutputLimitExceeded), observation.LingeringTerminated ? LaunchStartedLingeringDiagnostic : LaunchStartedDiagnostic)
+                        with { RunFault = runFault };
+                default:
+                    return Unknown(observation.TerminationFailed, observation.Cancelled, observation.TimedOut, observation.OutputLimitExceeded,
+                        "launch-unknown") with { RunFault = runFault };
+            }
+        }
+
+        /// <summary>A fault escaping the stage code itself: Unknown once process creation was entered, else the N2 rules.</summary>
+        internal Decision UnexpectedFault() => launchEntered
+            ? Unknown(false, false, false, false, "internal-fault-after-launch")
+            : Fault(null, null, null, "internal-fault");
+
+        public void Dispose()
+        {
+            try { item?.Dispose(); }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { }
+        }
+
+        private TimeSpan Remaining() =>
+            budgets.Execution - clock.GetElapsedTime(connectedTimestamp) - budgets.ExitMargin - budgets.ResponseMargin;
+
+        private bool ApprovalLapsed(DateTimeOffset now) =>
+            issuedAt > now || now - issuedAt > RequestLifetime ||
+            operation.ReviewedAt > now || now - operation.ReviewedAt > ReviewCeiling;
+
+        /// <summary>
+        /// Exact route shape: the package route uses the same predicates as the fixed upgrade arguments (fact extension rev 3 §1);
+        /// the client self-update's shape is <see cref="ReviewedUpdateProtocol2Interpreter.TryGetClientProfileDigest"/> (ADR-031
+        /// design §7.1), whose release-bound predicates the item re-checks against the compiled list at stages B and C.
+        /// </summary>
+        private bool HasExactRouteShape(ReviewedHelperReplyShape shape)
+        {
+            if (shape == ReviewedHelperReplyShape.ClientSelfUpdate) return ReviewedUpdateProtocol2Interpreter.TryGetClientProfileDigest(operation, out _);
+            try { return ChocolateyReviewedUpdateArguments.Build(operation).Count > 0; }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+        }
+
+        private bool TryReadPeer(out string imagePath, out string userSid)
+        {
+            imagePath = userSid = string.Empty;
+            try
+            {
+                if (!peer.TryReadIdentity(out string image, out _, out string sid) || string.IsNullOrEmpty(image) || string.IsNullOrEmpty(sid))
+                    return false;
+                imagePath = image;
+                userSid = sid;
+                return true;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+        }
+
+        private bool PeerExited()
+        {
+            try { return peer.HasExited; }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return true; }
+        }
+
+        /// <summary>
+        /// A3 (G1) under a real-time cap of the endpoint's remaining budget: the bounded hashing and ACL walks still take
+        /// real time. Null when supported; a budget spent before G1 starts is <c>Undetermined</c>+<c>timedOut</c>; otherwise
+        /// <c>RequestNotAdmitted</c> through the settled-refusal rule. When the cap
+        /// fires the check is abandoned. Its result is never read, and any later protection call it makes refuses without
+        /// reaching the item. The item is disposed after the response, so nothing proceeds from an abandoned check.
+        /// </summary>
+        private async Task<Decision?> CapabilityAsync(IChocolateyHelperItem current, string peerImage)
+        {
+            // A budget already spent is the N4 lapse (as before stages B and C); G1 is not started.
+            TimeSpan remaining = Remaining();
+            if (remaining <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, "a3-timed-out");
+            bool Protection(string root, IReadOnlyList<string> files)
+            {
+                if (Volatile.Read(ref capabilityAbandoned) != 0) return false;
+                try { return current.RequesterCannotModify(root, files); }
+                catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+            }
+            bool supported;
+            try
+            {
+                supported = await Task.Run(() => capability.Evaluate(operation.RouteContract, Protection, peerImage) is { IsSupported: true },
+                    CancellationToken.None).WaitAsync(remaining, clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                Volatile.Write(ref capabilityAbandoned, 1);
+                return NotAdmitted("a3-unresponsive");
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return NotAdmitted("a3-capability-refused"); }
+            return supported ? null : NotAdmitted("a3-capability-refused");
+        }
+
+        /// <summary>True only when every owned launch job is known settled; before A2 nothing is owned.</summary>
+        private bool Settled()
+        {
+            try { return item?.AggregateSettled ?? true; }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+        }
+
+        /// <summary>Before stages B and C: cancellation, then a budget lapse (N4), each Undetermined with its flag.</summary>
+        private Decision? InterruptBefore(string stage)
+        {
+            if (token.IsCancellationRequested) return Undetermined(true, false, Settled(), false, stage + "-cancelled");
+            if (Remaining() <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, stage + "-timed-out");
+            return null;
+        }
+
+        /// <summary>
+        /// N2 internal fault (also rev-5 F2 out-of-order) before process creation: an interrupt forces Undetermined; otherwise
+        /// MachineInputsUnsupported with the stage's values when settled, else Undetermined with ¬aggregateSettlementConfirmed.
+        /// </summary>
+        private Decision Fault(string? installed, string? candidate, string? fingerprint, string diagnostic)
+        {
+            if (token.IsCancellationRequested) return Undetermined(true, false, Settled(), false, diagnostic);
+            return Refused(ReviewedHelperRefusalReason.MachineInputsUnsupported, installed, candidate, fingerprint, diagnostic);
+        }
+
+        /// <summary>
+        /// An <see cref="OperationCanceledException"/> from the item while the endpoint token is not cancelled (review finding 5)
+        /// is an internal fault, never reported as cancelled: before process creation it is Undetermined with
+        /// ¬aggregateSettlementConfirmed. The Launch row already reports any exception as Unknown.
+        /// </summary>
+        private static Decision UnexpectedCancellation(string diagnostic) => Undetermined(false, false, false, false, diagnostic);
+
+        private Decision NotAdmitted(string diagnostic) =>
+            Refused(ReviewedHelperRefusalReason.RequestNotAdmitted, null, null, null, diagnostic);
+
+        /// <summary>A settled refusal (S10: no interrupting cause). Unprovable settlement becomes Undetermined (N2).</summary>
+        private Decision Refused(ReviewedHelperRefusalReason reason, string? installed, string? candidate, string? fingerprint, string diagnostic,
+            bool outputLimitExceeded = false)
+        {
+            // S7: no candidate without an installed value, nor with RequestNotAdmitted or PreflightQueryFailed.
+            if (installed is null || reason is ReviewedHelperRefusalReason.RequestNotAdmitted or ReviewedHelperRefusalReason.PreflightQueryFailed)
+                candidate = null;
+            if (reason == ReviewedHelperRefusalReason.RequestNotAdmitted) installed = fingerprint = null;
+            if (!Settled()) return Undetermined(false, false, false, outputLimitExceeded, diagnostic + "; unsettled");
+            return new(new(UpdateWireInvocation.NotStarted, null, false, false, false, false, true, false, false,
+                outputLimitExceeded && reason == ReviewedHelperRefusalReason.PreflightQueryFailed),
+                new(ReviewedHelperQualification.Refused, reason, installed, candidate, fingerprint), diagnostic);
+        }
+
+        /// <summary>S11: Undetermined always carries cancelled, timedOut or ¬aggregateSettlementConfirmed.</summary>
+        private static Decision Undetermined(bool cancelled, bool timedOut, bool settled, bool outputLimitExceeded, string diagnostic)
+        {
+            if (!cancelled && !timedOut) settled = false;
+            return new(new(UpdateWireInvocation.NotStarted, null, false, false, false, false, settled, cancelled, timedOut, outputLimitExceeded),
+                new(ReviewedHelperQualification.Undetermined, ReviewedHelperRefusalReason.None, null, null, null), diagnostic);
+        }
+
+        /// <summary>Matched ∧ NotStarted: stages A–D passed and nothing ran; settled (S13).</summary>
+        private Decision MatchedNotStarted(bool cancelled, bool timedOut, string diagnostic) =>
+            Matched(new(UpdateWireInvocation.NotStarted, null, false, false, false, false, true, cancelled, timedOut, false), diagnostic);
+
+        private Decision Unknown(bool terminationFailed, bool cancelled, bool timedOut, bool outputLimitExceeded, string diagnostic) =>
+            Matched(new(UpdateWireInvocation.Unknown, null, false, false, false, terminationFailed, false, cancelled, timedOut, outputLimitExceeded),
+                diagnostic);
+
+        /// <summary>Matched values: the stage-D installed value and fingerprint plus the stage-C candidate (rev 3 §3.1).</summary>
+        private Decision Matched(UpdateWireFacts facts, string diagnostic) =>
+            new(facts, new(ReviewedHelperQualification.Matched, ReviewedHelperRefusalReason.None, stageDInstalled, stageCCandidate, stageDFingerprint),
+                diagnostic);
+
+        private static ReviewedHelperRefusalReason Reason(ChocolateyStageRefusal reason) => reason switch
+        {
+            ChocolateyStageRefusal.MachineInputsUnsupported => ReviewedHelperRefusalReason.MachineInputsUnsupported,
+            ChocolateyStageRefusal.SourceNotCommunity => ReviewedHelperRefusalReason.SourceNotCommunity,
+            ChocolateyStageRefusal.InstalledMismatch => ReviewedHelperRefusalReason.InstalledMismatch,
+            ChocolateyStageRefusal.ProfileMismatch => ReviewedHelperRefusalReason.ProfileMismatch,
+            _ => ReviewedHelperRefusalReason.MachineInputsUnsupported,
+        };
+
+        private static ReviewedHelperRefusalReason Reason(ChocolateyCandidateRefusal reason) => reason switch
+        {
+            ChocolateyCandidateRefusal.InstalledMismatch => ReviewedHelperRefusalReason.InstalledMismatch,
+            ChocolateyCandidateRefusal.PreflightQueryFailed => ReviewedHelperRefusalReason.PreflightQueryFailed,
+            ChocolateyCandidateRefusal.CandidateMismatch => ReviewedHelperRefusalReason.CandidateMismatch,
+            _ => ReviewedHelperRefusalReason.MachineInputsUnsupported,
+        };
+    }
+}

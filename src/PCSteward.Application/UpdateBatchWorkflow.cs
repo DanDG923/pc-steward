@@ -73,7 +73,36 @@ public interface IApprovedUpdateExecutor
         UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteAsync(job, currentEvidence, cancellationToken);
 }
 
-public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending);
+/// <summary>
+/// Protocol-2 fact extension rev 3 §4.3 (L5): <see cref="Detail"/> is appended for the reviewed Chocolatey verifier. A detail
+/// other than <see cref="PostUpdateVerificationDetail.None"/> means the client's own files or registrations changed or could
+/// not be checked, so nothing was run to verify; the reviewed workflow records it as Unverified whatever the other fields say.
+/// <see cref="Note"/> (ADR-031 design §3a) is a disclosure on a verified result only; it never makes a result verified.
+/// </summary>
+public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending,
+    PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None, PostUpdateVerificationNote Note = PostUpdateVerificationNote.None);
+
+/// <summary>
+/// Verification detail; anything but <see cref="None"/> is Unverified. ADR-031 (Chocolatey client self-update):
+/// <see cref="ClientLeftoverNotListed"/> — a leftover whose bytes match no reviewed release (design §3a, named, never deleted);
+/// <see cref="ClientLeftoverNotSource"/> — the leftover matches a reviewed release other than the one the update started from
+/// (named, never deleted); <see cref="ClientReleaseIncomplete"/> — releasing the helper's file holds after the update started
+/// failed part-way (design §2 R3); <see cref="ClientSetupOverrideDuringRun"/>, <see cref="ClientRootWritableDuringRun"/> and
+/// <see cref="ClientWatchFailedDuringRun"/> — the runtime watchdog terminated the update while it ran (design §2.1 R5;
+/// Chocolatey may be partly updated, never repaired automatically).
+/// </summary>
+public enum PostUpdateVerificationDetail
+{
+    None, ClientChanged, ClientUnverifiable, ClientLeftoverNotListed, ClientLeftoverNotSource, ClientReleaseIncomplete,
+    ClientSetupOverrideDuringRun, ClientRootWritableDuringRun, ClientWatchFailedDuringRun,
+}
+
+/// <summary>
+/// A disclosure carried with a <b>verified</b> result (ADR-031 design §3a). <see cref="ClientReviewedLeftover"/>: a Chocolatey
+/// client self-update verified with the reviewed leftover of the source release present. Only the client self-update route
+/// may carry a note; the reviewed workflow treats any note elsewhere, or an undefined one, as Unverified.
+/// </summary>
+public enum PostUpdateVerificationNote { None, ClientReviewedLeftover }
 
 public interface IPostUpdateInventory
 {
@@ -370,7 +399,33 @@ public static partial class SanitizedDiagnosticBundle
         safe = WindowsPath().Replace(safe, "[path]");
         safe = new string(safe.Select(character => char.IsControl(character) ? ' ' : character).ToArray());
         safe = Whitespace().Replace(safe, " ").Trim();
-        return safe[..Math.Min(safe.Length, MaximumTextLength)];
+        return Truncate(ReplaceLoneSurrogates(safe), MaximumTextLength);
+    }
+
+    /// <summary>Truncates to at most <paramref name="maximumLength"/> UTF-16 units without splitting a surrogate pair.</summary>
+    public static string Truncate(string value, int maximumLength)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumLength);
+        if (value.Length <= maximumLength) return value;
+        int length = maximumLength;
+        if (length > 0 && char.IsHighSurrogate(value[length - 1])) length--;
+        return value[..length];
+    }
+
+    /// <summary>Replaces unpaired UTF-16 surrogates with U+FFFD so text always encodes as strict UTF-8.</summary>
+    private static string ReplaceLoneSurrogates(string value)
+    {
+        char[]? buffer = null;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (char.IsHighSurrogate(current) && index + 1 < value.Length && char.IsLowSurrogate(value[index + 1])) { index++; continue; }
+            if (!char.IsSurrogate(current)) continue;
+            buffer ??= value.ToCharArray();
+            buffer[index] = '\uFFFD';
+        }
+        return buffer is null ? value : new string(buffer);
     }
 
     [GeneratedRegex(@"(?i)\b(password|token|secret|licen[cs]e[-_ ]?key)\s*[:=]\s*\S+", RegexOptions.CultureInvariant)]

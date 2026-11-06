@@ -1,0 +1,291 @@
+{
+    "format":  "pc-steward-chocolatey-release-manifest:1",
+    "release":  "2.7.5",
+    "asset":  "chocolatey.2.7.5.nupkg",
+    "assetLength":  5719618,
+    "assetSha256":  "F86F99A18D236C2F99E6F67A20BE7ADC65C6C7756BF6CF3B43759E7EC0AA5839",
+    "pathMapping":  "tools/chocolateyInstall/\u003crelative\u003e -\u003e \u003cverified-root\u003e/\u003crelative\u003e",
+    "provenance":  "Published release bytes only; no reproducible source-build attestation or owner-host eligibility.",
+    "files":  [
+                  {
+                      "path":  "choco.exe",
+                      "length":  12022880,
+                      "sha256":  "4AB5785C91D6CB3CC0E9890BCA29077F7D6BAAC0DFC935DBE2DA37047ED761C0"
+                  },
+                  {
+                      "path":  "choco.exe.manifest",
+                      "length":  2997,
+                      "sha256":  "D715D6071E5CDD6447D46ED8E903B9B3AD5952ACC7394EE17593D87A546C17FC"
+                  },
+                  {
+                      "path":  "helpers/Chocolatey.PowerShell.dll",
+                      "length":  40544,
+                      "sha256":  "B36F60CB783329F341ED0CD0075D9A0BA2863F835FE46A944CCE9F693E9C2480"
+                  },
+                  {
+                      "path":  "helpers/Chocolatey.PowerShell.dll-help.xml",
+                      "length":  59470,
+                      "sha256":  "A0BCB2523147215E66A126F8B69E578043C14FEE3D72DF085F54C53E0D3CFBD9"
+                  },
+                  {
+                      "path":  "helpers/chocolateyInstaller.psm1",
+                      "length":  22385,
+                      "sha256":  "4AF7D8DCDBA7335F96D4D7F9B7AB75B29A890380D8C7C35C59F60739DB8A604E"
+                  },
+                  {
+                      "path":  "helpers/chocolateyProfile.psm1",
+                      "length":  15622,
+                      "sha256":  "ED69CDE7544EFE46ECBC66B10EDC55140E49CD2FA17F5CCF0E214D769E3CAD2B"
+                  },
+                  {
+                      "path":  "helpers/chocolateyScriptRunner.ps1",
+                      "length":  17777,
+                      "sha256":  "859CFA5D9DC747A5BC5651331977BEEF2177CF8335A24A8F0A26D7965FD66944"
+                  },
+                  {
+                      "path":  "helpers/ChocolateyTabExpansion.ps1",
+                      "length":  37972,
+                      "sha256":  "1A9137DE5F6B86E6BF4E478E7ACDF95433107E010FED460FAAD88D94EABB50E6"
+                  },
+                  {
+                      "path":  "helpers/functions/Format-FileSize.ps1",
+                      "length":  16054,
+                      "sha256":  "D47A44752FD6A983F9AB0E48AA8B12A2B0BC772EA0BB380C64723BB8E0B2CCBB"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-CheckSumValid.ps1",
+                      "length":  26167,
+                      "sha256":  "5F88F0BEAA6CCE518833111F16B532E33F80BA3EA5B878C2690B4FC1218CF3B2"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-ChocolateyConfigValue.ps1",
+                      "length":  16318,
+                      "sha256":  "83EB927EFCD495E15FD4FF5D043E1F0CF4B2DCEDED9AEB5A4AF3DB0CDE2BFD8B"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-ChocolateyPath.ps1",
+                      "length":  17022,
+                      "sha256":  "18F1E1DC7EA4C3DAAE3FC51FD1373330C0132270180ED93BCAC7A1D2843353F5"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-ChocolateyUnzip.ps1",
+                      "length":  25780,
+                      "sha256":  "BB77491D99FA16F09048E81A2CEDC29F3E6397D0D166BA2F72317ACA04347C25"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-ChocolateyWebFile.ps1",
+                      "length":  31820,
+                      "sha256":  "5A763E6F6895FB36C99C942C56B2E5860E316978CE61FFB6D5A4599B357EAE4E"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-FtpFile.ps1",
+                      "length":  23075,
+                      "sha256":  "A0D1FCEC293A9D8B1340BBF54194884EF1C7495C3CBE9D4D5673EDF2E5CCFB43"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-OSArchitectureWidth.ps1",
+                      "length":  17145,
+                      "sha256":  "30F831B5189132D642EDFD7CC9E4F44B11AE357652E1748073D94206544D4B77"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-PackageParameters.ps1",
+                      "length":  21718,
+                      "sha256":  "D537580623CA8088692AD463E8913A83EDB50963BD4B3B2B7B579E4E2B3B71F9"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-ToolsLocation.ps1",
+                      "length":  17518,
+                      "sha256":  "10EF1BD8A810EE08F601A207AC83A4C7D9EBAD1A4777378CF3749E3C56B98C48"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-UACEnabled.ps1",
+                      "length":  16240,
+                      "sha256":  "3F0C1C8C91696C6AE9C0E41589319D200D2C4BD16CABF4E2F1A11FC947A72F91"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-UninstallRegistryKey.ps1",
+                      "length":  20286,
+                      "sha256":  "573FD644BEE61BF85053989C7111BE4A33223CE9BFD0AE5F95E05382FA08A1F5"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-VirusCheckValid.ps1",
+                      "length":  16118,
+                      "sha256":  "73D85AA2297033F106A0C8C3138EFB9AD36F97ED108E040F12348FAE94C56F74"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-WebFile.ps1",
+                      "length":  28730,
+                      "sha256":  "2DC9AE2D1DE175E6B867FF89F84BA25D08DD5F41B84E2818318CA23F3EB5797E"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-WebFileName.ps1",
+                      "length":  24253,
+                      "sha256":  "DB062D9D09D7DAE751E626BF97138EAE6E9350112E2738CB3BE9EF78DBDACE1A"
+                  },
+                  {
+                      "path":  "helpers/functions/Get-WebHeaders.ps1",
+                      "length":  20634,
+                      "sha256":  "1D15D738C319132C792AC6F8820F50CCB0FC32597E9C886746BCC31FCCE2C683"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-BinFile.ps1",
+                      "length":  20895,
+                      "sha256":  "767FD247F1F93CAC6188BA1A0C3398B87CF3178E25DED4A16CED7E9BB3CD27F6"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyEnvironmentVariable.ps1",
+                      "length":  18759,
+                      "sha256":  "223F17F84D214C9FA9478817EFF65A2681D505DFBFB6B81A2121E446E9614000"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyExplorerMenuItem.ps1",
+                      "length":  19037,
+                      "sha256":  "1E2FB44E0BE817B5E16A03A30502C65F61DDDC551BD3923EA571E3F83980E049"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyFileAssociation.ps1",
+                      "length":  17879,
+                      "sha256":  "9C7C53D9EF8B902F60D5448ADBE96FC1EDA319C1DD6E6E7C8A4FFB3EB46C28DB"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyInstallPackage.ps1",
+                      "length":  29245,
+                      "sha256":  "09E1973A0286C5912C7F233FCE89B2EFD9347EFDD085869437D9FCBE69A5C5D7"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyPackage.ps1",
+                      "length":  31292,
+                      "sha256":  "16B5DF14198360715D06A5F12F2B1976D38E729BBE37748E0CBB17F57C4F367E"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyPinnedTaskBarItem.ps1",
+                      "length":  17373,
+                      "sha256":  "DBA9B9E9329FA5D918B1E941DBFED9363A616033CDFCAD4A0C60AF9C41C4C4AC"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyPowershellCommand.ps1",
+                      "length":  23698,
+                      "sha256":  "AEEE93F35724D656A73D1572522FE9B985FA1CAE6978B0405398EF9327A1580D"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyShortcut.ps1",
+                      "length":  22580,
+                      "sha256":  "3410AEB9BC5106B29F2C4CBC74C9FEBDC229C569153DDB1E41188A7396079A3B"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyVsixPackage.ps1",
+                      "length":  23306,
+                      "sha256":  "4E982CE84C225C6870CC78120E5F85FB622756FEFF4C7E8EB7088473A2538620"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-ChocolateyZipPackage.ps1",
+                      "length":  24593,
+                      "sha256":  "B0211091D5FE20E5E917855550EEFB2961BE6556A6F4F8A9C98619723A062CB7"
+                  },
+                  {
+                      "path":  "helpers/functions/Install-Vsix.ps1",
+                      "length":  16518,
+                      "sha256":  "DAD0EF31EB232C6C189E0AD947E62E71C5239BF2DAD8F9D72A06CF3544A427A4"
+                  },
+                  {
+                      "path":  "helpers/functions/Set-PowerShellExitCode.ps1",
+                      "length":  16048,
+                      "sha256":  "FFFB05319B00EFB87D2705760EF351C11AD2B1913469635B980D386310BF0E1F"
+                  },
+                  {
+                      "path":  "helpers/functions/Start-ChocolateyProcessAsAdmin.ps1",
+                      "length":  32129,
+                      "sha256":  "694C4DAED9ADD47D4ECE4BD07568AA57DBC1F3316426F78CE5FD1EF2F2CE2625"
+                  },
+                  {
+                      "path":  "helpers/functions/Uninstall-BinFile.ps1",
+                      "length":  18078,
+                      "sha256":  "F706530F0CDABB2F02C9D5B70D7DE77D1F02FC4F6730C815FF8410DCF208B9FC"
+                  },
+                  {
+                      "path":  "helpers/functions/Uninstall-ChocolateyEnvironmentVariable.ps1",
+                      "length":  17361,
+                      "sha256":  "C20B736BCE859734C4497C6D5AAEC13BFA3C201461CC02F48A7539FEA54BE59E"
+                  },
+                  {
+                      "path":  "helpers/functions/Uninstall-ChocolateyPackage.ps1",
+                      "length":  20524,
+                      "sha256":  "07CED451A144A7F6E3FD24D19BFCB2E2A5EA49A969A036754CB833DC2D2986CB"
+                  },
+                  {
+                      "path":  "helpers/functions/UnInstall-ChocolateyZipPackage.ps1",
+                      "length":  17275,
+                      "sha256":  "599EA45533DC1AB68A9646C6A88B71F4FC11A8669FA3EE8F41360435CA8816DC"
+                  },
+                  {
+                      "path":  "helpers/functions/Write-FunctionCallLogMessage.ps1",
+                      "length":  16311,
+                      "sha256":  "117E7BBFD11DA2F5BD00F66AA004837DD774485E96334FB42B8AC537F4FB012B"
+                  },
+                  {
+                      "path":  "tools/7z.dll",
+                      "length":  1319424,
+                      "sha256":  "1C57100CC237DB626259F68FE91C5A632A5128E0E01BAB1452BAA1104FF84311"
+                  },
+                  {
+                      "path":  "tools/7z.dll.manifest",
+                      "length":  513,
+                      "sha256":  "6B7368CE5E38F6E0EE03CA0A9D1A2322CC0AFC07E8DE9DCC94E156853EAE5033"
+                  },
+                  {
+                      "path":  "tools/7z.exe",
+                      "length":  358912,
+                      "sha256":  "C3598543C41918B5C94DAFB9DD724C16C9A217D36B5EE530E3BC10C9F12ACA6C"
+                  },
+                  {
+                      "path":  "tools/7z.exe.ignore",
+                      "length":  0,
+                      "sha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+                  },
+                  {
+                      "path":  "tools/7z.exe.manifest",
+                      "length":  513,
+                      "sha256":  "6B7368CE5E38F6E0EE03CA0A9D1A2322CC0AFC07E8DE9DCC94E156853EAE5033"
+                  },
+                  {
+                      "path":  "tools/7zip.license.txt",
+                      "length":  6031,
+                      "sha256":  "519AC0A4BDED9C18EA02E0AFB71F663D8C47373BD9FACD3AC96A79F51D77765D"
+                  },
+                  {
+                      "path":  "tools/checksum.exe",
+                      "length":  39008,
+                      "sha256":  "04DDF72E7D930D3001D8111E1C5EA0A408A56D5BF4FFCF9C6680427375E31E1D"
+                  },
+                  {
+                      "path":  "tools/checksum.exe.config",
+                      "length":  150,
+                      "sha256":  "9B250C32CBEC90D2A61CB90055AC825D7A5F9A5923209CFD0625FCA09A908D0A"
+                  },
+                  {
+                      "path":  "tools/checksum.exe.ignore",
+                      "length":  0,
+                      "sha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+                  },
+                  {
+                      "path":  "tools/checksum.license.txt",
+                      "length":  95,
+                      "sha256":  "29472B6BE2F4E7134F09CC2FADF088CB87089853B383CA4AF29C19CC8DFC1A62"
+                  },
+                  {
+                      "path":  "tools/shimgen.exe",
+                      "length":  568928,
+                      "sha256":  "9033F75F25BAE75853BCA02AAB9BBF1EA73D52CD256822F744820052B1CB70AF"
+                  },
+                  {
+                      "path":  "tools/shimgen.exe.ignore",
+                      "length":  0,
+                      "sha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+                  },
+                  {
+                      "path":  "tools/shimgen.license.txt",
+                      "length":  3758,
+                      "sha256":  "D4D2EF2C520EC3E4ECFF52C867EBD28E357900E0328BB4173CB46996DED353F4"
+                  }
+              ]
+}

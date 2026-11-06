@@ -304,8 +304,64 @@ namespace PCSteward.Deployment {
 '@
 }
 
+# ADR-022 alignment note (protocol-2 capability statement). The next three functions are pure: no file, store or host
+# access. ConvertFrom-OwnerOnlyDeploymentCapability mirrors DeploymentCapabilityPolicy.TryParseCapability byte for byte.
+function ConvertFrom-OwnerOnlyDeploymentCapability {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes)
+    $malformed = 'Malformed deployment capability statement.'
+    if ($Bytes.Length -eq 0 -or $Bytes.Length -gt 1024 -or $Bytes[$Bytes.Length - 1] -ne 10) { throw $malformed }
+    foreach ($value in $Bytes) { if ($value -ne 10 -and ($value -lt 0x20 -or $value -gt 0x7E)) { throw $malformed } }
+    $lines = [Text.Encoding]::ASCII.GetString($Bytes, 0, $Bytes.Length - 1).Split([char]10)
+    if ($lines.Length -lt 3 -or $lines.Length -gt 10 -or $lines[0] -cne 'pc-steward-deployment-capability:1' -or !$lines[1].StartsWith('helper-protocol:', [StringComparison]::Ordinal)) { throw $malformed }
+    $protocol = $lines[1].Substring(16)
+    if ($protocol.Length -eq 0) { throw $malformed }
+    # Task 50 activation (ADR-031 owner decision 7): mirrors DeploymentCapabilityPolicy.CapabilityOperationAllowlist.
+    $allowed = @('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3')
+    $operations = [Collections.Generic.List[string]]::new(); $previous = $null
+    for ($index = 2; $index -lt $lines.Length; $index++) {
+        if (!$lines[$index].StartsWith('operation:', [StringComparison]::Ordinal)) { throw $malformed }
+        $token = $lines[$index].Substring(10)
+        if ($token -cnotin $allowed -or ($null -ne $previous -and [string]::CompareOrdinal($previous, $token) -ge 0)) { throw $malformed }
+        $operations.Add($token); $previous = $token
+    }
+    [pscustomobject]@{ HelperProtocol = $protocol; Operations = $operations.ToArray() }
+}
+
+function Assert-OwnerOnlyDeploymentCapabilityBytes {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes)
+    $capability = ConvertFrom-OwnerOnlyDeploymentCapability -Bytes $Bytes
+    # Each desktop/helper pair accepts exactly one protocol; the compiled value is ReviewedUpdateWireCodec.ProtocolVersion.
+    if ($capability.HelperProtocol -cne '2') { throw 'The deployment capability statement names an unsupported helper protocol.' }
+    $capability
+}
+
+function Get-OwnerOnlyCandidatePayloadOrigin {
+    param([Parameter(Mandatory)][object[]]$Files)
+    $leaf = 'PCSteward.DeploymentCapability.txt'
+    $capability = @($Files | Where-Object { $_.path -ieq $leaf -or $_.path -ilike ('*\' + $leaf) })
+    if ($capability.Count -eq 0) { return 'pinned-unsigned-v1' }
+    if ($capability.Count -ne 1 -or $capability[0].path -cne $leaf -or $capability[0].bytes -lt 1 -or $capability[0].bytes -gt 1024) { throw 'Malformed pinned deployment capability entry.' }
+    return 'pinned-unsigned-v2'
+}
+
+function Read-OwnerOnlyDeploymentCapability {
+    param([Parameter(Mandatory)][string]$PayloadRoot, [Parameter(Mandatory)][PCSteward.Deployment.PayloadFile]$Entry)
+    $lease = [PCSteward.Deployment.PayloadIntegrity]::HoldStableFile((Join-Path $PayloadRoot $Entry.path))
+    try {
+        if ($lease.Length -ne $Entry.bytes -or $lease.Length -gt 1024) { throw 'The pinned deployment capability size differs from the approved manifest.' }
+        $bytes = [byte[]]::new([int]$lease.Length); $read = 0
+        while ($read -lt $bytes.Length) { $count = $lease.Read($bytes, $read, $bytes.Length - $read); if ($count -le 0) { throw 'Truncated deployment capability read.' }; $read += $count }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','') } finally { $sha.Dispose() }
+        if (![string]::Equals($hash, $Entry.sha256, [StringComparison]::OrdinalIgnoreCase)) { throw 'The pinned deployment capability hash differs from the approved manifest.' }
+        Assert-OwnerOnlyDeploymentCapabilityBytes -Bytes $bytes
+    } finally { $lease.Dispose() }
+}
+
 function Read-OwnerOnlyCandidateManifest {
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$ExpectedSha256)
+    # A manifest that pins PCSteward.DeploymentCapability.txt is a protocol-2 payload: its capability bytes are validated
+    # from PayloadRoot (required then) before any caller can sign or install it.
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$ExpectedSha256, [string]$PayloadRoot)
     $raw = [PCSteward.Deployment.PayloadIntegrity]::ReadPinnedFile($Path,$ExpectedSha256)
     $text = [Text.UTF8Encoding]::new($false,$true).GetString($raw).TrimStart([char]0xfeff)
     if (!$text.TrimStart().StartsWith('[')) { throw 'Candidate manifest must be an array.' }
@@ -323,7 +379,13 @@ function Read-OwnerOnlyCandidateManifest {
         if (@($array | Where-Object { $_.path -ceq $required }).Count -ne 1) { throw "Missing required candidate payload: $required" }
     }
     if (@($array | Where-Object { $_.path -cmatch '^Resources\\.+\.xbf$' }).Count -eq 0) { throw 'Missing compiled XBF resources.' }
-    [pscustomobject]@{ Files=$array; Raw=$raw; Sha256=$ExpectedSha256.ToUpperInvariant() }
+    $origin = Get-OwnerOnlyCandidatePayloadOrigin -Files $array
+    $helperProtocol = $null
+    if ($origin -ceq 'pinned-unsigned-v2') {
+        if (!$PayloadRoot) { throw 'A protocol-2 candidate manifest requires its payload root to validate the pinned capability statement.' }
+        $helperProtocol = (Read-OwnerOnlyDeploymentCapability -PayloadRoot $PayloadRoot -Entry @($array | Where-Object { $_.path -ceq 'PCSteward.DeploymentCapability.txt' })[0]).HelperProtocol
+    }
+    [pscustomobject]@{ Files=$array; Raw=$raw; Sha256=$ExpectedSha256.ToUpperInvariant(); PayloadOrigin=$origin; HelperProtocol=$helperProtocol }
 }
 
 function Assert-OwnerOnlyPayloadProvenance {
@@ -331,8 +393,10 @@ function Assert-OwnerOnlyPayloadProvenance {
     $origin = $State.PSObject.Properties['payloadOrigin']
     $hasOtherFields = $null -ne $State.PSObject.Properties['candidateManifestSha256'] -or $null -ne $State.PSObject.Properties['executableImages']
     if (!$origin) { if ($hasOtherFields -or (Test-Path -LiteralPath (Join-Path $StateRoot 'candidate-manifest.json'))) { throw 'Incomplete pinned-payload provenance.' }; return 'legacy-v6' }
-    if ($State.payloadOrigin -cne 'pinned-unsigned-v1' -or !$hasOtherFields) { throw 'Unrecognised pinned-payload provenance.' }
-    $manifest = Read-OwnerOnlyCandidateManifest -Path (Join-Path $StateRoot 'candidate-manifest.json') -ExpectedSha256 $State.candidateManifestSha256
+    if ($State.payloadOrigin -isnot [string] -or $State.payloadOrigin -cnotin @('pinned-unsigned-v1','pinned-unsigned-v2') -or !$hasOtherFields) { throw 'Unrecognised pinned-payload provenance.' }
+    $manifest = Read-OwnerOnlyCandidateManifest -Path (Join-Path $StateRoot 'candidate-manifest.json') -ExpectedSha256 $State.candidateManifestSha256 -PayloadRoot $InstallRoot
+    # pinned-unsigned-v2 is recognised only with a valid pinned capability statement, and pinned-unsigned-v1 only without one.
+    if ($manifest.PayloadOrigin -cne $State.payloadOrigin) { throw 'Unrecognised pinned-payload provenance.' }
     $signedLeaves = @('PCSteward.Desktop.exe','PCSteward.ElevatedHelper.exe')
     $images = @($State.executableImages)
     if ($images.Count -ne 2) { throw 'Exactly two original executable identities are required.' }
@@ -352,7 +416,7 @@ function Assert-OwnerOnlyPayloadProvenance {
         } else { $installed.Add($file) }
     }
     [PCSteward.Deployment.PayloadIntegrity]::AssertTree($InstallRoot,$installed.ToArray())
-    return 'pinned-unsigned-v1'
+    return $manifest.PayloadOrigin
 }
 
 function Test-OwnerOnlySignedExecutable {
@@ -374,7 +438,7 @@ function Test-OwnerOnlySignedExecutable {
 
 function Assert-OwnerOnlyPayloadProfile {
     param([Parameter(Mandatory)][string]$Origin,[switch]$AllowLegacyPayload)
-    if ($Origin -ceq 'pinned-unsigned-v1') { return }
+    if ($Origin -cin @('pinned-unsigned-v1','pinned-unsigned-v2')) { return }
     if ($AllowLegacyPayload -and $Origin -ceq 'legacy-v6') { return }
     throw 'The installed deployment is legacy or unsupported; pinned-payload evidence is required.'
 }

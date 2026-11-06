@@ -7,4 +7,8 @@
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
     <ProjectReference Include="../PCSteward.Execution/PCSteward.Execution.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- ADR-022 alignment note: the pinned protocol-2 capability statement, published at the payload root with exact bytes. -->
+    <None Include="PCSteward.DeploymentCapability.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

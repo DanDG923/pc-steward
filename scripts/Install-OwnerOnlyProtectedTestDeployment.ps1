@@ -83,6 +83,13 @@ function New-OwnerOnlyCertificate([ref]$State, [string]$StatePath, [string]$Inst
         finally { $store.Close() }
     }
 }
+function Get-SigningFailureText([string]$Leaf, [string]$Path, [object]$Signature, [string]$ExpectedThumbprint) {
+    # Task 50 R2 (FR-UPD-15, TM-07): diagnostics only; acceptance is unchanged (Valid and the owned signer's thumbprint).
+    $returned = if ($Signature) { "Status=$($Signature.Status); StatusMessage=[$($Signature.StatusMessage)]" } else { 'no result object' }
+    $signer = if ($Signature -and $Signature.SignerCertificate) { $Signature.SignerCertificate.Thumbprint } else { 'none' }
+    $observed = try { $current = Get-AuthenticodeSignature -LiteralPath $Path; "Status=$($current.Status); StatusMessage=[$($current.StatusMessage)]" } catch { "query failed: [$($_.Exception.Message)]" }
+    return "Could not sign $Leaf with the owner-only certificate. Set-AuthenticodeSignature: $returned; SignerThumbprint=$signer; ExpectedThumbprint=$ExpectedThumbprint. Get-AuthenticodeSignature: $observed"
+}
 function Get-DeploymentFiles([string]$Path) { @(Get-ChildItem -LiteralPath $Path -File -Recurse | Sort-Object FullName | ForEach-Object { [ordered]@{ path = $_.FullName.Substring($Path.Length + 1); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } }) }
 function Assert-ExactDacl([string]$Path) {
     $expected = @{ 'S-1-5-18' = [Security.AccessControl.FileSystemRights]::FullControl; 'S-1-5-32-544' = [Security.AccessControl.FileSystemRights]::FullControl; 'S-1-5-32-545' = ([Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [Security.AccessControl.FileSystemRights]::Synchronize) }
@@ -123,7 +130,8 @@ $deploymentMutex = Enter-OwnerOnlyMutex
 try {
     if (Test-Path -LiteralPath $installRoot) { throw "Refusing to replace an existing protected deployment: $installRoot" }
     if (Test-Path -LiteralPath $stateRoot) { throw "Refusing to reuse owner-only deployment state: $stateRoot" }
-    $candidate = Read-OwnerOnlyCandidateManifest -Path $CandidateManifestPath -ExpectedSha256 $CandidateManifestSha256
+    # A pinned PCSteward.DeploymentCapability.txt makes this a protocol-2 payload; its bytes are validated here, before any effect.
+    $candidate = Read-OwnerOnlyCandidateManifest -Path $CandidateManifestPath -ExpectedSha256 $CandidateManifestSha256 -PayloadRoot $CandidateRoot
     [PCSteward.Deployment.PayloadIntegrity]::AssertTree($CandidateRoot,$candidate.Files)
     $certificateState = $null; $ownsInstallRoot = $false; $ownsStateRoot = $false
     try {
@@ -144,7 +152,7 @@ try {
     $protectedManifest = Join-Path $stateRoot 'candidate-manifest.json'
     [PCSteward.Deployment.PayloadIntegrity]::WriteProtectedFile($protectedManifest,$candidate.Raw)
     Set-OwnerOnlyAcl $stateRoot
-    $null = Read-OwnerOnlyCandidateManifest -Path $protectedManifest -ExpectedSha256 $candidate.Sha256
+    $null = Read-OwnerOnlyCandidateManifest -Path $protectedManifest -ExpectedSha256 $candidate.Sha256 -PayloadRoot $payloadStaging
     # No certificate-store mutation or signing until the protected payload is exact.
     New-OwnerOnlyCertificate ([ref]$certificateState) -StatePath $statePath -InstallRoot $installRoot -InstallerSid $installerSid
     $certificate = $certificateState.Certificate; if ($certificate.NotAfter -le (Get-Date)) { throw 'The code-signing certificate is expired.' }
@@ -153,7 +161,7 @@ try {
     foreach ($image in $executableImages) {
         $path = Join-Path $payloadStaging $image.path
         $signature = Set-AuthenticodeSignature -FilePath $path -Certificate $certificate -HashAlgorithm SHA256
-        if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Could not sign $($image.path) with the owner-only certificate." }
+        if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw (Get-SigningFailureText -Leaf $image.path -Path $path -Signature $signature -ExpectedThumbprint $certificate.Thumbprint) }
         $original = @($candidate.Files | Where-Object { $_.path -ceq $image.path })[0]
         $verifiedSignedFiles.Add($image.path,(Test-OwnerOnlySignedExecutable -Path $path -Identity ([PCSteward.Deployment.ImageIdentity]::new($original.bytes,$original.sha256,[uint32]$image.originalChecksum)) -ExpectedThumbprint $certificate.Thumbprint))
     }
@@ -171,12 +179,12 @@ try {
     Set-OwnerOnlyAcl $installRoot
     Remove-Item -LiteralPath $staging -Recurse -Force
     $files = @($signedPayload.ToArray() | Sort-Object path | ForEach-Object { [ordered]@{path=$_.path;sha256=$_.sha256} })
-    $completedState = [ordered]@{ schema = $schema; installRoot = $installRoot; installerSid = $installerSid; certificateThumbprint = $certificate.Thumbprint; certificateSubject = $certificate.Subject; ownedCertificateStores = @($certificateState.OwnedStores); createdAtUtc = [DateTimeOffset]::UtcNow.ToString('O'); completed = $true; files = $files; payloadOrigin = 'pinned-unsigned-v1'; candidateManifestSha256 = $candidate.Sha256; executableImages = $executableImages }
+    $completedState = [ordered]@{ schema = $schema; installRoot = $installRoot; installerSid = $installerSid; certificateThumbprint = $certificate.Thumbprint; certificateSubject = $certificate.Subject; ownedCertificateStores = @($certificateState.OwnedStores); createdAtUtc = [DateTimeOffset]::UtcNow.ToString('O'); completed = $true; files = $files; payloadOrigin = $candidate.PayloadOrigin; candidateManifestSha256 = $candidate.Sha256; executableImages = $executableImages }
     Write-OwnerOnlyProtectedJson -Path $statePath -Value $completedState
     Set-OwnerOnlyAcl $stateRoot
     Assert-TrustedDeployment -InstallRoot $installRoot -StateRoot $stateRoot -ExpectedThumbprint $certificate.Thumbprint -ExpectedFiles $files
     $origin = Assert-OwnerOnlyPayloadProvenance -InstallRoot $installRoot -StateRoot $stateRoot -State (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json)
-    if ($origin -cne 'pinned-unsigned-v1') { throw 'New deployment lacks required pinned-payload provenance.' }
+    if ($origin -cne $candidate.PayloadOrigin) { throw 'New deployment lacks the pinned-payload provenance implied by its approved manifest.' }
     [pscustomobject]@{ deployment = 'owner-only-protected-test'; installRoot = $installRoot; certificateThumbprint = $certificate.Thumbprint; validation = 'Pass'; launched = $false; applicationUpdates = 0 } | ConvertTo-Json
 }
 catch {

@@ -1,4 +1,446 @@
+# Task 50 — Profile V2 revision 2.1: `containsLegacyPackageInstalls` (C1 fix)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [revision record](../review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md); [Profile V2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) revision note; [Part C plan §13](../review/TASK_50_PART_C_PLAN.md).
+
+- **Code.** `ChocolateyConfigurationParser` admits `containsLegacyPackageInstalls` only absent or with exactly `true` (the pinned 2.7.5 template value); any other value refuses. No observation or fingerprint field is added.
+- **Tests.**
+  - Application `ChocolateyConfigurationParserTests`: 3 admitted forms and 13 refused forms.
+  - Application `ChocolateyCommonProfileFingerprintTests`: the key keeps the golden `C179F864…EE77`.
+  - Security `ChocolateyProfileRulesTests` (portable, 7 cases): a real-shape 2.7.5 file (`Chocolatey275ConfigurationFixture`) passes the parser and the portable step-6 rules; the other values refuse; empty `cacheLocation` still fails the cache rule.
+  - Security `ChocolateyProfileObserverTests` (Windows-only, 3): the real shape is Observed and the key is not a fingerprint field; `false` and an empty `cacheLocation` each refuse at step 6 with `StepRule`.
+
+# Task 50 — Part C step C-A: activation change (ADR-031 decision 7)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decision 7, ADR-025, ADR-022; [record](../review/TASK_50_ACTIVATION_CHANGE.md) (gate inventory §1).
+
+- **Code.**
+  - `ReviewedChocolateyRouteAdmission` (exact shapes) as the single second term of `ReviewedUpdateReview.HasSupportedMode`; `ReviewedRouteTestAdmission` is removed.
+  - `DeploymentCapabilityPolicy.CapabilityOperationAllowlist` gains the client route; `PCSteward.DeploymentCapability.txt` (149 B) and the `OwnerOnlyPayloadIntegrity.ps1` token list follow it.
+  - `ChocolateyRuntimeLimitsRouteDispatcher.Supports` uses `TryGetRouteProfileDigest`.
+  - `New-OwnerOnlyCandidate.ps1`: build record v2 with the probe-build mark. `Test-OwnerOnlyCandidateBuilderCI.ps1` requires it, and the CI job uses `fetch-depth: 0`.
+  - New `scripts/evidence/Task50-QualificationProbe.ps1` (S7, C1–C7).
+- **Tests.**
+  - Architecture: `ChocolateyRouteActivationBoundaryTests` (5); the changed pins in `ClientRunFaultBoundaryTests`, `DesktopProducersBoundaryTests`, `AdmissionGateSeamBoundaryTests` and `DeploymentCapabilityBoundaryTests`.
+  - Gate tests on the production rule: `ClientRouteWorkflowAdmissionGateTests`, `ClientRouteSqliteAdmissionGateTests`, `ClientRouteNativeEndToEndGateTests`.
+  - Admission behaviour: `AdapterGatesPartATests`, `ReviewedUpdateDispatchWorkflowTests`, `ChocolateyReviewDisclosureTests`, `ReviewedRouteViewModelTests`, `ChocolateyClientUpdatePresentationTests`, `ChocolateyReviewedUpdateArgumentsTests`, `ChocolateyDesktopProducersTests`, `ReviewedHelperProtocol2TransportTests`.
+  - Capability: `DeploymentCapabilityPolicyTests`, `DeploymentCapabilityScriptTests`, `DeploymentCapabilityReaderTests`.
+  - Probe on the two-token contract: `QualificationProbeWireCodecTests`, `QualificationProbeHelperEndpointTests`, `QualificationProbeDesktopEntryTests`, `QualificationProbeResultFileTests`.
+  - Builder: `OwnerOnlyCandidateBuilderTests` (probe-mark rows, CI job, git invocation count).
+  - New `QualificationProbeHostToolingTests` with `Fixtures/QualificationProbeHostTooling.ps1`.
+- **Review fixes** (record §8; M1, M2, L4–L9):
+  - `ReviewedUpdateOperation.IsChocolateyClientIdentity`, shared with `ChocolateyClientReleasePolicy.IsClientTarget`.
+  - New `RuntimeLimitRouteActivationTests`: the composition record's L1 obligation through SQLite, near-miss rows and predicate agreement.
+  - Probe-script E5, result-folder, capability-pin and build-record-hash rows in `QualificationProbeHostToolingTests`.
+  - Builder Git isolation and lineage exit-code rows in `OwnerOnlyCandidateBuilderTests`.
+- **Not claimed.** Windows CI evidence for the Windows-only rows; any deployment, probe run or owner admission approval, including the owner's obligation-8 confirmation. Nothing in `src` composes a Chocolatey review or dispatch.
+
+# Task 50 — R2 tooling: fresh install, packaged-process refusal, installer diagnostics (owner decision D-R2)
+
+`FR-UPD-15`, `TM-03`, `TM-04`, `TM-07`, `TM-13`; ADR-022; [recovery plan §3 R2](../review/TASK_50_RECOVERY_PLAN.md).
+
+- Code: `Invoke-OwnerOnlyRedeployCaller.ps1` (fresh-install NewPlan/CheckOnly; packaged refusal before the one-use claim; CheckOnly reports it), `Invoke-OwnerOnlyApprovedRedeployment.ps1` (fresh-install schema, preflight, no removal, re-check; packaged refusal before any mutation), `OwnerOnlyExecution.ps1` (`Assert-OwnerOnlyRedeployPlanV3` also validates `pc-steward-exact-fresh-install-v1`; `Get-OwnerOnlyPackageFullNameResult`, `Assert-OwnerOnlyUnpackagedProcess`, `Assert-OwnerOnlyFreshInstallBaseline`), `Install-OwnerOnlyProtectedTestDeployment.ps1` (`Get-SigningFailureText`; acceptance unchanged), `Copy-OwnerOnlyUserDatabase.ps1` (helper pin).
+- Tests: `RedeployToolingScriptTests` (`RedeployToolingFunctionsHoldTheirContracts` fresh/packaged/diagnostic rows, `PackagedProcessRefusalAndFreshBaselineAreBoundAsReviewed`, `TemplateConfinesV3ToPreserveUserDataAndKeepsV1V2DataAbsence`, `CallerAndCopyConstantsPinTheCommittedHelperWaiterAndTemplate`, `ToolingScriptsArePrintableAsciiAndNeverLoadSqlite`) with `Fixtures/RedeployTooling.ps1`; Windows-only rows (real package query, fresh NewPlan/CheckOnly end to end, real fresh program non-elevated, caller main dispatch) on Windows CI.
+
+# Task 50 — data-preserving redeploy tooling (activation gaps G1, G2, G4)
+
+`FR-UPD-15`, `TM-03`, `TM-04`, `TM-06`, `TM-07`, `TM-13`; ADR-022; activation plan §11 G1/G2/G4.
+
+- [Record](../review/TASK_50_REDEPLOY_TOOLING_G1_G2_G4.md): plan schema v3 (`Invoke-OwnerOnlyApprovedRedeployment.ps1`, `OwnerOnlyExecution.ps1`), the caller `Invoke-OwnerOnlyRedeployCaller.ps1`, `Copy-OwnerOnlyUserDatabase.ps1`, and the remover's `PCSteward*` process refusal.
+- Tests: `RedeployToolingScriptTests` with `Fixtures/RedeployTooling.ps1` (pwsh and Windows PowerShell 5.1 rows; Windows-only rows on CI), `DeploymentCapabilityPolicyTests`, `DeploymentCapabilityScriptTests`.
+
+# Task 50 — candidate builder (activation gap G3)
+
+`FR-UPD-15`, `TM-03`, `TM-13`; ADR-022 and its protocol-2 alignment note; activation plan §11 G3.
+
+- [Record](../review/TASK_50_CANDIDATE_BUILDER_G3.md): `scripts/New-OwnerOnlyCandidate.ps1` builds the unsigned v2 payload and `candidate-manifest.json`, then self-validates with `Read-OwnerOnlyCandidateManifest` in Windows PowerShell 5.1. It is non-elevated, makes no deterministic-build claim, and the candidate is pinned once by its manifest hash.
+- Security `OwnerOnlyCandidateBuilderTests` covers parsing, AST policy, the real build-step, SDK, output-root, manifest-writer and copy functions, and installer-reader acceptance (Windows row). The Windows CI job `owner-only-candidate-builder` runs the builder end to end; first pass on `19bc296` (103 files, manifest `DEB99FF9…4FD7`). Review findings M1–M3 and L1–L5 are dispositioned in the record.
+- No host action. B1 (the owner's build on the chosen commit) remains host evidence.
+
+# Task 50 — activation host-session plan (draft)
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; ADR-031 decision 7; composition record admission obligations 1–3.
+
+- [Plan rev 1](../review/TASK_50_ACTIVATION_HOST_SESSION_PLAN.md): Part A (confirming Default run, optional H3) reuses script SHA-256 `0A1C4377…84D4` and is ready for approval; Parts B (v2 redeploy) and C (exact-artifact test) are blocked by gaps G1–G9.
+- Part A: PASS (result 3, 2026-11-03).
+- Plan rev 2 (2026-11-03): Part B (`FR-UPD-15`, `TM-03/04/06/07/13`, ADR-022) as exact blocks on build commit `febf1ac` with LF/CRLF pins for the six protected scripts, template, caller, copy script and builder; approval 1a (B-prep, complete) and 1b (B-exec, host-placeholder template); [B-prep handover](../review/TASK_50_PART_B_LOCAL_AGENT_HANDOVER.md). G6 decided, G7 settled. Docs only; no host evidence yet for Part B.
+- Recovery R2/R3 (2026-11-06): `FR-UPD-15`, `TM-03/04/07/13`, ADR-022. The fresh v2 install is Validated and R3 passed (signer `473DB701…`, database unchanged). This closes Part B.
+- Recovery plan §6 (2026-11-05): `FR-UPD-15`, `TM-03/04/07/13`, ADR-022. Exact R2-prep/R2-exec/R3 blocks pinned to `385efe0`; R1 PASS recorded.
+- B-exec recovery plan rev 1 (2026-11-05): `FR-UPD-15`, `TM-03/04/07/13`, ADR-022 — [plan](../review/TASK_50_RECOVERY_PLAN.md). CI evidence: trusted-root signing is Valid, untrusted is `UnknownError`. Stages R1 (remover, owner console), R2 (fresh-install mode, packaged-process refusal, installer status diagnostics) and R3 (read-only checks); not approved.
+- B-exec signing diagnosis (2026-11-05): `FR-UPD-15`, `TM-03/TM-13`, ADR-022. The informational CI job `owner-only-signing-diagnostic` (`scripts/Test-OwnerOnlySigningDiagnosticCI.ps1`) is guarded by `OwnerOnlySigningDiagnosticCiTests`; the hypotheses are in [the failure record](../failures/task-50-part-b-exec.md).
+- Plan rev 2.1 / handover rev 2 (2026-11-03): B-prep review disposition (`FR-UPD-15`, `TM-03/04/06/07/13`): child stdin isolation, B0.2 Git stderr capture, B0.1 Git-hook stop, NuGetAudit B1 stop, §10 Git list and approval 1a effects. Docs only.
+
+# Task 50 — ADR-031 client-route admission gates (design §8.6/§8.7)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decisions 4, 5 and 7.
+
+- Security `ClientRouteWorkflowAdmissionGateTests` (portable 30), Application `ClientRouteSqliteAdmissionGateTests` (portable 4, real SQLite store and history reader), Security `ClientRouteNativeEndToEndGateTests` (3, Windows-only), `ClientRunFaultInterpreterWorkflowTests` (client reply carries no helper check, review M1), architecture `AdmissionGateSeamBoundaryTests`.
+- Not claimed: route admission, Windows CI evidence for the Windows-only cases, or owner-host evidence.
+
+# Task 50 — qualification probe slice S4 (desktop side)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §5.1–§5.6, §6, §7 D1–D9, §11.5.
+
+- Security `QualificationProbeDesktopEntryTests` (portable 14): D7 `Classify` (exact line, flag elsewhere, case/whitespace variants), folder before gate, a folder failure takes no gate and writes no file, GateBusy/GateUnavailable/GateRecoveryRequired/GateResetPending in the file, write before release on the acquiring thread, probe on a worker, faults record nothing, §5.4 exit codes.
+- Security `QualificationProbeDesktopTransportTests` (portable 38): steps 3–7 over fakes (D8 process check before any trust call; every token held; no launch before every check passes; a failed final trust after agreeing holds is `LaunchTrustFailed` with every binding released), hold agreement, D3 probe line against all three helper parsers, steps 8–10 over a real pipe pair including the real S3 endpoint (nothing written).
+- Security `QualificationProbeResultFileTests` (portable 23, Windows-only 3): D6 closed `:2` document (order, privacy, 4,096-B bound), location rules (8.3, UNC/device/relative, reparse, existing folder); real-folder, junction and short-name writes (Windows).
+- Security `QualificationProbeDesktopNativeTests` (Windows-only 5): D9 ledger SHA-256 and signer values; every token held through the real reader to a declined prompt with all bindings released.
+- Application `QualificationProbeGateTests` (Windows-only 9): D7 held, abandoned (one acquirer) and thread-affine gate; every non-`None` marker state unsettled with no write.
+- Security `DeploymentCapabilityReaderTests` (portable +1): the D9 signer read returns null for any failure and never throws.
+- Architecture `QualificationProbeDesktopBoundaryTests` (7) for D1, D2, D3, D4, D5, D7 (including the exact `Run(QualificationProbeLaunchGate.TryAcquire)` call) and the seams; existing pins admit the probe explicitly (`DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests`, `QualificationProbeWireBoundaryTests`, `QualificationProbeHelperBoundaryTests`); D4 admission-pin tests unmodified.
+- S6 integrated review (spec §11.6): Architecture `QualificationProbeReachabilityTests` D1 desktop closure from `QualificationProbeEntry.Run`/`Classify` (the helper bans plus the update transport and pipe writes; exactly one launch, in `LaunchProbeHelper`); Security `QualificationProbeDesktopTransportTests` (+1: `TryTerminate` reports `AggregateException` and the other expected failures as false; the budget margin is computed from `ReviewedHelperProbeBudgets.Production`).
+- Not claimed: the real Desktop build, Windows CI evidence for the 17 Windows-only cases, D4 (owner decision), deployment or any host action.
+
+# Task 50 — qualification probe slice S3 (helper side)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §2, §3, §4.4, §7 H1–H12.
+
+- Security `QualificationProbeHelperEndpointTests` (portable 44): every Q13 row over a real pipe pair, H3 disposal order, H7 inbound byte (27), EOF during A3/B′ (24), A3 cap and spent budget, A3 abandonment ordering (an interrupted run starts no evaluation; an interruption during one refuses the protection call without reaching the item), H10 in-flight disposal and the 26 write window.
+- Security `QualificationProbeHelperBootstrapTests` (portable 39, Windows-only 4): H6 grammar, 120 permutations and mutual refusal with all three existing parsers; H8 exits 20/21 (portable) and 22/23 plus native probe-port verdicts (Windows).
+- Security `QualificationProbeHelperNativeTests` (portable 7, Windows-only 6): §4.4 native/wire enum pins, H11 one-entry release list, H9 per-instance saturating sinks, probe value shapes, native item seam ordering; H12 walker/ancestry/observer/G1 unchanged with and without the sink and native B′ binding disposal (Windows).
+- Architecture `QualificationProbeHelperBoundaryTests` (11) for H1, H2 (including the binding disposed in a `finally`), H3 (Stop order in compiled IL and source), H4, H5, H6, H9/H12, H10 and S4-not-wired; `QualificationProbeReachabilityTests` (1) for H1a, the pinned transitive closure from `RunProbeAsync`/`SelectsProbe`; existing allow-lists grown additively per H4 (`HelperEndpointBoundaryTests`, `NativePrimitivesBoundaryTests`, `QualificationProbeWireBoundaryTests`).
+- Not claimed: Windows CI evidence for the 10 Windows-only cases, desktop wiring (S4), deployment or any host action.
+
+# Task 50 — qualification probe slice S2 (probe response codec)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [probe spec rev 4](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) §4.1–§4.4, §7 S2.
+
+- Security `QualificationProbeWireCodecTests` (87): goldens, round-trips, Q1–Q16 negatives, property mutations, update-frame cross-rejection and byte pins, the 18 `TokenVerdict` wire-name pin, the §4.3 L8 allow-list bound.
+- Architecture `QualificationProbeWireBoundaryTests` (4): probe types unreferenced outside the codec, test-only contract factory unused in `src`, no probe request codec, no native/transport reference.
+- Not claimed: helper or desktop wiring (S3/S4), Windows CI evidence, deployment.
+
+# Task 50 — host evidence (O5, A-Q1, A2-L3)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; fact extension §10 N5 (O5); adapter gates §A.4 (A-Q1) and §R A2-L3.
+
+- Owner-run probe under [plan rev 2.2](../review/TASK_50_HOST_EVIDENCE_PLAN.md) (script SHA-256 `0A1C4377…84D4`).
+- [Raw evidence](../review/TASK_50_HOST_EVIDENCE_RESULT.json) and [interpretation](../review/TASK_50_HOST_EVIDENCE_INTERPRETATION.md).
+- Verdicts:
+  - O5 PASS-READABLE (spec scope);
+  - AQ1N, AQ1M and AQ1C PASS (held main images, managed lazy loads);
+  - A2L3S PASS (analogue).
+- Eligibility: the installed Chocolatey does not match the pinned 2.7.5 release.
+- Still open before admission: the items in the interpretation's open list.
+
+# Task 50 — N5 desktop producers
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`, `AC-UPD-07`; [design rev 6](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §7 and §8 N5; adapter gates §A.6.1 (A2-L6); fact extension rev 3 §4.3 (L5); Task 90 M2.
+
+- Security `ChocolateyDesktopProducersTests` (portable 61): F′ null for every observer refusal kind and inconsistent observation, evidence identity from the fresh fingerprint; review intent as UserCacheIntent with the Profile V2 disclosure; verifier file-first ordering, ClientChanged/Unverifiable details, Success only for the proven expected version, never restart-pending. `ChocolateyProfileRulesTests.TheRegistrationDigestMatchesTheIndependentGoldenVector` (portable). `ChocolateyDesktopProducersNativeTests` (Windows-only 5) over `N2ProfileFixture`.
+- Integration `ReviewedUpdateDispatchWorkflowTests`: verification detail → Unverified with the fixed message; the runtime-limit route's restart guard.
+- Architecture `DesktopProducersBoundaryTests` (5) and the extended `HelperEndpointBoundaryTests` pins (`Observe`, `TryFromCurrentProcess`).
+- Not claimed: Desktop composition, route admission, or Windows CI evidence for the 5 Windows-only tests.
+
+# Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [scope](../review/TASK_50_DESKTOP_REVIEW_UI_SCOPE.md); [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).
+
+- Application `ReviewedRouteViewModelTests` (portable; includes the disabled-confirm invariant and the accessible-name label rule); Security resolver tests (portable with fakes); architecture pins for the resolver and the Desktop surfaces. Windows CI is green at `58a736c`, including the Desktop build.
+- Not claimed: runtime rendering evidence on a real desktop, host evidence, or admission.
+
+# Task 50 — N5 desktop producers and N6 review disclosure and history
+
+`FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N5 and N6; [N6 scope](../review/TASK_50_N6_SCOPE.md).
+
+- N5: `ChocolateyDesktopProducersTests` (portable), `ChocolateyDesktopProducersNativeTests` (Windows-only, 5), the registration-digest golden vector in `ChocolateyProfileRulesTests`, and `DesktopProducersBoundaryTests`. Windows CI is green at `a749dba` and at `edb1d19` (after the review fixes).
+- N6: `ChocolateyReviewDisclosureTests`, the history and workflow tests in `ReviewedUpdateDispatchWorkflowTests`, and the non-admission pins in `DesktopProducersBoundaryTests`. Windows CI is green at `83377bc`.
+- Not claimed: Desktop UI rendering (N6 review M1), a production intent resolver, host evidence, or admission. See "Admission obligations" in the composition record.
+
+# Task 50 — N4b native port, Helper-role G1 and protocol-2 bootstrap
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; [design rev 6](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4, §7, §8, §10 and §11–§15; [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md) N4b.
+
+- Security `NativeHelperItemTests` (portable 24), `ReviewedHelperBootstrapTests` (portable 26, Windows-only 7), `HelperDeploymentCapabilityCheckTests` (portable 8, Windows-only 12), `NativeHelperItemEndToEndTests` (Windows-only 4). Architecture `HelperEndpointBoundaryTests` and `ClientQueriesBoundaryTests` pin the native port, the composition root and protocol-2 dispatch.
+- Windows CI on `c91a0e0` is green (Security 1023/1023, including the 23 Windows-only N4b tests). Independent review: PASS with fixes.
+- Review remediation `576063f..10daa47` (Windows CI green, Security 1031/1031): `StandInChocolateyEngineTests`, the native-chain end-to-end test (stage C to Launch with no stage replaced), A3 cap tests, anchored-locator tests, and signature pins in `HelperEndpointBoundaryTests`.
+- Not claimed: host evidence with a real Chocolatey release, or admission.
+
+# Task 50 — N0 native launcher
+
+`FR-UPD-15`, `TM-03/07/13`; [design rev 5](../review/TASK_50_HELPER_ENDPOINT_AND_NATIVE_OBSERVER.md) §4.1 (H4, L1, rev-3 M-C, rev-4 M1/L4) and §8 N0.
+
+- Security `NativeCommandLineTests` (**portable**, 36): MSVCRT quoting goldens and a 4,000-case round trip through a reference parser; the image is always quoted; NUL, unquotable images and oversized command lines are refused; the environment block is sorted, NUL-separated and double-terminated, and duplicate (case-insensitive), `=`-bearing, empty, control-character or NUL-valued entries are refused; `NativeLaunchSpec.ForTests` copies its inputs and refuses relative, UNC, device, `..`/`.`, forward-slash, quoted, stream, wildcard and trailing-space paths and control-character arguments; `RunCoreAsync` refuses a null spec or non-positive deadline, and a pre-cancelled launch is `NotStarted`+`Cancelled`+settled without any native call.
+- Security `NativeLaunchJobTests` (**Windows-only**, 13; `cmd.exe`/`PING.EXE` fixture trees with late-marker grandchildren):
+  - a completed child settles with its exit code and both streams, before the settle window;
+  - cancellation and the deadline kill the child and its grandchild (`AggregateSettled`, termination exit code, no late marker);
+  - a lingering grandchild after a normal exit delays settlement until zero and is killed after the 10 s window (`LingeringTerminated`); the window is clipped to the deadline (`TimedOut`);
+  - concurrent launches are independent (cancelling one never affects the other), and a later launch gets a fresh job;
+  - a missing image is `NotStarted`; an inheritable test handle outside the handle list is not inherited;
+  - output beyond 1,000,000 characters gives `OutputLimitExceeded` with teardown and settlement;
+  - the child environment printed by `set` equals the spec exactly (a parent-only sentinel is absent);
+  - the test-only fault hook: assign or resume failure gives `NotStarted` with no user code run; teardown failure gives `TerminationFailed`, unsettled, and the kill-on-close backstop still ends the tree.
+- Architecture `NativeLauncherBoundaryTests`: no `src` caller of `LaunchJob.RunCoreAsync`, `NativeLaunchSpec.ForTests`, `RunCoreWithFaultForTestsAsync` or `LaunchJobFault` (definitions counted once); Execution never names the launcher; `Native/` uses no environment-variable or registry API, declares only internal types and private launcher/spec constructors, declares no breakaway flag, and keeps the suspended/handle-list/Unicode-environment creation and the exact kill-on-close readback.
+- Not claimed: the typed N3 wrapper, `ChocolateyCompiledCommand`, any `src` caller, Windows CI evidence for the 13 Windows-only tests.
+
+# Task 50 — protocol-2 desktop transport and Chocolatey route dispatcher
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.4 steps 1–3 (3.1, 3.4, 3.5), §A.5; reviewed fact extension rev 3 §4.1 (three phases, H) and §6 (budgets, single frame then EOF); review-16 L2.
+
+- Security `ReviewedHelperProtocol2TransportTests`:
+  - **Portable** (29): the protocol-2 pipe locator (accepted by the factory, rejected by the protocol-1 bootstrap), and the exchange session over a real named-pipe pair:
+    - one frame, then EOF, then exit gives `ResponseFrameReceived` with H, and the helper receives a codec-valid request bound to the operation digest and nonce;
+    - a trailing byte, a second frame, closing without a response, an oversized length or a truncated frame gives `RequestWrittenNoValidResponse` (Uncertain);
+    - an execution-budget lapse terminates the helper (Uncertain);
+    - a valid frame without an observed exit leaves H false (Uncertain), and ownership never completes;
+    - a refused or throwing peer check, cancellation after the peer check, or a failed request build writes nothing (the helper sees EOF), giving NotStarted;
+    - helper exit before connection, and connection timeout, give NotStarted;
+    - a termination failure gives Uncertain.
+  - **Portable**, route dispatcher:
+    - `Supports` makes no capability call for off-route operations;
+    - every non-Supported status gives false, and a throwing seam gives false;
+    - one exchange per dispatch with the fresh nonce; the interpreter's workflow observation is returned, including Confirmed;
+    - a frame for another nonce is rejected;
+    - each pre-request outcome maps correctly;
+    - an off-route ticket starts nothing.
+  - **Windows-only** (13; reported as failed off Windows):
+    - pre-hold failures never launch;
+    - with a real held binding: final-trust rejection, helper-path mismatch, pre-launch cancellation, UAC denial, no process, or a launcher exception all release the binding with no helper running; launch happens only after hold and final trust, with the binding held;
+    - with a real child process, the binding stays held while the child runs and is released only after the ownership task (exit observed and transport sealed);
+    - a non-helper client (different PID) is refused by the real peer check and receives 0 bytes.
+- Architecture `DeploymentCapabilityBoundaryTests`:
+  - `HeldHelperBinding.TryCreate` only in the reader;
+  - the binding is referenced only by four Execution files;
+  - exactly two release points in the transport, release-without-helper only before ownership, no `ReleaseHandles` or using-scoped binding, the ownership-continuation release registered before the exchange, and `GC.KeepAlive` after it;
+  - the transport and dispatcher are not composed in `src`;
+  - no protocol-1 or `ImmutableUpdateJob` use, no database, registry, environment-variable or network input;
+  - the dispatcher does no I/O, and `Supports` checks route and evidence before the seam.
+- Record: [composition record, protocol-2 transport slice](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). The helper endpoint (stages A–D, G1) is not implemented, so a real helper rejects `--protocol 2` before connecting. No route admission. No host evidence is claimed.
+
+# Task 50 — adapter gates Part A (Windows slice)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.4 steps 2–6 and 3.1/3.4/3.5, §A.5, §A.7 (Ledger, Manifest/capability, Binding, Phases no-cache, Peer identity), §R A2-L3/A2-L5.
+
+- Security `DeploymentCapabilityReaderTests`:
+  - **Windows-only** (32 cases; reported as failed off Windows):
+    - the share-read hold refuses delete, rename, replacement and write, while reads stay possible;
+    - `FileIdInfo` same file / replaced / copy / move;
+    - the A2-L3 probe while held;
+    - the reader end to end: Supported, all leaves held, peer identity and fallback, release on dispose;
+    - no cache;
+    - 25 fixture-tree status cases;
+    - the production protection on a caller-writable tree;
+    - a symbolic-link leaf.
+  - **Portable:**
+    - out-of-allowlist route without I/O;
+    - fail-closed layouts;
+    - incomplete handle set.
+- Security `DeploymentCapabilityPolicyTests`: staged `PassesThrough` agrees with `Evaluate` (11 scenarios) and refuses misuse.
+- Architecture `DeploymentCapabilityBoundaryTests`:
+  - the single seam implementation;
+  - reader input and static-state purity;
+  - the protocol-1 transport is not wired, and the reader is not constructed in `src`.
+- Record: [composition record, Windows slice](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md). No host evidence is claimed. A-Q1 and G1 remain open.
+
+# Task 50 — deployment capability scripts (ADR-022 alignment note follow-up)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; ADR-022 alignment note; adapter gates §A.3, §A.7, §R A2-L1/A2-L2; follow-up items 1–7.
+
+- Security `DeploymentCapabilityScriptTests` covers:
+  - the checked-in capability file equals `CanonicalCapabilityBytes()` and is published at the root as `-text`;
+  - the built helper deps.json project closure equals `BindingSet`;
+  - the real-writer fixture (pwsh 7; Windows PowerShell 5.1 on Windows CI): every pending, rollback (0/1/several stores), v1 and v2 ledger parses, and they evaluate as Incomplete, Absent and Supported;
+  - 30 capability vectors agree between the script parser and `TryParseCapability`;
+  - manifest-implied origin and refusals;
+  - the profile and provenance refusals;
+  - the frozen pre-change validator throws on v2;
+  - zero parse errors.
+- `DeploymentCapabilityPolicyTests.ExistingV1PlanStaysV1OnlyAndThePreChangeValidatorFailsClosedOnAV2Ledger` covers the A2-L2 template and the installer ordering.
+- Windows-only `Fixtures/PayloadIntegrity.ps1` covers v2 read, hold and provenance with real files.
+- Record: [TASK_50_DEPLOYMENT_CAPABILITY_SCRIPTS.md](../review/TASK_50_DEPLOYMENT_CAPABILITY_SCRIPTS.md).
+- No host or redeploy evidence is claimed.
+
+# Task 50 — adapter gates Part A (portable slice)
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §A.2, §A.3, §A.4 steps 3–6 (pure part), §A.6, §A.6.1, §A.6.2, §A.7, and §R A2-L1/A2-L4/A2-L6.
+
+- Domain `ReviewedOperationProfileEvidenceTests` covers the O2 constructor and `TryRestore` negatives (63/65 digits, lowercase, mixed case, v1 prefix, prefix only, trailing character, non-hex, opaque), the 81-character positive, and other routes unchanged.
+- Security `DeploymentCapabilityPolicyTests` covers:
+  - writer-variant ledger fixtures (pending with a null thumbprint, pending with a certificate, rollback with null/one/several stores, legacy-v6, v1, v2), each with a closed key set and the expected Incomplete, Absent or Supported;
+  - ledger negatives, giving Unreadable or Mismatch;
+  - manifest and capability pinning, and 22 malformed capability statements;
+  - generator bytes (103 B);
+  - binding leaves, including Desktop.dll, giving Mismatch or Unreadable;
+  - size bounds;
+  - the binding set against the helper `ProjectReference` closure;
+  - fixed diagnostics;
+  - no caching;
+  - the v1-only scripts failing closed on a v2 ledger (superseded by the deployment capability scripts entry above: now the frozen pre-change validator).
+- Security interpreter tests now show that a malformed runtime-limit EvidenceId cannot be constructed.
+- Application `AdapterGatesPartATests` covers:
+  - a throwing `Supports` giving NotStarted with no gate or claim;
+  - two fresh `Supports` evaluations;
+  - post-claim removal giving Cancelled;
+  - the A.6.1 matrix, with WinGet `fresh:1` accepted;
+  - three-site agreement;
+  - A.6.2 stored-row behaviour (draft corrupt; DispatchClaimed and Uncertain block; Final untrusted and non-blocking).
+- Architecture `DeploymentCapabilityBoundaryTests` covers:
+  - capability types appear only in Execution;
+  - pure policy sources that the helper can reuse;
+  - every workflow `Supports` call is wrapped;
+  - the `Matches` conjunct;
+  - no evidence producer reads `.EvidenceId`.
+
+# Task 50 — adapter gates Part B (helper-check history)
+
+`FR-HIS-01`, `FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`; adapter gates §B.2–§B.7, B-M1, B-L1–B-L3, §R B2-L1/B2-L2. Three suites cover this slice:
+
+- `ReviewedHelperCheckHistoryTests` covers:
+  - factory R1–R4 and the version form;
+  - v2 byte identity against a frozen writer;
+  - the maximal v3 frame round trip;
+  - every allowed (kind, outcome, settlement), written through the store and read back byte-exactly;
+  - store refusal of P-rule, outcome-matrix, WinGet-route and no-grammar writes;
+  - forged rows: enumerations, R/P rules, outcome matrix, facts, missing, partial and corrupt;
+  - O-none;
+  - single-byte tampering with and without a recomputed digest;
+  - the version corpus;
+  - frozen-v2-parser rollback;
+  - store rollback (state, recovery, barrier);
+  - exact texts and whole-word forbidden words.
+- `ReviewedUpdateDispatchWorkflowTests` (three added) shows that every kind gives an identical outcome and settlement, that the marker survives truncation, and that diagnostics or dispatcher exceptions give NotObserved.
+- Security `ReviewedHelperCheckAdapterTests` and the added composition test cover:
+  - name mapping;
+  - verbatim versions;
+  - `WorkflowObservation` appending only the check;
+  - the O9 codec/reader differential plus writer/reader agreement;
+  - a reflection check that nothing converts to or from provenance;
+  - unchanged outcomes through the real workflow.
+
+`HelperCheckHistoryBoundaryTests` checks:
+- a single `FromDesktopDerived` call site;
+- that `TryRestore` and the terminal record stay in history files;
+- that no review, admission, evidence, reconciliation or Domain file references the check;
+- grammar injection in every production `SqliteDatabase` and an internal no-grammar constructor.
+
+The existing interpreter boundary test is unchanged. Part A is not covered.
+
+# Task 50 — protocol-2 desktop interpreter (passive)
+
+`FR-UPD-15`, `FR-UPD-01`, `AC-UPD-05/07`, `TM-03/04/07/13`: `ReviewedUpdateProtocol2InterpreterTests` and `ReviewedUpdateProtocol2WorkflowCompositionTests` cover each P-predicate violation (including recomputed values), Matched with each mismatching field, refusal predicates, flag precedence, settled-without-H, Unknown invocation, launch failure, N1–N4, the "confirmed" phrase in a diagnostic, RestartReported always false, correlation, pre-request phases, and Success only after verification. `Protocol2CandidateCheckBoundaryTests` checks construction confinement. Interpreter only; no endpoint, history format, verifier or admission.
+
+# Task 50 — protocol-2 reviewed fact extension: passive codec slice
+
+`FR-UPD-15`, `FR-UPD-01`, `TM-03/04/07/13`: `ReviewedUpdateWireCodecReviewedFactTests` (126 cases) and the updated `ReviewedUpdateWireCodecTests` (23) cover the codec-level §8 cases of the [specification](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md):
+- the exact 20-field order and encoding;
+- rejection of an explicit 15-field legacy protocol-2 frame (O1);
+- each field missing, swapped or null;
+- non-canonical and mistyped frames: escapes, whitespace, comments, BOM, lone surrogates, numbers and strings swapped, the `exitCode` forms `2147483648`, `0.0`, `-0` and `1e0`, booleans as `"false"`, `0` or `1`, trailing bytes and a second frame;
+- exact enum round-trip, with case, numeric, flag-list and unknown aliases rejected;
+- 128/64 boundaries and +1, non-normalized versions and malformed fingerprints;
+- one negative case per S1–S13 predicate with its exact violation set, plus positive cases;
+- a byte-exact 5,083 B largest valid frame and rejection of over-bound frames;
+- the O9 differential against `ChocolateyNativeVersion`.
+
+See the [slice note](../review/TASK_50_PROTOCOL2_CODEC_SLICE.md) for the O9 choice and the deferred cases. This is a passive codec only: no endpoint, adapter, route admission or `AC-UPD` closure.
+
+# Task 50 — protocol-2 reviewed fact extension (design gate)
+
+`FR-UPD-15`, `FR-UPD-01`, `AC-UPD-01–11`, `TM-03/04/07/13`: [specification](../review/TASK_50_PROTOCOL2_REVIEWED_FACT_EXTENSION.md) passed independent design review at revision 3 after two CONDITIONAL rounds. §8 lists the negative test matrix the implementation must satisfy, and §10 the binding obligations. This is design evidence only: no endpoint, route admission or `AC-UPD` closure.
+
+# Task 50 — common-gate caller conversion
+
+`FR-UPD-15`, `TM-04/06/07`, reset design §4.3: `DataOperationLeaseTests` covers mutation needing a clear reconciliation while reads proceed, an unreadable barrier blocking mutation only, pending reset refusing before reconciliation, missing configuration failing closed, reset-control semantics, concurrent-holder busy/release, and bootstrap session reuse without recursive acquisition. The rewritten `AsyncDataOperationLeaseBlocksResetUntilTheOperationCompletes` uses test gates. `DesktopBootstrapAndResetUseTheCommonGateWithReconciliation` checks the ordering marker → SQLite → reconcile → MainWindow. Windows CI is authoritative for the native gate and Desktop build.
+
+# Task 90 — Task 50 dispatch review remediation
+
+`FR-UPD-15`, `AC-UPD-05`, retained `FR-UPD-01/14`, `TM-03/04/06/13`: [remediation](../review/TASK_90_TASK_50_DISPATCH_REVIEW_REMEDIATION.md) maps each independent finding to its fix and test. Covered: ElevationDenied/Refused distinct outcomes, started-timeout/failure as Unverified, RestartReported verification, a 20,000-char diagnostic bound, committed-without-permit finalized NotInvoked (expired/stale/cancelled), unreadable state as retained, gate-exit failure preserving the result, unreconciled ownership, Chocolatey routes unreachable, and store rejection of NotInvoked Unverified. Linux focused 124/124; Windows CI and fresh re-review pending.
+
+# Task 50 — reviewed history projection (mode survives history)
+
+`FR-HIS-01`, `FR-UPD-15`, `TM-07/13`: `ReviewedUpdateHistoryTests` (10) covers frozen mode/route/guard/disclosure and outcome restored from claim rows, claimed/Uncertain rows blocking, new-route-only disclosure and provisional-intent wording, tamper/corruption rows as unreadable-and-blocking, strict terminal parser round-trip/malformed rejection, and never displaying helper qualification. Linux focused 10/10; Windows CI pending. Passive projection only.
+
+# Task 50 — reviewed dispatch composition (application layer)
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/06/07/13`: `ReviewedUpdateDispatchWorkflowTests` (35 cases over real SQLite claims with fake dispatcher/evidence/verifier) covers: verification-only Success/RestartRequired/Unverified classification; unsupported route never entering the gate; mode/route/selection/native/actionable/stale fresh-evidence mutation rejected before claim with the approval spent; expired review; busy gate; cancellation; review-deadline-bounded wait; lost permit retaining the claim barrier; unknown invocation and nine unsettled-work variants recording Uncertain without awaiting the root; settled non-success never Success; proven not-started refusals Final without verification; verification failure Unverified; final-write failure Uncertain with retained claim; and one approval dispatching at most once. Linux focused 99/99; Windows CI pending. Composition evidence only: no production dispatcher, native eligibility, `AC-UPD-01–11` or Task 50 exit claimed.
+
+# Task 50 — runtime-limit route, guard contract and disclosure (cloud; Windows gate pending)
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-07/13`: `ReviewedProviderGuardContractTests` covers canonical identity/digest distinction from the older provisional route, restore, and provider/source/scope plus schema-2 recomputed-integrity negatives. `ChocolateyReviewedUpdateArgumentsTests` covers new-route-only formatting, older provisional rejection, frozen-clock disclosure that still cannot confirm, and older/legacy disclosure negatives. This resolves the earlier "owner choice pending" wording below: the owner accepted the disclosed runtime limits for this route only, conditional on the fixed official Community feed. Linux focused Domain 67/67, Application 42/42; canonical Windows Release/full not run. Passive data/disclosure only: no native eligibility, `AC-UPD-01–11` or Task 50 exit is claimed.
+
+# Task 50 — revised mapping policy and concrete guard gap
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/06/07/13`: [Task90 record](../review/TASK_90_TASK_50_CHOCOLATEY_PROFILE_V2_REMEDIATION.md) documents enabled-source precedence, fixed immutable argument formatting, fingerprint golden encoding and first-file-check client/registration drift handling with63 focused cases. Release clean/full900/900 zero skipped. [Native refresh guard packet](../failures/task-50-chocolatey-refresh-guard.md) records the source-verified runtime checksum/argument bypass and joint dialogue; required owner choice remains pending. No native qualification/route or full `AC-UPD-01–11`/Task50 acceptance follows from passive/fake positives. Remaining common-gate/claim/helper/runner/UI/history and native observations stay open.
+
+## Earlier revised native mapping and release identity data
+
+`FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `TM-03–04/07/13`: [proposed native mapping revision2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) incorporates the explicit owner candidate amendment and conditional-review corrections. [Release manifest](../review/TASK_50_CHOCOLATEY_RELEASE_2_7_5.json) records56 mapped root/helpers/tools files,15,258,758 bytes, rechecked against the exact public asset. This is source/artifact mapping data, not source-build attestation or host eligibility. No code changes since repaired5418c84's clean Release/full837/837; native/mapping review, production observation/composition and full `AC-UPD-01–11`/Task50 exit remain open.
+
+## Earlier provenance/archive/ScheduledHost review repair
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [Task90 evidence](../review/TASK_90_TASK_50_PREREQUISITE_REMEDIATION.md) records conditional review at74e1803, OPC escaped-payload support with decoded alias refusal, shared bounded native ID grammar, scoped provisional route labels, distinct unresolved scheduler code and added layout negatives. Focused98/8/5, Release clean/full837/837 zero skipped. Corrects the review's a_ and ID-trimming examples against pinned source. No native registration/candidate authority, fresh review pass or full `AC-UPD-01–11`/Task50 acceptance follows; integration remains open.
+
+## Earlier ScheduledHost common-gate composition
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [composition evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) converts the scan-only ScheduledHost to the common owner-thread session, reset-before-SQLite preflight and durable claim reconciliation. Existing behavioral gate/claim fixtures72 and production source-boundary fixtures5 pass; Release clean/full806/806 zero skipped. No host scheduler execution was performed. Desktop/reset callers and endpoint/native-profile/UI/history integration remain open; this is not complete cross-session enforcement or full `AC-UPD-01–11` acceptance.
+
+## Earlier bounded native package archive identity
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-07/13`: [native mapping evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) adds bounded ZIP structural/entry selection and nuspec-byte parsing without extraction. Stored/deflate/descriptor positives; ambiguity, duplicates, encoding, record/count/offset/size/CRC/XML and decompression negatives pass25/25. Release clean/full805/805 zero skipped. Parser success is neither a package-signature claim nor installed/source/candidate eligibility; native/profile/endpoint/UI/history integration and full `AC-UPD-01–11` remain open.
+
+## Earlier provisional candidate contract and bounded nuspec parsing
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: the [owner amendment](../failures/task-50-pre-uac-candidate-evidence.md) permits provisional candidate intent only for the new Chocolatey route, with independently qualified exact-match helper execution required. A distinct canonical route/closed data label prevents silent reinterpretation; current confirmation/fresh-evidence flags cannot admit it. Nuspec24/provenance3/admission1 focused cases, Release clean, full780/780 zero skipped. [Evidence](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md). These are passive prerequisites; full `AC-UPD-01–11`, native profile, endpoint/UI/history integration and Task50 exit remain open.
+
+## Earlier native version/store comparison data
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [native-source mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records normalization, native legacy ToString semantics and ordered store alternatives, with unsupported/metadata/path/device negatives. Focused23/23, Release clean, full752/752. It does not observe filesystem state, merge duplicate registrations or create execution authority; full `AC-UPD-01–11`/Task50 acceptance remains open.
+
+## Earlier bounded native configuration parsing
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records exact native XML shape/default/explicit semantics, immutable passive observations, secret-attribute omission and strict ambiguity/resource negatives. Focused28/28, Release clean, full729/729. Parser success is not native trust or compatible policy; no production caller, full `AC-UPD-01–11` or Task50 exit is claimed.
+
+## Earlier compiled Chocolatey bootstrap environment
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [conditional mapping remediation](../review/TASK_90_TASK_50_CHOCOLATEY_MAPPING_REMEDIATION.md) records a fixed environment set, complete inherited-block replacement and format/injection negatives. Focused14/14, Release clean, full701/701. Public release ZIP/engine hashes are artifact evidence only, not source-build attestation or host eligibility. No production caller, native trust/profile or integrated `AC-UPD-01–11`/Task50 acceptance follows.
+
+## Earlier fixed reviewed User arguments
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [fixed mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) pins Silent/MSIX and closed user/source/architecture values. Fifteen focused cases cover exact arguments and recomputed-digest mode/provider/source/scope/architecture/route/schema negatives. Release clean/full687/687. This formatter is passive with no process or approval API; native targeting/Update-only/identity proof and integrated `AC-UPD-01–11`/Task50 acceptance remain open.
+
+[Proposed Chocolatey native profile](../review/TASK_50_CHOCOLATEY_PROFILE_V1.md) now allocates concrete numeric observer/archive/XML bounds and independent producer/helper responsibilities for the same requirements. It awaits mapping review and remaining primary-source facts; it supplies no additional implementation or host evidence.
+
+## Earlier observed native query handoff
+
+`FR-UPD-15`, retained `FR-UPD-01/14`, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records passed independent prerequisite recheck, preserved Unicode redactions, and real synthetic-process proof that source queries retain complete or uncertain ownership through the existing bounded reader. Focused codec23/query42; Release clean/full672/672. Neither codec nor guard is connected to an app update route; source/client qualification and full AC-UPD/Task50 acceptance remain open.
+
+## Earlier bounded CLI source observation
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/13`: [mapping evidence](../review/TASK_50_PROVIDER_MAPPING_V2.md) traces export and execution to the same pinned effective-source lookup and records structured endpoint/identity checks rather than name-only trust. Fixed arguments, byte/depth bounds, source substitution/ambiguity, cancellation and retained unsettled roots are covered by34 focused fixtures. Release clean/full661/661. The isolated guard has no production caller and grants no execution authority; source-change race, native provenance and remaining `AC-UPD-01–11`/Task50 integration evidence remain open.
+
+## Earlier conditional prerequisite review remediation
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [R1–R5 remediation](../review/TASK_90_TASK_50_WIRE_REMEDIATION.md) covers diagnostic confidentiality/idempotence, exception-safe rejection of malformed JSON names, true result flags, exit-code/observation consistency and historical-data semantics. Synthetic red reproduced the defects; focused20/20, Release clean, full627/627. Conditional independent review still needs its fresh recheck; no native or full `AC-UPD-01–11`/Task50 acceptance follows.
+
+## Earlier typed architecture/schema prerequisite
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [mapping contract](../review/TASK_50_PROVIDER_MAPPING_V2.md) records explicit architecture through canonical review, separately fresh evidence, draft generation and claim CAS. Schema-2 data is passive-only; migration rollback and unresolved-claim preservation are covered. Initial red 12/52; focused Domain62/App94; final Release zero warnings/errors, full620/620. These are prerequisite fixtures, not native qualification, provider enforcement, history UI or `AC-UPD-01–11`/Task 50 exit evidence.
+
+## Earlier isolated canonical wire prerequisite
+
+`FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [revision-2 mapping](../review/TASK_50_PROVIDER_MAPPING_V2.md) and [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) record fresh-review corrections, deterministic frame parsing, bounded ASCII diagnostics, exact correlation and contradictory/unknown invocation/settlement handling. Focused 13/13, Release clean, full 603/603. No endpoint consumes the new passive codec; schema-3 and native profile/runner/helper/common-gate/UI integration remain prerequisites. `AC-UPD-01–11` and Task 50 exit are not closed.
+
 # MVP requirement traceability
+
+**Task 50 — native observation handoff:** `FR-UPD-15`, retained `FR-UPD-01/08/09`, `TM-03–04/07/13`: [entry record](../review/TASK_50_ENTRY_ASSESSMENT.md) demonstrates immutable direct scan-to-review/verification data instead of re-reading writable display rows. Meaningful storage-substitution negatives cover changed reviewed installed version and fabricated verified target version; focused25/25, Release clean, full590/590. [Proposed mapping revision1](../review/TASK_50_PROVIDER_MAPPING_V1.md) awaits fresh review; no provider/profile/helper/AC-UPD closure inferred.
+
+**Task 50 — settlement prerequisite:** `FR-UPD-15`, retained `FR-UPD-01` and honest-outcome safety, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records one-use claim/ownership-bound finalization, immutable native-observation snapshots, unresolved Final rejection and durable-barrier retention after persistence failure/late completion. Focused 94/94; Release clean; full 587/587. Native fact production, provider execution and full AC-UPD/Task 50 acceptance remain open.
+
+**Task 50 — shared lease composition prerequisite:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [entry record](../review/TASK_50_ENTRY_ASSESSMENT.md) covers Global-then-Local acquisition, owner-thread async lifecycle, mandatory reconciliation, raw/unreconciled refusal and marker-before-store preflight. Focused 80/80; Release zero warnings/errors; full 573/573. Same-session synthetic evidence does not establish cross-logon integration; existing production callers remain unchanged. No Task 50 exit/AC-UPD closure is claimed.
+
+**Task 50 — draft/claim lifecycle prerequisites:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: [entry evidence](../review/TASK_50_ENTRY_ASSESSMENT.md) records generation-bound review, exact-byte/generation CAS, separately fresh evidence, full synchronous commit, bounded terminal reservation, process-local one-use permit and Uncertain recovery/barrier preservation. Focused 61/61; Release zero warnings/errors; full 560/560, zero skipped. These support immutable review/dispatch safety; `AC-UPD-01–11` and full Task 50 execution/history exit remain unclosed pending production gate/runner/helper/provider/UI integration and independent evidence. No host action or approval inferred.
+
+**Task 50 — live ownership/confirmation prerequisites:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: active current-SID production-gate context, recovery/release rejection, explicit non-restorable confirmation, complete original-object binding, one-use claim attempt and nonrenewing 30-minute UTC/monotonic lifetime. [Evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): combined 36/36, codec 52/52, Release zero warnings/errors, full 523/523. Scope clarification is accepted; claims/permits and execution integration are still absent, so no replay/helper/provider criterion closes. Actual native evidence and [Chocolatey contract](../review/TASK_50_CHOCOLATEY_CAPABILITY.md) remain gated.
+
+**Task 50 — accepted gate population clarification:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: owner selected the single protected deployed build, with legacy standalone coexistence unsupported. [Decision](V2_PLANNING_DECISIONS.md) / ADR-025 scope the participating population without claiming legacy exclusion or waiving common ownership, dispatch claims, replacement/scheduled-entry and exact-host evidence. Prerequisite checkpoint 57d36b6 remains partial; no execution acceptance closes from this choice.
+
+**Task 50 — canonical persistence prerequisite:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13`: strict restore validates bounded UTF-8, exactly 24 canonical fields, schema/discriminator, closed mode shape and digest without creating consent. Migration 9/passive store preserves legacy rows and refuses corruption, substituted job identity, conflicting saves, partial migration and future-schema migration/new-store writes. [Evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): codec 51/51, new store 10/10, combined storage 29/29, Release zero warnings/errors, full 502/502. No claim, permit, runner/helper mode enforcement or history-UI acceptance is inferred; actual data/host gates remain unchanged.
+
+**Task 50 — canonical reviewed identity prerequisite:** `FR-UPD-15`, retained immutable review `FR-UPD-01`, `TM-03–04/07/13`: `Domain/ReviewedUpdateOperation.cs` deterministically binds schema/Update discriminator, job/correlation, requester/review time, full selection, native-instance/context identity, observed evidence and mode/route. [Mutation/encoding evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): canonical 35/35, gate 16/16, mode 10/10; Release zero warnings/errors, full 476/476. Recomputed digests of changed identities compare unequal; delimiter/length/UTC/byte-ownership checks pass. This type is passive data: no persisted approval, runner/helper enforcement or live dispatch permission is inferred, and all integration acceptance remains open.
+
+**Task 50 — secured gate prerequisite:** `FR-UPD-15`, retained `FR-UPD-01`, `TM-03–04/07/13` / ADR-025: `Storage/CurrentUserOperationGate.cs` validates explicit current-user Global-object owner/protected DACL before ownership, bounds/cancels acquisition and distinguishes recovery-required abandonment. [Source/fixture evidence](../review/TASK_50_ENTRY_ASSESSMENT.md): gate 16/16, Release zero warnings/errors, full 441/441. Synthetic same-session two-process contention is proven; actual cross-logon coverage, mixed-version exclusion, production entrypoint migration, reconciliation/claims and execution integration are not proven or enabled. No requirement closes merely from this isolated primitive.
+
+**Task 50 — closed mode data prerequisite:** `FR-UPD-15` / retained immutable-review safety: `Domain/ReviewedInstallerMode.cs` has only Silent/Interactive selections or explicit provider-script-controlled absence of mode control, with private construction/get-only fields and unknown-enum rejection. [Evidence and integration limits](../review/TASK_50_ENTRY_ASSESSMENT.md): red 9 failed/1 passed, green 10/10, Release zero warnings/errors, full 425/425. No provider mapping, runner/helper enforcement, serialization/history migration, live approval or dispatch claim is implemented by this standalone type; acceptance stays open.
+
+**Task 50 — entry/design assessment:** `FR-UPD-15`, retained `FR-UPD-01`, `AC-UPD-01–11`, `TM-03–04/07/13`: [source/provider assessment and consultation](../review/TASK_50_ENTRY_ASSESSMENT.md) records missing immutable mode, existing protocol-1 payload and unresolved supported-mode/legacy-authority interpretation. Baseline Release zero warnings/errors, focused 6/6 and full 415/415 pass, zero skipped; no Task 50 behavior criterion is closed. Concrete mapping/schema review, implementation/migration/mutation fixtures and actual host evidence remain open. No host action or new provider capability is authorized by this assessment.
 
 **Task 49 bounded launch:** `FR-UPD-14`, retained update/UI/observability and `TM-04/TM-06`: [host evidence](../review/TASK_49_BOUNDED_LAUNCH.md) records one normal exit0/38,007ms/zero residual, owner-attested Overview, unchanged live/copied DB/integrity ok/FK0/schema1–8/empty non-migration tables and final installed validator Pass. Automated visual capture unavailable; original observer FailedOrUnknown retained. This is bounded owner observation, not broad FR-UI/accessibility or real helper-UAC/update-progress acceptance.
 

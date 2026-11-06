@@ -560,21 +560,29 @@ public sealed class FactoryResetTests
     public async Task AsyncDataOperationLeaseBlocksResetUntilTheOperationCompletes()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-lease-" + Guid.NewGuid().ToString("N"));
+        Guid gate = Guid.NewGuid();
+        CurrentUserDataOperationSession? Acquire(TimeSpan wait, CancellationToken ct) => CurrentUserDataOperationSession.TryAcquireForTesting(gate, wait, ct);
+        static Task<bool> Clear(OperationOwnership _, CancellationToken __) => Task.FromResult(true);
         TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? operation = null;
         try
         {
             Directory.CreateDirectory(root);
-            operation = DataOperationLease.RunAsync(async _ => { started.SetResult(); await release.Task.ConfigureAwait(false); }, CancellationToken.None);
-            await started.Task;
+            // Hold the common gate on a dedicated owner thread, as the desktop facade does for asynchronous work.
+            operation = Task.Factory.StartNew(() => DataOperationLease.RunOnCurrentThread(_ => { started.SetResult(); release.Task.GetAwaiter().GetResult(); return true; },
+                DataOperationKind.Mutating, Acquire, () => true, Clear, CancellationToken.None), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            // Fail fast (never hang) if the holder could not acquire the gate.
+            await Task.WhenAny(started.Task, operation).WaitAsync(TimeSpan.FromSeconds(30));
+            if (!started.Task.IsCompleted) await operation;
 
-            try { FactoryReset.ArmForTesting(root); Assert.Fail("Reset must fail while an asynchronous data operation owns the lease."); }
-            catch (InvalidOperationException) { }
+            Assert.ThrowsExactly<InvalidOperationException>(() => DataOperationLease.RunOnCurrentThread(_ => { FactoryReset.ArmForTesting(root); return true; },
+                DataOperationKind.Mutating, Acquire, () => true, Clear, CancellationToken.None), "Reset must fail while another data operation owns the gate.");
+            Assert.AreEqual(FactoryResetMarkerState.None, FactoryReset.GetMarkerState(root));
 
             release.SetResult();
             await operation;
-            FactoryReset.ArmForTesting(root);
+            DataOperationLease.RunOnCurrentThread(_ => { FactoryReset.ArmForTesting(root); return true; }, DataOperationKind.Mutating, Acquire, () => true, Clear, CancellationToken.None);
             FactoryResetResult result = await FactoryReset.CompletePendingForTestingAsync(root, async _ => await Task.Yield(), CancellationToken.None);
             Assert.IsTrue(result.Succeeded);
             Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));

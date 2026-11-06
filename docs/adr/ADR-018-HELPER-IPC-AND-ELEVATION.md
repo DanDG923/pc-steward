@@ -54,3 +54,16 @@ Windows' default volume-root ACL grants Authenticated Users `FILE_ADD_SUBDIRECTO
 ## Reconsider when
 
 Machine-scope execution is restored, the selected Windows APIs cannot prove both endpoint identities across UAC, a future installer cannot provide a fixed non-caller-writable binary root, or security tests expose a replacement/replay/spoofing path. No caller-writable helper or persistent-service fallback is allowed without a new product and threat-model decision.
+
+## Proposed cross-note (2026-11-03) — qualification probe bootstrap
+
+**Status: Accepted (owner, 2026-11-04), together with the ADR-025 amendment: "I accept the ADR-025 amendment and the ADR-018 note".** Previously: Proposed; it takes effect only when the owner accepts the [ADR-025 amendment](ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-03--owner-started-qualification-probe) (exception (d)).** Until then the Accepted text above is unchanged and governs.
+
+For the owner-started Chocolatey helper qualification probe only ([spec](../review/TASK_50_QUALIFICATION_PROBE_SPEC.md) revision 4), these statements are narrowed:
+- **Option A, "Elevation is delayed until execution".** The probe has no execution. The trigger is a start of the `--qualify-chocolatey-helper` desktop entry, intended only for the owner's separately approved run; any same-user process can start it, and the owner declines any prompt they did not start (ADR-025 amendment item 3). Elevation follows the same pre-UAC trust checks.
+- **Option A, "the helper has one narrow provider capability".** A probe-mode helper has **no** provider capability. It only reads: the requester-token rules, the G1 deployment checks and one read-only Chocolatey client observation. It never queries, launches or updates a provider.
+- **Decision, "After confirmation, the standard-user desktop resolves only the fixed … pair".** For the probe there is no review confirmation. The trigger is a start of the `--qualify-chocolatey-helper` desktop entry, intended only for the owner's separately approved run; any same-user process can start it, and the owner declines any prompt they did not start (ADR-025 amendment item 3). The probe proceeds only while that entry holds the common data-operation gate. The rest of the sentence and paragraph is retained, except the launch-parameter sentence, narrowed below: the fixed pair, every pre-launch rejection, the repeated validation immediately before launch, the restricted per-request pipe and the `runas` launch.
+- **Launch parameters.** Besides protocol version, requesting process ID, pipe locator and nonce, the probe launch carries one additional fixed compiled literal pair, `--kind qualify-chocolatey-helper`, at the start of the command line. It carries no provider operation data.
+- **Request.** A helper started with that literal accepts **no** request frame. It reads none, and any inbound byte ends the run with no response. It returns at most one bounded, closed probe response and exits.
+
+Everything else is retained: the fixed protected desktop/helper pair, pre-launch and pre-UAC trust checks, the restricted per-request pipe, the helper's and the desktop's peer verification, the one-shot nonce, one response per helper and no service or broker. A probe-mode helper never reads an update request, and an update-mode helper never reaches the probe entry.

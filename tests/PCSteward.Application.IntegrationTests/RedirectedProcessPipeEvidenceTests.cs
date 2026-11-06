@@ -15,6 +15,62 @@ public sealed class RedirectedProcessPipeEvidenceTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public async Task ObservedSourceQueryCarriesRealOwnedCompletionIntoTheSourceGuard()
+    {
+        await using OwnedFixture fixture = await OwnedFixture.StartAsync(directHolder: true, sourceQuery: true);
+        StartedQueryFixtureProcess process = new(fixture.TransferParentOwnership());
+        Task<WingetCliSourceObservation> query = new WingetCliSourceGuard(process).ObserveAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+        await fixture.RequestExitAsync();
+        WingetCliSourceObservation observation = await query.WaitAsync(TimeSpan.FromSeconds(8));
+        Assert.IsTrue(observation.IsExpected);
+        Assert.IsNotNull(observation.OwnedCompletion);
+        Assert.IsTrue(observation.OwnedCompletion.IsCompletedSuccessfully);
+        Assert.AreEqual(0, process.LegacyCalls);
+    }
+
+    [TestMethod]
+    public async Task ObservedQueryCancellationReturnsItsRootInsteadOfLosingTheObservation()
+    {
+        await using OwnedFixture fixture = await OwnedFixture.StartAsync(directHolder: true, sourceQuery: true);
+        using CancellationTokenSource cancellation = new();
+        StartedQueryFixtureProcess process = new(fixture.TransferParentOwnership());
+        Task<WingetProcessResult> query = process.RunObservedQueryAsync([], TimeSpan.FromSeconds(5), cancellation.Token);
+        cancellation.Cancel();
+        WingetProcessResult result = await query.WaitAsync(TimeSpan.FromSeconds(8));
+        Assert.IsTrue(result.Cancelled);
+        Assert.IsNotNull(result.OwnedCompletion);
+        await result.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.IsTrue(result.OwnedCompletion.IsCompletedSuccessfully);
+        Assert.AreEqual(0, process.LegacyCalls);
+    }
+
+    [TestMethod]
+    public async Task ObservedQueryDoesNotEquateCancelledReadsWithDescendantSettlement()
+    {
+        await using OwnedFixture fixture = await OwnedFixture.StartAsync();
+        WingetProcessResult result = await WindowsWingetProcess.ObserveStartedQueryAsync(fixture.TransferParentOwnership(),
+            TimeSpan.FromSeconds(2), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(8));
+        Assert.IsFalse(fixture.Holder.HasExited);
+        Assert.IsTrue(result.OutputIncomplete);
+        Assert.IsTrue(result.ExecutionUncertain);
+        Assert.IsNotNull(result.OwnedCompletion);
+        await fixture.StopAndObserveAsync();
+        await result.OwnedCompletion.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    private sealed class StartedQueryFixtureProcess(Process started) : IWingetProcess
+    {
+        internal int LegacyCalls;
+        public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct)
+        {
+            LegacyCalls++;
+            throw new InvalidOperationException("An observed query must not fall back to the legacy reader.");
+        }
+        public Task<WingetProcessResult> RunObservedQueryAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct) =>
+            WindowsWingetProcess.ObserveStartedQueryAsync(started, timeout, ct);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PendingRedirectedReadCancellationAndFreshReadAreMeasuredWhileHolderLives(bool errorStream)
@@ -328,7 +384,7 @@ public sealed class RedirectedProcessPipeEvidenceTests
         private bool holderVerified;
         private bool parentTransferred;
 
-        private OwnedFixture(bool directHolder)
+        private OwnedFixture(bool directHolder, bool sourceQuery)
         {
             string pipeName = $"pcsteward-task49-{Guid.NewGuid():N}";
             control = new(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
@@ -340,7 +396,7 @@ public sealed class RedirectedProcessPipeEvidenceTests
                 UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true
             };
-            start.ArgumentList.Add(directHolder ? "holder" : "parent");
+            start.ArgumentList.Add(sourceQuery ? "source-query" : directHolder ? "holder" : "parent");
             start.ArgumentList.Add(pipeName);
             Parent = new() { StartInfo = start };
         }
@@ -348,9 +404,9 @@ public sealed class RedirectedProcessPipeEvidenceTests
         internal Process Parent { get; }
         internal Process Holder => holder ?? throw new InvalidOperationException("Fixture holder not connected.");
 
-        internal static async Task<OwnedFixture> StartAsync(bool directHolder = false)
+        internal static async Task<OwnedFixture> StartAsync(bool directHolder = false, bool sourceQuery = false)
         {
-            OwnedFixture fixture = new(directHolder);
+            OwnedFixture fixture = new(directHolder, sourceQuery);
             try
             {
                 using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));

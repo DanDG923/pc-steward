@@ -172,8 +172,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         return (await snapshots.GetRawProviderRecordsAsync(cancellationToken).ConfigureAwait(false)).Where(record => keys.Contains((record.Provider, record.RecordKey))).ToArray();
     }
 
-    public Task<UpdateIntelligenceSummary> LoadUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, false, cancellationToken);
-    public Task<UpdateIntelligenceSummary> RefreshUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, true, cancellationToken);
+    public Task<UpdateIntelligenceSummary> LoadUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, false, null, cancellationToken);
+    public Task<UpdateIntelligenceSummary> RefreshUpdateIntelligenceAsync(bool sourcesEnabled, CancellationToken cancellationToken) => AssessUpdateIntelligenceAsync(sourcesEnabled, true, null, cancellationToken);
 
     /// <summary>Prepares only a fresh, persisted-consent source match for explicit update review.</summary>
     public async Task<UpdateSelectionPreparation> PrepareApprovedUpdateSelectionAsync(string stableProductKey, CancellationToken cancellationToken)
@@ -186,13 +186,17 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         // A persisted snapshot is never confirmation authority.  Refresh local installed evidence
         // immediately before both review and execution; an unavailable or conflicting provider scan
         // fails closed before a job or provider operation can be constructed.
+        LiveInventoryObservation? observation = null;
         if (hasCurrentLocalInventoryProviders)
         {
             ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
             if (!currentInventory.Succeeded) return new(null, "Current installed inventory is unavailable. No update can be started.");
+            observation = currentInventory.Observation;
+            if (observation is null || observation.CorrelationId != currentInventory.CorrelationId)
+                return new(null, "Current native inventory observation is unavailable. No update can be started.");
         }
 
-        UpdateIntelligenceSummary summary = await AssessUpdateIntelligenceAsync(true, true, cancellationToken).ConfigureAwait(false);
+        UpdateIntelligenceSummary summary = await AssessUpdateIntelligenceAsync(true, true, observation, cancellationToken).ConfigureAwait(false);
         UpdateIntelligenceItem? item = summary.Items.SingleOrDefault(candidate => string.Equals(candidate.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (item is not { Status: UpdateIntelligenceStatus.VerifiedUpdate, Mapping.IsActionable: true, Mapping.CandidateVersion: not null, SourceId: not null })
         {
@@ -202,8 +206,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         SourceSnapshot? source = summary.Sources.SingleOrDefault(snapshot => string.Equals(snapshot.SourceId, item.SourceId, StringComparison.OrdinalIgnoreCase));
         if (source?.State != SourceSnapshotState.Live) return new(null, "The approved source did not provide a fresh live result. No update can be started.");
 
-        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
-        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
+        IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
         ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
         if (!executionCapabilities.MachineScopeEnabled &&
@@ -220,7 +224,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             return new(null, "The provider did not supply bounded structured candidate-version evidence for the exact source and package. Display results cannot authorize an update.");
         }
         if (!TryCreateSelection(profile, item.Mapping, candidate!.CandidateVersion, out UpdateJobSelection? selection, out string message)) return new(null, message);
-        return new(selection, "Fresh exact source evidence is ready for your review.");
+        return new(selection, "Fresh exact source evidence is ready for your review.", observation);
     }
 
     /// <summary>
@@ -234,8 +238,10 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
         ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
         if (!scan.Succeeded) return new(false, false);
-        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
-        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        LiveInventoryObservation? observation = hasCurrentLocalInventoryProviders ? scan.Observation : null;
+        if (hasCurrentLocalInventoryProviders && (observation is null || observation.CorrelationId != scan.CorrelationId)) return new(false, false);
+        IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
+        IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
         CanonicalProduct[] selectedProducts = products.Where(product => string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal)).ToArray();
         HashSet<Guid> productIds = selectedProducts.Select(product => product.Id).ToHashSet();
         InstallationInstance[] exactLocal = instances.Where(instance =>
@@ -338,11 +344,11 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         }).Distinct().Count() > 1;
     }
 
-    private async Task<UpdateIntelligenceSummary> AssessUpdateIntelligenceAsync(bool sourcesEnabled, bool online, CancellationToken cancellationToken)
+    private async Task<UpdateIntelligenceSummary> AssessUpdateIntelligenceAsync(bool sourcesEnabled, bool online, LiveInventoryObservation? observation, CancellationToken cancellationToken)
     {
         SourceSnapshot[] sourceSnapshots = await ReadSourceSnapshotsAsync(sourcesEnabled, online, cancellationToken).ConfigureAwait(false);
-        IReadOnlyCollection<CanonicalProduct> products = await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false);
-        IReadOnlyCollection<InstallationInstance> instances = await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
+        IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
         IReadOnlyCollection<DeclaredPackageMapping> mappings = decisions is null ? [] : (await decisions.GetManualMappingsAsync(cancellationToken).ConfigureAwait(false)).Select(mapping => new DeclaredPackageMapping(mapping.StableProductKey, mapping.SourceId, mapping.PackageId, MappingOrigin.UserConfirmed)).ToArray();
         IReadOnlyDictionary<string, ProductUpdatePolicy> policies = decisions is null ? new Dictionary<string, ProductUpdatePolicy>() : await decisions.GetPoliciesAsync(cancellationToken).ConfigureAwait(false);
         return UpdateIntelligence.Assess(CreateProfiles(products, instances), sourceSnapshots, mappings, policies);

@@ -190,6 +190,52 @@ try {
     [IO.File]::WriteAllText((Join-Path $copy 'App.xbf'),'fixture')
     $state.payloadOrigin = 'unknown'
     Reject { Assert-OwnerOnlyPayloadProvenance -InstallRoot $copy -StateRoot $stateRoot -State $state } 'unknown origin'
+    # ADR-022 alignment note: a manifest pinning PCSteward.DeploymentCapability.txt is protocol 2 (real Windows reads/holds).
+    $state.payloadOrigin = 'pinned-unsigned-v2'
+    Reject { Assert-OwnerOnlyPayloadProvenance -InstallRoot $copy -StateRoot $stateRoot -State $state } 'v2 origin without a pinned capability'
+    $state.payloadOrigin = 'pinned-unsigned-v1'
+    Check ((Read-OwnerOnlyCandidateManifest -Path $manifestPath -ExpectedSha256 $manifestHash).PayloadOrigin -ceq 'pinned-unsigned-v1') 'v1 manifest implies pinned-unsigned-v1'
+    $capabilityText = "pc-steward-deployment-capability:1`nhelper-protocol:2`noperation:Update/ChocolateyMachineRuntimeLimitsV3`n"
+    $v2Source = Join-Path $fixture 'v2source'; New-Item -ItemType Directory -Path (Join-Path $v2Source 'Resources') -Force | Out-Null
+    foreach ($name in @('PCSteward.Desktop.exe','PCSteward.ElevatedHelper.exe')) { [IO.File]::WriteAllBytes((Join-Path $v2Source $name),$unsigned) }
+    foreach ($name in @('PCSteward.ScheduledHost.dll','App.xbf','PCSteward.Desktop.pri','Resources\Main.xbf')) { [IO.File]::WriteAllText((Join-Path $v2Source $name),'fixture') }
+    $capabilityPath = Join-Path $v2Source 'PCSteward.DeploymentCapability.txt'
+    [IO.File]::WriteAllBytes($capabilityPath,[Text.Encoding]::ASCII.GetBytes($capabilityText))
+    function New-FixtureManifest([string]$Root,[string]$Name) {
+        $items = @(Get-ChildItem -LiteralPath $Root -File -Recurse | ForEach-Object { [ordered]@{path=$_.FullName.Substring($Root.Length+1);bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
+        $path = Join-Path $fixture $Name; ConvertTo-Json -InputObject $items -Depth 4 | Set-Content -LiteralPath $path -Encoding utf8
+        [pscustomobject]@{ Path=$path; Sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
+    }
+    $v2Manifest = New-FixtureManifest $v2Source 'manifest-v2.json'
+    $v2Read = Read-OwnerOnlyCandidateManifest -Path $v2Manifest.Path -ExpectedSha256 $v2Manifest.Sha256 -PayloadRoot $v2Source
+    Check ($v2Read.PayloadOrigin -ceq 'pinned-unsigned-v2' -and $v2Read.HelperProtocol -ceq '2') 'v2 manifest implies pinned-unsigned-v2 and protocol 2'
+    Reject { Read-OwnerOnlyCandidateManifest -Path $v2Manifest.Path -ExpectedSha256 $v2Manifest.Sha256 } 'v2 manifest without a payload root'
+    foreach ($bad in @($capabilityText.Replace("`n","`r`n"), $capabilityText.Replace('protocol:2','protocol:3'), "pc-steward-deployment-capability:1`nhelper-protocol:2`n", ($capabilityText + "`n"))) {
+        [IO.File]::WriteAllBytes($capabilityPath,[Text.Encoding]::ASCII.GetBytes($bad))
+        $badManifest = New-FixtureManifest $v2Source 'manifest-v2-bad.json'
+        Reject { Read-OwnerOnlyCandidateManifest -Path $badManifest.Path -ExpectedSha256 $badManifest.Sha256 -PayloadRoot $v2Source } 'consistently pinned malformed capability rejected before signing'
+    }
+    [IO.File]::WriteAllBytes($capabilityPath,[Text.Encoding]::ASCII.GetBytes($capabilityText.Replace('protocol:2','protocol:3')))
+    Reject { Read-OwnerOnlyCandidateManifest -Path $v2Manifest.Path -ExpectedSha256 $v2Manifest.Sha256 -PayloadRoot $v2Source } 'capability bytes drifted from the pinned manifest'
+    [IO.File]::WriteAllBytes($capabilityPath,[Text.Encoding]::ASCII.GetBytes($capabilityText))
+    $v2Copy = Join-Path $fixture 'v2copy'; New-Item -ItemType Directory -Path $v2Copy | Out-Null
+    [PCSteward.Deployment.PayloadIntegrity]::CopyTree($v2Source,$v2Copy,$v2Read.Files)
+    $v2StateRoot = Join-Path $fixture 'v2state'; [IO.Directory]::CreateDirectory($v2StateRoot) | Out-Null
+    [IO.File]::Copy($v2Manifest.Path,(Join-Path $v2StateRoot 'candidate-manifest.json'))
+    $v2Images = @(foreach($leaf in @('PCSteward.Desktop.exe','PCSteward.ElevatedHelper.exe')) {
+        $item = [PCSteward.Deployment.PayloadIntegrity]::GetUnsignedImage((Join-Path $v2Copy $leaf))
+        [IO.File]::WriteAllBytes((Join-Path $v2Copy $leaf),$cmsSigned)
+        [pscustomobject]@{path=$leaf;bytes=$item.bytes;originalChecksum=[long]$item.originalChecksum}
+    })
+    $v2Files=@(Get-ChildItem -LiteralPath $v2Copy -File -Recurse|ForEach-Object{[pscustomobject]@{path=$_.FullName.Substring($v2Copy.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
+    $v2State = [pscustomobject]@{payloadOrigin='pinned-unsigned-v2';candidateManifestSha256=$v2Manifest.Sha256;executableImages=$v2Images;certificateThumbprint=$cms.Thumbprint;files=$v2Files}
+    Check ((Assert-OwnerOnlyPayloadProvenance -InstallRoot $v2Copy -StateRoot $v2StateRoot -State $v2State) -ceq 'pinned-unsigned-v2') 'v2 provenance with a valid pinned capability'
+    $v2State.payloadOrigin = 'pinned-unsigned-v1'
+    Reject { Assert-OwnerOnlyPayloadProvenance -InstallRoot $v2Copy -StateRoot $v2StateRoot -State $v2State } 'v1 origin with a pinned capability'
+    $v2State.payloadOrigin = 'pinned-unsigned-v2'
+    [IO.File]::WriteAllBytes((Join-Path $v2Copy 'PCSteward.DeploymentCapability.txt'),[Text.Encoding]::ASCII.GetBytes($capabilityText.Replace('protocol:2','protocol:3')))
+    Reject { Assert-OwnerOnlyPayloadProvenance -InstallRoot $v2Copy -StateRoot $v2StateRoot -State $v2State } 'installed capability drift'
+    [IO.File]::WriteAllBytes((Join-Path $v2Copy 'PCSteward.DeploymentCapability.txt'),[Text.Encoding]::ASCII.GetBytes($capabilityText))
     $installerAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $RepositoryRoot 'scripts\Install-OwnerOnlyProtectedTestDeployment.ps1'),[ref]$null,[ref]$null)
     $commands = @($installerAst.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst]},$true) | ForEach-Object { $_.GetCommandName() })
     Check (@($commands | Where-Object { $_ -eq 'dotnet' }).Count -eq 0) 'privileged deployment never recompiles'
@@ -197,6 +243,8 @@ try {
     $imageCheck=@($installerAst.FindAll({param($node) $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Value -eq 'GetUnsignedImage'},$true))[0]
     $certificateCall=@($installerAst.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'New-OwnerOnlyCertificate'},$true))[0]
     Check ($stageChecks.Count -gt 0 -and $stageChecks[0].Extent.StartOffset -lt $certificateCall.Extent.StartOffset -and $imageCheck.Extent.StartOffset -lt $certificateCall.Extent.StartOffset) 'staged bytes/image validated before certificate mutation'
+    $capabilityChecks=@($installerAst.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Read-OwnerOnlyCandidateManifest' -and $node.Extent.Text -match '-PayloadRoot \$(CandidateRoot|payloadStaging)$'},$true))
+    Check ($capabilityChecks.Count -eq 2 -and @($capabilityChecks | Where-Object { $_.Extent.StartOffset -gt $certificateCall.Extent.StartOffset }).Count -eq 0) 'capability statement validated before certificate mutation or signing'
     $cleanup=@($installerAst.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Remove-Item' -and $node.Extent.Text -match '\$staging'},$true))[0]
     $complete=@($installerAst.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$completedState'},$true))[0]
     Check ($cleanup.Extent.StartOffset -lt $complete.Extent.StartOffset) 'staging removed before completed ledger'
@@ -207,6 +255,7 @@ try {
     Reject { Assert-OwnerOnlyPayloadProfile -Origin 'legacy-v6' } 'default pinned profile requirement'
     Assert-OwnerOnlyPayloadProfile -Origin 'legacy-v6' -AllowLegacyPayload; $checks++
     Assert-OwnerOnlyPayloadProfile -Origin 'pinned-unsigned-v1'; $checks++
+    Assert-OwnerOnlyPayloadProfile -Origin 'pinned-unsigned-v2'; $checks++
     $compilerAcl=New-OwnerOnlyExecutionSecurity -Directory -Compiler
     Assert-OwnerOnlyExecutionAcl -Acl $compilerAcl -Directory -Compiler;$checks++
     Check ($compilerAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544') 'compiler owner is Administrators'
