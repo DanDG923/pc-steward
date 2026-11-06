@@ -435,3 +435,12 @@ Paste the whole output and say what the UAC prompt showed.
 ### Result C-pre (2026-11-06): precondition holds
 
 The owner opened the activated PC Steward normally, opened Activity and read the "Reviewed update outcomes" section: **"No reviewed update outcomes are recorded."** They then closed it. S7 obligation 3 (no blocking unresolved record) holds, so `-ActivityCheck NoBlockingRecord` is the owner's recorded answer.
+
+### Result C-check (2026-11-06): PASS
+
+- `PROBE-SCRIPT 831B5E17…E77A`
+- `C1 PINS-OK ledger=CBAB8C0A… manifest=9F6CC136… desktop=965D050936A13D6FD8F55CC132EADC8CEDED3E23A7430B589A6D8B1E73061477 helper=74025338D8190217ABADCD867FE9582D96D226DAFE2A9ED1A8D1D97515640379 capability=50F169DD… signer=67B59B4C… notAfter=2026-11-20T19:53:44Z probeBuild=true commit=ebb40618…`
+- `C2 BASELINE: db=78697727…55BE data=052B458E6DECB24C07FD55D82ADC94A416D294AACC062F47D57BE05CB2AB7108 choco=FF0D1EDF66E3B4EC71D196CB42CC6B543B0C9CE238DC1767429D6A02549D8730 chocoFiles=145 chocoProcess=0`
+- `CHECK-COMPLETE: nothing was launched`, `PROBE-EXIT 0`
+
+The database is still `78697727…` after the C-pre launch of the activated build, so no further migration occurred.
