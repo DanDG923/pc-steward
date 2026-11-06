@@ -1,6 +1,6 @@
 # ADR-033 — A Native AOT elevated helper
 
-**Status:** Proposed. The owner decided the direction on 2026-11-06 ("Native AOT helper before ripgrep"); the build-machine choice (§Decision 5) and the edits to hash-pinned Task 50 files still need the owner's approval.
+**Status:** Proposed. The owner decided the direction on 2026-11-06 ("Native AOT helper before ripgrep") and the build machine on 2026-11-06 ("Install C++ Build Tools on my PC", §Decision 5 option a). The named edits to hash-pinned Task 50 files are flagged here and land in their own reviewed change.
 **Date:** 2026-11-06
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-UPD-15`, `TM-03/04/13`; ADR-018 (helper IPC and elevation), ADR-022 (owner-only protected test deployment and its protocol-2 alignment note), ADR-025 (typed operation jobs and helper), ADR-031 (Chocolatey client self-update); security review finding H1 ([record](../review/TASK_50_CHOCOLATEY_UPDATE_SECURITY_REVIEW.md))
@@ -52,10 +52,10 @@ Feasibility, checked so far:
 2. **The payload layout changes in one place.** The payload holds a native `PCSteward.ElevatedHelper.exe` and no `PCSteward.ElevatedHelper.dll`, `.deps.json` or `.runtimeconfig.json`. The desktop stays framework-dependent with its own copies of `PCSteward.Execution.dll`, `PCSteward.Application.dll`, `PCSteward.Domain.dll` and the provider assemblies, unchanged.
 3. **The ADR-022 binding set drops the three helper-managed files.** `DeploymentCapabilityPolicy.BindingSet` becomes the desktop apphost and main assembly, the native helper image, the desktop's project-assembly closure and the capability statement. The helper image's hash now covers all helper code. The ledger schema (`pc-steward-owner-only-protected-test-v6`), its key sets, `executableImages` (both executables, PE checksum) and the capability statement bytes do not change. A deployment built before this ADR fails the new binding set, reports protocol-2 **Absent** and gains nothing, as ADR-022 alignment-note item 4 already requires.
 4. **The candidate builder publishes the helper natively.** In `scripts/New-OwnerOnlyCandidate.ps1` (hash-pinned), the `restore-helper`, `build-helper` and `publish-helper` steps become one restore and one `publish --runtime win-x64 -p:PublishAot=true` into the helper staging folder. The "must be framework-dependent" check gains a second rule: the helper staging output holds exactly the native image and the capability statement, with no `coreclr.dll`, `hostfxr.dll`, `hostpolicy.dll` or `PCSteward.ElevatedHelper.*` managed file. The probe-build mark is unchanged, because it reads the desktop's `PCSteward.Execution.dll`. No other pinned script requires the three removed files: the installer, validator and redeploy caller name only the two executables, and the host-evidence binding list in `scripts/evidence/Task50-HostEvidence.ps1` reports the files that are present, so it needs no edit. Every pinned file that does change gets a new reviewed hash in the next host-session plan.
-5. **Build machine (owner choice, open).** Native AOT links with the Microsoft C++ linker and the Windows SDK libraries. The owner's last environment report shows no Visual Studio or Build Tools. The options are:
-   - **(a) recommended:** install Visual Studio Build Tools with the "Desktop development with C++" workload on the owner's PC once, an administrator step. The candidate stays built on the owner's machine, as ADR-022 and the G3 builder assume.
+5. **Build machine: the owner's PC (owner choice 2026-11-06, option a).** Native AOT links with the Microsoft C++ linker and the Windows SDK libraries. The owner's last environment report shows no Visual Studio or Build Tools. The options are:
+   - **(a) chosen:** install Visual Studio Build Tools with the "Desktop development with C++" workload on the owner's PC once, an administrator step. The candidate stays built on the owner's machine, as ADR-022 and the G3 builder assume.
    - **(b):** compile the helper image on GitHub's Windows runners and pin its SHA-256 in a reviewed PR, with the local builder checking that hash. This avoids the install, but the local build would then trust an image built elsewhere, which Native AOT cannot reproduce byte for byte locally.
-6. **Order.** Merge the feasibility CI and this ADR. Owner approval of this ADR, choice 5 and the named pinned-file edits. Then the code change (csproj, binding set, architecture and fixture tests) and the pinned-script change, reviewed together. Then a new candidate build, sign and redeploy under a new exact host-session plan. G9-T1 waits for all of it.
+6. **Order.** Merge the feasibility CI and this ADR. Owner approval of this ADR, choice 5 and the named pinned-file edits. Then the code change (csproj, binding set, architecture and fixture tests) and the pinned-script change, reviewed together. The owner installs Visual Studio Build Tools with the C++ workload (one administrator step), and the builder refuses to start without a linker it can find. Then a new candidate build, sign and redeploy under a new exact host-session plan. G9-T1 waits for all of it.
 
 ## Consequences
 
@@ -68,7 +68,7 @@ Feasibility, checked so far:
 ### Negative / trade-offs
 
 - A larger helper image (expected 5–15 MB), still well inside the 32 MB binding-file limit.
-- Build tooling: the C++ toolchain on the build machine (choice 5).
+- Build tooling: Visual Studio Build Tools with the C++ workload on the owner's PC (a few GB, one administrator install).
 - Hash-pinned Task 50 scripts change, so each needs a fresh review, new pins and a redeploy.
 - Future helper code must stay AOT-compatible: no reflection-based JSON, no COM interop, no runtime code generation.
 
