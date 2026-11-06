@@ -215,7 +215,8 @@ public sealed class QualificationProbeDesktopEntryTests
     private static void AssertRefusal(string json, string outcome)
     {
         StringAssert.StartsWith(json, $"{{\"schema\":\"pc-steward-qualification-probe-result:2\",\"desktopOutcome\":\"{outcome}\",");
-        StringAssert.Contains(json, "\"capabilityStatus\":{\"Update/ChocolateyMachineRuntimeLimitsV3\":\"NotEvaluated\"}");
+        // Both compiled allow-list tokens since the Task 50 activation (ADR-031 owner decision 7), in ordinal order.
+        StringAssert.Contains(json, "\"capabilityStatus\":{\"Update/ChocolateyClientSelfUpdateV1\":\"NotEvaluated\",\"Update/ChocolateyMachineRuntimeLimitsV3\":\"NotEvaluated\"}");
         StringAssert.Contains(json, "\"initialLaunchTrust\":false,");
         StringAssert.Contains(json, "\"helperProcessCreated\":false,");
         StringAssert.Contains(json, "\"helperExitCode\":null,\"pins\":null,\"probe\":null,");

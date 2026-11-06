@@ -5,7 +5,7 @@ namespace PCSteward.ArchitectureTests;
 
 /// <summary>
 /// FR-UPD-15, FR-UI-03/04, TM-03/04/07/13; ADR-031 (owner decisions 1–5), ADR-030: the Desktop's "Update Chocolatey to X"
-/// surfaces stay thin, read-only and non-dispatching while <c>ChocolateyClientSelfUpdateV1</c> is not admitted.
+/// surfaces stay thin, read-only and non-dispatching, also after the Task 50 activation admitted the <c>ChocolateyClientSelfUpdateV1</c> shape.
 /// <list type="bullet">
 /// <item>the only new Desktop reach into the provider is the read-only release catalog, composed once in App.xaml.cs, whose
 /// compiled IL reads only the compiled list's versions;</item>
@@ -19,9 +19,11 @@ namespace PCSteward.ArchitectureTests;
 /// inside the review handler, off the UI thread, bounded and cancelled when the dialog closes; the check reaches no helper,
 /// launcher, held binding, workflow or dispatcher.</item>
 /// </list>
-/// The non-admission pins themselves (<c>HasSupportedMode</c>, <c>CapabilityOperationAllowlist</c>, the dispatcher's
-/// <c>Supports</c>) are in <see cref="ClientRunFaultBoundaryTests.NothingInSrcAdmitsTheClientSelfUpdateRoute"/> and
-/// <see cref="DesktopProducersBoundaryTests"/> and are unchanged.
+/// The admission pins themselves (<c>HasSupportedMode</c>, <c>CapabilityOperationAllowlist</c>, the dispatcher's
+/// <c>Supports</c>, which since the Task 50 activation admit the exact client shape) are in
+/// <see cref="ClientRunFaultBoundaryTests.TheClientSelfUpdateRouteIsAdmittedOnlyThroughTheThreeActivationPoints"/> and
+/// <see cref="DesktopProducersBoundaryTests"/>. The pins below keep the Desktop offer display only after activation (design §8.6
+/// gate 3): the view model's not-admitted reason is unconditional and nothing in the Desktop composes a client review.
 /// </summary>
 [TestClass]
 public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests

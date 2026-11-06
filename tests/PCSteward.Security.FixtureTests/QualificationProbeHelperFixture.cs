@@ -223,9 +223,15 @@ internal sealed class ProbeHarness
             return await ReviewedHelperProbeEndpoint.RunAsync(pipe, Peer, PortOverride ?? Port, CapabilityOverride ?? Capability, Clock, connected,
                 ExpectedSid, ProbeFixture.Nonce, Budgets, Cancellation);
         });
-        using (CancellationTokenSource connect = new(TimeSpan.FromSeconds(10)))
-            await server.WaitForConnectionAsync(connect.Token);
         bool closed = false;
+        using (CancellationTokenSource connect = new(TimeSpan.FromSeconds(10)))
+        {
+            // A run that ends at once (for example an interruption before A3) can connect, finish and close its end before this
+            // wait completes; Windows then reports "The pipe is being closed" (Windows CI, 2026-11-06). The helper's own result is
+            // still what the test asserts, so record the pipe as closed and read nothing.
+            try { await server.WaitForConnectionAsync(connect.Token); }
+            catch (IOException) when (desktop is null) { closed = true; }
+        }
         if (desktop is not null)
         {
             await desktop(server);

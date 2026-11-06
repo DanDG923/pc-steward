@@ -838,8 +838,8 @@ public sealed class ReviewedHelperCheckHistoryTests
         }
 
         /// <summary>
-        /// The runtime-limit route is not admitted yet (ReviewedUpdateReview.HasSupportedMode), so the store cannot claim it.
-        /// This inserts exactly the row TryClaimAsync would have written, for the history-format tests only.
+        /// Inserts exactly the row TryClaimAsync would have written, for the history-format tests only (written before the
+        /// Task 50 activation admitted the route's exact shape; the direct insert keeps these tests independent of F′).
         /// </summary>
         internal async Task<UpdateDispatchClaim> ClaimRuntimeLimitsAsync()
         {

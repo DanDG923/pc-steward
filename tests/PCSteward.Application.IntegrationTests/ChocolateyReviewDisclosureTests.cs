@@ -5,8 +5,9 @@ namespace PCSteward.Application.IntegrationTests;
 /// <summary>
 /// FR-UPD-15, FR-UPD-01, FR-HIS-01, TM-03/04/07/13; Task 50 N6: the runtime-limit Chocolatey review disclosure (Profile V2
 /// user-cache text, the intent's own time, design rev 6 §(L6) split-token reason and rev-4 L4 lingering-process
-/// disclosure) and the history route, verification and lingering-process texts. The route stays non-admitted: no review
-/// view can be confirmable while <c>HasSupportedMode</c> refuses it.
+/// disclosure) and the history route, verification and lingering-process texts. Since the Task 50 activation (ADR-031 owner
+/// decision 7) <c>HasSupportedMode</c> admits the route's exact shape, so a review is confirmable only when every other
+/// conjunct holds too (a split token and a matching intent); the no-review disclosure is never confirmable.
 /// </summary>
 [TestClass]
 public sealed class ChocolateyReviewDisclosureTests
@@ -19,7 +20,7 @@ public sealed class ChocolateyReviewDisclosureTests
     // ---- Review disclosure ------------------------------------------------------------------------------------------------
 
     [TestMethod]
-    public void TheReviewShowsTheSpecifiedDisclosuresAndTheIntentsOwnTimeAndCannotBeConfirmed()
+    public void TheReviewShowsTheSpecifiedDisclosuresAndTheIntentsOwnTimeAndIsConfirmableOnlyWithEveryConjunct()
     {
         ReviewedUpdateOperation operation = Chocolatey(UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3);
         ChocolateyReviewDisclosureView view = ChocolateyReviewDisclosurePresentation.Present(operation, Facts(), ReviewedRouteSplitTokenState.SplitTokenLimited);
@@ -37,11 +38,18 @@ public sealed class ChocolateyReviewDisclosureTests
         Assert.AreEqual(TimeSpan.Zero, view.IntentResolvedAt!.Value.Offset);
         Assert.AreEqual("Candidate checked in your user cache at 2026-10-30 11:59:15 UTC.", view.IntentTime);
         Assert.IsNull(view.LibBadResidue);
-        // Not admitted pending owner host evidence: even a split token cannot make it confirmable.
-        CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence }, view.UnavailableReasons.ToArray());
-        CollectionAssert.AreEqual(new[] { ChocolateyReviewDisclosurePresentation.NotAdmittedText }, view.UnavailableTexts.ToArray());
-        Assert.IsFalse(view.CanConfirm);
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(operation));
+        // Task 50 activation: the exact shape is admitted, so a split token and a matching intent leave no unavailability
+        // reason. Confirmation still goes only through ReviewedUpdateReview.Confirm (D4 = G-0: the owner confirms no
+        // Chocolatey review until a recorded probe PASS; the Desktop prepares no review, so it never reaches this view).
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(operation));
+        Assert.AreEqual(0, view.UnavailableReasons.Count);
+        Assert.AreEqual(0, view.UnavailableTexts.Count);
+        Assert.IsTrue(view.CanConfirm);
+        // A provisional-route operation is still not admitted and never confirmable.
+        ChocolateyReviewDisclosureView provisional = ChocolateyReviewDisclosurePresentation.Present(
+            Chocolatey(UpdateRouteContract.ChocolateyMachineProvisionalV3), Facts(), ReviewedRouteSplitTokenState.SplitTokenLimited);
+        CollectionAssert.Contains(provisional.UnavailableReasons.ToArray(), ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence);
+        Assert.IsFalse(provisional.CanConfirm);
         AssertNoQualificationClaim(view);
     }
 
@@ -53,9 +61,13 @@ public sealed class ChocolateyReviewDisclosureTests
     public void EveryTokenStateOtherThanASplitTokenAddsItsUnavailabilityReason(ReviewedRouteSplitTokenState state, ReviewedRouteUnavailableReason reason)
     {
         ChocolateyReviewDisclosureView view = ChocolateyReviewDisclosurePresentation.Present(Chocolatey(UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3), Facts(), state);
-        CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence, reason }, view.UnavailableReasons.ToArray());
-        Assert.AreEqual(ChocolateyReviewDisclosurePresentation.Text(reason), view.UnavailableTexts[1]);
+        // Task 50 activation: the admitted shape adds no not-admitted reason; the token reason alone keeps it unconfirmable.
+        CollectionAssert.AreEqual(new[] { reason }, view.UnavailableReasons.ToArray());
+        Assert.AreEqual(ChocolateyReviewDisclosurePresentation.Text(reason), view.UnavailableTexts[0]);
         Assert.IsFalse(view.CanConfirm);
+        ChocolateyReviewDisclosureView none = ChocolateyReviewDisclosurePresentation.PresentWithoutReview(state);
+        CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence, reason }, none.UnavailableReasons.ToArray());
+        Assert.IsFalse(none.CanConfirm);
     }
 
     [TestMethod]

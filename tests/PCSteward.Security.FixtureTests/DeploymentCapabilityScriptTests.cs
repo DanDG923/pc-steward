@@ -36,7 +36,9 @@ public sealed class DeploymentCapabilityScriptTests
         CollectionAssert.AreEqual(DeploymentCapabilityPolicy.CanonicalCapabilityBytes(), bytes);
         Assert.IsTrue(DeploymentCapabilityPolicy.TryParseCapability(bytes, out string protocol, out IReadOnlyList<UpdateRouteContract> operations));
         Assert.AreEqual(ReviewedUpdateWireCodec.ProtocolVersion, protocol);
-        CollectionAssert.AreEqual(DeploymentCapabilityPolicy.CapabilityOperationAllowlist.ToArray(), operations.ToArray());
+        // The statement lists the allow-list in ordinal token order (two routes since the Task 50 activation).
+        CollectionAssert.AreEqual(DeploymentCapabilityPolicy.CapabilityOperationAllowlist.OrderBy(DeploymentCapabilityPolicy.OperationToken, StringComparer.Ordinal).ToArray(),
+            operations.ToArray());
         // A Windows checkout with core.autocrlf must not turn LF into CRLF.
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, ".gitattributes")), "src/PCSteward.ElevatedHelper/PCSteward.DeploymentCapability.txt -text");
         XElement item = XDocument.Load(Path.Combine(root, "src", "PCSteward.ElevatedHelper", "PCSteward.ElevatedHelper.csproj"))

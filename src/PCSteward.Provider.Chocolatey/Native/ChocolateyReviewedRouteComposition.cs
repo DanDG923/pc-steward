@@ -23,7 +23,8 @@ internal delegate Task<ChocolateyResolvedIntent?> ChocolateyIntentResolver(Cance
 /// <item>the split-token probe for the review's §(L6) unavailability reason.</item>
 /// </list>
 /// It supplies no route dispatcher, leaves the review gate's admitted-mode check unchanged and has no <c>src</c> caller
-/// (architecture test), so the runtime-limit route stays non-admitted and nothing can dispatch it.
+/// (architecture test). Since the Task 50 activation the review gate admits the route's exact shape, but nothing in
+/// production composes a review or a dispatch for it yet.
 /// </summary>
 internal sealed class ChocolateyReviewedRouteComposition
 {

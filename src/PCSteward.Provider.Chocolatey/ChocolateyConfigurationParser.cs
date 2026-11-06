@@ -63,8 +63,16 @@ internal static class ChocolateyConfigurationParser
         ["usePackageRepositoryOptimizations"] = true, ["disableCompatibilityChecks"] = false,
         ["usePackageHashValidation"] = false, ["alwaysIncludeHeaders"] = false, ["useHttpCache"] = true
     });
+    /// <summary>
+    /// Profile V2 revision 2.1 (docs/review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md): the pinned 2.7.5 default template
+    /// writes this key with exactly <see cref="LegacyPackageInstallsTemplateValue"/>, and no 2.7.5 engine code reads it.
+    /// It is admitted only absent or with that exact value; any other value refuses, so it adds no fingerprint field.
+    /// </summary>
+    internal const string LegacyPackageInstallsKey = "containsLegacyPackageInstalls";
+    internal const string LegacyPackageInstallsTemplateValue = "true";
     private static readonly string[] ConfigNames = ["cacheLocation", "commandExecutionTimeoutSeconds", "webRequestTimeoutSeconds",
-        "proxy", "proxyUser", "proxyPassword", "proxyBypassList", "proxyBypassOnLocal", "upgradeAllExceptions", "defaultTemplateName", "defaultPushSource"];
+        "proxy", "proxyUser", "proxyPassword", "proxyBypassList", "proxyBypassOnLocal", "upgradeAllExceptions", "defaultTemplateName", "defaultPushSource",
+        LegacyPackageInstallsKey];
 
     internal static IReadOnlyDictionary<string, bool> SupportedFeatureDefaults => Defaults;
 
@@ -135,7 +143,9 @@ internal static class ChocolateyConfigurationParser
                             RequireName(entry, "add"); attributes = Attributes(entry, ConfigAttributes);
                             string key = Identifier(attributes, "key");
                             if (!ConfigNames.Contains(key, StringComparer.InvariantCultureIgnoreCase) ||
-                                !attributes.TryGetValue("value", out string? value) || !config.TryAdd(key, value)) throw new FormatException();
+                                !attributes.TryGetValue("value", out string? value) || !config.TryAdd(key, value) ||
+                                StringComparer.InvariantCultureIgnoreCase.Equals(key, LegacyPackageInstallsKey) &&
+                                !value.Equals(LegacyPackageInstallsTemplateValue, StringComparison.Ordinal)) throw new FormatException();
                             break;
                         case "sources":
                             RequireName(entry, "source"); attributes = Attributes(entry, SourceAttributes);

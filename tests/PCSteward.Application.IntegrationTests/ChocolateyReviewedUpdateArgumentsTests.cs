@@ -86,9 +86,15 @@ public sealed class ChocolateyReviewedUpdateArgumentsTests
         StringAssert.Contains(text, "disable checksum verification");
         StringAssert.Contains(text, "installer arguments");
         StringAssert.Contains(text, "replaced");
-        // Frozen at review time so the refusal can only come from unavailable admission, not age or future time.
+        // The disclosure grants nothing: confirmation follows the review gate alone. Since the Task 50 activation (ADR-031 owner
+        // decision 7) the gate admits this exact runtime-limit shape; the same disclosure on a non-admitted route (the
+        // provisional route) still cannot be confirmed. Frozen at review time so a refusal can only come from admission.
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(operation));
+        Assert.IsNotNull(new ReviewedUpdateReview(new(operation, Guid.NewGuid()), new FrozenClock(operation.ReviewedAt)).Confirm());
+        ReviewedUpdateOperation provisional = Operation(UpdateRouteContract.ChocolateyMachineProvisionalV3);
+        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(provisional));
         Assert.ThrowsExactly<InvalidOperationException>(() =>
-            new ReviewedUpdateReview(new(operation, Guid.NewGuid()), new FrozenClock(operation.ReviewedAt)).Confirm());
+            new ReviewedUpdateReview(new(provisional, Guid.NewGuid()), new FrozenClock(provisional.ReviewedAt)).Confirm());
     }
 
     [TestMethod]

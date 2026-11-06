@@ -2157,7 +2157,7 @@ public sealed class MainWindow : Window
         sources.Children.Add(StewardVisuals.EvidenceRow("Current evidence", viewModel.UpdateFreshnessLabel));
         panel.Children.Add(StewardVisuals.SettingsCard("", "Update sources", "Optional package sources that tell PC Steward which updates exist. They are off until you approve them.", sources));
 
-        // ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update, shown as unavailable while the route is not admitted.
+        // ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update, shown as unavailable until a reviewed Desktop composition and owner admission exist.
         // The summary is display only ("Not checked yet": only the review checks the installed client); opening it starts nothing.
         StackPanel chocolateyClient = new() { Spacing = StewardSpacing.Small };
         ChocolateyClientUpdateViewModel chocolateyClientSummary = ChocolateyClientUpdateView();
@@ -2854,7 +2854,8 @@ public sealed class MainWindow : Window
 
     /// <summary>
     /// Admission obligation 5: the runtime-limit Chocolatey review. The split-token state is probed afresh for this review. No
-    /// reviewed operation can exist while the route is not admitted, so Confirm stays disabled (<c>IsConfirmEnabled</c>); any
+    /// production composition prepares a reviewed operation for this route (it is admitted in code since the Task 50
+    /// activation), so the dialog shows the no-review disclosure and Confirm stays disabled (<c>IsConfirmEnabled</c>); any
     /// confirmation goes only through the view model's <c>ReviewedUpdateReview.Confirm</c> recheck and nothing is dispatched.
     /// </summary>
     private async Task ShowChocolateyReviewedRouteAsync()

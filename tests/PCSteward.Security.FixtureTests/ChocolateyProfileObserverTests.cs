@@ -269,6 +269,33 @@ public sealed class ChocolateyProfileObserverTests
         AssertUnsupported(before: fixture => System.IO.File.WriteAllText(fixture.RootPath(@"config\chocolatey.config"), "<chocolatey><unknown/></chocolatey>"));
 
     [TestMethod]
+    public void Step6ARealShape275ConfigurationWithTheTemplateLegacyKeyIsObservedAndTheKeyIsNotAFingerprintField()
+    {
+        // Profile V2 revision 2.1 (owner-host D1 shape): containsLegacyPackageInstalls="true" with a protected cacheLocation.
+        using RequesterToken token = N1NativeFixture.DerivedToken();
+        using N2ProfileFixture fixture = new N2ProfileFixture().Build();
+        fixture.WriteRealShapeConfiguration();
+        fixture.Lock();
+        ChocolateyObservationReport report = new();
+        using ChocolateyProfileObservation observation = Observed(ChocolateyProfileObserver.ObserveWithReportForTests(token,
+            ChocolateyObserverRole.Desktop, N2ProfileFixture.Target, N2ProfileFixture.Version("1.2.0"), null, Budget, fixture.Seam(), report,
+            CancellationToken.None));
+        Assert.IsNull(report.FailedStep);
+        Assert.AreEqual(Identity(fixture.Cache, directory: true), observation.Common.CacheIdentity);
+        Assert.IsTrue(ChocolateyConfigurationParser.TryRead(Chocolatey275ConfigurationFixture.Bytes(fixture.Cache, legacyValue: null),
+            out ChocolateyConfigurationObservation? withoutKey));
+        Assert.AreEqual(observation.Fingerprint, ChocolateyCommonProfileFingerprint.Compute(observation.Common with { Configuration = withoutKey! }));
+    }
+
+    [TestMethod]
+    public void Step6ARealShape275ConfigurationWithAnUnadmittedLegacyKeyValueRefusesAtStep6() =>
+        AssertStep6Refusal(fixture => fixture.WriteRealShapeConfiguration(legacyValue: "false"));
+
+    [TestMethod]
+    public void Step6ARealShape275ConfigurationWithAnEmptyCacheLocationStillRefusesAtStep6() =>
+        AssertStep6Refusal(fixture => fixture.WriteRealShapeConfiguration(legacyValue: "true", cacheLocation: ""));
+
+    [TestMethod]
     public void Step6AMissingCacheLocationRefuses() =>
         AssertUnsupported(before: fixture => System.IO.Directory.Delete(fixture.Cache));
 
@@ -429,6 +456,20 @@ public sealed class ChocolateyProfileObserverTests
         fixture.Lock();
         after?.Invoke(fixture);
         AssertRefused(Observe(token, fixture, ChocolateyObserverRole.Desktop), ChocolateyProfileRefusal.MachineInputsUnsupported);
+    }
+
+    /// <summary>Like <see cref="AssertUnsupported"/>, and the observation report names step 6 with a step-rule check.</summary>
+    private static void AssertStep6Refusal(Action<N2ProfileFixture> before)
+    {
+        using RequesterToken token = N1NativeFixture.DerivedToken();
+        using N2ProfileFixture fixture = new N2ProfileFixture().Build();
+        before(fixture);
+        fixture.Lock();
+        ChocolateyObservationReport report = new();
+        AssertRefused(ChocolateyProfileObserver.ObserveWithReportForTests(token, ChocolateyObserverRole.Desktop, N2ProfileFixture.Target,
+            N2ProfileFixture.Version("1.2.0"), null, Budget, fixture.Seam(), report, CancellationToken.None), ChocolateyProfileRefusal.MachineInputsUnsupported);
+        Assert.AreEqual(6, report.FailedStep);
+        Assert.AreEqual(ChocolateyProbeFailedCheck.StepRule, report.FailedCheck);
     }
 
     private static ChocolateyProfileResult.Refused AssertRefused(ChocolateyProfileResult result, ChocolateyProfileRefusal reason)

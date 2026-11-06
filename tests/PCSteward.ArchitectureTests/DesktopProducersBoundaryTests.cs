@@ -11,8 +11,8 @@ namespace PCSteward.ArchitectureTests;
 /// <list type="bullet">
 /// <item>they are the only <c>src</c> implementations of the evidence-source and verifier ports; only the N6 composition
 /// (<c>ChocolateyReviewedRouteComposition</c>) constructs them and their ONE shared baseline store, and nothing in
-/// <c>src</c> constructs that composition or the dispatch workflow, and <c>HasSupportedMode</c> admits only WinGet (the
-/// route stays non-admitted);</item>
+/// <c>src</c> constructs that composition or the dispatch workflow; since the Task 50 activation <c>HasSupportedMode</c>
+/// admits the route's exact shape only through <c>ReviewedChocolateyRouteAdmission</c>, and nothing composes it;</item>
 /// <item>their test-only factories have no <c>src</c> caller;</item>
 /// <item>their code never reaches a process, the launcher, the N3 client surface, the helper item, the helper or its
 /// transport, the file system directly, the registry or the environment: the only native call is the Desktop-role
@@ -49,7 +49,7 @@ public sealed class DesktopProducersBoundaryTests
 
     /// <summary>
     /// N6 (obligations (a)/(b)): the single composition point. It is the only <c>src</c> constructor site of the producers
-    /// and their shared baselines, and nothing in <c>src</c> constructs it, so the route stays non-admitted.
+    /// and their shared baselines, and nothing in <c>src</c> constructs it, so nothing composes a dispatch for the route.
     /// </summary>
     private const string Composition = Native + "ChocolateyReviewedRouteComposition";
 
@@ -114,21 +114,25 @@ public sealed class DesktopProducersBoundaryTests
     }
 
     /// <summary>
-    /// The CRITICAL scope limit of N6: the runtime-limit Chocolatey route stays non-admitted. The review gate admits only
-    /// <c>WinGetUserExactV3</c>, nothing in <c>src</c> constructs the reviewed dispatch workflow, and nothing in <c>src</c>
-    /// constructs the route's dispatcher (<c>PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher</c>, which exists for
-    /// the not-yet-admitted route; <c>DeploymentCapabilityBoundaryTests</c> also pins its non-composition on source).
+    /// The CRITICAL scope limit of N6, changed deliberately by the Task 50 activation (ADR-031 owner decision 7, step C-A): the
+    /// review gate admits the runtime-limit Chocolatey route only by its exact shape, through the single
+    /// <c>ReviewedChocolateyRouteAdmission.Admits</c> term after the unchanged WinGet rule (one route comparison in the gate
+    /// itself). Unchanged: nothing in <c>src</c> constructs the reviewed dispatch workflow or the route's dispatcher
+    /// (<c>PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher</c>; <c>DeploymentCapabilityBoundaryTests</c> also pins its
+    /// non-composition on source), so no UI path can dispatch it.
     /// </summary>
     [TestMethod]
-    public void TheRuntimeLimitRouteStaysNonAdmitted()
+    public void TheRuntimeLimitRouteIsAdmittedOnlyByShapeAndStaysUncomposed()
     {
         string review = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Application", "ReviewedUpdateReview.cs"));
         Match gate = Regex.Match(review, @"internal static bool HasSupportedMode\(ReviewedUpdateOperation operation\) =>(?<body>[^;]*);");
         Assert.IsTrue(gate.Success, "HasSupportedMode not found");
         string body = gate.Groups["body"].Value;
         StringAssert.Contains(body, "operation.RouteContract == UpdateRouteContract.WinGetUserExactV3");
-        Assert.IsFalse(body.Contains("Chocolatey", StringComparison.Ordinal), "HasSupportedMode must not admit a Chocolatey route");
-        Assert.AreEqual(1, Regex.Count(body, @"RouteContract\s*=="), "HasSupportedMode compares the route with exactly one contract");
+        Assert.IsTrue(Regex.Replace(body, @"\s+", " ").TrimEnd().EndsWith("|| ReviewedChocolateyRouteAdmission.Admits(operation)", StringComparison.Ordinal),
+            "the Chocolatey routes are admitted only through the activation term");
+        Assert.AreEqual(1, Regex.Count(body, "Chocolatey"), "the gate itself names Chocolatey only in the activation term");
+        Assert.AreEqual(1, Regex.Count(body, @"RouteContract\s*=="), "HasSupportedMode compares the route with exactly one contract itself");
 
         // No src code composes the reviewed dispatch workflow or the runtime-limit route dispatcher, so no UI path can reach it.
         const string RouteDispatcher = "PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher";

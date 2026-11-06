@@ -63,6 +63,8 @@ if ($StandardUser) {
     if ($validation.fileCount -ne $summary.fileCount -or $validation.totalBytes -ne $summary.totalBytes) { $failures.Add('file count/bytes') }
     if ($summary.sourceDirty -or $summary.allowDirty -or $summary.signed -or $summary.deterministicBuild -or $summary.selfContained) { $failures.Add('summary flags') }
     if ($summary.sourceCommit -notmatch '\A[0-9a-f]{40}\z') { $failures.Add('source commit') }
+    # Task 50 S7 obligation 1 (probe spec section 9): a clean build of a commit that contains the probe is marked included.
+    if ($summary.schema -cne 'pc-steward-owner-only-candidate-build-v2' -or $summary.probeMark -cne 'pc-steward-probe-build-mark:1' -or $summary.probeIncluded -ne $true -or $summary.probeMarkDetail -cne 'included' -or $summary.probeCommit -cne '2172f955a751ccc464b27075053c835790bc412f') { $failures.Add('probe build mark') }
     if ($failures.Count -gt 0) { throw "Candidate builder CI evidence failed: $($failures -join ', ')" }
 
     # Small JSON evidence only; the payload itself is not uploaded.
@@ -70,7 +72,7 @@ if ($StandardUser) {
     New-Item -ItemType Directory -Path $evidence -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $candidate 'candidate-manifest.json'), $summaryPath -Destination $evidence
     [IO.File]::WriteAllText((Join-Path $evidence 'candidate-revalidation.json'), ($validationOutput | Where-Object { $_ } | Select-Object -Last 1), [Text.UTF8Encoding]::new($false))
-    Write-Output "PASS: owner-only candidate built and re-validated: $($summary.fileCount) files, $($summary.totalBytes) bytes, manifest $($summary.manifestSha256), commit $($summary.sourceCommit), SDK $($summary.sdkVersion)"
+    Write-Output "PASS: owner-only candidate built and re-validated: $($summary.fileCount) files, $($summary.totalBytes) bytes, manifest $($summary.manifestSha256), commit $($summary.sourceCommit), SDK $($summary.sdkVersion), probe included $($summary.probeIncluded)"
     exit 0
 }
 

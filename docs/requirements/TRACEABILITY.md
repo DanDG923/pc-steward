@@ -1,3 +1,39 @@
+# Task 50 — Profile V2 revision 2.1: `containsLegacyPackageInstalls` (C1 fix)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [revision record](../review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md); [Profile V2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) revision note; [Part C plan §13](../review/TASK_50_PART_C_PLAN.md).
+
+- **Code.** `ChocolateyConfigurationParser` admits `containsLegacyPackageInstalls` only absent or with exactly `true` (the pinned 2.7.5 template value); any other value refuses. No observation or fingerprint field is added.
+- **Tests.**
+  - Application `ChocolateyConfigurationParserTests`: 3 admitted forms and 13 refused forms.
+  - Application `ChocolateyCommonProfileFingerprintTests`: the key keeps the golden `C179F864…EE77`.
+  - Security `ChocolateyProfileRulesTests` (portable, 7 cases): a real-shape 2.7.5 file (`Chocolatey275ConfigurationFixture`) passes the parser and the portable step-6 rules; the other values refuse; empty `cacheLocation` still fails the cache rule.
+  - Security `ChocolateyProfileObserverTests` (Windows-only, 3): the real shape is Observed and the key is not a fingerprint field; `false` and an empty `cacheLocation` each refuse at step 6 with `StepRule`.
+
+# Task 50 — Part C step C-A: activation change (ADR-031 decision 7)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decision 7, ADR-025, ADR-022; [record](../review/TASK_50_ACTIVATION_CHANGE.md) (gate inventory §1).
+
+- **Code.**
+  - `ReviewedChocolateyRouteAdmission` (exact shapes) as the single second term of `ReviewedUpdateReview.HasSupportedMode`; `ReviewedRouteTestAdmission` is removed.
+  - `DeploymentCapabilityPolicy.CapabilityOperationAllowlist` gains the client route; `PCSteward.DeploymentCapability.txt` (149 B) and the `OwnerOnlyPayloadIntegrity.ps1` token list follow it.
+  - `ChocolateyRuntimeLimitsRouteDispatcher.Supports` uses `TryGetRouteProfileDigest`.
+  - `New-OwnerOnlyCandidate.ps1`: build record v2 with the probe-build mark. `Test-OwnerOnlyCandidateBuilderCI.ps1` requires it, and the CI job uses `fetch-depth: 0`.
+  - New `scripts/evidence/Task50-QualificationProbe.ps1` (S7, C1–C7).
+- **Tests.**
+  - Architecture: `ChocolateyRouteActivationBoundaryTests` (5); the changed pins in `ClientRunFaultBoundaryTests`, `DesktopProducersBoundaryTests`, `AdmissionGateSeamBoundaryTests` and `DeploymentCapabilityBoundaryTests`.
+  - Gate tests on the production rule: `ClientRouteWorkflowAdmissionGateTests`, `ClientRouteSqliteAdmissionGateTests`, `ClientRouteNativeEndToEndGateTests`.
+  - Admission behaviour: `AdapterGatesPartATests`, `ReviewedUpdateDispatchWorkflowTests`, `ChocolateyReviewDisclosureTests`, `ReviewedRouteViewModelTests`, `ChocolateyClientUpdatePresentationTests`, `ChocolateyReviewedUpdateArgumentsTests`, `ChocolateyDesktopProducersTests`, `ReviewedHelperProtocol2TransportTests`.
+  - Capability: `DeploymentCapabilityPolicyTests`, `DeploymentCapabilityScriptTests`, `DeploymentCapabilityReaderTests`.
+  - Probe on the two-token contract: `QualificationProbeWireCodecTests`, `QualificationProbeHelperEndpointTests`, `QualificationProbeDesktopEntryTests`, `QualificationProbeResultFileTests`.
+  - Builder: `OwnerOnlyCandidateBuilderTests` (probe-mark rows, CI job, git invocation count).
+  - New `QualificationProbeHostToolingTests` with `Fixtures/QualificationProbeHostTooling.ps1`.
+- **Review fixes** (record §8; M1, M2, L4–L9):
+  - `ReviewedUpdateOperation.IsChocolateyClientIdentity`, shared with `ChocolateyClientReleasePolicy.IsClientTarget`.
+  - New `RuntimeLimitRouteActivationTests`: the composition record's L1 obligation through SQLite, near-miss rows and predicate agreement.
+  - Probe-script E5, result-folder, capability-pin and build-record-hash rows in `QualificationProbeHostToolingTests`.
+  - Builder Git isolation and lineage exit-code rows in `OwnerOnlyCandidateBuilderTests`.
+- **Not claimed.** Windows CI evidence for the Windows-only rows; any deployment, probe run or owner admission approval, including the owner's obligation-8 confirmation. Nothing in `src` composes a Chocolatey review or dispatch.
+
 # Task 50 — R2 tooling: fresh install, packaged-process refusal, installer diagnostics (owner decision D-R2)
 
 `FR-UPD-15`, `TM-03`, `TM-04`, `TM-07`, `TM-13`; ADR-022; [recovery plan §3 R2](../review/TASK_50_RECOVERY_PLAN.md).
@@ -109,7 +145,7 @@
 
 # ADR-031 — Chocolatey client update (reviewed release list, W1 wiring, watchdog and the verified Desktop offer)
 
-`FR-UPD-15`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [ADR-031](../adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) (Option 2, owner decisions 1–5); [design note](../review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §3.3, §3.7 and §8 (gate 3 of §8.6).
+`FR-UPD-15`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [ADR-031](../adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) (Option 2, owner decisions 1–5); [design note](../review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §3.3, §3.7 and §8 (gate 3 of §8.6); gate 3 re-verified on the activated Task 50 ([record](../review/TASK_73_GATE3_REVERIFICATION_2026-11-06.md)).
 
 - Domain `ClientSelfUpdateRouteTests` (the distinct route contract).
 - Application:

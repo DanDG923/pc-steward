@@ -83,6 +83,40 @@ public sealed class ChocolateyConfigurationParserTests
     }
 
     [TestMethod]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='true'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='true' description='fixture'/>")]
+    [DataRow("<add key='ContainsLegacyPackageInstalls' value='true'/>")]
+    public void TheLegacyPackageInstallsKeyIsAdmittedOnlyWithItsTemplateValue(string entry)
+    {
+        // Profile V2 revision 2.1: the pinned 2.7.5 template writes value="true" and no engine code reads the key.
+        Assert.IsTrue(Read($"<chocolatey><config><add key='cacheLocation' value='D:\\Cache'/>{entry}</config></chocolatey>", out ChocolateyConfigurationObservation? result));
+        Assert.AreEqual(@"D:\Cache", result!.CacheLocation);
+        Assert.AreEqual("containsLegacyPackageInstalls", ChocolateyConfigurationParser.LegacyPackageInstallsKey);
+        Assert.AreEqual("true", ChocolateyConfigurationParser.LegacyPackageInstallsTemplateValue);
+    }
+
+    [TestMethod]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='false'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='True'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='TRUE'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value=''/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value=' true'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='true '/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='1'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='yes'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='true'/><add key='CONTAINSLEGACYPACKAGEINSTALLS' value='true'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls ' value='true'/>")]
+    [DataRow("<add key='containsLegacyPackageInstall' value='true'/>")]
+    [DataRow("<add key='containsLegacyPackageInstalls' value='true' extra='x'/>")]
+    // Independent review (Low): the value rule must apply to every case-insensitive spelling of the key.
+    [DataRow("<add key='ContainsLegacyPackageInstalls' value='false'/>")]
+    [DataRow("<add key='CONTAINSLEGACYPACKAGEINSTALLS' value='True'/>")]
+    [DataRow("<add key='containslegacypackageinstalls' value=''/>")]
+    public void EveryOtherLegacyPackageInstallsValueOrShapeRefuses(string entry) =>
+        Assert.IsFalse(Read($"<chocolatey><config>{entry}</config></chocolatey>", out _), entry);
+
+    [TestMethod]
     public void EncodingInputAndCollectionBoundsAreEnforcedBeforeAUsableSnapshot()
     {
         byte[] utf16 = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes("<chocolatey/>")).ToArray();

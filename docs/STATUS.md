@@ -1,5 +1,50 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 73 — merged onto the activated Task 50; design §8.6 gate 3 re-verified (2026-11-06; code review and tests only; no host action).** Requirements: `FR-UPD-15`, `FR-UI-03/04`, `TM-03/04/07/13`; ADR-031 decision 7. [Record](review/TASK_73_GATE3_REVERIFICATION_2026-11-06.md). The Task 73 branch merged Task 50 `5285cfb` without conflicts. Gate 3 holds: the offer comes only from the verified observer, and the view model's not-admitted reason is unconditional (not derived from `HasSupportedMode`), so Confirm stays off after activation. One test that asserted non-admission was updated to assert the admitted shape plus the still-disabled offer, and a dangling `cref` to a replaced test (a CS1574 build break) was fixed. Not built here (no .NET SDK in the cloud container); Windows CI on PR #13 is the proof.
+
+**Task 50 — handover written (2026-11-06).** Start here: [Task 50 handover](review/TASK_50_HANDOVER_2026-11-06.md). It covers the branches and PRs, the owner-PC state, what is proven and what is not, the carried-over lessons, open owner decisions and the 2026-11-20 signer deadline.
+
+**Task 50 — Profile V2 revision 2.1: the `containsLegacyPackageInstalls` key (C1 fix built, 2026-11-06; code and tests only; on the Task 50 branch at `bc24a20`, independently reviewed; no host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Revision record](review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
+- **Research.** In the pinned client source (tag `2.7.5`, commit `194ac626…`), the default template (`chocolatey.config` line 5) writes the key with the value `true`. No engine code reads it: `ConfigurationBuilder` reads only the 11 named keys. It is inert on every reviewed route; only `choco config` and the package-script helper `Get-ChocolateyConfigValue` can see its value.
+- **Decision and change.** `ChocolateyConfigurationParser` admits the key only absent or with exactly `true`; any other value refuses at step 6. It adds no observation or fingerprint field, and `pc-steward-choco-profile:2` and its goldens are unchanged. Every other Profile V2 rule is unchanged, including the empty-`cacheLocation` refusal (cause 2).
+- **Tests (Linux).**
+  - Architecture 140/140; domain 175/175.
+  - Integration 903 passed, 112 failed (+17 new passing).
+  - Security 1,345 passed, 243 failed, 6 skipped (+7 new passing). The 3 new failures are the new Windows-only observer tests, which are reported as failed off Windows.
+  - Otherwise the failures are the same sets as base `af34ae1`.
+- **Next.** Independent review and Windows CI. A redeploy, the owner's `cacheLocation` change and a new probe each need their own approval. Part C stays **FAIL**.
+
+**Task 50 — Part C step C-A: activation change built (2026-11-06; code and tests only; local branch `task50-activation`, not pushed; no host action).** Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decision 7, ADR-025, ADR-022. [Record](review/TASK_50_ACTIVATION_CHANGE.md).
+- **Gate inventory (§1).** Met: Part A, Part B, the §8.6 gates 1 and 2, R5 (decision 6), the W1 and watchdog conditions, and obligations 3–7. Covered by owner decisions 2026-11-06: the target package, the A-Q1 real-launch residuals, and the §8.7 VM self-upgrade and second-release items (G9 = yes), plus D4 = G-0. Still to come: Part C, and the final admission approval (obligation 8). The §8.6 gate 3 is not applicable on this branch, which has no client offer UI.
+- **Admission.** `HasSupportedMode` keeps the unchanged WinGet rule and adds `ReviewedChocolateyRouteAdmission.Admits`, exact shapes only. A runtime-limit job for the package `chocolatey` is never admitted, and the gate-1 test seam is removed. `CapabilityOperationAllowlist` gains `ChocolateyClientSelfUpdateV1` (statement 149 B; the scripts' token list; the probe's G1 now covers both tokens). The dispatcher's `Supports` uses the route-discriminated digest before the capability seam. Pins changed deliberately, with new `ChocolateyRouteActivationBoundaryTests`.
+- **Unchanged.** WinGet; the release list (2.7.5 only, so the client route has no target); the watchdog and the other refusals; verification before Success. Nothing in `src` composes a Chocolatey review or dispatch, so the Desktop still shows the no-review disclosure and Confirm stays disabled. This is a finding against spec §9's expectation; G-0 holds anyway.
+- **S7.** The builder record is now v2 with `probeIncluded` (rule `pc-steward-probe-build-mark:1`: a clean build, descent from `2172f95`, and the probe types in the payload). The CI evidence check requires it, and the job fetches full history. `scripts/evidence/Task50-QualificationProbe.ps1` implements C1–C7 (CRLF SHA-256 `831B5E17…E77A`) with fixture tests over the real result-document writer.
+- **Tests (Linux).** Architecture 140/140 (+5); domain 175/175; integration 874 passed, 112 failed; security 1,337 passed, 240 failed, 6 skipped. The failures are the same Windows-only sets as base `e2f35af`, with no new failure.
+- **Review fixes (independent review of `0c659eb`: no Critical or High).** Record §8.
+  - **M1:** E5 FAIL when C4 cannot observe.
+  - **M2:** the composition record's L1 test (`RuntimeLimitRouteActivationTests`, SQLite).
+  - **M3:** your explicit obligation-8 confirmation is required before deployment.
+  - **L4:** a shared Domain client-identity predicate (`chocolatey` and `chocolatey.extension`, any case).
+  - **L5:** an empty result folder counts as absent.
+  - **L6:** C1 pins the two-token capability statement `50F169DD…654B`.
+  - **L7:** `-ExpectedBuildRecordSha256`, with a 64 KiB bound.
+  - **L8:** the builder's Git isolation and `--no-replace-objects`; ignored files stay outside the dirty rule.
+  - **L9:** runtime-limit near-miss rows, and the token renamed `resultFolderClean`.
+  - **L10:** the Task 73 gate-3 merge condition.
+  - The Part B pins must be re-pinned for C-B. The script's CRLF SHA-256 is now `831B5E17…E77A`.
+  - Tests: integration 886 passed / 112 failed; security 1,338 passed / 240 failed / 6 skipped. The failures are the same Windows-only sets.
+- **Next.** Windows CI; your obligation-8 confirmation; then Part C plan revision 2 (C-B before 2026-11-20T09:43:26Z, then C-pre and C-run).
+
+**Task 50 — Part C exact-artifact probe run: OVERALL FAIL on E2 (2026-11-06).** [Part C plan §11–§12](review/TASK_50_PART_C_PLAN.md):
+- **Steps:** the owner ran CB.8 (Validated), CB.9 (PASS), C-pre (no reviewed update outcomes), C-check (PASS) and C-run, with one UAC prompt for the helper showing `--kind qualify-chocolatey-helper`.
+- **Passed:** E1 (`tokenVerdict` Accepted), A3 (both tokens Supported), E3 (transport, owner judgment PASS) and E5 (nothing changed).
+- **Failed:** **E2.** The elevated observer refused at step 6 (`Configuration`), check `StepRule`, reason `MachineInputsUnsupported`. Under Decision 2 this stops use: the Chocolatey routes stay unusable on this host, and the run is not repeated.
+- **Likely cause** (unconfirmed): Chocolatey's default empty `cacheLocation`, which Profile V2 refuses by design, or a config name outside the admitted 2.7.5 model. **D1 result (read-only):** two causes, either of which refuses on its own. (1) A product model gap: the host's real 2.7.5 `chocolatey.config` has the key `containsLegacyPackageInstalls`, which `ChocolateyConfigurationParser.ConfigNames` does not admit; fixing it needs a reviewed Profile V2 revision. (2) A host precondition: `cacheLocation` is empty, the native default, which Profile V2 refuses by design; only the owner can change it, outside PC Steward.
+
+**Task 50 — C-A activated (pushed, Windows CI green at `ebb4061`) and C-B steps drafted (2026-11-06).** The activation change (`d423dff`) and its independent-review fixes (`ebb4061`) are on the Task 50 branch; the owner approved composition obligation 8. [Part C plan §10](review/TASK_50_PART_C_PLAN.md) has the exact owner-console blocks, all parse-checked. CB.1–CB.7 prep: worktree at `ebb4061`, pins, the activated build with `probeIncluded`, a database copy (`78697727…`), a v3 NewPlan from `pinned-unsigned-v2` to `pinned-unsigned-v2`, CheckOnly, and an old-deployment dry run. CB.8 is the single elevated redeploy (a template), and CB.9 the post-checks that give the C-run pins. The deadline is 2026-11-20T09:43:26Z. Task 73 is **not** merged with the activated Task 50 until design §8.6 gate 3 is re-verified. Awaiting approval CB-prep.
+
+**Task 50 — Part C route drafted (2026-11-06; docs only).** [Part C plan rev 1](review/TASK_50_PART_C_PLAN.md): the installed `febf1ac` build predates the probe, so under Decision 3 (c) Part C runs on the **activated** build. The order is: C-D, owner decisions D4 and G9; C-A, the activation change with the C1–C7 tooling, reviewed and CI-tested; C-B, a redeploy before 2026-11-20 09:43Z; C-pre, the first launch for the Activity check; C-run, the probe with one helper UAC prompt. Recommendations: D4 = G-0, G9 = proceed with the A-Q1 residuals recorded as open, and an optional C0 smoke launch. **Owner decisions 2026-11-06: D4 = G-0, G9 = yes, C0 = yes** (plan §6–§7).
+
 **Task 50 — Part B complete through the recovery route (2026-11-06; owner-run host actions).** [Recovery plan](review/TASK_50_RECOVERY_PLAN.md):
 - **R2-prep:** PASS, with plan `E05D0D08…` and encoded command `96A577D5…` (28,644 characters).
 - **R2.5:** `Validated` from the owner's own console, with only the UAC prompt and the certificate warning.

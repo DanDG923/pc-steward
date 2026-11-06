@@ -11,8 +11,9 @@ public enum UpdateRouteContract
     ChocolateyMachineProvisionalV3, ChocolateyMachineRuntimeLimitsV3,
     /// <summary>
     /// ADR-031 (accepted, Option 2): update the Chocolatey client itself (package ID exactly <c>chocolatey</c>) to a release on
-    /// PC Steward's compiled reviewed list, with its own guard contract. Not admitted (<c>HasSupportedMode</c>), and the
-    /// frozen versions are data: only the provider's compiled list and native checks decide whether a job could run.
+    /// PC Steward's compiled reviewed list, with its own guard contract. Admitted at the review gate since the Task 50
+    /// activation (ADR-031 decision 7), and the frozen versions are data: only the provider's compiled list and native checks
+    /// decide whether a job could run.
     /// </summary>
     ChocolateyClientSelfUpdateV1
 }
@@ -223,6 +224,15 @@ public sealed partial class ReviewedUpdateOperation
 
     /// <summary>The ADR-031 client self-update package ID; compared ordinally (the native registration's own spelling).</summary>
     public const string ChocolateyClientPackageId = "chocolatey";
+
+    /// <summary>
+    /// ADR-031 "client target refuses" (observer step 7): the package identities of the Chocolatey client itself,
+    /// <c>chocolatey</c> and <c>chocolatey.extension</c>, in any case. Package jobs never target them; the provider's
+    /// <c>ChocolateyClientReleasePolicy.IsClientTarget</c> and the review gate's package-route admission share this rule.
+    /// </summary>
+    public static bool IsChocolateyClientIdentity(string? packageId) => packageId is not null &&
+        (packageId.Equals(ChocolateyClientPackageId, StringComparison.OrdinalIgnoreCase) ||
+            packageId.Equals("chocolatey.extension", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// ADR-031 shape only: Chocolatey Community machine registration of exactly <see cref="ChocolateyClientPackageId"/>,

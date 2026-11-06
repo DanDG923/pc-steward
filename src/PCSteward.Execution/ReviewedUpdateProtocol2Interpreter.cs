@@ -296,8 +296,8 @@ internal static class ReviewedUpdateProtocol2Interpreter
     /// <see cref="ReviewedProviderGuardContract.ChocolateyClientSelfUpdate"/>, provenance
     /// <see cref="ReviewedCandidateProvenance.TrustedDesktopEvidenceRequired"/>, Chocolatey/ChocolateyCommunity/Machine/Stable,
     /// provider-script architecture and mode, package ID exactly <c>chocolatey</c>, and <c>EvidenceId = "choco-profile-v2:" + F</c>.
-    /// Never accepts a mixed route/guard/provenance. Shape only: it admits nothing (the capability allow-list and
-    /// <c>HasSupportedMode</c> still refuse the route).
+    /// Never accepts a mixed route/guard/provenance. Shape only: it admits nothing by itself (admission is the review gate's
+    /// <c>HasSupportedMode</c> and the capability allow-list, Task 50 activation).
     /// </summary>
     internal static bool TryGetClientProfileDigest(ReviewedUpdateOperation operation, out string profileDigest)
     {

@@ -387,19 +387,30 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
     }
 
     [TestMethod]
-    public async Task ChocolateyRoutesCannotReachDispatchEvenWhenAnAdapterClaimsSupport()
+    public async Task OnlyTheExactRuntimeLimitShapeIsAdmittedAndOtherChocolateyShapesCannotReachDispatch()
     {
+        // Task 50 activation (ADR-031 owner decision 7, step C-A): the review gate admits the runtime-limit route's exact shape.
+        // The provisional route and a runtime-limit job for the Chocolatey client package itself (ADR-031 "client target
+        // refuses" for package jobs, in any case) stay refused and cannot be confirmed, whatever an adapter claims.
         await using Fixture fixture = await Fixture.CreateAsync();
-        foreach (UpdateRouteContract route in new[] { UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyMachineProvisionalV3 })
+        foreach ((UpdateRouteContract route, string package, bool admitted) in new[]
+                 {
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "git.install", true),
+                     (UpdateRouteContract.ChocolateyMachineProvisionalV3, "git.install", false),
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "chocolatey", false),
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "Chocolatey", false),
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "chocolatey.extension", false),
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "Chocolatey.Extension", false),
+                 })
         {
-            ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:git.install",
-                UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, "git.install", "1.0.0", "2.0.0", UpdateScope.Machine,
+            ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:" + package,
+                UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity, package, "1.0.0", "2.0.0", UpdateScope.Machine,
                 UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2")).Confirm(ReviewedAt);
-            ReviewedUpdateDraft draft = await fixture.Store.SaveReviewedOperationAsync(new(job, User, "choco:git.install", "machine:choco",
+            ReviewedUpdateDraft draft = await fixture.Store.SaveReviewedOperationAsync(new(job, User, "choco:" + package, "machine:choco",
                 route == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 ? "choco-profile-v2:" + new string('A', 64) : "evidence:1", ReviewedAt, route,
                 ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled), ReviewedUpdateArchitecture.ProviderScriptSelected()), CancellationToken.None);
-            Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(draft.Operation));
-            Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Confirm(draft));
+            Assert.AreEqual(admitted, ReviewedUpdateReview.HasSupportedMode(draft.Operation), $"{route} {package}");
+            if (!admitted) Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Confirm(draft), $"{route} {package}");
         }
     }
 

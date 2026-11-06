@@ -11,7 +11,7 @@ namespace PCSteward.Security.FixtureTests;
 /// frames through the protocol-2 interpreter and the workflow's settled classification. Owner conditions pinned here: a
 /// missing or invalid <c>clientRunFault</c> never allows success; the field only preserves or lowers the outcome; every
 /// recovery warning is retained for a watchdog stop (each kind), a protection-release failure, and both combined; the
-/// package route is unaffected. The live workflow cannot run the client route while <c>HasSupportedMode</c> refuses it, so
+/// package route is unaffected. Written before the Task 50 activation, when <c>HasSupportedMode</c> refused the client route, so
 /// the settled classification is driven directly (<see cref="ReviewedUpdateDispatchWorkflow.ClassifyAfterSettlementAsync"/>).
 /// </summary>
 [TestClass]

@@ -23,6 +23,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
     private static readonly string[] InvokedExecutables = ["dotnet", "git", "windowspowershell"];
     private static readonly string[] ExpectedXbf = ["App.xbf", "Resources\\ColorTokens.xbf", "Views\\Sub\\Page.xbf"];
     private static readonly string[] ManifestKeys = ["bytes", "path", "sha256"];
+    private static readonly string[] ProbeAssemblies = ["PCSteward.Execution.dll", "PCSteward.Provider.Chocolatey.dll", "PCSteward.Desktop.dll"];
 
     private static readonly string[] FixturePaths =
     [
@@ -69,7 +70,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
             JsonElement invocations = result.GetProperty("invocations");
             CollectionAssert.AreEquivalent(InvokedExecutables, invocations.EnumerateObject().Select(item => item.Name).ToArray());
             Assert.AreEqual(2, invocations.GetProperty("dotnet").GetInt32(), "dotnet: the splatted build step and --version only");
-            Assert.AreEqual(2, invocations.GetProperty("git").GetInt32(), "git: rev-parse and status only");
+            Assert.AreEqual(3, invocations.GetProperty("git").GetInt32(), "git: rev-parse, status and the probe-mark merge-base --is-ancestor only");
             Assert.AreEqual(1, invocations.GetProperty("windowspowershell").GetInt32(), "one Windows PowerShell 5.1 self-validation child");
             Assert.IsTrue(result.GetProperty("splattedDotnet").GetBoolean(), "build steps must run as & $Dotnet @Arguments");
             string[] dotSources = [.. result.GetProperty("dotSources").EnumerateArray().Select(item => item.GetString()!)];
@@ -78,6 +79,8 @@ public sealed class OwnerOnlyCandidateBuilderTests
             Assert.AreEqual(StepNames.Length, result.GetProperty("buildStepArgumentArrays").GetInt32());
 
             AssertBuildSteps(result.GetProperty("steps"));
+            AssertProbeMark(result.GetProperty("probeMark"), result.GetProperty("probeTypeNames"));
+            AssertLineage(result.GetProperty("lineage"));
             AssertSdkRule(result.GetProperty("sdk"));
             foreach (JsonProperty rule in result.GetProperty("outputRoots").EnumerateObject())
                 Assert.AreEqual(rule.Name is "temp" or "runner-temp" ? "accepted" : "refused", rule.Value.GetString(), rule.Name);
@@ -240,8 +243,80 @@ public sealed class OwnerOnlyCandidateBuilderTests
         StringAssert.Contains(section, "scripts/Test-OwnerOnlyCandidateBuilderCI.ps1");
         StringAssert.Matches(section, new System.Text.RegularExpressions.Regex(@"permissions:\s+contents: read"));
         StringAssert.Contains(section, "persist-credentials: false");
+        // S7 obligation 1: the probe-build mark needs the commit lineage, so the builder job fetches full history.
+        int next = section.IndexOf("\n  owner-only-signing-diagnostic:", StringComparison.Ordinal);
+        StringAssert.Contains(next > 0 ? section[..next] : section, "fetch-depth: 0");
         // The existing build-and-test job keeps its own steps.
         StringAssert.Contains(workflow[..job], "pwsh -NoProfile -File ./scripts/Test-CI.ps1");
+    }
+
+    /// <summary>
+    /// Task 50 S7 obligation 1 (qualification probe spec §9; FR-UPD-15, TM-03/04/07/13): rule pc-steward-probe-build-mark:1, run
+    /// from the parsed builder over synthetic payload assemblies. Only a clean build of a commit that descends from the S6 probe
+    /// commit, whose payload carries every compiled probe entry type, is marked included.
+    /// </summary>
+    private static void AssertProbeMark(JsonElement marks, JsonElement typeNames)
+    {
+        Dictionary<string, (bool Included, string Detail)> expected = new()
+        {
+            ["included"] = (true, "included"),
+            ["dirty"] = (false, "source-dirty"),
+            ["not-descendant"] = (false, "commit-lacks-probe"),
+            ["missing-desktop"] = (false, "payload-missing:PCSteward.Desktop.dll"),
+            ["missing-gate-type"] = (false, "type-missing:PCSteward.Desktop.dll/QualificationProbeLaunchGate"),
+            ["missing-codec-type"] = (false, "type-missing:PCSteward.Execution.dll/QualificationProbeWireCodec"),
+            ["missing-native-type"] = (false, "type-missing:PCSteward.Provider.Chocolatey.dll/NativeChocolateyProbePort"),
+            ["prefix-only"] = (false, "type-missing:PCSteward.Desktop.dll/QualificationProbeLaunchGate"),
+        };
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), marks.EnumerateObject().Select(item => item.Name).ToArray());
+        foreach ((string name, (bool included, string detail)) in expected)
+        {
+            Assert.AreEqual(included, marks.GetProperty(name).GetProperty("included").GetBoolean(), name);
+            Assert.AreEqual(detail, marks.GetProperty(name).GetProperty("detail").GetString(), name);
+        }
+        CollectionAssert.AreEqual(ProbeAssemblies,
+            typeNames.EnumerateObject().Select(item => item.Name).ToArray());
+        // Every listed type is a real src type of the probe slices.
+        string root = FindRepositoryRoot();
+        string sources = string.Join("\n", Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj")).Select(File.ReadAllText));
+        foreach (JsonProperty leaf in typeNames.EnumerateObject())
+            foreach (string type in leaf.Value.EnumerateArray().Select(item => item.GetString()!))
+                Assert.IsTrue(System.Text.RegularExpressions.Regex.IsMatch(sources, @"\b(class|record|interface|struct)\s+" + type + @"\b"), $"{leaf.Name}: {type}");
+
+        // The record fields and constants, and the S6 commit is the reviewed probe slice (probe spec §11.6).
+        string builder = File.ReadAllText(Path.Combine(root, "scripts", "New-OwnerOnlyCandidate.ps1"));
+        StringAssert.Contains(builder, "$script:CandidateSchema = 'pc-steward-owner-only-candidate-build-v2'");
+        StringAssert.Contains(builder, "$script:ProbeMarkRule = 'pc-steward-probe-build-mark:1'");
+        StringAssert.Contains(builder, "$script:ProbeS6Commit = '2172f955a751ccc464b27075053c835790bc412f'");
+        StringAssert.Contains(builder, "& $Git @('--no-replace-objects', '-C', $RepositoryRoot, 'merge-base', '--is-ancestor', $script:ProbeS6Commit, $Commit)");
+        // Review L8: every builder Git call runs isolated and without replace objects.
+        Assert.AreEqual(3, System.Text.RegularExpressions.Regex.Count(builder, @"& \$Git @\('--no-replace-objects', '-C', \$RepositoryRoot"));
+        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Count(builder, @"\$saved = Enter-OwnerOnlyCandidateGitIsolation"));
+        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Count(builder, @"finally \{ Exit-OwnerOnlyCandidateGitIsolation -Saved \$saved \}"));
+        StringAssert.Contains(builder, "$descends = ($LASTEXITCODE -eq 0)");
+        StringAssert.Contains(builder, "probeIncluded = [bool]$probeMark.Included");
+        string ci = File.ReadAllText(Path.Combine(root, "scripts", "Test-OwnerOnlyCandidateBuilderCI.ps1"));
+        StringAssert.Contains(ci, "$summary.probeIncluded -ne $true");
+        StringAssert.Contains(ci, "$failures.Add('probe build mark')");
+    }
+
+    /// <summary>
+    /// Review L8: the lineage check through a stand-in git. Exit 0 counts as descent only when git was called with
+    /// --no-replace-objects first, GIT_NO_REPLACE_OBJECTS=1 and no inherited GIT_DIR; exits 1 (not an ancestor) and 128 (for
+    /// example an unknown commit) give probeIncluded = false. The caller's Git variables are restored afterwards.
+    /// </summary>
+    private static void AssertLineage(JsonElement lineage)
+    {
+        foreach ((string name, bool descends) in new[] { ("exit-0", true), ("exit-1", false), ("exit-128", false) })
+        {
+            JsonElement row = lineage.GetProperty(name);
+            Assert.AreEqual(descends, row.GetProperty("descends").GetBoolean(), name);
+            Assert.AreEqual(descends, row.GetProperty("included").GetBoolean(), name);
+            Assert.AreEqual(descends ? "included" : "commit-lacks-probe", row.GetProperty("detail").GetString(), name);
+            Assert.IsTrue(row.GetProperty("gitDirRestored").GetBoolean(), name);
+            Assert.IsTrue(row.GetProperty("noReplaceRestored").GetBoolean(), $"{name}: {row}");
+        }
     }
 
     private static void AssertBuildSteps(JsonElement steps)

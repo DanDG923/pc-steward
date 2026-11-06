@@ -10,7 +10,7 @@ namespace PCSteward.ArchitectureTests;
 /// <item>its only provider call is the existing <c>ChocolateyUpdateSourceConnector.ResolveAsync</c>; it never names a
 /// process, the client process runner, the launcher, the helper or elevation;</item>
 /// <item>no <c>src</c> code constructs it or calls its test-only factory, so (like the composition) it is not composed yet
-/// and the runtime-limit route stays non-admitted;</item>
+/// and nothing composes a review for the runtime-limit route (admitted by shape since the Task 50 activation);</item>
 /// <item>the composition calls it only through its in-call supply path, immediately before the observation.</item>
 /// </list>
 /// </summary>

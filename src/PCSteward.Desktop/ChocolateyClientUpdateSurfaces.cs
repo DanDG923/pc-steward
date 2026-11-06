@@ -11,7 +11,7 @@ namespace PCSteward.Desktop;
 /// <see cref="ChocolateyClientUpdateViewModel"/> — the Settings card row and Installed apps detail entry point, and the
 /// Chocolatey client update review dialog (opened as "Checking", then re-rendered with the installed-client check's result; an offer is
 /// "not yet enabled" until admission). It renders every line the view model exposes and binds Confirm's enabled state to
-/// <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> (always false while the route is not admitted). It holds no
+/// <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> (always false: the view model's not-admitted reason is unconditional, design §8.6 gate 3). It holds no
 /// logic, starts nothing and has no review, confirm or dispatch path.
 /// </summary>
 internal static class ChocolateyClientUpdateSurfaces

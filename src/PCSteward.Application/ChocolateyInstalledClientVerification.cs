@@ -23,7 +23,8 @@ public enum ChocolateyInstalledClientCheck
 /// FR-UPD-15, FR-UI-03/04, TM-03/04/07/13; ADR-031 ("offered only from a listed, currently trusted client"), design §8.6
 /// gate 3: the narrow, display-oriented result of the Desktop-role, read-only, non-elevated observation of the installed
 /// Chocolatey client. It carries only the installed listed release's normalized version (when verified) or a closed reason;
-/// never a handle, path, command or fingerprint. It admits nothing: the route stays non-admitted, and any future job still
+/// never a handle, path, command or fingerprint. It admits nothing (it is not a dispatch input, even though the route shape is
+/// admitted since the Task 50 activation), and any future job still
 /// re-observes the client before dispatch.
 /// <para><see cref="Verified"/> is the only way to carry a release; an architecture test pins its single <c>src</c> call
 /// site to the native installed-client observation, so the Desktop cannot fabricate a verified release from scan data.</para>

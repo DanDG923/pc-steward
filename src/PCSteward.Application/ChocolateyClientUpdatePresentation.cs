@@ -15,7 +15,8 @@ public sealed record ChocolateyClientUpdateReviewView(
 /// FR-UPD-15, FR-UPD-01/03–09, FR-HIS-01, TM-07/13; ADR-031 design mapping §2 (R4), §3.6, §3.7 and §3a: the review sheet,
 /// Verify and history texts for <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/>. Display only: nothing here
 /// decides trust, admission or an outcome, and versions come only from the frozen review after a strict format check. The
-/// route stays unavailable while <c>HasSupportedMode</c> does not admit it.
+/// unavailable text appears whenever <c>HasSupportedMode</c> does not admit the frozen operation (since the Task 50
+/// activation it admits the exact client self-update shape).
 /// </summary>
 public static class ChocolateyClientUpdatePresentation
 {

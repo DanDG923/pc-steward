@@ -549,11 +549,26 @@ public sealed class ChocolateyClientUpdateViewModelTests
     }
 
     [TestMethod]
-    public void TheRouteStaysNonAdmittedAndTheViewModelHasNoConfirmPath()
+    public void TheAdmittedRouteStillGivesTheViewModelNoConfirmPath()
     {
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(ClientOperation("2.7.5", "2.8.0")), "the review gate refuses the client route");
+        // ADR-031 design §8.6 gate 3, re-verified on the Task 50 activation (TASK_50_ACTIVATION_CHANGE.md §6, review L10): the
+        // review gate now admits the exact client shape, so the sheet shows no unavailable reason; the Desktop offer still cannot
+        // be confirmed, because the view model's not-admitted reason does not depend on HasSupportedMode and it holds no
+        // operation, review, draft or permit.
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(ClientOperation("2.7.5", "2.8.0")), "the activated review gate admits the exact client shape");
         ChocolateyClientUpdateReviewView sheet = ChocolateyClientUpdatePresentation.Review(ClientOperation("2.7.5", "2.8.0"))!;
-        Assert.AreEqual(ChocolateyClientUpdatePresentation.UnavailableText, sheet.UnavailableReason);
+        Assert.IsNull(sheet.UnavailableReason, "the route is admitted");
+        // Strongest case first: a verified older listed release with a newer reviewed release on the list (an offer is shown).
+        foreach (ChocolateyInstalledClientVerification verification in new[] { Verified("2.7.5") }.Concat(NotVerified()))
+            foreach (ReviewedRouteSplitTokenState token in Enum.GetValues<ReviewedRouteSplitTokenState>())
+            {
+                ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(Fixture, verification, "2.7.5", () => token);
+                Assert.AreEqual(ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview, model.UnavailableReasons[0], $"{verification.Check} {token}");
+                Assert.IsFalse(model.CanConfirm, $"{verification.Check} {token}");
+                Assert.IsFalse(model.IsConfirmEnabled, $"{verification.Check} {token}");
+                // Gate 3 itself: the offer comes only from the verified release, never from the scan-reported one.
+                Assert.AreEqual(verification.Check == ChocolateyInstalledClientCheck.Verified ? "2.9.1" : null, model.OfferVersion, $"{verification.Check} {token}");
+            }
 
         Type type = typeof(ChocolateyClientUpdateViewModel);
         BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;

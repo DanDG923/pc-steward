@@ -134,25 +134,34 @@ public sealed class ClientRunFaultBoundaryTests
             Assert.AreEqual(1, Count(Single(sources, file), "CreateClientForTests("), $"{file}: the definition only");
     }
 
+    /// <summary>
+    /// Task 50 activation (ADR-031 owner decision 7, step C-A; FR-UPD-15): the deliberate change of the former non-admission
+    /// pin. The client self-update route is admitted only through the three admission points: the review gate's second term
+    /// (<c>ReviewedChocolateyRouteAdmission.Admits</c>), the single capability allow-list definition, and the dispatcher's
+    /// route-discriminated shape check before the capability seam. <c>ChocolateyRouteActivationBoundaryTests</c> pins the
+    /// exact texts.
+    /// </summary>
     [TestMethod]
-    public void NothingInSrcAdmitsTheClientSelfUpdateRoute()
+    public void TheClientSelfUpdateRouteIsAdmittedOnlyThroughTheThreeActivationPoints()
     {
         Dictionary<string, string> sources = Sources();
         string review = Single(sources, "ReviewedUpdateReview.cs");
         Match gate = Regex.Match(review, @"internal static bool HasSupportedMode\(ReviewedUpdateOperation operation\) =>(?<body>[^;]*);");
         Assert.IsTrue(gate.Success, "HasSupportedMode not found");
-        Assert.IsFalse(gate.Groups["body"].Value.Contains("Chocolatey", StringComparison.Ordinal));
         StringAssert.Contains(gate.Groups["body"].Value, "UpdateRouteContract.WinGetUserExactV3");
+        StringAssert.Contains(gate.Groups["body"].Value, "ReviewedChocolateyRouteAdmission.Admits(operation)");
+        Assert.IsFalse(gate.Groups["body"].Value.Contains("ChocolateyClientSelfUpdateV1", StringComparison.Ordinal), "the shape lives in the admission type");
         string policy = Single(sources, "DeploymentCapabilityPolicy.cs");
-        StringAssert.Contains(policy,
-            "internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist = [UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3];");
+        StringAssert.Contains(Regex.Replace(policy, @"\s+", " "),
+            "internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist = " +
+            "[UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1];");
         Assert.AreEqual(1, Count(policy, "CapabilityOperationAllowlist ="), "a single allow-list definition");
-        Assert.IsFalse(policy.Contains("ChocolateyClientSelfUpdateV1", StringComparison.Ordinal), "the capability policy never names the client route");
-        // The runtime-limits dispatcher's Supports stays on the package arm only.
+        Assert.AreEqual(1, Count(policy, "ChocolateyClientSelfUpdateV1"), "the capability policy names the client route only in the allow-list");
         string dispatcher = Single(sources, "ChocolateyRuntimeLimitsRouteDispatcher.cs");
         Match supports = Regex.Match(dispatcher, @"public bool Supports\(ReviewedUpdateOperation operation\)(?<body>[\s\S]*?)\n    }");
         Assert.IsTrue(supports.Success);
-        Assert.IsFalse(supports.Groups["body"].Value.Contains("Client", StringComparison.Ordinal), "Supports never admits the client route");
+        StringAssert.Contains(supports.Groups["body"].Value, "ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out _, out _) &&");
+        Assert.IsFalse(supports.Groups["body"].Value.Contains("TryGetClientProfileDigest", StringComparison.Ordinal), "only the route-discriminated form");
     }
 
     private static string Single(Dictionary<string, string> sources, string name) =>

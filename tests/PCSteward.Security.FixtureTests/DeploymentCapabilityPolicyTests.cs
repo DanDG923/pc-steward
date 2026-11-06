@@ -293,14 +293,21 @@ public sealed class DeploymentCapabilityPolicyTests
     [TestMethod]
     public void CapabilityBytesAreGeneratedFromTheCompiledProtocolAndAllowlist()
     {
-        byte[] expected = Encoding.ASCII.GetBytes("pc-steward-deployment-capability:1\nhelper-protocol:2\noperation:Update/ChocolateyMachineRuntimeLimitsV3\n");
-        Assert.AreEqual(103, expected.Length);
+        // Task 50 activation (ADR-031 owner decision 7, step C-A): the client self-update route joins the allow-list; the
+        // statement lists the tokens in ordinal order (client first).
+        byte[] expected = Encoding.ASCII.GetBytes("pc-steward-deployment-capability:1\nhelper-protocol:2\n" +
+            "operation:Update/ChocolateyClientSelfUpdateV1\noperation:Update/ChocolateyMachineRuntimeLimitsV3\n");
+        Assert.AreEqual(149, expected.Length);
         CollectionAssert.AreEqual(expected, DeploymentCapabilityPolicy.CanonicalCapabilityBytes());
         Assert.AreEqual("2", ReviewedUpdateWireCodec.ProtocolVersion);
-        CollectionAssert.AreEqual(new[] { Route }, DeploymentCapabilityPolicy.CapabilityOperationAllowlist.ToArray());
+        CollectionAssert.AreEqual(new[] { Route, UpdateRouteContract.ChocolateyClientSelfUpdateV1 }, DeploymentCapabilityPolicy.CapabilityOperationAllowlist.ToArray());
         Assert.IsTrue(DeploymentCapabilityPolicy.TryParseCapability(expected, out string protocol, out IReadOnlyList<UpdateRouteContract> operations));
         Assert.AreEqual(ReviewedUpdateWireCodec.ProtocolVersion, protocol);
-        CollectionAssert.AreEqual(new[] { Route }, operations.ToArray());
+        CollectionAssert.AreEqual(new[] { UpdateRouteContract.ChocolateyClientSelfUpdateV1, Route }, operations.ToArray());
+        // The pre-activation one-token statement still parses (an old deployment validates), with only its one route.
+        byte[] oneToken = Encoding.ASCII.GetBytes("pc-steward-deployment-capability:1\nhelper-protocol:2\noperation:Update/ChocolateyMachineRuntimeLimitsV3\n");
+        Assert.IsTrue(DeploymentCapabilityPolicy.TryParseCapability(oneToken, out _, out IReadOnlyList<UpdateRouteContract> old));
+        CollectionAssert.AreEqual(new[] { Route }, old.ToArray());
     }
 
     // ---- Binding set (A.7 "Binding", A2-L4) ----

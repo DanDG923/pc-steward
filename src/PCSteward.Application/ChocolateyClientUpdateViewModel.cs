@@ -58,14 +58,15 @@ public enum ChocolateyClientUpdateUnavailableReason
 /// strictly newer release on the compiled reviewed list, computed only from the verified installed release); the review-sheet facts
 /// and disclosures of <see cref="ChocolateyClientUpdatePresentation"/>; and every reason the update is unavailable.
 /// <list type="bullet">
-/// <item>No reviewed client operation can be prepared while <c>ReviewedUpdateReview.HasSupportedMode</c> refuses
-/// <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/>, so the not-admitted reason is always present and
-/// <see cref="CanConfirm"/> is always false. This type holds no review, draft, permit or confirmation path; it starts nothing.</item>
+/// <item>The not-admitted reason is always present, independent of <c>ReviewedUpdateReview.HasSupportedMode</c> (which since the
+/// Task 50 activation admits the exact <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> shape): the Desktop composes
+/// no client review and owner admission approval is still outstanding, so <see cref="CanConfirm"/> is always false (design §8.6
+/// gate 3, re-verified on the activation). This type holds no review, draft, permit or confirmation path; it starts nothing.</item>
 /// <item>The split-token state is probed through the injected function on every <see cref="Open"/>, never cached.</item>
 /// <item>ADR-031 ("offered only from a listed, currently trusted client"): the offer is computed only from a
 /// <see cref="ChocolateyInstalledClientCheck.Verified"/> result of the native Desktop-role observation and the compiled list's
 /// offer rule. The scan-reported version never decides anything; while the client is not checked, or could not be verified,
-/// nothing is offered. A verified offer is still "not yet enabled": nothing can start while the route is not admitted.</item>
+/// nothing is offered. A verified offer is still "not yet enabled": nothing can start from this surface.</item>
 /// </list>
 /// </summary>
 public sealed class ChocolateyClientUpdateViewModel

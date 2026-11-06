@@ -79,8 +79,14 @@ internal static class DeploymentCapabilityPolicy
     internal const long MaximumBindingFileBytes = 32L * 1024 * 1024;
     internal const long MaximumBindingSetBytes = 64L * 1024 * 1024;
 
-    /// <summary>Compiled closed allowlist of capability operations. Today it has one entry.</summary>
-    internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist = [UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3];
+    /// <summary>
+    /// Compiled closed allowlist of capability operations (the single capability admission point). The client self-update entry
+    /// is the Task 50 activation (ADR-031 owner decision 7, step C-A; <c>docs/review/TASK_50_ACTIVATION_CHANGE.md</c>); the
+    /// checked-in capability statement, the deployment scripts' token list and the probe's G1 keys follow this list. Listing a
+    /// route admits nothing by itself: the review gate, fresh evidence, the dispatcher and the helper's own checks still apply.
+    /// </summary>
+    internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist =
+        [UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1];
 
     /// <summary>
     /// Compiled closed binding set (A.3, A2-L4): the desktop apphost and its main assembly, the helper apphost, assembly,

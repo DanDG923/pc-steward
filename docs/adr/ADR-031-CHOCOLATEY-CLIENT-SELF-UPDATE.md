@@ -67,3 +67,13 @@ Option 2:
 5. **Outcome ordering (2026-11-02):** the owner confirmed that a Chocolatey self-update the watchdog stopped after it started is shown as **"not verified" with the recovery warning**, not "Failed". This is the §8.3 ordering Success > Failed > Unverified > Uncertain, where Failed→Unverified counts as a downgrade in assertion strength.
 6. **R5 residual accepted (2026-11-02):** the owner accepts the remaining runtime window "for now". It remains after the setup-override guard and runtime watchdog, as documented in design §2.2: sampling-based detection, a rapid set/delete bypass, and a user-scope `ChocolateyInstall` that may leave no trace. Option 2 (a non-user identity) stays the recorded path to full closure.
 7. **Activation intent (2026-11-02):** the owner says Chocolatey "can be activated". Activation, meaning a `HasSupportedMode`/allow-list change for the Chocolatey routes, is carried out only once the recorded remaining gates are met: owner-host evidence, the ADR-025 exact-artifact test, an approved v2 redeploy, and the client-route admission gates in design §8.6. This decision records the owner's approval of that final step, not a waiver of those gates.
+
+## Activation status (2026-11-06; Task 50 Part C step C-A)
+
+- **Built** on the local branch `task50-activation` (not yet reviewed or deployed). Decision 7's gates are in the [activation change record](../review/TASK_50_ACTIVATION_CHANGE.md) §1.
+  - Met: owner-host evidence, the approved v2 redeploy, and the design §8.6 gates 1 and 2.
+  - Covered by owner decisions 2026-11-06: G9 = yes (the A-Q1 and client self-upgrade real-launch residuals stay open, and each blocks any real Chocolatey update until exercised) and D4 = G-0.
+  - The ADR-025 exact-artifact test runs after this change, on the activated deployment (Decision 3 (c)).
+- **The change** admits both Chocolatey routes at exactly the three admission points: `HasSupportedMode`'s exact-shape term, the capability allow-list, and the dispatcher's `Supports`.
+- **Unchanged:** the compiled list still holds only 2.7.5, so no client update can be offered.
+- **Still pending:** independent review, Windows CI, the C-B redeploy, Part C, and the owner's final admission approval.

@@ -19,11 +19,20 @@ if ($PSVersionTable.PSEdition -ne 'Core') {
     foreach ($module in @('Management', 'Utility', 'Security')) { Import-Module ([IO.Path]::Combine($PSHOME, 'Modules', "Microsoft.PowerShell.$module", "Microsoft.PowerShell.$module.psd1")) -Force }
 }
 
-$script:CandidateSchema = 'pc-steward-owner-only-candidate-build-v1'
+# v2 (Task 50 activation, step C-A): the record carries the S7 obligation 1 "probe included" mark (probeIncluded, probeMark).
+$script:CandidateSchema = 'pc-steward-owner-only-candidate-build-v2'
 $script:CandidateRuntime = 'win-x64'
 $script:ManifestLeaf = 'candidate-manifest.json'
 $script:SummaryLeaf = 'candidate-build.json'
 $script:CapabilityLeaf = 'PCSteward.DeploymentCapability.txt'
+# Qualification probe spec section 9, S7 obligation 1 (FR-UPD-15, TM-03/04/07/13): the build record is marked "probe included"
+# only when the build commit contains the reviewed probe slices S2-S6. Rule pc-steward-probe-build-mark:1 (all must hold):
+# (1) the source tree was clean before and after the build, so the payload was built from the commit; (2) the build commit
+# is, or descends from, the S6 integrated-review commit below, the last reviewed probe slice (git merge-base --is-ancestor);
+# (3) the payload assemblies carry the compiled probe entry types (Get-OwnerOnlyCandidateProbeTypeNames). Anything else
+# records probeIncluded = false, and C1 of the probe host tooling then stops with "STOP: not a probe build".
+$script:ProbeMarkRule = 'pc-steward-probe-build-mark:1'
+$script:ProbeS6Commit = '2172f955a751ccc464b27075053c835790bc412f'
 
 # Pure: the exact, structured dotnet argument arrays (one string per argument; nothing is joined into a command line).
 # Profile matches the Task 48/49 candidates and the original installer: Release, win-x64, framework-dependent.
@@ -50,6 +59,35 @@ function Get-OwnerOnlyCandidateBuildSteps {
         [pscustomobject]@{ Name = 'publish-desktop'; Arguments = [string[]]@('publish', $desktop, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--no-build', '--disable-build-servers', '--output', $DesktopPublishDirectory) }
         [pscustomobject]@{ Name = 'publish-helper'; Arguments = [string[]]@('publish', $helper, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--no-build', '--disable-build-servers', '--output', $HelperPublishDirectory) }
     )
+}
+
+# Pure: the compiled probe entry type names that each payload assembly must carry (metadata names; the S2 codec and result
+# document, the S3 helper bootstrap and endpoint, the S3 native probe port and item, the S4 desktop entry, transport and gate).
+function Get-OwnerOnlyCandidateProbeTypeNames {
+    [ordered]@{
+        'PCSteward.Execution.dll' = [string[]]@('QualificationProbeWireCodec', 'QualificationProbeResultDocument', 'QualificationProbeEntry', 'ReviewedHelperProbeBootstrap', 'ReviewedHelperProbeEndpoint', 'ReviewedHelperProbeTransport')
+        'PCSteward.Provider.Chocolatey.dll' = [string[]]@('NativeChocolateyProbePort', 'NativeChocolateyProbeItem')
+        'PCSteward.Desktop.dll' = [string[]]@('QualificationProbeLaunchGate', 'QualificationProbeEntry')
+    }
+}
+
+# Pure over its inputs (reads only the named payload files, writes nothing): the probe-build mark decision of rule
+# pc-steward-probe-build-mark:1. A metadata name is a NUL-terminated string in the assembly's #Strings heap; the check is
+# presence evidence that the pinned bytes were built with the probe, while the commit lineage is the primary criterion.
+function Test-OwnerOnlyCandidateProbeMark {
+    param([Parameter(Mandatory)][bool]$SourceDirty, [Parameter(Mandatory)][bool]$DescendsFromProbeCommit, [Parameter(Mandatory)][string]$PayloadRoot)
+    if ($SourceDirty) { return [pscustomobject]@{ Included = $false; Detail = 'source-dirty' } }
+    if (!$DescendsFromProbeCommit) { return [pscustomobject]@{ Included = $false; Detail = 'commit-lacks-probe' } }
+    $names = Get-OwnerOnlyCandidateProbeTypeNames
+    foreach ($leaf in $names.Keys) {
+        $path = Join-Path $PayloadRoot $leaf
+        if (!(Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Included = $false; Detail = "payload-missing:$leaf" } }
+        $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($path))
+        foreach ($name in $names[$leaf]) {
+            if ($text.IndexOf($name + [char]0, [StringComparison]::Ordinal) -lt 0) { return [pscustomobject]@{ Included = $false; Detail = "type-missing:$leaf/$name" } }
+        }
+    }
+    [pscustomobject]@{ Included = $true; Detail = 'included' }
 }
 
 # Pure: global.json SDK rule. Returns $true for the exact pinned SDK, $false for an accepted latestPatch roll-forward.
@@ -217,15 +255,60 @@ function Invoke-OwnerOnlyCandidateDotnet {
     if ($LASTEXITCODE -ne 0) { throw "dotnet step '$Name' failed with exit code $LASTEXITCODE." }
 }
 
+# Review L8: the builder's Git calls (commit, status and the probe-mark lineage) read only this repository. Variables that
+# could point Git at another repository, work tree, index or object store are cleared for each call and restored after it,
+# replace objects are disabled (GIT_NO_REPLACE_OBJECTS=1 and --no-replace-objects), and GIT_CONFIG_* is kept (the CI
+# launcher's process-scoped safe.directory). Returns the saved values for Exit-OwnerOnlyCandidateGitIsolation.
+function Enter-OwnerOnlyCandidateGitIsolation {
+    $saved = @{}
+    foreach ($name in @('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
+            'GIT_NAMESPACE', 'GIT_REPLACE_REF_BASE', 'GIT_GRAFT_FILE', 'GIT_SHALLOW_FILE', 'GIT_NO_REPLACE_OBJECTS')) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        # [NullString]::Value removes the variable: a plain $null would be passed as '' (an empty but defined variable on Unix).
+        [Environment]::SetEnvironmentVariable($name, [NullString]::Value, 'Process')
+    }
+    [Environment]::SetEnvironmentVariable('GIT_NO_REPLACE_OBJECTS', '1', 'Process')
+    $saved
+}
+
+function Exit-OwnerOnlyCandidateGitIsolation {
+    param([Parameter(Mandatory)][hashtable]$Saved)
+    foreach ($name in $Saved.Keys) {
+        if ($null -eq $Saved[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value, 'Process') }
+        else { [Environment]::SetEnvironmentVariable($name, [string]$Saved[$name], 'Process') }
+    }
+}
+
+# The dirty rule counts tracked changes and untracked files (--untracked-files=all). Ignored files are not counted: the
+# build itself writes the ignored bin/ and obj/ outputs into the tree, so counting them would mark every build dirty. The
+# probe-build mark therefore relies on the commit lineage plus the payload check, not on the absence of ignored files.
 function Get-OwnerOnlyCandidateGitState {
     param([Parameter(Mandatory)][string]$Git, [Parameter(Mandatory)][string]$RepositoryRoot)
     # Function-local: Git warnings on stderr must not terminate under Windows PowerShell 5.1; the exit code decides.
     $ErrorActionPreference = 'Continue'
-    $commit = & $Git @('-C', $RepositoryRoot, 'rev-parse', '--verify', 'HEAD')
-    if ($LASTEXITCODE -ne 0 -or [string]$commit -notmatch '\A[0-9a-f]{40}\z') { throw 'Could not read the source commit.' }
-    $status = @(& $Git @('-C', $RepositoryRoot, '--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=all'))
-    if ($LASTEXITCODE -ne 0) { throw 'Could not read the source tree status.' }
+    $saved = Enter-OwnerOnlyCandidateGitIsolation
+    try {
+        $commit = & $Git @('--no-replace-objects', '-C', $RepositoryRoot, 'rev-parse', '--verify', 'HEAD')
+        if ($LASTEXITCODE -ne 0 -or [string]$commit -notmatch '\A[0-9a-f]{40}\z') { throw 'Could not read the source commit.' }
+        $status = @(& $Git @('--no-replace-objects', '-C', $RepositoryRoot, '--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=all'))
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read the source tree status.' }
+    }
+    finally { Exit-OwnerOnlyCandidateGitIsolation -Saved $saved }
     [pscustomobject]@{ Commit = [string]$commit; DirtyEntries = @($status | Where-Object { $_ }).Count }
+}
+
+# True only when Git confirms the build commit is the S6 probe commit or descends from it (exit 0). Exit 1 (not an ancestor)
+# and any other exit (for example an unknown commit in a shallow clone) are false: the mark fails closed.
+function Test-OwnerOnlyCandidateDescendsFromProbeCommit {
+    param([Parameter(Mandatory)][string]$Git, [Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][string]$Commit)
+    $ErrorActionPreference = 'Continue'
+    $saved = Enter-OwnerOnlyCandidateGitIsolation
+    try {
+        $null = & $Git @('--no-replace-objects', '-C', $RepositoryRoot, 'merge-base', '--is-ancestor', $script:ProbeS6Commit, $Commit) 2>$null
+        $descends = ($LASTEXITCODE -eq 0)
+    }
+    finally { Exit-OwnerOnlyCandidateGitIsolation -Saved $saved }
+    return $descends
 }
 
 function Assert-OwnerOnlyCandidateNonElevatedWindows {
@@ -363,6 +446,8 @@ try {
     $gitAfter = Get-OwnerOnlyCandidateGitState -Git $git -RepositoryRoot $repositoryRoot
     if ($gitAfter.Commit -cne $gitBefore.Commit) { throw 'The source commit changed during the build.' }
     if ($gitAfter.DirtyEntries -gt 0 -and !$AllowDirty) { throw 'The build changed tracked or untracked source files.' }
+    $sourceDirty = ($gitBefore.DirtyEntries -gt 0 -or $gitAfter.DirtyEntries -gt 0)
+    $probeMark = Test-OwnerOnlyCandidateProbeMark -SourceDirty $sourceDirty -DescendsFromProbeCommit (Test-OwnerOnlyCandidateDescendsFromProbeCommit -Git $git -RepositoryRoot $repositoryRoot -Commit $gitBefore.Commit) -PayloadRoot $payload
 
     $summary = [ordered]@{
         schema = $script:CandidateSchema
@@ -375,8 +460,12 @@ try {
         manifestPath = $manifestPath
         payloadRoot = $payload
         sourceCommit = $gitBefore.Commit
-        sourceDirty = ($gitBefore.DirtyEntries -gt 0 -or $gitAfter.DirtyEntries -gt 0)
+        sourceDirty = $sourceDirty
         allowDirty = [bool]$AllowDirty
+        probeIncluded = [bool]$probeMark.Included
+        probeMark = $script:ProbeMarkRule
+        probeMarkDetail = [string]$probeMark.Detail
+        probeCommit = $script:ProbeS6Commit
         sdkVersion = $sdkVersion.Trim()
         sdkPinned = [string]$globalJson.sdk.version
         sdkExactPin = $sdkExact

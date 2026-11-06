@@ -41,12 +41,14 @@ public sealed class ReviewedRouteViewModelTests
         Assert.AreEqual(ReviewedUpdateProviderDisclosure.ChocolateyCommunityScriptRuntimeLimits, model.RuntimeLimits);
         Assert.AreEqual(ReviewedUpdateLingeringProcesses.ReviewDisclosure, model.LingeringProcesses);
         Assert.AreEqual(ChocolateyReviewDisclosurePresentation.LibBadResidueText, model.LibBadResidue);
-        CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence }, model.UnavailableReasons.ToArray());
-        CollectionAssert.AreEqual(new[] { ChocolateyReviewDisclosurePresentation.NotAdmittedText }, model.UnavailableTexts.ToArray());
-        Assert.IsTrue(model.IsUnavailable);
+        // Task 50 activation (ADR-031 owner decision 7): the exact shape is admitted, so a split token and a matching intent
+        // leave no unavailability reason.
+        Assert.AreEqual(0, model.UnavailableReasons.Count);
+        Assert.AreEqual(0, model.UnavailableTexts.Count);
+        Assert.IsFalse(model.IsUnavailable);
         Assert.AreEqual(ReviewedRouteSplitTokenState.SplitTokenLimited, model.SplitTokenState);
 
-        // Every field is rendered, in order, before the (disabled) confirmation.
+        // Every field is rendered, in order, before the confirmation.
         CollectionAssert.AreEqual(new[]
         {
             expected.CandidateIntent, expected.IntentTime, expected.UserCacheDisclosure, expected.InstallerMode, expected.RuntimeLimits,
@@ -56,9 +58,16 @@ public sealed class ReviewedRouteViewModelTests
         Assert.IsTrue(model.Fields.Concat(model.UnavailableFields).All(field =>
             field.Label.Length != 0 && field.AutomationName == field.Label + ": " + field.Text), "every line has an accessible name");
 
-        // The route is not admitted: even a split token and a matching intent leave Confirm disabled and refused.
-        AssertConfirmDisabled(model);
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(draft.Operation));
+        // Confirm is enabled exactly when CanConfirm holds and goes only through ReviewedUpdateReview.Confirm, once; it
+        // dispatches nothing (this view model has no dispatch path). The Desktop prepares no draft, so it never reaches this
+        // state there (D4 = G-0: the owner confirms no Chocolatey review until a recorded probe PASS).
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(draft.Operation));
+        Assert.IsTrue(model.CanConfirm);
+        Assert.IsTrue(model.IsConfirmEnabled);
+        LiveApprovedUpdate? approval = model.TryConfirm();
+        Assert.IsNotNull(approval);
+        Assert.AreSame(draft.Operation, approval.Operation);
+        Assert.IsNull(model.TryConfirm(), "a review is confirmed at most once");
     }
 
     [TestMethod]
@@ -92,8 +101,11 @@ public sealed class ReviewedRouteViewModelTests
         foreach (ReviewedUpdateDraft? draft in new[] { null, Draft(Chocolatey()) })
         {
             ChocolateyReviewedRouteReviewViewModel model = ChocolateyReviewedRouteReviewViewModel.Open(draft, Facts(), () => state);
-            CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence, reason }, model.UnavailableReasons.ToArray());
-            Assert.AreEqual(ChocolateyReviewDisclosurePresentation.Text(reason), model.UnavailableFields[1].Text);
+            // Task 50 activation: an admitted draft carries only the token reason; the no-review disclosure keeps its
+            // not-admitted reason first.
+            ReviewedRouteUnavailableReason[] expected = draft is null ? [ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence, reason] : [reason];
+            CollectionAssert.AreEqual(expected, model.UnavailableReasons.ToArray());
+            Assert.AreEqual(ChocolateyReviewDisclosurePresentation.Text(reason), model.UnavailableFields[^1].Text);
             Assert.AreEqual(Enum.IsDefined(state) ? state : ReviewedRouteSplitTokenState.Unknown, model.SplitTokenState);
             AssertConfirmDisabled(model);
         }
