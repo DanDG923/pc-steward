@@ -79,14 +79,16 @@ internal static class ChocolateyClientUpdateSurfaces
 
     /// <summary>
     /// Design §4.3: while a confirmed run is in flight the dialog is the progress view: the live summary carries the current phase
-    /// (announced), below it only the frozen change line. Both buttons are off; Close is also refused by the dialog's closing guard.
+    /// (announced), below it the frozen change line and the close guard. Both buttons are hidden; Esc and the main window's close
+    /// are also refused by the closing guards, and the guard line says why.
     /// </summary>
     internal static void RenderProgress(ContentDialog dialog, string title, string change, string status)
     {
         ArgumentNullException.ThrowIfNull(dialog);
-        RenderStatus(dialog, title, status, [change]);
+        RenderStatus(dialog, title, status, [change, ChocolateyClientUpdateRunPresentation.RunningCloseGuardText]);
         dialog.PrimaryButtonText = string.Empty;
         dialog.IsPrimaryButtonEnabled = false;
+        dialog.CloseButtonText = string.Empty;
         AutomationProperties.SetHelpText(dialog, ChocolateyClientUpdateRunPresentation.RunningCloseGuardText);
     }
 
@@ -98,6 +100,7 @@ internal static class ChocolateyClientUpdateSurfaces
         RenderStatus(dialog, view.Heading, view.Lines.Count == 0 ? view.Heading : view.Lines[0], view.Lines.Skip(1));
         dialog.PrimaryButtonText = ChocolateyClientUpdateViewModel.CheckAgainText;
         dialog.IsPrimaryButtonEnabled = true;
+        dialog.CloseButtonText = ChocolateyClientUpdateViewModel.CloseText;
         AutomationProperties.SetHelpText(dialog, view.Heading);
     }
 

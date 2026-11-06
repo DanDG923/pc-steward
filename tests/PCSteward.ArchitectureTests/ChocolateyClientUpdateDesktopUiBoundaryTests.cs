@@ -193,7 +193,12 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         StringAssert.Contains(surfaces, "dialog.PrimaryButtonText = model.PrimaryActionText;");
         // The progress view turns the primary button off; the result view offers only "Check again".
         Assert.AreEqual(3, Regex.Count(surfaces, @"IsPrimaryButtonEnabled\s*="), "the review, progress and result renders");
-        StringAssert.Contains(Between(surfaces, "internal static void RenderProgress(", "\n    }\n"), "dialog.IsPrimaryButtonEnabled = false;");
+        string progress = Between(surfaces, "internal static void RenderProgress(", "\n    }\n");
+        StringAssert.Contains(progress, "dialog.IsPrimaryButtonEnabled = false;");
+        // Design §4.3: Close is hidden while the run is in flight, and the owner sees why closing is refused.
+        StringAssert.Contains(progress, "dialog.CloseButtonText = string.Empty;");
+        StringAssert.Contains(progress, "[change, ChocolateyClientUpdateRunPresentation.RunningCloseGuardText]");
+        StringAssert.Contains(Between(surfaces, "internal static void RenderResult(", "\n    }\n"), "dialog.CloseButtonText = ChocolateyClientUpdateViewModel.CloseText;");
         string result = Between(surfaces, "internal static void RenderResult(", "\n    }\n");
         StringAssert.Contains(result, "dialog.PrimaryButtonText = ChocolateyClientUpdateViewModel.CheckAgainText;");
         StringAssert.Contains(surfaces, "DefaultButton = ContentDialogButton.Close,");
