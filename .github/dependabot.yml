@@ -21,5 +21,3 @@ updates:
     groups:
       actions:
         patterns: ['*']
-  # design/prototype is an archived reference outside CI, so it only gets
-  # security updates, not scheduled version updates.

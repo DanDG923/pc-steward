@@ -108,11 +108,11 @@ The new candidate's manifest and build record will differ from §10, because the
 $wk = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) 'PCSteward-Task50D'; $wt = Join-Path $wk '5606da2'; $sc = Join-Path $wt 'scripts'; $co = Join-Path $wk 'candidate'; $pd = Join-Path $wk 'plan'; $pf = Join-Path $pd 'redeploy-plan.json'; $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 ```
 
-**CB2.1 — fetch the build commit and add a detached worktree** (changes Git state; network). First `cd` into the PC Steward clone, paste V4, then these lines. Expected as CB.1.
+**CB2.1 — fetch the build commit and add a detached worktree** (changes Git state; network). First `cd` into the PC Steward clone, paste V4, then these lines. Expected as CB.1. It fetches `phase/4-beta`, not the Task 50 branch: that branch was deleted when PR #12 merged, and `5606da2` is in `phase/4-beta`'s history.
 
 ```powershell
 $ErrorActionPreference = 'Continue'; $rc = (Get-Location).ProviderPath; $env:GIT_TERMINAL_PROMPT = '0'; $ok = $false; $url = [string]($null | & git.exe -C $rc config --get remote.origin.url 2>$null); $hk = @($null | & git.exe -C $rc rev-parse --git-path hooks/post-checkout --git-path hooks/reference-transaction 2>$null); $hx = @($hk | ForEach-Object { $p = [string]$_; if (![IO.Path]::IsPathRooted($p)) { $p = Join-Path $rc $p }; (Test-Path -LiteralPath $p) -or (Test-Path -LiteralPath ($p + '.exe')) })
-if (Test-Path -LiteralPath $wk) { 'STOP: work folder already exists' } elseif (!(Test-Path -LiteralPath (Join-Path $rc 'PCSteward.slnx')) -or $url -notmatch 'pc-steward') { 'STOP: not in the PC Steward clone' } elseif ($hx.Count -ne 2) { 'STOP: hook check failed' } else { 'GIT-HOOKS postCheckout=' + $hx[0] + ' referenceTransaction=' + $hx[1]; if ($hx -contains $true) { 'STOP: a Git hook exists' } else { $go = @($null | & git.exe -C $rc -c gc.auto=0 -c maintenance.auto=false fetch --no-tags origin claude/sweet-franklin-j3mw4a 2>&1); 'FETCH-EXIT ' + $LASTEXITCODE + ' gitLines=' + $go.Count; if ($LASTEXITCODE -eq 0) { $null | & git.exe -C $rc cat-file -e '5606da23c303429c7c4711e9f5cfd43640c79289^{commit}'; 'COMMIT-PRESENT-EXIT ' + $LASTEXITCODE; $ok = $LASTEXITCODE -eq 0 } } }
+if (Test-Path -LiteralPath $wk) { 'STOP: work folder already exists' } elseif (!(Test-Path -LiteralPath (Join-Path $rc 'PCSteward.slnx')) -or $url -notmatch 'pc-steward') { 'STOP: not in the PC Steward clone' } elseif ($hx.Count -ne 2) { 'STOP: hook check failed' } else { 'GIT-HOOKS postCheckout=' + $hx[0] + ' referenceTransaction=' + $hx[1]; if ($hx -contains $true) { 'STOP: a Git hook exists' } else { $go = @($null | & git.exe -C $rc -c gc.auto=0 -c maintenance.auto=false fetch --no-tags origin phase/4-beta 2>&1); 'FETCH-EXIT ' + $LASTEXITCODE + ' gitLines=' + $go.Count; if ($LASTEXITCODE -eq 0) { $null | & git.exe -C $rc cat-file -e '5606da23c303429c7c4711e9f5cfd43640c79289^{commit}'; 'COMMIT-PRESENT-EXIT ' + $LASTEXITCODE; $ok = $LASTEXITCODE -eq 0 } } }
 if ($ok) { New-Item -ItemType Directory -Path $wk -ErrorAction Stop | Out-Null; $go = @($null | & git.exe -C $rc -c gc.auto=0 -c maintenance.auto=false worktree add --detach $wt 5606da23c303429c7c4711e9f5cfd43640c79289 2>&1); 'WORKTREE-EXIT ' + $LASTEXITCODE + ' gitLines=' + $go.Count; if ($LASTEXITCODE -ne 0) { 'STOP: worktree add failed' } }
 ```
 
@@ -222,4 +222,30 @@ $pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHa
 
 ## 9. Results
 
-None yet.
+**D2 approved by the owner (2026-11-06T21:41Z): "I approve D2".** It covers D2a and D2b, each run once.
+
+**Run route for D2 (owner's request, 2026-11-06).** The owner asked for the read-only D2 runs to be done for him. Each was run once through a Claude Remote Control session on his PC, unelevated, in Windows PowerShell 5.1. The session took the §4 block unedited from `origin/phase/4-beta`, wrote it as an ASCII/CRLF temp file, ran it with `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, then deleted the file. The clone's branch and files and the rest of the machine were not touched. That route is acceptable only for read-only steps. H1, CB2 and C2 stay the owner's own: the tooling refuses a packaged process, and those steps carry prompts that only the owner should answer.
+
+### Result D2a (2026-11-06, about 21:44Z): as expected before H1
+
+```text
+D2 ELEVATED False
+D2 LEGACY-KEY state=true admitted=True
+D2 CACHELOCATION empty
+```
+
+Exit 0, no error text. This confirms the host's `containsLegacyPackageInstalls` value is exactly `true`, the value Profile V2 rev. 2.1 admits (handover §5 item 2).
+
+### Result H1 (2026-11-06, about 21:46Z): owner's own change
+
+The owner ran the H1 block once in his own administrator Windows PowerShell window. Output: `ICACLS-EXIT 0`, `SETOWNER-EXIT 0`, `CHOCO-CONFIG-EXIT 0`. This was the owner's decision about his own Chocolatey setup, made outside PC Steward.
+
+### Result D2b (2026-11-06, about 21:47Z): PASS
+
+```text
+D2 ELEVATED False
+D2 LEGACY-KEY state=true admitted=True
+D2 CACHELOCATION absolute-local exists=True underUserProfile=False underChocolateyRoot=False reparsePoint=False requesterWritableAces=0 ownerIsRequester=False inheritanceProtected=True
+```
+
+Exit 0, no error text, and every line equals §4's expected D2b output. Both step-6 causes are now cleared as far as the read-only checks can show; ancestors and deny entries are proven only by C2-run. **Next:** approval CB2-prep. CB2.2 must run before 2026-11-19T19:23Z.
