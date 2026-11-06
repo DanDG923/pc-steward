@@ -148,7 +148,8 @@ None of these decisions approves a host step. Each host step in §7 still needs 
 
 - **G9-D1 = A.** The package-route residuals are closed on the owner's own PC with one approved test package.
 - **G9-D2a = yes.** Done separately: the candidate research is in draft PR #16 (`TASK_50_G9_TARGET_CANDIDATES.md`). Primary: ripgrep, 14.1.0 → 15.2.0. Alternate: fd.
-- **G9-D2b = ripgrep, provisionally.** The owner asked whether the package could be forked to resolve security issues. A fork is not used: Profile V2 admits only the Community source, so a forked package could not be the target. The security concern is handled instead by a read-only check that the package's embedded archives match the upstream release digests. Criterion 7 (not already installed or relied on) is still for the owner to confirm before G9-T1.
+- **G9-D2b = ripgrep (final, 2026-11-06).** The owner confirmed criterion 7: ripgrep is not installed on the host. The §12 upstream check passed.
+- *(Earlier, provisional:)* The owner asked whether the package could be forked to resolve security issues. A fork is not used: Profile V2 admits only the Community source, so a forked package could not be the target. The security concern is handled instead by a read-only check that the package's embedded archives match the upstream release digests. Criterion 7 (not already installed or relied on) is still for the owner to confirm before G9-T1.
 - **G9-D3 = defer.** CR1–CR3 wait for a reviewed newer Chocolatey release.
 - **G9-D4 = 6a.** The desktop review composition is built as its own task.
 - **G9-D5 = yes, separately.** The probe re-run redeploy goes ahead before 2026-11-20, independently of G9.
