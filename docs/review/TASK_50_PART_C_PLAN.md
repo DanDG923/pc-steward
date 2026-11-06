@@ -88,3 +88,9 @@ $db = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::Local
 ```
 
 Report back: what the windows showed (anything unexpected), any prompt that appeared, and the C0-check line.
+
+### Result C0 (2026-11-06)
+
+The owner launched the installed v2 desktop once and closed it. C0-check printed `DB sha256=78697727CE44A1167537A04BE4554339028F660DA142E00894778D602BEC55BE bytes=200704 unchanged=False sidecars=0 pcstewardProcesses=0 scheduledTask=0`.
+
+The database changed from 159,744 to 200,704 bytes. This is consistent with the first-launch schema migration that §7 expects. It closed cleanly: no WAL/SHM/journal sidecar, no PC Steward process left, and no scheduled task created. The new database pin for C-B is `78697727…55BE` / 200,704 B. C-B's NewPlan re-reads it, and B2's copy step backs it up first. The owner's notes on what the screens showed, and on any prompts, are pending.
