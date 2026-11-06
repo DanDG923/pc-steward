@@ -46,6 +46,17 @@ Feasibility, checked so far:
 - No helper code uses WinRT types. The Windows SDK projection that the `net10.0-windows10.0.22000.0` target pulls in produces trim warnings, but only for code that is never reached.
 - A real AOT compile needs Windows. The informational CI job `helper-native-aot-feasibility` (`scripts/Test-ElevatedHelperNativeAotCI.ps1`) compiles the helper with `PublishAot=true` and lists every trim and AOT warning. It fails on any warning in PC Steward code and on any managed runtime or PC Steward assembly file left in the output. It then starts the native image (never connected to anything) with `DOTNET_GCName` and with EventPipe settings, and requires the image to reach its own environment check (exit 20). With a clean environment it must get past that check (exit 21). It runs a framework-dependent build of the same helper as a control.
 
+### CI evidence (2026-11-06, run 42314021364, commit a00cf80)
+
+| Case | Framework-dependent helper (today) | Native AOT helper |
+|---|---|---|
+| Compile | Builds | Builds, **0** trim or AOT warnings; 11,488,768-byte image; no runtime, deps, runtimeconfig or PC Steward assembly beside it |
+| Clean environment, well-formed protocol-1 arguments | Exit 21 (passed the environment, argument and elevation checks) | Exit 21 |
+| `DOTNET_GCName=<missing DLL>` | The runtime tried to load the DLL and failed before `Main` ("GC initialization failed with error 0x8007007E") | Exit 20: the setting was ignored and the helper's own check ran |
+| `DOTNET_EnableEventPipe=1` with an output path | The runtime **wrote the file** before `Main` (the helper's check then exited 20) | Exit 20, no file written |
+
+The control shows that H1 is real today: a same-user setting makes the elevated runtime load a DLL of the setter's choosing (a missing one here) or write a file where the setter chooses, before any PC Steward code runs. The native image does neither. The AOT publish also emits `.pdb` and `.xml` files for each project; the builder change (Decision 4) must leave them out of the payload.
+
 ## Decision
 
 1. **The helper is published with Native AOT.** `PCSteward.ElevatedHelper.csproj` sets `PublishAot=true` for `win-x64`. `EventSourceSupport` stays off and the PR #27 switches stay. The helper's source, protocol, checks and the `ElevatedRuntimeEnvironmentGuard` (kept as a second layer) do not change. The guard's checks before each launch stay as they are.
