@@ -336,3 +336,25 @@ The owner ran CB.8 once, in their own normal Windows PowerShell window, starting
 - `retry` false and `launched` false. Completed at 19:53:49 UTC, about 13 s.
 
 CB.9 post-checks are pending.
+
+### Result CB.9 (2026-11-06): PASS; C-B complete
+
+- `DB sha256=78697727…55BE bytes=200704 equalsPin=True sidecars=0 pcstewardProcesses=0`
+- `VALIDATOR-EXIT 0`
+- `NEW-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 helperProtocol=2 manifest=9F6CC13668DE533CF070731C30E12E006D66EB9E1B3C3AB3E8C8A566FA0DF84A thumbprint=67B59B4C9BC3A006FBE39A72967E05F7B8C375DA launched=False`
+- `INSTALLED-CAPABILITY 50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B` (the two-token activated statement)
+- `STORE My new=1 old=0`, `STORE Root new=1 old=0`, `STORE TrustedPublisher new=1 old=0`
+- `NEW-SIGNER notAfterUtc=2026-11-20T19:53:44.0000000Z ownerOnlySubject=True`
+- `LEDGER-SHA256 CBAB8C0AEB29DB34076F16A9176674CA08DA4A655447988B1368B456733AC852`
+
+**C-run pins:**
+
+| Pin | Value |
+|---|---|
+| manifest | `9F6CC136…F84A` |
+| ledger | `CBAB8C0A…C852` |
+| signer | `67B59B4C9BC3A006FBE39A72967E05F7B8C375DA` |
+| signer NotAfter | `2026-11-20T19:53:44Z` |
+| build record | `04D4BF87…EBB9` |
+
+The activated, probe-carrying build is deployed and the database is unchanged. The new signer expires 2026-11-20T19:53:44Z, which bounds C-run.
