@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$OutputRoot)
+param()
 
 # Security review H1 follow-up (owner decision 2026-11-06: Native AOT helper before G9-T1), feasibility evidence only.
 # Compiles PCSteward.ElevatedHelper with Native AOT into a scratch folder, lists every IL trim/AOT warning, checks the
@@ -12,13 +12,14 @@ param([string]$OutputRoot)
 #     checks (hosted runners are elevated) and stop at the next one, exit 21 (no desktop beside the helper), so 20 above is
 #     the environment check and nothing else; no pipe is ever opened;
 #   - the framework-dependent control shows what the same settings do to today's helper.
-# Writes nothing outside OutputRoot; changes no repository file, certificate store, install or deployment. The owner-only
-# candidate builder (hash-pinned) is not used or changed.
+# Writes only into one fixed new folder, artifacts\helper-native-aot under this checkout, and deletes nothing: an existing
+# folder there stops the run (remove it by hand). Changes no repository file, certificate store, install or deployment. The
+# owner-only candidate builder (hash-pinned) is not used or changed.
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
-if (!$OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts\helper-native-aot' }
-if (Test-Path -LiteralPath $OutputRoot) { Remove-Item -LiteralPath $OutputRoot -Recurse -Force }
-New-Item -ItemType Directory -Path $OutputRoot | Out-Null
+$OutputRoot = Join-Path $repository 'artifacts\helper-native-aot'
+if (Test-Path -LiteralPath $OutputRoot) { throw "The output folder already exists; remove it by hand first: $OutputRoot" }
+New-Item -ItemType Directory -Path $OutputRoot -ErrorAction Stop | Out-Null
 $project = Join-Path $repository 'src\PCSteward.ElevatedHelper\PCSteward.ElevatedHelper.csproj'
 $aotOut = Join-Path $OutputRoot 'aot'
 $fdOut = Join-Path $OutputRoot 'framework-dependent'
