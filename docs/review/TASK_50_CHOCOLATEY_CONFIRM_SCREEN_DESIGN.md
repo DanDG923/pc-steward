@@ -33,7 +33,7 @@ Confirm is enabled only when **every** condition below holds. Each one is evalua
 
 | # | Condition | Source of truth | Re-checked on press |
 |---|---|---|---|
-| C1 | **Owner admission is compiled in.** A new compiled constant (proposed name `ChocolateyClientUpdateAdmission.OwnerApproved`) replaces the unconditional `NotAdmittedPendingReview`. It ships `false`. Setting it `true` is its own reviewed commit, made only after a recorded probe PASS and the owner's obligation 8 approval. This turns D4 = G-0 from procedure into code | Compiled constant; boundary test pins its single definition and that no configuration, registry or database value can set it | Yes |
+| C1 | **Owner admission is compiled in.** A new compiled constant (proposed name `ChocolateyClientUpdateAdmission.OwnerApproved`) replaces the unconditional `NotAdmittedPendingReview`. It ships `false`. Setting it `true` is its own reviewed commit, made only after a recorded probe PASS, the open G9 real-launch residuals exercised on the owner's host (§8 item 4), and the owner's obligation 8 approval. This turns D4 = G-0 from procedure into code | Compiled constant; boundary test pins its single definition and that no configuration, registry or database value can set it | Yes |
 | C2 | **The installed client is verified in this dialog.** The check result is `Verified`, from this opening of the dialog, and less than 10 minutes old (proposed). An older result shows "Check again" instead of Confirm | `ChocolateyInstalledClientVerification` with its observation time | Yes (age) |
 | C3 | **An offer exists.** The verified release is listed, and a strictly newer listed release exists. The target is the newest listed release | `ChocolateyClientUpdateViewModel.OfferTarget` over the compiled list | — |
 | C4 | **Split token is limited.** UAC on, owner is an administrator running a limited desktop | `ChocolateyReviewedRouteProbe.ProbeSplitTokenState`, probed on each opening | Yes |
@@ -216,7 +216,8 @@ After any result, the dialog re-runs the read-only check so the card shows the c
 1. The build task implements §3–§6 with `OwnerApproved = false`, and Windows CI goes green. The screen then looks exactly like today's on the owner's PC.
 2. The probe re-run passes (handover §5 item 2; PR #15; CB2.8 before 2026-11-20T18:53:44Z).
 3. A second reviewed release is on the compiled list (G9). Until then C3 never holds.
-4. The owner gives the obligation 8 final admission approval, and a separate reviewed commit sets `OwnerApproved = true`.
+4. The open G9 real-launch residuals are exercised and recorded on the owner's host: a real self-upgrade under the held binding (design §5, the VM run), the native held DLL load, the PowerShell helper reads and an elevated launcher holding files (`TASK_50_ACTIVATION_CHANGE.md` §1). The probe proves only UAC and pre-launch enforcement, so fixture and probe evidence alone never admit Confirm.
+5. The owner gives the obligation 8 final admission approval, and a separate reviewed commit sets `OwnerApproved = true`.
 
 ## 9. Questions for the owner (each has a default)
 
