@@ -119,6 +119,12 @@ public sealed class UpdateBatchPresentationTests
         Assert.IsTrue(completion.RestartRequired);
         Assert.IsFalse(completion.ReturnsToReview);
         Assert.AreEqual(4, completion.Groups.Sum(group => group.Items.Count), "every item appears exactly once");
+        // Interleaved outcomes (a verified, b failed, c verified): the Verify step shows each group's items together.
+        CollectionAssert.AreEqual(new[] { completion.Items[0], completion.Items[2], completion.Items[3], completion.Items[1] },
+            completion.DisplayItems.ToArray(), "display order follows the groups, batch order within a group");
+        CollectionAssert.AreEqual(completion.Groups.SelectMany(group => group.Items).ToArray(), completion.DisplayItems.ToArray());
+        UpdateJobCompletion single = new([Outcome("a", UpdateHistoryStatus.InstallerFailed)]);
+        CollectionAssert.AreEqual(single.Items.ToArray(), single.DisplayItems.ToArray(), "a single item is unchanged");
         Assert.AreEqual("Update verified", new UpdateJobCompletion([Outcome("a", UpdateHistoryStatus.Success)]).Headline, "a one-app headline is unchanged");
     }
 
