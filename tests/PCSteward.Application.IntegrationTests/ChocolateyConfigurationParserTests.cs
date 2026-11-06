@@ -109,6 +109,10 @@ public sealed class ChocolateyConfigurationParserTests
     [DataRow("<add key='containsLegacyPackageInstalls ' value='true'/>")]
     [DataRow("<add key='containsLegacyPackageInstall' value='true'/>")]
     [DataRow("<add key='containsLegacyPackageInstalls' value='true' extra='x'/>")]
+    // Independent review (Low): the value rule must apply to every case-insensitive spelling of the key.
+    [DataRow("<add key='ContainsLegacyPackageInstalls' value='false'/>")]
+    [DataRow("<add key='CONTAINSLEGACYPACKAGEINSTALLS' value='True'/>")]
+    [DataRow("<add key='containslegacypackageinstalls' value=''/>")]
     public void EveryOtherLegacyPackageInstallsValueOrShapeRefuses(string entry) =>
         Assert.IsFalse(Read($"<chocolatey><config>{entry}</config></chocolatey>", out _), entry);
 

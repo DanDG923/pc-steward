@@ -560,7 +560,7 @@ Option 2: fix **cause 1** in code now, as a reviewed Profile V2 revision. The wo
 
 **Host steps are deferred.** Any redeploy, the owner's own `cacheLocation` change (cause 2) and a new probe are decided later, each under its own approval. Part C stays recorded as **FAIL**, and the Chocolatey routes stay unusable on this host.
 
-### C1 fix built (2026-11-06; code and tests only; local branch `task50-profile-v2-legacy-key`, not pushed; no host action)
+### C1 fix built (2026-11-06; code and tests only; on the Task 50 branch at `bc24a20`, independently reviewed; no host action)
 
 This is the cause-1 fix, Profile V2 revision 2.1. Details are in the [revision record](TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
 

@@ -44,7 +44,7 @@ public sealed class ChocolateyCommonProfileFingerprintTests
     [TestMethod]
     public void TheAdmittedLegacyPackageInstallsKeyIsNotAFingerprintFieldAndKeepsTheGolden()
     {
-        // Profile V2 revision 2.1: one admitted value (the template "true") carries no information, so the normal form and
+        // Profile V2 revision 2.1: the two admitted states (absent, or the template "true") map to the same normal form; the normal form and
         // its golden vector are unchanged; the raw-byte audit hash still differs.
         ChocolateyConfigurationObservation withKey = Config("<config><add key='containsLegacyPackageInstalls' value='true'/></config>");
         ChocolateyConfigurationObservation without = Config("");

@@ -106,6 +106,18 @@ public sealed class ChocolateyProfileRulesTests
         Assert.IsFalse(ChocolateyConfigurationParser.TryRead(Chocolatey275ConfigurationFixture.Bytes(@"C:\ProgramData\ChocolateyCache", value), out _), value);
 
     [TestMethod]
+    public void ARealShape275ConfigurationWithoutTheLegacyKeyAlsoPassesEveryPortableStep6Rule()
+    {
+        // Independent review (Info): the key may be absent; that shape parses and meets the same portable rules.
+        const string cache = @"C:\ProgramData\ChocolateyCache";
+        ChocolateyConfigurationObservation configuration = RealShape(cache, null);
+        Assert.IsTrue(ChocolateyProfileRules.HasRequiredFeatures(configuration));
+        Assert.IsTrue(ChocolateyProfileRules.HasSupportedSources(configuration));
+        Assert.IsTrue(ChocolateyProfileRules.IsSupportedCacheLocation(configuration.CacheLocation));
+        Assert.AreEqual(RealShape(cache, "true").Fingerprint.Length, configuration.Fingerprint.Length);
+    }
+
+    [TestMethod]
     public void ARealShape275ConfigurationKeepsTheEmptyCacheLocationRefusal()
     {
         // Unchanged by revision 2.1: the native default (empty) cacheLocation parses but fails the cacheLocation rule.
