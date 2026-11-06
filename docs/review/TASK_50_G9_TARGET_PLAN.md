@@ -1,6 +1,6 @@
-# Task 50 — G9 real-launch residuals and target choice: plan (revision 1, draft)
+# Task 50 — G9 real-launch residuals and target choice: plan (revision 1.1, draft)
 
-Requirements: `FR-UPD-15`, `FR-UPD-01/08/09`, `TM-03/04/07/13`. ADRs: ADR-025 (real-update and installed-state tests), ADR-031 (design §8.7), ADR-022. Sources: [handover](TASK_50_HANDOVER_2026-11-06.md) §3 and §5, [Part C plan](TASK_50_PART_C_PLAN.md) §4 and §6, [activation change record](TASK_50_ACTIVATION_CHANGE.md) §1.2–§1.3, [exact-artifact test design](TASK_50_EXACT_ARTIFACT_TEST_DESIGN.md) §2, [ADR-031 client self-update design](TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §8.7 note, [Profile V2](TASK_50_CHOCOLATEY_PROFILE_V2.md), [roadmap](../product/PC_STEWARD_2_ROADMAP.md) §6, [delta](../product/PC_STEWARD_2_DELTA.md) §6.
+Requirements: `FR-UPD-15`, `FR-UPD-01/08/09`, `TM-03/04/07/13`. ADRs: ADR-025 (real-update and installed-state tests), ADR-031 (design §5 and §8.7), ADR-022. Sources: [handover](TASK_50_HANDOVER_2026-11-06.md) §3 and §5, [Part C plan](TASK_50_PART_C_PLAN.md) §4 and §6, [activation change record](TASK_50_ACTIVATION_CHANGE.md) §1.2–§1.3, [exact-artifact test design](TASK_50_EXACT_ARTIFACT_TEST_DESIGN.md) §2, [ADR-031 client self-update design](TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §8.7 note, [Profile V2](TASK_50_CHOCOLATEY_PROFILE_V2.md), [roadmap](../product/PC_STEWARD_2_ROADMAP.md) §6, [delta](../product/PC_STEWARD_2_DELTA.md) §6.
 
 **Nothing here is approved for execution.** This is a planning record written in the cloud. It changes no code. It asks the owner for decisions (§9). Every host step that follows needs its own exact approval, and the owner runs each one in his own normal Windows PowerShell window (handover §4).
 
@@ -29,11 +29,11 @@ G9 was decided "yes" on 2026-11-06: activation went ahead with the real-launch r
 
 | # | Residual | Source |
 |---|---|---|
-| C1 | A real client self-upgrade under the held binding | ADR-031 design §8.7 |
-| C2 | A second reviewed release on the compiled list (a reviewed re-pin) | As C1 |
-| C3 | Residue names after a real self-upgrade, `lib\chocolatey\chocolatey.nupkg` byte-equality with the asset, and the release-at-resume run end to end | ADR-031 design note on §8.7 |
+| CR1 | A real client self-upgrade under the held binding | ADR-031 design §8.7 (as cited in the activation record §1.2) and §5 |
+| CR2 | A second reviewed release on the compiled list (a reviewed re-pin) | As CR1 |
+| CR3 | Residue names after a real self-upgrade, `lib\chocolatey\chocolatey.nupkg` byte-equality with the asset, and the release-at-resume run end to end | ADR-031 design §5 "Host evidence still needed" |
 
-The ADR-031 design says C1 and C3 run "on a disposable VM (never the owner host without approval)". With one listed release, the client route is inert by design, so **C1–C3 cannot start before C2**.
+ADR-031 design §5 says CR1 and CR3 run "on a disposable VM (never the owner host without approval)". With one listed release, the client route is inert by design, so **CR1–CR3 cannot start before CR2**.
 
 ## 3. What has to happen first (dependency chain)
 
@@ -47,14 +47,14 @@ These are already open in the handover. G9 depends on them; it does not replace 
 | 4 | Obligation 8: the owner's final admission approval | Owner | Comes after the probe PASS |
 | 5 | Desktop review composition (handover §5 item 3) | Cloud task, needs explicit scope | The driver for every G9 real launch (§6) |
 
-**Recommendation:** do not wait for G9 work before items 1–3. The signer deadline applies to item 2 only, and the G9 work below cannot be ready in time to share that redeploy safely.
+**Recommendation:** do not wait for G9 work before items 1–3, and do not change the host's Chocolatey tree (G9-T1) until item 2's probe re-run has a recorded result. The signer deadline applies to item 2 only, and the G9 work below cannot be ready in time to share that redeploy safely.
 
 ## 4. Target options
 
 | Option | What it is | Closes | Costs and risks | Fits the existing owner direction? |
 |---|---|---|---|---|
 | **A. Approved test package on the owner's PC** | The owner installs one small Community package at an **older** version with Chocolatey's own tooling. PC Steward later upgrades it once, through the real review and dispatch path | P1–P4 on the real host, with the real UAC prompt and the real requester token | Installs one ordinary program on the owner's PC; Chocolatey runs that package's scripts elevated during the owner's install; the Chocolatey tree changes (a new `lib\<id>`, possibly shims in `bin`), so host evidence is re-run afterwards | Yes: roadmap §6 allows "a short owner-approved list of small, harmless test packages, each live run approved separately" |
-| **B1. Local VM** (VirtualBox or VMware Workstation on the host) | A disposable Windows 11 guest with Chocolatey 2.7.5 and a test package | P1–P4 in the guest, and later C1–C3 | Installs a hypervisor and its drivers on the owner's PC; a Windows guest licence; evidence is from the guest, not the owner's host; the host is Windows 11 Home, so there is no Hyper-V or Windows Sandbox | **No**: roadmap §6 says "VM testing is excluded (owner direction)". Choosing B1 reverses it |
+| **B1. Local VM** (VirtualBox or VMware Workstation on the host) | A disposable Windows 11 guest with Chocolatey 2.7.5 and a test package | P1–P4 in the guest, and later CR1–CR3 | Installs a hypervisor and its drivers on the owner's PC; a Windows guest licence; evidence is from the guest, not the owner's host; the host is Windows 11 Home, so there is no Hyper-V or Windows Sandbox | **No**: roadmap §6 says "VM testing is excluded (owner direction)". Choosing B1 reverses it |
 | **B2. Cloud Windows VM** | A rented Windows VM, used over Remote Desktop | As B1 | Needs a cloud account and spending; PC Steward and its test signer leave the owner's PC; evidence is not from the owner's host | **No**, as B1; also adds an account and spending |
 | **B3. GitHub-hosted Windows runner** | Already used for Windows CI | Partial loader and sharing evidence only | Runners run as an administrator with UAC off, so there is no linked token and the real requester path (E1) refuses; preinstalled Chocolatey and packages differ from the pinned release | Allowed, but it **cannot close any residual by itself**; at most a supplement |
 | **C. Defer** | Keep the residuals open | Nothing | The Chocolatey routes stay unusable for real updates | Yes |
@@ -62,7 +62,7 @@ These are already open in the handover. G9 depends on them; it does not replace 
 **Recommendation: A for the package route; C (defer) for the client route.**
 - A is the only option that produces evidence on the host the product runs on, with the real UAC prompt and requester token that the earlier work was built around.
 - A needs no reversal of the "no VM" direction and no new account or spending.
-- The client route cannot start until a newer release is reviewed (C2). The VM question can wait until then; §9 decision G9-D3 records that.
+- The client route cannot start until a newer release is reviewed (CR2). The VM question can wait until then; §9 decision G9-D3 records that.
 
 ## 5. Choosing the test package (option A)
 
@@ -79,6 +79,8 @@ A candidate must meet **all** of these, checked from the package's public Commun
 7. **Not relied on.** Not already installed on the host by any route (WinGet, Store, manual). Delta §6: never use a program the owner already relies on as a disposable target.
 8. **Removable.** `choco uninstall` removes it cleanly, run later by the owner if he wants it gone. PC Steward never uninstalls Chocolatey packages.
 9. **No `.pin`, no remembered arguments needed**, and nothing in `lib-bkp` that starts with its ID (Profile V2 store rules).
+
+**If nothing meets all nine.** Relax criterion 4's "embedded preferred" first (a checksummed download is acceptable). Keep criterion 3: without it P1 and P2 stay open. Any further relaxation is an owner decision in G9-D2b.
 
 7-Zip, chosen as D3 for the WinGet live tests, fails criteria 6–7 here: it installs shell integration, and as the archive tool the owner may rely on it.
 
@@ -107,19 +109,21 @@ For 6a, the composition task must also:
 | G9-0 | Owner decisions in §9 | Owner | Decision text only |
 | G9-R1 | Target candidate research (§5.2) | Cloud, read-only | Covered by G9-D2a |
 | G9-R2 | Desktop review composition task (§6a): code, tests, independent review, Windows CI | Cloud | Needs explicit task scope (G9-D4) |
-| G9-H1 | Owner installs the chosen package at the older version with `choco install <id> --version <old>` in his own elevated Windows PowerShell window. Can be combined with the `cacheLocation` change if that has not happened yet | Owner's PC, outside PC Steward | Its own approval; the exact block, with every prompt listed, is written after G9-D2b |
-| G9-H2 | Re-run the read-only host evidence (Default cases) to confirm the tree still matches the pinned release and the profile still admits it | Owner's PC, non-elevated | Its own approval |
-| G9-H3 | Redeploy the composition build (C-B pattern; refresh every pin; new signer); C-pre; probe re-run if the binding set changed | Owner's PC | Its own approvals, as for C-B |
-| G9-H4 | **One** real update of the target package through PC Steward: scan, review, confirm, **exactly one UAC prompt** for the signed helper, then post-update verification; evidence for P1–P4 | Owner's PC | Its own approval, after obligation 8 |
-| G9-H5 | Optional cleanup: owner uninstalls the target with Chocolatey; work folders as in handover §5 item 5 | Owner's PC | Each its own approval |
+| G9-T1 | Owner installs the chosen package at the older version with `choco install <id> --version <old>` in his own elevated Windows PowerShell window. Runs **only after the probe re-run's C-run has a recorded result** (handover §5 item 2), and never in the same window as the `cacheLocation` change, so the deadline-bound re-run observes the host state D1 diagnosed | Owner's PC, outside PC Steward | Its own approval; the exact block, with every prompt listed, is written after G9-D2b |
+| G9-T2 | Straight after G9-T1: re-run the read-only host evidence (Default cases) to confirm the tree still matches the pinned release and the profile still admits it | Owner's PC, non-elevated | Its own approval |
+| G9-T3 | Redeploy the composition build (C-B pattern; refresh every pin; new signer); C-pre; probe re-run if the binding set changed | Owner's PC | Its own approvals, as for C-B |
+| G9-T4 | **One** real update of the target package through PC Steward: scan, review, confirm, **exactly one UAC prompt** for the signed helper, then post-update verification; evidence for P1–P4 | Owner's PC | Its own approval, after obligation 8 |
+| G9-T5 | Optional cleanup: owner uninstalls the target with Chocolatey; work folders as in handover §5 item 5 | Owner's PC | Each its own approval |
 
 Every host plan written from this route must list every possible prompt (including any rollback prompt), run each step exactly once in a new window with hash-pinned scripts, sanitize outputs, and refuse a packaged process (handover §4).
+
+Step names: `G9-T1`–`G9-T5` are this plan's own host steps; they are not the `H1`–`H6` blocks of the host-evidence plan or of other Task 50 plans. Residual IDs: `P1`–`P4` (package route) and `CR1`–`CR3` (client route) are not the Part C plan's C-A/C-B/C-run steps or the C1–C7 probe tooling.
 
 ## 8. Stop rules
 
 - Any step that does not match its plan stops. No retry without a new approval.
-- A G9-H4 failure leaves the durable claim and conflict record as designed. PC Steward does not retry or repair. The owner recovers the package, if needed, with Chocolatey's own tooling.
-- If G9-H1 or G9-H2 shows the tree no longer matches the pinned release, or the profile refuses, the route stops and is re-planned.
+- A G9-T4 failure leaves the durable claim and conflict record as designed. PC Steward does not retry or repair. The owner recovers the package, if needed, with Chocolatey's own tooling.
+- If G9-T1 or G9-T2 shows the tree no longer matches the pinned release, or the profile refuses, the route stops and is re-planned.
 - A residual that the run did not demonstrably exercise stays **open**, even if the update itself succeeded.
 
 ## 9. Decisions Dan needs to make
@@ -129,9 +133,13 @@ Every host plan written from this route must list every possible prompt (includi
 | **G9-D1** | Where are the **package-route** residuals (P1–P4) closed? | (A) one approved test package on your own PC; (B1) a local VM; (B2) a cloud VM; (C) defer | **A.** Real host, real UAC and token; no change to the "no VM" direction; no new account or cost |
 | **G9-D2a** | May the cloud research the test-package candidates now (§5.2, read-only web reading of Community pages)? | Yes / No | **Yes.** No host action, nothing downloaded and run |
 | **G9-D2b** | (After G9-R1) Which candidate is the target? | Primary / alternate / neither | Decided after the research record |
-| **G9-D3** | What happens to the **client-route** residuals (C1–C3)? | Defer until a newer Chocolatey release is reviewed and re-pinned, then decide VM; or decide on a VM now | **Defer.** They cannot start before a second reviewed release exists |
+| **G9-D3** | What happens to the **client-route** residuals (CR1–CR3)? | Defer until a newer Chocolatey release is reviewed and re-pinned, then decide VM; or decide on a VM now | **Defer.** They cannot start before a second reviewed release exists |
 | **G9-D4** | How is the real launch driven? | (6a) build the desktop review composition as its own task; (6b) a test-only mode | **6a**, with the evidence and ordering rules in §6 |
 | **G9-D5** | Does the probe re-run redeploy (handover §5 item 2) go ahead before 2026-11-20 on its own, without waiting for G9? | Yes, separately / wait and combine | **Yes, separately.** G9 cannot be ready in time to share it, and missing the date means the remover plus fresh-install route |
 | **G9-D6** | Does D4 = G-0 (no code guard) stay once a target package exists? | Keep G-0, on condition the composition deploys only after a recorded probe PASS; or build a guard | **Keep G-0 with that condition.** The guarded window stays empty |
 
 None of these decisions approves a host step. Each host step in §7 still needs its own exact approval.
+
+## 10. Revision history
+
+- **1.1 (2026-11-06).** Independent review of `76e0752` (one Medium, one Low): G9-T1 is ordered after the probe re-run's recorded result and no longer offered alongside the `cacheLocation` change (Medium); the CR3 source is corrected to ADR-031 design §5; residual and step IDs are renamed `CR1`–`CR3` and `G9-T1`–`G9-T5` to avoid clashes (Low); the §5.1 relaxation order is stated (owner point).
