@@ -169,4 +169,16 @@ Owner-approved in place of a fork (§11, G9-D2b). Nothing was installed or run; 
 
 Sources: `https://github.com/BurntSushi/ripgrep/releases/download/<v>/<file>` and `<file>.sha256`; package pages `community.chocolatey.org/packages/ripgrep/14.1.0` and `/15.2.0` (Files section, and VERIFICATION.txt for 14.1.0). Both versions are approved as trusted packages; Validation and Verification testing passed; the scan "Note" flag (1–4 detections) stands, with exact counts behind a login.
 
-**What this proves:** the checksums the Community package declares for its embedded zips are the exact bytes BurntSushi published. **What it does not yet prove:** that the zips inside the downloaded nupkg have those bytes. That needs the nupkg itself, and `community.chocolatey.org` is blocked by this cloud environment's network policy. Either the host is allowed and the check is finished in the cloud, or the G9-T1 block hashes the zips from the nupkg before installing.
+**Package bytes (completed the same day, after the owner allowed `community.chocolatey.org` and `packages.chocolatey.org` in the cloud environment).** Both nupkgs were downloaded from the Community feed and read in memory with a ZIP reader; nothing was extracted to disk or run.
+
+| Package | nupkg size (B) | nupkg SHA-256 | Embedded zips |
+|---|---|---|---|
+| `ripgrep.14.1.0.nupkg` | 3,928,942 | `646C589224874BA7F20DE8C52CD6A6C7BEF5E8A978FAE955DEEA03ACBE9E92F6` | Both byte-identical to the upstream release (table above) |
+| `ripgrep.15.2.0.nupkg` | 3,421,805 | `8B17A4FE60A65D553F2FDE39DCA001CB0543107D409B849B21BFDA5AADEBFBF7` | Both byte-identical to the upstream release (table above) |
+
+Contents seen in each nupkg: the nuspec (no `<dependencies>`), one `tools/chocolateyinstall.ps1`, the two zips, a licence and VERIFICATION text, and the standard package metadata. No `chocolateyBeforeModify.ps1`, no `chocolateyUninstall.ps1`, and no other executable content.
+- 15.2.0 script: `Get-ChocolateyUnzip` of the two embedded zips into the package's own `tools` folder, nothing else.
+- 14.1.0 script: the same, plus removing old subfolders of its own `tools` folder before extracting and deleting its own `*.zip` files after.
+- Package owner differs by version: 14.1.0 is owned by `Daniel Santa Cruz` (source `dstcruz/chocolatey-mypackages`), 15.2.0 by `flcdrg` (source `flcdrg/au-packages`). Both are approved as trusted packages. This is a fact to record, not a defect.
+
+**Result: PASS.** The ripgrep package adds nothing to BurntSushi's official release beyond the reviewed scripts above, so a fork would add no security. The scan "Note" flag concerns the upstream binaries themselves. The G9-T1 host block should pin the nupkg SHA-256 values above and stop if the downloaded package differs.
