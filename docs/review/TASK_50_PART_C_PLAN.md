@@ -290,3 +290,20 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
 - **CB-prep** (CB.1–CB.7): a Git fetch and a detached worktree in the owner's clone; one build (network for restore); a database copy; one plan folder. Nothing is elevated, signed or installed. **Approved by the owner on 2026-11-06 ("I approve CB-prep").**
 - **CB-exec** (CB.8 + CB.9): given separately, after the CB.6 output is pasted back and the block is filled in.
 - **C-pre and C-run** (approval 2 of the activation plan): drafted after CB.9, using its pins.
+
+### Result CB-prep, steps CB.1–CB.3 (2026-11-06)
+
+- **CB.1:** `GIT-HOOKS postCheckout=False referenceTransaction=False`, `FETCH-EXIT 0 gitLines=3`, `COMMIT-PRESENT-EXIT 0`, `WORKTREE-EXIT 0 gitLines=2`.
+- **CB.2:**
+  - `HEAD ebb40618…` and `DIRTY 0`;
+  - all ten scripts at their CRLF pins, including PayloadIntegrity `83B87BBD…` and the builder `BB6E0A60…`;
+  - `PROBE-SCRIPT 831B5E17…E77A` and `CAPABILITY 50F169DD…654B`;
+  - `DB 78697727… bytes=200704 equalsPin=True sidecars=0 pcstewardProcesses=0 scheduledTask=0`;
+  - `OLD-SIGNER inMy=1 notAfterUtc=2026-11-20T10:43:26.0000000Z hoursLeft=327`;
+  - `EOL CRLF`, `CB2-OK`.
+- **CB.3:**
+  - `BUILDER BB6E0A60…`, `BUILD-EXIT 0`;
+  - `CANDIDATE validation=Pass origin=pinned-unsigned-v2 helperProtocol=2 files=103 bytes=51716503 commit=ebb40618debccac3f489571f9c6f7e709f3a2e93 dirty=False sdk=10.0.403 signed=False probeIncluded=True probeMark=pc-steward-probe-build-mark:1`;
+  - **`MANIFEST-SHA256 9F6CC13668DE533CF070731C30E12E006D66EB9E1B3C3AB3E8C8A566FA0DF84A`**, equal to the manifest file's hash;
+  - **`BUILD-RECORD-SHA256 04D4BF87810EE2D89DBF78913592E14BFAA6099770AF1AEE5EC98E52C990EBB9`**, the C-run `-ExpectedBuildRecordSha256`;
+  - `CB3-OK`.
