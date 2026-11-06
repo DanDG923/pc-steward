@@ -147,6 +147,8 @@
 
 `FR-UPD-15`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [ADR-031](../adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) (Option 2, owner decisions 1–5); [design note](../review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §3.3, §3.7 and §8 (gate 3 of §8.6); gate 3 re-verified on the activated Task 50 ([record](../review/TASK_73_GATE3_REVERIFICATION_2026-11-06.md)).
 
+- Proposed (design only, 2026-11-06): the Desktop composition and Confirm screen for the client route, [design note](../review/TASK_50_CHOCOLATEY_CONFIRM_SCREEN_DESIGN.md) §6 lists the tests a build task must add. No test exists yet; nothing is claimed.
+
 - Domain `ClientSelfUpdateRouteTests` (the distinct route contract).
 - Application:
   - `ChocolateyClientUpdateViewModelTests`: the offer only from a verified check, never from the scan; a distinct reason for each state (checking, not checked, not verified, not listed, list unavailable, no newer release); Confirm always disabled.
