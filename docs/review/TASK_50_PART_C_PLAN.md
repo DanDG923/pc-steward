@@ -249,7 +249,7 @@ $vh = (Get-FileHash -LiteralPath (Join-Path $sc 'Test-OwnerOnlyProtectedTestDepl
 if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'OLD-DEPLOYMENT validation=' + $v.validation + ' origin=' + $v.payloadOrigin + ' thumbprint=' + $v.certificateThumbprint + ' launched=' + $v.launched; if ($v.validation -ceq 'Pass' -and $v.payloadOrigin -ceq 'pinned-unsigned-v2' -and $v.certificateThumbprint -ceq '473DB701E6349AF18F672151E44AC166F95C53FD') { 'CB7-OK' } else { 'STOP: old deployment not as expected' } } else { 'STOP: validator did not pass' }
 ```
 
-### C-B exec (approval CB-exec): a template, filled in from CB.6
+### C-B exec (approval CB-exec): filled in with the CB.6 hashes (2026-11-06)
 
 **CB.8 — one `-ExecuteApprovedPlan`.** This works like R2.5, but with the old-deployment preflight and the **guarded remover**. The remover removes the v2 deployment and its signer `473DB701…`; it never touches the data folder. It runs from a normal window, the owner stays at the PC, and PC Steward stays closed. Never retry, never close early, and never delete the attempt record.
 
@@ -263,7 +263,7 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'OLD-DEPLOYMENT valid
 Expected: `CALLER …`, then the attempt JSON with `"status": "Validated"`, exit codes 0, `"resultPhase": "validated"`, `userDatabaseSha256` `78697727…`, `"retry": false` and `"launched": false`.
 
 ```powershell
-$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 '[plan SHA-256 from CB.6]' -ApprovedEncodedCommandSha256 '[encoded-command SHA-256 from CB.6]' }
+$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 '28B3374D53A21893A195725569A70802815F56CCD06FADCC614BEA8F72FCE0BC' -ApprovedEncodedCommandSha256 '07559C00D7AA66A692E3ED00F09B50174474357534C8C90CAE405D8029DDA740' }
 ```
 
 **CB.9 — post-checks (read-only, in a new window).**
@@ -307,3 +307,19 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
   - **`MANIFEST-SHA256 9F6CC13668DE533CF070731C30E12E006D66EB9E1B3C3AB3E8C8A566FA0DF84A`**, equal to the manifest file's hash;
   - **`BUILD-RECORD-SHA256 04D4BF87810EE2D89DBF78913592E14BFAA6099770AF1AEE5EC98E52C990EBB9`**, the C-run `-ExpectedBuildRecordSha256`;
   - `CB3-OK`.
+
+### Result CB-prep, steps CB.4–CB.6 (2026-11-06)
+
+- **CB.4:** `COPY-SCRIPT 0E7FDC16…`, `COPY-EXIT 0`, `DBCOPY bytes=200704 sourceSha256=copySha256=78697727… hashesEqual=True sidecarsPresent=False pcstewardProcesses=0 headerValid=True walMode=True pageCountMatchesLength=True`, `CB4-OK`.
+- **CB.5:** `CALLER 62DDE7B4…`, `"result": "Written"`, schema v3, `planSha256` `28B3374D53A21893A195725569A70802815F56CCD06FADCC614BEA8F72FCE0BC` equal to `PLAN-FILE-SHA256`, `OLD-LEDGER-SHA256 413F80D3FA3F947C7B0615113FDE43D9DD614E5A6422CE3918FB40732911E401`, `PLAN-CHECK dbPinEqualsCopy=True manifestSignerOrigins=True`, `CB5-OK`.
+- **CB.6:**
+  - `"result": "Pass"`, `EXECUTION-ROOT-ID 3cf323d337f44a0ea53be1c857dddd62`;
+  - `programSha256` `9B713F40…DF36`, **`encodedCommandSha256` `07559C00D7AA66A692E3ED00F09B50174474357534C8C90CAE405D8029DDA740`**, `encodedCommandLength` 28944;
+  - template `A9775FCE…`, six scripts at the CB.2 CRLF values;
+  - origins v2 → v2, manifest `9F6CC136…`, 103 files / 51,716,503 B;
+  - `oldLedgerSha256` `413F80D3…`, `oldThumbprint` `473DB701…`, `oldSignerNotAfterUtc` `2026-11-20T10:43:26.0000000Z`;
+  - database `78697727…`/200,704, no sidecars, no process, scheduled check `AbsentOrDisabled`, `sqliteLoaded` false, `elevated` false;
+  - execution root and attempt record absent;
+  - `packageQueryResult` 15700, `unpackagedProcess` true.
+
+CB.8 above now carries these two hashes. CB.7 runs next, then approval CB-exec.
