@@ -1,3 +1,10 @@
+# Task 50 — Chocolatey package Confirm (addendum to G9-D4)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [package Confirm addendum](../review/TASK_50_CHOCOLATEY_PACKAGE_CONFIRM_ADDENDUM.md) §3–§5.
+
+- **Code.** `ChocolateyPackageUpdateAdmission` (C1 for packages, and the C1a one-package allowlist `AdmittedPackageId` = ripgrep), `ChocolateyPackageUpdateReviewSession` (check, freeze from the checked intent, C2, C4, C6 and C8 re-checked on the press; one workflow run), `ChocolateyPackageUpdateAttention` (C6 over both Chocolatey routes), `ChocolateyPackageUpdateViewModel` and `ChocolateyPackageUpdateRunPresentation`, `ChocolateyPackageUpdateComposition` / `PackageRouteOnlyDispatcher` (Execution), `ChocolateyPackageUpdateProducers` (Provider façade; the only constructor site of the intent resolver), `ChocolateyPackageUpdateReviewDialog` and `ChocolateyPackageUpdateSurfaces` (Desktop).
+- **Tests.** Application `ChocolateyPackageUpdateReviewSessionTests` (shape, one run, a second press while running, every preparation mismatch, every press-time refusal, the 10-minute check age, C6 rules), `ChocolateyPackageUpdateViewModelTests`; Security `ChocolateyPackageUpdateCompositionTests` (package-only dispatcher, façade refusals); Architecture `ChocolateyPackageUpdateBoundaryTests` and the updated `DesktopProducersBoundaryTests`, `DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests`, `ReviewedRouteIntentResolverBoundaryTests`, `ChocolateyClientUpdateDesktopUiBoundaryTests`, `ReviewedRouteDesktopUiBoundaryTests`.
+
 # Task 50 — security review of real Chocolatey updates
 
 `FR-UPD-15`, `FR-UPD-01/03–09`, `TM-03/04/07/13`; ADR-018, ADR-022, ADR-025, ADR-031; [review](../review/TASK_50_CHOCOLATEY_UPDATE_SECURITY_REVIEW.md).

@@ -364,6 +364,8 @@ public sealed class HelperEndpointBoundaryTests
             // Chocolatey Confirm design §3 item 1: the client self-update's production composition is the only other src caller of
             // the Desktop-role production reader (one per review session, shared by the dispatcher and the protocol-2 transport).
             (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyClientUpdateComposition.CreateSession", "()"),
+            // Chocolatey package Confirm addendum §5: and the package route's production composition, in the same shape.
+            (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyPackageUpdateComposition.CreateSession", "()"),
             // The host facts are constructed only from the running process; the record's copy constructor only by its clone.
             (Host, ".ctor", HostFacts, Host + ".TryResolve", null),
             (Host, ".ctor", "(" + Host + ")", Host + ".Clone", "()"),

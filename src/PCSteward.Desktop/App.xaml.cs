@@ -133,8 +133,18 @@ public partial class App : global::Microsoft.UI.Xaml.Application
                 try { return await DataOperationLease.RunReadAsync(cancellation => database.GetReviewedUpdateHistoryAsync(ChocolateyClientUpdateAttention.HistoryWindow, cancellation), token); }
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
             });
+        // Chocolatey package Confirm addendum §5: the single production composition of the package route's reviewed dispatch
+        // pipeline, over the same gate, store, draft save and history read. Nothing is checked or started until the owner opens a
+        // package review, and Confirm stays refused while its own owner admission is not compiled in.
+        ChocolateyPackageUpdateComposition chocolateyPackageUpdates = new(DataOperationLease.RunReviewedUpdateAsync, database,
+            (operation, token) => DataOperationLease.RunAsync(cancellation => database.SaveReviewedOperationAsync(operation, cancellation), token),
+            async token =>
+            {
+                try { return await DataOperationLease.RunReadAsync(cancellation => database.GetReviewedUpdateHistoryAsync(ChocolateyClientUpdateAttention.HistoryWindow, cancellation), token); }
+                catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
+            });
         // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
         ActivateWindow(window);
         }
         catch (Exception exception)

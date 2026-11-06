@@ -58,7 +58,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.AreEqual(1, Regex.Count(all, @"\bChocolateyClientReleaseCatalog\b"), "one composition site of the catalog");
         // Independent review L5: the single read is wrapped so a fault building the compiled list never fails startup.
         StringAssert.Contains(Desktop("App.xaml.cs"),
-            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, showPostResetOnboarding");
+            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, showPostResetOnboarding");
 
         // The catalog's compiled IL reads only the compiled list's versions in the native layer (the signer is a compiled constant).
         string chocolatey = CompiledIlScanner.BuiltSrcAssemblies().Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");
@@ -117,11 +117,14 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         foreach (string path in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
                 !path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
-                !path.EndsWith("ChocolateyClientUpdateAdmission.cs", StringComparison.Ordinal)))
+                !path.EndsWith("ChocolateyClientUpdateAdmission.cs", StringComparison.Ordinal) &&
+                !path.EndsWith("ChocolateyPackageUpdateAdmission.cs", StringComparison.Ordinal)))
             Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"\bOwnerApproved\b"), $"{path} names the constant (read IsOwnerApproved)");
 
-        // Design §5 item 2: only the review session confirms a review for the client route and runs the dispatch workflow.
+        // Design §5 item 2: only the review session confirms a review for the client route and runs the dispatch workflow. Package
+        // Confirm addendum §5: the package session is the only other confirm and run site (ChocolateyPackageUpdateBoundaryTests).
         const string Session = "PCSteward.Application.ChocolateyClientUpdateReviewSession";
+        const string PackageSession = "PCSteward.Application.ChocolateyPackageUpdateReviewSession";
         List<string> confirmCallers = [], runCallers = [], admissionFactoryCallers = [];
         foreach (string path in CompiledIlScanner.BuiltSrcAssemblies())
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
@@ -135,9 +138,9 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
                     runCallers.Add(reference.Caller);
             }
         // The package-route review model's TryConfirm is the other caller; nothing composes a draft for it (ReviewedRouteDesktopUiBoundaryTests).
-        CollectionAssert.AreEquivalent(new[] { Session, "PCSteward.Application.ChocolateyReviewedRouteReviewViewModel" },
+        CollectionAssert.AreEquivalent(new[] { Session, PackageSession, "PCSteward.Application.ChocolateyReviewedRouteReviewViewModel" },
             confirmCallers.Select(caller => caller.Split('+')[0]).Distinct().ToArray(), string.Join(", ", confirmCallers));
-        CollectionAssert.AreEquivalent(new[] { Session }, runCallers.Select(caller => caller.Split('+')[0]).Distinct().ToArray(), string.Join(", ", runCallers));
+        CollectionAssert.AreEquivalent(new[] { Session, PackageSession }, runCallers.Select(caller => caller.Split('+')[0]).Distinct().ToArray(), string.Join(", ", runCallers));
         Assert.AreEqual(0, admissionFactoryCallers.Count, string.Join(", ", admissionFactoryCallers));
         string session = ApplicationSource("ChocolateyClientUpdateReviewSession.cs");
         StringAssert.Contains(session, ": this(ChocolateyClientUpdateAdmission.IsOwnerApproved, observeForReview,");
@@ -148,7 +151,8 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         foreach (string path in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
             Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"\b(OpenWithAdmissionForTests|CreateWithAdmissionForTests)\s*\(") &&
-                !path.EndsWith("ChocolateyClientUpdateViewModel.cs", StringComparison.Ordinal) && !path.EndsWith("ChocolateyClientUpdateReviewSession.cs", StringComparison.Ordinal),
+                !path.EndsWith("ChocolateyClientUpdateViewModel.cs", StringComparison.Ordinal) && !path.EndsWith("ChocolateyClientUpdateReviewSession.cs", StringComparison.Ordinal) &&
+                !path.EndsWith("ChocolateyPackageUpdateViewModel.cs", StringComparison.Ordinal) && !path.EndsWith("ChocolateyPackageUpdateReviewSession.cs", StringComparison.Ordinal),
                 $"{path} reaches a test-only admission factory");
     }
 
@@ -215,7 +219,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         StringAssert.Contains(controller, "if (current.UnavailableReasons is not [ChocolateyClientUpdateUnavailableReason.PreparingReview]) return;");
         Assert.IsFalse(Regex.IsMatch(controller, @"\b(ReviewedUpdateDispatchWorkflow|IReviewedUpdateRouteDispatcher|ReviewedUpdateReview|LiveApprovedUpdate|DataOperationLease|ConfirmAndRunAsync|PCSteward\.Execution)\b"),
             "the controller reaches the route only through the session");
-        StringAssert.Contains(window, "AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true) args.Cancel = true; };");
+        StringAssert.Contains(window, "AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true || activeChocolateyPackageUpdate?.IsRunning == true) args.Cancel = true; };");
         Assert.IsFalse(Regex.IsMatch(surfaces, @"\b(TryConfirm|Click|DataOperationLease|ReviewedUpdateReview|ConfirmAndRunAsync|Dispatch\w*|LiveApprovedUpdate)\b"),
             "the surfaces hold no action");
 
