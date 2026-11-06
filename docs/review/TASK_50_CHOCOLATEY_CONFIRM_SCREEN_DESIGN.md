@@ -1,6 +1,6 @@
 # Chocolatey client update: Desktop composition and the Confirm screen (design note)
 
-Date: 2026-11-06. Status: **proposed design, for owner review. No code change.** Handover item 3 ("Desktop composition of a Chocolatey review", [handover](TASK_50_HANDOVER_2026-11-06.md) §5). Scope approved by the owner on 2026-11-06 (project thread "Design the Chocolatey Confirm screen").
+Date: 2026-11-06. Status: **design, owner questions decided (§9). No code change.** Handover item 3 ("Desktop composition of a Chocolatey review", [handover](TASK_50_HANDOVER_2026-11-06.md) §5). Scope approved by the owner on 2026-11-06 (project thread "Design the Chocolatey Confirm screen").
 
 Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; `AC-UX-01–09` best effort (ADR-021). Builds on [ADR-031](../adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md), [ADR-025](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md), the [ADR-031 design mapping](TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) (§2, §3, §3a, §8.6), the [activation record](TASK_50_ACTIVATION_CHANGE.md) and the [gate 3 re-verification](TASK_73_GATE3_REVERIFICATION_2026-11-06.md). The base is the Task 73 branch `claude/task-73-ui-overhaul` at `9a789ea` (PR #13).
 
@@ -34,7 +34,7 @@ Confirm is enabled only when **every** condition below holds. Each one is evalua
 | # | Condition | Source of truth | Re-checked on press |
 |---|---|---|---|
 | C1 | **Owner admission is compiled in.** A new compiled constant (proposed name `ChocolateyClientUpdateAdmission.OwnerApproved`) replaces the unconditional `NotAdmittedPendingReview`. It ships `false`. Setting it `true` is its own reviewed commit, made only after a recorded probe PASS, the open G9 real-launch residuals exercised on the owner's host (§8 item 4), and the owner's obligation 8 approval. This turns D4 = G-0 from procedure into code | Compiled constant; boundary test pins its single definition and that no configuration, registry or database value can set it | Yes |
-| C2 | **The installed client is verified in this dialog.** The check result is `Verified`, from this opening of the dialog, and less than 10 minutes old (proposed). An older result shows "Check again" instead of Confirm | `ChocolateyInstalledClientVerification` with its observation time | Yes (age) |
+| C2 | **The installed client is verified in this dialog.** The check result is `Verified`, from this opening of the dialog, and less than 10 minutes old (owner decision, §9). An older result shows "Check again" instead of Confirm | `ChocolateyInstalledClientVerification` with its observation time | Yes (age) |
 | C3 | **An offer exists.** The verified release is listed, and a strictly newer listed release exists. The target is the newest listed release | `ChocolateyClientUpdateViewModel.OfferTarget` over the compiled list | — |
 | C4 | **Split token is limited.** UAC on, owner is an administrator running a limited desktop | `ChocolateyReviewedRouteProbe.ProbeSplitTokenState`, probed on each opening | Yes |
 | C5 | **The deployment lists the route.** The protected capability statement lists `Update/ChocolateyClientSelfUpdateV1` | `IHelperProtocolCapability.Evaluate`, through the dispatcher's `Supports` | Yes (inside the workflow) |
@@ -219,8 +219,10 @@ After any result, the dialog re-runs the read-only check so the card shows the c
 4. The open G9 real-launch residuals are exercised and recorded on the owner's host: a real self-upgrade under the held binding (design §5, the VM run), the native held DLL load, the PowerShell helper reads and an elevated launcher holding files (`TASK_50_ACTIVATION_CHANGE.md` §1). The probe proves only UAC and pre-launch enforcement, so fixture and probe evidence alone never admit Confirm.
 5. The owner gives the obligation 8 final admission approval, and a separate reviewed commit sets `OwnerApproved = true`.
 
-## 9. Questions for the owner (each has a default)
+## 9. Owner decisions (2026-11-06)
 
-1. **How old can the check be when you press Confirm?** Default: 10 minutes, and F′ re-checks anyway. A shorter value means more "Check again" presses.
-2. **Should C6 block for any non-Success result, or only for Unverified and Uncertain?** Default: any non-Success result after the helper started. `ElevationDenied` and `NotStarted` do not block, because nothing ran.
-3. **Should the new composition also carry WinGet onto the protocol-2 pipeline later?** Default: no, a separate decision.
+The owner accepted all three defaults in the project thread on 2026-11-06.
+
+1. **Check age at Confirm:** at most 10 minutes (C2). F′ re-checks anyway.
+2. **C6 scope:** any non-Success result after the helper started blocks Confirm until a later check verifies the client again. `ElevationDenied` and `NotStarted` do not block, because nothing ran.
+3. **WinGet:** not moved onto the protocol-2 pipeline by this work. That is a separate decision.
