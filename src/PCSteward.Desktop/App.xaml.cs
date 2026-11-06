@@ -1,4 +1,8 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using PCSteward.Application;
 using PCSteward.Diagnostics;
 using PCSteward.Execution;
@@ -7,6 +11,7 @@ using PCSteward.Provider.WinGet;
 using PCSteward.Provider.Chocolatey;
 using PCSteward.Storage;
 using PCSteward.Scheduling.Windows;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace PCSteward.Desktop;
 
@@ -115,8 +120,11 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications,
             events: new BoundedUpdateExecutionEventSink());
-        ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications);
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
+        // Task 73 Phase 6 review M2: a batch review shares one fresh inventory observation; each app is still re-prepared alone before it starts.
+        ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications,
+            prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync);
+        // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
         ActivateWindow(window);
         }
         catch (Exception exception)
@@ -151,16 +159,8 @@ internal sealed class DataOperationBusyWindow : Window
     public DataOperationBusyWindow()
     {
         Title = "PC Steward is busy";
-        Content = new Microsoft.UI.Xaml.Controls.StackPanel
-        {
-            Padding = new Microsoft.UI.Xaml.Thickness(24),
-            Spacing = 12,
-            Children =
-            {
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "Another PC Steward operation is still active", Style = (Microsoft.UI.Xaml.Style)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardPageTitleStyle"] },
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "PC Steward did not start a scan or change local state. Wait for the other operation to finish, then restart PC Steward.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap }
-            }
-        };
+        Content = StartupNotice.Build(this, "", "Another PC Steward operation is still active",
+            "PC Steward did not start a scan or change local state. Wait for the other operation to finish, then restart PC Steward.", null);
     }
 }
 
@@ -169,17 +169,9 @@ internal sealed class ResetRecoveryWindow : Window
     public ResetRecoveryWindow(FactoryResetResult result)
     {
         Title = "PC Steward reset needs attention";
-        Content = new Microsoft.UI.Xaml.Controls.StackPanel
-        {
-            Padding = new Microsoft.UI.Xaml.Thickness(24),
-            Spacing = 12,
-            Children =
-            {
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "Factory reset is incomplete", Style = (Microsoft.UI.Xaml.Style)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardPageTitleStyle"] },
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "PC Steward did not reopen prior data. Close applications holding the listed items and restart PC Steward to retry." , TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = string.Join("\n", result.Residuals.Select(item => $"{item.Category}: {item.Reason}")), TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap }
-            }
-        };
+        Content = StartupNotice.Build(this, "", "Factory reset is incomplete",
+            "PC Steward did not reopen prior data. Close applications holding the listed items and restart PC Steward to retry.",
+            StartupNoticeText.ResidualDetails(result.Residuals.Select(item => (item.Category, item.Reason, item.Detail))));
     }
 }
 
@@ -189,16 +181,61 @@ internal sealed class StartupFailureWindow : Window
     {
         ArgumentNullException.ThrowIfNull(exception);
         Title = "PC Steward needs attention";
-        Content = new Microsoft.UI.Xaml.Controls.StackPanel
+        Content = StartupNotice.Build(this, "", "PC Steward could not finish starting",
+            "No scan or update was started. Select Copy details and include the diagnostic when reporting this problem.",
+            StartupNoticeText.ExceptionDetails(exception.GetType().Name, exception.Message));
+    }
+}
+
+/// <summary>
+/// Task 73 Phase 4 (audit P-L5): the shared look of the startup busy, reset-recovery and startup-failure windows — the app canvas, a
+/// card with an icon and heading, selectable diagnostic details with "Copy details", and "Close" as the clear next action. It only
+/// presents: it never retries, resets, deletes or starts anything, and each window's start-up decision is made before it is shown.
+/// </summary>
+internal static class StartupNotice
+{
+    public static UIElement Build(Window window, string glyph, string heading, string message, string? details)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, details is null ? 420 : 560));
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        StackPanel title = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Medium };
+        title.Children.Add(new FontIcon { Glyph = glyph, FontSize = 24, Foreground = StewardVisuals.Brush("StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(StewardVisuals.PageTitle(heading));
+        content.Children.Add(title);
+        content.Children.Add(new TextBlock { Text = message, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap });
+        StewardWrapPanel actions = StewardVisuals.ActionRow();
+        actions.HorizontalAlignment = HorizontalAlignment.Right;
+        if (details is not null)
         {
-            Padding = new Microsoft.UI.Xaml.Thickness(24),
-            Spacing = 12,
-            Children =
+            TextBlock detailText = new() { Text = details, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Foreground = StewardVisuals.Brush("StewardTextBrush") };
+            AutomationProperties.SetName(detailText, "Details: " + details);
+            content.Children.Add(new Border { Background = StewardVisuals.Brush("StewardSurfaceSubtleBrush"), BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(StewardSpacing.Medium), Child = detailText });
+            TextBlock status = new() { Style = StewardVisuals.Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
+            AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
+            content.Children.Add(status);
+            Button copy = StewardVisuals.ActionButton(StartupNoticeText.CopyDetailsLabel, "to the clipboard");
+            copy.Style = StewardVisuals.Style("StewardButtonStyle");
+            copy.Click += (_, _) =>
             {
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "PC Steward could not finish starting", Style = (Microsoft.UI.Xaml.Style)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardPageTitleStyle"] },
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = "No scan or update was started. Copy the diagnostic below when reporting this problem.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
-                new Microsoft.UI.Xaml.Controls.TextBlock { Text = $"{exception.GetType().Name}: {exception.Message}", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap }
-            }
-        };
+                try
+                {
+                    DataPackage package = new();
+                    package.SetText(details);
+                    Clipboard.SetContent(package);
+                    // Keeps the copied details on the clipboard after PC Steward closes (the next action is Close).
+                    Clipboard.Flush();
+                    StewardVisuals.SetLiveText(status, StartupNoticeText.DetailsCopied, announce: true);
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException) { StewardVisuals.SetLiveText(status, StartupNoticeText.DetailsNotCopied, announce: true); }
+            };
+            actions.Children.Add(copy);
+        }
+        Button close = StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, "PC Steward");
+        close.Click += (_, _) => window.Close();
+        actions.Children.Add(close);
+        content.Children.Add(actions);
+        Border card = new() { Style = StewardVisuals.Style("StewardCardStyle"), MaxWidth = 640, Margin = new Thickness(StewardSpacing.XLarge), Child = content };
+        return new Grid { Background = StewardVisuals.Brush("StewardCanvasBrush"), Children = { new ScrollViewer { Content = card, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } } };
     }
 }

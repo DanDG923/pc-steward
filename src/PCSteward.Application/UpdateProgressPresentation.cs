@@ -11,6 +11,8 @@ public sealed class UpdateProgressPresentation(Guid jobId, Guid correlationId, U
     public bool IsUnavailable { get; private set; }
     public bool IsFinal { get; private set; }
     public bool IsIndeterminate { get; } = true;
+    /// <summary>The last accepted phase, for per-item progress words (Task 73 Phase 2). Read-only; it never advances anything.</summary>
+    public UpdateProgressPhase Phase => phase;
 
     public void MarkUnavailable() { IsUnavailable = true; Label = "Progress unavailable"; }
 
@@ -43,9 +45,9 @@ public sealed class UpdateProgressPresentation(Guid jobId, Guid correlationId, U
         {
             UpdateProgressPhase.Queued => "Reviewed update queued",
             UpdateProgressPhase.Preparing => "Revalidating reviewed update",
-            UpdateProgressPhase.ElevationRequested => "Requesting elevation; provider execution not observed",
-            UpdateProgressPhase.HandedToHelper => "Update request sent; helper validation and provider execution indeterminate",
-            UpdateProgressPhase.ProcessStarted => "Provider client started; installer progress indeterminate",
+            UpdateProgressPhase.ElevationRequested => "Waiting for Windows administrator permission (UAC); installer progress not observed",
+            UpdateProgressPhase.HandedToHelper => "Update request sent; waiting to learn whether the update started (progress unknown)",
+            UpdateProgressPhase.ProcessStarted => "Update tool started; installer progress unknown",
             UpdateProgressPhase.Verifying => "Verifying installed version",
             _ => FinalLabel(frame)
         };

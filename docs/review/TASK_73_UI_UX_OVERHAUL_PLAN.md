@@ -49,3 +49,26 @@ Scope rules:
 ## Branching
 
 Implementation goes on its own branch and PR, separate from the Task 50 PR (DanDG923/pc-steward#12). The branch name and base need owner approval; the proposal is to stack on the Task 50 branch so Task 50's Desktop surfaces are included.
+
+## Recorded deviations
+
+- **Phase 1:** the navigation host is a persistent `ScrollViewer` with a portable back stack instead of `Frame`/`Page` (see ADR-030 implementation notes).
+- **Phase 2:** omitted "Skip this version", because no domain operation existed, and offered no update-all. **Both were superseded by Phase 6** at the owner's request on 2026-11-02.
+- **Phase 3:** a read-only SQLite activity reader was added, because no query existed across all products. Home "Check for updates" chains the existing source refresh after a completed scan when sources are already enabled. The plan said scan only. Both were accepted by independent review.
+- **Phase 4:** the schedule keeps an explicit **Save schedule** (all other settings apply immediately), because it registers a Windows scheduled task and WinUI spurious-selection events could not be validated without a Windows runtime. A failed settings save after a successful registration re-registers the previous schedule. Schedule saving counts as active work, so other actions wait for it.
+- **Phase 5:** two shortcuts beyond the plan (F6 and access keys), borrowed from concept E:
+  - **Ctrl+F** focuses search or the filters;
+  - **F5** runs the same "Check for updates" (or "Scan again") action as the Home button, which includes the existing source refresh when sources are already enabled.
+
+  Both are explicit user key presses. F5 is blocked by `ShortcutGuard` during active work, an open review, an open dialog or before the shell is shown. No shortcut or access key can reach confirmation or execution, and the confirm button has none. Accepted by the final integrated review, provided it is recorded here.
+
+## Follow-ups after Task 73
+
+- Split `MainWindow.cs` (≈2,800 lines after the overhaul) into partial classes per page or area, with no behaviour change, and update the source-scanning contract tests to follow the files.
+- Possible product additions that need domain work, for owner decision: "Skip this version", update-all for ready apps, and an Activity search box.
+- The shared diagnostic sanitizer does not redact Windows paths containing spaces outside the profile folder.
+- **Phase 6 (owner request 2026-11-02): Update all available (SPEC §9.13 G4) and Skip this version (owner decision).**
+  - Elevation is one UAC prompt per machine-scope app, not one per batch. The helper accepts one request per launch, and the protocol is unchanged; the review sheet discloses this.
+  - The 30-minute review-to-start limit now also applies to single-app jobs, which is stricter.
+  - Unrecognised decision kinds display as "Saved decision (not recognised)" and affect nothing.
+  - **Release note:** an older PC Steward build reading a database with Skip decisions shows them as "Pinned at version V" while still offering the update. This is not unsafe and cannot be fixed retroactively.

@@ -323,11 +323,28 @@ public sealed class ReviewedUpdateDispatchWorkflow
     /// <summary>
     /// The recorded message of an unsettled (Uncertain) dispatch: the fixed prefix and bounded diagnostic, a client run fault's
     /// recovery message (<see cref="WithClientRunFaultWarning"/>), otherwise the lost-track caution
-    /// (<see cref="WithClientLostTrackCaution"/>), and the lingering marker. Never changes the outcome.
+    /// (<see cref="WithClientLostTrackCaution"/>), the matching leading client marker (<see cref="WithClientUncertainMarker"/>), and
+    /// the lingering marker. Never changes the outcome.
     /// </summary>
     internal static string UnsettledMessage(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation) =>
-        WithLingeringMarker(operation, observation, WithClientLostTrackCaution(operation, observation, WithClientRunFaultWarning(operation, observation,
-            $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}")));
+        WithLingeringMarker(operation, observation, WithClientUncertainMarker(operation, observation, WithClientLostTrackCaution(operation, observation,
+            WithClientRunFaultWarning(operation, observation,
+                $"Owned work or invocation is unresolved; conflicting work stays blocked and nothing is replayed. {Bounded(observation.Diagnostic)}"))));
+
+    /// <summary>
+    /// Independent review L1 (ADR-031 design §8.3/§8.6, FR-HIS-01/03), Uncertain path only: for a client self-update the recorded
+    /// message starts with a fixed marker token chosen here from the codec-validated run-fault value
+    /// (<see cref="ChocolateyClientUpdatePresentation.RunFaultMarker"/>) or, when no fault was reported, from the lost-track condition
+    /// (<see cref="ChocolateyClientUpdatePresentation.LostTrackMarker"/>). History recognises only this leading marker (after the
+    /// lingering and helper-check markers, which are prefixed afterwards), never the appended text, so a helper diagnostic that
+    /// merely ends with a fixed message is never shown as a fault. Every other route, and None on a not-started launch, is unchanged.
+    /// </summary>
+    internal static string WithClientUncertainMarker(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation, string message)
+    {
+        if (operation.RouteContract != UpdateRouteContract.ChocolateyClientSelfUpdateV1) return message;
+        if (observation.ClientRunFault is { } fault && ChocolateyClientUpdatePresentation.RunFaultMarker(fault) is { } marker) return marker + " " + message;
+        return ClientLostTrack(operation, observation) ? ChocolateyClientUpdatePresentation.LostTrackMarker + " " + message : message;
+    }
 
     /// <summary>
     /// Independent review M1 (ADR-031 design §8.6), Uncertain path only: when a client self-update's launch may have started
@@ -337,11 +354,12 @@ public sealed class ReviewedUpdateDispatchWorkflow
     /// its own message (<see cref="WithClientRunFaultWarning"/>); every other route and a not-started invocation are unchanged.
     /// </summary>
     internal static string WithClientLostTrackCaution(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation, string message) =>
+        ClientLostTrack(operation, observation) ? message + " " + ChocolateyClientUpdatePresentation.LostTrackCautionMessage : message;
+
+    private static bool ClientLostTrack(ReviewedUpdateOperation operation, ReviewedUpdateDispatchObservation observation) =>
         operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
         observation.Invocation is ReviewedUpdateInvocation.Unknown or ReviewedUpdateInvocation.Started &&
-        (observation.ClientRunFault is null || observation.ClientRunFault.IsNone)
-            ? message + " " + ChocolateyClientUpdatePresentation.LostTrackCautionMessage
-            : message;
+        (observation.ClientRunFault is null || observation.ClientRunFault.IsNone);
 
     /// <summary>Every <see cref="IReviewedUpdateRouteDispatcher.Supports"/> call goes through here; any exception means unsupported.</summary>
     private bool StillSupported(ReviewedUpdateOperation operation)

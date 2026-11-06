@@ -77,3 +77,20 @@ The five concepts are in the [concept study](../review/UI_UX_OVERHAUL_CONCEPTS.m
 ## Validation
 
 Validation follows the phased plan in [Task 73](../review/TASK_73_UI_UX_OVERHAUL_PLAN.md): portable view-model tests, Windows CI including the Desktop build, and an independent review per phase.
+
+## Implementation notes
+
+- **Task 73 Phase 1 (`173b727..887094d`): navigation host deviation.** Decision item 4 names Frame and Page navigation. Phase 1 instead uses a persistent shell: the NavigationView, title bar and progress band are created once, and pages are built in code inside one persistent `ScrollViewer` host, with a portable back stack (`ShellNavigation`).
+  - Why: `Frame.Navigate` needs page types known to the XAML compiler, while these pages are built in code from shared window state, and the alternative could not be validated without a Windows build. The portable back stack gets unit tests.
+  - What it gives: the user-facing outcome this ADR requires (no dead ends, Back on every page, focus and scroll kept).
+  - What remains: each refresh still rebuilds the current page's content, though no longer the whole window. Finer-grained view-model binding stays a goal for later phases, page by page, where it pays off.
+  - Re-check: the owner or reviewer may require true Frame/Page navigation once Windows CI can validate it.
+- **Task 73 Phases 2–5: recorded deviations.** These are listed in the [plan](../review/TASK_73_UI_UX_OVERHAUL_PLAN.md#recorded-deviations):
+  - one app per job (no update-all);
+  - no Skip this version;
+  - a read-only activity reader;
+  - Home "Check for updates" chaining the source refresh;
+  - an explicit Save schedule;
+  - F5 and Ctrl+F shortcuts.
+
+  None of them changes a safety rule in this ADR.

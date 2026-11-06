@@ -37,10 +37,16 @@ public enum UpdateIntelligenceStatus
     Unmanaged,
     Pinned,
     Ignored,
-    FailedUnavailable
+    FailedUnavailable,
+    /// <summary>
+    /// Owner decision 2026-11-02 (FR-POL-01–05): the user chose to skip exactly this candidate version. Appended so existing
+    /// ordinals are unchanged. Never actionable; a newer candidate than the skipped version is assessed normally again.
+    /// </summary>
+    Skipped
 }
 
-public sealed record ProductUpdatePolicy(bool IsPinned = false, bool IsIgnored = false, string? PinDescription = null, DateTimeOffset? IgnoreUntil = null)
+public sealed record ProductUpdatePolicy(bool IsPinned = false, bool IsIgnored = false, string? PinDescription = null, DateTimeOffset? IgnoreUntil = null,
+    string? SkippedVersion = null)
 {
     public bool IsIgnoreActive(DateTimeOffset now) => IsIgnored && (IgnoreUntil is null || IgnoreUntil > now);
 }

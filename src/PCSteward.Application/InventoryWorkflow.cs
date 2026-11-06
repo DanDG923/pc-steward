@@ -179,9 +179,47 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     public async Task<UpdateSelectionPreparation> PrepareApprovedUpdateSelectionAsync(string stableProductKey, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(stableProductKey)) return new(null, "No installed product was selected.");
+        (FreshSelectionEvidence? evidence, string failure) = await ObserveFreshSelectionEvidenceAsync(cancellationToken).ConfigureAwait(false);
+        return evidence is null ? new(null, failure) : await PrepareAgainstFreshEvidenceAsync(stableProductKey, evidence, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SPEC §9.13 G4, FR-UPD-10 (Task 73 Phase 6 review M2): prepares a frozen set for one batch review from ONE fresh inventory
+    /// observation and one source assessment taken now, instead of a full scan per app. Every key goes through exactly the same
+    /// per-app validation as <see cref="PrepareApprovedUpdateSelectionAsync"/> against that shared observation. It is review
+    /// evidence only: each app is still prepared again, on its own and freshly, immediately before its own start.
+    /// <paramref name="progress"/> receives how many apps have been prepared. One result per key, in order.
+    /// </summary>
+    public async Task<IReadOnlyList<UpdateSelectionPreparation>> PrepareApprovedUpdateSelectionsAsync(IReadOnlyList<string> stableProductKeys, IProgress<int>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stableProductKeys);
+        (FreshSelectionEvidence? evidence, string failure) = await ObserveFreshSelectionEvidenceAsync(cancellationToken).ConfigureAwait(false);
+        UpdateSelectionPreparation[] prepared = new UpdateSelectionPreparation[stableProductKeys.Count];
+        for (int index = 0; index < stableProductKeys.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string key = stableProductKeys[index];
+            if (string.IsNullOrWhiteSpace(key)) prepared[index] = new(null, "No installed product was selected.");
+            else if (evidence is null) prepared[index] = new(null, failure);
+            else
+            {
+                try { prepared[index] = await PrepareAgainstFreshEvidenceAsync(key, evidence, cancellationToken).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception) { prepared[index] = new(null, ReviewedUpdateExecutionWorkflow.CouldNotPrepareMessage); }
+            }
+            progress?.Report(index + 1);
+        }
+        return prepared;
+    }
+
+    /// <summary>The fresh inventory observation, source assessment and match profiles that per-app preparation validates against.</summary>
+    private sealed record FreshSelectionEvidence(LiveInventoryObservation? Observation, UpdateIntelligenceSummary Summary, ProductMatchProfile[] Profiles);
+
+    private async Task<(FreshSelectionEvidence? Evidence, string Failure)> ObserveFreshSelectionEvidenceAsync(CancellationToken cancellationToken)
+    {
         ConnectorState inventoryState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.InstalledInventoryConnector, false, cancellationToken).ConfigureAwait(false);
         ConnectorState sourceState = await connectorSettings.GetConnectorStateAsync(TrustedSourceConnectorConsent.PackageSourcesConnector, false, cancellationToken).ConfigureAwait(false);
-        if (!TrustedSourceConnectorConsent.IsEnabled(inventoryState, sourceState)) return new(null, "Approved update sources are not enabled.");
+        if (!TrustedSourceConnectorConsent.IsEnabled(inventoryState, sourceState)) return (null, "Approved update sources are not enabled.");
 
         // A persisted snapshot is never confirmation authority.  Refresh local installed evidence
         // immediately before both review and execution; an unavailable or conflicting provider scan
@@ -190,13 +228,21 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         if (hasCurrentLocalInventoryProviders)
         {
             ScanResult currentInventory = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
-            if (!currentInventory.Succeeded) return new(null, "Current installed inventory is unavailable. No update can be started.");
+            if (!currentInventory.Succeeded) return (null, "Current installed inventory is unavailable. No update can be started.");
             observation = currentInventory.Observation;
             if (observation is null || observation.CorrelationId != currentInventory.CorrelationId)
-                return new(null, "Current native inventory observation is unavailable. No update can be started.");
+                return (null, "Current native inventory observation is unavailable. No update can be started.");
         }
 
         UpdateIntelligenceSummary summary = await AssessUpdateIntelligenceAsync(true, true, observation, cancellationToken).ConfigureAwait(false);
+        IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
+        IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
+        return (new(observation, summary, CreateProfiles(products, instances)), string.Empty);
+    }
+
+    private async Task<UpdateSelectionPreparation> PrepareAgainstFreshEvidenceAsync(string stableProductKey, FreshSelectionEvidence evidence, CancellationToken cancellationToken)
+    {
+        UpdateIntelligenceSummary summary = evidence.Summary;
         UpdateIntelligenceItem? item = summary.Items.SingleOrDefault(candidate => string.Equals(candidate.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (item is not { Status: UpdateIntelligenceStatus.VerifiedUpdate, Mapping.IsActionable: true, Mapping.CandidateVersion: not null, SourceId: not null })
         {
@@ -206,9 +252,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         SourceSnapshot? source = summary.Sources.SingleOrDefault(snapshot => string.Equals(snapshot.SourceId, item.SourceId, StringComparison.OrdinalIgnoreCase));
         if (source?.State != SourceSnapshotState.Live) return new(null, "The approved source did not provide a fresh live result. No update can be started.");
 
-        IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
-        IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
-        ProductMatchProfile? profile = CreateProfiles(products, instances).SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
+        ProductMatchProfile? profile = evidence.Profiles.SingleOrDefault(product => string.Equals(product.StableProductKey, stableProductKey, StringComparison.Ordinal));
         if (profile is null) return new(null, "The selected product is no longer present in current inventory.");
         if (!executionCapabilities.MachineScopeEnabled &&
             TryScope(profile.Scope, out UpdateScope deploymentScope) &&
@@ -224,7 +268,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             return new(null, "The provider did not supply bounded structured candidate-version evidence for the exact source and package. Display results cannot authorize an update.");
         }
         if (!TryCreateSelection(profile, item.Mapping, candidate!.CandidateVersion, out UpdateJobSelection? selection, out string message)) return new(null, message);
-        return new(selection, "Fresh exact source evidence is ready for your review.", observation);
+        return new(selection, "Fresh exact source evidence is ready for your review.", evidence.Observation);
     }
 
     /// <summary>
@@ -257,6 +301,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     public Task PinCurrentVersionAsync(string stableProductKey, string currentVersion, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinCurrentVersionAsync(stableProductKey, currentVersion, reason, cancellationToken);
     public Task PinSourcePackageAsync(string stableProductKey, string sourceId, string packageId, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinSourcePackageAsync(stableProductKey, sourceId, packageId, reason, cancellationToken);
     public Task IgnoreAsync(string stableProductKey, DateTimeOffset? until, string? reason, CancellationToken cancellationToken) => RequiredDecisions().IgnoreAsync(stableProductKey, until, reason, cancellationToken);
+    public Task SkipVersionAsync(string stableProductKey, string version, string? reason, CancellationToken cancellationToken) => RequiredDecisions().SkipVersionAsync(stableProductKey, version, reason, cancellationToken);
     public Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetActiveDecisionsAsync(cancellationToken);
     public Task<IReadOnlyCollection<ManualMapping>> GetManualMappingsAsync(CancellationToken cancellationToken) => RequiredDecisions().GetManualMappingsAsync(cancellationToken);
     public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => RequiredDecisions().ReverseDecisionAsync(decisionId, cancellationToken);

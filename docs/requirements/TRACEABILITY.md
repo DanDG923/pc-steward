@@ -137,6 +137,37 @@
 - Architecture `DesktopProducersBoundaryTests` (5) and the extended `HelperEndpointBoundaryTests` pins (`Observe`, `TryFromCurrentProcess`).
 - Not claimed: Desktop composition, route admission, or Windows CI evidence for the 5 Windows-only tests.
 
+# Task 73 — Desktop UI and UX overhaul, Phase 1 foundations
+
+`FR-UI-01/02/05`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md); [plan](../review/TASK_73_UI_UX_OVERHAUL_PLAN.md).
+
+- Application `DesktopFoundationsPresentationTests` (shell navigation and back stack, status vocabulary, elevation story); architecture `UiRedesignContractTests`, `UpdateProgressUiContractTests`, `ReferenceBoundaryTests` and `ReviewedRouteDesktopUiBoundaryTests`, updated deliberately with protections kept. Windows CI is green at `887094d`, including the Desktop build.
+- Phase 2 (`FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-DAT-09`, `FR-HIS-03`, UJ-04): `UpdatesAndJobPresentationTests` (grouping, badges, an enum-complete outcome mapping, review-sheet completeness, no update control for needs-review items), plus the contract pins for review ordering, Cancel as default and a single confirm. Windows CI is green at `a34691b`.
+- Phase 3 (`FR-UI-01/05/06`, `FR-HIS-01–03`, `FR-POL-01–05`): `HomeActivityDecisionsPresentationTests` and the read-only activity reader test in `SqliteDatabaseTests`, plus contract pins (the reader has no write statements; Home "Check for updates" never elevates). Windows CI is green at `81f406f`.
+- Phase 4 (`FR-DAT-01/03/06–15`, `FR-HIS-05`, `AC-UX-07/08`): `SettingsDataResetPresentationTests` (cards, labels, sizes, disabled during work, sanitized startup details) and contract pins (the three labels, the RESET order, no Enter activation, a single arm site, one Save button for the schedule only, clipboard flush). Windows CI is green at `e16125e`.
+- Phase 5 (`AC-UX-01–09`, best effort): `AccessibilityTextTests` and `UiAccessibilityContractTests` (heading levels, live notifications on completion paths, label-in-name, access keys and the shortcut guard, selectable evidence, contrast ratios computed from the tokens, jargon absence with a pinned-text allowlist). Windows CI is green at `111bbc6`.
+- Final integrated review of `52244ff..111bbc6`: PASS with fixes.
+- Phase 6 (`FR-UPD-09–11`, `AC-UPD-01–11`, `FR-POL-01–05`, SPEC §9.13 G4 and the skip-version amendment): batch workflow tests (frozen set, per-item revalidation, stop between items, kept results, settle wait), batch presentation tests, skip-decision domain tests (equal, newer, older, incomparable; precedence) and a persistence round-trip, plus a contract test that the batch adds no execution, approval, cancellation, elevation or Chocolatey path. Windows CI is green at `2a9c31d`.
+- Not claimed: runtime look and behaviour (Mica, drag region, focus restore, Narrator, high-contrast switching, scaling, UAC end to end). Those are owner-host evidence.
+
+# ADR-031 — Chocolatey client update (reviewed release list, W1 wiring, watchdog and the verified Desktop offer)
+
+`FR-UPD-15`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [ADR-031](../adr/ADR-031-CHOCOLATEY-CLIENT-SELF-UPDATE.md) (Option 2, owner decisions 1–5); [design note](../review/TASK_50_ADR031_CLIENT_SELF_UPDATE_DESIGN.md) §3.3, §3.7 and §8 (gate 3 of §8.6); gate 3 re-verified on the activated Task 50 ([record](../review/TASK_73_GATE3_REVERIFICATION_2026-11-06.md)).
+
+- Domain `ClientSelfUpdateRouteTests` (the distinct route contract).
+- Application:
+  - `ChocolateyClientUpdateViewModelTests`: the offer only from a verified check, never from the scan; a distinct reason for each state (checking, not checked, not verified, not listed, list unavailable, no newer release); Confirm always disabled.
+  - `ChocolateyClientUpdatePresentationTests` and `ChocolateyReviewDisclosureTests`: review facts, disclosures and W1 history details.
+- Security:
+  - the installed-client check: `ChocolateyInstalledClientObservationTests`, including a shared budget on a manual clock;
+  - the release list and launch: `ChocolateyReleaseListTests`, `ChocolateyClientUpdateCommandTests`, `ChocolateyClientSelfUpdateLaunchTests`, `ChocolateyClientUpdateDesktopTests` and `ChocolateyClientUpdatePostcheckTests`;
+  - the watchdog: `ChocolateyClientUpdateWatchdogTests`;
+  - W1 run faults: `ClientRunFaultInterpreterWorkflowTests`, `ReviewedHelperEndpointClientRunFaultTests` and `ReviewedUpdateWireCodecClientRunFaultTests`.
+- Architecture:
+  - `ChocolateyClientUpdateDesktopUiBoundaryTests`: thin, read-only surfaces; `Verified` is called only by the native observation, pinned on IL and on Desktop source text; the dialog keeps its scroll position and has a live summary;
+  - `ClientUpdateWatchdogBoundaryTests`, `ClientRunFaultBoundaryTests` (the route is still not admitted) and `ReviewedRouteDesktopUiBoundaryTests`.
+- Not claimed: admission of `ChocolateyClientSelfUpdateV1`, host evidence of a real client update, or Narrator and scrolling behaviour at runtime (AC-UX best effort, ADR-021). Windows CI for the independent review Low fixes (L1–L6) is pending.
+
 # Task 50 — Desktop review and history UI and the intent resolver (admission obligations 5 and 6)
 
 `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`; [scope](../review/TASK_50_DESKTOP_REVIEW_UI_SCOPE.md); [composition record](../review/TASK_50_REVIEWED_DISPATCH_COMPOSITION.md).

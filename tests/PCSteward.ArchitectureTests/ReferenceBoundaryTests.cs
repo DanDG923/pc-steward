@@ -180,7 +180,8 @@ public sealed class ReferenceBoundaryTests
         int acknowledgement = desktopSource.IndexOf("PostResetOnboardingFlow.Evaluate(", StringComparison.Ordinal);
         int failedAcknowledgement = desktopSource.IndexOf("if (!outcome.AcknowledgementSucceeded)", acknowledgement, StringComparison.Ordinal);
         int reloadOrMarkerFailure = desktopSource.IndexOf("if (!outcome.ScanNavigationRequested)", failedAcknowledgement, StringComparison.Ordinal);
-        int openScan = desktopSource.IndexOf("destination = \"scan\"; Render();", reloadOrMarkerFailure, StringComparison.Ordinal);
+        // Task 73 Phase 1: onboarding opens Scan through the shell navigation and clears Back so onboarding is never revisited.
+        int openScan = desktopSource.IndexOf("navigation.Reset(ShellPage.Scan); Render();", reloadOrMarkerFailure, StringComparison.Ordinal);
 
         Assert.IsTrue(acknowledgement >= 0 && failedAcknowledgement > acknowledgement && reloadOrMarkerFailure > failedAcknowledgement && openScan > reloadOrMarkerFailure);
         StringAssert.Contains(flowSource, "if (!acknowledgementResult.Succeeded)");
@@ -289,8 +290,8 @@ public sealed class ReferenceBoundaryTests
         string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
         string source = File.ReadAllText(sourcePath);
 
-        StringAssert.Contains(source, "RenderProductDetailPage()");
-        StringAssert.Contains(source, "destination = \"detail\"");
+        StringAssert.Contains(source, "BuildProductDetailPage()");
+        StringAssert.Contains(source, "NavigateTo(ShellPage.Detail)");
         StringAssert.Contains(source, "Header = \"Technical details\"");
         StringAssert.Contains(source, "InventoryRow[] decisions");
         StringAssert.Contains(source, "Needs a decision");
@@ -303,16 +304,34 @@ public sealed class ReferenceBoundaryTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
         int detailRequirement = source.IndexOf("AdministratorRequirementPresenter.BeforeReview()", StringComparison.Ordinal);
-        int reviewButton = source.IndexOf("Review and update this verified package.", detailRequirement, StringComparison.Ordinal);
-        int confirmedRequirement = source.IndexOf("AdministratorRequirementPresenter.ForSelection(selection)", reviewButton, StringComparison.Ordinal);
-        int showConfirmation = source.IndexOf("await confirmation.ShowAsync()", confirmedRequirement, StringComparison.Ordinal);
-        int execute = source.IndexOf("updates.ConfirmAndRunAsync", showConfirmation, StringComparison.Ordinal);
+        // Task 73 Phase 5 (WCAG 2.5.3): the name is built from the visible label, so it still reads "Review and update this verified package. …".
+        int reviewButton = source.IndexOf("StewardVisuals.PrimaryButton(\"Review and update\", $\"this verified package. {administratorRequirement.Label}\")", detailRequirement, StringComparison.Ordinal);
+        // Task 73 Phase 6 (SPEC §9.13 G4) deliberately moves the per-app requirement into the portable sheet builder: the Desktop builds
+        // one sheet for the frozen set from each reviewed selection, and CreateBatch derives each app's requirement (ForSelection)
+        // and the aggregate (ForBatch) before confirmation.
+        int confirmedRequirement = source.IndexOf("item.Preparation.Review!.Selection,", reviewButton, StringComparison.Ordinal);
+        // Task 73 Phase 2 (ADR-030 decision 3; audit P-H6): the final confirmation is the review sheet page, awaited through the
+        // user's decision, instead of the wall-of-text ContentDialog. The requirement still feeds the sheet before confirmation.
+        int sheet = source.IndexOf("UpdateReviewSheet.CreateBatch(inputs,", confirmedRequirement, StringComparison.Ordinal);
+        int showConfirmation = source.IndexOf("bool confirmed = await decision.Task;", sheet, StringComparison.Ordinal);
+        int execute = source.IndexOf("updates.ConfirmAndRunBatchAsync", showConfirmation, StringComparison.Ordinal);
 
         Assert.IsTrue(detailRequirement >= 0 && reviewButton > detailRequirement);
-        Assert.IsTrue(confirmedRequirement > reviewButton && showConfirmation > confirmedRequirement && execute > showConfirmation);
+        Assert.IsTrue(confirmedRequirement > reviewButton && sheet > confirmedRequirement && showConfirmation > sheet && execute > showConfirmation);
+        StringAssert.Contains(source, "item.Preparation.RunningApplication))];");
+        string sheetBuilder = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
+        StringAssert.Contains(sheetBuilder, "Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection))");
+        StringAssert.Contains(sheetBuilder, "AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray())");
         StringAssert.Contains(source, "administratorRequirement.Label");
         StringAssert.Contains(source, "administratorRequirement.Explanation");
         StringAssert.Contains(source, "AutomationProperties.SetHelpText(review, administratorRequirement.Explanation)");
+        string reviewStep = source[source.IndexOf("private void AddReviewStep(", StringComparison.Ordinal)..source.IndexOf("private void AddUpdateStep(", StringComparison.Ordinal)];
+        StringAssert.Contains(reviewStep, "AutomationProperties.SetHelpText(confirm, sheet.AdministratorRequirement.Explanation);");
+        StringAssert.Contains(reviewStep, "if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon");
+        Assert.AreEqual(1, reviewStep.Split("new FontIcon", StringSplitOptions.None).Length - 1, "the shield is the only icon and is gated on the requirement");
+        string application = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
+        StringAssert.Contains(application, "public bool ShowsAdministratorShield => AdministratorRequirement.Status == AdministratorRequirementStatus.Required;");
+        StringAssert.Contains(application, "risks.Add(new(ReviewRiskKind.Administrator, administratorRequirement.Label, administratorRequirement.Explanation,");
     }
 
     [TestMethod]
@@ -325,38 +344,70 @@ public sealed class ReferenceBoundaryTests
         Assert.IsFalse(source.Contains("RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, detail.SourceId, detail.PackageId, true, reason.Text", StringComparison.Ordinal));
         StringAssert.Contains(source, "string decisionReason = reason.Text;");
         StringAssert.Contains(source, "DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null;");
-        StringAssert.Contains(source, "string sourceId = mappingSource.SelectedItem?.ToString() ?? \"winget\";");
+        // Task 73 Phase 5 (audit §4): the list shows display names; the index is read on the UI thread and maps to the same raw ID.
+        StringAssert.Contains(source, "string sourceId = mappingSource.SelectedIndex >= 0 && mappingSource.SelectedIndex < mappingSources.Length ? mappingSources[mappingSource.SelectedIndex] : \"winget\";");
+        StringAssert.Contains(source, "string[] mappingSources = [\"winget\", \"msstore\"];");
     }
 
+    /// <summary>
+    /// Task 73 Phase 2 (ADR-030 decision 3) deliberately replaces the outcome-dialog pin: the recorded outcome is shown on the job
+    /// page's Verify step. Completion handling still runs only after the finally block has stopped progress, cleared
+    /// <c>isExecuting</c> and reloaded inventory, and the finally block itself never re-renders.
+    /// </summary>
     [TestMethod]
-    public void UpdateOutcomeUsesTheExistingXamlRootUntilTheDialogCloses()
+    public void UpdateOutcomeIsShownOnTheJobPageOnlyAfterExecutionFinishes()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
         int reviewStart = source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal);
         Assert.IsTrue(reviewStart >= 0);
-        int completionStart = source.IndexOf("finally {", reviewStart, StringComparison.Ordinal);
+        // The execution finally block (the review-preparation finally only clears preparingReview).
+        int completionStart = source.IndexOf("finally { StopUpdateProgressPolling();", reviewStart, StringComparison.Ordinal);
         Assert.IsTrue(completionStart >= 0);
-        int outcome = source.IndexOf("await ShowUpdateOutcomeAsync(GetUpdateOutcomeTitle(result), GetUpdateOutcomeMessage(result));", completionStart, StringComparison.Ordinal);
+        // Task 73 Phase 6: the batch's recorded per-item results (or the not-started/unrecorded fallback) become the completion.
+        int outcome = source.IndexOf("job.Completion = run is not null", completionStart, StringComparison.Ordinal);
         Assert.IsTrue(outcome > completionStart);
-        int render = source.IndexOf("Render();", outcome, StringComparison.Ordinal);
+        // Independent review: the result is shown where the user is (the band offers "View result" elsewhere); it never navigates.
+        int show = source.IndexOf("jobResultPending = navigation.Current != ShellPage.UpdateJob;", outcome, StringComparison.Ordinal);
 
-        Assert.IsTrue(render > outcome);
+        Assert.IsTrue(show > outcome);
         string completion = source[completionStart..outcome];
         StringAssert.Contains(completion, "isExecuting = false;");
         StringAssert.Contains(completion, "LoadSavedInventory();");
-        Assert.IsFalse(completion.Contains("Render();", StringComparison.Ordinal), "Preserve the existing XamlRoot until the outcome dialog closes.");
+        StringAssert.Contains(completion, "if (windowClosed) return;");
+        Assert.IsFalse(completion.Contains("Render();", StringComparison.Ordinal), "the finally block never re-renders");
     }
 
+    /// <summary>
+    /// Task 73 Phase 2 (audit P-H3; UJ-04 step 8) deliberately replaces the "Update completed / Update failed" title pin: the
+    /// Desktop no longer flattens outcomes. The portable presenter alone maps them, and only Success (verified re-inventory) is
+    /// Verified and only RestartRequired (a reliable restart-pending result) is Restart required.
+    /// </summary>
     [TestMethod]
     public void DesktopOnlyReportsCompletionAfterExactPostUpdateVerification()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string root = FindRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string presenter = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
 
-        StringAssert.Contains(source, "PCSteward.Application.UpdateHistoryStatus.Success => \"Update completed\"");
-        StringAssert.Contains(source, "PCSteward.Application.UpdateHistoryStatus.RestartRequired => \"Restart required\"");
-        StringAssert.Contains(source, "_ => \"Update failed\"");
-        StringAssert.Contains(source, "The update was blocked before it could run.");
-        Assert.IsFalse(source.Contains("result.Started ? \"Update completed\" : \"Update not started\"", StringComparison.Ordinal));
+        // Task 73 Phase 6: every app's recorded result maps through the portable presenter (ForBatch delegates each ran item to ForResult).
+        StringAssert.Contains(source, "UpdateOutcomePresenter.ForBatch(run, NameOf)");
+        StringAssert.Contains(source, "UpdateOutcomePresenter.ForResult(result!, item.Preparation.Review!.Selection, NameOf(item.StableProductKey))");
+        StringAssert.Contains(presenter, "items.AddRange(ForResult(item.Result, item.Selection, name).Items);");
+        foreach (string flattened in new[] { "_ => \"Update failed\"", "GetUpdateOutcomeTitle", "\"Update completed\"", "result.Started ? \"Update completed\" : \"Update not started\"" })
+            Assert.IsFalse(source.Contains(flattened, StringComparison.Ordinal), flattened);
+        StringAssert.Contains(presenter, "UpdateHistoryStatus.Success => new(UpdateOutcomeKind.Verified, VerifiedLabel");
+        StringAssert.Contains(presenter, "UpdateHistoryStatus.RestartRequired => new(UpdateOutcomeKind.RestartRequired, RestartRequiredLabel");
+        Assert.AreEqual(1, presenter.Split("UpdateOutcomeKind.Verified, VerifiedLabel", StringSplitOptions.None).Length - 1, "only one path reads as Verified");
+        Assert.AreEqual(1, presenter.Split("UpdateOutcomeKind.RestartRequired, RestartRequiredLabel", StringSplitOptions.None).Length - 1, "only one path reads as Restart required");
+        StringAssert.Contains(presenter, "UpdateHistoryStatus.ElevationDenied => new(UpdateOutcomeKind.NotStarted");
+        // Independent review: an unreadable outcome, an unrecorded run and an interrupted run with no evidence of installation read
+        // as "Result not verified", never "Installed, not verified" or Verified.
+        StringAssert.Contains(presenter, "_ => ResultNotVerified(");
+        StringAssert.Contains(presenter, "UpdateOutcomeKind.ResultNotVerified => \"Result not verified\"");
+        // The helper-missing copy still comes from the portable ElevationStory (audit P-H5).
+        StringAssert.Contains(presenter, "Failed(ElevationStory.HelperMissingOutcome, technical)");
+        StringAssert.Contains(presenter, "HelperMissingDiagnostic = \"elevated-helper-fixed-installed-path-invalid\"");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "src", "PCSteward.Application", "ElevationStory.cs")), "\"The update was blocked before it could run. ");
     }
 
     [TestMethod]

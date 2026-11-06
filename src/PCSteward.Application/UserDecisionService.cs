@@ -34,6 +34,24 @@ public sealed class UserDecisionService
         return SaveDecisionAsync(stableProductKey, "Ignore", until is null ? "Indefinitely" : until.Value.ToString("O"), reason, until, cancellationToken);
     }
 
+    /// <summary>
+    /// Owner decision 2026-11-02 (FR-POL-01/03/05): records "skip version <paramref name="version"/>" for one product, with an optional
+    /// bounded reason. It replaces that product's earlier skip; the new decision is saved first, so latest-wins still holds if removing
+    /// an older one fails. It grants no authority: a skip can only hide an update.
+    /// </summary>
+    public async Task SkipVersionAsync(string stableProductKey, string version, string? reason, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(stableProductKey); ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        StableDecision[] earlier = (await store.GetAllAsync(cancellationToken))
+            .Where(decision => decision.Kind == SkipVersionKind && string.Equals(decision.StableProductKey, stableProductKey, StringComparison.Ordinal))
+            .ToArray();
+        await SaveDecisionAsync(stableProductKey, SkipVersionKind, version.Trim(), reason, null, cancellationToken);
+        foreach (StableDecision old in earlier) await store.DeleteAsync(old.Id, cancellationToken);
+    }
+
+    /// <summary>The stored decision kind for Skip this version (no schema change: the version is the decision's value).</summary>
+    public const string SkipVersionKind = "SkipVersion";
+
     public Task ReverseDecisionAsync(Guid decisionId, CancellationToken cancellationToken) => store.DeleteAsync(decisionId, cancellationToken);
     public Task DeleteManualMappingAsync(Guid mappingId, CancellationToken cancellationToken) => store.DeleteManualMappingAsync(mappingId, cancellationToken);
     public async Task<IReadOnlyCollection<StableDecision>> GetActiveDecisionsAsync(CancellationToken cancellationToken)
@@ -59,7 +77,9 @@ public sealed class UserDecisionService
         {
             StableDecision? pin = group.Where(decision => decision.Kind is "PinCurrentVersion" or "PinSourcePackage").OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
             StableDecision? ignore = group.Where(decision => decision.Kind == "Ignore" && (decision.ExpiresAt is null || decision.ExpiresAt > now)).OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
-            policies[group.Key] = new(pin is not null, ignore is not null, pin is null ? null : $"The product is pinned to {pin.Value} by a recorded user decision.", ignore?.ExpiresAt);
+            // Unknown kinds (for example from a newer PC Steward) are ignored here: they never hide or enable anything.
+            StableDecision? skip = group.Where(decision => decision.Kind == SkipVersionKind).OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
+            policies[group.Key] = new(pin is not null, ignore is not null, pin is null ? null : $"The product is pinned to {pin.Value} by a recorded user decision.", ignore?.ExpiresAt, skip?.Value);
         }
         return policies;
     }

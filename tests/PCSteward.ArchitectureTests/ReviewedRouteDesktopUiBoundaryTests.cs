@@ -41,7 +41,7 @@ public sealed class ReviewedRouteDesktopUiBoundaryTests
         }
 
         string app = File.ReadAllText(Path.Combine(desktop, "App.xaml.cs"));
-        StringAssert.Contains(app, "database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, showPostResetOnboarding");
+        StringAssert.Contains(app, "database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, showPostResetOnboarding");
         Assert.AreEqual(1, Regex.Count(string.Concat(files.Select(File.ReadAllText)), @"\bChocolateyReviewedRouteProbe\b"), "one composition site of the probe");
 
         // The probe references only the composition's static split-token probe in the native layer, never its constructor.
@@ -94,7 +94,7 @@ public sealed class ReviewedRouteDesktopUiBoundaryTests
         StringAssert.Contains(window, "ReviewedRouteSurfaces.RenderHistory(outcomes, history);");
         StringAssert.Contains(surfaces, "foreach (ReviewedUpdateHistoryItemViewModel item in model.Items)");
         StringAssert.Contains(surfaces, "foreach (ReviewedDisplayField field in item.Fields)");
-        string activity = Between(window, "private void RenderActivityPage()", "private void RenderPrivacyPage()");
+        string activity = Between(window, "private StackPanel BuildActivityPage()", "private StackPanel BuildPrivacyPage()");
         StringAssert.Contains(activity, "AddReviewedUpdateOutcomesSection(panel);");
     }
 

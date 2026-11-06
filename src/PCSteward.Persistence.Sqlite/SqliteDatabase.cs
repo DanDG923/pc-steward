@@ -522,7 +522,7 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         IReadOnlyCollection<StableDecision> decisions = await GetForProductAsync(stableProductKey, cancellationToken);
         IReadOnlyCollection<UpdateHistoryEntry> updates = await GetHistoryForProductAsync(stableProductKey, cancellationToken);
         return decisions.Select(decision => new ProductTimelineEntry(decision.CreatedAt, decision.Kind, $"{decision.Kind}: {decision.Value}", decision.Reason))
-            .Concat(updates.Select(update => new ProductTimelineEntry(update.OccurredAt, "Update", $"Update {update.Status}: {update.TargetVersion}", update.Diagnostic)))
+            .Concat(updates.Select(update => new ProductTimelineEntry(update.OccurredAt, "Update", $"Update {update.Status}: {update.TargetVersion}", update.Diagnostic, update.ExitCode)))
             .OrderByDescending(entry => entry.OccurredAt)
             .ToArray();
     }

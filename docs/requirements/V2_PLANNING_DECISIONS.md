@@ -19,7 +19,7 @@ Tests: exact boundary and one-unit-over for counts/scalars/encoded bytes/deadlin
 
 ## Q2/Q3 — Accepted existing-warning coverage
 
-Keep existing pin/ignore/deselection semantics; no skip-version policy. Retain the package-derived process-name heuristic as a warning with explicit limitations: up to 4,096 inspected processes and 64-character names, bounded candidate derivation, inaccessible/exited processes and enumeration saturation can miss a running app. It is not proof that software is unused. Keep checks at review and before execution, cancellation/manual closure/explicit continuation and no force-close. Tasks 49/52 must disclose coverage and test a late start, ambiguous suffix, access denial and saturation. No universal executable mapping or process control is promised. This warning policy is owner-accepted; applicable ADR acceptance remains separate.
+Keep existing pin/ignore/deselection semantics. (Superseded for skip-version by the owner decision of 2026-11-02 below: Skip this version is accepted.) Retain the package-derived process-name heuristic as a warning with explicit limitations: up to 4,096 inspected processes and 64-character names, bounded candidate derivation, inaccessible/exited processes and enumeration saturation can miss a running app. It is not proof that software is unused. Keep checks at review and before execution, cancellation/manual closure/explicit continuation and no force-close. Tasks 49/52 must disclose coverage and test a late start, ambiguous suffix, access denial and saturation. No universal executable mapping or process control is promised. This warning policy is owner-accepted; applicable ADR acceptance remains separate.
 
 ## Q4 — Capability and host-fixture decision
 
@@ -67,3 +67,17 @@ The owner selected **Allow provisional review**: only the new-protocol Chocolate
 ## Task 50 — Accepted fixed-feed Community runtime limitations, 2026-10-31
 
 Asked the explicit choice between retaining effective checksum/installer-argument guards throughout scripts (unsupported route) and accepting the disclosed provider limitation, the owner answered **“I think Chocolatey is fine as long it uses the official community repo”**. Record this as acceptance of the described runtime checksum/argument overrides and TEMP replacement risk for the new Chocolatey route only, conditional on the compiled official Community feed for package/dependency resolution. The source restriction does not eliminate these risks or sandbox vendor payload downloads. Retain all initial guard requests and every other native/helper/review/claim/gate/settlement check; no arbitrary request flags/environment/source or protocol fallback. A distinct canonical route/disclosure prevents older reviews acquiring the exception. See [ADR-025](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md) and [source/dialogue/decision](../failures/task-50-chocolatey-refresh-guard.md). This does not approve host reads, deployment, UAC or real updates, or complete Task50.
+
+## Owner decision 2026-11-02: Skip this version accepted (closes the skip-version part of Q2/Q3)
+
+The owner asked for "the update all available button & skip the version". This accepts a reversible, per-product **Skip this version** decision and closes only the skip-version part of Q2/Q3. Pin/ignore/deselection semantics, the running-app warning policy and the "no broader major/minor pin, universal process detector or forced closure" limits stay as accepted.
+
+| Rule | Accepted semantics |
+|---|---|
+| What is skipped | One exact candidate version string V for one product. It is stored in `stable_decisions`, with kind `SkipVersion`, value V and an optional reason of up to 512 characters. There is no schema change. |
+| When it applies | Only while the current candidate equals V, under the domain version comparer (or is the identical string). The product then leaves Ready and is shown under "Ignored and skipped" as "Skipped version V". |
+| When it stops applying | A newer candidate than V returns the product to Ready automatically. An older or incomparable candidate is not skipped and stays subject to the existing actionability rules. |
+| Authority | A skip only removes actionability; it never makes anything actionable. Ignore and pin take precedence. |
+| Reversal and visibility | Listed on Decisions; reversed with "Stop skipping V". The wording is distinct from "Ignore updates for this app". Skipping again replaces the product's earlier skip. |
+
+G4 Update All (SPEC §9.13) is implemented in the same task. It is not a new decision: per-item sequential approval and elevation are used, because the one-shot helper protocol has no multi-item job. The design is in [Task 73 Phase 6](../review/TASK_73_PHASE6_UPDATE_ALL_AND_SKIP_VERSION.md).

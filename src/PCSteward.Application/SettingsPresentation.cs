@@ -1,0 +1,181 @@
+using System.Globalization;
+
+namespace PCSteward.Application;
+
+/// <summary>How Settings changes are saved (Task 73 Phase 4; audit P-M7; independent review owner decision).</summary>
+public enum SettingsSaveModel
+{
+    /// <summary>
+    /// Every control saves as soon as it is changed, as in Windows 11 Settings, except the Schedule card: a schedule change
+    /// registers or removes a Windows Task Scheduler task, so it applies only when the person selects its one "Save schedule"
+    /// button. No other card has a Save button.
+    /// </summary>
+    AppliesImmediatelyExceptSchedule
+}
+
+/// <summary>How a "Save schedule" attempt ended (independent review fix 5).</summary>
+public enum ScheduleSaveOutcome
+{
+    /// <summary>The Windows task and the saved settings both match the requested schedule.</summary>
+    Saved,
+    /// <summary>Windows Task Scheduler refused the change; nothing was saved.</summary>
+    SchedulerRefused,
+    /// <summary>The task changed but the settings could not be saved, so the previous task was registered again.</summary>
+    SettingsNotSavedTaskRestored,
+    /// <summary>The task changed, the settings could not be saved and the previous task could not be registered again.</summary>
+    SettingsNotSavedTaskChanged
+}
+
+/// <summary>The message shown after a schedule save that did not fully succeed.</summary>
+public sealed record ScheduleSaveMessage(string Title, string Body);
+
+/// <summary>The Schedule card: control values and which controls are available (Task 73 Phase 4; audit P-M7).</summary>
+public sealed record ScheduleCardPresentation(
+    int CadenceIndex,
+    bool IsEnabled,
+    bool NotificationsEnabled,
+    DayOfWeek WeeklyDay,
+    TimeOnly LocalStartTime,
+    bool IsCadenceEnabled,
+    bool IsTimeEnabled,
+    bool IsWeekdayEnabled,
+    bool IsEnableToggleEnabled,
+    bool IsNotificationsToggleEnabled,
+    bool IsSaveEnabled,
+    string Summary,
+    IReadOnlyList<DetailFact> Status);
+
+/// <summary>The "Copy diagnostic" action (FR-HIS-05).</summary>
+public sealed record DiagnosticCopyPresentation(string Label, string AccessibleName, string Description, bool IsEnabled, string? UnavailableReason);
+
+/// <summary>
+/// Task 73 Phase 4 (ADR-030 concept A; audit P-M7, §6 item 10; FR-DAT-01/03, FR-HIS-05, SPEC §17): the Settings page as grouped
+/// cards in one column, with one save model: controls apply immediately except the Schedule card, which has one "Save schedule"
+/// button. Presentation only: building these values saves, schedules, enables or starts nothing.
+/// </summary>
+public static class SettingsPresenter
+{
+    /// <summary>
+    /// The one save model. Source and AppX choices save per control (with the existing disclosure first). Schedule changes register
+    /// or remove a Windows Task Scheduler task, so they apply only through the explicit "Save schedule" button, which saves the whole
+    /// schedule record through the register-then-save operation; a failure leaves the saved schedule unchanged.
+    /// </summary>
+    public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediatelyExceptSchedule;
+
+    /// <summary>The one sentence that tells people how saving works.</summary>
+    public const string SaveModelText = "Changes save as soon as you make them, except the schedule, which you save with Save schedule. Nothing here starts a scan, a source check, a download or an update.";
+
+    /// <summary>The Schedule card's one Save button (the only Save button in Settings).</summary>
+    public const string SaveScheduleLabel = "Save schedule";
+
+    /// <summary>The Schedule card description.</summary>
+    public const string ScheduleDescription = "Scheduled work checks inventory only. It never approves or installs updates and does not leave a resident service or tray process. Changes to the schedule apply when you select Save schedule.";
+
+    /// <summary>Shown instead of saving when the cadence or weekday has no selection (fail closed).</summary>
+    public const string ScheduleNotChosen = "Choose a schedule before saving.";
+
+    /// <summary>The cards on the Settings page, in order (single column).</summary>
+    public static IReadOnlyList<string> Sections { get; } = ["Update sources", "Scan scope", "Schedule", "Decisions", "Privacy & exports", "Data & reset", "About"];
+
+    /// <summary>The cadence choices, in RadioButtons order.</summary>
+    public static IReadOnlyList<string> CadenceOptions { get; } = ["Manual only", "Daily", "Weekly"];
+
+    /// <summary>The source disclosure reminder shown beside the source consent toggle.</summary>
+    public const string SourceConsentNote = "Turning this on shows what is shared and asks for your approval first. It never starts a scan, a source check, a download or an update.";
+
+    /// <summary>The identifying-data warning shown before exports and diagnostics (FR-DAT-03).</summary>
+    public const string ExportWarning = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.";
+
+    public static int CadenceIndex(ScheduleCadence cadence) => cadence switch { ScheduleCadence.Daily => 1, ScheduleCadence.Weekly => 2, _ => 0 };
+
+    public static ScheduleCadence CadenceAt(int index) => index switch { 1 => ScheduleCadence.Daily, 2 => ScheduleCadence.Weekly, _ => ScheduleCadence.Manual };
+
+    /// <summary>
+    /// The schedule record requested by the current control values, normalized so "Manual only" always means not scheduled. Fails
+    /// closed: with no cadence selection, no weekday selection (index -1) or an out-of-range time it returns <see langword="null"/>
+    /// and nothing may be saved. The weekday index is the <see cref="DayOfWeek"/> value (Sunday = 0).
+    /// </summary>
+    public static ScheduledCheckSettings? RequestedSchedule(int cadenceIndex, bool isEnabled, bool notificationsEnabled, int weekdayIndex, TimeSpan localStartTime)
+    {
+        if (cadenceIndex < 0 || cadenceIndex >= CadenceOptions.Count) return null;
+        if (weekdayIndex < (int)DayOfWeek.Sunday || weekdayIndex > (int)DayOfWeek.Saturday) return null;
+        if (localStartTime < TimeSpan.Zero || localStartTime >= TimeSpan.FromDays(1)) return null;
+        return new ScheduledCheckSettings(CadenceAt(cadenceIndex), isEnabled, notificationsEnabled, (DayOfWeek)weekdayIndex, TimeOnly.FromTimeSpan(localStartTime)).Normalize();
+    }
+
+    /// <summary>
+    /// Which schedule controls are available for the selected cadence: with "Manual only" (or no selection) the time, weekday and
+    /// enable controls are unavailable; the weekday only applies to Weekly. Everything is unavailable while busy.
+    /// </summary>
+    public static (bool Time, bool Weekday, bool EnableToggle) ScheduleControlAvailability(int cadenceIndex, bool busy)
+    {
+        bool scheduled = cadenceIndex is 1 or 2;
+        return (scheduled && !busy, cadenceIndex == 2 && !busy, scheduled && !busy);
+    }
+
+    /// <summary>The message after a schedule save that did not fully succeed; <see langword="null"/> when it was saved.</summary>
+    public static ScheduleSaveMessage? ScheduleSaveResult(ScheduleSaveOutcome outcome) => outcome switch
+    {
+        ScheduleSaveOutcome.Saved => null,
+        ScheduleSaveOutcome.SchedulerRefused => new("Schedule was not changed", "The schedule was not changed: Windows Task Scheduler refused the change. Your saved settings were left unchanged."),
+        ScheduleSaveOutcome.SettingsNotSavedTaskRestored => new("Schedule was not changed", "The schedule was not changed: PC Steward couldn't save its settings, so the Windows scheduled task was put back as it was. Select Save schedule to try again."),
+        _ => new("Schedule needs attention", "The Windows scheduled task was changed, but PC Steward couldn't save its settings or put the task back as it was. Select Save schedule to try again.")
+    };
+
+    /// <summary>
+    /// The Schedule card for the saved settings. "Manual only" and "Enable scheduled checks" stay two controls because they do not map
+    /// one to one onto the saved record (a daily or weekly cadence can be saved while paused); with "Manual only" the time, weekday and
+    /// enable controls are unavailable. While a change is being saved every schedule control is unavailable, and "Save schedule" is
+    /// also unavailable while other work (a scan, source check, update or cleanup) is active.
+    /// </summary>
+    public static ScheduleCardPresentation Schedule(ScheduledCheckSettings saved, ScheduledCheckStatus status, bool isSaving, CultureInfo? culture = null, TimeZoneInfo? zone = null, bool otherWorkActive = false)
+    {
+        ArgumentNullException.ThrowIfNull(saved);
+        ArgumentNullException.ThrowIfNull(status);
+        ScheduledCheckSettings settings = saved.Normalize();
+        (bool timeEnabled, bool weekdayEnabled, bool enableToggleEnabled) = ScheduleControlAvailability(CadenceIndex(settings.Cadence), isSaving);
+        string time = settings.LocalStartTime.ToString(DisplayFormat.TimePattern, culture ?? CultureInfo.CurrentCulture);
+        string summary = settings.Cadence switch
+        {
+            ScheduleCadence.Manual => "Not scheduled. PC Steward checks only when you start a scan.",
+            ScheduleCadence.Daily when settings.IsEnabled => $"Checks this PC every day at {time}.",
+            ScheduleCadence.Weekly when settings.IsEnabled => $"Checks this PC every {(culture ?? CultureInfo.CurrentCulture).DateTimeFormat.GetDayName(settings.WeeklyDay)} at {time}.",
+            _ => "Paused. Turn on scheduled checks to create the check."
+        };
+        DetailFact[] facts =
+        [
+            new("Task status", status.LastResult),
+            new("Last completed", status.LastCompletedAt is { } completed ? DisplayFormat.DateTime(completed, culture, zone) : "Not yet")
+        ];
+        return new(CadenceIndex(settings.Cadence), settings.IsEnabled, settings.NotificationsEnabled, settings.WeeklyDay, settings.LocalStartTime,
+            IsCadenceEnabled: !isSaving,
+            IsTimeEnabled: timeEnabled,
+            IsWeekdayEnabled: weekdayEnabled,
+            IsEnableToggleEnabled: enableToggleEnabled,
+            IsNotificationsToggleEnabled: !isSaving,
+            IsSaveEnabled: !isSaving && !otherWorkActive,
+            summary, facts);
+    }
+
+    /// <summary>
+    /// FR-HIS-05: copy the existing sanitized diagnostic bundle (<see cref="SanitizedDiagnosticBundle.Create"/>) of recent update
+    /// outcomes. It is unavailable only when the recorded history could not be read.
+    /// </summary>
+    public static DiagnosticCopyPresentation DiagnosticCopy(bool historyUnavailable) => new(
+        "Copy diagnostic",
+        "Copy a sanitized diagnostic of recent update outcomes",
+        "Copies a sanitized summary of recent update outcomes (package IDs, versions, outcomes and exit codes) for a support report. Paths, passwords and tokens are removed and nothing is sent anywhere. It names installed apps, so share it only with people you trust.",
+        !historyUnavailable,
+        historyUnavailable ? "PC Steward couldn't read its recorded update history just now, so there is nothing to copy." : null);
+
+    /// <summary>The most entries <see cref="SanitizedDiagnosticBundle.Create"/> includes (pinned by a test against the bundle itself).</summary>
+    public const int DiagnosticBundleMaximumEntries = 256;
+
+    /// <summary>The confirmation shown after the diagnostic was copied.</summary>
+    public static string DiagnosticCopied(int updateRecords) => updateRecords == 0
+        ? "Diagnostic copied to the clipboard. It contains no update records yet."
+        : $"Diagnostic copied to the clipboard ({DisplayFormat.Plural(Math.Min(updateRecords, DiagnosticBundleMaximumEntries), "update record")}). Paste it into your report.";
+
+    /// <summary>Shown when Windows would not accept the clipboard text.</summary>
+    public const string DiagnosticCopyFailed = "The clipboard is busy, so the diagnostic wasn't copied. Try again.";
+}

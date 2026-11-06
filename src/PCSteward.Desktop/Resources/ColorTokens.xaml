@@ -1,7 +1,18 @@
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- Transcribed from design/design-tokens.json.  Consumers use semantic brushes only. -->
+    <!-- Transcribed from design/design-tokens.json.  Consumers use semantic brushes only.
+         Task 73 Phase 5 contrast fix (audit §5 and P-M9; WCAG 1.4.3 text 4.5:1, 1.4.11 non-text 3:1; ratios are WCAG 2.x relative-luminance
+         ratios, recomputed from these hex values by UiAccessibilityContractTests):
+         - Light/Default StewardTertiaryTextBrush #6B788D -> #5B677B (captions, evidence labels, activity times):
+           5.28:1 on canvas #F3F6FA, 4.98:1 on canvas-alt #EAF0F6, 5.72:1 on surface #FFFFFF, 5.42:1 on surface-subtle #F7F9FC,
+           5.17:1 on brand-subtle #EDF4FF (was 4.13 / 3.90 / 4.47 / 4.24 / 4.04).
+         - Dark StewardTertiaryTextBrush #98A6BA is unchanged: 7.40:1 on canvas #0E1522, 6.69:1 on surface #171F2D, 6.09:1 on
+           surface-subtle #1D2736, 4.97:1 on brand-subtle #17355F.
+         - StewardBorderStrongBrush (control and chip boundaries): light #8994A6 -> #7A8599 (3.43:1 canvas, 3.72:1 surface, 3.53:1
+           surface-subtle; was 2.83 / 3.07 / 2.91); dark #68778F -> #7B8AA3 (5.23:1 canvas, 4.73:1 surface, 4.30:1 surface-subtle,
+           3.51:1 brand-subtle; was 4.02 / 3.64 / 3.31 / 2.70).
+         - High contrast stays mapped to SystemColor* resources. -->
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Default">
             <SolidColorBrush x:Key="StewardCanvasBrush" Color="#F3F6FA" />
@@ -9,10 +20,10 @@
             <SolidColorBrush x:Key="StewardSurfaceBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="StewardSurfaceSubtleBrush" Color="#F7F9FC" />
             <SolidColorBrush x:Key="StewardBorderBrush" Color="#D7DEE8" />
-            <SolidColorBrush x:Key="StewardBorderStrongBrush" Color="#8994A6" />
+            <SolidColorBrush x:Key="StewardBorderStrongBrush" Color="#7A8599" />
             <SolidColorBrush x:Key="StewardTextBrush" Color="#172033" />
             <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="#526077" />
-            <SolidColorBrush x:Key="StewardTertiaryTextBrush" Color="#6B788D" />
+            <SolidColorBrush x:Key="StewardTertiaryTextBrush" Color="#5B677B" />
             <SolidColorBrush x:Key="StewardBrandBrush" Color="#1F62D1" />
             <SolidColorBrush x:Key="StewardBrandSubtleBrush" Color="#EDF4FF" />
             <SolidColorBrush x:Key="StewardBrandTextBrush" Color="#174EA6" />
@@ -36,10 +47,10 @@
             <SolidColorBrush x:Key="StewardSurfaceBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="StewardSurfaceSubtleBrush" Color="#F7F9FC" />
             <SolidColorBrush x:Key="StewardBorderBrush" Color="#D7DEE8" />
-            <SolidColorBrush x:Key="StewardBorderStrongBrush" Color="#8994A6" />
+            <SolidColorBrush x:Key="StewardBorderStrongBrush" Color="#7A8599" />
             <SolidColorBrush x:Key="StewardTextBrush" Color="#172033" />
             <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="#526077" />
-            <SolidColorBrush x:Key="StewardTertiaryTextBrush" Color="#6B788D" />
+            <SolidColorBrush x:Key="StewardTertiaryTextBrush" Color="#5B677B" />
             <SolidColorBrush x:Key="StewardBrandBrush" Color="#1F62D1" />
             <SolidColorBrush x:Key="StewardBrandSubtleBrush" Color="#EDF4FF" />
             <SolidColorBrush x:Key="StewardBrandTextBrush" Color="#174EA6" />
@@ -63,7 +74,7 @@
             <SolidColorBrush x:Key="StewardSurfaceBrush" Color="#171F2D" />
             <SolidColorBrush x:Key="StewardSurfaceSubtleBrush" Color="#1D2736" />
             <SolidColorBrush x:Key="StewardBorderBrush" Color="#364357" />
-            <SolidColorBrush x:Key="StewardBorderStrongBrush" Color="#68778F" />
+            <SolidColorBrush x:Key="StewardBorderStrongBrush" Color="#7B8AA3" />
             <SolidColorBrush x:Key="StewardTextBrush" Color="#F2F5F9" />
             <SolidColorBrush x:Key="StewardSecondaryTextBrush" Color="#BBC5D4" />
             <SolidColorBrush x:Key="StewardTertiaryTextBrush" Color="#98A6BA" />

@@ -464,6 +464,83 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.IsNull(await database.Store.GetApprovedJobAsync(review.Review!.JobId, CancellationToken.None));
     }
 
+    /// <summary>
+    /// Task 73 Phase 6 review M2 (SPEC §9.13 G4, FR-UPD-10): a batch review is prepared from ONE fresh inventory observation, and each
+    /// app gets exactly the evidence the single-app path would prepare from that same state.
+    /// </summary>
+    [TestMethod]
+    [TestCategory("FR-UPD-10")]
+    public async Task BatchReviewPreparationScansOnceAndMatchesTheSingleAppEvidence()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        (CanonicalProduct widget, InstallationInstance widgetInstance, string widgetKey) = RegistryProduct("Contoso Widget", "ContosoWidgetKey");
+        (CanonicalProduct gadget, InstallationInstance gadgetInstance, string gadgetKey) = RegistryProduct("Contoso Gadget", "ContosoGadgetKey");
+        SourcePackageRecord widgetPackage = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable");
+        SourcePackageRecord gadgetPackage = new("winget", "Contoso.Gadget", "Contoso Gadget", "Contoso", "1.0.0", "2.0.0", "User", "x64", "Stable");
+        CountingProvider provider = new(new ProviderScanResult([widget, gadget], [widgetInstance, gadgetInstance], [], []));
+        using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [provider], decisions: database.Store, sourceCache: database.Store,
+            updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [widgetPackage, gadgetPackage], []))],
+            structuredUpdateCandidates: new PerPackageAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0"), new("winget", "Contoso.Gadget", "1.0.0", "2.0.0")));
+        UpdateSelectionPreparation[] withoutConsent = [.. await inventory.PrepareApprovedUpdateSelectionsAsync([widgetKey, gadgetKey], null, CancellationToken.None)];
+        Assert.IsTrue(withoutConsent.All(prepared => prepared.Selection is null && prepared.Message == "Approved update sources are not enabled."));
+        await EnableTrustedSourcesAsync(database);
+        await inventory.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+        Assert.IsTrue((await inventory.CreateManualMappingAsync(widgetKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
+        Assert.IsTrue((await inventory.CreateManualMappingAsync(gadgetKey, "winget", "Contoso.Gadget", true, "reviewed", CancellationToken.None)).IsValid);
+        int scansBefore = provider.Scans;
+        List<int> progress = [];
+
+        IReadOnlyList<UpdateSelectionPreparation> batch = await inventory.PrepareApprovedUpdateSelectionsAsync([widgetKey, "missing-product", gadgetKey], new ListProgress(progress), CancellationToken.None);
+
+        Assert.AreEqual(scansBefore + 1, provider.Scans, "one fresh inventory observation for the whole batch review");
+        CollectionAssert.AreEqual(ExpectedProgress, progress);
+        Assert.IsNotNull(batch[0].Selection, batch[0].Message);
+        Assert.IsNull(batch[1].Selection);
+        StringAssert.Contains(batch[1].Message, "no longer present");
+        Assert.IsNotNull(batch[2].Selection, batch[2].Message);
+        Assert.AreEqual("2.0.0", batch[2].Selection!.CandidateVersion);
+        Assert.AreSame(batch[0].Observation, batch[2].Observation, "both apps were validated against the same observation");
+        UpdateSelectionPreparation single = await inventory.PrepareApprovedUpdateSelectionAsync(widgetKey, CancellationToken.None);
+        Assert.IsTrue(single.Selection!.EqualsEvidence(batch[0].Selection!), "the batch and single-app paths prepare the same evidence");
+        Assert.AreEqual(scansBefore + 2, provider.Scans, "the single-app path still takes its own fresh observation");
+
+        PackageDerivedRunningApplicationDetector running = new(() => []);
+        ReviewedUpdateExecutionWorkflow workflow = new(inventory.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store),
+            new SequentialUpdateBatchCoordinator(new RecordingExecutor(), new NeverReachedInventory(), new InMemoryHistory(), running), running,
+            prepareSelections: inventory.PrepareApprovedUpdateSelectionsAsync);
+        UpdateBatchReviewPreparation review = await workflow.BeginBatchReviewAsync([widgetKey, gadgetKey], CancellationToken.None);
+        Assert.HasCount(2, review.Items);
+        Assert.AreEqual(scansBefore + 3, provider.Scans, "the composed batch review also scans once");
+    }
+
+    private static readonly int[] ExpectedProgress = [1, 2, 3];
+
+    private static (CanonicalProduct Product, InstallationInstance Instance, string StableKey) RegistryProduct(string name, string registryKey)
+    {
+        Guid productId = Guid.NewGuid();
+        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", registryKey, name, "Contoso", "1.0.0", "User", "x64", "Stable", "Application", "fixture"));
+        return (new CanonicalProduct(productId, stableKey, name), new InstallationInstance(Guid.NewGuid(), productId, "registry", registryKey, "1.0.0", "User", "x64", "Contoso", Channel: "Stable"), stableKey);
+    }
+
+    private sealed class CountingProvider(ProviderScanResult result) : ILocalInventoryProvider
+    {
+        public int Scans { get; private set; }
+        public string Name => "fixture";
+        public TimeSpan Timeout => TimeSpan.FromSeconds(1);
+        public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { Scans++; return Task.FromResult(result); }
+    }
+
+    private sealed class PerPackageAuthority(params StructuredUpdateCandidateEvidence[] evidence) : IStructuredUpdateCandidateAuthority
+    {
+        public Task<StructuredUpdateCandidateEvidence?> ResolveAsync(string sourceId, string packageId, CancellationToken cancellationToken) =>
+            Task.FromResult(evidence.FirstOrDefault(candidate => candidate.SourceId == sourceId && candidate.PackageId == packageId));
+    }
+
+    private sealed class ListProgress(List<int> values) : IProgress<int>
+    {
+        public void Report(int value) => values.Add(value);
+    }
+
     private static Task EnableTrustedSourcesAsync(TestDatabase database) => database.Store.SaveConnectorStatesAsync(
         new Dictionary<string, ConnectorState>
         {

@@ -67,6 +67,15 @@ public static class UpdateIntelligence
             string itemExplanation = availabilityUnavailable
                 ? "The repository identified the exact package, but it did not establish update availability. This is incomplete source evidence, not a decision for you; refresh the source to retry."
                 : mapping.EvidenceExplanation;
+            // Owner decision 2026-11-02: a recorded skip of exactly this candidate version hides it. It runs after matching and can
+            // only remove actionability; a newer candidate than the skipped version is assessed normally again.
+            if (status is UpdateIntelligenceStatus.VerifiedUpdate or UpdateIntelligenceStatus.ReviewRequired &&
+                SkipVersionRule.Applies(policy.SkippedVersion, mapping.CandidateVersion))
+            {
+                status = UpdateIntelligenceStatus.Skipped;
+                mapping = mapping with { IsActionable = false };
+                itemExplanation = $"You chose to skip version {mapping.CandidateVersion}. A newer version will be offered again.";
+            }
             items.Add(new(product.StableProductKey, status, mapping, itemExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
         }
         Dictionary<UpdateIntelligenceStatus, int> counts = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => items.Count(item => item.Status == status));
@@ -136,4 +145,21 @@ public static class UpdateIntelligence
     }
 
     private static bool HasDifferentKnownValues(IEnumerable<string?> values) => values.Where(value => !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase)).Select(value => value!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).Count() > 1;
+}
+
+/// <summary>
+/// Owner decision 2026-11-02 (FR-POL-01–05): the deterministic Skip this version rule. A skip of version V applies only while the
+/// candidate equals V under the domain version comparer, or is the identical (trimmed, case-insensitive) string the user saw.
+/// Newer, older, incomparable and connector-deferred candidates are not skipped and stay subject to the existing actionability rules.
+/// </summary>
+public static class SkipVersionRule
+{
+    public static bool Applies(string? skippedVersion, string? candidateVersion)
+    {
+        if (string.IsNullOrWhiteSpace(skippedVersion) || string.IsNullOrWhiteSpace(candidateVersion)) return false;
+        string skipped = skippedVersion.Trim();
+        string candidate = candidateVersion.Trim();
+        if (string.Equals(skipped, candidate, StringComparison.OrdinalIgnoreCase)) return true;
+        return VersionComparison.Compare(new VersionComparisonRequest(skipped, candidate)).Outcome == VersionComparisonOutcome.Equal;
+    }
 }

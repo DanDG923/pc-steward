@@ -1,5 +1,7 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 73 — merged onto the activated Task 50; design §8.6 gate 3 re-verified (2026-11-06; code review and tests only; no host action).** Requirements: `FR-UPD-15`, `FR-UI-03/04`, `TM-03/04/07/13`; ADR-031 decision 7. [Record](review/TASK_73_GATE3_REVERIFICATION_2026-11-06.md). The Task 73 branch merged Task 50 `5285cfb` without conflicts. Gate 3 holds: the offer comes only from the verified observer, and the view model's not-admitted reason is unconditional (not derived from `HasSupportedMode`), so Confirm stays off after activation. One test that asserted non-admission was updated to assert the admitted shape plus the still-disabled offer, and a dangling `cref` to a replaced test (a CS1574 build break) was fixed. Not built here (no .NET SDK in the cloud container); Windows CI on PR #13 is the proof.
+
 **Task 50 — Part C re-run: D2a, H1 and D2b done (2026-11-06; read-only checks plus the owner's own Chocolatey change).** [Re-run plan §9](review/TASK_50_PART_C_RERUN_PLAN.md). D2a: `LEGACY-KEY state=true admitted=True`, `CACHELOCATION empty`. The owner then ran H1 himself (all exits 0). D2b: the cache folder `exists=True`, it is outside the profile and the Chocolatey root, `requesterWritableAces=0`, `ownerIsRequester=False` and `inheritanceProtected=True`. Both step-6 causes are cleared as far as read-only checks can show. Next: approval CB2-prep (CB2.2 before 2026-11-19T19:23Z).
 
 **Task 50 — G9 real-launch residuals and target choice: plan written (2026-11-06; docs only; no code or host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Plan](review/TASK_50_G9_TARGET_PLAN.md). Recommends closing the package-route residuals on the owner's PC with one owner-approved test package, driven by a real desktop review composition, and deferring the client-route residuals until a newer Chocolatey release is reviewed. Ends with owner decisions G9-D1 to G9-D6. Nothing is approved.
@@ -134,6 +136,112 @@ PC Steward has not been launched. Next: the Part C host plan (first launch and p
 - The route stays non-admitted.
 
 **Task 73 — Desktop UI and UX overhaul: direction accepted (2026-11-01).** The owner chose concept A (Calm Native) as the base, with B's Ready / Needs review / Ignored grouping on Updates and D's Review → Update → Verify stepper for the job. Recorded in [ADR-030](adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md), with a five-phase [plan](review/TASK_73_UI_UX_OVERHAUL_PLAN.md); the evidence is the [audit](review/UI_UX_OVERHAUL_AUDIT.md), the [research](review/UI_UX_OVERHAUL_RESEARCH.md) and the [concepts](review/UI_UX_OVERHAUL_CONCEPTS.md). Implementation awaits owner approval of its branch and PR. No code has changed. It is not part of Task 50 admission.
+
+**Task 73 — Phase 1 foundations (2026-11-01), draft PR DanDG923/pc-steward#13 stacked on the Task 50 branch:**
+- What it adds: a persistent shell (navigation items, title bar and progress band created once; Home, Updates, Installed apps, Activity, Decisions, plus Settings and About), `ItemInvoked`, title-bar Back with a portable back stack, entry points for every page, a real Decisions page, one SPEC §7.2 status vocabulary (icon + text + tone), Mica with a custom title bar and tokens, and one elevation story. The UI contract pins were updated deliberately, and none was weakened. Requirements: `FR-UI-01/02/05`, `AC-UX-01–04`.
+- **Windows CI on `887094d` is green, including the Desktop build** (Security 1148, integration 970, architecture 97).
+- **Independent review: PASS with fixes**, with no Blocker or High and no behaviour change beyond presentation. All fixes are in `edfa0c0..b5a4eb8`, and **Windows CI is green** (architecture 100, integration 972, Security 1148):
+  - the user-scope copy no longer promises "no UAC prompt", and "designed to run without administrator rights" replaces "always";
+  - focus is restored only to a uniquely named control, and per-row Remove names include the product;
+  - leaving details to the page beneath it acts as Back;
+  - scan re-entrancy is guarded;
+  - high-contrast and theme changes refresh the page;
+  - scroll restore runs after layout;
+  - title-bar caption colours follow the theme, and XButton1 goes back.
+- **Phase 2 (`c9617c6..bccfbbc`, fixes `76ed54c..a34691b`): Updates grouping and the job stepper.**
+  - Updates: Ready (exactly VerifiedUpdate, nothing preselected), Needs review (the reason in words, no update control) and Ignored/skipped; Patch/Minor/Major badges.
+  - The job: Review (a structured sheet; Cancel default; shield only when admin is needed), Update (non-modal, no cancel), Verify (honest outcomes, Delete downloaded files).
+  - Unchanged: the review → confirm → execute ordering. Pin moved from the old outcome dialog to the sheet.
+  - Outcome display:
+    - Verified comes only from Success, and Restart required only from RestartRequired;
+    - Installed, not verified covers inconclusive, failed verification, timed out, and verification required with provider-completed evidence;
+    - Result not verified means no evidence;
+    - then Failed and Not started (a refused UAC prompt returns to Review).
+  - Omitted: Skip this version (no domain operation), and update-all (the workflow reviews one app per job).
+  - **Independent review: PASS with fixes** (no Blocker). Fixed:
+    - the review button stuck after Cancel;
+    - a missing guard while a review is being prepared;
+    - TimedOut shown as Failed;
+    - an unevidenced "Installed" headline;
+    - focus, selection-persistence and auto-navigation details;
+    - the confirmation expander now starts open.
+  - **Windows CI on `a34691b` is green** (architecture 105, integration 984, Security 1148).
+- **Phase 3 (`48cff2b..81f406f`): Home, Installed apps, Activity and Decisions.**
+  - Home: a status hero, freshness in words, a compact attention view and filtered tiles; FR-UI-01 counts shown once; Unmanaged is "not a safety warning".
+  - Installed apps: saved filters with true counts. App details use the shared confirmation dialogs and show a structured timeline, instances and candidates.
+  - Activity: filterable and grouped by day, with the Phase 2 outcome mapping and sanitized details.
+  - Decisions: one reversible view.
+  - App-wide `DisplayFormat` for dates and sizes.
+  - **Two deviations, accepted by review:**
+    - (a) a read-only SQLite `IActivityHistoryReader`: two parameterised, bounded SELECTs, no schema change and no writes (contract-pinned), run under the existing data-operation read lease;
+    - (b) Home "Check for updates" runs a scan and then, only when update sources are already enabled and the scan completed, the existing source refresh. This is an explicit user action, consent is unchanged, and it involves no elevation and no new kind of network traffic.
+  - **Windows CI on `81f406f` is green** (architecture 108, integration 994, Security 1148).
+  - **Independent review: PASS with fixes** (no Blocker or High). Fixed in `1f1c729`:
+    - the freshness age comes from the least-fresh source;
+    - attention items resolve when the installed version meets or passes the target, changes, or the app disappears (never relabelled Verified);
+    - "Scan again" when sources are off, with a visible caption when they are on;
+    - restart items reachable from Activity;
+    - scan and source times on Home;
+    - unique Decisions names that include the kind;
+    - names moved off panels;
+    - "Live" lasts 15 minutes.
+    - Source refresh still cannot be cancelled; the existing API takes no token, and each source has its own timeout.
+  - **CI intermittent fixed at the cause:** `96cf2db` (on the Task 50 branch, merged here as `97f32d1`). The N1 fixture root grants its creator an inheritable FullControl ACE, so `LockTree`'s owner change no longer depends on the runner's inherited ACL. The failure occurred on `011a3df` and on `1f1c729`; both unchanged re-runs passed. **Windows CI is green on `96cf2db` and on `97f32d1`** (Security 1148).
+- **Phase 4 (`0573d18..bd44359`, fixes `e16125e`): Settings and Data & reset.**
+  - Settings: single-column cards; source consent is unchanged and starts nothing. Every setting applies immediately except the **schedule**, which keeps an explicit **Save schedule**: it registers a Windows scheduled task, and WinUI spurious-selection behaviour could not be validated without a Windows runtime.
+  - Schedule saving fails closed on an incomplete choice, separates Task Scheduler refusal from a busy gate, rolls back a half-applied change, and counts as active work.
+  - Data & reset: separate cards with sizes, last-cleaned times and Deletes/Keeps text ("Not measured separately" where no honest size exists), the exact labels, and Factory reset in a danger zone. The RESET flow and the clear operations are byte-identical.
+  - Copy diagnostic uses the sanitized bundle.
+  - Startup and recovery windows: styled, with selectable details that are sanitized (profile and user name redacted) and copied with a clipboard flush.
+  - **Independent review: PASS with fixes; fixes in `e16125e`. Windows CI is green** (architecture 113, integration 1007, Security 1148).
+  - Residual: the shared sanitizer misses Windows paths containing spaces outside the profile folder.
+- **Phase 5 (`72d5261..111bbc6`): accessibility and copy pass** (best effort under ADR-021).
+  - What it adds:
+    - heading levels on every page;
+    - UIA notifications when scans, checks, reviews, jobs, saves and clears finish, with live regions only on state changes;
+    - label-in-name helpers and a source scan;
+    - F6 and Shift+F6, Ctrl+F, and a guarded F5;
+    - access keys (none on Confirm);
+    - selectable evidence;
+    - contrast fixes (light tertiary text `#5B677B` = 5.28:1 on canvas; strong borders above 3:1);
+    - wrap panels and a minimum window size;
+    - a jargon and verb sweep, with pinned safety and disclosure texts left verbatim.
+  - **Windows CI on `111bbc6` is green** (architecture 121, integration 1011, Security 1148).
+- **Final integrated review (`52244ff..111bbc6`): PASS with fixes.** No Blocker or High, and no behaviour change beyond the recorded deviations. Every protective test was kept or strengthened, outcomes are truthful everywhere, and layering is clean.
+  - Docs: the F5/Ctrl+F and Phase 4 deviations are recorded in the plan and in ADR-030; traceability is updated.
+  - Code fixes applied in `053d04f..a5b8d1c`:
+    - TimedOut is "Result not verified";
+    - Confirm blocks other work at once, and a lease refusal is Not started;
+    - unused vocabulary chips removed;
+    - sanitized dialog details;
+    - no duplicate Narrator speech;
+    - a DPI-scaled minimum window size;
+    - timeline and Activity show the same outcome.
+  - **Windows CI on `a5b8d1c` is green** (architecture 122, integration 1012, Security 1148).
+  - **Task 73 implementation is complete pending owner review.** See [owner decisions](review/OWNER_DECISIONS_2026-11-02.md).
+- **Chocolatey client update UI (ADR-031; `b9d39eb..d0c2c56`, CRLF test fix `b8cbf53`, review fixes `d850404..fc937a7`).**
+  - Settings and Installed-apps cards plus a review dialog for the Chocolatey client update. The cards show the scan-reported version, marked "(reported by the last scan) · Not checked yet"; they never offer an update.
+  - The offer comes only from a fresh, read-only, non-elevated check of the installed client, run when the review opens (design §8.6 gate 3, `ec5d7dd`). The dialog shows "Checking…" and then the result, without scrolling back to the top; the summary is a polite live region. A verified older listed release gives "A newer reviewed Chocolatey release is available: X (not yet enabled)". Otherwise the dialog says why: not on the reviewed list, the reviewed list is unavailable, no newer reviewed release, or "PC Steward could not verify the installed Chocolatey" (refused, could not be completed, timed out or stopped). The scan-reported version is shown separately and is for information only. Independent review Low fixes L1–L6 were applied on `task73-offer-fixes`. Windows CI is pending.
+  - Confirm is always disabled, and "Not available yet: waiting for review and owner approval" is always shown. No dispatch path exists, pinned on compiled IL.
+  - History shows client run-fault and lost-track details only from a leading marker written by the workflow, so it can't be spoofed by helper text.
+  - A catalog fault falls back to "unavailable" and cannot stop startup.
+  - **Independent review: PASS with fixes**, all applied. Windows CI was green at `b8cbf53`; the review fixes are running in CI.
+- **Phase 6 (owner request, 2026-11-02; `a0ac5b4..2a9c31d`): Update all available (SPEC §9.13 G4) and Skip this version** (an owner decision, with SPEC and planning amended).
+  - Update all: multi-select with nothing preselected and only Ready items; one frozen review sheet and one confirmation; N per-app immutable jobs, each revalidated with `EqualsEvidence` before its own approval; one UAC prompt per machine-scope app; stop only between apps; earlier results kept.
+  - Skip version: stored in `stable_decisions` (kind SkipVersion), with no migration; deterministic equality; ignore and pin take precedence; never actionable.
+  - **Windows CI on `2a9c31d` is green** (architecture 123, integration 1033, Security 1148, domain 184).
+  - **Independent review: PASS with fixes** (no Blocker or High). The docs and the code fixes are in `a5a22fd..aae865f`:
+    - one shared scan for batch preparation, with progress and cancel, and `ReviewedAt` taken after preparation;
+    - the expiry re-checked immediately before each approval, and "valid until" shown;
+    - settle-wait labels;
+    - settle-timeout shown as Not started;
+    - a single-use preparation;
+    - the current app named in the band;
+    - tests for a declined UAC prompt continuing and for a stop during the settle wait.
+  - **Windows CI is green on `aae865f`**, and on `99fa841` with the ADR-031 work merged from the Task 50 branch (architecture 129, integration 1055, Security 1180, domain 192).
+  - Follow-up recorded: split `MainWindow.cs` (≈2,800 lines).
+  - Owner-host evidence still needed before release: Narrator, keyboard, theme and high contrast, scaling, UAC end to end, a schedule refusal and rollback, and the clipboard after close.
+- The navigation-host deviation (a persistent host, not Frame/Page) is recorded in ADR-030's implementation notes.
 
 **Task 50 — Desktop review and history UI and the intent resolver (2026-11-01):** admission obligations 5 and 6. `ChocolateyReviewIntentResolver` resolves through the existing connector, stamping its time before the query; it is fail-closed and unconstructed. The Desktop gets a review-disclosure dialog with Confirm disabled (the no-review presentation) and a read-only reviewed-outcomes list, both backed by portable Application view models. The route stays non-admitted, and the pins are unchanged. Requirements: `FR-UPD-15`, `FR-UPD-01`, `FR-HIS-01`, `TM-03/04/07/13`.
 - **Windows CI on `58a736c` is green, including the Desktop build** (Security 1148/1148, integration 961).

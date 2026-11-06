@@ -61,8 +61,8 @@ public sealed class UpdateProgressPresentationTests
         Assert.IsTrue(consumer.Consume(Frame(1, UpdateProgressPhase.Queued)));
         Assert.IsTrue(consumer.Consume(Frame(2, UpdateProgressPhase.Preparing)));
         Assert.IsTrue(consumer.Consume(Frame(3, UpdateProgressPhase.ProcessStarted)));
-        StringAssert.Contains(consumer.Label, "Provider client started");
-        StringAssert.Contains(consumer.Label, "installer progress indeterminate");
+        StringAssert.Contains(consumer.Label, "Update tool started");
+        StringAssert.Contains(consumer.Label, "installer progress unknown");
         Assert.IsTrue(consumer.IsIndeterminate);
         Assert.IsTrue(consumer.Consume(Frame(4, UpdateProgressPhase.Verifying)));
         Assert.AreEqual("Verifying installed version", consumer.Label);
@@ -77,7 +77,7 @@ public sealed class UpdateProgressPresentationTests
     {
         UpdateProgressPresentation consumer = new(Job, Correlation, UpdateScope.Machine);
         Assert.IsTrue(consumer.Consume(Frame(1, UpdateProgressPhase.HandedToHelper)));
-        Assert.AreEqual("Update request sent; helper validation and provider execution indeterminate", consumer.Label);
+        Assert.AreEqual("Update request sent; waiting to learn whether the update started (progress unknown)", consumer.Label);
         Assert.IsTrue(consumer.IsIndeterminate);
         Assert.IsTrue(consumer.Consume(Frame(2, UpdateProgressPhase.Final, UpdateHistoryStatus.RestartRequired, UpdateProgressCompletion.Recorded)));
         Assert.AreEqual("Restart required", consumer.Label);

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using PCSteward.Application;
 using PCSteward.Domain;
 
 namespace PCSteward.Provider.Chocolatey.Native;
@@ -126,6 +127,30 @@ internal static class ChocolateyDesktopObservation
     internal static async Task<ChocolateyDesktopOutcome> ObserveOutcomeAsync(ChocolateyDesktopObserve observe, string targetId,
         ChocolateyNativeVersion frozenInstalled, TimeSpan budget, TimeProvider time, CancellationToken cancellationToken)
     {
+        ChocolateyProfileResult? result = (await RunCappedAsync(observe, targetId, frozenInstalled, budget, time, cancellationToken)
+            .ConfigureAwait(false)).Result;
+        if (result is ChocolateyProfileResult.Refused { Reason: ChocolateyProfileRefusal.InstalledMismatch })
+            return new(null, InstalledMismatch: !cancellationToken.IsCancellationRequested);
+        if (result is not ChocolateyProfileResult.Observed observed) return default;
+        ChocolateyProfileObservation observation = observed.Observation;
+        if (cancellationToken.IsCancellationRequested || !IsConsistent(observation, targetId, frozenInstalled))
+        {
+            observation.Dispose();
+            return default;
+        }
+        return new(observation, InstalledMismatch: false);
+    }
+
+    /// <summary>
+    /// The bounded run shared by <see cref="ObserveOutcomeAsync"/> and the installed-client display check: one observation off
+    /// the caller's thread under a token linked to the caller's that is also cancelled at the real-time cap
+    /// (<paramref name="budget"/> + <see cref="CapMargin"/>). The raw result is returned (an <c>Observed</c> one is owned by the
+    /// caller); a caller cancellation, an invalid budget or an observer exception gives no result, and an observation abandoned
+    /// at the cap gives no result with <see cref="ChocolateyCappedResult.CapReached"/> set (it is disposed when it returns).
+    /// </summary>
+    private static async Task<ChocolateyCappedResult> RunCappedAsync(ChocolateyDesktopObserve observe, string targetId,
+        ChocolateyNativeVersion frozenInstalled, TimeSpan budget, TimeProvider time, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(observe);
         ArgumentNullException.ThrowIfNull(time);
         if (cancellationToken.IsCancellationRequested || budget <= TimeSpan.Zero || budget > Budget) return default;
@@ -144,30 +169,89 @@ internal static class ChocolateyDesktopObservation
         }
         _ = work.ContinueWith(static (_, state) => ((CancellationTokenSource)state!).Dispose(), limit, CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        ChocolateyProfileResult? result;
         try
         {
-            result = await work.WaitAsync(budget + CapMargin, time, cancellationToken).ConfigureAwait(false);
+            return new(await work.WaitAsync(budget + CapMargin, time, cancellationToken).ConfigureAwait(false), CapReached: false);
         }
         catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
         {
             DisposeWhenDone(work);
-            return default;
+            return new(null, CapReached: !cancellationToken.IsCancellationRequested);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             return default;
         }
-        if (result is ChocolateyProfileResult.Refused { Reason: ChocolateyProfileRefusal.InstalledMismatch })
-            return new(null, InstalledMismatch: !cancellationToken.IsCancellationRequested);
-        if (result is not ChocolateyProfileResult.Observed observed) return default;
-        ChocolateyProfileObservation observation = observed.Observation;
-        if (cancellationToken.IsCancellationRequested || !IsConsistent(observation, targetId, frozenInstalled))
+    }
+
+    /// <summary>
+    /// FR-UPD-15, FR-UI-03/04; ADR-031 ("offered only from a listed, currently trusted client"), design §8.6 gate 3: the
+    /// production display check of the installed client: <see cref="ProductionObserveClient"/> (Desktop role, client mode,
+    /// current process token, no expected fingerprint) over <see cref="ChocolateyReleaseList.Listed"/> within <see cref="Budget"/>.
+    /// Read-only and non-elevated: it never launches the client, holds no file and starts nothing.
+    /// </summary>
+    internal static Task<ChocolateyInstalledClientVerification> ObserveInstalledClientAsync(CancellationToken cancellationToken) =>
+        ObserveInstalledClientAsync(ProductionObserveClient, ChocolateyReleaseList.Listed, Budget, TimeProvider.System, cancellationToken);
+
+    /// <summary>
+    /// ADR-031 design §8.6 gate 3: which listed release the installed client verifiably is, for display. In client mode the
+    /// observer selects the listed release by engine digest, requires every release file to match it and the <c>chocolatey</c>
+    /// registration to be at that release's version, and then requires that version to equal the expected one (step 8a). So:
+    /// <list type="number">
+    /// <item>The newest listed release is observed first (no scan data is used). A consistent <c>Observed</c> result whose
+    /// matched release is exactly that listed release is <see cref="ChocolateyInstalledClientVerification.Verified"/>.</item>
+    /// <item>Only a settled <c>Refused/InstalledMismatch</c> naming another listed release leads to one second observation at that
+    /// release; its value only chooses what to observe and is never shown. The second result is judged by rule 1 alone.</item>
+    /// <item>Every other refusal (and a second mismatch) is <c>Refused</c>; an exhausted budget, an observer interrupt or the cap
+    /// is <c>TimedOut</c>; a caller cancellation is <c>Cancelled</c>; a token refusal, an exception or an empty list is
+    /// <c>Unavailable</c>.</item>
+    /// </list>
+    /// Both observations together stay within <paramref name="budget"/> (plus one <see cref="CapMargin"/>). Every observation is
+    /// disposed here; only the release's normalized version leaves this method.
+    /// </summary>
+    internal static async Task<ChocolateyInstalledClientVerification> ObserveInstalledClientAsync(ChocolateyDesktopObserve observeClient,
+        ChocolateyReleaseList releases, TimeSpan budget, TimeProvider time, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(observeClient);
+        ArgumentNullException.ThrowIfNull(releases);
+        ArgumentNullException.ThrowIfNull(time);
+        if (cancellationToken.IsCancellationRequested) return ChocolateyInstalledClientVerification.Cancelled;
+        if (budget <= TimeSpan.Zero || budget > Budget || releases.Releases.Count == 0) return ChocolateyInstalledClientVerification.Unavailable;
+        long started = time.GetTimestamp();
+        ChocolateyReviewedRelease expected = releases.Releases[^1];
+        for (int attempt = 0; attempt < 2; attempt++)
         {
-            observation.Dispose();
-            return default;
+            TimeSpan remaining = budget - time.GetElapsedTime(started);
+            if (remaining <= TimeSpan.Zero) return ChocolateyInstalledClientVerification.TimedOut;
+            ChocolateyCappedResult capped = await RunCappedAsync(observeClient, ReviewedUpdateOperation.ChocolateyClientPackageId,
+                expected.NativeVersion, remaining, time, cancellationToken).ConfigureAwait(false);
+            if (capped.Result is ChocolateyProfileResult.Observed observed)
+            {
+                using ChocolateyProfileObservation observation = observed.Observation;
+                if (cancellationToken.IsCancellationRequested) return ChocolateyInstalledClientVerification.Cancelled;
+                return releases.Contains(expected) && ReferenceEquals(observation.Release, expected) &&
+                    IsConsistent(observation, ReviewedUpdateOperation.ChocolateyClientPackageId, expected.NativeVersion)
+                        ? ChocolateyInstalledClientVerification.Verified(expected.Version)
+                        : ChocolateyInstalledClientVerification.Refused;
+            }
+            if (cancellationToken.IsCancellationRequested) return ChocolateyInstalledClientVerification.Cancelled;
+            switch (capped.Result)
+            {
+                case ChocolateyProfileResult.Refused { Reason: ChocolateyProfileRefusal.InstalledMismatch, ObservedInstalled: { } other } when attempt == 0:
+                    ChocolateyReviewedRelease? listed = releases.FindByVersion(other);
+                    if (listed is null || ReferenceEquals(listed, expected)) return ChocolateyInstalledClientVerification.Refused;
+                    expected = listed;
+                    continue;
+                case ChocolateyProfileResult.Refused:
+                    return ChocolateyInstalledClientVerification.Refused;
+                // The caller did not cancel, so an observer interrupt is the budget or the cap.
+                case ChocolateyProfileResult.TimedOut or ChocolateyProfileResult.Cancelled:
+                    return ChocolateyInstalledClientVerification.TimedOut;
+                default:
+                    return capped.CapReached ? ChocolateyInstalledClientVerification.TimedOut : ChocolateyInstalledClientVerification.Unavailable;
+            }
         }
-        return new(observation, InstalledMismatch: false);
+        return ChocolateyInstalledClientVerification.Refused;
     }
 
     /// <summary>
@@ -199,6 +283,9 @@ internal static class ChocolateyDesktopObservation
 /// is true only when the observer settled as <c>Refused/InstalledMismatch</c> (then <see cref="Observation"/> is null).
 /// </summary>
 internal readonly record struct ChocolateyDesktopOutcome(ChocolateyProfileObservation? Observation, bool InstalledMismatch);
+
+/// <summary>One bounded observation's raw result (an <c>Observed</c> one owned by the caller), and whether it was abandoned at the cap.</summary>
+internal readonly record struct ChocolateyCappedResult(ChocolateyProfileResult? Result, bool CapReached);
 
 /// <summary>The F′ observation's file-first baseline (Task 90 M2), kept for the post-update check of the same operation.</summary>
 /// <remarks>ADR-031 design §8.3: for the client self-update, <see cref="SourceRelease"/> is the F′ observation's listed release.</remarks>

@@ -26,7 +26,7 @@
                     Foreground="{ThemeResource StewardBrandTextBrush}"
                     Text="{Binding Initials}" />
             </Border>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                 <TextBlock
                     FontWeight="SemiBold"
                     Foreground="{ThemeResource StewardTextBrush}"
@@ -39,7 +39,7 @@
                     Text="{Binding Publisher}"
                     TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
                 <TextBlock
                     Foreground="{ThemeResource StewardTextBrush}"
                     MaxLines="1"
@@ -51,17 +51,23 @@
                     Text="{Binding ScopeAndProvider}"
                     TextTrimming="CharacterEllipsis" />
             </StackPanel>
+            <!-- The same status chip as StewardVisuals.Badge: glyph, label and tone brushes from StatusVocabulary. -->
             <Border
                 Grid.Column="3"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
+                Background="{Binding StatusBackground}"
+                BorderBrush="{Binding StatusForeground}"
                 Style="{StaticResource StewardStatusChipStyle}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon FontSize="12" Glyph="{Binding StatusGlyph}" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon
+                        FontSize="12"
+                        Foreground="{Binding StatusForeground}"
+                        Glyph="{Binding StatusGlyph}" />
                     <TextBlock
                         FontSize="12"
                         FontWeight="SemiBold"
-                        Foreground="{ThemeResource StewardTextBrush}"
+                        Foreground="{Binding StatusForeground}"
                         Text="{Binding StatusLabel}"
                         TextWrapping="Wrap" />
                 </StackPanel>
