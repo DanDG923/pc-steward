@@ -429,3 +429,5 @@ Paste the whole output and say what the UAC prompt showed.
 > - **C-run:** the same script with `-Mode Run`. This is one launch of `PCSteward.Desktop.exe --qualify-chocolatey-helper` with exactly one UAC prompt, for `PCSteward.ElevatedHelper.exe` signed by the owner-only test signer `67B59B4C…`, which I answer myself after checking its details.
 >
 > The pins are those of §11. No Chocolatey process, no package change, no scan, no refresh, no retry.
+
+**Approval C given by the owner (2026-11-06): "I approve Part C".** It covers C-pre, C-check and C-run exactly as in §11, each run once.
