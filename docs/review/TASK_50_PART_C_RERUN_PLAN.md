@@ -222,4 +222,30 @@ $pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHa
 
 ## 9. Results
 
-None yet.
+**D2 approved by the owner (2026-11-06T21:41Z): "I approve D2".** It covers D2a and D2b, each run once.
+
+**Run route for D2 (owner's request, 2026-11-06).** The owner asked for the read-only D2 runs to be done for him. Each was run once through a Claude Remote Control session on his PC, unelevated, in Windows PowerShell 5.1. The session took the §4 block unedited from `origin/phase/4-beta`, wrote it as an ASCII/CRLF temp file, ran it with `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, then deleted the file. The clone's branch and files and the rest of the machine were not touched. That route is acceptable only for read-only steps. H1, CB2 and C2 stay the owner's own: the tooling refuses a packaged process, and those steps carry prompts that only the owner should answer.
+
+### Result D2a (2026-11-06, about 21:44Z): as expected before H1
+
+```text
+D2 ELEVATED False
+D2 LEGACY-KEY state=true admitted=True
+D2 CACHELOCATION empty
+```
+
+Exit 0, no error text. This confirms the host's `containsLegacyPackageInstalls` value is exactly `true`, the value Profile V2 rev. 2.1 admits (handover §5 item 2).
+
+### Result H1 (2026-11-06, about 21:46Z): owner's own change
+
+The owner ran the H1 block once in his own administrator Windows PowerShell window. Output: `ICACLS-EXIT 0`, `SETOWNER-EXIT 0`, `CHOCO-CONFIG-EXIT 0`. This was the owner's decision about his own Chocolatey setup, made outside PC Steward.
+
+### Result D2b (2026-11-06, about 21:47Z): PASS
+
+```text
+D2 ELEVATED False
+D2 LEGACY-KEY state=true admitted=True
+D2 CACHELOCATION absolute-local exists=True underUserProfile=False underChocolateyRoot=False reparsePoint=False requesterWritableAces=0 ownerIsRequester=False inheritanceProtected=True
+```
+
+Exit 0, no error text, and every line equals §4's expected D2b output. Both step-6 causes are now cleared as far as the read-only checks can show; ancestors and deny entries are proven only by C2-run. **Next:** approval CB2-prep. CB2.2 must run before 2026-11-19T19:23Z.
