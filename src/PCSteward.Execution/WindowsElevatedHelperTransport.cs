@@ -265,6 +265,13 @@ internal sealed partial class WindowsElevatedHelperTransport : IElevatedHelperTr
             start.ArgumentList.Add(argument);
         }
 
+        // Security review H1: no UAC prompt while a user-writable environment source holds a .NET runtime control name.
+        if (!ElevatedRuntimeEnvironmentGuard.PermitsElevatedLaunch())
+        {
+            failure = Failed("elevated-helper-runtime-environment-refused");
+            return null;
+        }
+
         try
         {
             failure = null;
@@ -505,9 +512,12 @@ public static partial class ElevatedHelperEntryPoint
     /// Task 50 design rev 6 §5.1 and qualification probe spec rev 4 §2 (dispatch order is normative): a ten-argument line with
     /// <c>--kind</c> first goes to the probe bootstrap (<see cref="RunProbeAsync"/>), which never reads a request; otherwise
     /// <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every other command line takes the
-    /// unchanged protocol-1 path, which refuses anything but <c>--protocol 1</c> with exit code 20.
+    /// unchanged protocol-1 path, which refuses anything but <c>--protocol 1</c> with exit code 20. Security review H1: before
+    /// any of these, a helper whose own environment holds a .NET runtime control name ends with the refusal exit code
+    /// (<see cref="ElevatedRuntimeEnvironmentGuard.RefusedExitCode"/>), before it connects or reads anything.
     /// </summary>
     public static Task<int> RunAsync(string[] arguments) =>
+        !ElevatedRuntimeEnvironmentGuard.ProcessEnvironmentIsClean() ? Task.FromResult(ElevatedRuntimeEnvironmentGuard.RefusedExitCode) :
         SelectsProbe(arguments) ? RunProbeAsync(arguments) :
         SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : RunProtocol1Async(arguments);
 

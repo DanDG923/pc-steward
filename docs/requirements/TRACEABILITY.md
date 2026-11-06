@@ -1,3 +1,10 @@
+# Task 50 — security review of real Chocolatey updates
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `TM-03/04/07/13`; ADR-018, ADR-022, ADR-025, ADR-031; [review](../review/TASK_50_CHOCOLATEY_UPDATE_SECURITY_REVIEW.md).
+
+- **Code.** `ElevatedRuntimeEnvironmentGuard` (Execution) before the three `runas` launches and first in `ElevatedHelperEntryPoint.RunAsync`; helper project `StartupHookSupport=false`, `AppHostDotNetSearch=Global`.
+- **Tests.** Security `ElevatedRuntimeEnvironmentGuardTests`; Architecture `ElevatedRuntimeEnvironmentBoundaryTests`.
+
 # Task 50 — Chocolatey Confirm screen build (G9-D4)
 
 `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [design note](../review/TASK_50_CHOCOLATEY_CONFIRM_SCREEN_DESIGN.md) §2–§5, §9; [build record](../review/TASK_50_CHOCOLATEY_CONFIRM_SCREEN_BUILD.md).
