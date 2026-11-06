@@ -1,3 +1,10 @@
+# Task 50 — Part C re-run plan (revision 1, draft; docs and tests only)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [re-run plan](../review/TASK_50_PART_C_RERUN_PLAN.md); [handover](../review/TASK_50_HANDOVER_2026-11-06.md) §5 items 1–2.
+
+- **Plan.** D2 read-only config check, the owner's own `cacheLocation` change (H1, outside PC Steward), CB2 redeploy of `5606da2` with refreshed pins, and C2 (Part C again). Nothing is approved.
+- **Tests.** Security `PartCRerunPlanBlockTests`: every PowerShell block is ASCII and parses under Windows PowerShell 5.1 (Windows-only); D2 contains no mutating command and never prints the `cacheLocation` value; the CB2 blocks carry build commit `5606da2…` and old signer `67B59B4C…`, not the previous pins.
+
 # Task 50 — Profile V2 revision 2.1: `containsLegacyPackageInstalls` (C1 fix)
 
 `FR-UPD-15`, `TM-03/04/07/13`; [revision record](../review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md); [Profile V2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) revision note; [Part C plan §13](../review/TASK_50_PART_C_PLAN.md).

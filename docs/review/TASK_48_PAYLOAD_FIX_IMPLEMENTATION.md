@@ -47,7 +47,7 @@ Logs: ignored `artifacts/task-48-deployment/payload-red.log`, `payload-exit-red.
 
 The original candidate's OneDrive files have reparse attributes and are correctly rejected by the strict elevated importer. A non-elevated copy of the same approved bytes was made and verified; no elevated cloud-reparse exception was introduced. Its initial directory was renamed to avoid sharing the app data-root prefix. Final location:
 
-- Root: `C:\Users\swigg\AppData\Local\OwnerOnlyDeploymentCandidates\task-48-43F209AD1E79`
+- Root: `%USERPROFILE%\AppData\Local\OwnerOnlyDeploymentCandidates\task-48-43F209AD1E79`
 - Payload: `payload\` under that root; **102 exact files**, same original manifest/content hashes, no reparse paths or alternate streams.
 - Manifest: `unsigned-candidate-manifest.json`, SHA-256 `43F209AD1E79E5B2A251F29D723059F419789E44FF72671D68D5C7C7A0B3B7AE`.
 
