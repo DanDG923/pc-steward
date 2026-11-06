@@ -155,3 +155,18 @@ None of these decisions approves a host step. Each host step in §7 still needs 
 - **G9-D6 = keep G-0**, on the condition that the composition is deployed only after a recorded probe PASS.
 
 None of these approves a host step.
+
+## 12. ripgrep upstream check (2026-11-06; read-only, cloud)
+
+Owner-approved in place of a fork (§11, G9-D2b). Nothing was installed or run; the zips were only downloaded and hashed in the cloud.
+
+| File | Size (B) | SHA-256 computed from the official GitHub release download | Upstream `.sha256` file | Chocolatey package page |
+|---|---|---|---|---|
+| `ripgrep-14.1.0-x86_64-pc-windows-msvc.zip` | 2,020,417 | `FE4F75EDFAA50F0D4FECBF47696B7629F3449C9C2C5A4DA828753139E5A2E203` | Match | Match |
+| `ripgrep-14.1.0-i686-pc-windows-msvc.zip` | 1,918,821 | `3B2E4776F9510D2F502FEA92F1BE45C02FF0F46DA50F034B04FE866182FFC0D6` | Match | Match |
+| `ripgrep-15.2.0-x86_64-pc-windows-msvc.zip` | 1,789,611 | `71B2FEF860ABE467217A538FF31DE02F5258807C0129F771846F87BD029AAFC5` | Match | Match |
+| `ripgrep-15.2.0-i686-pc-windows-msvc.zip` | 1,642,641 | `9BF73BDB3FDA9AD4B0235E1295B02C717031C986AFA4D7C05DD0AF8B74010A95` | Match | Match |
+
+Sources: `https://github.com/BurntSushi/ripgrep/releases/download/<v>/<file>` and `<file>.sha256`; package pages `community.chocolatey.org/packages/ripgrep/14.1.0` and `/15.2.0` (Files section, and VERIFICATION.txt for 14.1.0). Both versions are approved as trusted packages; Validation and Verification testing passed; the scan "Note" flag (1–4 detections) stands, with exact counts behind a login.
+
+**What this proves:** the checksums the Community package declares for its embedded zips are the exact bytes BurntSushi published. **What it does not yet prove:** that the zips inside the downloaded nupkg have those bytes. That needs the nupkg itself, and `community.chocolatey.org` is blocked by this cloud environment's network policy. Either the host is allowed and the check is finished in the cloud, or the G9-T1 block hashes the zips from the nupkg before installing.
