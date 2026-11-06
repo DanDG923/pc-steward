@@ -169,7 +169,7 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'OLD-DEPLOYMENT valid
 
 ## 6. CB2 exec (approval CB2-exec, given after CB2.6 is pasted back)
 
-**CB2.8 — one `-ExecuteApprovedPlan`.** **Not runnable yet:** the two placeholders are filled from CB2.6's `planSha256` and `encodedCommandSha256` in a later revision of this plan. The remover takes out the current deployment and its signer `67B59B4C…`; it never touches the data folder.
+**CB2.8 — one `-ExecuteApprovedPlan`.** Filled from CB2.6's `planSha256` and `encodedCommandSha256` (run 2026-11-06; see §9). The remover takes out the current deployment and its signer `67B59B4C…`; it never touches the data folder.
 
 **Prompts, in order:**
 1. **UAC** for **Windows PowerShell**, verified publisher **Microsoft Windows** → **Yes**.
@@ -181,7 +181,7 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'OLD-DEPLOYMENT valid
 Expected as CB.8: `"status": "Validated"`, exit codes 0, `userDatabaseSha256` `78697727…`, `"retry": false`, `"launched": false`.
 
 ```powershell
-$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 '<CB2.6-planSha256>' -ApprovedEncodedCommandSha256 '<CB2.6-encodedCommandSha256>' }
+$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 '98BF0E3BDBFED36E8EAF37CD6D418FAD6581377286AFE98E3B0C7EE42698842C' -ApprovedEncodedCommandSha256 'B4DD5C5D7B28995F9EECEFD88998E9DC4F2127A711F2CE12E9ED7A8969B4200A' }
 ```
 
 **CB2.9 — post-checks** (read-only, new window). Expected as CB.9, with the CB2.3 manifest, `INSTALLED-CAPABILITY 50F169DD…654B`, every `STORE … new=1 old=0` (where `old` now also counts `67B59B4C…`), and a new signer about 14 days later. The new thumbprint, its `notAfterUtc` and `LEDGER-SHA256` become C2 pins.
@@ -198,21 +198,21 @@ The same three steps as Part C plan §11, run once each, with the probe script u
 
 **C2-pre** is Part C plan §11 "C-pre" exactly: the first normal launch of the new deployment, Activity → "Reviewed update outcomes", then close. It may migrate the database; C2-check's baseline is taken after it.
 
-**C2-check** (read-only; launches nothing). Paste line V4 first. **Not runnable yet:** the five placeholders are filled from CB2.3 and CB2.9.
+**C2-check** (read-only; launches nothing). Paste line V4 first. The five pins are filled from CB2.3 and CB2.9 (§9): build record `5877F073…59A4`, manifest `F16B2AAC…B954`, ledger `C04D177C…0F1C`, signer `C7372974A9E6257671E106F11E660BC29C928849`, NotAfter `2026-11-20T22:01:22Z`.
 
 ```powershell
-$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Check -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '<CB2.3-BUILD-RECORD-SHA256>' -ExpectedManifestSha256 '<CB2.3-MANIFEST-SHA256>' -ExpectedLedgerSha256 '<CB2.9-LEDGER-SHA256>' -ExpectedSignerThumbprint '<CB2.9-new-thumbprint>' -ExpectedSignerNotAfterUtc '<CB2.9-notAfterUtc>'; 'PROBE-EXIT ' + $LASTEXITCODE }
+$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Check -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '5877F0736DFF2134C19F42A7C53706B19979CAF885C63209F0BAB524ED4759A4' -ExpectedManifestSha256 'F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954' -ExpectedLedgerSha256 'C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C' -ExpectedSignerThumbprint 'C7372974A9E6257671E106F11E660BC29C928849' -ExpectedSignerNotAfterUtc '2026-11-20T22:01:22Z'; 'PROBE-EXIT ' + $LASTEXITCODE }
 ```
 
-**C2-run** (one launch; exactly one UAC prompt, for `PCSteward.ElevatedHelper.exe` signed by the new signer, with `--kind qualify-chocolatey-helper` in its details). Same placeholders.
+**C2-run** (one launch; exactly one UAC prompt, for `PCSteward.ElevatedHelper.exe` signed by the new signer `C7372974…8849`, with `--kind qualify-chocolatey-helper` in its details). Same pins.
 
 ```powershell
-$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Run -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '<CB2.3-BUILD-RECORD-SHA256>' -ExpectedManifestSha256 '<CB2.3-MANIFEST-SHA256>' -ExpectedLedgerSha256 '<CB2.9-LEDGER-SHA256>' -ExpectedSignerThumbprint '<CB2.9-new-thumbprint>' -ExpectedSignerNotAfterUtc '<CB2.9-notAfterUtc>'; 'PROBE-EXIT ' + $LASTEXITCODE }
+$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Run -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '5877F0736DFF2134C19F42A7C53706B19979CAF885C63209F0BAB524ED4759A4' -ExpectedManifestSha256 'F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954' -ExpectedLedgerSha256 'C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C' -ExpectedSignerThumbprint 'C7372974A9E6257671E106F11E660BC29C928849' -ExpectedSignerNotAfterUtc '2026-11-20T22:01:22Z'; 'PROBE-EXIT ' + $LASTEXITCODE }
 ```
 
 **Expected and interpretation:** Part C plan §11 "C-run" and spec §8, unchanged. Any FAIL stops use with no retry. INCONCLUSIVE proves nothing. A PASS proves UAC and pre-launch enforcement only (§1).
 
-## 8. Approvals (templates; none given yet)
+## 8. Approvals
 
 - **D2:** "I approve D2", covering D2a now and D2b after H1, each once, read-only, in my own normal Windows PowerShell window.
 - **H1:** the owner's own decision to change Chocolatey. It is recorded here when the owner reports it; PC Steward neither performs nor approves it.
@@ -249,3 +249,48 @@ D2 CACHELOCATION absolute-local exists=True underUserProfile=False underChocolat
 ```
 
 Exit 0, no error text, and every line equals §4's expected D2b output. Both step-6 causes are now cleared as far as the read-only checks can show; ancestors and deny entries are proven only by C2-run. **Next:** approval CB2-prep. CB2.2 must run before 2026-11-19T19:23Z.
+
+**CB2-prep approved by the owner (2026-11-06): "I approve CB2-prep".** The owner ran CB2.1 in his own window. CB2.2–CB2.7 are unelevated and were run once each through the same Remote Control route as D2 (the session process was unpackaged: `GetCurrentPackageFullName` returned 15700).
+
+### Results CB2.1–CB2.7 (2026-11-06): PASS
+
+- **CB2.1** (owner): `GIT-HOOKS postCheckout=False referenceTransaction=False`, `FETCH-EXIT 0`, `COMMIT-PRESENT-EXIT 0`, `WORKTREE-EXIT 0`.
+- **CB2.2:** `HEAD 5606da23…9289`, `DIRTY 0`, all ten scripts at their CRLF pins, probe `831B5E17…E77A`, capability `50F169DD…654B`, database `equalsPin=True sidecars=0`, `OLD-SIGNER inMy=1 … hoursLeft=334`, `CB2-OK`.
+- **CB2.3:** `BUILD-EXIT 0`, validation Pass, `pinned-unsigned-v2`, protocol 2, 103 files, 51,717,654 B, commit `5606da2…`, not dirty, SDK 10.0.403, unsigned, `probeIncluded=True`. `MANIFEST-SHA256 F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954` (file hash equal), `BUILD-RECORD-SHA256 5877F0736DFF2134C19F42A7C53706B19979CAF885C63209F0BAB524ED4759A4`, `CB3-OK`.
+- **CB2.4:** database copy hashes equal (`78697727…55BE`), `CB4-OK`.
+- **CB2.5:** `planSha256 98BF0E3BDBFED36E8EAF37CD6D418FAD6581377286AFE98E3B0C7EE42698842C`, old ledger `CBAB8C0A…C852`, `CB5-OK`.
+- **CB2.6:** CheckOnly Pass, `programSha256 035662CB…716C`, `encodedCommandSha256 B4DD5C5D7B28995F9EECEFD88998E9DC4F2127A711F2CE12E9ED7A8969B4200A` (length 28,964), unpackaged process.
+- **CB2.7:** `OLD-DEPLOYMENT` Pass with thumbprint `67B59B4C…75DA`, `CB7-OK`.
+
+**CB2-exec approved by the owner (2026-11-06T22:02Z): "I approve CB2-exec".**
+
+### Result CB2.8 (2026-11-06T22:01Z): Validated
+
+The owner ran CB2.8 once in his own normal Windows PowerShell window and saw exactly prompts 1–3 (UAC, Root DELETE of `67B59B4C…`, Security Warning for the new certificate); no rollback prompt.
+
+```text
+CALLER 62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8
+"status": "Validated", "attempt": 1, "nativeExitCode": 0, "resultExitCode": 0, "resultPhase": "validated",
+"resultFailure": null, "postcheckFailure": null, "recordFailure": null, "failure": null,
+"userDatabaseSha256": "78697727CE44A1167537A04BE4554339028F660DA142E00894778D602BEC55BE", "retry": false, "launched": false
+```
+
+### Result CB2.9 (2026-11-06, about 22:03Z): PASS, with the known private-view residue
+
+Run once, read-only, through the Remote Control route.
+
+```text
+DB sha256=78697727CE44A1167537A04BE4554339028F660DA142E00894778D602BEC55BE bytes=200704 equalsPin=True sidecars=0 pcstewardProcesses=0
+VALIDATOR-EXIT 0
+NEW-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 helperProtocol=2 manifest=F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954 thumbprint=C7372974A9E6257671E106F11E660BC29C928849 launched=False
+INSTALLED-CAPABILITY 50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B
+STORE My new=1 old=0
+STORE Root new=1 old=0
+STORE TrustedPublisher new=1 old=1
+NEW-SIGNER notAfterUtc=2026-11-20T22:01:22.0000000Z ownerOnlySubject=True
+LEDGER-SHA256 C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C
+```
+
+`TrustedPublisher old=1` differs from the expected `old=0`. A follow-up read-only listing in the same route showed it is `ED6FBCE8BFB12A563B2DBE0776A9C4ACBE214C55` (NotAfter 2026-11-19T21:57:20Z) only. That is the stale entry already recorded as accepted residue: it is visible only in the Claude desktop app's private per-user view, the owner's certmgr.msc showed the real store empty, and with no trusted root it trusts nothing ([Part B failure record](../failures/task-50-part-b-exec.md), [recovery plan §4](TASK_50_RECOVERY_PLAN.md)). `67B59B4C…`, `473DB701…` and `14F34EFE…` are absent from every store. It does not block C2, and it expires on its own on 2026-11-19.
+
+**C2 pins** (now in §7): build record `5877F0736DFF2134C19F42A7C53706B19979CAF885C63209F0BAB524ED4759A4`, manifest `F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954`, ledger `C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C`, signer `C7372974A9E6257671E106F11E660BC29C928849`, NotAfter `2026-11-20T22:01:22Z`. **Next:** approval C2. C2-run must happen before the new signer expires.

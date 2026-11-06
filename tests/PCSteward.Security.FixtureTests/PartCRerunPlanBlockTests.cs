@@ -58,6 +58,23 @@ public sealed partial class PartCRerunPlanBlockTests
     }
 
     [TestMethod]
+    public void ProbeBlocksCarryTheRecordedPinsAndNoPlaceholders()
+    {
+        IReadOnlyList<string> blocks = Blocks();
+        Assert.IsFalse(blocks.Any(block => block.Contains("<CB2.", StringComparison.Ordinal)), "a block still has a placeholder");
+        IReadOnlyList<string> probes = blocks.Where(block => block.Contains("Task50-QualificationProbe.ps1", StringComparison.Ordinal) && block.Contains("-Mode ", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(2, probes.Count);
+        foreach (string probe in probes)
+        {
+            StringAssert.Contains(probe, "-ExpectedBuildRecordSha256 '5877F0736DFF2134C19F42A7C53706B19979CAF885C63209F0BAB524ED4759A4'");
+            StringAssert.Contains(probe, "-ExpectedManifestSha256 'F16B2AAC62EAE59866B9E24A5B5D1548612E4EC994FF57125F226DB1547FB954'");
+            StringAssert.Contains(probe, "-ExpectedLedgerSha256 'C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C'");
+            StringAssert.Contains(probe, "-ExpectedSignerThumbprint 'C7372974A9E6257671E106F11E660BC29C928849'");
+            StringAssert.Contains(probe, "-ExpectedSignerNotAfterUtc '2026-11-20T22:01:22Z'");
+        }
+    }
+
+    [TestMethod]
     public async Task EveryBlockParsesUnderWindowsPowerShell51()
     {
         if (!OperatingSystem.IsWindows())
