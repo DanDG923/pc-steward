@@ -57,7 +57,7 @@ Current checks found all three canonical roots absent:
 
 - `C:\Program Files\PC Steward`
 - `C:\Program Files\PC Steward OwnerOnlyTest State` (including `deployment.json`)
-- `C:\Users\swigg\AppData\Local\PCSteward` (including `pcsteward.db` and sidecars)
+- `%USERPROFILE%\AppData\Local\PCSteward` (including `pcsteward.db` and sidecars)
 
 No `PCSteward*` process was running. The state path is confirmed by `FactoryReset.GetStateRoot()` and desktop composition. The historical Task 39 installation/database evidence is not current-host evidence. No alternative installation, profile, machine or backup has been searched for or presumed. This plan is therefore a **fresh protected installation on this machine**, not a demonstrated replacement of the historical installation. If the owner intended another existing installation, resolve that target before action.
 

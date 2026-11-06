@@ -2,7 +2,7 @@
 
 **Current disposition:** Historical toolchain block resolved by the owner-authorized SDK 10.0.403/project recovery in [Task 45](../review/TASK_45_PROJECT_RESTORE.md): restore/build and full suite 290/290 pass. The initial commit identity failure is also resolved: the owner authorized their established identity per invocation, without changing persistent Git configuration. Build recovery is `659b58f`; requirements/Proposed ADR records are committed separately. Original errors below are historical evidence.
 
-**Date:** 2026-10-29. **Checkout:** `C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward`. **Branch:** `phase/5-v2-planning`.
+**Date:** 2026-10-29. **Checkout:** `<CLONE>`. **Branch:** `phase/5-v2-planning`.
 
 The accepted requirement/specification documentation was written before a compatible toolchain was available. Required build/test commands could not start at that time, so the repository's commit gate was unmet. The historical commands and errors below are retained; the current disposition above and Task 45 recovery record describe their resolution.
 
@@ -37,7 +37,7 @@ The command could not be loaded, possibly because:
       A compatible .NET SDK was not found.
 
 Requested SDK version: 10.0.302
-global.json file: C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward\global.json
+global.json file: <CLONE>\global.json
 
 Installed SDKs:
 No .NET SDKs were found.

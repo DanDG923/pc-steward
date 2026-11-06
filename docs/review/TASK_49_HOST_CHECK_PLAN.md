@@ -15,7 +15,7 @@ The current non-elevated `Test-OwnerOnlyProtectedTestDeployment.ps1 -RequirePinn
 ## Prepared replacement artifact
 
 - Source: `2a13fe5a2a67770485d5751f54fb30a417707ad7`; no runtime/script edits in this preparation.
-- Candidate: `C:\Users\swigg\AppData\Local\Temp\PCSteward-Task49-Candidate-dfc550b989e94987b4bedc0efb320013\payload`.
+- Candidate: `%USERPROFILE%\AppData\Local\Temp\PCSteward-Task49-Candidate-dfc550b989e94987b4bedc0efb320013\payload`.
 - Manifest: sibling `candidate-manifest.json`, SHA-256 **`6873DFA36B6CBDBD04CDE66306B757E1A231DB2B8F5AD0FD689FD058266D5E46`**.
 - **102 files / 50,131,120 bytes**; strict manifest/tree validator passed. Desktop/helper apphosts remain unsigned until protected signing; final signed hashes must be captured after installation.
 - Existing protected six-script execution set matches current repository hashes exactly: `C:\Program Files\PC Steward OwnerOnlyTest Execution 2a3df1cb2e13455285979c597fe609c8\scripts`. Hashes retained in `artifacts/task-49-host-preparation/script-pins.json`. Revalidate its execution ACLs and code pins before any elevation; preserve existing execution/compiler/evidence roots.

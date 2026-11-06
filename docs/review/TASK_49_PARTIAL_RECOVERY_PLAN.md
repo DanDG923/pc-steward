@@ -31,7 +31,7 @@ Recovery avoids SQLite loading altogether: the live and copied database hashes s
 | Immutable attempt 2 record | `152FDDA2EBDEB88E0EE2BBAE42859AF190D659C174294A8E21428BD28EB27945` |
 | Attempt 2 stopped-state record | `957ADCA3BB29F9483091642028C7A5B0E1F98AD99D7C19BED07A2C81209411E8` |
 
-Candidate root remains `C:\Users\swigg\AppData\Local\Temp\PCSteward-Task49-Candidate-dfc550b989e94987b4bedc0efb320013\payload`. Its sibling `candidate-manifest.json` has the approved new manifest hash above; sibling `remaining-old-payload.json` has the partial manifest hash above. Both are fixed local NTFS inputs with strict path/reparse/stream and byte validation.
+Candidate root remains `%USERPROFILE%\AppData\Local\Temp\PCSteward-Task49-Candidate-dfc550b989e94987b4bedc0efb320013\payload`. Its sibling `candidate-manifest.json` has the approved new manifest hash above; sibling `remaining-old-payload.json` has the partial manifest hash above. Both are fixed local NTFS inputs with strict path/reparse/stream and byte validation.
 
 Existing protected execution root remains `C:\Program Files\PC Steward OwnerOnlyTest Execution 2a3df1cb2e13455285979c597fe609c8`. Its six scripts match the unchanged canonical scripts and `script-pins.json`; execution-root/code/compiler protection rules are unchanged. No new installer/provider/code permission is introduced. Privileged execution remains one fixed literal command, not a mutable elevated `-File`: a self-contained gzip literal expands to the raw wrapper bytes via .NET. Independent byte verification proves the exact expansion; encoded launcher is 17,312 characters. No network input or executable-path/argument metadata is involved.
 
