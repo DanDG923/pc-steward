@@ -221,7 +221,7 @@ Expected: `CALLER <hash>`, `PLAN-FILE-SHA256` equal to R2.3, `EXECUTION-ROOT-ID 
 $cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } elseif (!(Test-Path -LiteralPath $pf)) { 'STOP: plan missing' } else { 'CALLER ' + $ch; 'PLAN-FILE-SHA256 ' + (Get-FileHash -LiteralPath $pf -Algorithm SHA256).Hash; $er = [string](([IO.File]::ReadAllText($pf) | ConvertFrom-Json).executionRoot); 'EXECUTION-ROOT-ID ' + $er.Substring($er.Length - 32); & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -CheckOnly }
 ```
 
-### R2-exec (approval R2-exec): template, not runnable while a `[…]` remains
+### R2-exec (approval R2-exec): filled with the R2.4 hashes (2026-11-06)
 
 **R2.5 — one `-ExecuteApprovedPlan`.** The owner runs it from a normal Windows PowerShell window and stays at the PC; PC Steward stays closed.
 
@@ -254,7 +254,7 @@ Expected:
 - `"retry": false` and `"launched": false`.
 
 ```powershell
-$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 '[plan SHA-256 from R2.4]' -ApprovedEncodedCommandSha256 '[encoded-command SHA-256 from R2.4]' }
+$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 'E05D0D08532770495DDB5FA062E223A77C635F0ED43AE9AC33BF16AA4895030F' -ApprovedEncodedCommandSha256 '96A577D5085A8196E1AB3F4724FEA36F54CB8D4E8E5BBCDEB4A021EAB56EF212' }
 ```
 
 **Stop rule.** The run must end `Validated`. Any other status (`NotStarted`, `StoppedOrUnknown`, `ValidatedPostcheckFailed`, `PendingOrUnknown`), `STOP:`, or an error is final. Report it and run nothing else. The recorded signing diagnostics will then say exactly why.
@@ -278,5 +278,47 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
 
 ### Approvals
 
-- **R2-prep** (R2.1–R2.4): a Git fetch and a new detached worktree in the owner's clone, plus one new plan folder. Nothing is elevated, signed or installed.
+- **R2-prep** (R2.1–R2.4): a Git fetch and a new detached worktree in the owner's clone, plus one new plan folder. Nothing is elevated, signed or installed. **Approved by the owner on 2026-11-06 in the cloud session ("I approve R2-prep").**
 - **R2-exec** (R2.5 + R3): given separately, after the R2.4 output is pasted back and the block is filled in with its two hashes.
+
+### Result R2-prep (2026-11-06): PASS
+
+The owner ran each step in their own normal Windows PowerShell 5.1 window, a new window per step.
+- **R2.1:** `GIT-HOOKS postCheckout=False referenceTransaction=False`, `FETCH-EXIT 0 gitLines=3`, `COMMIT-PRESENT-EXIT 0`, `WORKTREE-EXIT 0 gitLines=2`.
+- **R2.2:** `HEAD 385efe0a4fecdc39cb3faa08cb402e825fd729a8`, `DIRTY 0`, all ten scripts at their CRLF pins, `CAPABILITY 0772DAD8…D9C7`, `CANDIDATE-MANIFEST 23D7A71C…07B`, `DB … equalsPin=True sidecars=0 pcstewardProcesses=0`, `EOL CRLF`, `R2-VERIFY-OK`.
+- **R2.3:** `CALLER 62DDE7B4…3CE3C8` (CRLF), `"result": "Written"`, schema `pc-steward-exact-fresh-install-v1`, `planSha256` `E05D0D08532770495DDB5FA062E223A77C635F0ED43AE9AC33BF16AA4895030F` equal to `PLAN-FILE-SHA256`, `PLAN-CHECK pins=True`, `R2-PLAN-OK`.
+- **R2.4:**
+  - `"result": "Pass"`, `EXECUTION-ROOT-ID ae66a440150e4e6f9e1eb1334c0055e9`;
+  - `programSha256` `E049207E…8BCA`, `encodedCommandSha256` `96A577D5085A8196E1AB3F4724FEA36F54CB8D4E8E5BBCDEB4A021EAB56EF212`, `encodedCommandLength` 28644;
+  - `bootstrapTemplateSha256` `A9775FCE…31D7`, six scripts at the R2.2 CRLF values;
+  - origins `none` → `pinned-unsigned-v2`, manifest `23D7A71C…`, 103 files / 51,474,164 B;
+  - `installRootAbsent`, `stateRootAbsent` true, `ownerOnlyTestCertificates` 0;
+  - database `CEB917F4…`/159,744 B, no sidecars, no process, scheduled check `AbsentOrDisabled`, `sqliteLoaded` false, `elevated` false;
+  - `executionRootAbsent` and `attemptRecordAbsent` true;
+  - `packageQueryResult` 15700, `unpackagedProcess` true.
+
+The R2.5 block above now carries these two hashes. It needs approval R2-exec.
+
+### Result R2.5 (2026-11-06): Validated
+
+The owner ran R2.5 personally in their own normal Windows PowerShell window, starting at 10:43:19 UTC. They posted the output without a separate typed "I approve R2-exec"; running the block themselves is recorded as the owner's go-ahead. Prompts, as the owner reported them: one UAC prompt and the certificate Security Warning, nothing else. That is exactly the expected success path, with no rollback prompt.
+- `CALLER 62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8`
+- Attempt record: `"status": "Validated"`, `planSha256` `E05D0D08…030F`, `encodedCommandSha256` `96A577D5…F212`, `nativeExitCode` 0, `resultExitCode` 0, `resultPhase` `validated`.
+- `resultFailure`, `postcheckFailure`, `recordFailure` and `failure` are all null.
+- `userDatabaseSha256` `CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99`.
+- `retry` false, `launched` false. Completed 10:43:41 UTC, about 22 seconds.
+
+### Result R3 (2026-11-06): PASS; recovery complete
+
+The owner ran R3 in a new normal Windows PowerShell window.
+- `DB sha256=CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99 bytes=159744 equalsPin=True sidecars=0 pcstewardProcesses=0`
+- `VALIDATOR-EXIT 0`
+- `NEW-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 helperProtocol=2 manifest=23D7A71CBF8D14ED1471E0F0F625CF75F3D4C0A6CE0778D26C0DC17983F2807B thumbprint=473DB701E6349AF18F672151E44AC166F95C53FD launched=False`
+- `STORE My new=1 old=0`, `STORE Root new=1 old=0`, `STORE TrustedPublisher new=1 old=0`; `old` counts both `14F34EFE…` and `ED6FBCE8…`.
+- `NEW-SIGNER notAfterUtc=2026-11-20T10:43:26.0000000Z ownerOnlySubject=True`
+
+The owner did not note the thumbprint from the Security Warning. The single new signer `473DB701…53FD` is the one the validator binds to the installed, signed payload, and it is the only owner-only test certificate in each store, so no other certificate can have been the one shown.
+
+**Outcome.** The v2 owner-only test deployment (`pinned-unsigned-v2`, helper protocol 2, manifest `23D7A71C…`) is installed and independently validated. The user database is unchanged, and PC Steward has not been launched.
+
+This completes Part B of the Task 50 activation host-session plan, through the recovery route instead of the B4 redeploy. The new signer expires on 2026-11-20. Launching the app (Part C) needs its own approval.
