@@ -6,6 +6,7 @@
 **Related requirements:** spec §14.3–14.4, `FR-ONB-05` (Later), `FR-DAT-12–15`, `TM-09`, `TM-13`, `TM-18`
 **Related open decision:** `OD-09`
 **Would supersede, if accepted:** the "no built-in self-update" part of ADR-009 and the "replace the package manually" bullet of ADR-002. Both stay in force until this ADR is accepted and its gates pass.
+**Prior art:** [SELF_UPDATER_PRIOR_ART_2026-11-06.md](../review/SELF_UPDATER_PRIOR_ART_2026-11-06.md) (draft PR #22) surveys other self-updaters and their compromises. This revision adopts its recommendations: freshness statement, two release keys, immutable releases, fail-closed and no-shell rules, no version in the User-Agent, `assetName` pattern, same-volume promotion, sequence storage outside factory reset, and a standing manual path. It also confirms that no off-the-shelf updater framework (Velopack, Squirrel, WinSparkle, electron-updater, Tauri) is suitable as the trust layer, and that full TUF via a library is not needed.
 **Numbering note:** ADR-030 and ADR-031 are taken by open pull requests, so this note uses 032. Renumber at merge if needed.
 
 ## Context
@@ -74,11 +75,13 @@ Adopt **Option B first, then Option C**, behind the gates in "Before implementat
 
 ### 1. Trust anchor: an owner-held release key
 
-- PC Steward compiles in one or two **release public keys** (ECDSA P-256, which .NET supports natively, so no new dependency). The key list is code, never configuration, database or downloaded data.
+- PC Steward compiles in **two release public keys** from the first version that ships the updater (ECDSA P-256, which .NET supports natively, so no new dependency): a **primary** key on a hardware token (for example a YubiKey PIV slot) and a **backup** key generated at the same time and stored offline in a different place. A manifest signed by either key is valid. The key list is code, never configuration, database or downloaded data.
 - Every release carries a small **release manifest** (`pcsteward-release.json`) and a detached signature (`pcsteward-release.json.sig`) made with the matching private key.
 - The private key **never lives in GitHub**: not in Actions secrets, not in the repository, not on the CI runner. The owner signs on their own machine, ideally with a hardware-backed or non-exportable key. A GitHub compromise can then publish assets, but it cannot publish a release that PC Steward will accept.
 - Once a production Authenticode certificate exists, release executables are also Authenticode-signed and the updater additionally requires a valid signature from the pinned publisher. That is a second, independent check, not a replacement for the manifest key.
-- Key rotation: a new key is introduced by shipping it in a release signed by the old key. If a key is believed compromised, the next release removes it, and owners on older versions are told to update manually from the verified release page. The app cannot revoke a key by itself without an online authority, and this ADR accepts that limit rather than adding one.
+- Key rotation: if one key is lost or believed compromised, the next release is signed with the other key and ships a replacement for the lost one. Because both keys are compiled in from the start, losing one key does not strand installs on manual updates. If both are lost, owners update manually once from the verified release page. The app cannot revoke a key by itself without an online authority, and this ADR accepts that limit rather than adding one.
+- A separate, low-privilege **freshness key** (section 4a) is also compiled in. It can only sign freshness statements, never release manifests.
+- **GitHub immutable releases** are turned on for the repository before the first updater release, so a published release's assets and tag cannot be changed afterwards. This does not replace the manifest signature (a GitHub compromise can still publish a new release), but it stops after-the-fact asset swaps and tag moves.
 
 ### 2. Release manifest contents
 
@@ -93,7 +96,7 @@ The manifest is the only thing the updater trusts, and only after its signature 
 | `sequence` | Strictly increasing integer across all releases, used for downgrade and replay protection. |
 | `publishedUtc` | When the owner signed the release. |
 | `minimumUpdaterVersion` | Oldest PC Steward that may apply this release directly; older ones are told to update in steps or manually. |
-| `assetName`, `assetSize`, `assetSha256` | The one ZIP to download, its exact size and hash. |
+| `assetName`, `assetSize`, `assetSha256` | The one ZIP to download, its exact size and hash. `assetName` must match the compiled pattern `PCSteward-<version>-win-x64.zip` for this manifest's `version`, and is never used to build a path or a command. |
 | `payloadManifestSha256` | Hash of the per-file SHA-256 manifest inside the ZIP (the one the package script already produces). |
 | `sbomSha256` | Hash of the SBOM in the ZIP, so the evidence shown matches what is installed. |
 | `schemaVersionAfter` | Database schema version the release migrates to, so the review screen can say whether rollback needs the data backup. |
@@ -104,10 +107,10 @@ The manifest holds no URL, command, path, argument or script. Release notes are 
 ### 3. Discover
 
 - Only on the owner's request ("Check for PC Steward updates"), and optionally as a notify-only check inside the existing scheduled scan if the owner turns that on. The scheduled host gains no download or install capability, consistent with ADR-020.
-- One fixed, compiled, unauthenticated HTTPS request to the GitHub REST API for the latest releases of the fixed repository. No token, no account, a generic user agent (`PCSteward/<version>`), bounded response size, timeout and one request per check. GitHub's anonymous rate limit is far above what this needs.
+- One fixed, compiled, unauthenticated HTTPS request to the GitHub REST API for the latest releases of the fixed repository. No token, no account, a fixed user agent (`PCSteward`, with no version: the comparison is local, so GitHub does not need to know which version is running), bounded response size, timeout and one request per check. GitHub's anonymous rate limit is far above what this needs.
 - Drafts and pre-releases are ignored. The repository identity, API host and allowed asset download hosts are compiled allowlists. Redirects go only to the GitHub asset host allowlist.
 - Everything returned is untrusted (`TM-01`, `FR-SRC-05`): it only tells the updater where to fetch the manifest and signature. Release title, body and tag are display text at most.
-- What the check reveals: the user's IP address and PC Steward's version reach GitHub. This is disclosed in the settings screen. There is no telemetry.
+- What the check reveals: the user's IP address reaches GitHub, which learns that this address runs PC Steward but not which version. This is disclosed in the settings screen. There is no telemetry.
 
 ### 4. Verify the manifest (before the owner is asked anything)
 
@@ -121,6 +124,24 @@ The updater downloads the manifest and signature (small, size-capped) and accept
 6. Optional **cooling-off window**: `publishedUtc` is at least N hours old (see decisions). This gives the owner time to notice and withdraw a release made with a stolen key before other machines accept it.
 
 A failure in any step is shown as "Update found but not trusted" with the reason, and nothing is downloaded. It is never shown as "up to date".
+
+### 4a. Freshness statement (freeze protection)
+
+A signed manifest proves a release is genuine but not that it is the newest. To detect a freeze (someone hiding newer releases), each check also fetches a small `pcsteward-latest.json` and its signature, in the reduced form of TUF's timestamp role:
+
+`{ latestSequence, latestVersion, issuedUtc, expiresUtc }`
+
+- It is signed by the **freshness key**, which is separate from the release keys. This key may live in CI, because it can only withhold updates, never install anything. A scheduled CI job re-signs the statement (for example weekly) with a 30-day expiry.
+- The app accepts it only if the signature verifies, it has not expired, and `latestSequence` is not below the highest sequence this machine has seen. If its `latestSequence` names a release newer than the newest manifest the app found, that release must then be found and verified, or the app reports "Could not confirm you are up to date".
+- If the statement is missing, expired, older or invalid, the app says "Could not confirm you are up to date", never "Up to date".
+- A stolen freshness key lets an attacker hide updates for at most one expiry period. It cannot make the app install anything.
+- If the owner chooses not to run the scheduled job (decision 9), the fallback is to keep the freeze as an accepted residual risk and show "Newest signed release seen: X, signed on date Y" on the update screen, so a freeze is at least visible.
+
+### 4b. Fail-closed rules
+
+- Any exception, timeout, parse error or unexpected value during discovery, verification, download, extraction or hand-over means reject: "Update found but not trusted" or "Could not check". Nothing ever proceeds on an error.
+- There is no "install anyway" or override button, and no setting that relaxes a check.
+- No downloaded string is ever passed to a shell, PowerShell, `signtool` or any other process. Signature checks use .NET cryptography and, for Authenticode, `WinVerifyTrust` (or the .NET equivalent) called directly.
 
 ### 5. Owner review and approval
 
@@ -136,7 +157,7 @@ Nothing is ever downloaded or applied without this approval. There is no "instal
 - Its SHA-256 must equal `assetSha256`. Then it is extracted into a fresh staging folder under the same owned root, with ZIP-slip, absolute-path, alternate-stream, reparse-point, duplicate-entry and entry-count/size limits enforced.
 - Every extracted file must appear in the payload manifest with a matching hash, the payload manifest's own hash must equal `payloadManifestSha256`, and no extra files may exist.
 - If Authenticode signing is in force, both executables must carry a valid signature from the pinned publisher.
-- Only then is the staged folder promoted.
+- Only then is the staged folder promoted. Promotion is a rename within the same volume, not a copy, and nothing is re-downloaded or re-extracted afterwards, so the bytes that run are the bytes that were verified. The new process checks them again (section 8).
 
 ### 7. Install location and hand-over (no elevation needed)
 
@@ -154,6 +175,8 @@ The hand-over is:
 4. Start `versions\<new>\PCSteward.Desktop.exe` with one fixed, typed "complete self-update" flag and the job ID. No other arguments.
 5. The new version runs its health check (section 8). If it passes, it repoints the current-user Start menu shortcut and re-registers the exact scheduled task action to the new fixed path (ADR-020), then records Success.
 6. The previous version folder is kept as the last-known-good. Older folders beyond that are removed through the owned-root deletion path.
+
+An alternative is one stable `current\` folder (as Velopack does), so the shortcut and scheduled task never change and only the folder contents are swapped while PC Steward is closed. That means less to repoint after Success, but it needs a careful rename-while-not-running step and makes the previous version a sibling folder rather than the folder the shortcut still points at. This ADR recommends `versions\<version>\` because the old version stays the launch target until the new one passes its health check. This is decision 12.
 
 The first self-update from a loose ZIP "adopts" the app into the managed root. The old extracted folder is left untouched, and the owner is told they can delete it.
 
@@ -176,6 +199,17 @@ Anything else is Failed or Inconclusive, never Success (`TM-12`).
 - **Automatic, before Success.** If the health check fails or the new version does not report within a bounded time, the next launch (through the shortcut, which still points at the old version until Success) offers to restore. Restoring means restoring the database backup if a migration ran, and leaving the old version as current. Because the old version never stopped being the target of the shortcut and task, an interrupted update cannot leave the app unlaunchable.
 - **Owner-initiated, after Success.** Settings offers "Go back to version X" while the previous folder exists. If the update migrated the database, the screen says that changes made since the update will be lost, because migrations are forward-only (ADR-015). Rolling back records the higher sequence as still seen, so the rolled-back version will offer the newer release again but will not accept an older one.
 
+### 10. Where the highest accepted sequence lives
+
+Factory reset (ADR-013) deletes the per-user database, which would also erase the highest accepted sequence. The running build's compiled sequence is still a floor, so the exposure is small (it matters only after an owner rollback followed by a factory reset). The recommendation is to keep this one value in a small file under the binaries root (`%LocalAppData%\Programs\PCSteward\`), which factory reset does not touch. This is decision 11.
+
+### 11. The manual path stays
+
+A broken or tampered release could disable the updater by accident or on purpose. So, for every release:
+
+- the manual path (verified release page plus a documented hash and signature check) stays documented and is tested;
+- the notify-only check lives in code that the install code cannot break.
+
 ## Threats
 
 Proposed additions to `docs/architecture/THREAT_MODEL.md` once accepted:
@@ -183,14 +217,16 @@ Proposed additions to `docs/architecture/THREAT_MODEL.md` once accepted:
 | ID | Threat | Controls in this design |
 |---|---|---|
 | TM-19 | **Compromised release**: attacker with GitHub access publishes a malicious ZIP, edits an existing release or swaps an asset | Trust anchor is the owner's offline key, never GitHub. Manifest signature, asset hash and per-file hashes. Signing key not in GitHub. Optional cooling-off window. Authenticode publisher pinning once a certificate exists. |
-| TM-20 | **Stolen release signing key** | Hardware or non-exportable key, kept off CI. Cooling-off window lets the owner withdraw a bad release. Rotation via signed key list. Residual risk accepted and disclosed: no online revocation. |
-| TM-21 | **Downgrade or replay**: serving an older, genuinely signed release with known bugs | Strictly increasing `sequence` compared with the compiled sequence and the highest accepted sequence; version must increase; tag must match. |
-| TM-22 | **Freeze attack**: network or mirror hides newer releases | Last successful check time is always shown. "Could not check" is never shown as "up to date". Residual risk accepted: without an online timestamp service a freeze cannot be fully detected. |
+| TM-20 | **Stolen or lost release signing key** | Hardware primary key and offline backup key, both kept off CI and both compiled in. Cooling-off window lets the owner withdraw a bad release. The other key signs the replacement. Residual risk accepted and disclosed: no online revocation. |
+| TM-21 | **Downgrade or replay**: serving an older, genuinely signed release with known bugs | Strictly increasing `sequence`, covered by the signature together with version and asset hash, compared with the compiled sequence and the highest accepted sequence (stored outside the factory-reset set); version must increase; tag must match. |
+| TM-22 | **Freeze attack**: network or mirror hides newer releases | Short-lived freshness statement signed by a separate freshness key (section 4a). Missing or expired means "Could not confirm you are up to date". Last successful check time is always shown. If decision 9 declines the freshness key, this stays an accepted residual risk and the newest signed release seen is shown. |
 | TM-23 | **Malicious package contents**: path traversal, reparse points, extra files | Hardened extraction into an owned root, exact file set and hashes, size and count limits, verify before promote. |
 | TM-24 | **Interrupted or failed update** leaves no working app | Side-by-side install, shortcut and task repointed only after Success, database backup, automatic restore offer. |
 | TM-25 | **Updater becomes an unattended installer or persistence** | No auto-install setting; scheduled host stays notify-only; one immutable job per approval; no service, tray or resident updater. |
-| TM-26 | **Remote metadata becomes execution authority** (URL, tag, notes) | Manifest has no URL, path or command; compiled host and repo allowlists; release notes are plain untrusted text. |
-| TM-27 | **Privacy**: the check reveals use of PC Steward | Off unless the owner turns it on (see decisions); no token or identifier; disclosed in settings. |
+| TM-26 | **Remote metadata becomes execution authority** (URL, tag, notes) | Manifest has no URL, path or command; `assetName` must match a compiled pattern; compiled host and repo allowlists; release notes are plain untrusted text; no downloaded string reaches a shell or process (section 4b). |
+| TM-27 | **Privacy**: the check reveals use of PC Steward | Off unless the owner turns it on (see decisions); no token, identifier or version sent; disclosed in settings. |
+| TM-28 | **Verification fails open**: an error in a check is treated as a pass | Fail-closed rules and no override (section 4b); direct API calls, never a shell; a fixture test for every error path. |
+| TM-29 | **Check-then-use gap**: verified files are replaced before they run | Same-volume rename for promotion, no re-download or re-extract, and the new process re-verifies its own files (sections 6 and 8). |
 
 Existing `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 
@@ -204,14 +240,16 @@ Existing `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 
 ### Negative / trade-offs
 
-- New code that handles untrusted downloads, plus a key the owner must protect and back up. Losing the key means owners must update manually once to a release carrying a new key.
+- New code that handles untrusted downloads, plus two release keys the owner must protect in separate places and a freshness key with a scheduled CI re-signing job. Losing both release keys means owners must update manually once to a release carrying new keys.
 - PC Steward moves to a fixed per-user binaries folder on first self-update, which changes ADR-002's "run from anywhere" model for owners who use the updater.
 - The release process gets an extra, manual signing step that cannot be automated in CI without weakening the design.
 - Rolling back after a database migration loses changes made since the update.
 
 ### Follow-up controls and tests (when implemented)
 
-- Fixture tests for every manifest rejection: bad signature, unknown key, wrong product or channel, unknown field, lower or equal sequence, tag mismatch, too-new minimum updater version, inside cooling-off window.
+- Fixture tests for every manifest rejection: bad signature, unknown key, wrong product or channel, unknown field, lower or equal sequence, tag mismatch, `assetName` not matching the pattern, too-new minimum updater version, inside cooling-off window. The same for the freshness statement: bad signature, release key used instead of freshness key, expired, lower sequence, missing.
+- Fail-closed tests: an injected exception, timeout or parse error at every step ends in a reject, never a pass.
+- Each manifest verifies with the primary key and with the backup key.
 - Download tests: size overrun, hash mismatch, redirect to a non-allowlisted host, truncated transfer, cancellation.
 - Extraction tests: ZIP-slip, absolute paths, reparse points, alternate streams, duplicates, extra and missing files.
 - Hand-over tests: crash at each step, health-check failure, database migration failure, rollback with and without migration, shortcut and scheduled-task repointing, adoption from a loose ZIP.
@@ -220,23 +258,28 @@ Existing `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 ## Before implementation (gates)
 
 1. Owner accepts this ADR (and the decisions below).
-2. The release key exists, is held as decided, and a reproducible release build plus the signing step are documented and tested (Task 30 follow-up). Task 48 showed the desktop build is not yet byte-identical across build environments (CsWinRT-generated code differed), so the owner signs the exact artefacts CI produced after checking them, or builds locally; this is decision 3.
-3. Option B (notify only) ships and runs for at least one release cycle before Option C install code is merged.
-4. Independent security review of the implementation, and an isolated-environment test of update, interrupted update and rollback.
+2. GitHub immutable releases are turned on for the repository (if decision 10 is yes).
+3. Both release keys exist, the freshness key and its scheduled re-signing job exist (if decision 9 is yes), the release key is held as decided, and a reproducible release build plus the signing step are documented and tested (Task 30 follow-up). Task 48 showed the desktop build is not yet byte-identical across build environments (CsWinRT-generated code differed), so the owner signs the exact artefacts CI produced after checking them, or builds locally; this is decision 3.
+4. Option B (notify only) ships and runs for at least one release cycle before Option C install code is merged.
+5. Independent security review of the implementation, and an isolated-environment test of update, interrupted update and rollback.
 
 ## Decisions for the owner
 
 1. **Scope and order.** Accept Option B (notify only) first and Option C (in-app install) after it, as recommended? Or only B, or go straight to C?
-2. **Trust anchor.** Use an owner-held release signing key compiled into the app (recommended), and add Authenticode publisher pinning once a certificate exists? Or wait for a paid or Azure Trusted Signing certificate and rely on that alone?
+2. **Trust anchor.** Use owner-held release signing keys compiled into the app (recommended), and add Authenticode publisher pinning once a certificate exists? Or wait for a paid or Azure Trusted Signing certificate and rely on that alone?
 3. **Where the key lives and how releases are signed.** Hardware key or non-exportable key on your own PC (recommended), never in GitHub. Do you sign the CI-built artefacts after checking them, or build and sign locally?
 4. **Install location.** Accept moving PC Steward to `%LocalAppData%\Programs\PCSteward\versions\` on first self-update, keeping one previous version for rollback?
 5. **Checking.** Manual "Check for updates" only, or also a notify-only check during the scheduled scan? Should checking be off until you turn it on (recommended, since it contacts GitHub)?
 6. **Cooling-off window.** Only offer releases signed at least N hours ago (for example 24 hours) so a bad release can be withdrawn first, or offer immediately?
 7. **Pre-release / Beta channel.** Stable only for now (recommended), with `FR-ONB-05` Beta channel left as Later?
 8. **Rollback after a database migration.** Allow it with a clear "changes since the update will be lost" warning (recommended), or block rollback once the new version has migrated data?
+9. **Freshness key.** Add a CI-held freshness key that re-signs a 30-day freshness statement on a schedule, to detect hidden updates (recommended)? Or accept freezes as a residual risk and only show the newest signed release seen?
+10. **Backup key and immutable releases.** Generate and compile in a second, offline backup release key from the start (recommended)? And turn on GitHub immutable releases for `DanDG923/pc-steward` (recommended)? That is a repository setting you would change, and it affects only new releases.
+11. **Highest sequence storage.** Keep the highest accepted sequence in a small file under the binaries folder so factory reset does not clear it (recommended), or accept the small gap in writing?
+12. **Install layout.** Side-by-side `versions\<version>\` folders with the shortcut repointed after Success (recommended), or one stable `current\` folder whose contents are swapped?
 
 ## Reconsider when
 
 - A trusted production code-signing certificate exists and an MSIX or Store deployment is chosen (Option D becomes attractive).
 - A protected `%ProgramFiles%` deployment is restored, which needs a separately reviewed elevated replace operation.
-- Key management proves impractical for the owner.
+- Key management (two release keys and a freshness key) proves impractical for the owner.
