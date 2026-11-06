@@ -1,5 +1,7 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — Part C re-run: D2a, H1 and D2b done (2026-11-06; read-only checks plus the owner's own Chocolatey change).** [Re-run plan §9](review/TASK_50_PART_C_RERUN_PLAN.md). D2a: `LEGACY-KEY state=true admitted=True`, `CACHELOCATION empty`. The owner then ran H1 himself (all exits 0). D2b: the cache folder `exists=True`, it is outside the profile and the Chocolatey root, `requesterWritableAces=0`, `ownerIsRequester=False` and `inheritanceProtected=True`. Both step-6 causes are cleared as far as read-only checks can show. Next: approval CB2-prep (CB2.2 before 2026-11-19T19:23Z).
+
 **Task 50 — G9 real-launch residuals and target choice: plan written (2026-11-06; docs only; no code or host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Plan](review/TASK_50_G9_TARGET_PLAN.md). Recommends closing the package-route residuals on the owner's PC with one owner-approved test package, driven by a real desktop review composition, and deferring the client-route residuals until a newer Chocolatey release is reviewed. Ends with owner decisions G9-D1 to G9-D6. Nothing is approved.
 
 **Task 50 — Part C re-run plan drafted (2026-11-06; docs and tests only; no host action; nothing approved).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Re-run plan](review/TASK_50_PART_C_RERUN_PLAN.md). The owner chose this as the next step (handover §5 items 1–2).
