@@ -108,7 +108,8 @@ $results.violations = @($violations | Where-Object { !$_.StartsWith('canary: ', 
 # 3. Real pure functions from the builder.
 foreach ($name in @('Get-OwnerOnlyCandidateBuildSteps', 'Test-OwnerOnlyCandidateSdkVersion', 'Assert-OwnerOnlyCandidateOutputRootRule', 'Get-OwnerOnlyCandidateFileSha256',
         'Get-OwnerOnlyCandidateFileEntries', 'Get-OwnerOnlyCandidateExpectedXbf', 'ConvertTo-OwnerOnlyCandidateManifestBytes', 'Write-OwnerOnlyCandidateManifest', 'Copy-OwnerOnlyCandidateFile',
-        'Get-OwnerOnlyCandidateProbeTypeNames', 'Test-OwnerOnlyCandidateProbeMark')) {
+        'Get-OwnerOnlyCandidateProbeTypeNames', 'Test-OwnerOnlyCandidateProbeMark', 'Enter-OwnerOnlyCandidateGitIsolation', 'Exit-OwnerOnlyCandidateGitIsolation',
+        'Test-OwnerOnlyCandidateDescendsFromProbeCommit')) {
     $definition = @($builder.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }.GetNewClosure(), $true))
     if ($definition.Count -ne 1) { throw "ASSERT: expected one builder function $name, found $($definition.Count)." }
     . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -256,6 +257,36 @@ Write-ProbeAssemblies $prefixRoot @{ 'PCSteward.Desktop.dll' = 'QualificationPro
 $mark = Test-OwnerOnlyCandidateProbeMark -SourceDirty $false -DescendsFromProbeCommit $true -PayloadRoot $prefixRoot
 $probeMark['prefix-only'] = [ordered]@{ included = [bool]$mark.Included; detail = [string]$mark.Detail }
 $results.probeMark = $probeMark
+
+# 4c. Review L8: the lineage check through a stand-in git that exits with a chosen code only when it is called with
+# --no-replace-objects first, GIT_NO_REPLACE_OBJECTS=1 and no GIT_DIR (else 3, 4 or 5). The caller's variables are restored.
+$ProbeS6Commit = '2172f955a751ccc464b27075053c835790bc412f'
+$lineage = [ordered]@{}
+$fakeRoot = Join-Path $WorkRoot 'fake-git'
+[void][IO.Directory]::CreateDirectory($fakeRoot)
+$savedGitDir = $env:GIT_DIR
+# The stand-in run starts with the replace-objects switch undefined, so "restored" means undefined again.
+[Environment]::SetEnvironmentVariable('GIT_NO_REPLACE_OBJECTS', [NullString]::Value, 'Process')
+$env:GIT_DIR = Join-Path $WorkRoot 'elsewhere.git'
+try {
+    foreach ($code in @(0, 1, 128)) {
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+            $fake = Join-Path $fakeRoot "git-$code.cmd"
+            [IO.File]::WriteAllText($fake, "@echo off`r`nif not `"%~1`"==`"--no-replace-objects`" exit /b 4`r`nif defined GIT_DIR exit /b 3`r`nif not `"%GIT_NO_REPLACE_OBJECTS%`"==`"1`" exit /b 5`r`nexit /b $code`r`n")
+        }
+        else {
+            $fake = Join-Path $fakeRoot "git-$code"
+            [IO.File]::WriteAllText($fake, "#!/bin/sh`n[ `"`$1`" = `"--no-replace-objects`" ] || exit 4`n[ -z `"`$GIT_DIR`" ] || exit 3`n[ `"`$GIT_NO_REPLACE_OBJECTS`" = `"1`" ] || exit 5`nexit $code`n")
+            [IO.File]::SetUnixFileMode($fake, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        }
+        $descends = Test-OwnerOnlyCandidateDescendsFromProbeCommit -Git $fake -RepositoryRoot $WorkRoot -Commit ('ab' * 20)
+        $mark = Test-OwnerOnlyCandidateProbeMark -SourceDirty $false -DescendsFromProbeCommit $descends -PayloadRoot (Join-Path $probeRoot 'included')
+        $lineage["exit-$code"] = [ordered]@{ descends = [bool]$descends; included = [bool]$mark.Included; detail = [string]$mark.Detail
+            gitDirRestored = ($env:GIT_DIR -ceq (Join-Path $WorkRoot 'elsewhere.git')); noReplaceRestored = ($null -eq [Environment]::GetEnvironmentVariable('GIT_NO_REPLACE_OBJECTS', 'Process')) }
+    }
+}
+finally { $env:GIT_DIR = $savedGitDir }
+$results.lineage = $lineage
 $results.probeTypeNames = Get-OwnerOnlyCandidateProbeTypeNames
 
 # 5. The installer's own reader (Windows PowerShell 5.1 only: it compiles Windows file primitives).

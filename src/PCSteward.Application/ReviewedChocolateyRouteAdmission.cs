@@ -29,13 +29,14 @@ internal static class ReviewedChocolateyRouteAdmission
 
     /// <summary>
     /// Adapter gates §A.2/§A.6: the runtime-limit package route. The ADR-031 "client target refuses" rule stays for package jobs:
-    /// the package ID <c>chocolatey</c> (in any case) is never admitted on this route.
+    /// no client identity (<c>chocolatey</c> or <c>chocolatey.extension</c>, in any case; the shared Domain predicate
+    /// <see cref="ReviewedUpdateOperation.IsChocolateyClientIdentity"/>) is ever admitted on this route.
     /// </summary>
     private static bool IsRuntimeLimitsShape(ReviewedUpdateOperation operation) =>
         operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&
         operation.ProviderGuardContract == ReviewedProviderGuardContract.CommunityScriptRuntimeLimits &&
         operation.CandidateProvenance == ReviewedCandidateProvenance.UserCacheIntent &&
-        !string.Equals(operation.Selection.PackageId, ReviewedUpdateOperation.ChocolateyClientPackageId, StringComparison.OrdinalIgnoreCase);
+        !ReviewedUpdateOperation.IsChocolateyClientIdentity(operation.Selection.PackageId);
 
     /// <summary>ADR-031 (Option 2): the client self-update route, package ID exactly <c>chocolatey</c> (ordinal).</summary>
     private static bool IsClientSelfUpdateShape(ReviewedUpdateOperation operation) =>

@@ -114,6 +114,6 @@ The activation change is built on the local branch `task50-activation`, which is
 - **Gate inventory (§1).** Everything except Part C and the final admission approval is met, or covered by G9 and D4.
 - **Admission.** Both routes are admitted at `HasSupportedMode` (exact shapes only), the capability allow-list and the dispatcher's `Supports`. The capability statement is now 149 B, with two tokens.
 - **Probe-build mark.** The G3 record is schema v2 with `probeIncluded`, under rule `pc-steward-probe-build-mark:1`: a clean build, a commit that descends from `2172f95`, and the probe types present in the payload.
-- **C1–C7 script.** `scripts/evidence/Task50-QualificationProbe.ps1`, CRLF SHA-256 `11EFFDBF…BE8A`.
+- **C1–C7 script.** `scripts/evidence/Task50-QualificationProbe.ps1`, CRLF SHA-256 `831B5E17…E77A`.
 - **Finding.** The Desktop still composes no Chocolatey review, so Confirm stays disabled in this build. G-0 holds anyway.
 - **Next.** Revision 2 of this plan: the exact C-B, C-pre and C-run blocks, once review and Windows CI have passed. C-B exec must start before 2026-11-20T09:43:26Z.

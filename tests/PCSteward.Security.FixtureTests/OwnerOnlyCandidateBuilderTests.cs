@@ -80,6 +80,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
 
             AssertBuildSteps(result.GetProperty("steps"));
             AssertProbeMark(result.GetProperty("probeMark"), result.GetProperty("probeTypeNames"));
+            AssertLineage(result.GetProperty("lineage"));
             AssertSdkRule(result.GetProperty("sdk"));
             foreach (JsonProperty rule in result.GetProperty("outputRoots").EnumerateObject())
                 Assert.AreEqual(rule.Name is "temp" or "runner-temp" ? "accepted" : "refused", rule.Value.GetString(), rule.Name);
@@ -288,12 +289,34 @@ public sealed class OwnerOnlyCandidateBuilderTests
         StringAssert.Contains(builder, "$script:CandidateSchema = 'pc-steward-owner-only-candidate-build-v2'");
         StringAssert.Contains(builder, "$script:ProbeMarkRule = 'pc-steward-probe-build-mark:1'");
         StringAssert.Contains(builder, "$script:ProbeS6Commit = '2172f955a751ccc464b27075053c835790bc412f'");
-        StringAssert.Contains(builder, "& $Git @('-C', $RepositoryRoot, 'merge-base', '--is-ancestor', $script:ProbeS6Commit, $Commit)");
-        StringAssert.Contains(builder, "return ($LASTEXITCODE -eq 0)");
+        StringAssert.Contains(builder, "& $Git @('--no-replace-objects', '-C', $RepositoryRoot, 'merge-base', '--is-ancestor', $script:ProbeS6Commit, $Commit)");
+        // Review L8: every builder Git call runs isolated and without replace objects.
+        Assert.AreEqual(3, System.Text.RegularExpressions.Regex.Count(builder, @"& \$Git @\('--no-replace-objects', '-C', \$RepositoryRoot"));
+        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Count(builder, @"\$saved = Enter-OwnerOnlyCandidateGitIsolation"));
+        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Count(builder, @"finally \{ Exit-OwnerOnlyCandidateGitIsolation -Saved \$saved \}"));
+        StringAssert.Contains(builder, "$descends = ($LASTEXITCODE -eq 0)");
         StringAssert.Contains(builder, "probeIncluded = [bool]$probeMark.Included");
         string ci = File.ReadAllText(Path.Combine(root, "scripts", "Test-OwnerOnlyCandidateBuilderCI.ps1"));
         StringAssert.Contains(ci, "$summary.probeIncluded -ne $true");
         StringAssert.Contains(ci, "$failures.Add('probe build mark')");
+    }
+
+    /// <summary>
+    /// Review L8: the lineage check through a stand-in git. Exit 0 counts as descent only when git was called with
+    /// --no-replace-objects first, GIT_NO_REPLACE_OBJECTS=1 and no inherited GIT_DIR; exits 1 (not an ancestor) and 128 (for
+    /// example an unknown commit) give probeIncluded = false. The caller's Git variables are restored afterwards.
+    /// </summary>
+    private static void AssertLineage(JsonElement lineage)
+    {
+        foreach ((string name, bool descends) in new[] { ("exit-0", true), ("exit-1", false), ("exit-128", false) })
+        {
+            JsonElement row = lineage.GetProperty(name);
+            Assert.AreEqual(descends, row.GetProperty("descends").GetBoolean(), name);
+            Assert.AreEqual(descends, row.GetProperty("included").GetBoolean(), name);
+            Assert.AreEqual(descends ? "included" : "commit-lacks-probe", row.GetProperty("detail").GetString(), name);
+            Assert.IsTrue(row.GetProperty("gitDirRestored").GetBoolean(), name);
+            Assert.IsTrue(row.GetProperty("noReplaceRestored").GetBoolean(), $"{name}: {row}");
+        }
     }
 
     private static void AssertBuildSteps(JsonElement steps)

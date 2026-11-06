@@ -399,6 +399,8 @@ public sealed class ReviewedUpdateDispatchWorkflowTests
                      (UpdateRouteContract.ChocolateyMachineProvisionalV3, "git.install", false),
                      (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "chocolatey", false),
                      (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "Chocolatey", false),
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "chocolatey.extension", false),
+                     (UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, "Chocolatey.Extension", false),
                  })
         {
             ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("choco:" + package,

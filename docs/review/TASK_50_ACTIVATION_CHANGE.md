@@ -2,7 +2,9 @@
 
 Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`. ADRs: ADR-031 (owner decision 7), ADR-025 (amendment accepted 2026-11-04), ADR-018 (cross-note), ADR-022. Route: [Part C plan](TASK_50_PART_C_PLAN.md) §3 row C-A, with owner decisions D4 = G-0 and G9 = yes (§6). Specs: [probe spec](TASK_50_QUALIFICATION_PROBE_SPEC.md) §7 D4, §8, §9 (S7 obligations 1–3); [exact-artifact test design](TASK_50_EXACT_ARTIFACT_TEST_DESIGN.md) §8 C1–C7.
 
-**Status (2026-11-06): built on the local branch `task50-activation`; not pushed. Independent review and Windows CI are still required, and nothing is deployed.** No host action was taken.
+**Status (2026-11-06): built on the local branch `task50-activation`; not pushed.** The independent review of `0c659eb` found nothing Critical or High; its fixes are applied in the follow-up commit (§8). Windows CI is still required, and nothing is deployed. No host action was taken.
+
+**Before any deployment of this branch (review M3):** the owner must explicitly confirm obligation 8's ordering (§6), that is, the code change ships now and the final admission approval follows Part C. Until then, this branch is not deployed.
 
 ## 1. Gate inventory (before activation)
 
@@ -39,7 +41,8 @@ The rule for this step: activate only if every recorded gate is met, except the 
 | 5 | Desktop review and history UI | **Closed** | `a647db6`; the Desktop shows the no-review disclosure |
 | 6 | Production intent resolver | **Closed** | `219a984`; unconstructed until a Desktop composition calls it (§2.3) |
 | 7 | Proxy and client-certificate disclosure decision | **Closed** | ADR-025 owner decision 2026-11-02 |
-| 8 | `HasSupportedMode` and pin change, with explicit owner approval after 1–7 | **Code part: this change**, under ADR-031 decision 7. **Final admission approval: after Part C** | Part C plan §3 row C-A |
+| 8 | `HasSupportedMode` and pin change, with explicit owner approval after 1–7 | **Code part: this change**, under ADR-031 decision 7. **Final admission approval: after Part C**. **The owner's explicit confirmation of this ordering is required before deployment** (review M3) | Part C plan §3 row C-A |
+| L1 | Review L1 route-admission obligation (composition record): a workflow test on a `ChocolateyMachineRuntimeLimitsV3` draft with a consistent Confirmed and a consistent Refused check, asserting `result.HelperCheck == record.Terminal.HelperCheck`, a version-3 row and no marker | **Met** (review M2) | `RuntimeLimitRouteActivationTests` (Application integration): the real workflow through the real SQLite store and history reader |
 
 ### 1.4 Probe and Part C items
 
@@ -128,6 +131,15 @@ The G3 builder (`scripts/New-OwnerOnlyCandidate.ps1`) writes build record schema
 
 Lineage is the primary criterion. The payload check is presence evidence that the pinned bytes were built with the probe. A rewritten history fails closed. `febf1ac` (Part B) does not descend from `2172f95`.
 
+**Git isolation (review L8).** Every builder Git call (commit, status and lineage):
+- runs with `--no-replace-objects` and `GIT_NO_REPLACE_OBJECTS=1`;
+- clears `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`, `GIT_NAMESPACE`, `GIT_REPLACE_REF_BASE`, `GIT_GRAFT_FILE` and `GIT_SHALLOW_FILE` for the call, and restores them afterwards;
+- keeps `GIT_CONFIG_*` (the CI launcher's process-scoped `safe.directory`).
+
+The fixture drives the lineage function through a stand-in git: exit 0 is descent only when it was called isolated; exits 1 and 128 give `probeIncluded = false`.
+
+**Ignored files (decision).** The dirty rule stays as before: tracked changes and untracked files count; ignored files do not. The build itself writes the ignored `bin/` and `obj/` outputs into the tree, so counting them would mark every build dirty. The mark rests on lineage plus the payload check, not on the absence of ignored files.
+
 **CI evidence.**
 - `Test-OwnerOnlyCandidateBuilderCI.ps1` now fails unless the record is v2 with `probeIncluded = true`, detail `included`, the rule and the commit.
 - The `owner-only-candidate-builder` job checks out full history (`fetch-depth: 0`).
@@ -135,12 +147,13 @@ Lineage is the primary criterion. The payload check is presence evidence that th
 
 ## 4. S7 host tooling: `scripts/evidence/Task50-QualificationProbe.ps1`
 
-- **Bytes.** ASCII and CRLF, checked in with `-text`. SHA-256 (CRLF) `11EFFDBF83C0B83E62CA7362A4E5AC8C0D84EF70A339726C969ADFE48432BE8A`, 39,527 B; the approval binds these bytes.
+- **Bytes.** ASCII and CRLF, checked in with `-text`. SHA-256 (CRLF) `831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A`, 42,618 B; the approval binds these bytes.
 - **Where it runs.** The owner's own non-elevated Windows PowerShell 5.1 console, after C-pre.
 - **Parameters** (all mandatory):
   - `-Mode Check|Run`;
   - `-ActivityCheck NoBlockingRecord`: the owner's C-pre answer, S7 obligation 3;
   - `-BuildRecordPath`: the C-B `candidate-build.json`;
+  - `-ExpectedBuildRecordSha256`: that file's SHA-256, as printed at C-B prep (review L7). The file is refused if it is over 64 KiB (checked before it is read) or its hash differs;
   - `-ExpectedManifestSha256`, `-ExpectedLedgerSha256`, `-ExpectedSignerThumbprint` and `-ExpectedSignerNotAfterUtc`, all from the C-B record.
 - **What it never does.**
   - It never runs choco and never asks for elevation itself.
@@ -153,13 +166,13 @@ Lineage is the primary criterion. The payload check is presence evidence that th
 | Step | Output |
 |---|---|
 | Preconditions | `STOP: precondition (…)`. Stops when: not Windows PowerShell 5.1; the console is elevated; a pin is not uppercase hex; a `choco` or `PCSteward*` process is running; `TEMP` is an 8.3 path; the result folder already exists; the Chocolatey folder is absent |
-| C1 pins | `C1 PINS-OK ledger=<64> manifest=<64> desktop=<64> helper=<64> capability=<64> signer=<40> notAfter=<UTC> probeBuild=true commit=<40>`. Otherwise `STOP: pin differs (ledger\|manifest\|signer\|payload-origin\|ledger-state\|ledger-<leaf>\|protected manifest\|desktop\|helper\|capability\|signature\|signer NotAfter\|signer expires within 30 minutes)` or `STOP: not a probe build (<detail>)`. C1 reads: the ADR-022 ledger (hash equal to the expected pin; schema v6, completed, `pinned-unsigned-v2`, manifest, thumbprint, the three leaf hashes); the protected manifest copy; the installed desktop, helper and capability file against the ledger; Authenticode Valid with the expected thumbprint and `NotAfter`; and the build record (v2, Pass, the deployed manifest, clean, the mark rule and commit, `probeIncluded = true`) |
+| C1 pins | `C1 PINS-OK ledger=<64> manifest=<64> desktop=<64> helper=<64> capability=<64> signer=<40> notAfter=<UTC> probeBuild=true commit=<40>`. Otherwise `STOP: pin differs (ledger\|manifest\|signer\|payload-origin\|ledger-state\|ledger-<leaf>\|protected manifest\|desktop\|helper\|capability\|signature\|signer NotAfter\|signer expires within 30 minutes)` or `STOP: not a probe build (<detail>)`. C1 reads: the ADR-022 ledger (hash equal to the expected pin; schema v6, completed, `pinned-unsigned-v2`, manifest, thumbprint, the three leaf hashes); the protected manifest copy; the installed desktop, helper and capability file against the ledger, and the capability file also against the activation build's two-token statement `50F169DD…654B` (review L6); Authenticode Valid with the expected thumbprint and `NotAfter`; and the build record (at most 64 KiB, the expected SHA-256, v2, Pass, the deployed manifest, clean, the mark rule and commit, `probeIncluded = true`) |
 | C2 baseline | `C2 BASELINE: db=<64> data=<64> choco=<64> chocoFiles=<n> chocoProcess=0`. Stops on `STOP: database sidecar present` or `STOP: database absent (run the C-pre first launch)`. The `data` and `choco` digests are one SHA-256 over sorted `D\|path`, `R\|path` (reparse points are not followed) and `F\|path\|length\|sha256-or-UNREADABLE` lines |
 | Check mode | `CHECK-COMPLETE: nothing was launched` |
 | C3 probe | `C3 LAUNCH: …` (the owner's prompt instruction), then `C3 EXIT: <n> RESULT: present\|absent` |
-| C4 after | `C4 UNCHANGED: db=<bool> data=<bool> choco=<bool> chocoProcess=<n> pcstewardProcess=<n> onlyResultFolderNew=<bool>`, or `C4 AFTER-UNAVAILABLE: <token>` |
-| C5 evidence | `C5 RESULT: <the closed JSON>`, `C5 RESULT-REJECTED: result-<token>` or `C5 RESULT-ABSENT`. The read is strict: at most 4,096 B; printable ASCII; no BOM; compact JSON with no escapes; the exact §5.3 key sets and order; the closed domains of the activation build (both tokens); presence of `probe` exactly when the outcome is `ResponseAccepted` |
-| C6 interpretation | `C6 VERDICT E1:`, `A3:`, `E2:`, `E3:` and `E5:` each `PASS\|FAIL\|INCONCLUSIVE (<closed detail>)`; then `C6 OVERALL: …`; then `C6 OWNER-CHECK E3: …`. These follow spec §8. A malformed result file is an E3 FAIL. An `OVERALL: PASS` is valid only with the owner's confirmation of the single expected prompt |
+| C4 after | `C4 UNCHANGED: db=<bool> data=<bool> choco=<bool> chocoProcess=<n> pcstewardProcess=<n> resultFolderClean=<bool>`, or `C4 AFTER-UNAVAILABLE: <token>`. `resultFolderClean` inspects only `%TEMP%\pcsteward-exact-artifact` (absent, or holding at most the result file); the rest of `%TEMP%` is not compared (review L9) |
+| C5 evidence | `C5 RESULT: <the closed JSON>`, `C5 RESULT-REJECTED: result-<token>`, `C5 RESULT-ABSENT` or `C5 RESULT-ABSENT (empty result folder)`. An empty result folder means no result file: E3 is INCONCLUSIVE ("no-result-file"), not a FAIL (review L5). The read is strict: at most 4,096 B; printable ASCII; no BOM; compact JSON with no escapes; the exact §5.3 key sets and order; the closed domains of the activation build (both tokens); presence of `probe` exactly when the outcome is `ResponseAccepted` |
+| C6 interpretation | `C6 VERDICT E1:`, `A3:`, `E2:`, `E3:` and `E5:` each `PASS\|FAIL\|INCONCLUSIVE (<closed detail>)`; then `C6 OVERALL: …`; then `C6 OWNER-CHECK E3: …`. These follow spec §8. A malformed result file is an E3 FAIL. E5 is INCONCLUSIVE only when the C2 baseline is missing; a C4 observation that fails (database deleted, a sidecar present, a tree unreadable) is a difference, so E5 is a FAIL (review M1). An `OVERALL: PASS` is valid only with the owner's confirmation of the single expected prompt |
 | C7 cleanup | `C7 CLEANUP-COMPLETE`, `C7 CLEANUP-NOT-NEEDED` or `STOP: cleanup refused (<reason>)` |
 
 **Tests** (`QualificationProbeHostToolingTests`, with `Fixtures/QualificationProbeHostTooling.ps1` under StrictMode 3.0):
@@ -179,8 +192,8 @@ Lineage is the primary criterion. The payload check is presence evidence that th
 |---|---|---|---|
 | ArchitectureTests | 135/135 | **140/140** | +5 activation pins |
 | Domain.UnitTests | 175/175 | **175/175** | |
-| Application.IntegrationTests | 874 passed, 112 failed | 874 passed, 112 failed | The same 112 (Windows-only); no new failure |
-| Security.FixtureTests | 1,334 passed, 240 failed, 5 skipped (of 1,579) | **1,337 passed, 240 failed, 6 skipped (of 1,583)** | The same 240 failures (Windows-only: `PlatformNotSupported`, `powershell.exe`); no new failure. New: `QualificationProbeHostToolingTests` (3 pass; the Windows PowerShell 5.1 row is inconclusive off Windows); the builder fixture also runs the probe-mark rows |
+| Application.IntegrationTests | 874 passed, 112 failed | **886 passed, 112 failed** (after the review fixes; 874 at `0c659eb`) | The same 112 (Windows-only); no new failure. +12 `RuntimeLimitRouteActivationTests` |
+| Security.FixtureTests | 1,334 passed, 240 failed, 5 skipped (of 1,579) | **1,338 passed, 240 failed, 6 skipped (of 1,584)** after the review fixes (1,337 at `0c659eb`) | The same 240 failures (Windows-only: `PlatformNotSupported`, `powershell.exe`); no new failure. New: `QualificationProbeHostToolingTests` (3 pass; the Windows PowerShell 5.1 row is inconclusive off Windows); the builder fixture also runs the probe-mark rows |
 
 Every changed `.ps1` parses with the PowerShell 7 parser through the repository fixtures. The Windows PowerShell 5.1 rows (parse, builder installer reader, probe tooling) and the Windows-only suites need **Windows CI**.
 
@@ -193,6 +206,11 @@ Every changed `.ps1` parses with the PowerShell 7 parser through the repository 
 - **C1's trust basis.** C1 trusts the admin-only-writable ADR-022 ledger for the installed hashes. It does not re-derive the unsigned image identity; the C-B validator run does that.
 - **What a PASS proves.** UAC and pre-launch enforcement only (spec §8). The A-Q1 real-launch residuals and the client self-upgrade residuals stay open (G9). Each blocks any real Chocolatey update until it is exercised.
 - **Windows-only tests not run here:** the native probe, native end-to-end gate 2, and the Windows PowerShell 5.1 script rows.
+- **Merge condition (review L10).** Merging the Task 73 client-offer UI onto an activated branch requires re-verifying design §8.6 gate 3 (the offer comes only from the verified observer) before that merge is deployed. Gate 3 is "not applicable" here only because this branch has no offer UI.
+- **Re-pin for C-B.** The Part B pins no longer match this branch and must be re-pinned in the C-B blocks:
+  - the capability statement `0772DAD8…D9C7` (103 B) is now `50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B` (149 B);
+  - the builder pin `BC67E825…5644` (CRLF) is now `BB6E0A60A8324341A3D5DA1606977D23CF653B2480724EB33E092E1BEE7D68D7` (LF `B9341F75BBE2CC0CB22F5BFBB158F606CF7D04221C8C7E17E780FFF4EF5912FD`);
+  - `OwnerOnlyPayloadIntegrity.ps1` is now CRLF `83B87BBDE621992E32C0F042D26ED0707C106E18DF5CDD0EDF0CEA84521DD09F` (LF `0874B755D88800BEBDD0D093BF90152C0B36729A6A9BBBFBE78E71136EEBA0A6`).
 
 ## 7. Next
 
@@ -200,3 +218,21 @@ Independent review of this change and Windows CI on the branch. Then Part C plan
 - C-B prep and exec at the reviewed commit, before 2026-11-20T09:43:26Z;
 - C-pre;
 - C-run, with this script's CRLF SHA-256 and the C-B pins filled into approval 2.
+
+## 8. Independent review of `0c659eb`: dispositions (2026-11-06)
+
+No Critical or High finding. Each fix below is applied, with tests.
+
+- **M1, fixed.** E5 is FAIL when C4 cannot observe (`after-observation-failed`); INCONCLUSIVE only without a C2 baseline. The fixture now runs the real C2/C4 observation over synthetic roots: unchanged → PASS; sidecar, deleted database or missing Chocolatey tree → FAIL; changed database → FAIL; no baseline → INCONCLUSIVE. The earlier row that pinned the wrong behaviour is replaced.
+- **M2, fixed.** The composition record's L1 obligation test: `RuntimeLimitRouteActivationTests` (§1.3).
+- **M3, recorded.** The owner's explicit obligation-8 confirmation is required before deployment (Status, §1.3, §6).
+- **L4, fixed.** The package-route admission refuses every client identity through the shared Domain predicate `ReviewedUpdateOperation.IsChocolateyClientIdentity` (`chocolatey`, `chocolatey.extension`, any case). The provider's `ChocolateyClientReleasePolicy.IsClientTarget` delegates to it. Tests: the extension rows in `ReviewedUpdateDispatchWorkflowTests`, and `RuntimeLimitRouteActivationTests`, which checks the predicate and `IsClientTarget` agree.
+- **L5, fixed.** An empty result folder is `absent` (`Read-ProbeResultFolder`, fixture rows).
+- **L6, fixed.** C1 requires the installed capability statement to be `50F169DD…654B`.
+- **L7, fixed.** `-ExpectedBuildRecordSha256` (required). The build record is read only when at most 64 KiB, then checked against the hash (`Test-ProbeBuildRecordBytes`, fixture rows).
+- **L8, fixed.** The builder's Git isolation and the ignored-files decision (§3).
+- **L9, fixed.**
+  - Runtime-limit near misses are refused (Preview channel, observed architecture, controllable mode, lowercase evidence, client identities): `RuntimeLimitRouteActivationTests`.
+  - A Preview-channel row is added to the client forge rows.
+  - The E5 token is renamed `resultFolderClean`; it inspects only the result folder.
+- **L10, recorded.** The Task 73 merge condition (§6).

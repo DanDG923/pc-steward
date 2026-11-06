@@ -59,7 +59,7 @@ $results.violations = @($violations)
 foreach ($name in @('Get-ProbeContract', 'Test-ProbeHex', 'ConvertFrom-ProbeCompactJson', 'Read-ProbeJsonValue', 'Read-ProbeJsonString', 'Assert-ProbeKeys',
         'Assert-ProbeMember', 'Assert-ProbeTimestamp', 'Assert-ProbeCount', 'Test-ProbeResultDocument', 'Test-ProbeBuildRecord', 'Read-ProbeLedgerPins',
         'Get-ProbeFileSha256', 'Get-ProbeTreeDigest', 'New-ProbeVerdict', 'Get-ProbeVerdicts', 'Format-ProbeVerdicts', 'Test-ProbeResultFolderRemovable',
-        'Get-ProbeSafeMessage')) {
+        'Get-ProbeSafeMessage', 'Test-ProbeBuildRecordBytes', 'Read-ProbeResultFolder', 'Stop-ProbeRun', 'Get-ProbeProcessCount', 'Get-ProbeObservation')) {
     $definition = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }.GetNewClosure(), $true))
     if ($definition.Count -ne 1) { throw "ASSERT: expected one function $name, found $($definition.Count)." }
     . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -75,7 +75,7 @@ $pins = [ordered]@{
     ledgerSha256 = $cases.pins.ledgerSha256; capabilityFileSha256 = $cases.pins.capabilityFileSha256; desktopImageSha256 = $cases.pins.desktopImageSha256
     helperImageSha256 = $cases.pins.helperImageSha256; signerThumbprint = $cases.pins.signerThumbprint; signerNotAfterUtc = ([string]$cases.pins.signerNotAfterUtc).Substring(3)
 }
-$same = [pscustomobject]@{ Database = 'D' * 64; Data = 'E' * 64; Chocolatey = 'F' * 64; ChocoProcesses = 0; OnlyResultFolderNew = $true }
+$same = [pscustomobject]@{ Database = 'D' * 64; Data = 'E' * 64; Chocolatey = 'F' * 64; ChocoProcesses = 0; ResultFolderClean = $true }
 $documents = [ordered]@{}
 foreach ($case in $cases.cases) {
     $state = 'absent'; $result = $null; $reason = $null
@@ -84,12 +84,13 @@ foreach ($case in $cases.cases) {
         catch { $state = 'malformed'; $reason = [string]$_.Exception.Message }
     }
     $after = switch ($case.e5) {
-        'db-changed' { [pscustomobject]@{ Database = '0' * 64; Data = $same.Data; Chocolatey = $same.Chocolatey; ChocoProcesses = 0; OnlyResultFolderNew = $true } }
-        'choco-running' { [pscustomobject]@{ Database = $same.Database; Data = $same.Data; Chocolatey = $same.Chocolatey; ChocoProcesses = 1; OnlyResultFolderNew = $true } }
-        'missing' { $null }
+        'db-changed' { [pscustomobject]@{ Database = '0' * 64; Data = $same.Data; Chocolatey = $same.Chocolatey; ChocoProcesses = 0; ResultFolderClean = $true } }
+        'choco-running' { [pscustomobject]@{ Database = $same.Database; Data = $same.Data; Chocolatey = $same.Chocolatey; ChocoProcesses = 1; ResultFolderClean = $true } }
+        'after-missing' { $null }
         default { $same }
     }
-    $verdicts = Get-ProbeVerdicts $state $result $pins $same $after
+    $before = if ($case.e5 -ceq 'baseline-missing') { $null } else { $same }
+    $verdicts = Get-ProbeVerdicts $state $result $pins $before $after
     $documents[$case.name] = [ordered]@{
         state = $state; reason = $reason
         verdicts = [ordered]@{ E1 = $verdicts['E1'].Verdict; A3 = $verdicts['A3'].Verdict; E2 = $verdicts['E2'].Verdict; E3 = $verdicts['E3'].Verdict; E5 = $verdicts['E5'].Verdict; OVERALL = $verdicts['OVERALL'].Verdict }
@@ -119,6 +120,21 @@ foreach ($vector in @(
 }
 $records['unreadable'] = try { Test-ProbeBuildRecord '{not json' $manifest } catch { [string]$_.Exception.Message }
 $results.buildRecords = $records
+
+# 4b. The bounded, hash-pinned build-record bytes (review L7).
+function Get-Sha256([byte[]]$Bytes) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { [BitConverter]::ToString($sha.ComputeHash($Bytes)).Replace('-', '') } finally { $sha.Dispose() }
+}
+$recordBytes = [Text.UTF8Encoding]::new($false).GetBytes((New-Record @{}))
+$oversize = [byte[]]::new(65537); [Array]::Copy($recordBytes, $oversize, $recordBytes.Length); for ($index = $recordBytes.Length; $index -lt $oversize.Length; $index++) { $oversize[$index] = 32 }
+$badUtf8 = [byte[]]@(0x7B, 0xC3, 0x28, 0x7D)
+$recordFiles = [ordered]@{}
+foreach ($vector in @(@('valid', $recordBytes, (Get-Sha256 $recordBytes)), @('other-hash', $recordBytes, ('E' * 64)), @('lowercase-hash', $recordBytes, (Get-Sha256 $recordBytes).ToLowerInvariant()),
+        @('oversize', $oversize, (Get-Sha256 $oversize)), @('invalid-utf8', $badUtf8, (Get-Sha256 $badUtf8)))) {
+    $recordFiles[$vector[0]] = try { 'commit:' + (Test-ProbeBuildRecordBytes $vector[1] $vector[2] $manifest) } catch { [string]$_.Exception.Message }
+}
+$results.buildRecordBytes = $recordFiles
 
 # 5. The deployment record (ADR-022 ledger).
 $signer = 'C3' * 20
@@ -173,6 +189,51 @@ foreach ($vector in @(@('only-result', @('qualification-result.json'), $false), 
     $folders[$vector[0]] = Test-ProbeResultFolderRemovable $folder
 }
 $results.folders = $folders
+
+# 7b. The C5 result state (review L5): an empty result folder is absent, not malformed.
+$readRoot = Join-Path $WorkRoot 'reads'
+$accepted = [IO.File]::ReadAllBytes((Join-Path $WorkRoot 'accepted-pass.json'))
+$reads = [ordered]@{}
+foreach ($vector in @(@('not-created', $false, @(), $null), @('empty', $true, @(), $null), @('valid', $true, @('qualification-result.json'), $accepted),
+        @('extra-file', $true, @('qualification-result.json', 'other.txt'), $accepted), @('malformed', $true, @('qualification-result.json'), [Text.Encoding]::ASCII.GetBytes('{}')),
+        @('oversize', $true, @('qualification-result.json'), [byte[]]::new(4097)))) {
+    $folder = Join-Path $readRoot $vector[0]
+    if ($vector[1]) { [void][IO.Directory]::CreateDirectory($folder) }
+    foreach ($leaf in $vector[2]) { [IO.File]::WriteAllBytes((Join-Path $folder $leaf), [byte[]]$(if ($leaf -ceq 'qualification-result.json') { $vector[3] } else { @(1) })) }
+    $read = Read-ProbeResultFolder $folder $vector[1]
+    $reads[$vector[0]] = [ordered]@{ state = $read.State; line = $(if ($read.State -ceq 'valid') { 'C5 RESULT: <document>' } else { $read.Line }) }
+}
+$results.reads = $reads
+
+# 7c. Review M1 end to end: the real C2/C4 observation over synthetic roots. A C4 observation that fails is E5 FAIL; only a
+# missing baseline is INCONCLUSIVE.
+$observe = Join-Path $WorkRoot 'observe'
+$dataRoot = Join-Path $observe 'data'; $chocoRoot = Join-Path $observe 'choco'; $resultFolder = Join-Path $observe 'temp-result'
+[void][IO.Directory]::CreateDirectory((Join-Path $chocoRoot 'lib'))
+[void][IO.Directory]::CreateDirectory($dataRoot)
+$database = Join-Path $dataRoot 'pcsteward.db'
+[IO.File]::WriteAllBytes($database, [byte[]]@(1, 2, 3))
+[IO.File]::WriteAllBytes((Join-Path $chocoRoot 'choco.exe'), [byte[]]@(4, 5))
+$valid = Test-ProbeResultDocument $accepted
+function Get-E5([object]$Baseline, [scriptblock]$Change) {
+    & $Change
+    $after = $null
+    try { $after = Get-ProbeObservation $database $dataRoot $chocoRoot $resultFolder } catch { $after = $null }
+    $verdicts = Get-ProbeVerdicts 'valid' $valid $pins $Baseline $after
+    [ordered]@{ E5 = $verdicts['E5'].Verdict; detail = $verdicts['E5'].Detail; overall = $verdicts['OVERALL'].Verdict }
+}
+$observations = [ordered]@{}
+$baselineObservation = Get-ProbeObservation $database $dataRoot $chocoRoot $resultFolder
+$observations['unchanged'] = Get-E5 $baselineObservation { }
+$observations['sidecar-present'] = Get-E5 $baselineObservation { [IO.File]::WriteAllBytes($database + '-wal', [byte[]]@(0)) }
+[IO.File]::Delete($database + '-wal')
+$observations['database-deleted'] = Get-E5 $baselineObservation { [IO.File]::Delete($database) }
+[IO.File]::WriteAllBytes($database, [byte[]]@(1, 2, 3))
+$observations['chocolatey-root-gone'] = Get-E5 $baselineObservation { [IO.Directory]::Move($chocoRoot, $chocoRoot + '-moved') }
+[IO.Directory]::Move($chocoRoot + '-moved', $chocoRoot)
+$observations['database-changed'] = Get-E5 $baselineObservation { [IO.File]::WriteAllBytes($database, [byte[]]@(9)) }
+$observations['baseline-missing'] = Get-E5 $null { }
+$results.observations = $observations
 
 # 8. Only the script's own fixed tokens are printed.
 $results.safeMessages = [ordered]@{

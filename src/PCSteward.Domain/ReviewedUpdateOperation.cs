@@ -226,6 +226,15 @@ public sealed partial class ReviewedUpdateOperation
     public const string ChocolateyClientPackageId = "chocolatey";
 
     /// <summary>
+    /// ADR-031 "client target refuses" (observer step 7): the package identities of the Chocolatey client itself,
+    /// <c>chocolatey</c> and <c>chocolatey.extension</c>, in any case. Package jobs never target them; the provider's
+    /// <c>ChocolateyClientReleasePolicy.IsClientTarget</c> and the review gate's package-route admission share this rule.
+    /// </summary>
+    public static bool IsChocolateyClientIdentity(string? packageId) => packageId is not null &&
+        (packageId.Equals(ChocolateyClientPackageId, StringComparison.OrdinalIgnoreCase) ||
+            packageId.Equals("chocolatey.extension", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// ADR-031 shape only: Chocolatey Community machine registration of exactly <see cref="ChocolateyClientPackageId"/>,
     /// <c>NotControllable(ProviderScriptControlled)</c> and <c>ProviderScriptSelected</c>. Never list membership or eligibility.
     /// </summary>

@@ -52,6 +52,11 @@ public sealed class QualificationProbeHostToolingTests
         string text = Encoding.ASCII.GetString(bytes);
         StringAssert.Contains(text, "[ValidateSet('Check', 'Run')][string]$Mode");
         StringAssert.Contains(text, "[ValidateSet('NoBlockingRecord')][string]$ActivityCheck");
+        StringAssert.Contains(text, "[Parameter(Mandatory = $true)][string]$ExpectedBuildRecordSha256");
+        // Review L7: the build record's size is checked before it is read.
+        Assert.IsTrue(text.IndexOf("([IO.FileInfo]::new($BuildRecordPath)).Length -gt $contract['MaximumBuildRecordBytes']", StringComparison.Ordinal) <
+            text.IndexOf("[IO.File]::ReadAllBytes($BuildRecordPath)", StringComparison.Ordinal));
+        StringAssert.Contains(text, "if ($installed['capability'] -cne $contract['CapabilityStatementSha256']) { Stop-ProbeRun 'pin differs (capability)' }");
         Assert.AreEqual(1, CountOf(text, "Start-Process "), "exactly one process start");
         StringAssert.Contains(text, "$process = Start-Process -FilePath $desktop -ArgumentList '--qualify-chocolatey-helper' -Wait -PassThru");
         StringAssert.Contains(text, "$desktop = Join-Path $installRoot 'PCSteward.Desktop.exe'");
@@ -125,6 +130,9 @@ public sealed class QualificationProbeHostToolingTests
             CollectionAssert.AreEqual(PassLines, Strings(documents.GetProperty("accepted-pass").GetProperty("lines")));
 
             AssertBuildRecords(result.GetProperty("buildRecords"));
+            AssertBuildRecordBytes(result.GetProperty("buildRecordBytes"));
+            AssertReads(result.GetProperty("reads"));
+            AssertObservations(result.GetProperty("observations"));
             AssertLedgers(result.GetProperty("ledgers"));
             AssertTree(result.GetProperty("tree"));
             StringAssert.Contains(result.GetProperty("treeRootRefused").GetString(), "tree-root");
@@ -230,7 +238,9 @@ public sealed class QualificationProbeHostToolingTests
             ["no-result-file"] = new("absent", null, ["INCONCLUSIVE", "INCONCLUSIVE", "INCONCLUSIVE", "INCONCLUSIVE", "PASS", "INCONCLUSIVE"], "no-result-file"),
             ["database-changed"] = new("valid", null, ["PASS", "PASS", "PASS", "PASS", "FAIL", "FAIL"]),
             ["choco-running-after"] = new("valid", null, ["PASS", "PASS", "PASS", "PASS", "FAIL", "FAIL"]),
+            // Review M1: only a missing C2 baseline is inconclusive; a failed C4 observation is a difference, so E5 fails.
             ["baseline-missing"] = new("valid", null, ["PASS", "PASS", "PASS", "PASS", "INCONCLUSIVE", "INCONCLUSIVE"]),
+            ["after-missing"] = new("valid", null, ["PASS", "PASS", "PASS", "PASS", "FAIL", "FAIL"]),
         };
         foreach ((string name, (_, string reason)) in mutations)
             expected[name] = new("malformed", reason, fail3, "result-malformed");
@@ -241,10 +251,14 @@ public sealed class QualificationProbeHostToolingTests
             string? file = name switch
             {
                 "no-result-file" => null,
-                "database-changed" or "choco-running-after" or "baseline-missing" => files["accepted-pass"],
+                "database-changed" or "choco-running-after" or "baseline-missing" or "after-missing" => files["accepted-pass"],
                 _ => files[name],
             };
-            string e5 = name switch { "database-changed" => "db-changed", "choco-running-after" => "choco-running", "baseline-missing" => "missing", _ => "same" };
+            string e5 = name switch
+            {
+                "database-changed" => "db-changed", "choco-running-after" => "choco-running", "baseline-missing" => "baseline-missing",
+                "after-missing" => "after-missing", _ => "same",
+            };
             rows.Add(new { name, file, e5 });
         }
         QualificationProbePins pins = DesktopProbeFixture.Pins();
@@ -290,6 +304,12 @@ public sealed class QualificationProbeHostToolingTests
         // spec §8 E3: the inconclusive outcomes; every other non-accepted outcome is a FAIL.
         CollectionAssert.AreEquivalent(Inconclusive, Strings(contract.GetProperty("InconclusiveOutcomes")));
         Assert.AreEqual(DeploymentCapabilityPolicy.LedgerSchema, contract.GetProperty("LedgerSchema").GetString());
+        // Review L6: C1 requires the activation build's checked-in two-token capability statement.
+        byte[] statement = File.ReadAllBytes(Path.Combine(root, "src", "PCSteward.ElevatedHelper", DeploymentCapabilityPolicy.CapabilityFileName));
+        CollectionAssert.AreEqual(DeploymentCapabilityPolicy.CanonicalCapabilityBytes(), statement);
+        Assert.AreEqual(Convert.ToHexString(SHA256.HashData(statement)), contract.GetProperty("CapabilityStatementSha256").GetString());
+        Assert.AreEqual("50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B", contract.GetProperty("CapabilityStatementSha256").GetString());
+        Assert.AreEqual(65536, contract.GetProperty("MaximumBuildRecordBytes").GetInt32());
         string builder = File.ReadAllText(Path.Combine(root, "scripts", "New-OwnerOnlyCandidate.ps1"));
         StringAssert.Contains(builder, "$script:CandidateSchema = '" + contract.GetProperty("BuildRecordSchema").GetString() + "'");
         StringAssert.Contains(builder, "$script:ProbeMarkRule = '" + contract.GetProperty("ProbeMarkRule").GetString() + "'");
@@ -316,6 +336,64 @@ public sealed class QualificationProbeHostToolingTests
         };
         CollectionAssert.AreEquivalent(expected.Keys.ToArray(), records.EnumerateObject().Select(item => item.Name).ToArray());
         foreach ((string name, string value) in expected) Assert.AreEqual(value, records.GetProperty(name).GetString(), name);
+    }
+
+    /// <summary>Review L7: the build record is read bounded (64 KiB) and pinned to the SHA-256 recorded at C-B prep.</summary>
+    private static void AssertBuildRecordBytes(JsonElement records)
+    {
+        Dictionary<string, string> expected = new()
+        {
+            ["valid"] = "commit:" + string.Concat(Enumerable.Repeat("ab", 20)),
+            ["other-hash"] = "not-a-probe-build:record-hash",
+            ["lowercase-hash"] = "not-a-probe-build:record-hash",
+            ["oversize"] = "not-a-probe-build:record-size",
+            ["invalid-utf8"] = "not-a-probe-build:record-unreadable",
+        };
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), records.EnumerateObject().Select(item => item.Name).ToArray());
+        foreach ((string name, string value) in expected) Assert.AreEqual(value, records.GetProperty(name).GetString(), name);
+    }
+
+    /// <summary>Review L5: an empty result folder means no result file (absent), never a malformed result.</summary>
+    private static void AssertReads(JsonElement reads)
+    {
+        Dictionary<string, (string State, string Line)> expected = new()
+        {
+            ["not-created"] = ("absent", "C5 RESULT-ABSENT"),
+            ["empty"] = ("absent", "C5 RESULT-ABSENT (empty result folder)"),
+            ["valid"] = ("valid", "C5 RESULT: <document>"),
+            ["extra-file"] = ("malformed", "C5 RESULT-REJECTED: result-folder-content"),
+            ["malformed"] = ("malformed", "C5 RESULT-REJECTED: result-top-keys"),
+            ["oversize"] = ("malformed", "C5 RESULT-REJECTED: result-size"),
+        };
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), reads.EnumerateObject().Select(item => item.Name).ToArray());
+        foreach ((string name, (string state, string line)) in expected)
+        {
+            Assert.AreEqual(state, reads.GetProperty(name).GetProperty("state").GetString(), name);
+            Assert.AreEqual(line, reads.GetProperty(name).GetProperty("line").GetString(), name);
+        }
+    }
+
+    /// <summary>Review M1: the real C2/C4 observation; a C4 that cannot observe (deleted database, sidecar, missing tree) fails E5.</summary>
+    private static void AssertObservations(JsonElement observations)
+    {
+        Dictionary<string, (string E5, string Detail, string Overall)> expected = new()
+        {
+            ["unchanged"] = ("PASS", "C4=C2", "PASS"),
+            ["sidecar-present"] = ("FAIL", "after-observation-failed", "FAIL"),
+            ["database-deleted"] = ("FAIL", "after-observation-failed", "FAIL"),
+            ["chocolatey-root-gone"] = ("FAIL", "after-observation-failed", "FAIL"),
+            // The database is inside the data root, so both digests differ.
+            ["database-changed"] = ("FAIL", "changed=Database,Data", "FAIL"),
+            ["baseline-missing"] = ("INCONCLUSIVE", "baseline-missing", "INCONCLUSIVE"),
+        };
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), observations.EnumerateObject().Select(item => item.Name).ToArray());
+        foreach ((string name, (string e5, string detail, string overall)) in expected)
+        {
+            JsonElement row = observations.GetProperty(name);
+            Assert.AreEqual(e5, row.GetProperty("E5").GetString(), name);
+            Assert.AreEqual(detail, row.GetProperty("detail").GetString(), $"{name}: {row}");
+            Assert.AreEqual(overall, row.GetProperty("overall").GetString(), name);
+        }
     }
 
     private static void AssertLedgers(JsonElement ledgers)

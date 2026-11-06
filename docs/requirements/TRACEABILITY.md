@@ -16,7 +16,12 @@
   - Probe on the two-token contract: `QualificationProbeWireCodecTests`, `QualificationProbeHelperEndpointTests`, `QualificationProbeDesktopEntryTests`, `QualificationProbeResultFileTests`.
   - Builder: `OwnerOnlyCandidateBuilderTests` (probe-mark rows, CI job, git invocation count).
   - New `QualificationProbeHostToolingTests` with `Fixtures/QualificationProbeHostTooling.ps1`.
-- **Not claimed.** Windows CI evidence for the Windows-only rows; independent review; any deployment, probe run or owner admission approval. Nothing in `src` composes a Chocolatey review or dispatch.
+- **Review fixes** (record §8; M1, M2, L4–L9):
+  - `ReviewedUpdateOperation.IsChocolateyClientIdentity`, shared with `ChocolateyClientReleasePolicy.IsClientTarget`.
+  - New `RuntimeLimitRouteActivationTests`: the composition record's L1 obligation through SQLite, near-miss rows and predicate agreement.
+  - Probe-script E5, result-folder, capability-pin and build-record-hash rows in `QualificationProbeHostToolingTests`.
+  - Builder Git isolation and lineage exit-code rows in `OwnerOnlyCandidateBuilderTests`.
+- **Not claimed.** Windows CI evidence for the Windows-only rows; any deployment, probe run or owner admission approval, including the owner's obligation-8 confirmation. Nothing in `src` composes a Chocolatey review or dispatch.
 
 # Task 50 — R2 tooling: fresh install, packaged-process refusal, installer diagnostics (owner decision D-R2)
 

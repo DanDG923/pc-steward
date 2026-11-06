@@ -143,6 +143,7 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
     [DataRow("observed-architecture")]
     [DataRow("other-mode")]
     [DataRow("other-source")]
+    [DataRow("preview-channel")]
     public void TheScopeRefusesEveryNearMissOfTheClientShape(string variant)
     {
         string package = variant == "other-package" ? "chocolatey.extension" : ReviewedUpdateOperation.ChocolateyClientPackageId;
@@ -152,12 +153,13 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
         ReviewedInstallerMode mode = variant == "other-mode"
             ? ReviewedInstallerMode.Selected(InstallerMode.Silent) : ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled);
         UpdateJobSelection selection = new("choco:chocolatey", UpdateProvider.Chocolatey, source, package, "2.7.5", "2.8.0", UpdateScope.Machine,
-            architecture.Value ?? UpdateArchitecture.Neutral, UpdateChannel.Stable, "mapping-v2");
+            architecture.Value ?? UpdateArchitecture.Neutral, variant == "preview-channel" ? UpdateChannel.Preview : UpdateChannel.Stable, "mapping-v2");
         // The selection itself refuses a Chocolatey user scope, so that conjunct is reached only by forging the frozen scope.
         if (variant == "user-scope") Forge(selection, "<Scope>k__BackingField", UpdateScope.User);
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), selection).Confirm(ReviewedAt);
         string evidence = ReviewedUpdateOperation.ProfileEvidencePrefix + new string('A', 64);
-        if (variant != "control")
+        // The constructor does not check the channel; the review gate's activation term does (review L9).
+        if (variant is not ("control" or "preview-channel"))
             Assert.ThrowsExactly<ArgumentException>(() => new ReviewedUpdateOperation(job, Protocol2InterpreterFixture.User, "choco:chocolatey",
                 "machine:choco", evidence, ReviewedAt.AddSeconds(-1), UpdateRouteContract.ChocolateyClientSelfUpdateV1, mode, architecture),
                 "the constructor refuses the variant on the client route");

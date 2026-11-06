@@ -20,8 +20,9 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet('Check', 'Run')][string]$Mode,
     # The owner's C-pre answer (S7 obligation 3): Activity shows no record that blocks other updates.
     [Parameter(Mandatory = $true)][ValidateSet('NoBlockingRecord')][string]$ActivityCheck,
-    # The G3 builder record (candidate-build.json) of the deployed activation build.
+    # The G3 builder record (candidate-build.json) of the deployed activation build, and its SHA-256 as printed at C-B prep.
     [Parameter(Mandatory = $true)][string]$BuildRecordPath,
+    [Parameter(Mandatory = $true)][string]$ExpectedBuildRecordSha256,
     # Deployment record pins from the approved redeploy (filled in the approval text; uppercase hex).
     [Parameter(Mandatory = $true)][string]$ExpectedManifestSha256,
     [Parameter(Mandatory = $true)][string]$ExpectedLedgerSha256,
@@ -77,6 +78,10 @@ function Get-ProbeContract {
         ProbeMarkRule = 'pc-steward-probe-build-mark:1'
         ProbeCommit = '2172f955a751ccc464b27075053c835790bc412f'
         LedgerSchema = 'pc-steward-owner-only-protected-test-v6'
+        # The activation build's checked-in two-token capability statement (149 B).
+        CapabilityStatementSha256 = '50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B'
+        # The build record is a small JSON file; a larger one is refused before it is read.
+        MaximumBuildRecordBytes = 65536
     }
 }
 
@@ -240,6 +245,18 @@ function Test-ProbeBuildRecord([string]$RecordText, [string]$ExpectedManifestSha
     return [string]$record.sourceCommit
 }
 
+# C1 (S7 obligation 1, review L7): the build-record bytes, bounded and pinned to the hash the owner recorded at C-B prep, then
+# Test-ProbeBuildRecord. Returns the build commit, or throws 'not-a-probe-build:<detail>'.
+function Test-ProbeBuildRecordBytes([byte[]]$Bytes, [string]$ExpectedRecordSha256, [string]$ExpectedManifestSha256) {
+    $contract = Get-ProbeContract
+    if ($null -eq $Bytes -or $Bytes.Length -lt 2 -or $Bytes.Length -gt $contract['MaximumBuildRecordBytes']) { throw 'not-a-probe-build:record-size' }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hash = [BitConverter]::ToString($sha.ComputeHash($Bytes)).Replace('-', '') } finally { $sha.Dispose() }
+    if (!(Test-ProbeHex $ExpectedRecordSha256 64) -or $hash -cne $ExpectedRecordSha256) { throw 'not-a-probe-build:record-hash' }
+    try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes).TrimStart([char]0xFEFF) } catch { throw 'not-a-probe-build:record-unreadable' }
+    return Test-ProbeBuildRecord $text $ExpectedManifestSha256
+}
+
 # C1: the deployment record (ADR-022 ledger). Returns the installed SHA-256 the ledger pins for each probe-relevant file, or
 # throws 'pin-differs:<name>'.
 function Read-ProbeLedgerPins([string]$LedgerText, [string]$ExpectedManifestSha256, [string]$ExpectedSignerThumbprint) {
@@ -359,11 +376,14 @@ function Get-ProbeVerdicts([string]$ResultState, $Result, $Pins, $Baseline, $Aft
             else { New-ProbeVerdict 'PASS' 'machine facts; owner prompt judgment required' }
         }
     # E5 nothing changed.
-    $verdicts['E5'] = if ($null -eq $Baseline -or $null -eq $After) { New-ProbeVerdict 'INCONCLUSIVE' 'baseline-missing' }
+    # Review M1: only a missing C2 baseline is inconclusive. A C4 observation that fails (the database deleted, a sidecar
+    # present, the Chocolatey or data tree unreadable) is itself a difference from C2, so E5 fails.
+    $verdicts['E5'] = if ($null -eq $Baseline) { New-ProbeVerdict 'INCONCLUSIVE' 'baseline-missing' }
+        elseif ($null -eq $After) { New-ProbeVerdict 'FAIL' 'after-observation-failed' }
         else {
             $changes = @(foreach ($name in @('Database', 'Data', 'Chocolatey')) { if ($Baseline.$name -cne $After.$name) { $name } })
             if ($After.ChocoProcesses -ne 0) { $changes += 'ChocoProcess' }
-            if (!$After.OnlyResultFolderNew) { $changes += 'TempFolder' }
+            if (!$After.ResultFolderClean) { $changes += 'ResultFolder' }
             if ($changes.Count -eq 0) { New-ProbeVerdict 'PASS' 'C4=C2' } else { New-ProbeVerdict 'FAIL' ('changed=' + ($changes -join ',')) }
         }
     $all = @($verdicts.Values | ForEach-Object { $_.Verdict })
@@ -380,6 +400,21 @@ function Format-ProbeVerdicts($Verdicts) {
         $prefix + $Verdicts[$key].Verdict + ' (' + $Verdicts[$key].Detail + ')'
     }
     'C6 OWNER-CHECK E3: PASS needs exactly one UAC prompt, for PCSteward.ElevatedHelper.exe signed by the owner-only test signer, whose details show --kind qualify-chocolatey-helper right after the program path.'
+}
+
+# C5 (review L5): the result state. 'absent' when C3 created no folder or an empty one (no result file); 'malformed' when the
+# folder holds anything but the result file or the file breaks the closed schema; 'valid' with the parsed document.
+function Read-ProbeResultFolder([string]$Folder, [bool]$Created) {
+    $contract = Get-ProbeContract
+    $file = Join-Path $Folder 'qualification-result.json'
+    if (!$Created) { return [pscustomobject]@{ State = 'absent'; Result = $null; Line = 'C5 RESULT-ABSENT' } }
+    if ((Test-ProbeResultFolderRemovable $Folder) -cne 'removable') { return [pscustomobject]@{ State = 'malformed'; Result = $null; Line = 'C5 RESULT-REJECTED: result-folder-content' } }
+    if (!(Test-Path -LiteralPath $file -PathType Leaf)) { return [pscustomobject]@{ State = 'absent'; Result = $null; Line = 'C5 RESULT-ABSENT (empty result folder)' } }
+    if (([IO.FileInfo]::new($file)).Length -gt $contract['MaximumBytes']) { return [pscustomobject]@{ State = 'malformed'; Result = $null; Line = 'C5 RESULT-REJECTED: result-size' } }
+    $bytes = [IO.File]::ReadAllBytes($file)
+    try { $document = Test-ProbeResultDocument $bytes }
+    catch { return [pscustomobject]@{ State = 'malformed'; Result = $null; Line = 'C5 RESULT-REJECTED: ' + (Get-ProbeSafeMessage ([string]$_.Exception.Message) '\Aresult-[A-Za-z0-9-]+\z' 'result-unreadable') } }
+    [pscustomobject]@{ State = 'valid'; Result = $document; Line = 'C5 RESULT: ' + [Text.Encoding]::ASCII.GetString($bytes) }
 }
 
 # C7: the result folder may hold only the result file; nothing is followed or recursed into.
@@ -419,8 +454,9 @@ function Get-ProbeObservation([string]$Database, [string]$DataRoot, [string]$Cho
         ChocoProcesses = Get-ProbeProcessCount 'choco'
         PcStewardProcesses = Get-ProbeProcessCount 'PCSteward*'
         ResultFolder = $resultState
-        # E5: nothing but the result folder (holding at most the result file) may be new in TEMP; no folder at all is fine.
-        OnlyResultFolderNew = ($resultState -ceq 'removable' -or $resultState -ceq 'absent')
+        # E5 (review L9): inspects only %TEMP%\pcsteward-exact-artifact, which may be absent or hold at most the result file.
+        # The rest of %TEMP% is not compared.
+        ResultFolderClean = ($resultState -ceq 'removable' -or $resultState -ceq 'absent')
     }
 }
 
@@ -464,6 +500,8 @@ function Invoke-ProbeHostRun {
     if ($installed['desktop'] -cne $ledgerPins['PCSteward.Desktop.exe']) { Stop-ProbeRun 'pin differs (desktop)' }
     if ($installed['helper'] -cne $ledgerPins['PCSteward.ElevatedHelper.exe']) { Stop-ProbeRun 'pin differs (helper)' }
     if ($installed['capability'] -cne $ledgerPins['PCSteward.DeploymentCapability.txt']) { Stop-ProbeRun 'pin differs (capability)' }
+    # Review L6: the installed statement must be the activation build's two-token statement.
+    if ($installed['capability'] -cne $contract['CapabilityStatementSha256']) { Stop-ProbeRun 'pin differs (capability)' }
     $notAfter = $null
     foreach ($image in @($desktop, $helper)) {
         $signature = Get-AuthenticodeSignature -LiteralPath $image
@@ -473,7 +511,11 @@ function Invoke-ProbeHostRun {
         if ($signature.SignerCertificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow.AddMinutes(30)) { Stop-ProbeRun 'pin differs (signer expires within 30 minutes)' }
         $notAfter = $value
     }
-    try { $buildCommit = Test-ProbeBuildRecord ([IO.File]::ReadAllText($BuildRecordPath)) $ExpectedManifestSha256 }
+    if (!(Test-ProbeHex $ExpectedBuildRecordSha256 64)) { Stop-ProbeRun 'precondition (expected build record pin is not uppercase hex)' }
+    try {
+        if (([IO.FileInfo]::new($BuildRecordPath)).Length -gt $contract['MaximumBuildRecordBytes']) { throw 'not-a-probe-build:record-size' }
+        $buildCommit = Test-ProbeBuildRecordBytes ([IO.File]::ReadAllBytes($BuildRecordPath)) $ExpectedBuildRecordSha256 $ExpectedManifestSha256
+    }
     catch { Stop-ProbeRun ('not a probe build (' + (Get-ProbeSafeMessage ([string]$_.Exception.Message) '\Anot-a-probe-build:[A-Za-z0-9-]+\z' 'record-unreadable').Replace('not-a-probe-build:', '') + ')') }
     $pins = [ordered]@{
         ledgerSha256 = $ledgerSha256; capabilityFileSha256 = $installed['capability']; desktopImageSha256 = $installed['desktop']
@@ -501,23 +543,14 @@ function Invoke-ProbeHostRun {
     catch { 'C4 AFTER-UNAVAILABLE: ' + (Get-ProbeSafeMessage ([string]$_.Exception.Message) '\ASTOP: [A-Za-z0-9 ().;,=-]+\z' 'unreadable').Replace('STOP: ', '') }
     if ($null -ne $after) {
         'C4 UNCHANGED: db=' + ($after.Database -ceq $baseline.Database) + ' data=' + ($after.Data -ceq $baseline.Data) + ' choco=' + ($after.Chocolatey -ceq $baseline.Chocolatey) +
-            ' chocoProcess=' + $after.ChocoProcesses + ' pcstewardProcess=' + $after.PcStewardProcesses + ' onlyResultFolderNew=' + $after.OnlyResultFolderNew
+            ' chocoProcess=' + $after.ChocoProcesses + ' pcstewardProcess=' + $after.PcStewardProcesses + ' resultFolderClean=' + $after.ResultFolderClean
     }
 
     # ---- C5 evidence ----
-    $resultState = 'absent'
-    $result = $null
-    if ($created -and (Test-ProbeResultFolderRemovable $resultFolder) -ceq 'removable' -and (Test-Path -LiteralPath $resultFile -PathType Leaf)) {
-        $length = ([IO.FileInfo]::new($resultFile)).Length
-        if ($length -gt $contract['MaximumBytes']) { $resultState = 'malformed'; 'C5 RESULT-REJECTED: result-size' }
-        else {
-            $bytes = [IO.File]::ReadAllBytes($resultFile)
-            try { $result = Test-ProbeResultDocument $bytes; $resultState = 'valid'; 'C5 RESULT: ' + [Text.Encoding]::ASCII.GetString($bytes) }
-            catch { $resultState = 'malformed'; 'C5 RESULT-REJECTED: ' + (Get-ProbeSafeMessage ([string]$_.Exception.Message) '\Aresult-[A-Za-z0-9-]+\z' 'result-unreadable') }
-        }
-    }
-    elseif ($created) { $resultState = 'malformed'; 'C5 RESULT-REJECTED: result-folder-content' }
-    else { 'C5 RESULT-ABSENT' }
+    $read = Read-ProbeResultFolder $resultFolder $created
+    $resultState = $read.State
+    $result = $read.Result
+    $read.Line
 
     # ---- C6 interpretation ----
     Format-ProbeVerdicts (Get-ProbeVerdicts $resultState $result $pins $baseline $after)

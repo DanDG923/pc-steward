@@ -255,14 +255,45 @@ function Invoke-OwnerOnlyCandidateDotnet {
     if ($LASTEXITCODE -ne 0) { throw "dotnet step '$Name' failed with exit code $LASTEXITCODE." }
 }
 
+# Review L8: the builder's Git calls (commit, status and the probe-mark lineage) read only this repository. Variables that
+# could point Git at another repository, work tree, index or object store are cleared for each call and restored after it,
+# replace objects are disabled (GIT_NO_REPLACE_OBJECTS=1 and --no-replace-objects), and GIT_CONFIG_* is kept (the CI
+# launcher's process-scoped safe.directory). Returns the saved values for Exit-OwnerOnlyCandidateGitIsolation.
+function Enter-OwnerOnlyCandidateGitIsolation {
+    $saved = @{}
+    foreach ($name in @('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
+            'GIT_NAMESPACE', 'GIT_REPLACE_REF_BASE', 'GIT_GRAFT_FILE', 'GIT_SHALLOW_FILE', 'GIT_NO_REPLACE_OBJECTS')) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        # [NullString]::Value removes the variable: a plain $null would be passed as '' (an empty but defined variable on Unix).
+        [Environment]::SetEnvironmentVariable($name, [NullString]::Value, 'Process')
+    }
+    [Environment]::SetEnvironmentVariable('GIT_NO_REPLACE_OBJECTS', '1', 'Process')
+    $saved
+}
+
+function Exit-OwnerOnlyCandidateGitIsolation {
+    param([Parameter(Mandatory)][hashtable]$Saved)
+    foreach ($name in $Saved.Keys) {
+        if ($null -eq $Saved[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value, 'Process') }
+        else { [Environment]::SetEnvironmentVariable($name, [string]$Saved[$name], 'Process') }
+    }
+}
+
+# The dirty rule counts tracked changes and untracked files (--untracked-files=all). Ignored files are not counted: the
+# build itself writes the ignored bin/ and obj/ outputs into the tree, so counting them would mark every build dirty. The
+# probe-build mark therefore relies on the commit lineage plus the payload check, not on the absence of ignored files.
 function Get-OwnerOnlyCandidateGitState {
     param([Parameter(Mandatory)][string]$Git, [Parameter(Mandatory)][string]$RepositoryRoot)
     # Function-local: Git warnings on stderr must not terminate under Windows PowerShell 5.1; the exit code decides.
     $ErrorActionPreference = 'Continue'
-    $commit = & $Git @('-C', $RepositoryRoot, 'rev-parse', '--verify', 'HEAD')
-    if ($LASTEXITCODE -ne 0 -or [string]$commit -notmatch '\A[0-9a-f]{40}\z') { throw 'Could not read the source commit.' }
-    $status = @(& $Git @('-C', $RepositoryRoot, '--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=all'))
-    if ($LASTEXITCODE -ne 0) { throw 'Could not read the source tree status.' }
+    $saved = Enter-OwnerOnlyCandidateGitIsolation
+    try {
+        $commit = & $Git @('--no-replace-objects', '-C', $RepositoryRoot, 'rev-parse', '--verify', 'HEAD')
+        if ($LASTEXITCODE -ne 0 -or [string]$commit -notmatch '\A[0-9a-f]{40}\z') { throw 'Could not read the source commit.' }
+        $status = @(& $Git @('--no-replace-objects', '-C', $RepositoryRoot, '--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=all'))
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read the source tree status.' }
+    }
+    finally { Exit-OwnerOnlyCandidateGitIsolation -Saved $saved }
     [pscustomobject]@{ Commit = [string]$commit; DirtyEntries = @($status | Where-Object { $_ }).Count }
 }
 
@@ -271,8 +302,13 @@ function Get-OwnerOnlyCandidateGitState {
 function Test-OwnerOnlyCandidateDescendsFromProbeCommit {
     param([Parameter(Mandatory)][string]$Git, [Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][string]$Commit)
     $ErrorActionPreference = 'Continue'
-    $null = & $Git @('-C', $RepositoryRoot, 'merge-base', '--is-ancestor', $script:ProbeS6Commit, $Commit) 2>$null
-    return ($LASTEXITCODE -eq 0)
+    $saved = Enter-OwnerOnlyCandidateGitIsolation
+    try {
+        $null = & $Git @('--no-replace-objects', '-C', $RepositoryRoot, 'merge-base', '--is-ancestor', $script:ProbeS6Commit, $Commit) 2>$null
+        $descends = ($LASTEXITCODE -eq 0)
+    }
+    finally { Exit-OwnerOnlyCandidateGitIsolation -Saved $saved }
+    return $descends
 }
 
 function Assert-OwnerOnlyCandidateNonElevatedWindows {

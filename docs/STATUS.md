@@ -4,9 +4,22 @@
 - **Gate inventory (§1).** Met: Part A, Part B, the §8.6 gates 1 and 2, R5 (decision 6), the W1 and watchdog conditions, and obligations 3–7. Covered by owner decisions 2026-11-06: the target package, the A-Q1 real-launch residuals, and the §8.7 VM self-upgrade and second-release items (G9 = yes), plus D4 = G-0. Still to come: Part C, and the final admission approval (obligation 8). The §8.6 gate 3 is not applicable on this branch, which has no client offer UI.
 - **Admission.** `HasSupportedMode` keeps the unchanged WinGet rule and adds `ReviewedChocolateyRouteAdmission.Admits`, exact shapes only. A runtime-limit job for the package `chocolatey` is never admitted, and the gate-1 test seam is removed. `CapabilityOperationAllowlist` gains `ChocolateyClientSelfUpdateV1` (statement 149 B; the scripts' token list; the probe's G1 now covers both tokens). The dispatcher's `Supports` uses the route-discriminated digest before the capability seam. Pins changed deliberately, with new `ChocolateyRouteActivationBoundaryTests`.
 - **Unchanged.** WinGet; the release list (2.7.5 only, so the client route has no target); the watchdog and the other refusals; verification before Success. Nothing in `src` composes a Chocolatey review or dispatch, so the Desktop still shows the no-review disclosure and Confirm stays disabled. This is a finding against spec §9's expectation; G-0 holds anyway.
-- **S7.** The builder record is now v2 with `probeIncluded` (rule `pc-steward-probe-build-mark:1`: a clean build, descent from `2172f95`, and the probe types in the payload). The CI evidence check requires it, and the job fetches full history. `scripts/evidence/Task50-QualificationProbe.ps1` implements C1–C7 (CRLF SHA-256 `11EFFDBF…BE8A`) with fixture tests over the real result-document writer.
+- **S7.** The builder record is now v2 with `probeIncluded` (rule `pc-steward-probe-build-mark:1`: a clean build, descent from `2172f95`, and the probe types in the payload). The CI evidence check requires it, and the job fetches full history. `scripts/evidence/Task50-QualificationProbe.ps1` implements C1–C7 (CRLF SHA-256 `831B5E17…E77A`) with fixture tests over the real result-document writer.
 - **Tests (Linux).** Architecture 140/140 (+5); domain 175/175; integration 874 passed, 112 failed; security 1,337 passed, 240 failed, 6 skipped. The failures are the same Windows-only sets as base `e2f35af`, with no new failure.
-- **Next.** Independent review and Windows CI; then Part C plan revision 2 (C-B before 2026-11-20T09:43:26Z, then C-pre and C-run).
+- **Review fixes (independent review of `0c659eb`: no Critical or High).** Record §8.
+  - **M1:** E5 FAIL when C4 cannot observe.
+  - **M2:** the composition record's L1 test (`RuntimeLimitRouteActivationTests`, SQLite).
+  - **M3:** your explicit obligation-8 confirmation is required before deployment.
+  - **L4:** a shared Domain client-identity predicate (`chocolatey` and `chocolatey.extension`, any case).
+  - **L5:** an empty result folder counts as absent.
+  - **L6:** C1 pins the two-token capability statement `50F169DD…654B`.
+  - **L7:** `-ExpectedBuildRecordSha256`, with a 64 KiB bound.
+  - **L8:** the builder's Git isolation and `--no-replace-objects`; ignored files stay outside the dirty rule.
+  - **L9:** runtime-limit near-miss rows, and the token renamed `resultFolderClean`.
+  - **L10:** the Task 73 gate-3 merge condition.
+  - The Part B pins must be re-pinned for C-B. The script's CRLF SHA-256 is now `831B5E17…E77A`.
+  - Tests: integration 886 passed / 112 failed; security 1,338 passed / 240 failed / 6 skipped. The failures are the same Windows-only sets.
+- **Next.** Windows CI; your obligation-8 confirmation; then Part C plan revision 2 (C-B before 2026-11-20T09:43:26Z, then C-pre and C-run).
 
 **Task 50 — Part C route drafted (2026-11-06; docs only).** [Part C plan rev 1](review/TASK_50_PART_C_PLAN.md): the installed `febf1ac` build predates the probe, so under Decision 3 (c) Part C runs on the **activated** build. The order is: C-D, owner decisions D4 and G9; C-A, the activation change with the C1–C7 tooling, reviewed and CI-tested; C-B, a redeploy before 2026-11-20 09:43Z; C-pre, the first launch for the Activity check; C-run, the probe with one helper UAC prompt. Recommendations: D4 = G-0, G9 = proceed with the A-Q1 residuals recorded as open, and an optional C0 smoke launch. **Owner decisions 2026-11-06: D4 = G-0, G9 = yes, C0 = yes** (plan §6–§7).
 
