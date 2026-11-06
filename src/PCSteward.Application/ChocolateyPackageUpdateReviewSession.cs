@@ -247,9 +247,13 @@ public sealed class ChocolateyPackageUpdateReviewSession
             : ChocolateyClientUpdateRefusal.None;
     }
 
-    /// <summary>A package ID the row may select: present and never a Chocolatey client identity (in any case).</summary>
+    /// <summary>
+    /// A package ID the row may select: present, never a Chocolatey client identity (in any case), and the compiled admitted
+    /// package (C1a).
+    /// </summary>
     public static bool IsSelectablePackage(string? packageId) =>
-        !string.IsNullOrWhiteSpace(packageId) && !ReviewedUpdateOperation.IsChocolateyClientIdentity(packageId);
+        !string.IsNullOrWhiteSpace(packageId) && !ReviewedUpdateOperation.IsChocolateyClientIdentity(packageId) &&
+        ChocolateyPackageUpdateAdmission.AdmitsPackage(packageId);
 
     /// <summary>
     /// The intent of exactly this package, resolved during this check, as provisional user-cache intent with a strictly newer
@@ -282,7 +286,8 @@ public sealed class ChocolateyPackageUpdateReviewSession
             // Only the exact package shape the review gate admits; a client identity is never prepared here.
             return frozen.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&
                 frozen.ProviderGuardContract == ReviewedProviderGuardContract.CommunityScriptRuntimeLimits &&
-                !ReviewedUpdateOperation.IsChocolateyClientIdentity(frozen.Selection.PackageId) && ReviewedUpdateReview.HasSupportedMode(frozen) &&
+                !ReviewedUpdateOperation.IsChocolateyClientIdentity(frozen.Selection.PackageId) &&
+                ChocolateyPackageUpdateAdmission.AdmitsPackage(frozen.Selection.PackageId) && ReviewedUpdateReview.HasSupportedMode(frozen) &&
                 ChocolateyReviewDisclosurePresentation.Present(frozen, facts, ReviewedRouteSplitTokenState.SplitTokenLimited).CanConfirm
                     ? frozen
                     : null;

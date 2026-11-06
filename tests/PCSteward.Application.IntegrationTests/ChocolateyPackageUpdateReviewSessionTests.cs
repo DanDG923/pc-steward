@@ -128,6 +128,8 @@ public sealed class ChocolateyPackageUpdateReviewSessionTests
     [DataRow("chocolatey")]
     [DataRow("Chocolatey")]
     [DataRow("chocolatey.extension")]
+    [DataRow("fd")]
+    [DataRow("RipGrep")]
     [DataRow("")]
     [DataRow(" ")]
     public async Task AClientIdentityOrAnEmptySelectionIsNeverChecked(string selected)
@@ -137,7 +139,7 @@ public sealed class ChocolateyPackageUpdateReviewSessionTests
         ChocolateyPackageUpdateReviewSession session = fixture.Session();
         Assert.IsFalse(ChocolateyPackageUpdateReviewSession.IsSelectablePackage(selected));
         Assert.AreEqual(ChocolateyClientUpdateReviewStage.PrepareFailed, await session.PrepareAsync(selected, CancellationToken.None));
-        Assert.AreEqual(0, fixture.Checks, "a client identity is never even checked on the package route");
+        Assert.AreEqual(0, fixture.Checks, "a client identity, or a package other than the admitted one (C1a), is never even checked");
         Assert.AreEqual(0, fixture.Saves);
     }
 

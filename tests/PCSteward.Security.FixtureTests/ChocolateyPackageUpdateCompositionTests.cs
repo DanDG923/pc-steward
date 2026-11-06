@@ -26,6 +26,8 @@ public sealed class ChocolateyPackageUpdateCompositionTests
         ReviewedUpdateOperation package = Operation("ripgrep");
         ReviewedUpdateOperation clientIdentity = Operation("chocolatey");
         ReviewedUpdateOperation extensionIdentity = Operation("Chocolatey.Extension");
+        ReviewedUpdateOperation notAdmitted = Operation("fd");
+        ReviewedUpdateOperation caseVariant = Operation("RipGrep");
         ReviewedUpdateOperation client = ClientRouteWorkflowAdmissionGateTests.ClientOperation("2.7.5", "2.8.0", new string('A', 64));
         RecordingDispatcher inner = new();
         ChocolateyClientUpdatePhaseSignal phases = new();
@@ -35,7 +37,7 @@ public sealed class ChocolateyPackageUpdateCompositionTests
 
         Assert.IsTrue(dispatcher.Supports(package));
         Assert.AreEqual(1, inner.SupportCalls);
-        foreach (ReviewedUpdateOperation other in new[] { client, clientIdentity, extensionIdentity })
+        foreach (ReviewedUpdateOperation other in new[] { client, clientIdentity, extensionIdentity, notAdmitted, caseVariant })
             Assert.IsFalse(dispatcher.Supports(other), other.Selection.PackageId + " " + other.RouteContract);
         Assert.IsFalse(dispatcher.Supports(null!));
         Assert.AreEqual(1, inner.SupportCalls, "the inner dispatcher is never asked about another shape");
@@ -45,7 +47,7 @@ public sealed class ChocolateyPackageUpdateCompositionTests
         Assert.IsFalse(dispatcher.Supports(package), "a fault is unsupported");
         Assert.IsFalse(PackageRouteOnlyDispatcher.IsPackageRoute(null));
 
-        foreach (ReviewedUpdateOperation other in new[] { client, clientIdentity })
+        foreach (ReviewedUpdateOperation other in new[] { client, clientIdentity, notAdmitted })
         {
             ReviewedUpdateDispatchObservation refused = await dispatcher.DispatchAsync(Ticket(other), CancellationToken.None);
             Assert.AreEqual(ReviewedUpdateInvocation.NotStarted, refused.Invocation);

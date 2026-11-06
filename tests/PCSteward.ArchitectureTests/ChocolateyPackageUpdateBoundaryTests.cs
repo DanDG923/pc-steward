@@ -53,7 +53,8 @@ public sealed class ChocolateyPackageUpdateBoundaryTests
         string freeze = Between(session, "private ReviewedUpdateOperation? Freeze(ChocolateyReviewIntentFacts facts)", "\n    }\n");
         StringAssert.Contains(freeze, "UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3,");
         StringAssert.Contains(freeze, "frozen.ProviderGuardContract == ReviewedProviderGuardContract.CommunityScriptRuntimeLimits &&");
-        StringAssert.Contains(freeze, "!ReviewedUpdateOperation.IsChocolateyClientIdentity(frozen.Selection.PackageId) && ReviewedUpdateReview.HasSupportedMode(frozen) &&");
+        StringAssert.Contains(freeze, "!ReviewedUpdateOperation.IsChocolateyClientIdentity(frozen.Selection.PackageId) &&");
+        StringAssert.Contains(freeze, "ChocolateyPackageUpdateAdmission.AdmitsPackage(frozen.Selection.PackageId) && ReviewedUpdateReview.HasSupportedMode(frozen) &&");
         StringAssert.Contains(freeze, "ChocolateyReviewDisclosurePresentation.Present(frozen, facts, ReviewedRouteSplitTokenState.SplitTokenLimited).CanConfirm");
         Assert.IsFalse(freeze.Contains("ChocolateyClientSelfUpdateV1", StringComparison.Ordinal), "the package session never freezes the client route");
         // Versions, IDs and the requester come only from the checked intent (never a scan value).
@@ -65,7 +66,12 @@ public sealed class ChocolateyPackageUpdateBoundaryTests
                 $"{use.Value} is read from the checked intent or the frozen selection only");
         }
         StringAssert.Contains(session, "string.Equals(facts.PackageId, packageId, StringComparison.Ordinal) &&");
-        StringAssert.Contains(session, "!string.IsNullOrWhiteSpace(packageId) && !ReviewedUpdateOperation.IsChocolateyClientIdentity(packageId);");
+        StringAssert.Contains(session, "!string.IsNullOrWhiteSpace(packageId) && !ReviewedUpdateOperation.IsChocolateyClientIdentity(packageId) &&");
+        StringAssert.Contains(session, "ChocolateyPackageUpdateAdmission.AdmitsPackage(packageId);");
+        // C1a: exactly one compiled admitted package, the G9 test package, compared ordinally.
+        string admission = ApplicationSource("ChocolateyPackageUpdateAdmission.cs");
+        Assert.AreEqual(1, Regex.Count(admission, @"public const string AdmittedPackageId = ""ripgrep"";"), "only the G9 test package");
+        StringAssert.Contains(admission, "public static bool AdmitsPackage(string? packageId) => string.Equals(packageId, AdmittedPackageId, StringComparison.Ordinal);");
         // One workflow run per accepted press, off the UI thread and never cancelled from the screen.
         Assert.AreEqual(1, Regex.Count(session, @"workflow\.RunAsync\("));
         StringAssert.Contains(session, "await Task.Run(() => workflow.RunAsync(approval, CancellationToken.None), CancellationToken.None)");

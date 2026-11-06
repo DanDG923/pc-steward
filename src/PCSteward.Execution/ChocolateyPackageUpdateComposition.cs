@@ -60,7 +60,7 @@ public sealed class ChocolateyPackageUpdateComposition
 
 /// <summary>
 /// Chocolatey package Confirm addendum §5: the composed dispatcher admits only the exact package shape (the runtime-limit route,
-/// its guard contract, never a Chocolatey client identity), then defers to the route dispatcher, whose <c>Supports</c> also checks
+/// its guard contract, never a Chocolatey client identity, and only the compiled admitted package, C1a), then defers to the route dispatcher, whose <c>Supports</c> also checks
 /// the protected deployment capability. It reports the progress points around the one exchange. It adds no authority: every
 /// refusal stays a refusal.
 /// </summary>
@@ -88,5 +88,6 @@ internal sealed class PackageRouteOnlyDispatcher(IReviewedUpdateRouteDispatcher 
     internal static bool IsPackageRoute(ReviewedUpdateOperation? operation) =>
         operation is not null && operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&
         operation.ProviderGuardContract == ReviewedProviderGuardContract.CommunityScriptRuntimeLimits &&
-        !ReviewedUpdateOperation.IsChocolateyClientIdentity(operation.Selection.PackageId);
+        !ReviewedUpdateOperation.IsChocolateyClientIdentity(operation.Selection.PackageId) &&
+        ChocolateyPackageUpdateAdmission.AdmitsPackage(operation.Selection.PackageId);
 }

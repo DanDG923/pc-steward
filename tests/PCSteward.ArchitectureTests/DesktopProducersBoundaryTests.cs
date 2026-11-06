@@ -201,7 +201,8 @@ public sealed class DesktopProducersBoundaryTests
         StringAssert.Contains(package, "try { return IsPackageRoute(operation) && inner.Supports(operation); }");
         StringAssert.Contains(package, "if (!IsPackageRoute(ticket.Operation))");
         StringAssert.Contains(package, "operation is not null && operation.RouteContract == UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 &&");
-        StringAssert.Contains(package, "!ReviewedUpdateOperation.IsChocolateyClientIdentity(operation.Selection.PackageId);");
+        StringAssert.Contains(package, "!ReviewedUpdateOperation.IsChocolateyClientIdentity(operation.Selection.PackageId) &&");
+        StringAssert.Contains(package, "ChocolateyPackageUpdateAdmission.AdmitsPackage(operation.Selection.PackageId);");
         Assert.AreEqual(1, Regex.Count(package, @"ReviewedUpdateDispatchWorkflow\s+\w+\s*=\s*new\("), "one workflow per session");
     }
 

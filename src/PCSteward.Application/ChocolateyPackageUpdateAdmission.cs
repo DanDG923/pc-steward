@@ -29,4 +29,14 @@ public static class ChocolateyPackageUpdateAdmission
     /// is compiled in.
     /// </summary>
     public static bool IsOwnerApproved => OwnerApproved;
+
+    /// <summary>
+    /// Addendum §3 C1a (security review of PR #28, note 1): while the route is unproven on a real PC, the Confirm is offered for
+    /// exactly one package, the G9 test package (ripgrep, G9-D2b). Every other Chocolatey Community row keeps the read-only
+    /// disclosure. Widening this is its own reviewed commit, after G9-T4 has passed. Compiled only, ordinal.
+    /// </summary>
+    public const string AdmittedPackageId = "ripgrep";
+
+    /// <summary>True only for the admitted package ID (ordinal); the session, the composed dispatcher and the Desktop entry read it.</summary>
+    public static bool AdmitsPackage(string? packageId) => string.Equals(packageId, AdmittedPackageId, StringComparison.Ordinal);
 }
