@@ -444,3 +444,35 @@ The owner opened the activated PC Steward normally, opened Activity and read the
 - `CHECK-COMPLETE: nothing was launched`, `PROBE-EXIT 0`
 
 The database is still `78697727…` after the C-pre launch of the activated build, so no further migration occurred.
+
+### Result C-run (2026-11-06, 20:01:30–20:01:49 UTC): **OVERALL FAIL** (E2)
+
+**Owner's report of the prompt:** exactly one UAC prompt, for `PCSteward.ElevatedHelper.exe`, with `--kind qualify-chocolatey-helper` shown in its details. The owner answered Yes.
+
+**Script output:**
+- `PROBE-SCRIPT 831B5E17…`; C1 `PINS-OK` (as in C-check, `probeBuild=true`); C2 baseline as in C-check.
+- `C3 EXIT: 0 RESULT: present`.
+- `C4 UNCHANGED: db=True data=True choco=True chocoProcess=0 pcstewardProcess=0 resultFolderClean=True`.
+- `C5 RESULT` (verbatim, closed schema 2):
+  - **Transport:** `desktopOutcome` `ResponseAccepted`; both capability tokens `Supported`; every transport fact true, `terminationFailed` false; `helperExitCode` 0; pins equal to C1 (signer NotAfter `2026-11-20T19:53:44.000Z`).
+  - **Probe:** `tokenVerdict` **Accepted**; `g1Status` both **Supported**; `observation` **Refused**, `failedStep` **6**, `failedCheck` **StepRule**, `failedAccess` **Other**, `refusalReason` **MachineInputsUnsupported**, `refusalDetail` None; `nodesEvaluated` 181, `ancestorsEvaluated` 50; `observedClientVersion` null, `fingerprintPresent` false, `fingerprintLength` 0; `diagnostic` `probe-observation-refused`.
+- **C6 verdicts:**
+
+| Evidence | Verdict |
+|---|---|
+| E1 | PASS (`tokenVerdict=Accepted`) |
+| A3 | PASS |
+| **E2** | **FAIL** (refused step=6 check=StepRule access=Other reason=MachineInputsUnsupported detail=None) |
+| E3 | PASS on the machine facts; owner judgment: **PASS** |
+| E5 | PASS |
+| **OVERALL** | **FAIL** |
+
+- `C7 CLEANUP-COMPLETE`, `PROBE-EXIT 0`.
+
+**Meaning (spec §8).** E2 FAIL is a finding, not an error in the run. The reviewed observer, running elevated against the real `ProgramData\chocolatey` tree, **refused** at step 6 with `MachineInputsUnsupported`. Under Decision 2 this **stops use**: the Chocolatey routes stay unusable on this host, and the run is not repeated. Everything else passed:
+- the linked-token match (E1);
+- the capability tokens (A3);
+- the signed-helper transport across the real UAC launch (E3);
+- nothing changed (E5).
+
+Diagnosis of the step-6 refusal follows in §12.
