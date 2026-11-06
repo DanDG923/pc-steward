@@ -44,7 +44,7 @@ function Invoke-Publish([string]$Name, [string[]]$Arguments) {
 $aot = Invoke-Publish 'publish-aot' @('publish', $project, '--configuration', 'Release', '--runtime', 'win-x64',
     '-p:PublishAot=true', '-p:EnableAotAnalyzer=false', '-p:EnableTrimAnalyzer=false', '-p:EnableSingleFileAnalyzer=false', '-p:TrimmerSingleWarn=false', '-p:IlcTreatWarningsAsErrors=false', '-p:ILLinkTreatWarningsAsErrors=false', '-p:IlcGenerateMapFile=false', '--output', $aotOut, '--disable-build-servers')
 $fd = Invoke-Publish 'publish-framework-dependent' @('publish', $project, '--configuration', 'Release', '--runtime', 'win-x64',
-    '--self-contained', 'false', '--output', $fdOut, '--disable-build-servers')
+    '--self-contained', 'false', '-p:PublishAot=false', '--output', $fdOut, '--disable-build-servers')
 
 # A child started with the given extra settings and every inherited .NET runtime name removed (the runner's own DOTNET_ROOT
 # and similar would otherwise trip the helper's environment check in every run).
