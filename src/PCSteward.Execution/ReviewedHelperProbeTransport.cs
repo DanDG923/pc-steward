@@ -535,6 +535,8 @@ internal sealed class ReviewedHelperProbeTransport
         elevationDeclined = false;
         ProcessStartInfo start = new() { FileName = helperPath, UseShellExecute = true, Verb = "runas" };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
+        // Security review H1: no UAC prompt while a user-writable environment source holds a .NET runtime control name.
+        if (!ElevatedRuntimeEnvironmentGuard.PermitsElevatedLaunch()) return null;
         try { return Process.Start(start); }
         catch (Win32Exception exception) when (exception.NativeErrorCode == NativeMethods.ErrorCancelled)
         {

@@ -2,6 +2,14 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+    <!--
+      Security review H1: this program runs elevated, and its environment comes from the user's own registry. The host must
+      not take the .NET location from DOTNET_ROOT (only the machine-registered and default locations, which need an
+      administrator to change), and the runtime must ignore DOTNET_STARTUP_HOOKS. AppHostDotNetSearch applies to the
+      published apphost, which is what the deployment ships.
+    -->
+    <StartupHookSupport>false</StartupHookSupport>
+    <AppHostDotNetSearch>Global</AppHostDotNetSearch>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
