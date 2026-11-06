@@ -431,3 +431,7 @@ Paste the whole output and say what the UAC prompt showed.
 > The pins are those of §11. No Chocolatey process, no package change, no scan, no refresh, no retry.
 
 **Approval C given by the owner (2026-11-06): "I approve Part C".** It covers C-pre, C-check and C-run exactly as in §11, each run once.
+
+### Result C-pre (2026-11-06): precondition holds
+
+The owner opened the activated PC Steward normally, opened Activity and read the "Reviewed update outcomes" section: **"No reviewed update outcomes are recorded."** They then closed it. S7 obligation 3 (no blocking unresolved record) holds, so `-ActivityCheck NoBlockingRecord` is the owner's recorded answer.
