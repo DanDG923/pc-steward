@@ -87,7 +87,13 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         StringAssert.Contains(source, "public bool CanConfirm => UnavailableReasons.Count == 0;");
         StringAssert.Contains(source, "public bool IsConfirmEnabled => CanConfirm;");
         Assert.IsFalse(Regex.IsMatch(source, @"\b(TryConfirm|ConfirmAndRunAsync|LiveApprovedUpdate|ReviewedUpdateDraft)\b"), "no confirm path or permit");
-        Assert.IsFalse(Regex.IsMatch(source, @"NotAdmittedPendingReview\s*\)\s*;?\s*\n\s*reasons\.Remove|reasons\.Clear\("), "the not-admitted reason is never removed");
+        // Design §8.6 gate 3 after the Task 50 activation: this reason alone keeps Confirm off, so the list it starts is never
+        // shrunk, reordered, filtered or replaced (review of 9a789ea, M). The behavioural proof is
+        // ChocolateyClientUpdateViewModelTests.TheAdmittedRouteStillGivesTheViewModelNoConfirmPath; this pins the source shape.
+        Assert.IsFalse(Regex.IsMatch(source, @"\breasons\s*\.\s*(Remove\w*|Clear|Insert\w*|Reverse|Sort)\s*\(|\breasons\s*\[[^\]]*\]\s*=(?!=)"),
+            "the not-admitted reason is never removed, replaced or moved");
+        Assert.AreEqual(1, Regex.Count(source, @"\bUnavailableReasons\s*=(?!=)"), "a single assignment of the reasons");
+        StringAssert.Contains(source, "UnavailableReasons = reasons.AsReadOnly();");
     }
 
     [TestMethod]
