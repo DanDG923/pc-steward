@@ -323,3 +323,4 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
   - `packageQueryResult` 15700, `unpackagedProcess` true.
 
 CB.8 above now carries these two hashes. CB.7 runs next, then approval CB-exec.
+- **CB.7:** `VALIDATOR 2CFB6C72…`, `VALIDATOR-EXIT 0`, `OLD-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 thumbprint=473DB701E6349AF18F672151E44AC166F95C53FD launched=False`, `CB7-OK`. **CB-prep complete: PASS.**
