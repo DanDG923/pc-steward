@@ -9,10 +9,12 @@ namespace PCSteward.ArchitectureTests;
 /// <list type="bullet">
 /// <item>the only new Desktop reach into the provider is the read-only release catalog, composed once in App.xaml.cs, whose
 /// compiled IL reads only the compiled list's versions;</item>
-/// <item>the view model holds no review, draft, permit, ticket, dispatcher or workflow and always carries the not-admitted
-/// reason, so <c>CanConfirm</c> is false;</item>
-/// <item>the review is opened (and so probed) once per click inside its handler, renders every view-model line, binds Confirm
-/// to <c>IsConfirmEnabled</c>, and its handler never calls <c>ConfirmAndRunAsync</c>, a workflow or a dispatcher;</item>
+/// <item>the view model holds no review, draft, permit, ticket, dispatcher or workflow and carries the not-admitted reason exactly
+/// while the compiled owner admission (<c>ChocolateyClientUpdateAdmission.OwnerApproved</c>, Chocolatey Confirm design §2 C1) is
+/// false, so <c>CanConfirm</c> is false; the constant has one definition that nothing configurable reaches;</item>
+/// <item>the review is opened (and so probed) once per click inside its handler, renders every view-model line and binds the
+/// primary button to the view model; only <c>ChocolateyClientUpdateReviewSession</c> confirms the review and runs the workflow
+/// (design §5 item 2), and the Desktop reaches it only through the session factory composed in App.xaml.cs;</item>
 /// <item>design §8.6 gate 3: the offer is computed only from the verified installed-client check, whose single carrier of a
 /// release (<c>ChocolateyInstalledClientVerification.Verified</c>) is called only by the native Desktop-role observation; the
 /// Desktop reaches it only through the public façade composed in App.xaml.cs, never the Native namespace, and runs it only
@@ -56,7 +58,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.AreEqual(1, Regex.Count(all, @"\bChocolateyClientReleaseCatalog\b"), "one composition site of the catalog");
         // Independent review L5: the single read is wrapped so a fault building the compiled list never fails startup.
         StringAssert.Contains(Desktop("App.xaml.cs"),
-            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, showPostResetOnboarding");
+            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, showPostResetOnboarding");
 
         // The catalog's compiled IL reads only the compiled list's versions in the native layer (the signer is a compiled constant).
         string chocolatey = CompiledIlScanner.BuiltSrcAssemblies().Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");
@@ -73,7 +75,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
     }
 
     [TestMethod]
-    public void TheViewModelHasNoConfirmPermitOrDispatchPathAndIsAlwaysUnavailable()
+    public void TheViewModelHasNoConfirmPermitOrDispatchPathAndIsUnavailableWhileNotAdmitted()
     {
         string application = CompiledIlScanner.BuiltSrcAssemblies().Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Application");
         CompiledIlScanner.IlReference[] references = CompiledIlScanner.References(application).Where(reference => reference.Caller == ViewModel).ToArray();
@@ -83,17 +85,71 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.AreEqual(0, forbidden.Length, string.Join(", ", forbidden));
 
         string source = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Application", "ChocolateyClientUpdateViewModel.cs"));
-        StringAssert.Contains(source, "List<ChocolateyClientUpdateUnavailableReason> reasons = [ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview];");
+        // Chocolatey Confirm design §2 C1: the not-admitted reason is the first entry exactly while owner admission is not compiled in.
+        StringAssert.Contains(source, "List<ChocolateyClientUpdateUnavailableReason> reasons = [];");
+        StringAssert.Contains(source, "if (!Admitted) reasons.Add(ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview);");
+        Assert.AreEqual(1, Regex.Count(source, @"\bAdmitted\s*=(?!=)"), "a single assignment of the admission");
+        StringAssert.Contains(source, "Admitted = admitted;");
+        // The one public factory passes the compiled C1; the admission-taking factory is for tests only.
+        StringAssert.Contains(source, "OpenView(ChocolateyClientUpdateAdmission.IsOwnerApproved, catalog, verification, reportedInstalledVersion, probeSplitToken);");
+        Assert.AreEqual(2, Regex.Count(source, @"\bIsOwnerApproved\b(?!""|</)"), "the public factory and the static entry detail copy only");
+        Assert.AreEqual(1, Regex.Count(source, @"NotAdmittedPendingReview\);"), "the reason is added at one site");
+        int notAdmitted = source.IndexOf("if (!Admitted) reasons.Add(", StringComparison.Ordinal);
+        Assert.IsTrue(notAdmitted > 0 && notAdmitted < source.IndexOf("reasons.Add(verification.Check switch", StringComparison.Ordinal), "the not-admitted reason is added first");
         StringAssert.Contains(source, "public bool CanConfirm => UnavailableReasons.Count == 0;");
         StringAssert.Contains(source, "public bool IsConfirmEnabled => CanConfirm;");
-        Assert.IsFalse(Regex.IsMatch(source, @"\b(TryConfirm|ConfirmAndRunAsync|LiveApprovedUpdate|ReviewedUpdateDraft)\b"), "no confirm path or permit");
-        // Design §8.6 gate 3 after the Task 50 activation: this reason alone keeps Confirm off, so the list it starts is never
-        // shrunk, reordered, filtered or replaced (review of 9a789ea, M). The behavioural proof is
-        // ChocolateyClientUpdateViewModelTests.TheAdmittedRouteStillGivesTheViewModelNoConfirmPath; this pins the source shape.
+        StringAssert.Contains(source, "public bool IsPrimaryActionEnabled => CanConfirm || OffersCheckAgain;");
+        Assert.IsFalse(Regex.IsMatch(source, @"\b(TryConfirm|ConfirmAndRunAsync|LiveApprovedUpdate|ReviewedUpdateDraft|ConfirmAsync|PrepareAsync)\b"), "no confirm path or permit");
+        // Once a reason is added it is never shrunk, reordered, filtered or replaced (review of 9a789ea, M). The behavioural
+        // proof is ChocolateyClientUpdateViewModelTests; this pins the source shape.
         Assert.IsFalse(Regex.IsMatch(source, @"\breasons\s*\.\s*(Remove\w*|Clear|Insert\w*|Reverse|Sort)\s*\(|\breasons\s*\[[^\]]*\]\s*=(?!=)"),
             "the not-admitted reason is never removed, replaced or moved");
         Assert.AreEqual(1, Regex.Count(source, @"\bUnavailableReasons\s*=(?!=)"), "a single assignment of the reasons");
         StringAssert.Contains(source, "UnavailableReasons = reasons.AsReadOnly();");
+
+        // C1 is one compiled constant, read only through its property, and nothing configurable reaches it.
+        string root = CompiledIlScanner.FindRepositoryRoot();
+        string admission = ApplicationSource("ChocolateyClientUpdateAdmission.cs");
+        Assert.AreEqual(1, Regex.Count(admission, @"public const bool OwnerApproved = (true|false);"), "one compiled definition");
+        StringAssert.Contains(admission, "public static bool IsOwnerApproved => OwnerApproved;");
+        Assert.IsFalse(Regex.IsMatch(admission, @"\b(Registry|Environment|File|Directory|Sqlite|Configuration|AppContext|GetEnvironmentVariable|static\s+bool\s+\w+\s*[;=]|set\s*;)\b"),
+            "the admission reads no configuration, registry, environment, file or database value and has no mutable state");
+        foreach (string path in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+                !path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+                !path.EndsWith("ChocolateyClientUpdateAdmission.cs", StringComparison.Ordinal)))
+            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"\bOwnerApproved\b"), $"{path} names the constant (read IsOwnerApproved)");
+
+        // Design §5 item 2: only the review session confirms a review for the client route and runs the dispatch workflow.
+        const string Session = "PCSteward.Application.ChocolateyClientUpdateReviewSession";
+        List<string> confirmCallers = [], runCallers = [], admissionFactoryCallers = [];
+        foreach (string path in CompiledIlScanner.BuiltSrcAssemblies())
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+            {
+                // C1 has no production override: the admission-taking factories are reached only from tests.
+                if (reference.TargetMember is "OpenWithAdmissionForTests" or "CreateWithAdmissionForTests")
+                    admissionFactoryCallers.Add(reference.Caller);
+                if (reference.TargetType == "PCSteward.Application.ReviewedUpdateReview" && reference.TargetMember == "Confirm")
+                    confirmCallers.Add(reference.Caller);
+                if (reference.TargetType == "PCSteward.Application.ReviewedUpdateDispatchWorkflow" && reference.TargetMember == "RunAsync")
+                    runCallers.Add(reference.Caller);
+            }
+        // The package-route review model's TryConfirm is the other caller; nothing composes a draft for it (ReviewedRouteDesktopUiBoundaryTests).
+        CollectionAssert.AreEquivalent(new[] { Session, "PCSteward.Application.ChocolateyReviewedRouteReviewViewModel" },
+            confirmCallers.Select(caller => caller.Split('+')[0]).Distinct().ToArray(), string.Join(", ", confirmCallers));
+        CollectionAssert.AreEquivalent(new[] { Session }, runCallers.Select(caller => caller.Split('+')[0]).Distinct().ToArray(), string.Join(", ", runCallers));
+        Assert.AreEqual(0, admissionFactoryCallers.Count, string.Join(", ", admissionFactoryCallers));
+        string session = ApplicationSource("ChocolateyClientUpdateReviewSession.cs");
+        StringAssert.Contains(session, ": this(ChocolateyClientUpdateAdmission.IsOwnerApproved, observeForReview,");
+        Assert.AreEqual(1, Regex.Count(session, @"\bIsOwnerApproved\b(?!""|</)"), "the public constructor passes the compiled C1");
+        Assert.AreEqual(1, Regex.Count(session, @"\bthis\.admitted\s*=(?!=)"), "a single assignment of the admission");
+        StringAssert.Contains(session, "if (admitted && OfferFor(verifiedInstalledRelease) is { } target)");
+        StringAssert.Contains(session, "if (!admitted) return ChocolateyClientUpdateRefusal.NotAdmitted;");
+        foreach (string path in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"\b(OpenWithAdmissionForTests|CreateWithAdmissionForTests)\s*\(") &&
+                !path.EndsWith("ChocolateyClientUpdateViewModel.cs", StringComparison.Ordinal) && !path.EndsWith("ChocolateyClientUpdateReviewSession.cs", StringComparison.Ordinal),
+                $"{path} reaches a test-only admission factory");
     }
 
     [TestMethod]
@@ -116,9 +172,10 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         // Opened (and so probed) inside the handler; summaries never probe; nothing is cached in a field.
         string region = Between(window, "private ChocolateyClientUpdateViewModel ChocolateyClientUpdateView(", "private async Task ShowDetailsAsync");
         string handler = Between(region, "private async Task ShowChocolateyClientUpdateAsync()", "\n    }\n");
-        StringAssert.Contains(handler, "ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateView(probeReviewedRouteSplitToken, ChocolateyInstalledClientVerification.Checking);");
+        StringAssert.Contains(handler, "ChocolateyClientUpdateViewModel OpenChecking() => ChocolateyClientUpdateView(probeReviewedRouteSplitToken, ChocolateyInstalledClientVerification.Checking);");
+        StringAssert.Contains(handler, "ChocolateyClientUpdateViewModel model = OpenChecking();");
         StringAssert.Contains(handler, "ChocolateyClientUpdateSurfaces.ReviewDialog(Content.XamlRoot, model);");
-        StringAssert.Contains(handler, "await ShowUpdateOutcomeAsync(\"Update not started\", ChocolateyClientUpdateViewModel.NotStartedText);");
+        StringAssert.Contains(handler, "using ChocolateyClientUpdateReviewDialog review = new(dialog, model, OpenChecking, checkInstalledChocolateyClient,");
         Assert.AreEqual(1, Regex.Count(window, @"ChocolateyClientUpdateViewModel\.Open\("), "one view-model construction site");
         Assert.AreEqual(1, Regex.Count(window, @"ChocolateyClientUpdateView\(probeReviewedRouteSplitToken\b"), "only the review probes");
         StringAssert.Contains(region, "probe ?? (() => ReviewedRouteSplitTokenState.Unknown)");
@@ -132,9 +189,33 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         StringAssert.Contains(surfaces, "foreach (ReviewedDisplayField field in model.Fields)");
         StringAssert.Contains(surfaces, "foreach (ReviewedDisplayField field in model.DisclosureFields)");
         StringAssert.Contains(surfaces, "foreach (ReviewedDisplayField field in model.UnavailableFields)");
-        StringAssert.Contains(surfaces, "dialog.IsPrimaryButtonEnabled = model.IsConfirmEnabled;");
-        Assert.AreEqual(1, Regex.Count(surfaces, @"IsPrimaryButtonEnabled\s*="), "Confirm is enabled only from the view model");
+        StringAssert.Contains(surfaces, "dialog.IsPrimaryButtonEnabled = model.IsPrimaryActionEnabled;");
+        StringAssert.Contains(surfaces, "dialog.PrimaryButtonText = model.PrimaryActionText;");
+        // The progress view turns the primary button off; the result view offers only "Check again".
+        Assert.AreEqual(3, Regex.Count(surfaces, @"IsPrimaryButtonEnabled\s*="), "the review, progress and result renders");
+        string progress = Between(surfaces, "internal static void RenderProgress(", "\n    }\n");
+        StringAssert.Contains(progress, "dialog.IsPrimaryButtonEnabled = false;");
+        // Design §4.3: Close is hidden while the run is in flight, and the owner sees why closing is refused.
+        StringAssert.Contains(progress, "dialog.CloseButtonText = string.Empty;");
+        StringAssert.Contains(progress, "[change, ChocolateyClientUpdateRunPresentation.RunningCloseGuardText]");
+        StringAssert.Contains(Between(surfaces, "internal static void RenderResult(", "\n    }\n"), "dialog.CloseButtonText = ChocolateyClientUpdateViewModel.CloseText;");
+        string result = Between(surfaces, "internal static void RenderResult(", "\n    }\n");
+        StringAssert.Contains(result, "dialog.PrimaryButtonText = ChocolateyClientUpdateViewModel.CheckAgainText;");
         StringAssert.Contains(surfaces, "DefaultButton = ContentDialogButton.Close,");
+
+        // Design §4.1/§5 item 8: the dialog controller confirms only through the view model's state and the session, never closes on
+        // the primary button, refuses Close while a run is in flight, and names no workflow, dispatcher, review or permit.
+        string controller = Desktop("ChocolateyClientUpdateReviewDialog.cs");
+        StringAssert.Contains(controller, "args.Cancel = true;\n        if (running || checking) return;");
+        StringAssert.Contains(controller, "else if (current.CanConfirm && session is { } confirmed) _ = RunAsync(confirmed);");
+        StringAssert.Contains(controller, "if (running) args.Cancel = true;");
+        StringAssert.Contains(controller, "ChocolateyClientUpdateRunResult run = await confirmed.ConfirmAsync(checkStartedAt, progress, CancellationToken.None);");
+        Assert.AreEqual(1, Regex.Count(controller, @"\.ConfirmAsync\("), "one confirm site");
+        Assert.AreEqual(1, Regex.Count(controller, @"\.PrepareAsync\("), "one prepare site");
+        StringAssert.Contains(controller, "if (current.UnavailableReasons is not [ChocolateyClientUpdateUnavailableReason.PreparingReview]) return;");
+        Assert.IsFalse(Regex.IsMatch(controller, @"\b(ReviewedUpdateDispatchWorkflow|IReviewedUpdateRouteDispatcher|ReviewedUpdateReview|LiveApprovedUpdate|DataOperationLease|ConfirmAndRunAsync|PCSteward\.Execution)\b"),
+            "the controller reaches the route only through the session");
+        StringAssert.Contains(window, "AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true) args.Cancel = true; };");
         Assert.IsFalse(Regex.IsMatch(surfaces, @"\b(TryConfirm|Click|DataOperationLease|ReviewedUpdateReview|ConfirmAndRunAsync|Dispatch\w*|LiveApprovedUpdate)\b"),
             "the surfaces hold no action");
 
@@ -224,21 +305,24 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.AreEqual(0, Regex.Count(all, @"ChocolateyInstalledClientProbe\.ObserveAsync\("), "composed as a method group, never invoked at startup");
         Assert.IsFalse(Regex.IsMatch(all, @"\bChocolateyDesktopObservation\b|\bChocolateyProfileObserver\b"), "the Desktop names no native observation");
 
+        // Chocolatey Confirm build: the review dialog controller runs the check (MainWindow passes the composed check through).
         string window = Desktop("MainWindow.cs");
-        Assert.AreEqual(1, Regex.Count(window, @"\bcheckInstalledChocolateyClient\("), "the check runs at one site");
-        string check = Between(window, "private async Task CheckInstalledChocolateyClientAsync(", "\n    }\n");
+        string controller = Desktop("ChocolateyClientUpdateReviewDialog.cs");
+        Assert.AreEqual(0, Regex.Count(window, @"\bcheckInstalledChocolateyClient\("), "the window never runs the check itself");
+        Assert.AreEqual(1, Regex.Count(controller, @"\bcheckInstalled\("), "the check runs at one site");
+        string check = Between(controller, "private async Task CheckAndPrepareAsync(", "\n    }\n");
         StringAssert.Contains(check, "ChocolateyInstalledClientVerification.RunAsync(");
-        StringAssert.Contains(check, "token => Task.Run(() => checkInstalledChocolateyClient(token), CancellationToken.None)");
-        StringAssert.Contains(check, "ChocolateyInstalledClientVerification.DisplayCheckTimeout, cancellationToken);");
-        StringAssert.Contains(check, "if (cancellationToken.IsCancellationRequested || windowClosed) return;");
-        StringAssert.Contains(check, "ChocolateyClientUpdateSurfaces.Render(dialog, opened.WithVerification(verification));");
-        string handler = Between(window, "private async Task ShowChocolateyClientUpdateAsync()", "\n    }\n");
-        StringAssert.Contains(handler, "Task checking = CheckInstalledChocolateyClientAsync(dialog, model, check.Token);");
-        StringAssert.Contains(handler, "dialog.Closed += CancelCheck;");
-        StringAssert.Contains(handler, "check.Cancel();");
-        Assert.AreEqual(1, Regex.Count(window, @"CheckInstalledChocolateyClientAsync\(dialog"), "only the review handler starts the check");
-        Assert.IsFalse(Regex.IsMatch(check + handler, @"\b(updates\.|workflow\.|ConfirmAndRunAsync|DataOperationLease\.Run|Dispatch|Execute|TryConfirm|ReviewedUpdateReview|LiveApprovedUpdate)"),
-            "the check starts nothing");
+        StringAssert.Contains(check, "cancellation => Task.Run(() => checkInstalled(cancellation), CancellationToken.None)");
+        StringAssert.Contains(check, "ChocolateyInstalledClientVerification.DisplayCheckTimeout, token);");
+        StringAssert.Contains(check, "if (token.IsCancellationRequested || windowClosed()) return;");
+        StringAssert.Contains(check, "current = opened.WithVerification(verification);");
+        // Closing the dialog cancels the check and any preparation.
+        string show = Between(controller, "internal async Task ShowAsync()", "\n    }\n");
+        StringAssert.Contains(show, "lifetime.Cancel();");
+        StringAssert.Contains(check, "CancellationToken token = lifetime.Token;");
+        Assert.AreEqual(3, Regex.Count(controller, @"CheckAndPrepareAsync\("), "the definition, the first check when the dialog opens, and Check again") ;
+        Assert.IsFalse(Regex.IsMatch(check, @"\b(updates\.|workflow\.|ConfirmAndRunAsync|DataOperationLease\.Run|Dispatch|Execute|TryConfirm|ReviewedUpdateReview|LiveApprovedUpdate|ConfirmAsync)"),
+            "the check and preparation start nothing");
 
         // The façade's compiled IL reaches the Native namespace only through the production installed-client check.
         string chocolatey = CompiledIlScanner.BuiltSrcAssemblies().Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");

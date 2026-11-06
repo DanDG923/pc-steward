@@ -9,10 +9,11 @@ namespace PCSteward.Desktop;
 /// <summary>
 /// FR-UPD-15, FR-UI-03/04, TM-03/04/07/13; ADR-031 (owner decisions 1–5), ADR-030: thin rendering of
 /// <see cref="ChocolateyClientUpdateViewModel"/> — the Settings card row and Installed apps detail entry point, and the
-/// Chocolatey client update review dialog (opened as "Checking", then re-rendered with the installed-client check's result; an offer is
-/// "not yet enabled" until admission). It renders every line the view model exposes and binds Confirm's enabled state to
-/// <see cref="ChocolateyClientUpdateViewModel.IsConfirmEnabled"/> (always false: the view model's not-admitted reason is unconditional, design §8.6 gate 3). It holds no
-/// logic, starts nothing and has no review, confirm or dispatch path.
+/// Chocolatey client update review dialog (opened as "Checking", then re-rendered with the installed-client check's result and the
+/// review session's state; an offer is "not yet enabled" while owner admission is not compiled in). It renders every line the view
+/// model exposes, binds the primary button's label and enabled state to <see cref="ChocolateyClientUpdateViewModel.PrimaryActionText"/>
+/// and <see cref="ChocolateyClientUpdateViewModel.IsPrimaryActionEnabled"/> only, and renders the progress and result views of a
+/// confirmed run (Chocolatey Confirm design §4). It holds no logic, starts nothing and has no review, confirm or dispatch path.
 /// </summary>
 internal static class ChocolateyClientUpdateSurfaces
 {
@@ -70,9 +71,50 @@ internal static class ChocolateyClientUpdateSurfaces
             dialog.Content = new ScrollViewer { Content = content, MaxHeight = 520 };
         }
         dialog.Title = model.Title;
-        dialog.IsPrimaryButtonEnabled = model.IsConfirmEnabled;
+        dialog.PrimaryButtonText = model.PrimaryActionText;
+        dialog.IsPrimaryButtonEnabled = model.IsPrimaryActionEnabled;
         AutomationProperties.SetName(dialog, model.Title);
         AutomationProperties.SetHelpText(dialog, model.ConfirmAutomationName);
+    }
+
+    /// <summary>
+    /// Design §4.3: while a confirmed run is in flight the dialog is the progress view: the live summary carries the current phase
+    /// (announced), below it the frozen change line and the close guard. Both buttons are hidden; Esc and the main window's close
+    /// are also refused by the closing guards, and the guard line says why.
+    /// </summary>
+    internal static void RenderProgress(ContentDialog dialog, string title, string change, string status)
+    {
+        ArgumentNullException.ThrowIfNull(dialog);
+        RenderStatus(dialog, title, status, [change, ChocolateyClientUpdateRunPresentation.RunningCloseGuardText]);
+        dialog.PrimaryButtonText = string.Empty;
+        dialog.IsPrimaryButtonEnabled = false;
+        dialog.CloseButtonText = string.Empty;
+        AutomationProperties.SetHelpText(dialog, ChocolateyClientUpdateRunPresentation.RunningCloseGuardText);
+    }
+
+    /// <summary>Design §4.3: the result replaces the progress line; "Check again" re-runs the read-only check.</summary>
+    internal static void RenderResult(ContentDialog dialog, ChocolateyClientUpdateRunView view)
+    {
+        ArgumentNullException.ThrowIfNull(dialog);
+        ArgumentNullException.ThrowIfNull(view);
+        RenderStatus(dialog, view.Heading, view.Lines.Count == 0 ? view.Heading : view.Lines[0], view.Lines.Skip(1));
+        dialog.PrimaryButtonText = ChocolateyClientUpdateViewModel.CheckAgainText;
+        dialog.IsPrimaryButtonEnabled = true;
+        dialog.CloseButtonText = ChocolateyClientUpdateViewModel.CloseText;
+        AutomationProperties.SetHelpText(dialog, view.Heading);
+    }
+
+    // The status views keep the dialog's ScrollViewer and live summary (created by Render) and replace the lines below it.
+    private static void RenderStatus(ContentDialog dialog, string title, string status, IEnumerable<string> lines)
+    {
+        if (dialog.Content is not ScrollViewer { Content: StackPanel { Children.Count: > 0 } rendered } || rendered.Children[0] is not TextBlock liveSummary)
+            return;
+        while (rendered.Children.Count > 1) rendered.Children.RemoveAt(rendered.Children.Count - 1);
+        foreach (string text in lines)
+            rendered.Children.Add(new TextBlock { Text = text, Style = StewardVisuals.Style("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap });
+        StewardVisuals.SetLiveText(liveSummary, status, announce: true);
+        dialog.Title = title;
+        AutomationProperties.SetName(dialog, title);
     }
 
     // Every line below the summary: the facts, Chocolatey's setup side effects, then every unavailability reason.

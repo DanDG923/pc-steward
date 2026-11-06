@@ -10,9 +10,10 @@ namespace PCSteward.ArchitectureTests;
 /// rev 3 §4.3 (L5): the desktop producers' boundaries, on compiled IL of every built <c>src</c> assembly and on source.
 /// <list type="bullet">
 /// <item>they are the only <c>src</c> implementations of the evidence-source and verifier ports; only the N6 composition
-/// (<c>ChocolateyReviewedRouteComposition</c>) constructs them and their ONE shared baseline store, and nothing in
-/// <c>src</c> constructs that composition or the dispatch workflow; since the Task 50 activation <c>HasSupportedMode</c>
-/// admits the route's exact shape only through <c>ReviewedChocolateyRouteAdmission</c>, and nothing composes it;</item>
+/// (<c>ChocolateyReviewedRouteComposition</c>) constructs them and their ONE shared baseline store; since the Chocolatey Confirm
+/// build (design §3, §5 item 2) only its public façade <c>ChocolateyClientUpdateProducers</c> constructs that composition, only
+/// <c>ChocolateyClientUpdateComposition.CreateSession</c> constructs the façade, the dispatch workflow and the route dispatcher,
+/// and the composed dispatcher admits only the client self-update shape, so the package route stays uncomposed;</item>
 /// <item>their test-only factories have no <c>src</c> caller;</item>
 /// <item>their code never reaches a process, the launcher, the N3 client surface, the helper item, the helper or its
 /// transport, the file system directly, the registry or the environment: the only native call is the Desktop-role
@@ -49,9 +50,17 @@ public sealed class DesktopProducersBoundaryTests
 
     /// <summary>
     /// N6 (obligations (a)/(b)): the single composition point. It is the only <c>src</c> constructor site of the producers
-    /// and their shared baselines, and nothing in <c>src</c> constructs it, so nothing composes a dispatch for the route.
+    /// and their shared baselines. Chocolatey Confirm design §3: its only <c>src</c> constructor caller is the public façade
+    /// <see cref="Producers"/>.
     /// </summary>
     private const string Composition = Native + "ChocolateyReviewedRouteComposition";
+
+    /// <summary>Chocolatey Confirm design §3: the public façade over one N6 composition for the client self-update.</summary>
+    private const string Producers = "PCSteward.Provider.Chocolatey.ChocolateyClientUpdateProducers";
+
+    /// <summary>Chocolatey Confirm design §3 item 1: the single production composition of the client self-update pipeline.</summary>
+    private const string ClientComposition = "PCSteward.Execution.ChocolateyClientUpdateComposition";
+    private const string ClientCompositionSite = ClientComposition + ".CreateSession";
 
     [TestMethod]
     public void TheProducersAreTheOnlyPortImplementationsAndOnlyTheCompositionConstructsThem()
@@ -77,8 +86,10 @@ public sealed class DesktopProducersBoundaryTests
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
             {
                 if (reference.TargetMember != ".ctor") continue;
-                if (reference.TargetType == Composition && reference.Caller != Composition)
-                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the composition (no src caller may compose the route yet)");
+                if (reference.TargetType == Composition && reference.Caller != Composition && !(chocolatey && reference.LogicalCaller == Producers + "..ctor"))
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the composition (only its public façade may)");
+                if (reference.TargetType == Producers && reference.LogicalCaller != ClientCompositionSite)
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the producer façade (only the client composition may)");
                 if (!ProducerTypes.Contains(reference.TargetType) || reference.Caller == reference.TargetType) continue;
                 // The one permitted site: the composition's constructor (its static factory lambdas included).
                 if (chocolatey && reference.LogicalCaller == Composition + "..ctor" &&
@@ -104,11 +115,11 @@ public sealed class DesktopProducersBoundaryTests
         Assert.IsFalse(Regex.IsMatch(source, @"\b(IReviewedUpdateRouteDispatcher|ReviewedUpdateDispatchWorkflow|HasSupportedMode|Supports|ReviewedUpdateReview|runas|ElevatedHelper|HelperTransport)\b"),
             "the composition supplies no dispatcher, workflow or admission");
 
-        // The test-only factory has no src caller.
+        // The test-only factories have no src caller.
         List<string> violations = [];
         foreach (string path in RequireBuilt())
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
-                if (reference.TargetType == Composition && reference.TargetMember == "CreateForTests")
+                if (reference.TargetType == Composition && reference.TargetMember is "CreateForTests" or "CreateWithClientReviewForTests")
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} calls the composition's test-only factory");
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
     }
@@ -117,9 +128,11 @@ public sealed class DesktopProducersBoundaryTests
     /// The CRITICAL scope limit of N6, changed deliberately by the Task 50 activation (ADR-031 owner decision 7, step C-A): the
     /// review gate admits the runtime-limit Chocolatey route only by its exact shape, through the single
     /// <c>ReviewedChocolateyRouteAdmission.Admits</c> term after the unchanged WinGet rule (one route comparison in the gate
-    /// itself). Unchanged: nothing in <c>src</c> constructs the reviewed dispatch workflow or the route's dispatcher
-    /// (<c>PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher</c>; <c>DeploymentCapabilityBoundaryTests</c> also pins its
-    /// non-composition on source), so no UI path can dispatch it.
+    /// itself). Changed deliberately by the Chocolatey Confirm build (design §3, §5 items 2 and 6, §6): the reviewed dispatch
+    /// workflow and the route dispatcher (<c>PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher</c>) are constructed only in
+    /// <c>ChocolateyClientUpdateComposition.CreateSession</c>, and the dispatcher it composes is wrapped by
+    /// <c>ClientRouteOnlyDispatcher</c>, which refuses every operation other than the client self-update. So the package route
+    /// stays uncomposed, and the client route is reachable only through that one composition.
     /// </summary>
     [TestMethod]
     public void TheRuntimeLimitRouteIsAdmittedOnlyByShapeAndStaysUncomposed()
@@ -134,7 +147,7 @@ public sealed class DesktopProducersBoundaryTests
         Assert.AreEqual(1, Regex.Count(body, "Chocolatey"), "the gate itself names Chocolatey only in the activation term");
         Assert.AreEqual(1, Regex.Count(body, @"RouteContract\s*=="), "HasSupportedMode compares the route with exactly one contract itself");
 
-        // No src code composes the reviewed dispatch workflow or the runtime-limit route dispatcher, so no UI path can reach it.
+        // Only the client composition composes the reviewed dispatch workflow and the route dispatcher.
         const string RouteDispatcher = "PCSteward.Execution.ChocolateyRuntimeLimitsRouteDispatcher";
         List<string> assemblies = RequireBuilt();
         string execution = assemblies.Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Execution");
@@ -144,14 +157,27 @@ public sealed class DesktopProducersBoundaryTests
         foreach (string path in assemblies)
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
             {
-                if (reference.TargetMember == ".ctor" && reference.TargetType == "PCSteward.Application.ReviewedUpdateDispatchWorkflow")
+                if (reference.TargetMember == ".ctor" && reference.TargetType == "PCSteward.Application.ReviewedUpdateDispatchWorkflow" &&
+                    reference.LogicalCaller != ClientCompositionSite)
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the reviewed dispatch workflow");
-                // Only its own constructor chaining (": this(...)") may reference its constructor.
+                // Its own constructor chaining (": this(...)") and the client composition only.
                 if (reference.TargetMember == ".ctor" && reference.TargetType == RouteDispatcher &&
-                    !(reference.Caller == RouteDispatcher && reference.CallerMethod == ".ctor"))
+                    !(reference.Caller == RouteDispatcher && reference.CallerMethod == ".ctor") && reference.LogicalCaller != ClientCompositionSite)
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the runtime-limit route dispatcher");
             }
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
+        Assert.IsTrue(CompiledIlScanner.References(execution).Any(reference => reference.LogicalCaller == ClientCompositionSite &&
+            reference.TargetType == "PCSteward.Application.ReviewedUpdateDispatchWorkflow" && reference.TargetMember == ".ctor"),
+            "the scan must see the composition construct the workflow");
+
+        // Design §5 item 6: the composed dispatcher is the client-only wrapper around the route dispatcher, and it refuses any other shape.
+        string composition = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Execution", "ChocolateyClientUpdateComposition.cs"));
+        StringAssert.Contains(composition, "ClientRouteOnlyDispatcher dispatcher = new(new ChocolateyRuntimeLimitsRouteDispatcher(capability, transport), phases);");
+        StringAssert.Contains(composition, "ReviewedUpdateDispatchWorkflow workflow = new(runUnderGate, producers.EvidenceSource, dispatcher, producers.Verifier, store);");
+        StringAssert.Contains(composition, "try { return IsClientRoute(operation) && inner.Supports(operation); }");
+        StringAssert.Contains(composition, "if (!IsClientRoute(ticket.Operation))");
+        StringAssert.Contains(composition, "operation is not null && operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&");
+        Assert.AreEqual(1, Regex.Count(composition, @"ReviewedUpdateDispatchWorkflow\s+\w+\s*=\s*new\("), "one workflow per session");
     }
 
     [TestMethod]

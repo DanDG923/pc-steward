@@ -31,19 +31,24 @@ internal sealed class ChocolateyReviewedRouteComposition
     private readonly ChocolateyProfileEvidenceSource evidenceSource;
     private readonly ChocolateyReviewedUpdateVerifier verifier;
     private readonly TimeProvider time;
+    private readonly ChocolateyDesktopObserve observeClient;
+    private readonly ChocolateyReleaseList releases;
 
     internal ChocolateyReviewedRouteComposition()
         : this(static baselines => new ChocolateyProfileEvidenceSource(baselines), static baselines => new ChocolateyReviewedUpdateVerifier(baselines),
-            TimeProvider.System)
+            TimeProvider.System, ChocolateyDesktopObservation.ProductionObserveClient, ChocolateyReleaseList.Listed)
     {
     }
 
     private ChocolateyReviewedRouteComposition(Func<ChocolateyDispatchBaselines, ChocolateyProfileEvidenceSource> createSource,
-        Func<ChocolateyDispatchBaselines, ChocolateyReviewedUpdateVerifier> createVerifier, TimeProvider time)
+        Func<ChocolateyDispatchBaselines, ChocolateyReviewedUpdateVerifier> createVerifier, TimeProvider time, ChocolateyDesktopObserve observeClient,
+        ChocolateyReleaseList releases)
     {
         ArgumentNullException.ThrowIfNull(createSource);
         ArgumentNullException.ThrowIfNull(createVerifier);
         this.time = time ?? throw new ArgumentNullException(nameof(time));
+        this.observeClient = observeClient ?? throw new ArgumentNullException(nameof(observeClient));
+        this.releases = releases ?? throw new ArgumentNullException(nameof(releases));
         // Obligation (b): exactly one baseline store for both producers.
         ChocolateyDispatchBaselines baselines = new();
         evidenceSource = createSource(baselines) ?? throw new InvalidOperationException("No evidence source was created.");
@@ -52,7 +57,25 @@ internal sealed class ChocolateyReviewedRouteComposition
 
     /// <summary>Test-only (an architecture test bans every <c>src</c> caller): the composition over supplied producer factories.</summary>
     internal static ChocolateyReviewedRouteComposition CreateForTests(Func<ChocolateyDispatchBaselines, ChocolateyProfileEvidenceSource> createSource,
-        Func<ChocolateyDispatchBaselines, ChocolateyReviewedUpdateVerifier> createVerifier, TimeProvider time) => new(createSource, createVerifier, time);
+        Func<ChocolateyDispatchBaselines, ChocolateyReviewedUpdateVerifier> createVerifier, TimeProvider time) =>
+        new(createSource, createVerifier, time, ChocolateyDesktopObservation.ProductionObserveClient, ChocolateyReleaseList.Listed);
+
+    /// <summary>
+    /// Test-only (an architecture test bans every <c>src</c> caller): the composition over supplied producer factories and a
+    /// supplied client-mode review observation and fixture release list.
+    /// </summary>
+    internal static ChocolateyReviewedRouteComposition CreateWithClientReviewForTests(Func<ChocolateyDispatchBaselines, ChocolateyProfileEvidenceSource> createSource,
+        Func<ChocolateyDispatchBaselines, ChocolateyReviewedUpdateVerifier> createVerifier, TimeProvider time, ChocolateyDesktopObserve observeClient,
+        ChocolateyReleaseList releases) => new(createSource, createVerifier, time, observeClient, releases);
+
+    /// <summary>
+    /// Chocolatey Confirm design §3: the review-time observation of the installed client at exactly the verified release, over
+    /// the same client-mode observation and release list as this composition's F′ producer
+    /// (<see cref="ChocolateyDesktopObservation.ObserveClientReviewAsync"/>). Null on any refusal, fault or cancellation.
+    /// </summary>
+    internal Task<ChocolateyClientReviewEvidence?> ObserveClientReviewAsync(string verifiedInstalledRelease, CancellationToken cancellationToken) =>
+        ChocolateyDesktopObservation.ObserveClientReviewAsync(observeClient, releases, verifiedInstalledRelease, ChocolateyDesktopObservation.Budget, time,
+            cancellationToken);
 
     internal IReviewedUpdateDispatchEvidenceSource EvidenceSource => evidenceSource;
 

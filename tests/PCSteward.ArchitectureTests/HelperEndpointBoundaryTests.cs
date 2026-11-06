@@ -361,6 +361,9 @@ public sealed class HelperEndpointBoundaryTests
             // Probe spec rev 4 §5.2 step 6 (S4): the desktop probe's production composition is the only src caller of the
             // Desktop-role production (parameterless) reader; the fixture seam constructors stay without a src caller.
             (Reader, ".ctor", "()", "PCSteward.Execution.ReviewedHelperProbeTransport.ProductionDependencies", "()"),
+            // Chocolatey Confirm design §3 item 1: the client self-update's production composition is the only other src caller of
+            // the Desktop-role production reader (one per review session, shared by the dispatcher and the protocol-2 transport).
+            (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyClientUpdateComposition.CreateSession", "()"),
             // The host facts are constructed only from the running process; the record's copy constructor only by its clone.
             (Host, ".ctor", HostFacts, Host + ".TryResolve", null),
             (Host, ".ctor", "(" + Host + ")", Host + ".Clone", "()"),
