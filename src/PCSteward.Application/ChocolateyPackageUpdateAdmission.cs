@@ -13,11 +13,16 @@ namespace PCSteward.Application;
 /// still re-observes the package (F′), checks the deployment capability and runs the helper's own stage B–D checks, where stage C
 /// confirms the exact candidate from protected machine data.
 /// </para>
+/// <para>
+/// Enabled 2026-11-06: the owner approved real Chocolatey updates (obligation 8) and chose to extend Confirm to package updates,
+/// on the condition that a full security review of the enabled build is done and its findings fixed before anything runs for real
+/// (addendum §6).
+/// </para>
 /// </summary>
 public static class ChocolateyPackageUpdateAdmission
 {
     /// <summary>C1. Compiled only; changed only by a reviewed commit.</summary>
-    public const bool OwnerApproved = false;
+    public const bool OwnerApproved = true;
 
     /// <summary>
     /// The value every consumer reads. A property (not the constant) so code that branches on it stays reachable whichever value
