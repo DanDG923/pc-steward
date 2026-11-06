@@ -94,3 +94,15 @@ Report back: what the windows showed (anything unexpected), any prompt that appe
 The owner launched the installed v2 desktop once and closed it. C0-check printed `DB sha256=78697727CE44A1167537A04BE4554339028F660DA142E00894778D602BEC55BE bytes=200704 unchanged=False sidecars=0 pcstewardProcesses=0 scheduledTask=0`.
 
 The database changed from 159,744 to 200,704 bytes. This is consistent with the first-launch schema migration that §7 expects. It closed cleanly: no WAL/SHM/journal sidecar, no PC Steward process left, and no scheduled task created. The new database pin for C-B is `78697727…55BE` / 200,704 B. C-B's NewPlan re-reads it, and B2's copy step backs it up first. Owner's note: "two screens looked good". Overview and Activity rendered normally, and the owner confirmed no UAC prompt appeared. **C0 PASS** (app-only smoke).
+
+## 8. Owner approval: composition obligation 8 (2026-11-06)
+
+The owner wrote in the cloud session: **"I approve the obligation 8 activation change now"**.
+
+This approves the activation code change (step C-A): admitting `ChocolateyMachineRuntimeLimitsV3` and `ChocolateyClientSelfUpdateV1` at `HasSupportedMode`, `CapabilityOperationAllowlist` and dispatcher `Supports`, together with the non-admission pin changes. The change comes **before** the exact-artifact probe has run. Decision 3 (c) requires that order, which reconciles ADR-031 decision 7 and composition obligation 8.
+
+The approval was asked for, and is recorded, on these terms:
+- real Chocolatey updates stay blocked until the probe has an overall PASS on the activated deployment (D4 = G-0, procedure) and the owner gives the final admission approval;
+- the A-Q1 residuals stay open (G9).
+
+It covers the code change, its push to the Task 50 branch and Windows CI. Deploying it is step C-B, which still needs its own two approvals.
