@@ -1,4 +1,4 @@
-# Task 50 — G9 test-package candidates (step G9-R1, revision 1, draft)
+# Task 50 — G9 test-package candidates (step G9-R1, revision 2: G9-D2b decided)
 
 Plan: [G9 target plan](TASK_50_G9_TARGET_PLAN.md) §5. Criteria are §5.1 of that plan, numbered 1–9 below. Profile rules: [Profile V2](TASK_50_CHOCOLATEY_PROFILE_V2.md).
 
@@ -67,7 +67,13 @@ Before choosing, Dan should confirm that **`rg` (or `fd`) is not already on this
 - **Moderation can change.** Approval status and "latest" were read on 2026-11-06. G9-H1's exact block should re-read both pages first and stop if either version is no longer approved or a version newer than 15.2.0 has appeared.
 - **fd dependencies.** Not visible on the pages read; read the nuspec before using fd.
 
-## 5. Next step
+## 5. Decision
+
+**G9-D2b (2026-11-06): ripgrep, 14.1.0 → 15.2.0.** Dan agreed to the recommendations ("Agree all"). fd stays the alternate. Criterion 7 (`where.exe rg`) is still to be confirmed by Dan before G9-H1. Dan also asked whether the package could be forked to make it more secure. That question is being answered in the G9 plan work and is not decided here.
+
+This records the target choice only. It approves no host step: G9-H1 still needs its own exact approval.
+
+## 6. Next step (superseded by §5)
 
 Owner decision **G9-D2b**: primary (ripgrep 14.1.0 → 15.2.0), alternate (fd 10.5.0 → 10.5.1), or neither. After that, the exact G9-H1 install block is written, listing every prompt, and goes to Dan for its own approval.
 
