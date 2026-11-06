@@ -278,5 +278,5 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
 
 ### Approvals
 
-- **R2-prep** (R2.1–R2.4): a Git fetch and a new detached worktree in the owner's clone, plus one new plan folder. Nothing is elevated, signed or installed.
+- **R2-prep** (R2.1–R2.4): a Git fetch and a new detached worktree in the owner's clone, plus one new plan folder. Nothing is elevated, signed or installed. **Approved by the owner on 2026-11-06 in the cloud session ("I approve R2-prep").**
 - **R2-exec** (R2.5 + R3): given separately, after the R2.4 output is pasted back and the block is filled in with its two hashes.
