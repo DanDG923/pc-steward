@@ -89,17 +89,15 @@ internal static class DeploymentCapabilityPolicy
         [UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1];
 
     /// <summary>
-    /// Compiled closed binding set (A.3, A2-L4): the desktop apphost and its main assembly, the helper apphost, assembly,
-    /// deps and runtimeconfig, the helper's project-assembly closure, and the capability statement.
+    /// Compiled closed binding set (A.3, A2-L4): the desktop apphost and its main assembly, the helper's Native AOT image
+    /// (ADR-033: it holds all helper code, so the helper has no assembly, deps or runtimeconfig), the project-assembly closure
+    /// the desktop loads and the helper image is compiled from, and the capability statement.
     /// </summary>
     internal static readonly IReadOnlyList<string> BindingSet =
     [
         "PCSteward.Desktop.exe",
         "PCSteward.Desktop.dll",
         "PCSteward.ElevatedHelper.exe",
-        "PCSteward.ElevatedHelper.dll",
-        "PCSteward.ElevatedHelper.deps.json",
-        "PCSteward.ElevatedHelper.runtimeconfig.json",
         "PCSteward.Execution.dll",
         "PCSteward.Application.dll",
         "PCSteward.Domain.dll",

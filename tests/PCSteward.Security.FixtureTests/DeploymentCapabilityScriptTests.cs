@@ -67,13 +67,14 @@ public sealed class DeploymentCapabilityScriptTests
             Assert.IsTrue(library.Value.TryGetProperty("runtime", out JsonElement runtime), library.Name);
             foreach (JsonProperty assembly in runtime.EnumerateObject()) Assert.IsTrue(closure.Add(Path.GetFileName(assembly.Name)), assembly.Name);
         }
+        // ADR-033: the published helper is one Native AOT image; this managed build output still lists the project closure the
+        // image is compiled from, which is also the closure the desktop loads.
         string[] fixedLeaves =
         [
-            "PCSteward.Desktop.exe", "PCSteward.Desktop.dll", "PCSteward.ElevatedHelper.exe", "PCSteward.ElevatedHelper.dll",
-            "PCSteward.ElevatedHelper.deps.json", "PCSteward.ElevatedHelper.runtimeconfig.json", DeploymentCapabilityPolicy.CapabilityFileName,
+            "PCSteward.Desktop.exe", "PCSteward.Desktop.dll", "PCSteward.ElevatedHelper.exe", DeploymentCapabilityPolicy.CapabilityFileName,
         ];
         CollectionAssert.AreEquivalent(DeploymentCapabilityPolicy.BindingSet.Except(fixedLeaves).ToArray(), closure.ToArray());
-        foreach (string leaf in fixedLeaves[3..6].Concat(closure))
+        foreach (string leaf in closure)
             Assert.IsTrue(File.Exists(Path.Combine(output, leaf)), leaf);
         CollectionAssert.AreEqual(DeploymentCapabilityPolicy.CanonicalCapabilityBytes(), File.ReadAllBytes(Path.Combine(output, DeploymentCapabilityPolicy.CapabilityFileName)));
     }

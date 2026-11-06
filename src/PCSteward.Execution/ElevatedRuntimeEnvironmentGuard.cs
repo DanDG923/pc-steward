@@ -17,11 +17,10 @@ namespace PCSteward.Execution;
 /// <item><see cref="ProcessEnvironmentIsClean"/> runs first in the helper's entry point: the same names in the helper's own
 /// environment end it with the refusal exit code before it connects or reads a request.</item>
 /// </list>
-/// Both read value <b>names</b> only, never values, and never write. The build switches on the helper project
-/// (<c>StartupHookSupport=false</c>, <c>AppHostDotNetSearch=Global</c>) close the startup-hook and runtime-location names
-/// outright. This guard narrows, but cannot close, the rest: a value written after the desktop's check and before Windows
-/// builds the elevated environment is not seen by the desktop, and a name that loads code acts before the helper's own
-/// check can run. Closing that needs an elevated image that is not hosted by the .NET runtime (review §H1, owner decision).
+/// Both read value <b>names</b> only, never values, and never write. ADR-033 closes the race this guard cannot (a value
+/// written after the desktop's check and before Windows builds the elevated environment): the helper is published as a Native
+/// AOT image, which no such name can load code into, so a late name reaches only the helper's own check below. The guard stays
+/// as a second layer, and because Chocolatey's .NET Framework children can still read such names (review §M1).
 /// </summary>
 internal static class ElevatedRuntimeEnvironmentGuard
 {

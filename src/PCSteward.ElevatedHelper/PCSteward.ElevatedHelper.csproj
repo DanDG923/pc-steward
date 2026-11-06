@@ -10,6 +10,14 @@
     -->
     <StartupHookSupport>false</StartupHookSupport>
     <AppHostDotNetSearch>Global</AppHostDotNetSearch>
+    <!--
+      ADR-033 (security review H1, closed): the published helper is one Native AOT image. It has no JIT, profiler API, startup
+      hooks or runtime to locate, so no environment value the owner's session can write loads code into it or makes its
+      runtime write files. EventSource (EventPipe and the diagnostic server) stays compiled out. The two switches above stay
+      as a second layer and keep a non-AOT build of this project safe.
+    -->
+    <PublishAot>true</PublishAot>
+    <EventSourceSupport>false</EventSourceSupport>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" />
