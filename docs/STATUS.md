@@ -1,5 +1,7 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — handover written (2026-11-06).** Start here: [Task 50 handover](review/TASK_50_HANDOVER_2026-11-06.md). It covers the branches and PRs, the owner-PC state, what is proven and what is not, the carried-over lessons, open owner decisions and the 2026-11-20 signer deadline.
+
 **Task 50 — Profile V2 revision 2.1: the `containsLegacyPackageInstalls` key (C1 fix built, 2026-11-06; code and tests only; on the Task 50 branch at `bc24a20`, independently reviewed; no host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Revision record](review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
 - **Research.** In the pinned client source (tag `2.7.5`, commit `194ac626…`), the default template (`chocolatey.config` line 5) writes the key with the value `true`. No engine code reads it: `ConfigurationBuilder` reads only the 11 named keys. It is inert on every reviewed route; only `choco config` and the package-script helper `Get-ChocolateyConfigValue` can see its value.
 - **Decision and change.** `ChocolateyConfigurationParser` admits the key only absent or with exactly `true`; any other value refuses at step 6. It adds no observation or fingerprint field, and `pc-steward-choco-profile:2` and its goldens are unchanged. Every other Profile V2 rule is unchanged, including the empty-`cacheLocation` refusal (cause 2).
