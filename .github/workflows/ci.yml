@@ -25,6 +25,36 @@ jobs:
       # Security fixtures must compile/run without the hosted runner's admin token.
       - run: pwsh -NoProfile -File ./scripts/Test-CI.ps1
 
+  helper-native-aot-feasibility:
+    # Security review H1 follow-up (owner decision: Native AOT helper before G9-T1). Informational until the ADR is
+    # accepted: compile the elevated helper with Native AOT into a scratch folder, list trim/AOT warnings, and start the
+    # native image (never connected, no desktop beside it) with .NET runtime settings that today's framework-dependent
+    # helper would act on. Uses no owner-only script, certificate, install or deployment.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    permissions:
+      contents: read
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/Test-ElevatedHelperNativeAotCI.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: helper-native-aot-feasibility
+          path: |
+            artifacts/helper-native-aot/*.json
+            artifacts/helper-native-aot/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
   owner-only-candidate-builder:
     # Task 50 G3: build the unsigned v2 owner-only candidate end to end with the pinned SDK and validate its manifest
     # with the installer's own reader. No signing, certificate store, install or launch.
