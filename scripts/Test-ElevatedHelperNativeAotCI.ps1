@@ -36,8 +36,12 @@ function Invoke-Publish([string]$Name, [string[]]$Arguments) {
     [pscustomobject]@{ Name = $Name; ExitCode = $code; Warnings = $warnings }
 }
 
+# PublishAot on the command line is a global property, so it would also turn on the Roslyn AOT/trim analyzers in every
+# referenced project (which flag all of their code, reachable or not, and fail under TreatWarningsAsErrors). Set in the
+# helper project, as ADR-033 plans, it would not. The analyzers are switched off here to match that; the ILC compiler still
+# reports every warning on code the helper actually reaches, which is what this check lists.
 $aot = Invoke-Publish 'publish-aot' @('publish', $project, '--configuration', 'Release', '--runtime', 'win-x64',
-    '-p:PublishAot=true', '-p:TrimmerSingleWarn=false', '-p:IlcTreatWarningsAsErrors=false', '-p:ILLinkTreatWarningsAsErrors=false', '-p:IlcGenerateMapFile=false', '--output', $aotOut, '--disable-build-servers')
+    '-p:PublishAot=true', '-p:EnableAotAnalyzer=false', '-p:EnableTrimAnalyzer=false', '-p:EnableSingleFileAnalyzer=false', '-p:TrimmerSingleWarn=false', '-p:IlcTreatWarningsAsErrors=false', '-p:ILLinkTreatWarningsAsErrors=false', '-p:IlcGenerateMapFile=false', '--output', $aotOut, '--disable-build-servers')
 $fd = Invoke-Publish 'publish-framework-dependent' @('publish', $project, '--configuration', 'Release', '--runtime', 'win-x64',
     '--self-contained', 'false', '--output', $fdOut, '--disable-build-servers')
 
