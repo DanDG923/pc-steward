@@ -81,6 +81,28 @@ public static class DataOperationLease
     public static Task<T> RunReadAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken) =>
         RunOnDedicatedThreadAsync(operation, DataOperationKind.Read, cancellationToken);
 
+    /// <summary>
+    /// FR-UPD-15, TM-04/13; Chocolatey Confirm design §2 C7: the <see cref="ReviewedUpdateGateRunner"/> of the reviewed dispatch
+    /// workflow. The work runs as a mutating data operation on its own thread: the common current-user gate is acquired without
+    /// waiting (another update, batch, scan or data operation refuses it), unfinished dispatches are reconciled first and any
+    /// unresolved barrier or pending reset refuses it, and the reconciled ownership is passed to the work. Work is never started
+    /// after <paramref name="reviewDeadlineUtc"/>; started work is never cancelled by the deadline, so it reaches its recorded result.
+    /// </summary>
+    public static Task<ReviewedUpdateDispatchResult> RunReviewedUpdateAsync(
+        Func<OperationOwnership, CancellationToken, Task<ReviewedUpdateDispatchResult>> work, DateTimeOffset reviewDeadlineUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        Func<OperationOwnership, CancellationToken, Task<bool>>? reconcile = reconciliation;
+        return Task.Factory.StartNew(() => RunOnCurrentThread(ownership =>
+            {
+                if (DateTimeOffset.UtcNow > reviewDeadlineUtc)
+                    throw new InvalidOperationException("The review expired before the update could start; no update was started.");
+                return work(ownership, cancellationToken).GetAwaiter().GetResult();
+            }, DataOperationKind.Mutating, ProductionAcquire, ProductionMarkerClear, reconcile, cancellationToken),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+    }
+
     private static Task<T> RunOnDedicatedThreadAsync<T>(Func<CancellationToken, Task<T>> operation, DataOperationKind kind, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);

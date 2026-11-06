@@ -1,3 +1,10 @@
+# Task 50 — Chocolatey Confirm screen build (G9-D4)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [design note](../review/TASK_50_CHOCOLATEY_CONFIRM_SCREEN_DESIGN.md) §2–§5, §9; [build record](../review/TASK_50_CHOCOLATEY_CONFIRM_SCREEN_BUILD.md).
+
+- **Code.** `ChocolateyClientUpdateAdmission` (C1), `ChocolateyClientUpdateReviewSession` (C2, C4, C6 and C8 re-checked on the press; one workflow run), `ChocolateyClientUpdateAttention` (C6), `ChocolateyClientUpdateRunPresentation`, `ChocolateyClientUpdateViewModel` review states, `ChocolateyClientUpdateComposition` / `ClientRouteOnlyDispatcher` (Execution), `ChocolateyClientUpdateProducers` and `ChocolateyDesktopObservation.ObserveClientReviewAsync` (Provider), `DataOperationLease.RunReviewedUpdateAsync` (Storage), `ChocolateyClientUpdateReviewDialog` (Desktop).
+- **Tests.** Application `ChocolateyClientUpdateReviewSessionTests` (shape, one run, a second press while running, every press-time refusal, the 10-minute check age, C6 clearing), `ChocolateyClientUpdateAdmittedViewModelTests` (§4.2 rows, C6 rule, result text), `ChocolateyClientUpdateViewModelTests` (locked screen); Security `ChocolateyClientUpdateCompositionTests` (review observation, client-only dispatcher); Architecture `ChocolateyClientUpdateDesktopUiBoundaryTests`, `DesktopProducersBoundaryTests`, `DeploymentCapabilityBoundaryTests`, `HelperEndpointBoundaryTests` (single composition, sole Confirm and workflow callers, no production admission override).
+
 # Task 50 — Part C re-run plan (revision 1, draft; docs and tests only)
 
 `FR-UPD-15`, `TM-03/04/07/13`; [re-run plan](../review/TASK_50_PART_C_RERUN_PLAN.md); [handover](../review/TASK_50_HANDOVER_2026-11-06.md) §5 items 1–2.

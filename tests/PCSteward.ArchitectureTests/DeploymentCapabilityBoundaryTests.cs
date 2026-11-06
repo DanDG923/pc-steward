@@ -82,13 +82,17 @@ public sealed class DeploymentCapabilityBoundaryTests
         foreach (string path in Sources(src))
         {
             if (path.EndsWith("OwnerOnlyDeploymentCapabilityReader.cs", StringComparison.Ordinal)) continue;
-            int constructions = Regex.Count(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\s*\(");
+            int constructions = Regex.Count(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\s*\(|OwnerOnlyDeploymentCapabilityReader\s+\w+\s*=\s*new\s*\(");
             if (path.EndsWith(Path.Combine("PCSteward.Execution", "ReviewedHelperProbeTransport.cs"), StringComparison.Ordinal))
             {
                 Assert.AreEqual(1, constructions, "the probe composition constructs the Desktop-role reader once");
                 Assert.AreEqual(1, Regex.Count(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\(\)"), "only the parameterless reader");
             }
-            else Assert.AreEqual(0, constructions, $"{path} constructs the reader (no production update caller yet)");
+            // Chocolatey Confirm design §3 item 1: the client self-update's composition constructs the parameterless reader once.
+            else if (path.EndsWith(Path.Combine("PCSteward.Execution", "ChocolateyClientUpdateComposition.cs"), StringComparison.Ordinal))
+                Assert.AreEqual(1, constructions, "the client composition constructs the Desktop-role reader once");
+            else if (path.EndsWith(Path.Combine("PCSteward.Execution", "HelperDeploymentCapabilityCheck.cs"), StringComparison.Ordinal)) { }
+            else Assert.AreEqual(0, constructions, $"{path} constructs the reader (no other production update caller)");
         }
     }
 
@@ -152,6 +156,11 @@ public sealed class DeploymentCapabilityBoundaryTests
         Assert.IsTrue(Regex.IsMatch(probe, @"finally\s*\{\s*owned\.SealTransport\(\);\s*\}"), "the probe session seals the transport in a finally block");
     }
 
+    /// <summary>
+    /// Chocolatey Confirm design §3 item 1 (changed deliberately): the protocol-2 transport and the route dispatcher are composed
+    /// only in <c>ChocolateyClientUpdateComposition.cs</c>, exactly once each, over one production (parameterless) Desktop-role
+    /// capability reader shared by both. No other source composes them, in either the explicit or the target-typed form.
+    /// </summary>
     [TestMethod]
     public void ProtocolTwoTransportAndDispatcherAreNotComposedAndNeverFallBackToProtocolOne()
     {
@@ -160,8 +169,17 @@ public sealed class DeploymentCapabilityBoundaryTests
         foreach (string path in Sources(src))
         {
             string source = File.ReadAllText(path);
-            Assert.IsFalse(Regex.IsMatch(source, @"new\s+WindowsReviewedHelperTransport\s*\("), $"{path} composes the protocol-2 transport (no Desktop composition yet)");
-            Assert.IsFalse(Regex.IsMatch(source, @"new\s+ChocolateyRuntimeLimitsRouteDispatcher\s*\("), $"{path} composes the route dispatcher (no Desktop composition yet)");
+            if (path.EndsWith(Path.Combine("PCSteward.Execution", "ChocolateyClientUpdateComposition.cs"), StringComparison.Ordinal))
+            {
+                Assert.AreEqual(1, Regex.Count(source, @"WindowsReviewedHelperTransport transport = new\(capability\);"), "one protocol-2 transport over the shared reader");
+                Assert.AreEqual(1, Regex.Count(source, @"new ChocolateyRuntimeLimitsRouteDispatcher\(capability, transport\)"), "one route dispatcher over the same reader");
+                Assert.AreEqual(1, Regex.Count(source, @"OwnerOnlyDeploymentCapabilityReader capability = new\(\);"), "one parameterless reader");
+                continue;
+            }
+            Assert.IsFalse(Regex.IsMatch(source, @"new\s+WindowsReviewedHelperTransport\s*\(|WindowsReviewedHelperTransport\s+\w+\s*=\s*new\s*\("),
+                $"{path} composes the protocol-2 transport (only the client composition may)");
+            Assert.IsFalse(Regex.IsMatch(source, @"new\s+ChocolateyRuntimeLimitsRouteDispatcher\s*\(|ChocolateyRuntimeLimitsRouteDispatcher\s+\w+\s*=\s*new\s*\("),
+                $"{path} composes the route dispatcher (only the client composition may)");
         }
         string transport = File.ReadAllText(Path.Combine(execution, "ReviewedHelperProtocol2Transport.cs"));
         string dispatcher = File.ReadAllText(Path.Combine(execution, "ChocolateyRuntimeLimitsRouteDispatcher.cs"));

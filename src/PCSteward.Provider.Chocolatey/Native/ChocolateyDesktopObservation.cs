@@ -194,6 +194,34 @@ internal static class ChocolateyDesktopObservation
         ObserveInstalledClientAsync(ProductionObserveClient, ChocolateyReleaseList.Listed, Budget, TimeProvider.System, cancellationToken);
 
     /// <summary>
+    /// Chocolatey Confirm design §3 (review preparation): the review-time facts of the installed client at exactly the verified
+    /// listed release <paramref name="verifiedInstalledRelease"/>. The release and its offer come only from the compiled list; the
+    /// observation is the same Desktop-role, client-mode observation F′ makes (no expected fingerprint), and it must select exactly
+    /// that release. The facts carry the observing token's SID and the <c>choco-profile-v2:</c> identity of this observation, which
+    /// F′ must reproduce before any claim. A release that is not listed, has no strictly newer listed release, or is not exactly
+    /// what was observed gives null, as does any refusal, timeout, cancellation or fault. The observation is disposed here.
+    /// </summary>
+    internal static async Task<ChocolateyClientReviewEvidence?> ObserveClientReviewAsync(ChocolateyDesktopObserve observeClient,
+        ChocolateyReleaseList releases, string? verifiedInstalledRelease, TimeSpan budget, TimeProvider time, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(observeClient);
+        ArgumentNullException.ThrowIfNull(releases);
+        ArgumentNullException.ThrowIfNull(time);
+        if (cancellationToken.IsCancellationRequested || budget <= TimeSpan.Zero || budget > Budget) return null;
+        ChocolateyReviewedRelease? source = releases.FindByVersion(verifiedInstalledRelease);
+        ChocolateyReviewedRelease? target = releases.OfferTarget(source);
+        if (source is null || target is null) return null;
+        // The review evidence time is when the observation started (the conservative end, as for F′).
+        DateTimeOffset observedAt = time.GetUtcNow();
+        using ChocolateyProfileObservation? observation = await TryObserveAsync(observeClient, ReviewedUpdateOperation.ChocolateyClientPackageId,
+            source.NativeVersion, budget, time, cancellationToken).ConfigureAwait(false);
+        if (observation is null || cancellationToken.IsCancellationRequested || !ReferenceEquals(observation.Release, source)) return null;
+        string evidenceId = ReviewedUpdateOperation.ProfileEvidencePrefix + observation.Fingerprint;
+        if (!ReviewedUpdateOperation.TryGetProfileEvidenceDigest(evidenceId, out _)) return null;
+        return new ChocolateyClientReviewEvidence(source.Version, target.Version, observation.Common.RequestingUserSid, evidenceId, observedAt);
+    }
+
+    /// <summary>
     /// ADR-031 design §8.6 gate 3: which listed release the installed client verifiably is, for display. In client mode the
     /// observer selects the listed release by engine digest, requires every release file to match it and the <c>chocolatey</c>
     /// registration to be at that release's version, and then requires that version to equal the expected one (step 8a). So:

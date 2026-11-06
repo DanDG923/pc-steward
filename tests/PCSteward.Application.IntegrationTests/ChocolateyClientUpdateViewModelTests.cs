@@ -26,9 +26,15 @@ public sealed class ChocolateyClientUpdateViewModelTests
 
     private static ChocolateyInstalledClientVerification Verified(string release) => ChocolateyInstalledClientVerification.Verified(release);
 
+    // These rows pin the locked screen (C1 not compiled in), whichever value is compiled in; the admitted screen is
+    // ChocolateyClientUpdateAdmittedViewModelTests.
+    private static ChocolateyClientUpdateViewModel Locked(ChocolateyClientReleaseCatalogFacts catalog, ChocolateyInstalledClientVerification verification,
+        string? reported, Func<ReviewedRouteSplitTokenState> probeSplitToken) =>
+        ChocolateyClientUpdateViewModel.OpenWithAdmissionForTests(false, catalog, verification, reported, probeSplitToken);
+
     private static ChocolateyClientUpdateViewModel Open(ChocolateyClientReleaseCatalogFacts catalog, ChocolateyInstalledClientVerification verification,
         string? reported = "2.7.5") =>
-        ChocolateyClientUpdateViewModel.Open(catalog, verification, reported, () => ReviewedRouteSplitTokenState.SplitTokenLimited);
+        Locked(catalog, verification, reported, () => ReviewedRouteSplitTokenState.SplitTokenLimited);
 
     [TestMethod]
     public void TodaysListShowsTheVerifiedReleaseNoNewerReleaseEveryFactAndADisabledConfirm()
@@ -205,7 +211,7 @@ public sealed class ChocolateyClientUpdateViewModelTests
     public void WithVerificationKeepsTheOpenedViewAndProbesNothing()
     {
         int probes = 0;
-        ChocolateyClientUpdateViewModel opened = ChocolateyClientUpdateViewModel.Open(Fixture, ChocolateyInstalledClientVerification.Checking, "2.4.0",
+        ChocolateyClientUpdateViewModel opened = Locked(Fixture, ChocolateyInstalledClientVerification.Checking, "2.4.0",
             () => { probes++; return ReviewedRouteSplitTokenState.NoSplitToken; });
         ChocolateyClientUpdateViewModel verified = opened.WithVerification(Verified("2.8.0"));
         ChocolateyClientUpdateViewModel timedOut = opened.WithVerification(ChocolateyInstalledClientVerification.TimedOut);
@@ -381,7 +387,7 @@ public sealed class ChocolateyClientUpdateViewModelTests
     {
         foreach (ChocolateyClientReleaseCatalogFacts catalog in new[] { Compiled, Fixture })
         {
-            ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(catalog, Verified("2.7.5"), "2.7.5", () => state);
+            ChocolateyClientUpdateViewModel model = Locked(catalog, Verified("2.7.5"), "2.7.5", () => state);
             Assert.AreEqual(reason, model.UnavailableReasons[^1]);
             Assert.AreEqual(ChocolateyClientUpdateViewModel.Text(reason), model.UnavailableFields[^1].Text);
             Assert.AreEqual(Enum.IsDefined(state) ? state : ReviewedRouteSplitTokenState.Unknown, model.SplitTokenState);
@@ -404,12 +410,12 @@ public sealed class ChocolateyClientUpdateViewModelTests
     {
         int probes = 0;
         ReviewedRouteSplitTokenState Probe() { probes++; return probes == 1 ? ReviewedRouteSplitTokenState.SplitTokenLimited : ReviewedRouteSplitTokenState.NoSplitToken; }
-        ChocolateyClientUpdateViewModel first = ChocolateyClientUpdateViewModel.Open(Compiled, Verified("2.7.5"), "2.7.5", Probe);
-        ChocolateyClientUpdateViewModel second = ChocolateyClientUpdateViewModel.Open(Compiled, Verified("2.7.5"), "2.7.5", Probe);
+        ChocolateyClientUpdateViewModel first = Locked(Compiled, Verified("2.7.5"), "2.7.5", Probe);
+        ChocolateyClientUpdateViewModel second = Locked(Compiled, Verified("2.7.5"), "2.7.5", Probe);
         Assert.AreEqual(2, probes, "one probe per open, never cached");
         CollectionAssert.DoesNotContain(first.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.SplitTokenRequired);
         CollectionAssert.Contains(second.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.SplitTokenRequired);
-        ChocolateyClientUpdateViewModel faulted = ChocolateyClientUpdateViewModel.Open(Compiled, Verified("2.7.5"), "2.7.5",
+        ChocolateyClientUpdateViewModel faulted = Locked(Compiled, Verified("2.7.5"), "2.7.5",
             () => throw new InvalidOperationException("token unreadable"));
         Assert.AreEqual(ReviewedRouteSplitTokenState.Unknown, faulted.SplitTokenState);
         CollectionAssert.Contains(faulted.UnavailableReasons.ToArray(), ChocolateyClientUpdateUnavailableReason.DesktopTokenUnknown);
@@ -562,7 +568,7 @@ public sealed class ChocolateyClientUpdateViewModelTests
         foreach (ChocolateyInstalledClientVerification verification in new[] { Verified("2.7.5") }.Concat(NotVerified()))
             foreach (ReviewedRouteSplitTokenState token in Enum.GetValues<ReviewedRouteSplitTokenState>())
             {
-                ChocolateyClientUpdateViewModel model = ChocolateyClientUpdateViewModel.Open(Fixture, verification, "2.7.5", () => token);
+                ChocolateyClientUpdateViewModel model = Locked(Fixture, verification, "2.7.5", () => token);
                 Assert.AreEqual(ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview, model.UnavailableReasons[0], $"{verification.Check} {token}");
                 Assert.IsFalse(model.CanConfirm, $"{verification.Check} {token}");
                 Assert.IsFalse(model.IsConfirmEnabled, $"{verification.Check} {token}");

@@ -1,3 +1,4 @@
+using System.Globalization;
 using PCSteward.Domain;
 
 namespace PCSteward.Application;
@@ -31,8 +32,8 @@ public sealed record ChocolateyClientReleaseCatalogFacts(IReadOnlyList<string> L
 public enum ChocolateyClientUpdateUnavailableReason
 {
     /// <summary>
-    /// No reviewed Desktop composition of <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> exists and owner admission is
-    /// outstanding (ADR-031 owner decisions 3–4; design §8.6 gate 3). Always present, whatever <c>HasSupportedMode</c> admits.
+    /// Owner admission of the Confirm is not compiled in (Chocolatey Confirm design §2 C1): present exactly while
+    /// <see cref="ChocolateyClientUpdateAdmission.IsOwnerApproved"/> is false, whatever <c>HasSupportedMode</c> admits.
     /// </summary>
     NotAdmittedPendingReview,
     /// <summary>The installed release is listed, but no strictly newer listed release exists (ADR-031 design §3.3).</summary>
@@ -51,6 +52,28 @@ public enum ChocolateyClientUpdateUnavailableReason
     SplitTokenRequired,
     DesktopTokenUnsupported,
     DesktopTokenUnknown,
+    /// <summary>Design §2 C6: an earlier client update that started did not succeed, and no later check verified the client again.</summary>
+    EarlierUpdateNeedsAttention,
+    /// <summary>Design §2 C7: another update, batch, scan or data operation holds the current-user gate.</summary>
+    AnotherTaskRunning,
+    /// <summary>Design §4.2: the one review is being prepared (fresh observation, frozen operation, saved draft).</summary>
+    PreparingReview,
+    /// <summary>Design §4.2: the review could not be prepared; nothing was started.</summary>
+    ReviewNotPrepared,
+    /// <summary>Design §2 C2/C8: the check is older than 10 minutes, or the review expired or was used; "Check again".</summary>
+    ReviewExpired,
+}
+
+/// <summary>
+/// Chocolatey Confirm design §4.2: what the review dialog knows about its one review session, for display. Built by the Desktop
+/// from <see cref="ChocolateyClientUpdateReviewSession"/> and the check's start time; it decides nothing (the session re-checks
+/// every condition when Confirm is pressed).
+/// </summary>
+public sealed record ChocolateyClientUpdateReviewState(ChocolateyClientUpdateReviewStage Stage, bool ReviewLive, bool CheckFresh,
+    bool EarlierUpdateNeedsAttention, bool AnotherTaskRunning, string? FrozenSource, string? FrozenTarget, DateTimeOffset? ExpiresAt)
+{
+    /// <summary>No session: what every view shows until the dialog prepares one.</summary>
+    public static ChocolateyClientUpdateReviewState None { get; } = new(ChocolateyClientUpdateReviewStage.NotPrepared, false, false, false, false, null, null, null);
 }
 
 /// <summary>
@@ -61,15 +84,17 @@ public enum ChocolateyClientUpdateUnavailableReason
 /// strictly newer release on the compiled reviewed list, computed only from the verified installed release); the review-sheet facts
 /// and disclosures of <see cref="ChocolateyClientUpdatePresentation"/>; and every reason the update is unavailable.
 /// <list type="bullet">
-/// <item>The not-admitted reason is always present, independent of <c>ReviewedUpdateReview.HasSupportedMode</c> (which since the
-/// Task 50 activation admits the exact <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> shape): the Desktop composes
-/// no client review and owner admission approval is still outstanding, so <see cref="CanConfirm"/> is always false (design §8.6
-/// gate 3, re-verified on the activation). This type holds no review, draft, permit or confirmation path; it starts nothing.</item>
+/// <item>Chocolatey Confirm design §2: the not-admitted reason is present exactly while owner admission
+/// (<see cref="ChocolateyClientUpdateAdmission.IsOwnerApproved"/>, C1) is not compiled in, independent of
+/// <c>ReviewedUpdateReview.HasSupportedMode</c>. Once it is, every other display condition still applies, and an offer is
+/// confirmable only with a live review prepared for exactly this offer (<see cref="WithReview"/>). This type holds no review,
+/// draft, permit or confirmation path and starts nothing: <see cref="ChocolateyClientUpdateReviewSession"/> owns Confirm and
+/// re-checks every condition when it is pressed.</item>
 /// <item>The split-token state is probed through the injected function on every <see cref="Open"/>, never cached.</item>
 /// <item>ADR-031 ("offered only from a listed, currently trusted client"): the offer is computed only from a
 /// <see cref="ChocolateyInstalledClientCheck.Verified"/> result of the native Desktop-role observation and the compiled list's
 /// offer rule. The scan-reported version never decides anything; while the client is not checked, or could not be verified,
-/// nothing is offered. A verified offer is still "not yet enabled": nothing can start from this surface.</item>
+/// nothing is offered. While admission is not compiled in, a verified offer is "not yet enabled".</item>
 /// </list>
 /// </summary>
 public sealed class ChocolateyClientUpdateViewModel
@@ -80,8 +105,21 @@ public sealed class ChocolateyClientUpdateViewModel
     public const string DetailHeading = "Chocolatey client update";
     public const string DetailCopy =
         "PC Steward can update Chocolatey itself only to a newer release it has reviewed. You can read what that update would do; it cannot start yet.";
+    public const string DetailCopyAdmitted =
+        "PC Steward can update Chocolatey itself only to a newer release it has reviewed, and only after you review and confirm that update.";
     public const string EntryText = "View Chocolatey update…";
     public const string EntryAutomationDetail = "Opens the review. This update cannot be confirmed yet.";
+    public const string EntryAutomationDetailAdmitted = "Opens the review. PC Steward checks the installed Chocolatey before anything can be confirmed.";
+    public const string CheckAgainText = "Check again";
+    public const string ChangeLabel = "Change";
+    public const string ExpiresLabel = "Review expires";
+    public const string EarlierUpdateNeedsAttentionText =
+        "The last Chocolatey update was not verified. Check the installed Chocolatey again before you update it.";
+    public const string AnotherTaskRunningText = "Another update or task is running. You can confirm when it finishes.";
+    public const string PreparingReviewText = "Preparing the review…";
+    public const string ReviewNotPreparedText =
+        "PC Steward could not prepare this review. Nothing was started. Close this and try again.";
+    public const string ReviewExpiredText = "This review has expired. Check again to see the current state.";
     public const string GenericTitle = "Update Chocolatey";
     public const string ConfirmText = "Update Chocolatey";
     public const string CloseText = "Close";
@@ -143,10 +181,12 @@ public sealed class ChocolateyClientUpdateViewModel
     public const string InstalledReleaseNotVerifiedText =
         CouldNotVerifyText + ", so no update is offered. PC Steward offers an update only from a Chocolatey whose files exactly match a reviewed release.";
 
-    private ChocolateyClientUpdateViewModel(ChocolateyInstalledClientVerification verification, string? reported, bool installedReported,
-        IReadOnlyList<string> listed, bool catalogAvailable, string signer, ReviewedRouteSplitTokenState splitToken)
+    private ChocolateyClientUpdateViewModel(bool admitted, ChocolateyInstalledClientVerification verification, string? reported, bool installedReported,
+        IReadOnlyList<string> listed, bool catalogAvailable, string signer, ReviewedRouteSplitTokenState splitToken, ChocolateyClientUpdateReviewState review)
     {
         Verification = verification;
+        Review = review;
+        Admitted = admitted;
         string? installed = verification.Check == ChocolateyInstalledClientCheck.Verified ? verification.InstalledRelease : null;
         // ADR-031 / design §8.6 gate 3: the offer comes only from the verified installed release and the compiled list's rule.
         string? offer = OfferTarget(installed, listed);
@@ -159,8 +199,9 @@ public sealed class ChocolateyClientUpdateViewModel
         SplitTokenState = splitToken;
         Signer = signer;
 
-        // No reviewed client operation can be prepared while the review gate refuses the route: always unavailable.
-        List<ChocolateyClientUpdateUnavailableReason> reasons = [ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview];
+        // Design §2 C1: while owner admission is not compiled in, this reason keeps Confirm off whatever else holds.
+        List<ChocolateyClientUpdateUnavailableReason> reasons = [];
+        if (!Admitted) reasons.Add(ChocolateyClientUpdateUnavailableReason.NotAdmittedPendingReview);
         if (offer is null)
             reasons.Add(verification.Check switch
             {
@@ -178,14 +219,28 @@ public sealed class ChocolateyClientUpdateViewModel
             case ReviewedRouteSplitTokenState.DesktopTokenUnsupported: reasons.Add(ChocolateyClientUpdateUnavailableReason.DesktopTokenUnsupported); break;
             default: reasons.Add(ChocolateyClientUpdateUnavailableReason.DesktopTokenUnknown); break;
         }
+        if (Admitted && offer is not null)
+        {
+            if (review.EarlierUpdateNeedsAttention) reasons.Add(ChocolateyClientUpdateUnavailableReason.EarlierUpdateNeedsAttention);
+            if (review.AnotherTaskRunning) reasons.Add(ChocolateyClientUpdateUnavailableReason.AnotherTaskRunning);
+            // The review's own state is shown only when nothing else stands in the way (design §4.2).
+            if (reasons.Count == 0 && ReviewReason(review, installed, offer) is { } reviewReason) reasons.Add(reviewReason);
+        }
         UnavailableReasons = reasons.AsReadOnly();
         UnavailableFields = UnavailableReasons.Select(reason => new ReviewedDisplayField("Unavailable", Text(reason))).ToArray();
 
-        Fields = new ReviewedDisplayField[]
-        {
+        // The change and expiry lines describe a live review only: an expired, used or stale review shows neither.
+        bool ready = Admitted && offer is not null && review.Stage == ChocolateyClientUpdateReviewStage.Ready && review.ReviewLive && review.CheckFresh &&
+            string.Equals(review.FrozenSource, installed, StringComparison.Ordinal) && string.Equals(review.FrozenTarget, offer, StringComparison.Ordinal);
+        List<ReviewedDisplayField> fields =
+        [
             new("Installed", InstalledText),
             new(ReportedByLastScanLabel, ReportedText),
             new("Offer", OfferText),
+        ];
+        if (ready) fields.Add(new(ChangeLabel, $"Chocolatey {installed} → {offer}"));
+        fields.AddRange(
+        [
             new("Reviewed releases", ReviewedReleasesText),
             new("Signer", SignerText),
             new("What happens", ChocolateyClientUpdatePresentation.WhatHappensText),
@@ -193,7 +248,10 @@ public sealed class ChocolateyClientUpdateViewModel
             new("Administrator permission", PermissionText),
             new("Safety checks while it runs", WatchdogText),
             new("If the folder may have been changed", UntrustedFolderCautionText),
-        };
+        ]);
+        if (ready && review.ExpiresAt is { } expires)
+            fields.Add(new(ExpiresLabel, $"This review expires at {expires.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}."));
+        Fields = fields.AsReadOnly();
         DisclosureFields = ChocolateyClientUpdatePresentation.Disclosures.Select(text => new ReviewedDisplayField("Chocolatey's setup", text)).ToArray();
     }
 
@@ -204,6 +262,18 @@ public sealed class ChocolateyClientUpdateViewModel
     /// and applies the ADR-031 offer rule to the <paramref name="verification"/>'s verified release only.
     /// </summary>
     public static ChocolateyClientUpdateViewModel Open(ChocolateyClientReleaseCatalogFacts catalog, ChocolateyInstalledClientVerification verification,
+        string? reportedInstalledVersion, Func<ReviewedRouteSplitTokenState> probeSplitToken) =>
+        OpenView(ChocolateyClientUpdateAdmission.IsOwnerApproved, catalog, verification, reportedInstalledVersion, probeSplitToken);
+
+    /// <summary>
+    /// Tests only: the same view with the admission given, so both the locked and the admitted screens stay under test whichever
+    /// value is compiled in. Production code never calls it (architecture-pinned); every production view reads the compiled C1.
+    /// </summary>
+    internal static ChocolateyClientUpdateViewModel OpenWithAdmissionForTests(bool admitted, ChocolateyClientReleaseCatalogFacts catalog,
+        ChocolateyInstalledClientVerification verification, string? reportedInstalledVersion, Func<ReviewedRouteSplitTokenState> probeSplitToken) =>
+        OpenView(admitted, catalog, verification, reportedInstalledVersion, probeSplitToken);
+
+    private static ChocolateyClientUpdateViewModel OpenView(bool admitted, ChocolateyClientReleaseCatalogFacts catalog, ChocolateyInstalledClientVerification verification,
         string? reportedInstalledVersion, Func<ReviewedRouteSplitTokenState> probeSplitToken)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -219,7 +289,8 @@ public sealed class ChocolateyClientUpdateViewModel
         catch (Exception exception) when (exception is not OutOfMemoryException) { listed = []; }
         string signer = string.IsNullOrWhiteSpace(catalog.Signer) || catalog.Signer.Length > 128 ? "Unknown" : catalog.Signer;
         string? reported = ChocolateyClientUpdatePresentation.IsReleaseVersion(reportedInstalledVersion) ? reportedInstalledVersion : null;
-        return new(verification, reported, reportedInstalledVersion is not null, listed, listed.Length != 0, signer, splitToken);
+        return new(admitted, verification, reported, reportedInstalledVersion is not null, listed, listed.Length != 0, signer, splitToken,
+            ChocolateyClientUpdateReviewState.None);
     }
 
     /// <summary>
@@ -229,8 +300,31 @@ public sealed class ChocolateyClientUpdateViewModel
     public ChocolateyClientUpdateViewModel WithVerification(ChocolateyInstalledClientVerification verification)
     {
         ArgumentNullException.ThrowIfNull(verification);
-        return new(verification, ReportedVersion, InstalledReported, ListedVersions, CatalogAvailable, Signer, SplitTokenState);
+        return new(Admitted, verification, ReportedVersion, InstalledReported, ListedVersions, CatalogAvailable, Signer, SplitTokenState, Review);
     }
+
+    /// <summary>The same view with the dialog's current review-session state (design §4.2). Display only.</summary>
+    public ChocolateyClientUpdateViewModel WithReview(ChocolateyClientUpdateReviewState review)
+    {
+        ArgumentNullException.ThrowIfNull(review);
+        return new(Admitted, Verification, ReportedVersion, InstalledReported, ListedVersions, CatalogAvailable, Signer, SplitTokenState, review);
+    }
+
+    /// <summary>
+    /// The review-session reason, once every other condition holds: preparing, not prepared, expired (or used), a check older
+    /// than 10 minutes, or a frozen review for other versions than this view's verified release and offer. Null when the live
+    /// review matches this view.
+    /// </summary>
+    private static ChocolateyClientUpdateUnavailableReason? ReviewReason(ChocolateyClientUpdateReviewState review, string? installed, string offer) =>
+        review.Stage switch
+        {
+            ChocolateyClientUpdateReviewStage.NotPrepared or ChocolateyClientUpdateReviewStage.Preparing => ChocolateyClientUpdateUnavailableReason.PreparingReview,
+            ChocolateyClientUpdateReviewStage.PrepareFailed => ChocolateyClientUpdateUnavailableReason.ReviewNotPrepared,
+            ChocolateyClientUpdateReviewStage.Ready when !string.Equals(review.FrozenSource, installed, StringComparison.Ordinal) ||
+                !string.Equals(review.FrozenTarget, offer, StringComparison.Ordinal) => ChocolateyClientUpdateUnavailableReason.ReviewNotPrepared,
+            ChocolateyClientUpdateReviewStage.Ready when review.ReviewLive && review.CheckFresh => null,
+            _ => ChocolateyClientUpdateUnavailableReason.ReviewExpired,
+        };
 
     /// <summary>
     /// The ADR-031 offer rule (design §3.3) over display data: when <paramref name="installed"/> is exactly a listed release and the
@@ -269,6 +363,15 @@ public sealed class ChocolateyClientUpdateViewModel
     /// <summary>The check result this view shows (never cached by the Desktop: each review checks afresh).</summary>
     public ChocolateyInstalledClientVerification Verification { get; }
 
+    /// <summary>The dialog's review-session state this view shows (<see cref="ChocolateyClientUpdateReviewState.None"/> on summaries).</summary>
+    public ChocolateyClientUpdateReviewState Review { get; }
+
+    /// <summary>Design §2 C1 as compiled in when this view was built.</summary>
+    public bool Admitted { get; }
+
+    /// <summary>The Installed apps detail copy: whether the update can be confirmed at all depends on owner admission (C1).</summary>
+    public static string CurrentDetailCopy => ChocolateyClientUpdateAdmission.IsOwnerApproved ? DetailCopyAdmitted : DetailCopy;
+
     /// <summary>The installed release PC Steward verified; null unless <see cref="Verification"/> is Verified. The only input to the offer.</summary>
     public string? VerifiedInstalledVersion { get; }
 
@@ -293,7 +396,9 @@ public sealed class ChocolateyClientUpdateViewModel
     /// ADR-031 design §8.6 gate 3: only a verified installed release yields an offer, still not enabled while the route is not
     /// admitted: "A newer reviewed Chocolatey release is available: X (not yet enabled)"; otherwise "Update Chocolatey".
     /// </summary>
-    public string Title => OfferVersion is null ? GenericTitle : AvailableTitlePrefix + OfferVersion + NotYetEnabledSuffix;
+    public string Title => OfferVersion is null ? GenericTitle
+        : Admitted ? ChocolateyClientUpdatePresentation.Title(OfferVersion)
+        : AvailableTitlePrefix + OfferVersion + NotYetEnabledSuffix;
 
     /// <summary>The installed Chocolatey as PC Steward's check found it: verified, not checked yet, checking, or why it is not verified.</summary>
     public string InstalledText => Verification.Check switch
@@ -316,8 +421,11 @@ public sealed class ChocolateyClientUpdateViewModel
 
     /// <summary>The verified offer, or why nothing is offered (not checked, checking, not verified, list unavailable, unlisted, none newer).</summary>
     public string OfferText => OfferVersion is not null
-        ? $"{AvailableTitlePrefix}{OfferVersion}{NotYetEnabledSuffix}. PC Steward verified the installed Chocolatey {VerifiedInstalledVersion}; " +
-          $"{OfferVersion} is the newest release on its reviewed list. Updating Chocolatey itself is {NotAvailableYetShort}."
+        ? Admitted
+            ? $"{AvailableTitlePrefix}{OfferVersion}. PC Steward verified the installed Chocolatey {VerifiedInstalledVersion}; " +
+              $"{OfferVersion} is the newest release on its reviewed list."
+            : $"{AvailableTitlePrefix}{OfferVersion}{NotYetEnabledSuffix}. PC Steward verified the installed Chocolatey {VerifiedInstalledVersion}; " +
+              $"{OfferVersion} is the newest release on its reviewed list. Updating Chocolatey itself is {NotAvailableYetShort}."
         : NoOfferState switch
         {
             NoOffer.NotChecked => NotCheckedOfferText,
@@ -344,7 +452,7 @@ public sealed class ChocolateyClientUpdateViewModel
     public string Summary =>
         $"Chocolatey {(VerifiedInstalledVersion is not null ? VerifiedInstalledVersion + " (verified)" : ReportedVersion is null ? "(release unknown)" : ReportedVersion + " " + ReportedByLastScanText)} · " +
         (OfferVersion is not null
-            ? $"{OfferVersion} is a newer reviewed release; updating is {NotAvailableYetShort}"
+            ? Admitted ? $"{OfferVersion} is a newer reviewed release" : $"{OfferVersion} is a newer reviewed release; updating is {NotAvailableYetShort}"
             : NoOfferState switch
             {
                 NoOffer.NotChecked => NotCheckedYetText,
@@ -384,15 +492,37 @@ public sealed class ChocolateyClientUpdateViewModel
 
     public bool IsUnavailable => UnavailableReasons.Count != 0;
 
-    /// <summary>False while any reason applies; the not-admitted reason always applies, so this is always false.</summary>
+    /// <summary>
+    /// False while any reason applies. While owner admission is not compiled in, the not-admitted reason always applies; once it
+    /// is, a review that is not live and prepared for exactly this view's offer always leaves a reason, so this is true only when
+    /// every display condition of design §2 holds. Display only: the session re-checks every condition on the press.
+    /// </summary>
     public bool CanConfirm => UnavailableReasons.Count == 0;
 
-    /// <summary>Bound to the Confirm button's enabled state: exactly <see cref="CanConfirm"/>.</summary>
+    /// <summary>Exactly <see cref="CanConfirm"/>.</summary>
     public bool IsConfirmEnabled => CanConfirm;
 
-    public string ConfirmAutomationName => CanConfirm ? "Update Chocolatey after review" : "Update Chocolatey is unavailable: " + NotAdmittedText;
+    /// <summary>Design §4.1: the expired (or used) review offers "Check again", which re-runs the check and prepares a new review.</summary>
+    public bool OffersCheckAgain => Admitted && OfferVersion is not null && UnavailableReasons.Count == 1 &&
+        UnavailableReasons[0] is ChocolateyClientUpdateUnavailableReason.ReviewExpired or ChocolateyClientUpdateUnavailableReason.EarlierUpdateNeedsAttention;
 
-    public string EntryAutomationName => AccessibilityText.LabelInName(EntryText, Summary + ". " + EntryAutomationDetail);
+    /// <summary>
+    /// Design §4.2: the primary button's label. "Update Chocolatey to X" (the exact target) when Confirm is on, "Check again" when
+    /// the review expired, empty (hidden) when the installed client is verified and nothing is offered, otherwise the disabled
+    /// generic label.
+    /// </summary>
+    public string PrimaryActionText => CanConfirm ? ChocolateyClientUpdatePresentation.Title(OfferVersion)
+        : OffersCheckAgain ? CheckAgainText
+        : OfferVersion is null && Verification.Check == ChocolateyInstalledClientCheck.Verified ? string.Empty
+        : ConfirmText;
+
+    /// <summary>Bound to the primary button's enabled state: Confirm, or "Check again".</summary>
+    public bool IsPrimaryActionEnabled => CanConfirm || OffersCheckAgain;
+
+    public string ConfirmAutomationName => CanConfirm ? ChocolateyClientUpdatePresentation.Title(OfferVersion) + " after review"
+        : "Update Chocolatey is unavailable: " + (UnavailableReasons.Count == 0 ? NotAdmittedText : Text(UnavailableReasons[0]));
+
+    public string EntryAutomationName => AccessibilityText.LabelInName(EntryText, Summary + ". " + (Admitted ? EntryAutomationDetailAdmitted : EntryAutomationDetail));
 
     public static string Text(ChocolateyClientUpdateUnavailableReason reason) => reason switch
     {
@@ -406,6 +536,11 @@ public sealed class ChocolateyClientUpdateViewModel
         ChocolateyClientUpdateUnavailableReason.SplitTokenRequired => ChocolateyReviewDisclosurePresentation.SplitTokenRequiredText,
         ChocolateyClientUpdateUnavailableReason.DesktopTokenUnsupported => ChocolateyReviewDisclosurePresentation.DesktopTokenUnsupportedText,
         ChocolateyClientUpdateUnavailableReason.DesktopTokenUnknown => ChocolateyReviewDisclosurePresentation.DesktopTokenUnknownText,
+        ChocolateyClientUpdateUnavailableReason.EarlierUpdateNeedsAttention => EarlierUpdateNeedsAttentionText,
+        ChocolateyClientUpdateUnavailableReason.AnotherTaskRunning => AnotherTaskRunningText,
+        ChocolateyClientUpdateUnavailableReason.PreparingReview => PreparingReviewText,
+        ChocolateyClientUpdateUnavailableReason.ReviewNotPrepared => ReviewNotPreparedText,
+        ChocolateyClientUpdateUnavailableReason.ReviewExpired => ReviewExpiredText,
         _ => throw new ArgumentOutOfRangeException(nameof(reason)),
     };
 
