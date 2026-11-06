@@ -287,6 +287,6 @@ if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'NEW-DEPLOYMENT valid
 
 ### Approvals
 
-- **CB-prep** (CB.1–CB.7): a Git fetch and a detached worktree in the owner's clone; one build (network for restore); a database copy; one plan folder. Nothing is elevated, signed or installed.
+- **CB-prep** (CB.1–CB.7): a Git fetch and a detached worktree in the owner's clone; one build (network for restore); a database copy; one plan folder. Nothing is elevated, signed or installed. **Approved by the owner on 2026-11-06 ("I approve CB-prep").**
 - **CB-exec** (CB.8 + CB.9): given separately, after the CB.6 output is pasted back and the block is filled in.
 - **C-pre and C-run** (approval 2 of the activation plan): drafted after CB.9, using its pins.
