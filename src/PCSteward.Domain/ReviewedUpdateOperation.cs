@@ -11,8 +11,9 @@ public enum UpdateRouteContract
     ChocolateyMachineProvisionalV3, ChocolateyMachineRuntimeLimitsV3,
     /// <summary>
     /// ADR-031 (accepted, Option 2): update the Chocolatey client itself (package ID exactly <c>chocolatey</c>) to a release on
-    /// PC Steward's compiled reviewed list, with its own guard contract. Not admitted (<c>HasSupportedMode</c>), and the
-    /// frozen versions are data: only the provider's compiled list and native checks decide whether a job could run.
+    /// PC Steward's compiled reviewed list, with its own guard contract. Admitted at the review gate since the Task 50
+    /// activation (ADR-031 decision 7), and the frozen versions are data: only the provider's compiled list and native checks
+    /// decide whether a job could run.
     /// </summary>
     ChocolateyClientSelfUpdateV1
 }

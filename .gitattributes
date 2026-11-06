@@ -1,3 +1,4 @@
 # Exact bytes are pinned (ADR-022 alignment note): never convert line endings of the deployment capability statement.
 src/PCSteward.ElevatedHelper/PCSteward.DeploymentCapability.txt -text
 scripts/evidence/Task50-HostEvidence.ps1 -text
+scripts/evidence/Task50-QualificationProbe.ps1 -text

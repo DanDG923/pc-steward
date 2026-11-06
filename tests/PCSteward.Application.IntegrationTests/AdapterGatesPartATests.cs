@@ -89,9 +89,10 @@ public sealed class AdapterGatesPartATests
             _ => ReviewedUpdateOperation.ProfileEvidencePrefix + F,
         });
         Assert.AreEqual(expected, fresh.ProfileEvidenceMatches(op), change);
-        // The route is not admitted yet (HasSupportedMode), so Matches is false either way; the profile rule is an extra conjunct.
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(op));
-        Assert.IsFalse(fresh.Matches(op, ReviewedAt.AddMinutes(1)));
+        // Task 50 activation (ADR-031 owner decision 7): the route's exact shape is admitted (HasSupportedMode), so the profile
+        // rule now decides Matches: only the equal F′ matches.
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(op));
+        Assert.AreEqual(expected, fresh.Matches(op, ReviewedAt.AddMinutes(1)), change);
     }
 
     [TestMethod]
@@ -119,9 +120,11 @@ public sealed class AdapterGatesPartATests
         // pure Matches over the same immutable evidence and operation, so it cannot differ.
         Assert.AreEqual(first, fresh.Matches(draft.Operation, ReviewedAt.AddMinutes(1)));
         UpdateDispatchClaim? claim = await fixture.Store.TryClaimAsync(draft, fresh, Owner(), ReviewedAt.AddMinutes(1), CancellationToken.None);
-        Assert.IsFalse(first);
-        Assert.IsNull(claim);
-        Assert.IsNull(await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
+        // Task 50 activation: the route is admitted, so the sites agree on the profile rule: only an equal F′ claims.
+        Assert.AreEqual(sameProfile, first);
+        Assert.AreEqual(sameProfile, claim is not null);
+        Assert.AreEqual(sameProfile ? UpdateDispatchState.DispatchClaimed : null,
+            await fixture.Store.GetDispatchStateAsync(draft.Operation.JobId, CancellationToken.None));
     }
 
     [TestMethod]
@@ -270,7 +273,7 @@ public sealed class AdapterGatesPartATests
         internal ReviewedUpdateDispatchWorkflow Workflow(IReviewedUpdateRouteDispatcher dispatcher) =>
             new((work, _, ct) => { GateCalls++; return work(Owner(), ct); }, new FreshEvidence(), dispatcher, new Verifier(), Store, Clock);
 
-        /// <summary>The runtime-limit route is not admitted, so this inserts exactly the row TryClaimAsync would have written.</summary>
+        /// <summary>Inserts exactly the row TryClaimAsync would have written (a history fixture independent of F′ and admission).</summary>
         internal async Task<UpdateDispatchClaim> InsertRuntimeClaimAsync()
         {
             ReviewedUpdateDraft draft = await Store.SaveReviewedOperationAsync(RuntimeLimits(), CancellationToken.None);

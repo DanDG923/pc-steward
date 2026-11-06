@@ -12,8 +12,12 @@ namespace PCSteward.Execution;
 /// <see cref="DispatchAsync"/> draws one fresh nonce, runs exactly one protocol-2 exchange and returns the interpreter's
 /// workflow observation. A wire label never qualifies anything alone; every rejection is Uncertain in the interpreter.
 /// </para>
-/// No production composition constructs this adapter yet: <c>HasSupportedMode</c> admits only WinGet, the helper endpoint
-/// does not exist, and route admission waits for the O5/A-Q1/A2-L3 host evidence.
+/// <para>
+/// Task 50 activation (ADR-031 owner decision 7, step C-A; <c>docs/review/TASK_50_ACTIVATION_CHANGE.md</c>): <see cref="Supports"/>
+/// accepts the exact package shape and the exact client self-update shape (<c>TryGetRouteProfileDigest</c>), each only when the
+/// protected deployment capability lists its route. No production composition constructs this adapter yet; the Desktop
+/// prepares no Chocolatey review.
+/// </para>
 /// </summary>
 internal sealed class ChocolateyRuntimeLimitsRouteDispatcher : IReviewedUpdateRouteDispatcher
 {
@@ -38,8 +42,9 @@ internal sealed class ChocolateyRuntimeLimitsRouteDispatcher : IReviewedUpdateRo
     {
         try
         {
-            // No file I/O before the route and EvidenceId checks pass (A.4 step 1).
-            return operation is not null && ReviewedUpdateProtocol2Interpreter.TryGetProfileDigest(operation, out _) &&
+            // No file I/O before the route and EvidenceId checks pass (A.4 step 1). Activation: the package arm or the exact
+            // ADR-031 client arm, then the deployment capability for that route.
+            return operation is not null && ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out _, out _) &&
                 capability.Evaluate(operation.RouteContract).IsSupported;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -50,8 +55,8 @@ internal sealed class ChocolateyRuntimeLimitsRouteDispatcher : IReviewedUpdateRo
 
     /// <summary>
     /// One exchange. ADR-031 design §7.1: the client self-update is a client mode of this dispatcher (the interpreter reads its
-    /// reply shape and run fault), but <see cref="Supports"/> stays on the package arm, so the workflow never dispatches it
-    /// (and <c>HasSupportedMode</c> refuses it first); the transport's capability hold refuses it as well.
+    /// reply shape and run fault). Since the activation, <see cref="Supports"/> admits it like the package arm; the transport's
+    /// capability hold still refuses a deployment whose capability statement does not list the route.
     /// </summary>
     public async Task<ReviewedUpdateDispatchObservation> DispatchAsync(ReviewedUpdateDispatchTicket ticket, CancellationToken cancellationToken)
     {

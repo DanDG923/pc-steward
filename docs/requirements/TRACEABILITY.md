@@ -1,3 +1,23 @@
+# Task 50 — Part C step C-A: activation change (ADR-031 decision 7)
+
+`FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decision 7, ADR-025, ADR-022; [record](../review/TASK_50_ACTIVATION_CHANGE.md) (gate inventory §1).
+
+- **Code.**
+  - `ReviewedChocolateyRouteAdmission` (exact shapes) as the single second term of `ReviewedUpdateReview.HasSupportedMode`; `ReviewedRouteTestAdmission` is removed.
+  - `DeploymentCapabilityPolicy.CapabilityOperationAllowlist` gains the client route; `PCSteward.DeploymentCapability.txt` (149 B) and the `OwnerOnlyPayloadIntegrity.ps1` token list follow it.
+  - `ChocolateyRuntimeLimitsRouteDispatcher.Supports` uses `TryGetRouteProfileDigest`.
+  - `New-OwnerOnlyCandidate.ps1`: build record v2 with the probe-build mark. `Test-OwnerOnlyCandidateBuilderCI.ps1` requires it, and the CI job uses `fetch-depth: 0`.
+  - New `scripts/evidence/Task50-QualificationProbe.ps1` (S7, C1–C7).
+- **Tests.**
+  - Architecture: `ChocolateyRouteActivationBoundaryTests` (5); the changed pins in `ClientRunFaultBoundaryTests`, `DesktopProducersBoundaryTests`, `AdmissionGateSeamBoundaryTests` and `DeploymentCapabilityBoundaryTests`.
+  - Gate tests on the production rule: `ClientRouteWorkflowAdmissionGateTests`, `ClientRouteSqliteAdmissionGateTests`, `ClientRouteNativeEndToEndGateTests`.
+  - Admission behaviour: `AdapterGatesPartATests`, `ReviewedUpdateDispatchWorkflowTests`, `ChocolateyReviewDisclosureTests`, `ReviewedRouteViewModelTests`, `ChocolateyClientUpdatePresentationTests`, `ChocolateyReviewedUpdateArgumentsTests`, `ChocolateyDesktopProducersTests`, `ReviewedHelperProtocol2TransportTests`.
+  - Capability: `DeploymentCapabilityPolicyTests`, `DeploymentCapabilityScriptTests`, `DeploymentCapabilityReaderTests`.
+  - Probe on the two-token contract: `QualificationProbeWireCodecTests`, `QualificationProbeHelperEndpointTests`, `QualificationProbeDesktopEntryTests`, `QualificationProbeResultFileTests`.
+  - Builder: `OwnerOnlyCandidateBuilderTests` (probe-mark rows, CI job, git invocation count).
+  - New `QualificationProbeHostToolingTests` with `Fixtures/QualificationProbeHostTooling.ps1`.
+- **Not claimed.** Windows CI evidence for the Windows-only rows; independent review; any deployment, probe run or owner admission approval. Nothing in `src` composes a Chocolatey review or dispatch.
+
 # Task 50 — R2 tooling: fresh install, packaged-process refusal, installer diagnostics (owner decision D-R2)
 
 `FR-UPD-15`, `TM-03`, `TM-04`, `TM-07`, `TM-13`; ADR-022; [recovery plan §3 R2](../review/TASK_50_RECOVERY_PLAN.md).

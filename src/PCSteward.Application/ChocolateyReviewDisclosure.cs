@@ -53,7 +53,12 @@ public enum ReviewedRouteSplitTokenState
 /// <summary>Closed reasons the runtime-limit Chocolatey route is unavailable at review, in display order.</summary>
 public enum ReviewedRouteUnavailableReason
 {
-    /// <summary>The route is not admitted (<c>HasSupportedMode</c>) while it waits on owner host evidence.</summary>
+    /// <summary>
+    /// The frozen operation is not admitted (<c>HasSupportedMode</c>), or no reviewed operation exists (the no-review disclosure,
+    /// which the Desktop shows because nothing composes a review for this route). Since the Task 50 activation the exact route
+    /// shape is admitted in code; the text still states the procedure (owner decision D4 = G-0): the route stays off until its
+    /// checks, including the exact-artifact qualification probe on the activated deployment, have been proven.
+    /// </summary>
     NotAdmittedPendingHostEvidence,
     /// <summary>design rev 6 §(L6): UAC off, standard-user desktop, or an elevated desktop.</summary>
     SplitTokenRequired,
@@ -93,7 +98,8 @@ public sealed record ChocolateyReviewDisclosureView(
 /// the provisional user-cache candidate with the intent's own resolved time, the fixed Profile V2 disclosure, the
 /// script-runtime limits, the package-script mode, the lingering-process disclosure and any lib-bad residue note.
 /// <see cref="ChocolateyReviewDisclosureView.CanConfirm"/> is true only when every conjunct holds: the real review gate
-/// (<see cref="ReviewedUpdateReview.HasSupportedMode"/>, which today admits only WinGet), a UAC split token and an intent
+/// (<see cref="ReviewedUpdateReview.HasSupportedMode"/>, which admits this route's exact shape since the Task 50 activation),
+/// a UAC split token and an intent
 /// matching the frozen review. Presentation never enables confirmation by itself; <see cref="ReviewedUpdateReview.Confirm"/>
 /// rechecks the gate.
 /// </summary>
@@ -167,7 +173,9 @@ public static class ChocolateyReviewDisclosurePresentation
     /// Admission obligation 5 (N6 review M1): the same disclosure when no reviewed operation exists, which is always the case
     /// today because nothing composes this route. It shows the fixed pre-review disclosures, the route's script-runtime limits and
     /// package-script mode, the not-admitted reason and the freshly probed split-token reason. Without a reviewed operation there
-    /// is nothing to confirm, so <see cref="ChocolateyReviewDisclosureView.CanConfirm"/> is always false.
+    /// is nothing to confirm, so <see cref="ChocolateyReviewDisclosureView.CanConfirm"/> is always false. Unchanged by the Task 50
+    /// activation: the review gate now admits the route's exact shape, but nothing composes a review, so the Desktop still shows
+    /// this disclosure and its "stays off until its checks have been proven" text (the D4 = G-0 procedure).
     /// </summary>
     public static ChocolateyReviewDisclosureView PresentWithoutReview(ReviewedRouteSplitTokenState splitToken)
     {

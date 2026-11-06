@@ -168,8 +168,10 @@ public sealed class QualificationProbeDesktopBoundaryTests
     [TestMethod]
     public void D4TheProbeTouchesNoAdmissionPin()
     {
-        // HasSupportedMode, CapabilityOperationAllowlist and the dispatcher's Supports keep their existing (unmodified) tests;
-        // the probe only reads the compiled allow-list (to hold every token) and never calls an admission member.
+        // Spec §7 D4 kept HasSupportedMode, CapabilityOperationAllowlist and the dispatcher's Supports unchanged until the
+        // activation; the Task 50 activation (ADR-031 decision 7, step C-A) changes exactly those pins, deliberately
+        // (ChocolateyRouteActivationBoundaryTests). Unchanged here: the probe only reads the compiled allow-list (to hold every
+        // token) and never calls an admission member.
         List<string> violations = [];
         foreach (string path in RequireBuilt())
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))

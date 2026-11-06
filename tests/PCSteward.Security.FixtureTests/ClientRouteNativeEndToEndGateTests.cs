@@ -238,13 +238,11 @@ public sealed class ClientRouteNativeEndToEndGateTests
             ClientRouteWorkflowAdmissionGateTests.EndpointDispatcher dispatcher = new(harness);
             ReviewedUpdateDispatchWorkflow workflow = new((work, _, ct) => work(ClientRouteWorkflowAdmissionGateTests.Owner(Sid), ct), evidence,
                 dispatcher, verifier, Store, clock);
-            using (ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests())
-            {
-                LiveApprovedUpdate approval = new ReviewedUpdateReview(new ReviewedUpdateDraft(Operation, Guid.NewGuid()), clock).Confirm();
-                ReviewedUpdateDispatchResult result = await workflow.RunAsync(approval, CancellationToken.None);
-                Assert.AreEqual(1, dispatcher.Calls, result.Message);
-                return (result, dispatcher);
-            }
+            // The route is admitted at the production review gate since the Task 50 activation (ADR-031 owner decision 7).
+            LiveApprovedUpdate approval = new ReviewedUpdateReview(new ReviewedUpdateDraft(Operation, Guid.NewGuid()), clock).Confirm();
+            ReviewedUpdateDispatchResult result = await workflow.RunAsync(approval, CancellationToken.None);
+            Assert.AreEqual(1, dispatcher.Calls, result.Message);
+            return (result, dispatcher);
         }
 
         /// <summary>The persisted record as history.</summary>

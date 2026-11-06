@@ -10,7 +10,8 @@ namespace PCSteward.ArchitectureTests;
 /// document) only. No other <c>src</c> code references them, so <c>PCSteward.Desktop</c> and <c>ScheduledHost</c> reach them only
 /// through the S4 entry; the test-only contract factory has no <c>src</c> caller; there is no probe request
 /// codec; and the codec names no native type. The admission pins (<c>HasSupportedMode</c>, <c>CapabilityOperationAllowlist</c>,
-/// the dispatcher's <c>Supports</c>) are covered, unchanged, by their existing tests.
+/// the dispatcher's <c>Supports</c>) were changed deliberately by the Task 50 activation and are pinned by
+/// <c>ChocolateyRouteActivationBoundaryTests</c>.
 /// </summary>
 [TestClass]
 public sealed class QualificationProbeWireBoundaryTests

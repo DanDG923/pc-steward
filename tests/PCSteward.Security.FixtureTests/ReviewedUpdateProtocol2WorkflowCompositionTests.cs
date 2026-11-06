@@ -7,10 +7,10 @@ namespace PCSteward.Security.FixtureTests;
 
 /// <summary>
 /// FR-UPD-15/01; TM-03/04/07/13; AC-UPD-07: the real <see cref="ReviewedUpdateDispatchWorkflow"/> consuming observations
-/// produced by the protocol-2 interpreter from real codec frames. The workflow still admits only WinGetUserExactV3
-/// (<c>ReviewedUpdateReview.HasSupportedMode</c>), so the workflow runs a WinGet carrier operation while the interpreter
-/// judges a separate frozen ChocolateyMachineRuntimeLimitsV3 operation. That proves only the composition of the observation
-/// semantics, not route admission. The in-memory store mirrors the one-use settlement consumption.
+/// produced by the protocol-2 interpreter from real codec frames. Written before the Task 50 activation, when the workflow
+/// admitted only WinGetUserExactV3 (<c>ReviewedUpdateReview.HasSupportedMode</c>): the workflow runs a WinGet carrier
+/// operation while the interpreter judges a separate frozen ChocolateyMachineRuntimeLimitsV3 operation. That proves only the
+/// composition of the observation semantics, not route admission (pinned by <c>ChocolateyRouteActivationBoundaryTests</c>). The in-memory store mirrors the one-use settlement consumption.
 /// </summary>
 [TestClass]
 public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
@@ -117,7 +117,7 @@ public sealed class ReviewedUpdateProtocol2WorkflowCompositionTests
     /// H1/L1 end to end (design rev 6 settle window, rev-4 L4): the real helper endpoint (fake item reporting that the launch
     /// job closed lingering descendants), the real codec frame, the desktop interpreter, the real workflow and the persisted
     /// terminal format, then history. The admitted WinGet carrier never records the Chocolatey helper's marker; for the
-    /// runtime-limit route (not admitted, so the workflow cannot run it) the workflow's own marker rule is applied to the
+    /// runtime-limit route (run here without a route dispatcher) the workflow's own marker rule is applied to the
     /// same observation and recorded message, and history shows the fixed note only when the helper reported the token.
     /// </summary>
     [TestMethod]

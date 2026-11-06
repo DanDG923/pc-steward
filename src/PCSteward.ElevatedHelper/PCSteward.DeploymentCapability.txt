@@ -1,3 +1,4 @@
 pc-steward-deployment-capability:1
 helper-protocol:2
+operation:Update/ChocolateyClientSelfUpdateV1
 operation:Update/ChocolateyMachineRuntimeLimitsV3

@@ -13,7 +13,9 @@ public sealed record ReviewedDisplayField(string Label, string Text)
 /// any confirmation.
 /// <list type="bullet">
 /// <item>The split-token state is probed through the injected function on every <see cref="Open"/>, never cached between reviews.</item>
-/// <item><see cref="IsConfirmEnabled"/> is exactly <see cref="CanConfirm"/>, which is false today (the route is not admitted).</item>
+/// <item><see cref="IsConfirmEnabled"/> is exactly <see cref="CanConfirm"/>. It is false in the Desktop today: the route is admitted in code
+/// (Task 50 activation), but no production composition prepares a reviewed operation, so the Desktop opens the no-review
+/// disclosure. Under owner decision D4 = G-0 the owner confirms no Chocolatey review until a recorded probe PASS.</item>
 /// <item><see cref="TryConfirm"/> goes only through <see cref="ReviewedUpdateReview.Confirm"/>, which rechecks the review gate; it
 /// returns null whenever <see cref="CanConfirm"/> is false or no reviewed operation exists. It dispatches nothing.</item>
 /// </list>

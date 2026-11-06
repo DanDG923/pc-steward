@@ -107,7 +107,8 @@ $results.violations = @($violations | Where-Object { !$_.StartsWith('canary: ', 
 
 # 3. Real pure functions from the builder.
 foreach ($name in @('Get-OwnerOnlyCandidateBuildSteps', 'Test-OwnerOnlyCandidateSdkVersion', 'Assert-OwnerOnlyCandidateOutputRootRule', 'Get-OwnerOnlyCandidateFileSha256',
-        'Get-OwnerOnlyCandidateFileEntries', 'Get-OwnerOnlyCandidateExpectedXbf', 'ConvertTo-OwnerOnlyCandidateManifestBytes', 'Write-OwnerOnlyCandidateManifest', 'Copy-OwnerOnlyCandidateFile')) {
+        'Get-OwnerOnlyCandidateFileEntries', 'Get-OwnerOnlyCandidateExpectedXbf', 'ConvertTo-OwnerOnlyCandidateManifestBytes', 'Write-OwnerOnlyCandidateManifest', 'Copy-OwnerOnlyCandidateFile',
+        'Get-OwnerOnlyCandidateProbeTypeNames', 'Test-OwnerOnlyCandidateProbeMark')) {
     $definition = @($builder.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }.GetNewClosure(), $true))
     if ($definition.Count -ne 1) { throw "ASSERT: expected one builder function $name, found $($definition.Count)." }
     . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -220,6 +221,42 @@ if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { [IO.Directory
 $project = Join-Path $WorkRoot 'project'
 foreach ($relative in @('App.xaml', 'App.xaml.cs', 'Resources\ColorTokens.xaml', 'Views\Sub\Page.xaml', 'bin\Release\Stale.xaml', 'obj\Generated.xaml')) { Write-FixtureFile $project $relative ([byte[]]@(1)) }
 $results.expectedXbf = [string[]](Get-OwnerOnlyCandidateExpectedXbf -ProjectDirectory $project)
+
+# 4b. Task 50 S7 obligation 1: the probe-build mark (rule pc-steward-probe-build-mark:1) over synthetic payload assemblies.
+function Write-ProbeAssemblies([string]$Root, [hashtable]$Drop) {
+    $names = Get-OwnerOnlyCandidateProbeTypeNames
+    foreach ($leaf in $names.Keys) {
+        if ($Drop.ContainsKey($leaf) -and $null -eq $Drop[$leaf]) { continue }
+        $content = 'MZ' + [char]0 + 'header' + [char]0
+        foreach ($name in $names[$leaf]) { if (!($Drop.ContainsKey($leaf) -and $Drop[$leaf] -ceq $name)) { $content += $name + [char]0 } }
+        Write-FixtureFile $Root $leaf ([Text.Encoding]::ASCII.GetBytes($content))
+    }
+}
+$probeMark = [ordered]@{}
+$probeRoot = Join-Path $WorkRoot 'probe-mark'
+foreach ($vector in @(
+        @('included', $false, $true, @{}),
+        @('dirty', $true, $true, @{}),
+        @('not-descendant', $false, $false, @{}),
+        @('missing-desktop', $false, $true, @{ 'PCSteward.Desktop.dll' = $null }),
+        @('missing-gate-type', $false, $true, @{ 'PCSteward.Desktop.dll' = 'QualificationProbeLaunchGate' }),
+        @('missing-codec-type', $false, $true, @{ 'PCSteward.Execution.dll' = 'QualificationProbeWireCodec' }),
+        @('missing-native-type', $false, $true, @{ 'PCSteward.Provider.Chocolatey.dll' = 'NativeChocolateyProbePort' }))) {
+    $root = Join-Path $probeRoot $vector[0]
+    [void][IO.Directory]::CreateDirectory($root)
+    Write-ProbeAssemblies $root $vector[3]
+    $mark = Test-OwnerOnlyCandidateProbeMark -SourceDirty $vector[1] -DescendsFromProbeCommit $vector[2] -PayloadRoot $root
+    $probeMark[$vector[0]] = [ordered]@{ included = [bool]$mark.Included; detail = [string]$mark.Detail }
+}
+# A name that appears only as a prefix of a longer name (no NUL terminator right after it) is not the type.
+$prefixRoot = Join-Path $probeRoot 'prefix-only'
+[void][IO.Directory]::CreateDirectory($prefixRoot)
+Write-ProbeAssemblies $prefixRoot @{ 'PCSteward.Desktop.dll' = 'QualificationProbeLaunchGate' }
+[IO.File]::WriteAllBytes((Join-Path $prefixRoot 'PCSteward.Desktop.dll'), [Text.Encoding]::ASCII.GetBytes('MZ' + [char]0 + 'QualificationProbeLaunchGateX' + [char]0 + 'QualificationProbeEntry' + [char]0))
+$mark = Test-OwnerOnlyCandidateProbeMark -SourceDirty $false -DescendsFromProbeCommit $true -PayloadRoot $prefixRoot
+$probeMark['prefix-only'] = [ordered]@{ included = [bool]$mark.Included; detail = [string]$mark.Detail }
+$results.probeMark = $probeMark
+$results.probeTypeNames = Get-OwnerOnlyCandidateProbeTypeNames
 
 # 5. The installer's own reader (Windows PowerShell 5.1 only: it compiles Windows file primitives).
 if ($isWindowsPowerShell -and [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {

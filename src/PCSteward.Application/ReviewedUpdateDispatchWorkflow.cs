@@ -363,7 +363,7 @@ public sealed class ReviewedUpdateDispatchWorkflow
     /// <summary>
     /// The outcome of positively settled, invoked work: the client self-update's downgrade-only run-fault rule
     /// (<see cref="ClientRunFaultOutcome"/>) first, then the provider-status mapping and verification. Internal so the client
-    /// route's lattice can be exercised while <c>HasSupportedMode</c> still refuses that route before any claim.
+    /// route's lattice can be exercised directly by tests.
     /// </summary>
     internal async Task<(UpdateDispatchOutcome Outcome, string Message)> ClassifyAfterSettlementAsync(ReviewedUpdateOperation operation,
         OperationOwnership ownership, ReviewedUpdateDispatchObservation observation, CancellationToken cancellationToken) =>

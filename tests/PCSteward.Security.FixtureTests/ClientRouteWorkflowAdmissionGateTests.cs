@@ -14,9 +14,9 @@ namespace PCSteward.Security.FixtureTests;
 /// finalization with the store's settlement invariants, then history — through the real
 /// <see cref="ReviewedUpdateDispatchWorkflow"/>, the real F′ producer and client verifier (fixture release list and synthetic
 /// client-mode observations), the real helper endpoint over a real pipe pair (fake item), the real codec and the real
-/// protocol-2 interpreter. The route is admitted only inside the test's scope
-/// (<c>ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests</c>, architecture-banned from <c>src</c>); without it the same
-/// workflow refuses before any claim. Owner conditions (ADR-031 decisions 4 and 5): only None with the exact target postcheck
+/// protocol-2 interpreter. Since the Task 50 activation (ADR-031 owner decision 7, step C-A) the production review gate
+/// admits the exact client shape, so the gate runs without any test scope (the former test-only admission seam is removed);
+/// every near miss of the shape is still refused before any claim. Owner conditions (ADR-031 decisions 4 and 5): only None with the exact target postcheck
 /// is Success; each watchdog stop, the incomplete release and both combined are "not verified" with every recovery warning in
 /// history; a lost launch is Uncertain with the untrusted-folder caution; a missing or invalid field is never Success.
 /// The store here is in memory (<see cref="GateStore"/>, mirroring the durable invariants) and history is presented from its
@@ -31,29 +31,22 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
     private static readonly string[] StageOrder = ["protect", "observe", "query", "revalidate", "upgrade"];
 
     [TestMethod]
-    public async Task WithoutTheTestScopeTheRouteIsRefusedBeforeAnyClaim()
+    public void ActivationAdmitsTheExactClientShapeAndACancelledReviewIsStillNeverConfirmed()
     {
+        // FR-UPD-15, ADR-031 owner decision 7 (Task 50 step C-A): the production review gate admits the exact client shape.
         Gate gate = new();
         ReviewedUpdateDraft draft = new(gate.Operation, Guid.NewGuid());
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(gate.Operation), "production rule: the client route is not admitted");
-        Assert.ThrowsExactly<InvalidOperationException>(() => new ReviewedUpdateReview(draft, gate.Clock).Confirm());
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(gate.Operation), "activation: the exact client self-update shape is admitted");
 
-        LiveApprovedUpdate approval;
-        using (ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests())
-        {
-            Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(gate.Operation));
-            approval = new ReviewedUpdateReview(draft, gate.Clock).Confirm();
-        }
-        // The scope ended: the confirmed approval cannot dispatch, nothing is claimed and the helper is never reached.
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(gate.Operation));
-        ReviewedUpdateDispatchResult result = await gate.Workflow().RunAsync(approval, CancellationToken.None);
-        Assert.AreEqual(ReviewedUpdateDispatchDisposition.NotStarted, result.Disposition, result.Message);
+        // Admission is shape only: a cancelled review is never confirmed, so nothing is claimed and the helper is never reached.
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+        Assert.ThrowsExactly<InvalidOperationException>(() => new ReviewedUpdateReview(draft, gate.Clock, cancelled.Token).Confirm());
         Assert.IsNull(gate.Store.State);
         Assert.AreEqual(0, gate.Dispatcher.Calls);
         Assert.AreEqual(0, gate.EvidenceReads + gate.VerifyReads);
-        // The scope admits only the exact client shape, never another non-admitted route.
-        using (ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests())
-            Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(F.Operation()), "the package route stays refused");
+        // The fixture package-route operation (the runtime-limit route's exact shape) is admitted too; nothing else is.
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(F.Operation()), "activation: the runtime-limit package route is admitted");
     }
 
     [TestMethod]
@@ -174,12 +167,9 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
         Assert.AreEqual(variant == "user-scope" ? UpdateScope.User : UpdateScope.Machine, forged.Selection.Scope);
         Assert.AreEqual(UpdateRouteContract.ChocolateyClientSelfUpdateV1, forged.RouteContract);
 
-        Assert.IsFalse(ReviewedRouteTestAdmission.Admits(forged), "outside the scope nothing is admitted");
-        using (ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests())
-        {
-            Assert.AreEqual(variant == "control", ReviewedRouteTestAdmission.Admits(forged), variant);
-            Assert.AreEqual(variant == "control", ReviewedUpdateReview.HasSupportedMode(forged), variant);
-        }
+        // The production review gate (Task 50 activation) admits only the exact client shape: each near miss is refused.
+        Assert.AreEqual(variant == "control", ReviewedChocolateyRouteAdmission.Admits(forged), variant);
+        Assert.AreEqual(variant == "control", ReviewedUpdateReview.HasSupportedMode(forged), variant);
     }
 
     private static void Forge<T>(T target, string field, object value) where T : class =>
@@ -411,12 +401,11 @@ public sealed class ClientRouteWorkflowAdmissionGateTests
             return message;
         }
 
-        /// <summary>Review, confirm and run inside the test admission scope, then present the persisted record as history.</summary>
+        /// <summary>Review, confirm and run (the route is admitted in production), then present the persisted record as history.</summary>
         internal async Task<(ReviewedUpdateDispatchResult, ReviewedUpdateHistoryView)> RunAsync()
         {
-            ReviewedUpdateDispatchResult result;
-            using (ReviewedRouteTestAdmission.EnterClientSelfUpdateForTests())
-                result = await Workflow().RunAsync(new ReviewedUpdateReview(new ReviewedUpdateDraft(Operation, Guid.NewGuid()), Clock).Confirm(),
+            ReviewedUpdateDispatchResult result =
+                await Workflow().RunAsync(new ReviewedUpdateReview(new ReviewedUpdateDraft(Operation, Guid.NewGuid()), Clock).Confirm(),
                     CancellationToken.None);
             Assert.IsNotNull(Store.Claim, result.Message);
             Assert.IsTrue(ReviewedUpdateTerminalRecord.TryParse(Store.Payload, null, out ReviewedUpdateTerminalRecord? terminal), "the persisted terminal format");

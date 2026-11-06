@@ -186,7 +186,8 @@ internal delegate Process? ReviewedHelperLauncher(string helperPath, string pipe
 /// process exists, or by <see cref="ReleaseAfterOwnership"/> once the helper exit has been observed and the transport is
 /// sealed. A helper that never exits keeps the binding held. The transport also keeps a strong reference until after seal.
 /// </para>
-/// No production composition constructs this type yet: the route is not admitted and the helper endpoint does not exist.
+/// No production composition constructs this type yet (the Chocolatey routes are admitted at the review gate, the capability
+/// allow-list and the dispatcher since the Task 50 activation, but no Desktop composition dispatches them).
 /// </summary>
 internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTransport
 {

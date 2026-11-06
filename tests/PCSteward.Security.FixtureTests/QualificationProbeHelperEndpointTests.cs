@@ -14,9 +14,13 @@ namespace PCSteward.Security.FixtureTests;
 [TestClass]
 public sealed class QualificationProbeHelperEndpointTests
 {
-    private static readonly string[] DisposalOrder = ["protect", "observe", "binding-disposed", "item-disposed", "write:True:True"];
+    /// <summary>The compiled allow-list tokens in ordinal order (two since the Task 50 activation, ADR-031 owner decision 7).</summary>
+    private static readonly string[] Tokens =
+        [.. DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Select(DeploymentCapabilityPolicy.OperationToken).Order(StringComparer.Ordinal)];
 
-    private static readonly string Token = DeploymentCapabilityPolicy.OperationToken(DeploymentCapabilityPolicy.CapabilityOperationAllowlist[0]);
+    /// <summary>A3 runs one protection check per allow-list token before the single observation.</summary>
+    private static readonly string[] DisposalOrder =
+        [.. Enumerable.Repeat("protect", Tokens.Length), "observe", "binding-disposed", "item-disposed", "write:True:True"];
 
     // ---- Rows (Q13) ----
 
@@ -36,10 +40,12 @@ public sealed class QualificationProbeHelperEndpointTests
         Assert.AreEqual(1234, facts.NodesEvaluated);
         Assert.AreEqual(12, facts.AncestorsEvaluated);
         Assert.AreEqual(QualificationProbeWireCodec.ObservedDiagnostic, facts.Diagnostic);
-        CollectionAssert.AreEqual(new[] { new QualificationProbeCapabilityEntry(Token, QualificationProbeCapabilityStatus.Supported) }, facts.G1Status.ToArray());
+        CollectionAssert.AreEqual(Tokens.Select(token => new QualificationProbeCapabilityEntry(token, QualificationProbeCapabilityStatus.Supported)).ToArray(),
+            facts.G1Status.ToArray());
+        Assert.HasCount(2, Tokens, "Task 50 activation: the client self-update and runtime-limit tokens");
         // A2 with the host SID; A3 with the item's requester check as the protection principal and the held peer image.
         Assert.IsTrue(string.Equals(F.Sid, harness.Port.ExpectedSid, StringComparison.Ordinal), "A2 uses the host SID");
-        Assert.AreEqual(1, harness.Capability.Calls);
+        Assert.AreEqual(Tokens.Length, harness.Capability.Calls, "one A3 evaluation per allow-list token");
         Assert.AreEqual(EndpointFixture.PeerImage, harness.Capability.PeerImagePath);
         Assert.IsTrue(harness.Capability.ProtectionResult);
         Assert.AreEqual(1, harness.Item.ObserveCalls);
@@ -126,7 +132,7 @@ public sealed class QualificationProbeHelperEndpointTests
         harness.Capability.Status = status;
         QualificationProbeFacts facts = (await harness.RunAsync()).Facts;
         Assert.AreEqual(QualificationProbeObservation.NotRun, facts.Observation);
-        Assert.AreEqual(expected, facts.G1Status.Single().Status);
+        AssertEveryToken(expected, facts);
         Assert.AreEqual(QualificationProbeWireCodec.CapabilityRefusedDiagnostic, facts.Diagnostic);
         Assert.AreEqual(0, harness.Item.ObserveCalls);
     }
@@ -136,12 +142,12 @@ public sealed class QualificationProbeHelperEndpointTests
     {
         ProbeHarness unprotected = new();
         unprotected.Item.Protect = (_, _) => false;
-        Assert.AreEqual(QualificationProbeCapabilityStatus.Mismatch, (await unprotected.RunAsync()).Facts.G1Status.Single().Status);
+        AssertEveryToken(QualificationProbeCapabilityStatus.Mismatch, (await unprotected.RunAsync()).Facts);
 
         ProbeHarness throwing = new();
         throwing.Capability.Throw = true;
         QualificationProbeFacts facts = (await throwing.RunAsync()).Facts;
-        Assert.AreEqual(QualificationProbeCapabilityStatus.Unreadable, facts.G1Status.Single().Status, "an exception is never Supported");
+        AssertEveryToken(QualificationProbeCapabilityStatus.Unreadable, facts);
         Assert.AreEqual(0, throwing.Item.ObserveCalls);
     }
 
@@ -245,7 +251,12 @@ public sealed class QualificationProbeHelperEndpointTests
     public async Task ABudgetSpentAfterA3IsTimedOutWithoutAnyRead()
     {
         ProbeHarness harness = new();
-        harness.Capability.BeforeProtection = () => harness.Clock.Advance(TimeSpan.FromMinutes(10));
+        // The budget is spent during the last token's protection check, so A3 completes and B' finds no time left.
+        int protections = 0;
+        harness.Capability.BeforeProtection = () =>
+        {
+            if (Interlocked.Increment(ref protections) == Tokens.Length) harness.Clock.Advance(TimeSpan.FromMinutes(10));
+        };
         QualificationProbeFacts facts = (await harness.RunAsync()).Facts;
         Assert.AreEqual(QualificationProbeObservation.TimedOut, facts.Observation);
         Assert.AreEqual(0, facts.NodesEvaluated);
@@ -510,7 +521,7 @@ public sealed class QualificationProbeHelperEndpointTests
         // Nothing new is admitted after Dispose: no G1 check and no second observation reach the seam.
         Assert.IsFalse(item.RequesterCannotModify(@"C:\Program Files\PC Steward", []));
         Assert.IsInstanceOfType<ChocolateyProbeValues.Faulted>(item.ObserveClient(TimeSpan.FromSeconds(1), CancellationToken.None));
-        Assert.AreEqual(1, protectCalls);
+        Assert.AreEqual(Tokens.Length, protectCalls, "one protection check per allow-list token, none after Dispose");
         Assert.AreEqual(1, observeCalls);
         item.Dispose();
         Assert.AreEqual(1, releases, "released once");
@@ -599,5 +610,12 @@ public sealed class QualificationProbeHelperEndpointTests
             verdict = TokenVerdict.Accepted;
             return item;
         }
+    }
+
+    /// <summary>A3 evaluates every allow-list token independently; the harness gives each the same status.</summary>
+    private static void AssertEveryToken(QualificationProbeCapabilityStatus expected, QualificationProbeFacts facts)
+    {
+        CollectionAssert.AreEqual(Tokens, facts.G1Status.Select(entry => entry.Token).ToArray());
+        Assert.IsTrue(facts.G1Status.All(entry => entry.Status == expected), string.Join(", ", facts.G1Status));
     }
 }

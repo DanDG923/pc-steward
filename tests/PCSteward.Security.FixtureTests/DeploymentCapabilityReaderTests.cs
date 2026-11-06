@@ -61,7 +61,7 @@ public sealed class DeploymentCapabilityReaderTests
     {
         int resolutions = 0, protections = 0;
         OwnerOnlyDeploymentCapabilityReader reader = new(() => { resolutions++; return null; }, (_, _) => { protections++; return true; });
-        foreach (UpdateRouteContract route in Enum.GetValues<UpdateRouteContract>().Where(route => route != Route))
+        foreach (UpdateRouteContract route in Enum.GetValues<UpdateRouteContract>().Where(route => !DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Contains(route)))
         {
             Assert.AreEqual(Status.Mismatch, reader.Evaluate(route).Status, route.ToString());
             Assert.AreEqual(Status.Mismatch, reader.TryHold(route, out HeldHelperBinding? binding).Status, route.ToString());

@@ -479,10 +479,16 @@ public sealed class ReviewedHelperProtocol2TransportTests
     }
 
     [TestMethod]
-    public async Task TheClientRouteIsNeverSupportedButItsReplyCarriesTheRunFault()
+    public async Task TheClientRouteIsSupportedOnlyWithItsCapabilityAndItsReplyCarriesTheRunFault()
     {
-        // ADR-031 design §7.1/§8: Supports stays on the package arm (even with a capability that says yes, nothing is read);
-        // a client-mode exchange is interpreted with the client reply shape and its run fault.
+        // ADR-031 design §7.1/§8 and the Task 50 activation (owner decision 7): Supports admits the exact client shape, then
+        // asks the capability seam for that route; a client-mode exchange is interpreted with the client reply shape and its
+        // run fault.
+        ReviewedUpdateOperation absentClient = ClientRunFaultInterpreterWorkflowTests.ClientOperation();
+        CountingCapability absent = new(_ => HelperProtocolCapabilityResult.For(Status.Absent));
+        Assert.IsFalse(new ChocolateyRuntimeLimitsRouteDispatcher(absent, new ScriptedTransport(_ => throw new AssertFailedException("no exchange")),
+            () => Nonce).Supports(absentClient), "a deployment whose capability does not list the route is refused");
+        Assert.AreEqual(1, absent.EvaluateCalls);
         CountingCapability capability = new(_ => HelperProtocolCapabilityResult.For(Status.Supported));
         ReviewedUpdateOperation client = ClientRunFaultInterpreterWorkflowTests.ClientOperation();
         byte[] frame = ClientRunFaultInterpreterWorkflowTests.ClientFrame(client, Protocol2InterpreterFixture.Started(exit: 1),
@@ -490,8 +496,8 @@ public sealed class ReviewedHelperProtocol2TransportTests
         ScriptedTransport transport = new(_ => new(ReviewedHelperTransportOutcome.ResponseFrameReceived, frame, Protocol2InterpreterFixture.SettledDesktop));
         ChocolateyRuntimeLimitsRouteDispatcher dispatcher = new(capability, transport, () => Nonce);
 
-        Assert.IsFalse(dispatcher.Supports(client));
-        Assert.AreEqual(0, capability.EvaluateCalls);
+        Assert.IsTrue(dispatcher.Supports(client));
+        Assert.AreEqual(1, capability.EvaluateCalls, "the capability seam is asked for the client route itself");
         ReviewedUpdateDispatchObservation observation = await dispatcher.DispatchAsync(await Ticket(client), CancellationToken.None);
         Assert.AreEqual(1, transport.Calls);
         Assert.AreEqual(ReviewedUpdateInvocation.Started, observation.Invocation);

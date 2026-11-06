@@ -23,8 +23,10 @@ public sealed class ChocolateyClientUpdatePresentationTests
         CollectionAssert.Contains(view.Disclosures.ToArray(), ReviewedUpdateLingeringProcesses.ReviewDisclosure);
         Assert.IsTrue(view.Disclosures.Any(text => text.Contains("PATH", StringComparison.Ordinal)));
         Assert.IsTrue(view.Disclosures.Any(text => text.Contains(".old", StringComparison.Ordinal)));
-        Assert.AreEqual(ChocolateyClientUpdatePresentation.UnavailableText, view.UnavailableReason, "the route is not admitted");
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(Operation("2.7.5", "2.8.0")));
+        // Task 50 activation (ADR-031 owner decision 7): the exact client shape is admitted, so the sheet shows no unavailable
+        // reason; the compiled release list (2.7.5 only) and the helper still decide whether any target exists.
+        Assert.IsNull(view.UnavailableReason, "the route is admitted");
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(Operation("2.7.5", "2.8.0")));
     }
 
     [TestMethod]

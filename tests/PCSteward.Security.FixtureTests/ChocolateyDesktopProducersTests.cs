@@ -42,7 +42,9 @@ public sealed class ChocolateyDesktopProducersTests
         Assert.AreEqual(clock.GetUtcNow(), evidence.ObservedAt);
         Assert.IsTrue(evidence.Actionable && evidence.SourceIsFresh);
         Assert.IsTrue(evidence.ProfileEvidenceMatches(operation), "fresh F′ equal to the frozen F passes the §A.6.1 conjunct");
-        Assert.IsFalse(evidence.Matches(operation, clock.GetUtcNow()), "the route is still not admitted (HasSupportedMode), so nothing can dispatch");
+        // Task 50 activation (ADR-031 owner decision 7): the route's exact shape is admitted, so fresh F′ equal to the frozen F
+        // matches; nothing in src composes a dispatch for it, and a different F′ still fails (AdapterGatesPartATests).
+        Assert.IsTrue(evidence.Matches(operation, clock.GetUtcNow()), "admitted shape and equal F′ match");
         Assert.AreEqual(1, observer.Calls.Count);
         Assert.AreEqual((Target, "1.0.0", Budget), observer.Calls[0], "observed for the frozen ID and installed version, within the bound");
         Assert.IsTrue(baselines.TryTake(operation, out ChocolateyDispatchBaseline? baseline));
@@ -530,13 +532,16 @@ public sealed class ChocolateyDesktopProducersTests
         Assert.IsTrue(facts.TargetLibBadResidue);
         Assert.AreEqual((Target, "1.0.0", "2.0.0", User), (facts.PackageId, facts.InstalledVersion, facts.CandidateVersion, facts.RequestingUserSid));
 
-        // The review built from these facts shows the intent's own time and stays unavailable: the route is not admitted.
+        // The review built from these facts shows the intent's own time. Since the Task 50 activation the route's exact shape is
+        // admitted, so with a split token and the matching intent it has no unavailability reason (the Desktop composes no
+        // review, so it never shows this; D4 = G-0 procedure). A non-split token still keeps it unconfirmable.
         ReviewedUpdateOperation operation = Operation(frozenFingerprint: facts.ProfileEvidenceId[ReviewedUpdateOperation.ProfileEvidencePrefix.Length..]);
         ChocolateyReviewDisclosureView view = ChocolateyReviewDisclosurePresentation.Present(operation, facts, ReviewedRouteSplitTokenState.SplitTokenLimited);
         Assert.AreEqual(now, view.IntentResolvedAt);
-        CollectionAssert.AreEqual(new[] { ReviewedRouteUnavailableReason.NotAdmittedPendingHostEvidence }, view.UnavailableReasons.ToArray());
-        Assert.IsFalse(view.CanConfirm);
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(operation), "N6 never admits the runtime-limit route");
+        Assert.AreEqual(0, view.UnavailableReasons.Count);
+        Assert.IsTrue(view.CanConfirm);
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(operation), "the activation admits the runtime-limit route's exact shape");
+        Assert.IsFalse(ChocolateyReviewDisclosurePresentation.Present(operation, facts, ReviewedRouteSplitTokenState.NoSplitToken).CanConfirm);
     }
 
     [TestMethod]

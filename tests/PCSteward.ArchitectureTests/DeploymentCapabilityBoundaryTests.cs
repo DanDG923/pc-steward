@@ -160,8 +160,8 @@ public sealed class DeploymentCapabilityBoundaryTests
         foreach (string path in Sources(src))
         {
             string source = File.ReadAllText(path);
-            Assert.IsFalse(Regex.IsMatch(source, @"new\s+WindowsReviewedHelperTransport\s*\("), $"{path} composes the protocol-2 transport (route not admitted)");
-            Assert.IsFalse(Regex.IsMatch(source, @"new\s+ChocolateyRuntimeLimitsRouteDispatcher\s*\("), $"{path} composes the route dispatcher (route not admitted)");
+            Assert.IsFalse(Regex.IsMatch(source, @"new\s+WindowsReviewedHelperTransport\s*\("), $"{path} composes the protocol-2 transport (no Desktop composition yet)");
+            Assert.IsFalse(Regex.IsMatch(source, @"new\s+ChocolateyRuntimeLimitsRouteDispatcher\s*\("), $"{path} composes the route dispatcher (no Desktop composition yet)");
         }
         string transport = File.ReadAllText(Path.Combine(execution, "ReviewedHelperProtocol2Transport.cs"));
         string dispatcher = File.ReadAllText(Path.Combine(execution, "ChocolateyRuntimeLimitsRouteDispatcher.cs"));
@@ -180,8 +180,9 @@ public sealed class DeploymentCapabilityBoundaryTests
         // The dispatcher performs no I/O of its own: only the capability seam and the transport.
         foreach (string forbidden in new[] { "System.IO", "File.", "Directory.", "Process", "NamedPipe", "SafeFileHandle", "HeldHelperBinding" })
             Assert.IsFalse(dispatcher.Contains(forbidden, StringComparison.Ordinal), $"dispatcher contains {forbidden}");
-        // Supports checks route shape and EvidenceId before the seam (A.4 step 1: no file I/O first).
-        int digest = dispatcher.IndexOf("TryGetProfileDigest(operation, out _) &&", StringComparison.Ordinal);
+        // Supports checks route shape and EvidenceId before the seam (A.4 step 1: no file I/O first). Task 50 activation
+        // (ADR-031 owner decision 7): the shape check is the route-discriminated form (package arm or exact client arm).
+        int digest = dispatcher.IndexOf("TryGetRouteProfileDigest(operation, out _, out _) &&", StringComparison.Ordinal);
         int evaluate = dispatcher.IndexOf("capability.Evaluate(operation.RouteContract)", StringComparison.Ordinal);
         Assert.IsTrue(digest > 0 && evaluate > digest);
     }
@@ -217,7 +218,7 @@ public sealed class DeploymentCapabilityBoundaryTests
     [TestMethod]
     public void TheRouteConfinedProfileRuleIsAConjunctOfTheSharedMatches()
     {
-        // The runtime-limit route is not admitted yet, so behaviour tests cannot observe this conjunct through Matches alone.
+        // A source pin of the conjunct; since the Task 50 activation it is also observable through Matches (AdapterGatesPartATests).
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateDispatchAdmission.cs"));
         int matches = source.IndexOf("public bool Matches(ReviewedUpdateOperation operation, DateTimeOffset now) =>", StringComparison.Ordinal);
         Assert.IsTrue(matches >= 0);

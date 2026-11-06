@@ -1458,7 +1458,8 @@ public sealed class MainWindow : Window
 
     /// <summary>
     /// Admission obligation 5: the runtime-limit Chocolatey review. The split-token state is probed afresh for this review. No
-    /// reviewed operation can exist while the route is not admitted, so Confirm stays disabled (<c>IsConfirmEnabled</c>); any
+    /// production composition prepares a reviewed operation for this route (it is admitted in code since the Task 50
+    /// activation), so the dialog shows the no-review disclosure and Confirm stays disabled (<c>IsConfirmEnabled</c>); any
     /// confirmation goes only through the view model's <c>ReviewedUpdateReview.Confirm</c> recheck and nothing is dispatched.
     /// </summary>
     private async Task ShowChocolateyReviewedRouteAsync()
