@@ -1,6 +1,6 @@
 # Task 45 — Resolved validation and commit identity failures
 
-**Date:** 2026-10-29. **Checkout:** `C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward`. **Branch:** `phase/5-v2-planning`.
+**Date:** 2026-10-29. **Checkout:** `<CLONE>`. **Branch:** `phase/5-v2-planning`.
 
 **Current disposition:** Owner-authorized SDK/project restoration resolves validation: all 18 projects restore, SQLite 19/19, Architecture 28/28, Release build 0 warnings/errors and full suite 290/290 pass. Git initially refused committing for unset author identity. The owner then authorized their established identity per invocation, resolving that blocker without persistent Git configuration changes. Build repair is `659b58f`; task documentation is committed separately. Initial failures below are historical.
 
@@ -35,12 +35,12 @@ The command could not be loaded, possibly because:
       A compatible .NET SDK was not found.
 
 Requested SDK version: 10.0.302
-global.json file: C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward\global.json
+global.json file: <CLONE>\global.json
 
 Installed SDKs:
 No .NET SDKs were found.
 
-Install the [10.0.302] .NET SDK or update [C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward\global.json] to match an installed SDK.
+Install the [10.0.302] .NET SDK or update [<CLONE>\global.json] to match an installed SDK.
 
 Download a .NET SDK:
 https://aka.ms/dotnet/download
@@ -74,7 +74,7 @@ No commit is made under AGENTS.md's required-test gate. No push, release, host a
 
 This section describes the intermediate state before the owner's project-restoration instruction; the final section records its resolution.
 
-Installed under `C:\Users\swigg\AppData\Local\Microsoft\dotnet`, from official Windows x64 archives with SHA-512 verified against Microsoft's release metadata:
+Installed under `%USERPROFILE%\AppData\Local\Microsoft\dotnet`, from official Windows x64 archives with SHA-512 verified against Microsoft's release metadata:
 
 | SDK | Archive SHA-512 | Current state |
 |---|---|---|
@@ -97,7 +97,7 @@ $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 Selected SDK: `10.0.403`. Restore and build exit `1`; current first restore error:
 
 ```text
-C:\Users\swigg\AppData\Local\Microsoft\dotnet\sdk\10.0.403\NuGet.targets(521,5): error MSB3202: The project file "C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward\src\PCSteward.Persistence.Sqlite\PCSteward.Persistence.Sqlite.csproj" was not found. [C:\Users\swigg\OneDrive\Documents\Codex\PC Steward\pc-steward\PCSteward.slnx]
+%USERPROFILE%\AppData\Local\Microsoft\dotnet\sdk\10.0.403\NuGet.targets(521,5): error MSB3202: The project file "<CLONE>\src\PCSteward.Persistence.Sqlite\PCSteward.Persistence.Sqlite.csproj" was not found. [<CLONE>\PCSteward.slnx]
 ```
 
 Build repeats MSB3202 and NETSDK1004 missing-assets errors because restore failed: **0 warnings, 18 errors**. No tests ran against the unbuilt solution. Logs: `%TEMP%\pc-steward-task45-restore-10.0.403.log` and `%TEMP%\pc-steward-task45-build-10.0.403.log`.
@@ -112,7 +112,7 @@ The four reviewed build-repair files were staged, and `git diff --cached --check
 
 ```text
 Author identity unknown
-fatal: unable to auto-detect email address (got 'swigg@DanDG.(none)')
+fatal: unable to auto-detect email address (got '<USER>@<PC>.(none)')
 ```
 
-At that point AGENTS.md prohibited changing Git identity/global configuration, so no identity override or workaround was attempted. The owner then explicitly instructed “You can use me as the author”. Read-only history confirmed the same Dan Grant identity across recent commits, and the authenticated GitHub account matched the repository owner. That established name/email was supplied per Git invocation only, with repository/global configuration unchanged. Build repair is committed as `659b58f`; Task 44 accepted requirements and Task 45 Proposed ADR/completion records are committed separately. All validation/commit blockers in this record are resolved. Owner ADR acceptance remains separate; no push, release or deployment was attempted.
+At that point AGENTS.md prohibited changing Git identity/global configuration, so no identity override or workaround was attempted. The owner then explicitly instructed “You can use me as the author”. Read-only history confirmed the same owner identity across recent commits, and the authenticated GitHub account matched the repository owner. That established name/email was supplied per Git invocation only, with repository/global configuration unchanged. Build repair is committed as `659b58f`; Task 44 accepted requirements and Task 45 Proposed ADR/completion records are committed separately. All validation/commit blockers in this record are resolved. Owner ADR acceptance remains separate; no push, release or deployment was attempted.
