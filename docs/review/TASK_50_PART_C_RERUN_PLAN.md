@@ -26,7 +26,7 @@ A re-run is worth making only when **both** are cleared. Even then:
 | **C2-pre, C2-check, C2-run** | Part C again on the new deployment, with new pins (§7) | One UAC (C2-run) | C2 |
 
 **Deadline.** The installed signer `67B59B4C9BC3A006FBE39A72967E05F7B8C375DA` expires **2026-11-20T19:53:44Z**.
-- CB2.2 requires more than 24 hours left, so **CB2-prep must finish before 2026-11-19T19:53Z**.
+- CB2.2 requires more than 24 hours left after PowerShell's `[int]` rounding (banker's rounding, so 24.5 h fails), so **CB2.2 must run before 2026-11-19T19:23Z**. Start CB2-prep well before that; CB2.3–CB2.7 have no limit of their own.
 - CheckOnly needs a one-hour margin, so **CB2.8 must start before 2026-11-20T18:53:44Z**.
 - If that is missed, the route is a separately approved remover, then a fresh install of `5606da2` (the R1/R2 pattern in the [recovery plan](TASK_50_RECOVERY_PLAN.md)). That needs its own plan.
 
@@ -64,14 +64,14 @@ $cc = Join-Path $env:ProgramData 'ChocolateyCache'; if (!([Security.Principal.Wi
 
 ## 4. D2 — read-only Chocolatey configuration check (approval D2)
 
-D2 reads `chocolatey.config` and the cache folder's ACL. It prints **no values, paths, names or SIDs**: only fixed tokens, booleans, counts and the class of `cacheLocation`. It does not run choco and changes nothing. It is an approximation: it checks only the cache folder's own explicit and inherited Allow entries for the normal user, their groups and the broad principals (Everyone, Authenticated Users, Users, INTERACTIVE, CREATOR OWNER, OWNER RIGHTS). Ancestors and deny entries are proven only by the elevated observer in C2-run.
+D2 reads `chocolatey.config` and the cache folder's ACL. It prints **no values, paths, names or SIDs**: only fixed tokens, booleans, counts and the class of `cacheLocation`. It does not run choco and changes nothing. Key names are matched case-insensitively and a repeated key is reported, as `ChocolateyConfigurationParser` does; the legacy-key value is compared exactly (`true`), as the parser does. It is an approximation: it checks only the cache folder's own explicit and inherited Allow entries for the normal user, their groups and the broad principals (Everyone, Authenticated Users, Users, INTERACTIVE, CREATOR OWNER, OWNER RIGHTS). Ancestors and deny entries are proven only by the elevated observer in C2-run.
 
 ```powershell
 $cf = Join-Path $env:ProgramData 'chocolatey\config\chocolatey.config'; $cr = Join-Path $env:ProgramData 'chocolatey'; $up = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile); $me = [Security.Principal.WindowsIdentity]::GetCurrent(); 'D2 ELEVATED ' + ([Security.Principal.WindowsPrincipal]$me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (!(Test-Path -LiteralPath $cf -PathType Leaf)) { 'D2 CONFIG absent' } else { try { $x = [xml][IO.File]::ReadAllText($cf) } catch { $x = $null; 'D2 XML parse-failed' }
-  if ($x) { $ad = @($x.DocumentElement.SelectNodes('config/add')); $lk = @($ad | Where-Object { $_.GetAttribute('key') -ceq 'containsLegacyPackageInstalls' }); $ls = if ($lk.Count -eq 0) { 'absent' } elseif ($lk.Count -gt 1) { 'duplicate' } elseif ($lk[0].HasAttribute('value') -and $lk[0].GetAttribute('value') -ceq 'true') { 'true' } else { 'other' }; 'D2 LEGACY-KEY state=' + $ls + ' admitted=' + ($ls -eq 'absent' -or $ls -eq 'true')
-    $cl = @($ad | Where-Object { $_.GetAttribute('key') -ceq 'cacheLocation' }); $cv = if ($cl.Count -eq 1) { $cl[0].GetAttribute('value') } else { '' }
-    if ($cv.Length -eq 0) { 'D2 CACHELOCATION empty' } elseif ($cv.Contains('%')) { 'D2 CACHELOCATION has-percent' } elseif ($cv -notmatch '^[A-Za-z]:\\[^\\]' -or $cv.EndsWith('\') -or $cv.Contains('\\') -or $cv -match '\\\.\.?(\\|$)' -or $cv -match '[ .](\\|$)' -or $cv.Contains('/')) { 'D2 CACHELOCATION not-canonical-absolute-local' } else {
+  if ($x) { $ad = @($x.DocumentElement.SelectNodes('config/add')); $lk = @($ad | Where-Object { $_.GetAttribute('key') -eq 'containsLegacyPackageInstalls' }); $ls = if ($lk.Count -eq 0) { 'absent' } elseif ($lk.Count -gt 1) { 'duplicate' } elseif ($lk[0].HasAttribute('value') -and $lk[0].GetAttribute('value') -ceq 'true') { 'true' } else { 'other' }; 'D2 LEGACY-KEY state=' + $ls + ' admitted=' + ($ls -eq 'absent' -or $ls -eq 'true')
+    $cl = @($ad | Where-Object { $_.GetAttribute('key') -eq 'cacheLocation' }); $cv = if ($cl.Count -eq 1) { $cl[0].GetAttribute('value') } else { '' }
+    if ($cl.Count -gt 1) { 'D2 CACHELOCATION duplicate' } elseif ($cv.Length -eq 0) { 'D2 CACHELOCATION empty' } elseif ($cv.Contains('%')) { 'D2 CACHELOCATION has-percent' } elseif ($cv -notmatch '^[A-Za-z]:\\[^\\]' -or $cv.EndsWith('\') -or $cv.Contains('\\') -or $cv -match '\\\.\.?(\\|$)' -or $cv -match '[ .](\\|$)' -or $cv.Contains('/')) { 'D2 CACHELOCATION not-canonical-absolute-local' } else {
       $ex = Test-Path -LiteralPath $cv -PathType Container; $line = 'D2 CACHELOCATION absolute-local exists=' + $ex + ' underUserProfile=' + $cv.StartsWith($up + '\', [StringComparison]::OrdinalIgnoreCase) + ' underChocolateyRoot=' + $cv.StartsWith($cr + '\', [StringComparison]::OrdinalIgnoreCase)
       if ($ex) { $it = Get-Item -LiteralPath $cv -Force; $rp = [bool]($it.Attributes -band [IO.FileAttributes]::ReparsePoint); $sids = @($me.User.Value) + @($me.Groups | ForEach-Object { $_.Value } | Where-Object { $_ -ne 'S-1-5-32-544' }) + @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545', 'S-1-5-4', 'S-1-3-0', 'S-1-3-4') | Sort-Object -Unique; $wm = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000; $acl = Get-Acl -LiteralPath $cv; $wa = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and !($_.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -and (([int]$_.FileSystemRights) -band $wm) -ne 0 -and $sids -contains $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' }) }).Count; $ow = try { (New-Object Security.Principal.NTAccount($acl.Owner)).Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' }; $line += ' reparsePoint=' + $rp + ' requesterWritableAces=' + $wa + ' ownerIsRequester=' + ($ow -eq $me.User.Value) + ' inheritanceProtected=' + $acl.AreAccessRulesProtected }
       $line } } }
@@ -81,6 +81,7 @@ if (!(Test-Path -LiteralPath $cf -PathType Leaf)) { 'D2 CONFIG absent' } else { 
 **Expected after H1 (D2b):**
 - `D2 ELEVATED False`;
 - `D2 LEGACY-KEY state=true admitted=True` (Profile V2 rev. 2.1 refuses any other value, so `other` or `duplicate` means **stop**: the re-run would refuse at step 6 again);
+- `CACHELOCATION duplicate` also means **stop**;
 - `D2 CACHELOCATION absolute-local exists=True underUserProfile=False underChocolateyRoot=False reparsePoint=False requesterWritableAces=0 ownerIsRequester=False inheritanceProtected=True`.
 
 **Expected before H1 (D2a):** `LEGACY-KEY state=true admitted=True` and `CACHELOCATION empty`. D2a confirms the host value of the legacy key, which D1 could not show (handover §5 item 2).
