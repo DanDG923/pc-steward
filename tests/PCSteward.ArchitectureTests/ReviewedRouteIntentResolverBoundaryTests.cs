@@ -73,9 +73,11 @@ public sealed class ReviewedRouteIntentResolverBoundaryTests
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
             {
                 if (reference.TargetType != Resolver) continue;
-                // Only its own constructor chaining and its own test factory may reach its constructor.
-                if (reference.TargetMember == ".ctor" && reference.Caller != Resolver)
-                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the intent resolver (not composed yet)");
+                // Only its own constructor chaining, its own test factory and (Chocolatey package Confirm addendum §5) the package
+                // producer façade's constructor may reach its constructor.
+                if (reference.TargetMember == ".ctor" && reference.Caller != Resolver &&
+                    reference.LogicalCaller != "PCSteward.Provider.Chocolatey.ChocolateyPackageUpdateProducers..ctor")
+                    violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} constructs the intent resolver (only the package façade may)");
                 if (reference.TargetMember == "CreateForTests")
                     violations.Add($"{Path.GetFileName(path)}: {reference.LogicalCaller} calls the resolver's test-only factory");
             }

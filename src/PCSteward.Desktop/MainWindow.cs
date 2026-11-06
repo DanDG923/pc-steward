@@ -34,6 +34,8 @@ public sealed class MainWindow : Window
     private readonly Func<CancellationToken, Task<ChocolateyInstalledClientVerification>> checkInstalledChocolateyClient;
     private readonly Func<ChocolateyClientUpdateReviewSession> createChocolateyClientUpdateSession;
     private ChocolateyClientUpdateReviewDialog? activeChocolateyClientUpdate;
+    private readonly Func<ChocolateyPackageUpdateReviewSession> createChocolateyPackageUpdateSession;
+    private ChocolateyPackageUpdateReviewDialog? activeChocolateyPackageUpdate;
     private CancellationTokenSource? scanCancellation;
     private ScanDataSummary scanData = new(0, null, 0);
     private IReadOnlyCollection<PCSteward.Domain.StableDecision> activeDecisions = [];
@@ -127,16 +129,16 @@ public sealed class MainWindow : Window
         public UpdateBatchStop Stop { get; } = new();
     }
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, ChocolateyClientReleaseCatalogFacts chocolateyClientReleases, Func<CancellationToken, Task<ChocolateyInstalledClientVerification>> checkInstalledChocolateyClient, Func<ChocolateyClientUpdateReviewSession> createChocolateyClientUpdateSession, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, ChocolateyClientReleaseCatalogFacts chocolateyClientReleases, Func<CancellationToken, Task<ChocolateyInstalledClientVerification>> checkInstalledChocolateyClient, Func<ChocolateyClientUpdateReviewSession> createChocolateyClientUpdateSession, Func<ChocolateyPackageUpdateReviewSession> createChocolateyPackageUpdateSession, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
         this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration; this.acknowledgeResetOnboarding = acknowledgeResetOnboarding;
-        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken)); this.chocolateyClientReleases = chocolateyClientReleases ?? throw new ArgumentNullException(nameof(chocolateyClientReleases)); this.checkInstalledChocolateyClient = checkInstalledChocolateyClient ?? throw new ArgumentNullException(nameof(checkInstalledChocolateyClient)); this.createChocolateyClientUpdateSession = createChocolateyClientUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyClientUpdateSession));
+        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken)); this.chocolateyClientReleases = chocolateyClientReleases ?? throw new ArgumentNullException(nameof(chocolateyClientReleases)); this.checkInstalledChocolateyClient = checkInstalledChocolateyClient ?? throw new ArgumentNullException(nameof(checkInstalledChocolateyClient)); this.createChocolateyClientUpdateSession = createChocolateyClientUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyClientUpdateSession)); this.createChocolateyPackageUpdateSession = createChocolateyPackageUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyPackageUpdateSession));
         updateProgressTimer = DispatcherQueue.CreateTimer();
         updateProgressTimer.Interval = TimeSpan.FromMilliseconds(250);
         Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false); reviewPreparationCancellation?.Cancel(); StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
         // Chocolatey Confirm design §4.3: closing PC Steward cannot stop an elevated Chocolatey update that has started, so the window
         // stays open until its result is recorded and shown.
-        AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true) args.Cancel = true; };
+        AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true || activeChocolateyPackageUpdate?.IsRunning == true) args.Cancel = true; };
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
@@ -2771,7 +2773,19 @@ public sealed class MainWindow : Window
         decisions.Children.Add(decisionActions);
         panel.Children.Add(Card(decisions));
 
-        if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId))
+        if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId) && ChocolateyPackageUpdateAdmission.IsOwnerApproved &&
+            detail?.PackageId is { } chocolateyPackageId && ChocolateyPackageUpdateReviewSession.IsSelectablePackage(chocolateyPackageId))
+        {
+            // Chocolatey package Confirm addendum §4: with owner admission compiled in, the entry opens the package review.
+            StackPanel packageUpdate = new() { Spacing = StewardSpacing.Small };
+            packageUpdate.Children.Add(SectionHeading("Chocolatey reviewed update"));
+            packageUpdate.Children.Add(PageCopy(ChocolateyPackageUpdateViewModel.DetailCopy));
+            Button openPackageUpdate = ChocolateyPackageUpdateSurfaces.EntryButton(chocolateyPackageId);
+            openPackageUpdate.Click += async (_, _) => await ShowChocolateyPackageUpdateAsync(chocolateyPackageId);
+            packageUpdate.Children.Add(openPackageUpdate);
+            panel.Children.Add(Card(packageUpdate));
+        }
+        else if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId))
         {
             StackPanel reviewedRoute = new() { Spacing = StewardSpacing.Small };
             reviewedRoute.Children.Add(SectionHeading("Chocolatey reviewed update"));
@@ -2875,6 +2889,27 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>
+    /// Chocolatey package Confirm addendum §4: the Chocolatey package update review. Every opening and every "Check again" probes
+    /// the split token afresh and reads the trusted-sources setting now. <see cref="ChocolateyPackageUpdateReviewDialog"/> drives the
+    /// dialog: it prepares one review session only when owner admission is compiled in, trusted sources are on and the split token
+    /// is limited; Confirm is bound to the view model, and the session re-checks every condition and runs the workflow at most once.
+    /// The row's package ID only selects which package to check. A confirmed run keeps the dialog and the window open until its
+    /// result is shown.
+    /// </summary>
+    private async Task ShowChocolateyPackageUpdateAsync(string packageId)
+    {
+        if (windowClosed || activeChocolateyPackageUpdate is not null || activeChocolateyClientUpdate is not null) return;
+        ChocolateyPackageUpdateViewModel OpenChecking() => ChocolateyPackageUpdateViewModel.Open(packageId, viewModel.IsWinGetTrustedSourcesEnabled, probeReviewedRouteSplitToken);
+        ChocolateyPackageUpdateViewModel model = OpenChecking();
+        ContentDialog dialog = ChocolateyPackageUpdateSurfaces.ReviewDialog(Content.XamlRoot, model);
+        using ChocolateyPackageUpdateReviewDialog review = new(dialog, packageId, model, OpenChecking, createChocolateyPackageUpdateSession,
+            ReadReviewedHistoryAsync, () => windowClosed);
+        activeChocolateyPackageUpdate = review;
+        try { await review.ShowAsync(); }
+        finally { activeChocolateyPackageUpdate = null; }
+    }
+
+    /// <summary>
     /// ADR-031 (FR-UPD-15, FR-UI-03/04; design §8.6 gate 3): a display-only Chocolatey client update view from the compiled reviewed
     /// list, a check result and the last scan's reported release (display only). Summaries neither probe the token nor check the
     /// client ("Not checked yet"); the review dialog opens a fresh view, which probes the token, and checks the client.
@@ -2901,7 +2936,7 @@ public sealed class MainWindow : Window
     /// </summary>
     private async Task ShowChocolateyClientUpdateAsync()
     {
-        if (windowClosed || activeChocolateyClientUpdate is not null) return;
+        if (windowClosed || activeChocolateyClientUpdate is not null || activeChocolateyPackageUpdate is not null) return;
         // Every opening and every "Check again" probes the split token afresh (C4).
         ChocolateyClientUpdateViewModel OpenChecking() => ChocolateyClientUpdateView(probeReviewedRouteSplitToken, ChocolateyInstalledClientVerification.Checking);
         ChocolateyClientUpdateViewModel model = OpenChecking();
