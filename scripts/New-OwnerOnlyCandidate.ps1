@@ -251,7 +251,8 @@ function Get-OwnerOnlyCandidateHelperPayloadEntries {
     foreach ($leaf in $required) {
         if (@($taken | Where-Object { [string]$_.path -ceq $leaf }).Count -ne 1) { throw "The helper publish output is missing: $leaf" }
     }
-    , $taken.ToArray()
+    # Emitted one entry at a time (never as one array object), so `foreach` and pipelines see each entry.
+    $taken.ToArray()
 }
 
 function Copy-OwnerOnlyCandidateFile {
