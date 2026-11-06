@@ -62,3 +62,29 @@ The residuals are a native held DLL load, PowerShell helper reads and an elevate
 1. **Cloud.** The activation change (C-A) on a new branch from the Task 50 head: code, tests, the C1–C7 script with pins, independent review and Windows CI. The G9 decision is recorded in the admission record.
 2. **Plan revision 2.** The exact C-B prep and exec blocks (with the redeploy prompts above), the C-pre instructions and the C-run blocks, with approvals 2a and 2 filled in.
 3. **Owner runs.** C-B prep, then exec, before 2026-11-20 09:43Z; then C-pre and C-run. Each step runs once from the owner's own console, under the stop rules already used in Parts A and B.
+
+## 6. Owner decisions (2026-11-06): "D4 G-0, G9 yes, C0 yes"
+
+- **D4 = G-0.** No code guard; no §5.3a reader is built. Until a recorded overall probe PASS on the activated deployment, the owner confirms **no** Chocolatey review (Decision 2 as procedure). Reconsider before any target package or newer listed release is added.
+- **G9 = yes.** Activation may proceed with the A-Q1 real-launch residuals open: a native held DLL load, PowerShell helper reads and an elevated launcher holding files. They stay recorded as open, and each blocks any real Chocolatey update until it is exercised.
+- **C0 = yes.** One app-only smoke launch of the current v2 install, under the scope in §7.
+
+## 7. C0 — app-only smoke launch (approved scope)
+
+The owner does this personally:
+1. Open `C:\Program Files\PC Steward\PCSteward.Desktop.exe` normally, as the normal user, not elevated.
+2. Look at **Overview** and **Activity** only.
+3. Close the window normally within about a minute.
+
+Not part of C0:
+- **Not allowed:** scan, source refresh, review, update, clear or reset; turning on scheduled checks; any change in Settings.
+- **Answer No:** any UAC prompt.
+- **Dismiss:** any onboarding choice that would turn on scheduled checks.
+
+After closing, one read-only check runs in a normal Windows PowerShell window (block C0-check below). A first launch may migrate the database, so a changed hash is reported, not treated as a failure. C-B re-pins the database at its NewPlan.
+
+```powershell
+$db = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward\pcsteward.db'; $dh = (Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash; 'DB sha256=' + $dh + ' bytes=' + (Get-Item -LiteralPath $db).Length + ' unchanged=' + ($dh -ceq 'CEB917F40ED7B5101E2219501B00B852F9B424683EFA33E142FECA94694F6B99') + ' sidecars=' + @(@('-wal', '-shm', '-journal') | Where-Object { Test-Path -LiteralPath ($db + $_) }).Count + ' pcstewardProcesses=' + @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count + ' scheduledTask=' + @(Get-ScheduledTask -TaskName 'PCSteward.ScheduledCheck' -ErrorAction SilentlyContinue).Count
+```
+
+Report back: what the windows showed (anything unexpected), any prompt that appeared, and the C0-check line.
