@@ -250,7 +250,7 @@ D2 CACHELOCATION absolute-local exists=True underUserProfile=False underChocolat
 
 Exit 0, no error text, and every line equals §4's expected D2b output. Both step-6 causes are now cleared as far as the read-only checks can show; ancestors and deny entries are proven only by C2-run. **Next:** approval CB2-prep. CB2.2 must run before 2026-11-19T19:23Z.
 
-**CB2-prep approved by the owner (2026-11-06): "I approve CB2-prep".** The owner ran CB2.1 in his own window. CB2.2–CB2.7 are unelevated and were run once each through the same Remote Control route as D2 (the session process was unpackaged: `GetCurrentPackageFullName` returned 15700).
+**CB2-prep approved by the owner (2026-11-06): "I approve CB2-prep".** The owner ran CB2.1 in their own window. CB2.2–CB2.7 are unelevated and were run once each through the same Remote Control route as D2 (the session process was unpackaged: `GetCurrentPackageFullName` returned 15700).
 
 ### Results CB2.1–CB2.7 (2026-11-06): PASS
 
@@ -266,7 +266,7 @@ Exit 0, no error text, and every line equals §4's expected D2b output. Both ste
 
 ### Result CB2.8 (2026-11-06T22:01Z): Validated
 
-The owner ran CB2.8 once in his own normal Windows PowerShell window and saw exactly prompts 1–3 (UAC, Root DELETE of `67B59B4C…`, Security Warning for the new certificate); no rollback prompt.
+The owner ran CB2.8 once in their own normal Windows PowerShell window and saw exactly prompts 1–3 (UAC, Root DELETE of `67B59B4C…`, Security Warning for the new certificate); no rollback prompt.
 
 ```text
 CALLER 62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8
@@ -299,7 +299,7 @@ LEDGER-SHA256 C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C
 
 ### Result C2-pre (2026-11-06, about 22:08Z): precondition holds
 
-The owner opened the new deployment normally, opened Activity, and saw "Reviewed update outcomes": **"No reviewed update outcomes are recorded."** He closed it without a scan or refresh.
+The owner opened the new deployment normally, opened Activity, and saw "Reviewed update outcomes": **"No reviewed update outcomes are recorded."** The owner closed it without a scan or refresh.
 
 ### Result C2-check (2026-11-06, about 22:09Z): PASS
 
@@ -315,7 +315,7 @@ PROBE-EXIT 0
 
 ### Result C2-run (2026-11-06T22:10:53Z–22:10:58Z): overall PASS
 
-The owner ran it once in his own normal Windows PowerShell window. He saw exactly one UAC prompt, as described: `PCSteward.ElevatedHelper.exe` at the expected location, from the owner-only test publisher, with `--kind qualify-chocolatey-helper` right after the program path. He answered Yes. That confirms E3.
+The owner ran it once in their own normal Windows PowerShell window and saw exactly one UAC prompt, as described: `PCSteward.ElevatedHelper.exe` at the expected location, from the owner-only test publisher, with `--kind qualify-chocolatey-helper` right after the program path. The owner answered Yes. That confirms E3.
 
 ```text
 C1 PINS-OK (as C2-check)
