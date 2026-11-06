@@ -526,3 +526,27 @@ Expected output: one line each of `D1 CONFIG`, `D1 ROOT`, `D1 FEATURES`, `D1 REQ
 | `CACHELOCATION empty` | The route needs a protected, explicitly set cache folder | Leave Chocolatey as it is (the route stays unusable), or decide yourself to set a protected `cacheLocation` with Chocolatey's own tool, outside PC Steward, and then run a new, separately approved probe |
 | unknown keys or features | The admitted 2.7.5 model is narrower than this host's real config | A reviewed Profile V2 revision would be needed before the route could be used; code, review, CI and redeploy, then a new probe |
 | required feature mismatch or negative priority | A deliberate local Chocolatey setting the profile does not support | Keep it (the route stays unusable), or change it yourself outside PC Steward |
+
+### Result D1 (2026-11-06): two step-6 causes found
+
+The owner ran D1 personally in a normal Windows PowerShell window. They posted the output without a separate typed approval; running the block themselves is recorded as their go-ahead. D1 is read-only.
+
+| Line | Output | Meaning |
+|---|---|---|
+| CONFIG | `bytes=9464 bom=utf8-bom overBound=False` | Within the bound; the parser accepts a UTF-8 BOM |
+| ROOT | `name=chocolatey attributes=xmlns:xsd,xmlns:xsi collections=config,sources,features,apiKeys` | Admitted |
+| FEATURES | `count=30 unknown= duplicates= otherAttributes=` | Admitted |
+| REQUIRED-CHECKED | 6, with no mismatch lines | All six required features hold |
+| **CONFIG-KEYS** | `count=12 unknown=containsLegacyPackageInstalls missingValue=` | **Cause 1** |
+| **CACHELOCATION** | `empty` | **Cause 2** |
+| SOURCES | `count=1 negativePriority=0 otherAttributes= apiKeys=0` | Admitted |
+
+**Cause 1 (a product defect in the admitted model).** The real Chocolatey 2.7.5 `chocolatey.config` on this host carries the config key `containsLegacyPackageInstalls`. `ChocolateyConfigurationParser.ConfigNames` lists only 11 keys and omits it, so the strict parser throws and step 6 refuses. This happens **before** `cacheLocation` is even evaluated. The admitted "2.7.5 XML model" is narrower than a real 2.7.5 configuration. Fixing it needs a **reviewed Profile V2 revision**:
+- decide from the pinned 2.7.5 sources what the key does;
+- whether it may be admitted, and with which values;
+- whether it enters the fingerprint;
+- then code, tests, independent review, Windows CI, a redeploy and a new probe approval.
+
+**Cause 2 (host precondition, refused by design).** `cacheLocation` is empty, which is Chocolatey's native default. Profile V2 requires an explicitly set, existing, canonical cache directory that the requester cannot modify. Only the owner can change this, outside PC Steward, with Chocolatey's own tooling. Neither PC Steward nor this session changes Chocolatey.
+
+Both causes must be cleared before any future probe can pass E2. Until then, the Chocolatey routes stay unusable on this host. That is fail-closed, and it is correct.
