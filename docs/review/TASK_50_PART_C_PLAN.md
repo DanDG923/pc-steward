@@ -559,3 +559,12 @@ Option 2: fix **cause 1** in code now, as a reviewed Profile V2 revision. The wo
 - code, tests, independent review and Windows CI.
 
 **Host steps are deferred.** Any redeploy, the owner's own `cacheLocation` change (cause 2) and a new probe are decided later, each under its own approval. Part C stays recorded as **FAIL**, and the Chocolatey routes stay unusable on this host.
+
+### C1 fix built (2026-11-06; code and tests only; local branch `task50-profile-v2-legacy-key`, not pushed; no host action)
+
+This is the cause-1 fix, Profile V2 revision 2.1. Details are in the [revision record](TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
+
+- **Source.** In the pinned client source (tag `2.7.5`, commit `194ac626…`), the default template writes `containsLegacyPackageInstalls` with the value `true`. No 2.7.5 engine code reads the key, so it is inert on every reviewed route. Only `choco config` and the package-script helper `Get-ChocolateyConfigValue` can see its value.
+- **Change.** The parser admits the key only absent or with exactly `true`; any other value still refuses at step 6. It adds no observation or fingerprint field, and `pc-steward-choco-profile:2` and its goldens are unchanged.
+- **Unchanged.** The empty-`cacheLocation` refusal (cause 2) and every other Profile V2 rule.
+- **Next.** Independent review and Windows CI. Any redeploy, the owner's `cacheLocation` change and a new probe each need their own approval. Part C stays recorded as **FAIL**.

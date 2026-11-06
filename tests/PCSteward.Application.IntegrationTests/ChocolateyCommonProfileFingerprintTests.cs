@@ -42,6 +42,18 @@ public sealed class ChocolateyCommonProfileFingerprintTests
     }
 
     [TestMethod]
+    public void TheAdmittedLegacyPackageInstallsKeyIsNotAFingerprintFieldAndKeepsTheGolden()
+    {
+        // Profile V2 revision 2.1: one admitted value (the template "true") carries no information, so the normal form and
+        // its golden vector are unchanged; the raw-byte audit hash still differs.
+        ChocolateyConfigurationObservation withKey = Config("<config><add key='containsLegacyPackageInstalls' value='true'/></config>");
+        ChocolateyConfigurationObservation without = Config("");
+        Assert.AreNotEqual(withKey.Fingerprint, without.Fingerprint);
+        Assert.AreEqual("C179F864C37EA8029917E62CB60DACE19533E5E4DA9E20A4656EC729B580EE77",
+            ChocolateyCommonProfileFingerprint.Compute(Data() with { Configuration = withKey }));
+    }
+
+    [TestMethod]
     [DataRow("sid")]
     [DataRow("root")]
     [DataRow("cache")]

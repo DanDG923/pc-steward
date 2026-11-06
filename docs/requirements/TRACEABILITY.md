@@ -1,3 +1,14 @@
+# Task 50 — Profile V2 revision 2.1: `containsLegacyPackageInstalls` (C1 fix)
+
+`FR-UPD-15`, `TM-03/04/07/13`; [revision record](../review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md); [Profile V2](../review/TASK_50_CHOCOLATEY_PROFILE_V2.md) revision note; [Part C plan §13](../review/TASK_50_PART_C_PLAN.md).
+
+- **Code.** `ChocolateyConfigurationParser` admits `containsLegacyPackageInstalls` only absent or with exactly `true` (the pinned 2.7.5 template value); any other value refuses. No observation or fingerprint field is added.
+- **Tests.**
+  - Application `ChocolateyConfigurationParserTests`: 3 admitted forms and 13 refused forms.
+  - Application `ChocolateyCommonProfileFingerprintTests`: the key keeps the golden `C179F864…EE77`.
+  - Security `ChocolateyProfileRulesTests` (portable, 7 cases): a real-shape 2.7.5 file (`Chocolatey275ConfigurationFixture`) passes the parser and the portable step-6 rules; the other values refuse; empty `cacheLocation` still fails the cache rule.
+  - Security `ChocolateyProfileObserverTests` (Windows-only, 3): the real shape is Observed and the key is not a fingerprint field; `false` and an empty `cacheLocation` each refuse at step 6 with `StepRule`.
+
 # Task 50 — Part C step C-A: activation change (ADR-031 decision 7)
 
 `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decision 7, ADR-025, ADR-022; [record](../review/TASK_50_ACTIVATION_CHANGE.md) (gate inventory §1).

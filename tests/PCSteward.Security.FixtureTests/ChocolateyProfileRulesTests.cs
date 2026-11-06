@@ -78,6 +78,44 @@ public sealed class ChocolateyProfileRulesTests
     }
 
     [TestMethod]
+    public void ARealShape275ConfigurationWithTheTemplateLegacyKeyPassesEveryStep6Rule()
+    {
+        // Profile V2 revision 2.1: the owner-host shape (12 keys, 30 features, one source, no API keys) with the template
+        // value of containsLegacyPackageInstalls and a protected cacheLocation format passes every portable step-6 rule.
+        const string cache = @"C:\ProgramData\ChocolateyCache";
+        ChocolateyConfigurationObservation configuration = RealShape(cache, "true");
+        Assert.AreEqual(cache, configuration.CacheLocation);
+        Assert.AreEqual(30, configuration.ObservedFeatures.Count);
+        Assert.IsTrue(ChocolateyProfileRules.HasRequiredFeatures(configuration));
+        Assert.IsTrue(ChocolateyProfileRules.HasSupportedSources(configuration));
+        Assert.IsTrue(ChocolateyProfileRules.IsSupportedCacheLocation(configuration.CacheLocation));
+        Assert.IsTrue(ChocolateySourceResolution.TryResolve(configuration, out ChocolateyConfiguredSource? source));
+        Assert.AreEqual(Chocolatey275ConfigurationFixture.CommunitySource, source!.Value);
+        Assert.AreEqual(2700, configuration.CommandExecutionTimeoutSeconds);
+        Assert.AreEqual(30, configuration.WebRequestTimeoutSeconds);
+        Assert.IsFalse(configuration.ProxyConfigured);
+    }
+
+    [TestMethod]
+    [DataRow("false")]
+    [DataRow("True")]
+    [DataRow("")]
+    [DataRow(" true")]
+    [DataRow("1")]
+    public void ARealShape275ConfigurationWithAnyOtherLegacyKeyValueRefusesAtTheParser(string value) =>
+        Assert.IsFalse(ChocolateyConfigurationParser.TryRead(Chocolatey275ConfigurationFixture.Bytes(@"C:\ProgramData\ChocolateyCache", value), out _), value);
+
+    [TestMethod]
+    public void ARealShape275ConfigurationKeepsTheEmptyCacheLocationRefusal()
+    {
+        // Unchanged by revision 2.1: the native default (empty) cacheLocation parses but fails the cacheLocation rule.
+        ChocolateyConfigurationObservation configuration = RealShape("", "true");
+        Assert.AreEqual(string.Empty, configuration.CacheLocation);
+        Assert.IsTrue(ChocolateyProfileRules.HasRequiredFeatures(configuration));
+        Assert.IsFalse(ChocolateyProfileRules.IsSupportedCacheLocation(configuration.CacheLocation));
+    }
+
+    [TestMethod]
     public void AShippedShapeMachineConfigIsSupported()
     {
         Assert.IsTrue(ChocolateyProfileRules.IsSupportedMachineConfig(Encoding.UTF8.GetBytes(MinimalMachineConfig)));
@@ -284,6 +322,12 @@ public sealed class ChocolateyProfileRulesTests
     private static ChocolateyConfigurationObservation Config(string body)
     {
         Assert.IsTrue(ChocolateyConfigurationParser.TryRead(Encoding.UTF8.GetBytes("<chocolatey>" + body + "</chocolatey>"), out ChocolateyConfigurationObservation? config));
+        return config!;
+    }
+
+    private static ChocolateyConfigurationObservation RealShape(string cache, string? legacyValue)
+    {
+        Assert.IsTrue(ChocolateyConfigurationParser.TryRead(Chocolatey275ConfigurationFixture.Bytes(cache, legacyValue), out ChocolateyConfigurationObservation? config));
         return config!;
     }
 }

@@ -2,6 +2,8 @@
 
 Requirements: `FR-UPD-15`, retained `FR-UPD-01/08/09/14`, `AC-UPD-01–11`, `TM-03–04/07/13`. **Proposed complete native mapping for independent review before an admitting observer is implemented.** This supersedes the proposed mapping in revision1 without editing that independently pinned historical artifact. No native route is enabled; no host/client/config/cache query, UAC, deployment or real update is authorized.
 
+> **Revision 2.1 (2026-11-06; `FR-UPD-15`, `TM-03/04/07/13`).** The config key `containsLegacyPackageInstalls` is admitted, but only absent or with the exact value `true`; any other value refuses. The pinned 2.7.5 default template writes it, and no 2.7.5 engine code reads it. It adds no observation or fingerprint field; the `pc-steward-choco-profile:2` normal form and goldens are unchanged. Every other rule below is unchanged, including the `cacheLocation` rule (an empty value still refuses). Source references and the decision are in the [revision record](TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
+
 ## Closed binding and accepted responsibility split
 
 Only Update/schema3/ChocolateyMachineProvisionalV3/Chocolatey/ChocolateyCommunity/Machine/Stable with NotControllable(ProviderScriptControlled) and ProviderScriptSelected architecture may match. There is no observed payload architecture, selected silent/interactive mode, arbitrary option, alternate source, install/uninstall or protocol1 fallback. The machine registration being updated is Chocolatey's package registration; this does not claim control of every scope/architecture or dependency effect a Community script chooses.
@@ -44,7 +46,7 @@ Pinned PowerShell preparation reloads user PATH/module inputs before scripts, th
 
 ## Effective configuration, cache and source checks
 
-Use the implemented bounded strict config parser: observed Enabled/SetExplicitly/presence remain separate; effective value is absent=>default, otherwise setExplicitly?enabled:default. Known keys/attributes only, invariant-culture case-insensitive/no-trim name comparison, duplicates/unknowns refuse. Exact host feature key is **powershellHost**. Required effective values:
+Use the implemented bounded strict config parser: observed Enabled/SetExplicitly/presence remain separate; effective value is absent=>default, otherwise setExplicitly?enabled:default. Known keys/attributes only, invariant-culture case-insensitive/no-trim name comparison, duplicates/unknowns refuse. Revision 2.1: `containsLegacyPackageInstalls` is a known key admitted only absent or with the exact value `true`. Exact host feature key is **powershellHost**. Required effective values:
 
 | Effective feature | Required policy |
 |---|---|

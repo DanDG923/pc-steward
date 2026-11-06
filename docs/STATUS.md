@@ -1,5 +1,15 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — Profile V2 revision 2.1: the `containsLegacyPackageInstalls` key (C1 fix built, 2026-11-06; code and tests only; local branch `task50-profile-v2-legacy-key`, not pushed; no host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Revision record](review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
+- **Research.** In the pinned client source (tag `2.7.5`, commit `194ac626…`), the default template (`chocolatey.config` line 5) writes the key with the value `true`. No engine code reads it: `ConfigurationBuilder` reads only the 11 named keys. It is inert on every reviewed route; only `choco config` and the package-script helper `Get-ChocolateyConfigValue` can see its value.
+- **Decision and change.** `ChocolateyConfigurationParser` admits the key only absent or with exactly `true`; any other value refuses at step 6. It adds no observation or fingerprint field, and `pc-steward-choco-profile:2` and its goldens are unchanged. Every other Profile V2 rule is unchanged, including the empty-`cacheLocation` refusal (cause 2).
+- **Tests (Linux).**
+  - Architecture 140/140; domain 175/175.
+  - Integration 903 passed, 112 failed (+17 new passing).
+  - Security 1,345 passed, 243 failed, 6 skipped (+7 new passing). The 3 new failures are the new Windows-only observer tests, which are reported as failed off Windows.
+  - Otherwise the failures are the same sets as base `af34ae1`.
+- **Next.** Independent review and Windows CI. A redeploy, the owner's `cacheLocation` change and a new probe each need their own approval. Part C stays **FAIL**.
+
 **Task 50 — Part C step C-A: activation change built (2026-11-06; code and tests only; local branch `task50-activation`, not pushed; no host action).** Requirements: `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-HIS-01`, `TM-03/04/07/13`, `AC-UPD-07`; ADR-031 decision 7, ADR-025, ADR-022. [Record](review/TASK_50_ACTIVATION_CHANGE.md).
 - **Gate inventory (§1).** Met: Part A, Part B, the §8.6 gates 1 and 2, R5 (decision 6), the W1 and watchdog conditions, and obligations 3–7. Covered by owner decisions 2026-11-06: the target package, the A-Q1 real-launch residuals, and the §8.7 VM self-upgrade and second-release items (G9 = yes), plus D4 = G-0. Still to come: Part C, and the final admission approval (obligation 8). The §8.6 gate 3 is not applicable on this branch, which has no client offer UI.
 - **Admission.** `HasSupportedMode` keeps the unchanged WinGet rule and adds `ReviewedChocolateyRouteAdmission.Admits`, exact shapes only. A runtime-limit job for the package `chocolatey` is never admitted, and the gate-1 test seam is removed. `CapabilityOperationAllowlist` gains `ChocolateyClientSelfUpdateV1` (statement 149 B; the scripts' token list; the probe's G1 now covers both tokens). The dispatcher's `Supports` uses the route-discriminated digest before the capability seam. Pins changed deliberately, with new `ChocolateyRouteActivationBoundaryTests`.

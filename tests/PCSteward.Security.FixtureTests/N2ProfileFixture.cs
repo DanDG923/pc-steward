@@ -105,6 +105,10 @@ internal sealed class N2ProfileFixture : IDisposable
         System.IO.File.WriteAllText(RootPath(@"config\chocolatey.config"),
             $"<?xml version=\"1.0\" encoding=\"utf-8\"?><chocolatey><config><add key=\"cacheLocation\" value=\"{Cache}\"/></config>{body}</chocolatey>");
 
+    /// <summary>Profile V2 revision 2.1: replaces the configuration with the real-shape 2.7.5 file (cacheLocation defaults to <see cref="Cache"/>).</summary>
+    internal void WriteRealShapeConfiguration(string? legacyValue = "true", string? cacheLocation = null) =>
+        System.IO.File.WriteAllBytes(RootPath(@"config\chocolatey.config"), Chocolatey275ConfigurationFixture.Bytes(cacheLocation ?? Cache, legacyValue));
+
     internal void WritePackage(string relative, string id, string version)
     {
         string full = RootPath(relative);
