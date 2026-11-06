@@ -8,7 +8,7 @@ This note is for the next session, cloud or local, picking up Task 50. Requireme
 
 | Branch | Head | PR | State |
 |---|---|---|---|
-| `claude/sweet-franklin-j3mw4a` (Task 50) | `5606da2` | DanDG923/pc-steward#12 (draft) | Activated in code, but inert in the UI (see §3). Windows CI green up to `bc24a20`, except one unrelated timing flake (`InheritedWriterUsesOneBudgetAndDoesNotClaimDescendantExit`), whose failed job was re-run once. |
+| `claude/sweet-franklin-j3mw4a` (Task 50) | `5606da2` | DanDG923/pc-steward#12 (draft) | Activated in code, but inert in the UI (see §3). Windows CI green up to `bc24a20`, except one unrelated timing flake (`InheritedWriterUsesOneBudgetAndDoesNotClaimDescendantExit`), whose failed job passed on its single re-run. |
 | `claude/task-73-ui-overhaul` (Task 73) | `ec9340f` | DanDG923/pc-steward#13 (draft, stacked on #12) | **Deliberately 28 commits behind Task 50.** It has not taken the activation change. See §5, item 4. |
 
 Never merge to `main`. Merging is not authorized.
