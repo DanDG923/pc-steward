@@ -322,3 +322,5 @@ The owner did not note the thumbprint from the Security Warning. The single new 
 **Outcome.** The v2 owner-only test deployment (`pinned-unsigned-v2`, helper protocol 2, manifest `23D7A71C…`) is installed and independently validated. The user database is unchanged, and PC Steward has not been launched.
 
 This completes Part B of the Task 50 activation host-session plan, through the recovery route instead of the B4 redeploy. The new signer expires on 2026-11-20. Launching the app (Part C) needs its own approval.
+
+Owner cross-check in certmgr.msc (2026-11-06): Current User → Trusted Publishers holds exactly one certificate, "PC Steward Owner-Only Test 7343ceaa-acb6-4ada-88e8-288d0993a323". It is self-issued, for Code Signing, and expires on 20/11/2026, matching R3's single new signer and its `notAfterUtc`.
