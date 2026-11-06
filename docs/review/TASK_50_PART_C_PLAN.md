@@ -358,3 +358,74 @@ CB.9 post-checks are pending.
 | build record | `04D4BF87…EBB9` |
 
 The activated, probe-carrying build is deployed and the database is unchanged. The new signer expires 2026-11-20T19:53:44Z, which bounds C-run.
+
+## 11. C-pre and C-run: exact steps (revision 3; probe script `831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A`)
+
+The deployment is the activated build from CB.9. Every step is run by the owner in their own **normal (not administrator) Windows PowerShell 5.1 window**, or in the app itself, once each. Never retry. Report any `STOP:` line or error. The C-run must finish before the signer expires at **2026-11-20T19:53:44Z**.
+
+### C-pre: the unresolved-operation check (S7 obligation 3; one normal launch)
+
+1. Open `C:\Program Files\PC Steward\PCSteward.Desktop.exe` normally, as the normal user, not elevated.
+2. Open **Activity**.
+3. Wait until "Loading reviewed update outcomes…" is replaced, then read the **"Reviewed update outcomes"** section. The precondition **holds** only if:
+   - it shows **"No reviewed update outcomes are recorded."**, or
+   - no record shows the field "Other updates" with the text **"Other updates stay blocked until this record is safely reconciled."**
+4. If it shows **"Reviewed update history is unavailable right now. Nothing was started or changed."**, **stop**: the check could not be made.
+5. Close PC Steward normally.
+
+**Not allowed during C-pre:** scan, refresh, review, update, Settings changes or scheduled checks. Answer **No** to any UAC prompt.
+
+Report which of the texts above you saw.
+
+### C-check: probe script in Check mode (read-only; launches nothing)
+
+C-check runs C1 (pins, including the probe-build mark) and C2 (baseline). Paste line V3 (§10), then:
+
+```powershell
+$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Check -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '04D4BF87810EE2D89DBF78913592E14BFAA6099770AF1AEE5EC98E52C990EBB9' -ExpectedManifestSha256 '9F6CC13668DE533CF070731C30E12E006D66EB9E1B3C3AB3E8C8A566FA0DF84A' -ExpectedLedgerSha256 'CBAB8C0AEB29DB34076F16A9176674CA08DA4A655447988B1368B456733AC852' -ExpectedSignerThumbprint '67B59B4C9BC3A006FBE39A72967E05F7B8C375DA' -ExpectedSignerNotAfterUtc '2026-11-20T19:53:44Z'; 'PROBE-EXIT ' + $LASTEXITCODE }
+```
+
+Expected:
+- `PROBE-SCRIPT 831B5E17…`;
+- `C1 PINS-OK ledger=CBAB8C0A… manifest=9F6CC136… desktop=… helper=… capability=50F169DD… signer=67B59B4C… notAfter=… probeBuild=true commit=ebb40618…`;
+- `C2 BASELINE: db=… data=… choco=… chocoFiles=<n> chocoProcess=0`;
+- `CHECK-COMPLETE: nothing was launched`;
+- `PROBE-EXIT 0`.
+
+### C-run: the probe run (one launch; exactly one UAC prompt)
+
+Run this only after a clean C-check, with PC Steward closed. It is the same block with `-Mode Run`:
+
+```powershell
+$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Run -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '04D4BF87810EE2D89DBF78913592E14BFAA6099770AF1AEE5EC98E52C990EBB9' -ExpectedManifestSha256 '9F6CC13668DE533CF070731C30E12E006D66EB9E1B3C3AB3E8C8A566FA0DF84A' -ExpectedLedgerSha256 'CBAB8C0AEB29DB34076F16A9176674CA08DA4A655447988B1368B456733AC852' -ExpectedSignerThumbprint '67B59B4C9BC3A006FBE39A72967E05F7B8C375DA' -ExpectedSignerNotAfterUtc '2026-11-20T19:53:44Z'; 'PROBE-EXIT ' + $LASTEXITCODE }
+```
+
+**The one prompt.** A UAC prompt for **`PCSteward.ElevatedHelper.exe`**, verified publisher **`PC Steward Owner-Only Test <GUID>`**, the new signer.
+- **Before answering**, click **"Show more details"**. The program location must be `C:\Program Files\PC Steward\PCSteward.ElevatedHelper.exe`, and the details must show `--kind qualify-chocolatey-helper` right after the program path.
+- If both match → **Yes**.
+- Anything else, or a second prompt → **No**. Declining gives an INCONCLUSIVE run, not a failure; it is never repeated without a new approval.
+
+Expected (spec §8):
+- **C3:** `C3 LAUNCH: …`, then `C3 EXIT: 0 RESULT: present`.
+- **C4:** `C4 UNCHANGED: db=True data=True choco=True chocoProcess=0 pcstewardProcess=0 resultFolderClean=True`.
+- **C5:** `C5 RESULT: {…}`, the closed result document.
+- **C6:** `C6 VERDICT E1: PASS`, `E2: PASS`, `E3: PASS`, `E5: PASS` and `A3: PASS`, then `C6 OVERALL: PASS` and the `C6 OWNER-CHECK E3` reminder.
+- **C7:** `C7 CLEANUP-COMPLETE`.
+- `PROBE-EXIT 0`.
+
+Paste the whole output and say what the UAC prompt showed.
+
+**Interpretation is spec §8 only.**
+- Any **FAIL** stops use, with no retry. Real Chocolatey updates stay blocked.
+- **INCONCLUSIVE** proves nothing. A repeat needs a new approval.
+- An overall **PASS** proves **UAC and pre-launch enforcement only**, for this deployment and these pins. It does not cover the desktop's Chocolatey caller-trust check.
+- After a PASS, real Chocolatey use still needs the owner's final admission approval (obligation 8 terms), and the A-Q1 residuals stay open (G9).
+
+### Approval C (C-pre, C-check, C-run)
+
+> I approve Part C on my PC, each step once, run by me from my own normal Windows PowerShell window or the app:
+> - **C-pre:** one normal launch of the installed PC Steward to read Activity → "Reviewed update outcomes", then a normal close.
+> - **C-check:** `Task50-QualificationProbe.ps1` at SHA-256 `831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A` with `-Mode Check`.
+> - **C-run:** the same script with `-Mode Run`. This is one launch of `PCSteward.Desktop.exe --qualify-chocolatey-helper` with exactly one UAC prompt, for `PCSteward.ElevatedHelper.exe` signed by the owner-only test signer `67B59B4C…`, which I answer myself after checking its details.
+>
+> The pins are those of §11. No Chocolatey process, no package change, no scan, no refresh, no retry.
