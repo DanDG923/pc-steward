@@ -7,7 +7,7 @@ Date: 2026-10-29. Scope: preserve and publish the completed pending planning and
 - The outer `PC Steward` folder is a separate, unborn `master` repository with no remote. `git push --dry-run` there fails with `No configured push destination`.
 - The real repository is the nested `pc-steward` folder, with origin `https://github.com/DanDG923/pc-steward`.
 - The real branch had no upstream, and neither author nor committer identity could be resolved. The user requested the repair after these causes were explained.
-- Repository-local `user.name` and `user.email` now match the last five commits: `Dan Grant <DGrant923@outlook.com>`. Global configuration is unchanged.
+- Repository-local `user.name` and `user.email` now match the last five commits: `the owner's established name and email`. Global configuration is unchanged.
 - Push the verified snapshot with `git push --set-upstream origin phase/5-v2-planning`, then compare the remote branch SHA with local HEAD and confirm a clean worktree.
 
 ## Fresh pre-commit validation

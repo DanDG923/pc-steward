@@ -5,6 +5,10 @@ on:
   push:
     branches: [phase/0-foundation]
 
+# Public repository: every job gets a read-only token unless it asks for more.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: windows-latest
