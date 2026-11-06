@@ -1,5 +1,7 @@
 # Task 50 — native mapping corrections and independent policy checkpoint
 
+**Task 50 — G9 real-launch residuals and target choice: plan written (2026-11-06; docs only; no code or host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Plan](review/TASK_50_G9_TARGET_PLAN.md). Recommends closing the package-route residuals on the owner's PC with one owner-approved test package, driven by a real desktop review composition, and deferring the client-route residuals until a newer Chocolatey release is reviewed. Ends with owner decisions G9-D1 to G9-D6. Nothing is approved.
+
 **Task 50 — handover written (2026-11-06).** Start here: [Task 50 handover](review/TASK_50_HANDOVER_2026-11-06.md). It covers the branches and PRs, the owner-PC state, what is proven and what is not, the carried-over lessons, open owner decisions and the 2026-11-20 signer deadline.
 
 **Task 50 — Profile V2 revision 2.1: the `containsLegacyPackageInstalls` key (C1 fix built, 2026-11-06; code and tests only; on the Task 50 branch at `bc24a20`, independently reviewed; no host action).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Revision record](review/TASK_50_PROFILE_V2_LEGACY_KEY_REVISION.md).
