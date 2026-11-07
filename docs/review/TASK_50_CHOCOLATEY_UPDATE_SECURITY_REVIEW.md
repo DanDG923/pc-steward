@@ -16,7 +16,7 @@ Threat model: the product's own. The attacker is any program running as the owne
 
 | ID | Severity | Finding | Status |
 |---|---|---|---|
-| H1 | High | The elevated helper's .NET runtime takes control settings from the owner's own environment, which a same-user program can set | Partly fixed here; residual needs an owner decision (§3) |
+| H1 | High | The elevated helper's .NET runtime takes control settings from the owner's own environment, which a same-user program can set | Partly fixed (PR #27). Full fix built: Native AOT helper ([ADR-033](../adr/ADR-033-NATIVE-AOT-ELEVATED-HELPER.md)); Fixed once a redeploy's host evidence shows the native image installed |
 | M1 | Medium | The same environment settings also reach Chocolatey's own child processes, because Chocolatey reloads the owner's environment while it runs elevated | Narrowed here; owner accepted the named residual in ADR-025 (2026-11-06) |
 | M2 | Medium | The owner-only test signing key stays usable by any same-user program for its 14-day life | Not fixed: the fix is in a hash-pinned script (flagged) |
 | L1 | Low | Only the `cacheLocation` folder itself and its ancestors are checked, not what is inside it | Recommendation |

@@ -17,10 +17,14 @@ public sealed class OwnerOnlyCandidateBuilderTests
 {
     private static readonly string[] StepNames =
     [
-        "restore-scheduledhost", "restore-desktop", "restore-helper", "build-scheduledhost", "build-desktop", "build-helper", "publish-desktop", "publish-helper",
+        "restore-scheduledhost", "restore-desktop", "restore-helper", "build-scheduledhost", "build-desktop", "publish-desktop", "publish-helper-native",
     ];
 
     private static readonly string[] InvokedExecutables = ["dotnet", "git", "windowspowershell"];
+    private static readonly string[] NativeHelperPayload = ["PCSteward.ElevatedHelper.exe", "PCSteward.DeploymentCapability.txt"];
+    private static readonly string[] RefusedHelperOutputs = ["managedDll", "runtimeConfig", "runtimeDll", "nestedPdb", "caseVariant"];
+    private static readonly string[] NativeHelperPublishOptions =
+        ["--configuration", "Release", "--runtime", "win-x64", "--no-restore", "--disable-build-servers", "--output", @"C:\out dir\publish-staging\helper"];
     private static readonly string[] ExpectedXbf = ["App.xbf", "Resources\\ColorTokens.xbf", "Views\\Sub\\Page.xbf"];
     private static readonly string[] ManifestKeys = ["bytes", "path", "sha256"];
     private static readonly string[] ProbeAssemblies = ["PCSteward.Execution.dll", "PCSteward.Provider.Chocolatey.dll", "PCSteward.Desktop.dll"];
@@ -114,6 +118,12 @@ public sealed class OwnerOnlyCandidateBuilderTests
             StringAssert.Contains(copy.GetProperty("conflict").GetString(), "Conflicting payload file from fixture");
             StringAssert.Contains(copy.GetProperty("conflict").GetString(), "differs from an earlier output");
             StringAssert.Contains(result.GetProperty("reparseRefused").GetString(), "Reparse point refused");
+            JsonElement helperOutput = result.GetProperty("helperOutput");
+            CollectionAssert.AreEqual(NativeHelperPayload,
+                helperOutput.GetProperty("native").EnumerateArray().Select(item => item.GetString()).ToArray());
+            foreach (string refused in RefusedHelperOutputs)
+                StringAssert.Contains(helperOutput.GetProperty(refused).GetString(), "is not a native image", refused);
+            StringAssert.Contains(helperOutput.GetProperty("missingCapability").GetString(), "missing: PCSteward.DeploymentCapability.txt");
             CollectionAssert.AreEqual(ExpectedXbf,
                 result.GetProperty("expectedXbf").EnumerateArray().Select(item => item.GetString()).ToArray());
 
@@ -348,8 +358,15 @@ public sealed class OwnerOnlyCandidateBuilderTests
                 CollectionAssert.AreEqual(new[] { "build", project }.Concat(profile).Append("--disable-build-servers").ToArray(), arguments, name);
                 continue;
             }
-            string output = name == "publish-desktop" ? @"C:\out dir\publish-staging\desktop" : @"C:\out dir\publish-staging\helper";
-            CollectionAssert.AreEqual(new[] { "publish", project }.Concat(profile).Concat(["--no-build", "--disable-build-servers", "--output", output]).ToArray(), arguments, name);
+            if (name == "publish-helper-native")
+            {
+                // ADR-033: Native AOT comes from the helper project (never a command-line PublishAot, which would reach the
+                // referenced projects); the publish builds the helper, with no framework-dependent profile.
+                CollectionAssert.AreEqual(new[] { "publish", project }.Concat(NativeHelperPublishOptions).ToArray(), arguments, name);
+                Assert.IsFalse(arguments.Any(argument => argument.Contains("PublishAot", StringComparison.OrdinalIgnoreCase) || argument == "--self-contained"), name);
+                continue;
+            }
+            CollectionAssert.AreEqual(new[] { "publish", project }.Concat(profile).Concat(["--no-build", "--disable-build-servers", "--output", @"C:\out dir\publish-staging\desktop"]).ToArray(), arguments, name);
         }
     }
 

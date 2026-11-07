@@ -316,9 +316,6 @@ public sealed class DeploymentCapabilityPolicyTests
     [DataRow("PCSteward.Desktop.exe")]
     [DataRow("PCSteward.Desktop.dll")]
     [DataRow("PCSteward.ElevatedHelper.exe")]
-    [DataRow("PCSteward.ElevatedHelper.dll")]
-    [DataRow("PCSteward.ElevatedHelper.deps.json")]
-    [DataRow("PCSteward.ElevatedHelper.runtimeconfig.json")]
     [DataRow("PCSteward.Execution.dll")]
     [DataRow("PCSteward.Application.dll")]
     [DataRow("PCSteward.Domain.dll")]
@@ -371,15 +368,22 @@ public sealed class DeploymentCapabilityPolicyTests
                 if (closure.Add(Path.GetFileNameWithoutExtension(referenced) + ".dll")) pending.Enqueue(referenced);
             }
         }
+        // ADR-033: the helper is one Native AOT image, so the binding set names its image and never a managed helper file.
         string[] expected =
         [
-            "PCSteward.Desktop.exe", "PCSteward.Desktop.dll", "PCSteward.ElevatedHelper.exe", "PCSteward.ElevatedHelper.dll",
-            "PCSteward.ElevatedHelper.deps.json", "PCSteward.ElevatedHelper.runtimeconfig.json", DeploymentCapabilityPolicy.CapabilityFileName,
+            "PCSteward.Desktop.exe", "PCSteward.Desktop.dll", "PCSteward.ElevatedHelper.exe", DeploymentCapabilityPolicy.CapabilityFileName,
             .. closure,
         ];
         CollectionAssert.AreEquivalent(expected, DeploymentCapabilityPolicy.BindingSet.ToArray());
         Assert.AreEqual(DeploymentCapabilityPolicy.BindingSet.Count, DeploymentCapabilityPolicy.BindingSet.Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
+
+    [TestMethod]
+    [DataRow("PCSteward.ElevatedHelper.dll")]
+    [DataRow("PCSteward.ElevatedHelper.deps.json")]
+    [DataRow("PCSteward.ElevatedHelper.runtimeconfig.json")]
+    public void BindingSetNamesNoManagedHelperFile(string leaf) =>
+        Assert.IsFalse(DeploymentCapabilityPolicy.BindingSet.Contains(leaf, StringComparer.OrdinalIgnoreCase), leaf);
 
     // ---- Results, diagnostics and exceptions ----
 
