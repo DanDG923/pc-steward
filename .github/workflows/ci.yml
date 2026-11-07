@@ -16,8 +16,8 @@ jobs:
       # Restored test adapters must also be accessible to the standard test user.
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - run: pwsh -NoProfile -File ./scripts/Restore.ps1
@@ -38,14 +38,14 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/Test-ElevatedHelperNativeAotCI.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: helper-native-aot-feasibility
@@ -65,17 +65,17 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
           # Full history: the builder's probe-build mark (S7 obligation 1) checks the build commit's lineage.
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
       # The builder refuses an elevated token; the launcher runs it as a disposable standard user.
       - run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: owner-only-candidate-manifest
@@ -98,21 +98,21 @@ jobs:
       # Inside the pinned checkout, which the launcher makes writable for its disposable user.
       NUGET_PACKAGES: ${{ github.workspace }}\owner-candidate-source\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: febf1ac95c207aadf0f3efe742b854d81f903037
           path: owner-candidate-source
           persist-credentials: false
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: owner-candidate-source/global.json
       # The builder refuses an elevated token; the pinned checkout's own launcher runs it as a disposable standard user.
       - run: pwsh -NoProfile -File ./owner-candidate-source/scripts/Test-OwnerOnlyCandidateBuilderCI.ps1
       - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-OwnerOnlySigningDiagnosticCI.ps1 -ExpectedSourceCommit febf1ac95c207aadf0f3efe742b854d81f903037
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: owner-only-signing-diagnostic
