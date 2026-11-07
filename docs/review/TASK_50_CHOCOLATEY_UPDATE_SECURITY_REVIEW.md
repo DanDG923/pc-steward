@@ -17,7 +17,7 @@ Threat model: the product's own. The attacker is any program running as the owne
 | ID | Severity | Finding | Status |
 |---|---|---|---|
 | H1 | High | The elevated helper's .NET runtime takes control settings from the owner's own environment, which a same-user program can set | Partly fixed here; residual needs an owner decision (§3) |
-| M1 | Medium | The same environment settings also reach Chocolatey's own child processes, because Chocolatey reloads the owner's environment while it runs elevated | Narrowed here; the accepted ADR-025 residual should name it |
+| M1 | Medium | The same environment settings also reach Chocolatey's own child processes, because Chocolatey reloads the owner's environment while it runs elevated | Narrowed here; owner accepted the named residual in ADR-025 (2026-11-06) |
 | M2 | Medium | The owner-only test signing key stays usable by any same-user program for its 14-day life | Not fixed: the fix is in a hash-pinned script (flagged) |
 | L1 | Low | Only the `cacheLocation` folder itself and its ancestors are checked, not what is inside it | Recommendation |
 | L2 | Low | A refusal by the new guard shows as a generic "could not start" result | Recommendation |
@@ -91,6 +91,6 @@ A launch the new guard refuses is recorded as "not started" with the generic lau
 ## 4. Before anything real runs on the owner's PC
 
 1. Merge this change (H1 switches and guard).
-2. Owner decision on the H1 residual (§2 H1 options) and on extending the ADR-025/R5 acceptance to code-loading settings (M1).
+2. Owner decision on the H1 residual (§2 H1 options) and on extending the ADR-025/R5 acceptance to code-loading settings (M1). M1: accepted 2026-11-06 and recorded in ADR-025; H1: the owner chose option (a), the Native AOT helper, which is in progress separately.
 3. A new candidate build and redeploy, because the helper's runtimeconfig and apphost bytes change. The currently deployed helper does not have these fixes.
 4. M2 at the next redeploy if the owner agrees (pinned installer change).
