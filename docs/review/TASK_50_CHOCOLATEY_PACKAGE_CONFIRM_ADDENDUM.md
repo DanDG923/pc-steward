@@ -59,7 +59,7 @@ No scan value becomes a version or an argument: the row's package ID only select
 
 1. The full security review of the enabled build (owner condition), and its high and medium findings fixed.
    - That includes a Codex security review of this change itself.
-   - Security review M1 (code-loading settings such as `COR_*` and `APPDOMAIN_MANAGER_*` reach Chocolatey's elevated child processes through its environment reload) is narrowed, not closed, by the H1 guard, and the Native AOT helper does not change it. Before G9-T4, the owner's ADR-025 residual-risk acceptance has to name code-loading settings explicitly. That is the owner's decision.
+   - Security review M1 (code-loading settings such as `COR_*` and `APPDOMAIN_MANAGER_*` reach Chocolatey's elevated child processes through its environment reload) is narrowed, not closed, by the H1 guard, and the Native AOT helper does not change it. Before G9-T4, the owner's ADR-025 residual-risk acceptance has to name code-loading settings explicitly. That is the owner's decision. **Met 2026-11-06:** the owner accepted it, recorded in ADR-025.
    - The H1 helper change (merged before this one) means the helper must be redeployed before G9-T1 in any case.
 2. G9-T1 (the owner installs ripgrep 14.1.0 in their own elevated window, pinned to the nupkg SHA-256 in the G9 plan §12), G9-T2 and G9-T3 (redeploy with this build; a new probe run if the binding set changed: the G-0 condition is that the composition is deployed only after a recorded probe PASS). Each is its own approval.
 3. G9-T4: one real update through this screen.
