@@ -177,6 +177,8 @@ Expected: `"status": "Validated"`, exit codes 0, `userDatabaseSha256` `78697727C
 $cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 'CFEF3D77B6F513C2B7477ECA38BCD8BD3DF86791C00ACE5B5C69913316FBC0FA' -ApprovedEncodedCommandSha256 '111458A4A55916D929B2F12839A4800DDA2B9A4C4CCBD919A9FA5F3B867941A3' }
 ```
 
+**CB3.8 result (2026-11-10, approval CB3-exec given 20:12Z):** caller `62DDE7B4…C3C8`; attempt 1 `"status": "Validated"`, `resultPhase` `validated`, plan `CFEF3D77…C0FA` and encoded command `111458A4…41A3` as approved, `nativeExitCode` 0, `resultExitCode` 0, every failure field null, `userDatabaseSha256` `78697727…55BE` (unchanged), `"retry": false`, `"launched": false`; 20:12:39Z to 20:12:53Z. The owner reports the prompts appeared exactly as listed above.
+
 **CB3.9 — post-checks** (read-only, new window). Expected: the CB3.3 manifest, `INSTALLED-CAPABILITY 50F169DD…654B`, `STORE My new=1 old=0`, `STORE Root new=1 old=0`, `STORE TrustedPublisher new=1 old=0` (`old` now also counts `C7372974…` and `67B59B4C…`). Before 2026-11-19T21:57Z, `TrustedPublisher old=1` is the known stale private-view entry `ED6FBCE8…`, as at CB2.9, and does not block, and a new signer about 14 days later. The new thumbprint, its `notAfterUtc` and `LEDGER-SHA256` become C3 pins.
 
 ```powershell
