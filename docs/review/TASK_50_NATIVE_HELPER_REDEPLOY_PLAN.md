@@ -190,6 +190,10 @@ $pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHa
 
 **P0 (owner, 2026-11-10):** Visual Studio Build Tools 2022 with the C++ workload installed.
 
+### CI pre-flight: the native helper signs as the installer needs (2026-11-10, run 42870642053)
+
+The informational `native-helper-signing-diagnostic` job built this branch's candidate with the real builder (98 files, native `PCSteward.ElevatedHelper.exe` of 11,488,256 bytes) and signed copies of both executables the installer's way. With the throwaway certificate trusted, `Set-AuthenticodeSignature` returned `Valid` with the expected signer for the native helper, in a temp folder and in a Program Files folder with the installer's protected DACL, so the installer's acceptance check would pass (`installerWouldAccept=True`, `signtool verify` exit 0, no overlay). The desktop apphost and both controls gave the same result. Untrusted, every file gave the expected untrusted-root error. This is CI evidence only; CB3.8 and CB3.9 are the evidence on the owner's PC.
+
 ### Result P1 (2026-11-10, about 18:00Z): ready for CB3
 
 Run once through Remote Control in Windows PowerShell 5.1, unelevated, `-NoProfile`; nothing changed.
