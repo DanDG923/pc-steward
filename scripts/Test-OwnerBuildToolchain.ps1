@@ -135,7 +135,7 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
                 $target = [string]$child.GetAttribute('Project')
                 $prefix = '$(NuGetPackageRoot)'
                 if (!$target.StartsWith($prefix, [StringComparison]::Ordinal) -or $target.IndexOf('..') -ge 0) { $problems.Add('import outside the package root'); continue }
-                $relativeTarget = $target.Substring($prefix.Length); $parts = $relativeTarget.Split([char[]]@('\', '/'))
+                $relativeTarget = $target.Substring($prefix.Length).TrimStart([char[]]@('\', '/')); $parts = $relativeTarget.Split([char[]]@('\', '/'))
                 if ($parts.Count -lt 3 -or !$UsedPackages.ContainsKey($parts[0] + '/' + $parts[1])) { $problems.Add('import from a package this restore did not use: ' + $relativeTarget) }
             }
         }
