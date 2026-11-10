@@ -52,6 +52,11 @@ public sealed class ElevatedRuntimeEnvironmentBoundaryTests
             "PCSteward.ElevatedHelper.csproj"));
         StringAssert.Contains(project, "<StartupHookSupport>false</StartupHookSupport>");
         StringAssert.Contains(project, "<AppHostDotNetSearch>Global</AppHostDotNetSearch>");
+        // ADR-033: the published helper is one Native AOT image with EventSource compiled out, set unconditionally here.
+        StringAssert.Contains(project, "<PublishAot>true</PublishAot>");
+        StringAssert.Contains(project, "<EventSourceSupport>false</EventSourceSupport>");
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(project, "<PublishAot>"), "one PublishAot setting");
+        Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(project, @"<PropertyGroup[^>]*Condition"), "no conditional property group can switch it off");
     }
 
     [TestMethod]

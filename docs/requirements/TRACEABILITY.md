@@ -1,3 +1,9 @@
+# Task 50 — Native AOT elevated helper (ADR-033)
+
+`FR-UPD-15`, `TM-03/04/13`; ADR-022, ADR-033; security review H1.
+
+- **Code.** Helper project `PublishAot=true`, `EventSourceSupport=false`; `DeploymentCapabilityPolicy.BindingSet` (native image only for the helper); `scripts/New-OwnerOnlyCandidate.ps1` step `publish-helper-native` and `Get-OwnerOnlyCandidateHelperPayloadEntries`.
+- **Tests.** Security `OwnerOnlyCandidateBuilderTests`, `DeploymentCapabilityPolicyTests`, `DeploymentCapabilityScriptTests`; Architecture `ElevatedRuntimeEnvironmentBoundaryTests`; CI `helper-native-aot-feasibility`.
 # Task 50 — Chocolatey package Confirm (addendum to G9-D4)
 
 `FR-UPD-15`, `FR-UPD-01/03–09`, `FR-UI-03/04`, `FR-HIS-01/03`, `TM-03/04/07/13`; [package Confirm addendum](../review/TASK_50_CHOCOLATEY_PACKAGE_CONFIRM_ADDENDUM.md) §3–§5.

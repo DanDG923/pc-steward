@@ -35,7 +35,9 @@ $script:ProbeMarkRule = 'pc-steward-probe-build-mark:1'
 $script:ProbeS6Commit = '2172f955a751ccc464b27075053c835790bc412f'
 
 # Pure: the exact, structured dotnet argument arrays (one string per argument; nothing is joined into a command line).
-# Profile matches the Task 48/49 candidates and the original installer: Release, win-x64, framework-dependent.
+# Desktop and ScheduledHost profile matches the Task 48/49 candidates and the original installer: Release, win-x64,
+# framework-dependent. ADR-033: the elevated helper is published with Native AOT (PublishAot is set in its project, never on
+# this command line, so it does not reach the referenced projects); its publish builds it, so it has no separate build step.
 function Get-OwnerOnlyCandidateBuildSteps {
     param(
         [Parameter(Mandatory)][string]$RepositoryRoot,
@@ -55,9 +57,8 @@ function Get-OwnerOnlyCandidateBuildSteps {
         [pscustomobject]@{ Name = 'build-scheduledhost'; Arguments = [string[]]@('build', $scheduledHost, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--disable-build-servers') }
         # The desktop RID build also produces App.xbf, the PRI and Resources\*.xbf that publish omits.
         [pscustomobject]@{ Name = 'build-desktop'; Arguments = [string[]]@('build', $desktop, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--disable-build-servers') }
-        [pscustomobject]@{ Name = 'build-helper'; Arguments = [string[]]@('build', $helper, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--disable-build-servers') }
         [pscustomobject]@{ Name = 'publish-desktop'; Arguments = [string[]]@('publish', $desktop, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--no-build', '--disable-build-servers', '--output', $DesktopPublishDirectory) }
-        [pscustomobject]@{ Name = 'publish-helper'; Arguments = [string[]]@('publish', $helper, '--configuration', $Configuration, '--runtime', $runtime, '--self-contained', 'false', '--no-restore', '--no-build', '--disable-build-servers', '--output', $HelperPublishDirectory) }
+        [pscustomobject]@{ Name = 'publish-helper-native'; Arguments = [string[]]@('publish', $helper, '--configuration', $Configuration, '--runtime', $runtime, '--no-restore', '--disable-build-servers', '--output', $HelperPublishDirectory) }
     )
 }
 
@@ -232,6 +233,28 @@ function Write-OwnerOnlyCandidateManifest {
 }
 
 # Copies one file into the payload. An existing destination must already be byte-identical: no silent overwrite.
+# Pure over the listed entries (reads no file): ADR-033 decision 4, the native helper publish output rule. The payload takes
+# exactly the native image and the capability statement from it. The compiler's per-project .pdb and .xml files are left
+# out; any other file (a managed assembly, deps or runtimeconfig, a runtime DLL) means the publish was not native and stops
+# the build.
+function Get-OwnerOnlyCandidateHelperPayloadEntries {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Entries)
+    # Literal leaves (the capability leaf equals $script:CapabilityLeaf), so the rule stays pure and testable on its own.
+    $required = @('PCSteward.ElevatedHelper.exe', 'PCSteward.DeploymentCapability.txt')
+    $taken = [Collections.Generic.List[object]]::new()
+    foreach ($entry in $Entries) {
+        $path = [string]$entry.path
+        if ($required -ccontains $path) { $taken.Add($entry); continue }
+        if ($path -notmatch '\\' -and $path -match '\A[A-Za-z0-9.]+\.(pdb|xml)\z') { continue }
+        throw "The helper publish output is not a native image: unexpected file $path"
+    }
+    foreach ($leaf in $required) {
+        if (@($taken | Where-Object { [string]$_.path -ceq $leaf }).Count -ne 1) { throw "The helper publish output is missing: $leaf" }
+    }
+    # Emitted one entry at a time (never as one array object), so `foreach` and pipelines see each entry.
+    $taken.ToArray()
+}
+
 function Copy-OwnerOnlyCandidateFile {
     param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination, [Parameter(Mandatory)][string]$Origin)
     if ([IO.File]::Exists($Destination)) {
@@ -418,8 +441,8 @@ try {
         if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "The desktop RID build is missing a WinUI resource: $resource" }
         if (Copy-OwnerOnlyCandidateFile -Source $source -Destination (Join-Path $payload $resource) -Origin 'WinUI resource build') { $resourceMerges++ }
     }
-    # 3. Elevated helper publish output, including the root capability statement.
-    foreach ($entry in Get-OwnerOnlyCandidateFileEntries -Root $helperPublish) {
+    # 3. Elevated helper native image and the root capability statement (ADR-033: nothing else from its publish output).
+    foreach ($entry in Get-OwnerOnlyCandidateHelperPayloadEntries -Entries @(Get-OwnerOnlyCandidateFileEntries -Root $helperPublish)) {
         [void](Copy-OwnerOnlyCandidateFile -Source (Join-Path $helperPublish $entry.path) -Destination (Join-Path $payload $entry.path) -Origin 'helper publish')
     }
     $capabilitySource = Join-Path $repositoryRoot ('src\PCSteward.ElevatedHelper\' + $script:CapabilityLeaf)
@@ -427,9 +450,13 @@ try {
     foreach ($required in @('PCSteward.Desktop.exe', 'PCSteward.ElevatedHelper.exe', 'PCSteward.ScheduledHost.dll', 'App.xbf', 'PCSteward.Desktop.pri', 'Assets\pc-steward.ico', 'Assets\logo-mark-64.png')) {
         if (!(Test-Path -LiteralPath (Join-Path $payload $required) -PathType Leaf)) { throw "The candidate payload is missing: $required" }
     }
-    # Framework-dependent profile, as in the Task 48/49 candidates and the original installer.
+    # Framework-dependent desktop profile, as in the Task 48/49 candidates and the original installer.
     foreach ($runtimeLeaf in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
         if (Test-Path -LiteralPath (Join-Path $payload $runtimeLeaf)) { throw "The candidate must be framework-dependent, but contains $runtimeLeaf." }
+    }
+    # ADR-033: the helper is the native image alone; none of its managed files may reach the payload from any output.
+    foreach ($managedLeaf in @('PCSteward.ElevatedHelper.dll', 'PCSteward.ElevatedHelper.deps.json', 'PCSteward.ElevatedHelper.runtimeconfig.json')) {
+        if (Test-Path -LiteralPath (Join-Path $payload $managedLeaf)) { throw "The candidate helper must be a native image, but the payload contains $managedLeaf." }
     }
 
     $entries = Get-OwnerOnlyCandidateFileEntries -Root $payload

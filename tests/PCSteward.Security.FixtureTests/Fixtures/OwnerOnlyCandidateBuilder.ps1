@@ -109,7 +109,7 @@ $results.violations = @($violations | Where-Object { !$_.StartsWith('canary: ', 
 foreach ($name in @('Get-OwnerOnlyCandidateBuildSteps', 'Test-OwnerOnlyCandidateSdkVersion', 'Assert-OwnerOnlyCandidateOutputRootRule', 'Get-OwnerOnlyCandidateFileSha256',
         'Get-OwnerOnlyCandidateFileEntries', 'Get-OwnerOnlyCandidateExpectedXbf', 'ConvertTo-OwnerOnlyCandidateManifestBytes', 'Write-OwnerOnlyCandidateManifest', 'Copy-OwnerOnlyCandidateFile',
         'Get-OwnerOnlyCandidateProbeTypeNames', 'Test-OwnerOnlyCandidateProbeMark', 'Enter-OwnerOnlyCandidateGitIsolation', 'Exit-OwnerOnlyCandidateGitIsolation',
-        'Test-OwnerOnlyCandidateDescendsFromProbeCommit')) {
+        'Test-OwnerOnlyCandidateDescendsFromProbeCommit', 'Get-OwnerOnlyCandidateHelperPayloadEntries')) {
     $definition = @($builder.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }.GetNewClosure(), $true))
     if ($definition.Count -ne 1) { throw "ASSERT: expected one builder function $name, found $($definition.Count)." }
     . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -207,6 +207,20 @@ $results.copy = [ordered]@{
     first = Copy-OwnerOnlyCandidateFile -Source ([IO.Path]::Combine($tree, 'a.txt')) -Destination $copyTarget -Origin 'fixture'
     identical = Copy-OwnerOnlyCandidateFile -Source ([IO.Path]::Combine($tree, 'a.txt')) -Destination $copyTarget -Origin 'fixture'
     conflict = Get-Failure { Copy-OwnerOnlyCandidateFile -Source ([IO.Path]::Combine($tree, 'B.txt')) -Destination $copyTarget -Origin 'fixture' }
+}
+
+# ADR-033 native helper output rule: only the image and the capability statement are taken; .pdb/.xml are left out;
+# anything managed or nested stops the build; both required leaves must be present.
+function New-HelperEntries([string[]]$Paths) { , @($Paths | ForEach-Object { [pscustomobject]@{ path = $_; bytes = 1; sha256 = ('A' * 64) } }) }
+$nativeOutput = New-HelperEntries @('PCSteward.ElevatedHelper.exe', 'PCSteward.DeploymentCapability.txt', 'PCSteward.ElevatedHelper.pdb', 'PCSteward.Execution.pdb', 'PCSteward.Execution.xml')
+$results.helperOutput = [ordered]@{
+    native = @(Get-OwnerOnlyCandidateHelperPayloadEntries -Entries $nativeOutput | ForEach-Object { [string]$_.path })
+    managedDll = Get-Failure { Get-OwnerOnlyCandidateHelperPayloadEntries -Entries (New-HelperEntries @('PCSteward.ElevatedHelper.exe', 'PCSteward.DeploymentCapability.txt', 'PCSteward.ElevatedHelper.dll')) }
+    runtimeConfig = Get-Failure { Get-OwnerOnlyCandidateHelperPayloadEntries -Entries (New-HelperEntries @('PCSteward.ElevatedHelper.exe', 'PCSteward.DeploymentCapability.txt', 'PCSteward.ElevatedHelper.runtimeconfig.json')) }
+    runtimeDll = Get-Failure { Get-OwnerOnlyCandidateHelperPayloadEntries -Entries (New-HelperEntries @('PCSteward.ElevatedHelper.exe', 'PCSteward.DeploymentCapability.txt', 'coreclr.dll')) }
+    nestedPdb = Get-Failure { Get-OwnerOnlyCandidateHelperPayloadEntries -Entries (New-HelperEntries @('PCSteward.ElevatedHelper.exe', 'PCSteward.DeploymentCapability.txt', 'sub\x.pdb')) }
+    caseVariant = Get-Failure { Get-OwnerOnlyCandidateHelperPayloadEntries -Entries (New-HelperEntries @('pcsteward.elevatedhelper.exe', 'PCSteward.DeploymentCapability.txt')) }
+    missingCapability = Get-Failure { Get-OwnerOnlyCandidateHelperPayloadEntries -Entries (New-HelperEntries @('PCSteward.ElevatedHelper.exe')) }
 }
 
 # Reparse points are refused while enumerating (a junction on Windows, a symbolic link elsewhere).
