@@ -254,7 +254,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
         StringAssert.Matches(section, new System.Text.RegularExpressions.Regex(@"permissions:\s+contents: read"));
         StringAssert.Contains(section, "persist-credentials: false");
         // S7 obligation 1: the probe-build mark needs the commit lineage, so the builder job fetches full history.
-        int next = section.IndexOf("\n  owner-only-signing-diagnostic:", StringComparison.Ordinal);
+        int next = section.IndexOf("\n  native-helper-signing-diagnostic:", StringComparison.Ordinal);
         StringAssert.Contains(next > 0 ? section[..next] : section, "fetch-depth: 0");
         // The existing build-and-test job keeps its own steps.
         StringAssert.Contains(workflow[..job], "pwsh -NoProfile -File ./scripts/Test-CI.ps1");

@@ -1,3 +1,9 @@
+# Task 50 — Native AOT helper redeploy plan (ADR-033)
+
+`FR-UPD-15`, `TM-03/04/13`; ADR-022, ADR-033; security review H1; [plan](../review/TASK_50_NATIVE_HELPER_REDEPLOY_PLAN.md).
+
+- **Evidence plan.** CB3.3 and CB3.9 native-image checks (PE32+, no CLR header, no managed helper file); C3 probe re-run on the native helper.
+- **Tests.** Security `OwnerOnlySigningDiagnosticCiTests.NativeHelperSigningDiagnosticJobIsInformationalReadOnlyAndBuildsThisCommit`; CI `native-helper-signing-diagnostic`.
 # Task 50 — Native AOT elevated helper (ADR-033)
 
 `FR-UPD-15`, `TM-03/04/13`; ADR-022, ADR-033; security review H1.
