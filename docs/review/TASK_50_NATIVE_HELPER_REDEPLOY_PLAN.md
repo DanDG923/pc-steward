@@ -20,7 +20,7 @@ A C3 PASS proves UAC and pre-launch enforcement only, as C2 did. It is not a rea
 |---|---|---|---|
 | **P0** | Visual Studio Build Tools with the C++ workload | Yes (owner's UAC) | Done by the owner, 2026-11-10 |
 | **P1** | Read-only pre-read: linker, SDK, database, runtime-control names, signer, ledger (§3) | No | Run through Remote Control; fills the database and SDK pins |
-| **CB3.1–CB3.7** | Fetch, verify, build `d9a754b`, copy the database, NewPlan, CheckOnly, old-deployment dry run (§4) | No | CB3-prep |
+| **CB3.1–CB3.7b** | Fetch, verify, build `d9a754b`, copy the database, NewPlan, CheckOnly, old-deployment dry run, worktree integrity (§4) | No | CB3-prep |
 | **CB3.8–CB3.9** | One redeploy run, then post-checks (§5) | One UAC | CB3-exec |
 | **C3-pre, C3-check, C3-run** | The probe again on the new deployment (§6) | One UAC (C3-run) | C3 |
 
@@ -129,6 +129,17 @@ $vh = (Get-FileHash -LiteralPath (Join-Path $sc 'Test-OwnerOnlyProtectedTestDepl
 if ($vx -eq 0) { $v = ($vo -join "`n") | ConvertFrom-Json; 'OLD-DEPLOYMENT validation=' + $v.validation + ' origin=' + $v.payloadOrigin + ' thumbprint=' + $v.certificateThumbprint + ' launched=' + $v.launched; if ($v.validation -ceq 'Pass' -and $v.payloadOrigin -ceq 'pinned-unsigned-v2' -and $v.certificateThumbprint -ceq 'C7372974A9E6257671E106F11E660BC29C928849') { 'CB3.7-OK' } else { 'STOP: old deployment not as expected' } } else { 'STOP: validator did not pass' }
 ```
 
+**CB3.7b — worktree integrity (read-only; added after the Codex security review of this plan).** CB3.1 checks two Git hooks and CB3.2 checks `git status`, but a clean/smudge filter configured in the clone (or a global or system Git config, or an `info/attributes` file) could change the bytes `worktree add` wrote while `git status` still reports clean, and the build would then compile them. This step reads every file the commit tracks from the worktree and recomputes its Git blob hash, first as is and then with CRLF line endings turned back into LF (the only change `core.autocrlf` makes). It also counts configured filter drivers and attribute files. Run after CB3.7 and before CB3.8, in a new window after line V5. Expected: `WORKTREE-BLOBS entries=<about 1,100> checked=<same> crlfOnly=<n> mismatched=0 filterDrivers=0 infoAttributes=False attributesFile=False`, then `CB3.7b-OK`. Because the worktree's source files are what CB3.3 compiled, a pass shows the build read the commit's own bytes.
+
+```powershell
+$l1 = [Text.Encoding]::GetEncoding(28591); $bs = { param([byte[]]$b) $h = [Text.Encoding]::ASCII.GetBytes('blob ' + $b.Length + [char]0); $s = [Security.Cryptography.SHA1]::Create(); [void]$s.TransformBlock($h, 0, $h.Length, $null, 0); [void]$s.TransformFinalBlock($b, 0, $b.Length); [BitConverter]::ToString($s.Hash).Replace('-', '').ToLowerInvariant() }
+$fd = @($null | & git.exe -C $wt config --get-regexp '^filter\.' 2>$null).Count; $af = [string]($null | & git.exe -C $wt config --get core.attributesFile 2>$null); $ia = [string]($null | & git.exe -C $wt rev-parse --git-path info/attributes 2>$null); if ($ia -and ![IO.Path]::IsPathRooted($ia)) { $ia = Join-Path $wt $ia }; $iax = [bool]($ia -and (Test-Path -LiteralPath $ia))
+$tr = @($null | & git.exe -C $wt -c core.quotePath=false ls-tree -r --full-tree HEAD); $n = 0; $bad = 0; $crlf = 0; foreach ($e in $tr) { $m = [regex]::Match([string]$e, '^(\d{6}) blob ([0-9a-f]{40})\t(.+)$'); if (!$m.Success -or $m.Groups[1].Value -eq '120000') { $bad++; continue }; $n++; $p = Join-Path $wt $m.Groups[3].Value.Replace('/', '\'); if (!(Test-Path -LiteralPath $p -PathType Leaf)) { $bad++; continue }; $b = [IO.File]::ReadAllBytes($p); if ((& $bs $b) -ceq $m.Groups[2].Value) { continue }; if ((& $bs $l1.GetBytes($l1.GetString($b).Replace("`r`n", "`n"))) -ceq $m.Groups[2].Value) { $crlf++ } else { $bad++ } }
+'WORKTREE-BLOBS entries=' + $tr.Count + ' checked=' + $n + ' crlfOnly=' + $crlf + ' mismatched=' + $bad + ' filterDrivers=' + $fd + ' infoAttributes=' + $iax + ' attributesFile=' + ($af.Length -gt 0); if ($bad -eq 0 -and $n -eq $tr.Count -and $n -gt 1000 -and $fd -eq 0 -and !$iax -and $af.Length -eq 0) { 'CB3.7b-OK' } else { 'STOP: the worktree does not match the build commit' }
+```
+
+**What CB3.7b does not cover.** The builder runs as the owner, with the user-local SDK and the NuGet package cache, all writable by any program running as the owner. Same-user malware that can plant a Git filter could also change those. That is the accepted trust boundary of building the owner-only candidate on the owner's own PC (ADR-022, ADR-033 decision 5 option a), not something this plan can close. CB3.7b closes the Git checkout route that the review found, which is cheap to rule out.
+
 ## 5. CB3 exec (approval CB3-exec, given after CB3.6 is pasted back)
 
 **CB3.8 — one `-ExecuteApprovedPlan`.** Filled from CB3.6. The remover takes out the current deployment and its signer `C7372974…`; it never touches the data folder.
@@ -183,7 +194,7 @@ $pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHa
 ## 7. Approvals
 
 - **CB3-prep (CB3.1–CB3.7):** a Git fetch and a detached worktree in my clone, one build (network for restore), a database copy and one plan folder. Nothing elevated, signed or installed.
-- **CB3-exec (CB3.8 + CB3.9):** given after CB3.6 is pasted back and CB3.8 is filled in.
+- **CB3-exec (CB3.8 + CB3.9):** given after CB3.6 and CB3.7b are pasted back and CB3.8 is filled in.
 - **C3 (C3-pre, C3-check, C3-run):** given after CB3.9, with the pins filled in.
 
 ## 8. Results
