@@ -55,6 +55,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  owner-build-toolchain-check:
+    # Task 50 CB3.7c (Codex security review of PR #32; owner decision 2026-11-10), informational only (never gates): pin the
+    # official .NET SDK zip and the builder's restored NuGet packages for the owner's build commit, compare them with the pins
+    # committed for the owner, then run the owner's read-only toolchain check under Windows PowerShell 5.1 on an untouched copy
+    # (must pass) and after planting one change of each kind (must stop). No signing, certificate store, install or launch.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # Full history: the check runs on a worktree of the owner's build commit.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/Test-OwnerBuildToolchainCI.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: owner-build-toolchain-pins
+          path: ${{ runner.temp }}/toolchain-pins/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   owner-only-candidate-builder:
     # Task 50 G3: build the unsigned v2 owner-only candidate end to end with the pinned SDK and validate its manifest
     # with the installer's own reader. No signing, certificate store, install or launch.
