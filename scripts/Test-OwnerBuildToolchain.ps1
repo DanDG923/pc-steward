@@ -210,7 +210,8 @@ try {
         }
     }
     $unpinned = [Collections.Generic.List[string]]::new(); $nupkgChanged = [Collections.Generic.List[string]]::new(); $pkgMissing = [Collections.Generic.List[string]]::new(); $pkgChanged = [Collections.Generic.List[string]]::new(); $pkgExtra = [Collections.Generic.List[string]]::new(); $pkgReparse = [Collections.Generic.List[string]]::new(); $protected = 0; $verified = 0; $sameFiles = 0
-    $opcSkip = '\A(\[Content_Types\]\.xml|_rels/.*|package/.*|\.signature\.p7s)\z'
+    # NuGet extracts every entry except the OPC parts (it keeps .signature.p7s), and writes the nuspec under the lower-case id.
+    $opcSkip = '\A(\[Content_Types\]\.xml|_rels/.*|package/.*)\z'
     foreach ($key in @($used.Keys | Sort-Object)) {
         $u = $used[$key]
         if (!$pinMap.ContainsKey($key)) { $unpinned.Add($key); continue }
