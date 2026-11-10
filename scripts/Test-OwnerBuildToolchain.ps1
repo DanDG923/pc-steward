@@ -122,7 +122,7 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
                 switch -CaseSensitive ($child.LocalName) {
                     'NuGetPackageRoot' { if (!$value.TrimEnd('\').Equals($PackageFolders[0].TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('NuGetPackageRoot value') } }
                     'NuGetPackageFolders' { foreach ($f in $value.Split(';')) { if ($f -and !(@($PackageFolders | Where-Object { $_.TrimEnd('\').Equals($f.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) }).Count)) { $problems.Add('NuGetPackageFolders value') } } }
-                    'ProjectAssetsFile' { if (!$value.Equals($AssetsPath, [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('ProjectAssetsFile value') } }
+                    'ProjectAssetsFile' { if ($value -cne '$(MSBuildThisFileDirectory)project.assets.json' -and !$value.Equals($AssetsPath, [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('ProjectAssetsFile value') } }
                     default { if ($child.LocalName.StartsWith('Pkg', [StringComparison]::Ordinal)) { if (!(& $underFolder $value)) { $problems.Add($child.LocalName + ' value') } } elseif ($value -cnotmatch '\A[A-Za-z0-9.+-]+\z') { $problems.Add($child.LocalName + ' value') } }
                 }
             } elseif ($group.LocalName -ceq 'ItemGroup') {
@@ -135,8 +135,8 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
                 $target = [string]$child.GetAttribute('Project')
                 $prefix = '$(NuGetPackageRoot)'
                 if (!$target.StartsWith($prefix, [StringComparison]::Ordinal) -or $target.IndexOf('..') -ge 0) { $problems.Add('import outside the package root'); continue }
-                $parts = $target.Substring($prefix.Length).Split('\')
-                if ($parts.Count -lt 3 -or !$UsedPackages.ContainsKey($parts[0] + '/' + $parts[1])) { $problems.Add('import from a package this restore did not use') }
+                $relativeTarget = $target.Substring($prefix.Length); $parts = $relativeTarget.Split([char[]]@('\', '/'))
+                if ($parts.Count -lt 3 -or !$UsedPackages.ContainsKey($parts[0] + '/' + $parts[1])) { $problems.Add('import from a package this restore did not use: ' + $relativeTarget) }
             }
         }
     }
