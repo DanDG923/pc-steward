@@ -20,7 +20,7 @@ A C3 PASS proves UAC and pre-launch enforcement only, as C2 did. It is not a rea
 |---|---|---|---|
 | **P0** | Visual Studio Build Tools with the C++ workload | Yes (owner's UAC) | Done by the owner, 2026-11-10 |
 | **P1** | Read-only pre-read: linker, SDK, database, runtime-control names, signer, ledger (§3) | No | Run through Remote Control; fills the database and SDK pins |
-| **CB3.1–CB3.7b** | Fetch, verify, build `d9a754b`, copy the database, NewPlan, CheckOnly, old-deployment dry run, worktree integrity (§4) | No | CB3-prep |
+| **CB3.1–CB3.7c** | Fetch, verify, build `d9a754b`, copy the database, NewPlan, CheckOnly, old-deployment dry run, worktree integrity, toolchain check (§4) | No | CB3-prep (CB3.7c: owner decision 2026-11-10) |
 | **CB3.8–CB3.9** | One redeploy run, then post-checks (§5) | One UAC | CB3-exec |
 | **C3-pre, C3-check, C3-run** | The probe again on the new deployment (§6) | One UAC (C3-run) | C3 |
 
@@ -138,11 +138,27 @@ $tr = @($null | & git.exe -C $wt -c core.quotePath=false ls-tree -r --full-tree 
 'WORKTREE-BLOBS entries=' + $tr.Count + ' checked=' + $n + ' crlfOnly=' + $crlf + ' mismatched=' + $bad + ' filterDrivers=' + $fd + ' infoAttributes=' + $iax + ' attributesFile=' + ($af.Length -gt 0); if ($bad -eq 0 -and $n -eq $tr.Count -and $n -gt 1000 -and $fd -eq 0 -and !$iax -and $af.Length -eq 0) { 'CB3.7b-OK' } else { 'STOP: the worktree does not match the build commit' }
 ```
 
-**What CB3.7b does not cover.** The builder runs as the owner, with the user-local SDK and the NuGet package cache, all writable by any program running as the owner. Same-user malware that can plant a Git filter could also change those. That is the accepted trust boundary of building the owner-only candidate on the owner's own PC (ADR-022, ADR-033 decision 5 option a), not something this plan can close. CB3.7b closes the Git checkout route that the review found, which is cheap to rule out.
+**CB3.7b result and amendment.** On the owner's PC CB3.7b printed `mismatched=0` for all 1,107 tracked files (954 differ only by CRLF), but stopped on `filterDrivers=4`. All four are `filter.lfs.clean/smudge/process/required` in Git for Windows' own system config under Program Files (it adds them by default for Git LFS); the tree's only `.gitattributes` applies no filter and the clone has no LFS files. The worktree matches the build commit; the `filterDrivers=0` condition was stricter than a default Git for Windows install can meet. CB3.7c repeats the blob comparison and replaces that condition with: only those four names, only at system scope, and `git check-attr` reports no filter on any tracked path.
 
-## 5. CB3 exec (approval CB3-exec, given after CB3.6 is pasted back)
+**CB3.7c — toolchain check (read-only; Codex security review of PR #32, owner decision 2026-11-10 "Accept it, add a signature check", carried out as a byte comparison, which is stronger).** The builder runs as the owner with the user-local SDK and the NuGet package cache, both writable by any program running as the owner, so same-user malware could have swapped a compiler file or an MSBuild script before CB3.3 and the manifest would then pin its output. The owner accepted that residual (§8) and asked for a check that rules out tampering still on disk. [`Test-OwnerBuildToolchain.ps1`](../../scripts/Test-OwnerBuildToolchain.ps1) checks, against [the pin file](task50-owner-build-toolchain-pins.json) that the CI job `owner-build-toolchain-check` produced from Microsoft's release metadata and a clean restore of `d9a754b` on a GitHub-hosted runner:
 
-**CB3.8 — one `-ExecuteApprovedPlan`.** Filled from CB3.6. The remover takes out the current deployment and its signer `C7372974…`; it never touches the data folder.
+1. **Worktree:** every tracked file equals the commit's blob (as is, or with CRLF folded), and no Git filter applies (above).
+2. **.NET SDK:** it downloads the official `dotnet-sdk-10.0.403-win-x64.zip` into the work folder (about 300 MB), checks its pinned SHA-512, and compares every file in it with the owner's `%LocalAppData%\Microsoft\dotnet`: none missing, changed or extra in the zip's versioned folders, no newer host, runtime or SDK folder that would be chosen instead, and no junction.
+3. **NuGet packages:** every package and download-only pack in the three projects' restore output is pinned; the cached `.nupkg` matches its pinned SHA-512 and every extracted file equals its entry in that `.nupkg`; the package folder is the default one.
+4. **Build hooks:** no files in `%LocalAppData%\Microsoft\MSBuild\Current`, no `Directory.Build.*`, `Directory.Packages.props`, `NuGet.Config` or `global.json` above the worktree, no untracked or ignored file outside `bin`/`obj` (the SDK would compile an ignored `.cs` file), no extra `obj` import and only package-root imports in the generated NuGet props/targets, and no unexpected user-scope environment variable (MSBuild reads every environment variable as a property).
+
+CI runs the check under Windows PowerShell 5.1 on an untouched copy (it must print `CB3.7c-OK`) and again after planting one change of each kind (it must stop and name each). It writes only its work folder. **What it cannot show:** malware that is active while the check runs can hide from it; it rules out tampering that is still on disk, which is what a planted toolchain is. Same new window as CB3.7b (line V5 first), after CB3.7 and before CB3.8. Expected: `FETCH-EXIT 0`, the two pinned hashes, `WORKTREE … mismatched=0 … nonDefaultFilterEntries=0 … pathsWithFilter=0`, `SDK-ZIP … sha512Matches=True`, `SDK-FILES … missing=0 changed=0 extra=0 newerFolders=0 reparsePoints=0`, `PACKAGES … unpinned=0 nupkgChanged=0 missing=0 changed=0 extra=0 reparsePoints=0 folderProblems=0`, `BUILD-HOOKS msbuildUserCurrent=0 … aboveWorktree=0 untrackedOutsideBinObj=0 objImports=0 … unexpectedUserEnvironment=0 …`, then `CB3.7c-OK` and `CHECK-EXIT 0`. A `STOP:` line names the files or names (never the user's paths); report it and run nothing further.
+
+```powershell
+$cm = '<CB3.7C-COMMIT>'; $tf = Join-Path $wk 'toolchain-check'; $null = New-Item -ItemType Directory -Path $tf -Force; $null | & git.exe -C $wt fetch --quiet origin $cm 2>&1 | Out-Null; 'FETCH-EXIT ' + $LASTEXITCODE
+$gb = { param([string]$spec, [string]$dst) $pi = New-Object Diagnostics.ProcessStartInfo 'git.exe', ('-C "' + $wt + '" cat-file blob ' + $spec); $pi.UseShellExecute = $false; $pi.RedirectStandardOutput = $true; $pr = [Diagnostics.Process]::Start($pi); $ms = New-Object IO.MemoryStream; $pr.StandardOutput.BaseStream.CopyTo($ms); $pr.WaitForExit(); [IO.File]::WriteAllBytes($dst, $ms.ToArray()); (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash }
+$ck = Join-Path $tf 'Test-OwnerBuildToolchain.ps1'; $pn = Join-Path $tf 'task50-owner-build-toolchain-pins.json'; $h1 = & $gb ($cm + ':scripts/Test-OwnerBuildToolchain.ps1') $ck; $h2 = & $gb ($cm + ':docs/review/task50-owner-build-toolchain-pins.json') $pn; 'CHECK-SCRIPT ' + $h1; 'PIN-FILE ' + $h2
+if ($h1 -cne '<CB3.7C-SCRIPT-SHA256>' -or $h2 -cne '<CB3.7C-PINS-SHA256>') { 'STOP: the check script or pin file differs' } else { $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ck -Worktree $wt -PinFile $pn -WorkFolder $tf; 'CHECK-EXIT ' + $LASTEXITCODE }
+```
+
+## 5. CB3 exec (approval CB3-exec, given after CB3.6 and CB3.7c are pasted back)
+
+**CB3.8 — one `-ExecuteApprovedPlan`.** Filled from CB3.6 (2026-11-10: plan `CFEF3D77…C0FA`, encoded command `111458A4…41A3`). The remover takes out the current deployment and its signer `C7372974…`; it never touches the data folder.
 
 **Prompts, in order:**
 1. **UAC** for **Windows PowerShell**, verified publisher **Microsoft Windows** → **Yes**.
@@ -154,7 +170,7 @@ $tr = @($null | & git.exe -C $wt -c core.quotePath=false ls-tree -r --full-tree 
 Expected: `"status": "Validated"`, exit codes 0, `userDatabaseSha256` `78697727CE44A1167537A04BE4554339028F660DA142E00894778D602BEC55BE`, `"retry": false`, `"launched": false`.
 
 ```powershell
-$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 '<CB3.6-PLAN-SHA256>' -ApprovedEncodedCommandSha256 '<CB3.6-ENCODED-COMMAND-SHA256>' }
+$cb = [IO.File]::ReadAllBytes((Join-Path $sc 'Invoke-OwnerOnlyRedeployCaller.ps1')); $ch = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cb)).Replace('-', ''); if ($ch -cne '62DDE7B43EAE4D5193DFAF37F76F46CD8C1B3EA6B0916E35F4071DC0014CE3C8' -and $ch -cne 'EA5618D18939F3514DD81CBFAEE23BCC304168C073D98843F0B2C3BD69A60191') { 'STOP: caller hash differs' } else { 'CALLER ' + $ch; & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($cb))) -PlanPath $pf -ExecuteApprovedPlan -ApprovedPlanSha256 'CFEF3D77B6F513C2B7477ECA38BCD8BD3DF86791C00ACE5B5C69913316FBC0FA' -ApprovedEncodedCommandSha256 '111458A4A55916D929B2F12839A4800DDA2B9A4C4CCBD919A9FA5F3B867941A3' }
 ```
 
 **CB3.9 — post-checks** (read-only, new window). Expected: the CB3.3 manifest, `INSTALLED-CAPABILITY 50F169DD…654B`, `STORE My new=1 old=0`, `STORE Root new=1 old=0`, `STORE TrustedPublisher new=1 old=0` (`old` now also counts `C7372974…` and `67B59B4C…`). Before 2026-11-19T21:57Z, `TrustedPublisher old=1` is the known stale private-view entry `ED6FBCE8…`, as at CB2.9, and does not block, and a new signer about 14 days later. The new thumbprint, its `notAfterUtc` and `LEDGER-SHA256` become C3 pins.
@@ -180,13 +196,13 @@ The same three steps as C2 ([Part C re-run plan](TASK_50_PART_C_RERUN_PLAN.md) �
 **C3-check** (read-only; launches nothing). Paste line V5 first. The five pins are filled from CB3.3 and CB3.9.
 
 ```powershell
-$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Check -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '<CB3.3-BUILD-RECORD-SHA256>' -ExpectedManifestSha256 '<CB3.3-MANIFEST-SHA256>' -ExpectedLedgerSha256 '<CB3.9-LEDGER-SHA256>' -ExpectedSignerThumbprint '<CB3.9-THUMBPRINT>' -ExpectedSignerNotAfterUtc '<CB3.9-NOTAFTER>'; 'PROBE-EXIT ' + $LASTEXITCODE }
+$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Check -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 'B3E9C256B3344D6862C7A81C3F7276256E37C2FA191AC967BA0EFA080DBB4535' -ExpectedManifestSha256 '7CAD14C5DA2FA0056CBEEFBA26B79423861E8388FB0222C64A0CDF0E7F494BE3' -ExpectedLedgerSha256 '<CB3.9-LEDGER-SHA256>' -ExpectedSignerThumbprint '<CB3.9-THUMBPRINT>' -ExpectedSignerNotAfterUtc '<CB3.9-NOTAFTER>'; 'PROBE-EXIT ' + $LASTEXITCODE }
 ```
 
 **C3-run** (one launch; exactly one UAC prompt, for `PCSteward.ElevatedHelper.exe` signed by the new signer, with `--kind qualify-chocolatey-helper` in its details). Same pins.
 
 ```powershell
-$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Run -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 '<CB3.3-BUILD-RECORD-SHA256>' -ExpectedManifestSha256 '<CB3.3-MANIFEST-SHA256>' -ExpectedLedgerSha256 '<CB3.9-LEDGER-SHA256>' -ExpectedSignerThumbprint '<CB3.9-THUMBPRINT>' -ExpectedSignerNotAfterUtc '<CB3.9-NOTAFTER>'; 'PROBE-EXIT ' + $LASTEXITCODE }
+$pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHash -LiteralPath $pr -Algorithm SHA256).Hash; if ($prh -cne '831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A') { 'STOP: probe script hash differs' } else { 'PROBE-SCRIPT ' + $prh; $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $pr -Mode Run -ActivityCheck NoBlockingRecord -BuildRecordPath (Join-Path $co 'candidate-build.json') -ExpectedBuildRecordSha256 'B3E9C256B3344D6862C7A81C3F7276256E37C2FA191AC967BA0EFA080DBB4535' -ExpectedManifestSha256 '7CAD14C5DA2FA0056CBEEFBA26B79423861E8388FB0222C64A0CDF0E7F494BE3' -ExpectedLedgerSha256 '<CB3.9-LEDGER-SHA256>' -ExpectedSignerThumbprint '<CB3.9-THUMBPRINT>' -ExpectedSignerNotAfterUtc '<CB3.9-NOTAFTER>'; 'PROBE-EXIT ' + $LASTEXITCODE }
 ```
 
 **Expected and interpretation:** as C2-run, spec §8. Any FAIL stops use with no retry; INCONCLUSIVE proves nothing. A FAIL at the helper's own start (no `pipeConnected`) on a native image is a new finding under ADR-033 "Reconsider when", not a reason to go back to the framework-dependent helper without the owner's decision.
@@ -194,7 +210,7 @@ $pr = Join-Path $sc 'evidence\Task50-QualificationProbe.ps1'; $prh = (Get-FileHa
 ## 7. Approvals
 
 - **CB3-prep (CB3.1–CB3.7):** a Git fetch and a detached worktree in my clone, one build (network for restore), a database copy and one plan folder. Nothing elevated, signed or installed.
-- **CB3-exec (CB3.8 + CB3.9):** given after CB3.6 and CB3.7b are pasted back and CB3.8 is filled in.
+- **CB3-exec (CB3.8 + CB3.9):** given after CB3.6 and CB3.7c are pasted back and CB3.8 is filled in.
 - **C3 (C3-pre, C3-check, C3-run):** given after CB3.9, with the pins filled in.
 
 ## 8. Results
@@ -219,3 +235,30 @@ LEDGER-SHA256 C04D177CC383C255825E21D3CAF8D0E4D13C9E438EA6C27B394C73C1769A0F1C
 ```
 
 Every pin above matches §4: the database is unchanged since C2, the SDK is the pinned one, and the ledger is the CB2.9 value. No runtime-control name is set, so the new desktop's guard will not refuse C3-run. **Next:** approval CB3-prep. CB3.2 must run before 2026-11-19T21:31Z.
+
+### Result CB3.1–CB3.7 (2026-11-10, 18:15–18:31Z): passed
+
+CB3.1 and CB3.2 were pasted by the owner; CB3.3–CB3.7 ran once each, unelevated, in fresh Windows PowerShell 5.1 processes from a runner script on the owner's PC that used this plan's blocks unchanged and stopped at the first failure. Every line matched §4 (sanitized):
+
+```text
+CB3.2  HEAD d9a754b8da980a84eb4641cd58c98e27bdfd4444 DIRTY 0; ten SCRIPT lines CRLF and pinned; PROBE and CAPABILITY pinned; DB equalsPin=True; OLD-SIGNER hoursLeft=244; CB3.2-OK
+CB3.3  BUILDER 8C4F46AE…77C1 (CRLF pin)  BUILD-EXIT 0
+       CANDIDATE validation=Pass origin=pinned-unsigned-v2 helperProtocol=2 files=98 bytes=63874351 commit=d9a754b8… dirty=False sdk=10.0.403 signed=False probeIncluded=True probeMark=pc-steward-probe-build-mark:1
+       MANIFEST-SHA256 7CAD14C5DA2FA0056CBEEFBA26B79423861E8388FB0222C64A0CDF0E7F494BE3 (file hash equal)
+       BUILD-RECORD-SHA256 B3E9C256B3344D6862C7A81C3F7276256E37C2FA191AC967BA0EFA080DBB4535   CB3.3-OK
+       NATIVE-HELPER bytes=11488256 pe32plus=True clrHeaderRva=0 managedHelperFiles=0   CB3.3-NATIVE-OK
+CB3.4  COPY-SCRIPT 0E7FDC16…D313 (CRLF pin)  DBCOPY bytes=200704 source=copy=78697727…55BE headerValid=True walMode=True   CB3.4-OK
+CB3.5  CALLER 62DDE7B4…C3C8 (CRLF pin)  NewPlan Written, executed=false elevated=false
+       PLAN-FILE-SHA256 CFEF3D77B6F513C2B7477ECA38BCD8BD3DF86791C00ACE5B5C69913316FBC0FA  OLD-LEDGER-SHA256 C04D177C…0F1C  PLAN-CHECK True/True   CB3.5-OK
+CB3.6  CheckOnly Pass: planSha256 CFEF3D77…C0FA, encodedCommandSha256 111458A4A55916D929B2F12839A4800DDA2B9A4C4CCBD919A9FA5F3B867941A3,
+       candidate manifest 7CAD14C5…4BE3 (98 files, 63,874,351 bytes), old signer C7372974… (NotAfter 2026-11-20T22:01:22Z), old ledger C04D177C…0F1C,
+       database 78697727…55BE, six script hashes equal to their CRLF pins, elevated=false, unpackaged (15700)
+CB3.7  VALIDATOR 2CFB6C72…8EE2 (CRLF pin)  OLD-DEPLOYMENT validation=Pass origin=pinned-unsigned-v2 thumbprint=C7372974… launched=False   CB3.7-OK
+CB3.7b WORKTREE-BLOBS entries=1107 checked=1107 crlfOnly=954 mismatched=0 filterDrivers=4 infoAttributes=False attributesFile=False   (STOP on filterDrivers; see §4)
+```
+
+The helper in the candidate is the native image. CB3.8 is filled in from CB3.6 and the two C3 build pins from CB3.3. The CB3.7b stop is explained in §4 (Git for Windows' default system Git LFS entries; no filter applies to any tracked file); CB3.7c repeats that check with the amended condition.
+
+### Owner decision on the toolchain residual (2026-11-10, 18:30Z)
+
+The Codex security review of this plan (PR #32) reported that same-user malware could swap the user-local SDK before CB3.3, so the redeploy would sign and install its output. Asked how to handle it, the owner chose **"Accept it, add a signature check"**: the residual of building on the owner's own PC is accepted (ADR-022, ADR-033 decision 5 option a), and a read-only check runs before CB3.8. It was carried out as CB3.7c, which compares bytes with Microsoft's published SDK zip and NuGet packages rather than only Authenticode signatures, so edited MSBuild scripts, which carry no signature, are covered too. A full fix (an attested CI build) was offered and not chosen.

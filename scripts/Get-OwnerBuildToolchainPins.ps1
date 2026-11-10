@@ -3,13 +3,15 @@ param(
     [Parameter(Mandatory)][string]$Worktree,
     [Parameter(Mandatory)][string]$SourceCommit,
     [Parameter(Mandatory)][string]$OutputPath,
-    [Parameter(Mandatory)][string]$DownloadFolder
+    [Parameter(Mandatory)][string]$DownloadFolder,
+    [Parameter(Mandatory)][string]$SdkRoot
 )
 
-# Task 50 CB3.7c pins (CI only). From a clean worktree of the owner's build commit, on a GitHub-hosted runner with the pinned
-# SDK: look up the official SDK zip for global.json's version in Microsoft's release metadata, download it and check its
-# SHA-512, then restore the builder's three projects for win-x64 into an empty NuGet folder and record every package (and
-# download-only pack) with its SHA-512. scripts/Test-OwnerBuildToolchain.ps1 checks the owner's toolchain against this file.
+# Task 50 CB3.7c pins (CI only). From a clean worktree of the owner's build commit, on a GitHub-hosted runner: look up the
+# official SDK zip for global.json's version in Microsoft's release metadata, download it and check its SHA-512, extract it
+# into SdkRoot (a dotnet folder holding only that SDK, like the owner's user-local one), then restore the builder's three
+# projects for win-x64 with that dotnet into an empty NuGet folder and record every package (and download-only pack) with its
+# SHA-512. scripts/Test-OwnerBuildToolchain.ps1 checks the owner's toolchain against this file.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
@@ -17,9 +19,6 @@ $projects = @('src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj', 'src
 $head = [string](& git -C $Worktree rev-parse --verify HEAD)
 if ($head -cne $SourceCommit) { throw "The worktree is at $head, not $SourceCommit." }
 $sdkVersion = [string]([IO.File]::ReadAllText((Join-Path $Worktree 'global.json')) | ConvertFrom-Json).sdk.version
-Push-Location -LiteralPath $Worktree
-try { $actual = ([string](& dotnet --version | Select-Object -Last 1)).Trim() } finally { Pop-Location }
-if ($actual -cne $sdkVersion) { throw "dotnet --version is $actual, not the pinned $sdkVersion." }
 if (!$env:NUGET_PACKAGES) { throw 'Set NUGET_PACKAGES to an empty folder first.' }
 $packagesRoot = $env:NUGET_PACKAGES.TrimEnd('\', '/')
 
@@ -37,11 +36,22 @@ Invoke-WebRequest -Uri ([string]$file[0].url) -OutFile $zipPath -UseBasicParsing
 $sha = [Security.Cryptography.SHA512]::Create(); $stream = [IO.File]::OpenRead($zipPath)
 try { $zipHash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() } finally { $stream.Dispose(); $sha.Dispose() }
 if ($zipHash -cne ([string]$file[0].hash).ToLowerInvariant()) { throw 'The downloaded SDK zip does not match the release metadata hash.' }
+if (Test-Path -LiteralPath $SdkRoot) { throw 'SdkRoot must not exist yet.' }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $SdkRoot)
+# The runner's own dotnet may hold a newer patch that global.json's latestPatch would pick; use only the pinned SDK, as CB3.3 does.
+$dotnet = Join-Path $SdkRoot 'dotnet.exe'
+$env:DOTNET_ROOT = $SdkRoot; $env:PATH = $SdkRoot + [IO.Path]::PathSeparator + $env:PATH
+$env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'; $env:DOTNET_NOLOGO = '1'
+Push-Location -LiteralPath $Worktree
+try { $actual = ([string](& $dotnet --version | Select-Object -Last 1)).Trim() } finally { Pop-Location }
+if ($actual -cne $sdkVersion) { throw "dotnet --version is $actual, not the pinned $sdkVersion." }
 
 # Packages restored exactly as the builder restores them.
 $packages = @{}
 foreach ($project in $projects) {
-    & dotnet restore (Join-Path $Worktree $project) --runtime win-x64 | Out-Host
+    Push-Location -LiteralPath $Worktree
+    try { & $dotnet restore (Join-Path $Worktree $project) --runtime win-x64 | Out-Host } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for $project." }
     $assets = [IO.File]::ReadAllText((Join-Path (Join-Path $Worktree (Split-Path -Parent $project)) 'obj/project.assets.json')) | ConvertFrom-Json
     $found = @()

@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Path $env:NUGET_PACKAGES, $out -Force | Out-Null
 & git -C $repository worktree add --detach $worktree $SourceCommit | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'git worktree add failed.' }
 $generated = Join-Path $out 'owner-build-toolchain-pins.json'
-& (Join-Path $PSScriptRoot 'Get-OwnerBuildToolchainPins.ps1') -Worktree $worktree -SourceCommit $SourceCommit -OutputPath $generated -DownloadFolder $download
+& (Join-Path $PSScriptRoot 'Get-OwnerBuildToolchainPins.ps1') -Worktree $worktree -SourceCommit $SourceCommit -OutputPath $generated -DownloadFolder $download -SdkRoot $reference
 $generatedText = [IO.File]::ReadAllText($generated)
 Write-Output '----- generated pins -----'; Write-Output $generatedText
 $sha = [Security.Cryptography.SHA256]::Create()
@@ -40,8 +40,8 @@ if (Test-Path -LiteralPath $committedPath -PathType Leaf) {
 } else { Write-Output 'COMMITTED-PINS absent (first run: the generated file above is the candidate pin file)' }
 
 $zip = Join-Path $download (($generatedText | ConvertFrom-Json).sdkZip.name)
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[IO.Compression.ZipFile]::ExtractToDirectory($zip, $reference)
+# The generator extracted the official zip into $reference and restored with it, so the clean check also shows that a build
+# leaves the SDK folder unchanged.
 
 function Invoke-Check([string]$Label) {
     $lines = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-OwnerBuildToolchain.ps1') -Worktree $worktree -PinFile $pinFile -WorkFolder (Join-Path $temp "toolchain-check-$Label") -DotnetRoot $reference -PackagesRoot $env:NUGET_PACKAGES -SdkZipPath $zip 2>&1 | ForEach-Object { [string]$_ })
