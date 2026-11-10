@@ -51,8 +51,16 @@ function Invoke-Check([string]$Label) {
     [pscustomobject]@{ Code = $code; Text = ($lines -join "`n") }
 }
 
+# A git.exe placed first on Path must be ignored: the check runs Git only from its signed Program Files install, and re-hashes
+# what Git returns. hostname.exe stands in for a shim; if the check used it, the worktree step would fail.
+$fakeGit = Join-Path $temp 'fake-git'; New-Item -ItemType Directory -Path $fakeGit -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'hostname.exe') -Destination (Join-Path $fakeGit 'git.exe')
+$env:PATH = $fakeGit + [IO.Path]::PathSeparator + $env:PATH
+
 $clean = Invoke-Check 'clean'
-if ($clean.Code -ne 0 -or $clean.Text -notmatch '(?m)^CB3\.7c-OK$') { throw 'The toolchain check did not pass on the untouched official toolchain.' }
+$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', '(?m)^CB3\.7c-OK$')
+$cleanMissed = @($cleanExpected | Where-Object { $clean.Text -notmatch $_ })
+if ($clean.Code -ne 0 -or $cleanMissed.Count -gt 0) { throw ('The toolchain check did not pass on the untouched official toolchain: ' + ($cleanMissed -join ' | ')) }
 
 # Plant one change of each kind.
 $sdkFolder = Join-Path $reference ('sdk\' + ($generatedText | ConvertFrom-Json).sdkVersion)
@@ -73,4 +81,4 @@ $tampered = Invoke-Check 'tampered'
 $expected = @('(?m)^SDK-FILES .* changed=1 extra=1 ', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=2 ', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
 $missed = @($expected | Where-Object { $tampered.Text -notmatch $_ })
 if ($tampered.Code -eq 0 -or $tampered.Text -match '(?m)^CB3\.7c-OK$' -or $missed.Count -gt 0) { throw ('The toolchain check missed planted changes: ' + ($missed -join ' | ')) }
-Write-Output 'PASS: CB3.7c passes on the official toolchain and stops on each planted change (SDK file, extra SDK file, package file, source file, ignored source file, obj import, target added to a generated NuGet file).'
+Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path) and stops on each planted change (SDK file, extra SDK file, package file, source file, ignored source file, obj import, target added to a generated NuGet file).'

@@ -14,7 +14,10 @@ param(
 # toolchain the build used with Microsoft's own published bytes, so a planted or edited SDK file, compiler package or build
 # hook that is still in place stops the redeploy:
 #   1. Worktree: every tracked file equals the build commit's blob (as is, or with CRLF folded to LF), and no Git filter
-#      applies to any tracked path. Only Git for Windows' default system-scope Git LFS filter entries are tolerated.
+#      applies to any tracked path. Only Git for Windows' default system-scope Git LFS filter entries are tolerated. Git is
+#      run only from the signed Git for Windows install under Program Files (never from Path), and its answers are not
+#      trusted: the commit object and every tree are re-hashed here and must chain to the pinned commit ID, and untracked
+#      files are found by listing the folder, not by asking Git.
 #   2. .NET SDK: every file of the official SDK zip (downloaded here, SHA-512 pinned) is present and byte-identical in the
 #      owner's dotnet folder, no extra file sits in its versioned folders, and no newer host, runtime or SDK folder would be
 #      chosen instead.
@@ -87,10 +90,46 @@ function Compare-EntriesWithTree($Expected, [string]$Root, [string[]]$AllowedExt
 function Test-VersionName([string]$Name) { $Name -match '\A\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\z' }
 function Get-NumericVersion([string]$Name) { [version]($Name -replace '-.*\z', '') }
 function Test-UnderProgramFiles([string]$Path) {
-    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    foreach ($root in @([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles), [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86))) {
         if ($root -and $Path.StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
     $false
+}
+
+# Git for Windows from its admin-protected install (Codex security review of PR #32): a git.exe found on Path could be a
+# user-writable shim. Program Files is writable only by administrators; the launcher and the real binary must carry a valid
+# Authenticode signature and nothing on the way may be a junction or symlink.
+function Get-TrustedGit {
+    $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+    $gitRoot = Join-Path $programFiles 'Git'; $launcher = Join-Path $gitRoot 'cmd\git.exe'; $binary = Join-Path $gitRoot 'mingw64\bin\git.exe'
+    $problems = [Collections.Generic.List[string]]::new(); $signers = [Collections.Generic.List[string]]::new()
+    foreach ($path in @($gitRoot, (Join-Path $gitRoot 'cmd'), $launcher, (Join-Path $gitRoot 'mingw64'), (Join-Path $gitRoot 'mingw64\bin'), $binary)) {
+        $name = 'ProgramFiles\' + $path.Substring($programFiles.TrimEnd('\').Length + 1)
+        if (!(Test-Path -LiteralPath $path)) { $problems.Add('missing ' + $name); continue }
+        if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $problems.Add('reparse point ' + $name) }
+        if ($path -ceq $launcher -or $path -ceq $binary) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $path
+            if ([string]$signature.Status -cne 'Valid') { $problems.Add('signature ' + $signature.Status + ' on ' + $name) }
+            else { $signers.Add($signature.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)) }
+        }
+    }
+    [pscustomobject]@{ Path = $launcher; Problems = $problems; Signers = (@($signers | Sort-Object -Unique) -join ';') }
+}
+# Runs the trusted Git and returns its standard output as raw bytes (names and commit messages are not decoded or re-encoded).
+function Invoke-GitBytes([string[]]$Arguments) {
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $script:Git; $info.Arguments = (@($Arguments | ForEach-Object { '"' + $_ + '"' }) -join ' ')
+    $info.UseShellExecute = $false; $info.RedirectStandardOutput = $true; $info.CreateNoWindow = $true
+    $process = [Diagnostics.Process]::Start($info)
+    try {
+        $buffer = New-Object IO.MemoryStream; $process.StandardOutput.BaseStream.CopyTo($buffer); $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { throw ('git ' + ($Arguments -join ' ').Replace($Worktree, '<WORKTREE>') + ' failed') }
+        , $buffer.ToArray()
+    } finally { $process.Dispose() }
+}
+function Get-GitObjectId([string]$Type, [byte[]]$Bytes) {
+    $header = [Text.Encoding]::ASCII.GetBytes($Type + ' ' + $Bytes.Length + [char]0); $sha = [Security.Cryptography.SHA1]::Create()
+    try { [void]$sha.TransformBlock($header, 0, $header.Length, $null, 0); [void]$sha.TransformFinalBlock($Bytes, 0, $Bytes.Length); [BitConverter]::ToString($sha.Hash).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
 }
 
 # NuGet's generated obj\<project>.nuget.g.props/.targets are imported by every build. Restore writes only properties, SourceRoot
@@ -151,33 +190,70 @@ try {
     $pins = [IO.File]::ReadAllText($PinFile) | ConvertFrom-Json
     if ($pins.schema -cne 'pc-steward-owner-build-toolchain-pins:1') { throw 'Unknown pin file schema.' }
     Write-Safe ('TOOLCHAIN-PINS sha256=' + (Get-FileSha256 $PinFile) + ' sdk=' + $pins.sdkVersion + ' packages=' + @($pins.packages).Count)
-    $git = (Get-Command -Name 'git.exe' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $trustedGit = Get-TrustedGit
+    Write-Safe ('GIT path=ProgramFiles\Git\cmd\git.exe signers=' + $trustedGit.Signers + ' problems=' + $trustedGit.Problems.Count)
+    Write-Examples 'GIT-PROBLEM' $trustedGit.Problems
+    if ($trustedGit.Problems.Count -gt 0) { throw 'Git for Windows is not a signed install under Program Files.' }
+    $git = $trustedGit.Path; $script:Git = $git
 
     # 1. Worktree integrity (CB3.7b, amended: Git for Windows' default system Git LFS filter entries are tolerated only when
     #    no attribute source applies a filter to any tracked path).
     $latin1 = [Text.Encoding]::GetEncoding(28591)
-    $blobSha = { param([byte[]]$b) $h = [Text.Encoding]::ASCII.GetBytes('blob ' + $b.Length + [char]0); $s = [Security.Cryptography.SHA1]::Create(); [void]$s.TransformBlock($h, 0, $h.Length, $null, 0); [void]$s.TransformFinalBlock($b, 0, $b.Length); [BitConverter]::ToString($s.Hash).Replace('-', '').ToLowerInvariant() }
+    $commit = [string]$pins.sourceCommit
+    if ($commit -cnotmatch '\A[0-9a-f]{40}\z') { throw 'The pin file names no build commit.' }
     $head = [string]($null | & $git -C $Worktree rev-parse --verify HEAD)
-    $tree = @($null | & $git -C $Worktree -c core.quotePath=false ls-tree -r --full-tree HEAD)
+    # The commit object must hash to the pinned ID, and the listed trees must hash, folder by folder, to the commit's tree.
+    $commitBytes = Invoke-GitBytes @('-C', $Worktree, 'cat-file', 'commit', $commit)
+    $commitVerified = (Get-GitObjectId 'commit' $commitBytes) -ceq $commit
+    $rootTree = ''; $commitText = $latin1.GetString($commitBytes); if ($commitText -cmatch '\Atree ([0-9a-f]{40})\n') { $rootTree = $Matches[1] }
+    $listing = Invoke-GitBytes @('-C', $Worktree, 'ls-tree', '-r', '-t', '-z', '--full-tree', $commit)
+    $folders = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal); $folders[''] = [Collections.Generic.List[object]]::new()
+    $tree = [Collections.Generic.List[object]]::new(); $start = 0
+    while ($start -lt $listing.Length) {
+        $end = [Array]::IndexOf($listing, [byte]0, $start); if ($end -lt 0) { throw 'Unexpected git ls-tree output.' }
+        $tab = [Array]::IndexOf($listing, [byte]9, $start, $end - $start); if ($tab -lt 0) { throw 'Unexpected git ls-tree output.' }
+        $fields = [Text.Encoding]::ASCII.GetString($listing, $start, $tab - $start).Split(' ')
+        if ($fields.Count -ne 3 -or $fields[0] -cnotmatch '\A[0-7]{6}\z' -or $fields[2] -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Unexpected git ls-tree output.' }
+        $pathBytes = New-Object byte[] ($end - $tab - 1); [Array]::Copy($listing, $tab + 1, $pathBytes, 0, $pathBytes.Length)
+        $slash = [Array]::LastIndexOf($pathBytes, [byte]47)
+        $nameBytes = New-Object byte[] ($pathBytes.Length - $slash - 1); [Array]::Copy($pathBytes, $slash + 1, $nameBytes, 0, $nameBytes.Length)
+        $path = [Text.Encoding]::UTF8.GetString($pathBytes); $parent = ''; if ($slash -ge 0) { $parent = [Text.Encoding]::UTF8.GetString($pathBytes, 0, $slash) }
+        if (!$folders.ContainsKey($parent)) { throw 'git ls-tree listed an entry before its folder.' }
+        $entry = [pscustomobject]@{ Mode = $fields[0].TrimStart('0'); Type = $fields[1]; Id = $fields[2]; Name = $nameBytes; Path = $path }
+        $folders[$parent].Add($entry)
+        if ($fields[1] -ceq 'tree') { $folders[$path] = [Collections.Generic.List[object]]::new() } else { $tree.Add($entry) }
+        $start = $end + 1
+    }
+    $folderIds = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal); $treeMismatches = 0
+    foreach ($folder in @($folders.Keys | Sort-Object -Descending -Property @{ Expression = { if ($_) { $_.Split('/').Count } else { 0 } } })) {
+        $content = New-Object IO.MemoryStream
+        foreach ($e in $folders[$folder]) {
+            if ($e.Type -ceq 'tree' -and $folderIds[$e.Path] -cne $e.Id) { $treeMismatches++ }
+            $modeBytes = [Text.Encoding]::ASCII.GetBytes($e.Mode + ' '); $content.Write($modeBytes, 0, $modeBytes.Length); $content.Write($e.Name, 0, $e.Name.Length); $content.WriteByte(0)
+            for ($i = 0; $i -lt 40; $i += 2) { $content.WriteByte([Convert]::ToByte($e.Id.Substring($i, 2), 16)) }
+        }
+        $folderIds[$folder] = Get-GitObjectId 'tree' $content.ToArray()
+    }
+    $treesVerified = $treeMismatches -eq 0 -and $rootTree -and $folderIds[''] -ceq $rootTree
     $checked = 0; $mismatched = [Collections.Generic.List[string]]::new(); $crlfOnly = 0; $paths = [Collections.Generic.List[string]]::new()
-    foreach ($line in $tree) {
-        $m = [regex]::Match([string]$line, '\A(\d{6}) blob ([0-9a-f]{40})\t(.+)\z')
-        if (!$m.Success -or $m.Groups[1].Value -eq '120000') { $mismatched.Add([string]$line); continue }
-        $checked++; $paths.Add($m.Groups[3].Value)
-        $path = Join-Path $Worktree $m.Groups[3].Value.Replace('/', '\')
-        if (!(Test-Path -LiteralPath $path -PathType Leaf)) { $mismatched.Add($m.Groups[3].Value); continue }
+    foreach ($e in $tree) {
+        if ($e.Type -cne 'blob' -or $e.Mode -ceq '120000') { $mismatched.Add($e.Mode + ' ' + $e.Type + ' ' + $e.Path); continue }
+        $checked++; $paths.Add($e.Path)
+        $path = Join-Path $Worktree $e.Path.Replace('/', '\')
+        if (!(Test-Path -LiteralPath $path -PathType Leaf)) { $mismatched.Add($e.Path); continue }
         $bytes = [IO.File]::ReadAllBytes($path)
-        if ((& $blobSha $bytes) -ceq $m.Groups[2].Value) { continue }
-        if ((& $blobSha $latin1.GetBytes($latin1.GetString($bytes).Replace("`r`n", "`n"))) -ceq $m.Groups[2].Value) { $crlfOnly++ } else { $mismatched.Add($m.Groups[3].Value) }
+        if ((Get-GitObjectId 'blob' $bytes) -ceq $e.Id) { continue }
+        if ((Get-GitObjectId 'blob' $latin1.GetBytes($latin1.GetString($bytes).Replace("`r`n", "`n"))) -ceq $e.Id) { $crlfOnly++ } else { $mismatched.Add($e.Path) }
     }
     $filterLines = @($null | & $git -C $Worktree config --show-scope --get-regexp '^filter\.' 2>$null)
     $lfsNames = @('filter.lfs.clean', 'filter.lfs.smudge', 'filter.lfs.process', 'filter.lfs.required')
     $otherFilters = @($filterLines | ForEach-Object { $p = ([string]$_).Split(@(' ', "`t"), 3, [StringSplitOptions]::RemoveEmptyEntries); if ($p.Count -lt 2 -or $p[0] -cne 'system' -or $lfsNames -notcontains $p[1].ToLowerInvariant()) { if ($p.Count -ge 2) { $p[0] + ' ' + $p[1] } else { [string]$_ } } })
     $attributeLines = @($paths | & $git -C $Worktree -c core.quotePath=false check-attr --stdin filter)
     $filtered = @($attributeLines | Where-Object { !([string]$_).EndsWith(': filter: unspecified', [StringComparison]::Ordinal) })
-    Write-Safe ('WORKTREE head=' + $head + ' entries=' + $tree.Count + ' checked=' + $checked + ' crlfOnly=' + $crlfOnly + ' mismatched=' + $mismatched.Count + ' filterEntries=' + $filterLines.Count + ' nonDefaultFilterEntries=' + $otherFilters.Count + ' attributeChecks=' + $attributeLines.Count + ' pathsWithFilter=' + $filtered.Count)
+    Write-Safe ('WORKTREE head=' + $head + ' commitVerified=' + $commitVerified + ' treesVerified=' + $treesVerified + ' trees=' + $folders.Count + ' entries=' + $tree.Count + ' checked=' + $checked + ' crlfOnly=' + $crlfOnly + ' mismatched=' + $mismatched.Count + ' filterEntries=' + $filterLines.Count + ' nonDefaultFilterEntries=' + $otherFilters.Count + ' attributeChecks=' + $attributeLines.Count + ' pathsWithFilter=' + $filtered.Count)
     Write-Examples 'WORKTREE-MISMATCH' $mismatched; Write-Examples 'WORKTREE-FILTER' $otherFilters; Write-Examples 'WORKTREE-FILTERED-PATH' $filtered
-    if ($head -cne [string]$pins.sourceCommit) { Add-Failure 'worktree HEAD is not the pinned build commit' }
+    if ($head -cne $commit) { Add-Failure 'worktree HEAD is not the pinned build commit' }
+    if (!$commitVerified -or !$treesVerified) { Add-Failure 'Git did not return the pinned build commit''s own objects' }
     if ($mismatched.Count -gt 0 -or $checked -ne $tree.Count -or $checked -lt 1000) { Add-Failure 'worktree files differ from the build commit' }
     if ($otherFilters.Count -gt 0 -or $filtered.Count -gt 0 -or $attributeLines.Count -ne $checked) { Add-Failure 'a Git filter is configured or applies' }
 
@@ -321,8 +397,21 @@ try {
     for ($dir = Split-Path -Parent $Worktree; $dir; $dir = Split-Path -Parent $dir) {
         foreach ($name in $hookNames) { if (Test-Path -LiteralPath (Join-Path $dir $name) -PathType Leaf) { $ancestorHooks.Add((Join-Path $dir $name)) } }
     }
-    $untracked = @($null | & $git -C $Worktree -c core.quotePath=false ls-files --others --exclude-standard) + @($null | & $git -C $Worktree -c core.quotePath=false ls-files --others --ignored --exclude-standard)
-    $outsideBuild = @($untracked | Where-Object { $_ -and ('/' + $_) -notmatch '/(bin|obj)/' } | Sort-Object -Unique)
+    # Every file in the worktree folder that the build commit does not track (untracked or ignored), found without Git.
+    $tracked = New-NameSet; foreach ($e in $tree) { [void]$tracked.Add($e.Path.Replace('/', '\')) }
+    # bin and obj folders are not entered (build output; obj imports are checked below), nor is .git.
+    $outsideBuild = [Collections.Generic.List[string]]::new(); $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($Worktree)
+    if ((Get-Item -LiteralPath $Worktree -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $outsideBuild.Add('. (reparse point)') }
+    while ($pending.Count -gt 0) {
+        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force) {
+            $relative = $item.FullName.Substring($Worktree.Length + 1)
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $outsideBuild.Add($relative + ' (reparse point)'); continue }
+            if ($relative -eq '.git') { continue }
+            if ($item.PSIsContainer) { if (@('bin', 'obj') -notcontains $item.Name) { $pending.Push($item.FullName) }; continue }
+            if (!$tracked.Contains($relative)) { $outsideBuild.Add($relative) }
+        }
+    }
+    $outsideBuild = @($outsideBuild | Sort-Object)
     $objProblems = [Collections.Generic.List[string]]::new(); $generatedChecked = 0
     $packageFolderList = @($PackagesRoot) + @($fallbacks)
     foreach ($project in Get-ChildItem -LiteralPath (Join-Path $Worktree 'src') -Recurse -Force -Filter '*.csproj' -File) {

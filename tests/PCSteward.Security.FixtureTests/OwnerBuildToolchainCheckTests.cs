@@ -44,7 +44,7 @@ public sealed class OwnerBuildToolchainCheckTests
         StringAssert.Contains(script, "New-Item -ItemType Directory -Path $WorkFolder -Force");
         Assert.AreEqual(1, Regex.Count(script, @"Move-Item"), "one move (the finished download)");
         Assert.AreEqual(1, Regex.Count(script, @"DownloadFile\("), "one download (the SDK zip)");
-        foreach (string area in new[] { "'WORKTREE head='", "'SDK-ZIP name='", "'SDK-FILES zipEntries='", "'PACKAGES used='", "'BUILD-HOOKS msbuildUserCurrent='", "'CB3.7c-OK'" })
+        foreach (string area in new[] { "('GIT path=", "'WORKTREE head='", "'SDK-ZIP name='", "'SDK-FILES zipEntries='", "'PACKAGES used='", "'BUILD-HOOKS msbuildUserCurrent='", "'CB3.7c-OK'" })
             StringAssert.Contains(script, area);
         // The tolerated Git filters are exactly Git for Windows' system-scope Git LFS defaults.
         StringAssert.Contains(script, "$lfsNames = @('filter.lfs.clean', 'filter.lfs.smudge', 'filter.lfs.process', 'filter.lfs.required')");
@@ -52,6 +52,14 @@ public sealed class OwnerBuildToolchainCheckTests
         // NuGet's generated imports are checked element by element, not only by their Import paths (Codex review of PR #32).
         StringAssert.Contains(script, "function Get-NuGetGeneratedFileProblems");
         StringAssert.Contains(script, "if ($text.Contains('$([')) { $problems.Add('property function') }");
+        // Git comes only from the signed Program Files install, and what it returns is re-hashed to the pinned commit
+        // (Codex security review of PR #32); untracked files are listed from the folder, not from Git.
+        StringAssert.Contains(script, "function Get-TrustedGit");
+        StringAssert.Contains(script, "Get-AuthenticodeSignature -LiteralPath $path");
+        StringAssert.Contains(script, "$commitVerified = (Get-GitObjectId 'commit' $commitBytes) -ceq $commit");
+        StringAssert.Contains(script, "$folderIds[$folder] = Get-GitObjectId 'tree' $content.ToArray()");
+        Assert.IsFalse(script.Contains("Get-Command -Name 'git.exe'", StringComparison.OrdinalIgnoreCase), "git must not be resolved from Path");
+        Assert.IsFalse(script.Contains("ls-files", StringComparison.Ordinal), "untracked files must not be listed by Git");
         // Output never prints the user's profile path.
         StringAssert.Contains(script, "$Text.Replace($script:Profile, '<PROFILE>')");
     }
