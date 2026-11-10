@@ -69,7 +69,7 @@ Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath([Environment+Spe
 $env:PATH = $fakeGit + [IO.Path]::PathSeparator + $env:PATH
 
 $clean = Invoke-Check 'clean'
-$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', "(?m)^SDK-FILES .* extra=0 .* sideBySideManifestFiles=$sideBySideCount workloadStateFiles=0$", '(?m)^CB3\.7c-OK$')
+$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe binaries=[1-9][0-9]* signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', "(?m)^SDK-FILES .* extra=0 .* sideBySideManifestFiles=$sideBySideCount workloadStateFiles=0$", '(?m)^CB3\.7c-OK$')
 $cleanMissed = @($cleanExpected | Where-Object { $clean.Text -notmatch $_ })
 if ($clean.Code -ne 0 -or $cleanMissed.Count -gt 0) { throw ('The toolchain check did not pass on the untouched official toolchain: ' + ($cleanMissed -join ' | ')) }
 

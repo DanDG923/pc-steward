@@ -103,19 +103,28 @@ function Test-UnderProgramFiles([string]$Path) {
 # Authenticode signature and nothing on the way may be a junction or symlink.
 function Get-TrustedGit {
     $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
-    $gitRoot = Join-Path $programFiles 'Git'; $launcher = Join-Path $gitRoot 'cmd\git.exe'; $binary = Join-Path $gitRoot 'mingw64\bin\git.exe'
-    $problems = [Collections.Generic.List[string]]::new(); $signers = [Collections.Generic.List[string]]::new()
-    foreach ($path in @($gitRoot, (Join-Path $gitRoot 'cmd'), $launcher, (Join-Path $gitRoot 'mingw64'), (Join-Path $gitRoot 'mingw64\bin'), $binary)) {
+    $gitRoot = Join-Path $programFiles 'Git'; $launcher = Join-Path $gitRoot 'cmd\git.exe'
+    $problems = [Collections.Generic.List[string]]::new(); $signers = [Collections.Generic.List[string]]::new(); $binaries = 0
+    # The launcher, and every <folder>\bin\git.exe it may start (mingw64\bin, clangarm64\bin, bin, ...), depending on the release.
+    $checks = @($gitRoot, (Join-Path $gitRoot 'cmd'), $launcher)
+    if (Test-Path -LiteralPath $gitRoot -PathType Container) {
+        foreach ($folder in @(Get-ChildItem -LiteralPath $gitRoot -Directory -Force)) {
+            $candidate = Join-Path $folder.FullName 'bin\git.exe'
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $binaries++; $checks += @($folder.FullName, (Join-Path $folder.FullName 'bin'), $candidate) }
+        }
+    }
+    foreach ($path in $checks) {
         $name = 'ProgramFiles\' + $path.Substring($programFiles.TrimEnd('\').Length + 1)
         if (!(Test-Path -LiteralPath $path)) { $problems.Add('missing ' + $name); continue }
         if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $problems.Add('reparse point ' + $name) }
-        if ($path -ceq $launcher -or $path -ceq $binary) {
+        if ($path.EndsWith('\git.exe', [StringComparison]::OrdinalIgnoreCase)) {
             $signature = Get-AuthenticodeSignature -LiteralPath $path
             if ([string]$signature.Status -cne 'Valid') { $problems.Add('signature ' + $signature.Status + ' on ' + $name) }
             else { $signers.Add($signature.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)) }
         }
     }
-    [pscustomobject]@{ Path = $launcher; Problems = $problems; Signers = (@($signers | Sort-Object -Unique) -join ';') }
+    if ($binaries -lt 1) { $problems.Add('no bin\git.exe below ProgramFiles\Git') }
+    [pscustomobject]@{ Path = $launcher; Problems = $problems; Signers = (@($signers | Sort-Object -Unique) -join ';'); Binaries = $binaries }
 }
 # Runs the trusted Git and returns its standard output as raw bytes (names and commit messages are not decoded or re-encoded).
 function Invoke-GitBytes([string[]]$Arguments) {
@@ -193,7 +202,7 @@ try {
     if ($pins.schema -cne 'pc-steward-owner-build-toolchain-pins:1') { throw 'Unknown pin file schema.' }
     Write-Safe ('TOOLCHAIN-PINS sha256=' + (Get-FileSha256 $PinFile) + ' sdk=' + $pins.sdkVersion + ' packages=' + @($pins.packages).Count)
     $trustedGit = Get-TrustedGit
-    Write-Safe ('GIT path=ProgramFiles\Git\cmd\git.exe signers=' + $trustedGit.Signers + ' problems=' + $trustedGit.Problems.Count)
+    Write-Safe ('GIT path=ProgramFiles\Git\cmd\git.exe binaries=' + $trustedGit.Binaries + ' signers=' + $trustedGit.Signers + ' problems=' + $trustedGit.Problems.Count)
     Write-Examples 'GIT-PROBLEM' $trustedGit.Problems
     if ($trustedGit.Problems.Count -gt 0) { throw 'Git for Windows is not a signed install under Program Files.' }
     $git = $trustedGit.Path; $script:Git = $git
