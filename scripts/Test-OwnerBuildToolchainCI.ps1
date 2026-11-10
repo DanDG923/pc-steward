@@ -46,7 +46,8 @@ $zip = Join-Path $download (($generatedText | ConvertFrom-Json).sdkZip.name)
 function Invoke-Check([string]$Label) {
     $lines = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-OwnerBuildToolchain.ps1') -Worktree $worktree -PinFile $pinFile -WorkFolder (Join-Path $temp "toolchain-check-$Label") -DotnetRoot $reference -PackagesRoot $env:NUGET_PACKAGES -SdkZipPath $zip 2>&1 | ForEach-Object { [string]$_ })
     $code = $LASTEXITCODE
-    Write-Output "----- check: $Label (exit $code) -----"; $lines | ForEach-Object { Write-Output $_ }
+    # Write-Host: the log lines must not become part of this function's return value.
+    Write-Host "----- check: $Label (exit $code) -----"; $lines | ForEach-Object { Write-Host $_ }
     [pscustomobject]@{ Code = $code; Text = ($lines -join "`n") }
 }
 
