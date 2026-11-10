@@ -396,7 +396,14 @@ try {
         }
         $folders = @($assets.packageFolders.PSObject.Properties | ForEach-Object { $_.Name.TrimEnd('\', '/') })
         if ($folders.Count -lt 1 -or !$folders[0].Equals($PackagesRoot, [StringComparison]::OrdinalIgnoreCase)) { $folderProblems.Add($project + ' restores into another package folder') }
-        foreach ($f in ($folders | Select-Object -Skip 1)) { if (Test-UnderProgramFiles $f) { [void]$fallbacks.Add($f) } else { $folderProblems.Add($project + ' has a user-writable fallback package folder') } }
+        # A fallback folder must be written in canonical form (no '..', no relative parts) under Program Files, with no junction
+        # or symlink on the way; whatever it holds is still verified byte for byte below (Codex security review of PR #32).
+        foreach ($f in ($folders | Select-Object -Skip 1)) {
+            $canonical = $f.IndexOf('..') -lt 0 -and $f.IndexOf('/') -lt 0 -and [IO.Path]::IsPathRooted($f) -and [IO.Path]::GetFullPath($f).TrimEnd('\').Equals($f, [StringComparison]::OrdinalIgnoreCase)
+            $reparse = $false
+            if ($canonical) { for ($up = $f; $up -and $up.Length -gt 3; $up = Split-Path -Parent $up) { if ((Test-Path -LiteralPath $up) -and ((Get-Item -LiteralPath $up -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { $reparse = $true } } }
+            if ($canonical -and !$reparse -and (Test-UnderProgramFiles $f)) { [void]$fallbacks.Add($f) } else { $folderProblems.Add($project + ' has a fallback package folder that is not a plain Program Files folder') }
+        }
         foreach ($library in $assets.libraries.PSObject.Properties) {
             if ($library.Value.type -cne 'package') { continue }
             $slash = $library.Name.IndexOf('/'); $used[$library.Name.ToLowerInvariant()] = [pscustomobject]@{ Id = $library.Name.Substring(0, $slash); Version = $library.Name.Substring($slash + 1) }
@@ -416,32 +423,33 @@ try {
         $u = $used[$key]
         if (!$pinMap.ContainsKey($key)) { $unpinned.Add($key); continue }
         $id = $u.Id.ToLowerInvariant(); $version = $u.Version.ToLowerInvariant()
-        $folder = Join-Path (Join-Path $PackagesRoot $id) $version
-        if (!(Test-Path -LiteralPath $folder -PathType Container)) {
-            $inFallback = @($fallbacks | Where-Object { Test-Path -LiteralPath (Join-Path (Join-Path $_ $id) $version) -PathType Container })
-            if ($inFallback.Count -gt 0) { $protected++ } else { $pkgMissing.Add($key) }
-            continue
+        # Every copy is verified: the user cache and each fallback folder that holds this package (a Pkg<Id> property or an
+        # import may point at any of them).
+        $copies = @(@($PackagesRoot) + @($fallbacks) | ForEach-Object { Join-Path (Join-Path $_ $id) $version } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+        if ($copies.Count -eq 0) { $pkgMissing.Add($key); continue }
+        foreach ($folder in $copies) {
+            if (!$folder.StartsWith($PackagesRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { $protected++ }
+            $nupkgName = $id + '.' + $version + '.nupkg'; $nupkg = Join-Path $folder $nupkgName
+            $pinSha = [string]$pinMap[$key].sha512
+            if (!(Test-Path -LiteralPath $nupkg -PathType Leaf) -or (Get-FileSha512Base64 $nupkg) -cne $pinSha) { $nupkgChanged.Add($key); continue }
+            $shaFile = Join-Path $folder ($nupkgName + '.sha512')
+            if (!(Test-Path -LiteralPath $shaFile -PathType Leaf) -or ([IO.File]::ReadAllText($shaFile).Trim()) -cne $pinSha) { $pkgChanged.Add($key + ' ' + $nupkgName + '.sha512') }
+            $package = [IO.Compression.ZipFile]::OpenRead($nupkg)
+            try {
+                $expected = New-NameMap
+                foreach ($entry in $package.Entries) {
+                    if (!$entry.Name -or $entry.FullName -match $opcSkip) { continue }
+                    if ($entry.FullName.IndexOf('/') -lt 0 -and $entry.FullName.EndsWith('.nuspec', [StringComparison]::OrdinalIgnoreCase)) { $expected[$id + '.nuspec'] = $entry; continue }
+                    $expected[[Uri]::UnescapeDataString($entry.FullName).Replace('/', '\')] = $entry
+                }
+                $comparison = Compare-EntriesWithTree -Expected $expected -Root $folder -AllowedExtra @($nupkgName, ($nupkgName + '.sha512'), '.nupkg.metadata')
+            } finally { $package.Dispose() }
+            $verified++; $sameFiles += $comparison.Same
+            foreach ($x in $comparison.Missing) { $pkgMissing.Add($key + ' ' + $x) }; foreach ($x in $comparison.Changed) { $pkgChanged.Add($key + ' ' + $x) }
+            foreach ($x in $comparison.Extra) { $pkgExtra.Add($key + ' ' + $x) }; foreach ($x in $comparison.Reparse) { $pkgReparse.Add($key + ' ' + $x) }
         }
-        $nupkgName = $id + '.' + $version + '.nupkg'; $nupkg = Join-Path $folder $nupkgName
-        $pinSha = [string]$pinMap[$key].sha512
-        if (!(Test-Path -LiteralPath $nupkg -PathType Leaf) -or (Get-FileSha512Base64 $nupkg) -cne $pinSha) { $nupkgChanged.Add($key); continue }
-        $shaFile = Join-Path $folder ($nupkgName + '.sha512')
-        if (!(Test-Path -LiteralPath $shaFile -PathType Leaf) -or ([IO.File]::ReadAllText($shaFile).Trim()) -cne $pinSha) { $pkgChanged.Add($key + ' ' + $nupkgName + '.sha512') }
-        $package = [IO.Compression.ZipFile]::OpenRead($nupkg)
-        try {
-            $expected = New-NameMap
-            foreach ($entry in $package.Entries) {
-                if (!$entry.Name -or $entry.FullName -match $opcSkip) { continue }
-                if ($entry.FullName.IndexOf('/') -lt 0 -and $entry.FullName.EndsWith('.nuspec', [StringComparison]::OrdinalIgnoreCase)) { $expected[$id + '.nuspec'] = $entry; continue }
-                $expected[[Uri]::UnescapeDataString($entry.FullName).Replace('/', '\')] = $entry
-            }
-            $comparison = Compare-EntriesWithTree -Expected $expected -Root $folder -AllowedExtra @($nupkgName, ($nupkgName + '.sha512'), '.nupkg.metadata')
-        } finally { $package.Dispose() }
-        $verified++; $sameFiles += $comparison.Same
-        foreach ($x in $comparison.Missing) { $pkgMissing.Add($key + ' ' + $x) }; foreach ($x in $comparison.Changed) { $pkgChanged.Add($key + ' ' + $x) }
-        foreach ($x in $comparison.Extra) { $pkgExtra.Add($key + ' ' + $x) }; foreach ($x in $comparison.Reparse) { $pkgReparse.Add($key + ' ' + $x) }
     }
-    Write-Safe ('PACKAGES used=' + $used.Count + ' verified=' + $verified + ' adminProtectedFallback=' + $protected + ' filesSame=' + $sameFiles + ' unpinned=' + $unpinned.Count + ' nupkgChanged=' + $nupkgChanged.Count + ' missing=' + $pkgMissing.Count + ' changed=' + $pkgChanged.Count + ' extra=' + $pkgExtra.Count + ' reparsePoints=' + $pkgReparse.Count + ' folderProblems=' + $folderProblems.Count)
+    Write-Safe ('PACKAGES used=' + $used.Count + ' verified=' + $verified + ' fallbackCopies=' + $protected + ' filesSame=' + $sameFiles + ' unpinned=' + $unpinned.Count + ' nupkgChanged=' + $nupkgChanged.Count + ' missing=' + $pkgMissing.Count + ' changed=' + $pkgChanged.Count + ' extra=' + $pkgExtra.Count + ' reparsePoints=' + $pkgReparse.Count + ' folderProblems=' + $folderProblems.Count)
     Write-Examples 'PACKAGE-UNPINNED' $unpinned; Write-Examples 'PACKAGE-NUPKG-CHANGED' $nupkgChanged; Write-Examples 'PACKAGE-MISSING' $pkgMissing; Write-Examples 'PACKAGE-CHANGED' $pkgChanged
     Write-Examples 'PACKAGE-EXTRA' $pkgExtra; Write-Examples 'PACKAGE-REPARSE' $pkgReparse; Write-Examples 'PACKAGE-FOLDER' $folderProblems
     if ($used.Count -eq 0 -or $unpinned.Count + $nupkgChanged.Count + $pkgMissing.Count + $pkgChanged.Count + $pkgExtra.Count + $pkgReparse.Count + $folderProblems.Count -gt 0) { Add-Failure 'a restored package differs from its pinned bytes' }

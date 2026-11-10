@@ -72,6 +72,11 @@ public sealed class OwnerBuildToolchainCheckTests
         // Older side-by-side workload manifests pass only against pinned package bytes, and workload state is never tolerated.
         StringAssert.Contains(script, "$sideBySide['sdk-manifests\\' + $m.band + '\\' + $m.id + '\\' + $m.version] = $m");
         StringAssert.Contains(script, "foreach ($stateFolder in @('metadata\\workloads'))");
+        // Fallback package folders must be canonical plain Program Files folders, and every copy of a package is verified byte for
+        // byte, including copies in a fallback folder (Codex security review of PR #32).
+        StringAssert.Contains(script, "[IO.Path]::GetFullPath($f).TrimEnd('\\').Equals($f, [StringComparison]::OrdinalIgnoreCase)");
+        StringAssert.Contains(script, "foreach ($folder in $copies) {");
+        Assert.IsFalse(script.Contains("adminProtectedFallback", StringComparison.Ordinal), "a fallback copy is never trusted by location alone");
         // Output never prints the user's profile path.
         StringAssert.Contains(script, "$Text.Replace($script:Profile, '<PROFILE>')");
     }
