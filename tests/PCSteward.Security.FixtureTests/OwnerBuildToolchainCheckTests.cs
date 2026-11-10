@@ -60,6 +60,9 @@ public sealed class OwnerBuildToolchainCheckTests
         StringAssert.Contains(script, "$folderIds[$folder] = Get-GitObjectId 'tree' $content.ToArray()");
         Assert.IsFalse(script.Contains("Get-Command -Name 'git.exe'", StringComparison.OrdinalIgnoreCase), "git must not be resolved from Path");
         Assert.IsFalse(script.Contains("ls-files", StringComparison.Ordinal), "untracked files must not be listed by Git");
+        // Expressions are checked after XML decoding (Codex review of PR #32: &#40; hid a property function from the raw-text scan).
+        StringAssert.Contains(script, "foreach ($node in @($xml.SelectNodes('//@*')) + @($xml.SelectNodes('//text()')))");
+        StringAssert.Contains(script, "$problems.Add('import path is not a literal package file')");
         // NuGet writes NuGetPackageRoot as $(UserProfile)\... under the profile; only that exact leading macro is expanded.
         StringAssert.Contains(script, "$v.StartsWith('$(UserProfile)', [StringComparison]::Ordinal)");
         // Older side-by-side workload manifests pass only against pinned package bytes, and workload state is never tolerated.

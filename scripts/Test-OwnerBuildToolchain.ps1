@@ -153,11 +153,18 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
     $xml = New-Object Xml.XmlDocument; $xml.PreserveWhitespace = $false; $xml.LoadXml($text)
     $root = $xml.DocumentElement
     if ($root.LocalName -cne 'Project') { $problems.Add('root ' + $root.LocalName); return $problems }
+    # Values are checked after XML decoding (character references such as &#40; cannot hide an expression): the only
+    # expressions allowed are plain property references $(Name); no property functions $(Name.Method(...)) or $([Type]::...),
+    # no item lists @(...), no metadata %(...), and no MSBuild %XX escapes.
+    foreach ($node in @($xml.SelectNodes('//@*')) + @($xml.SelectNodes('//text()'))) {
+        $decoded = [string]$node.Value
+        if ($decoded -cmatch '@\(|%\(|%[0-9A-Fa-f]{2}' -or ($decoded -creplace '\$\([A-Za-z_][A-Za-z0-9_]*\)', '').Contains('$(')) { if ($node -is [Xml.XmlAttribute]) { $problems.Add('expression in ' + $node.OwnerElement.LocalName + ' attribute ' + $node.LocalName) } else { $problems.Add('expression in ' + $node.ParentNode.LocalName) } }
+    }
     foreach ($a in $root.Attributes) { if ($a.Name -cne 'ToolsVersion' -and $a.Name -cne 'xmlns') { $problems.Add('Project attribute ' + $a.Name) } }
     # NuGet writes NuGetPackageRoot as '$(UserProfile)\.nuget\packages\' when the folder is under the profile. Only that exact
     # leading macro is expanded (to this user's profile, which must also be what USERPROFILE says); any other '$(' is a problem.
     $expand = { param([string]$v) if ($v.StartsWith('$(UserProfile)', [StringComparison]::Ordinal) -and $env:USERPROFILE -and $env:USERPROFILE.TrimEnd('\').Equals($script:Profile.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $script:Profile.TrimEnd('\') + $v.Substring(14) } else { $v } }
-    $underFolder = { param([string]$v) foreach ($f in $PackageFolders) { if ($v.StartsWith($f.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -and $v.IndexOf('..') -lt 0) { return $true } }; $false }
+    $underFolder = { param([string]$v) if ($v.IndexOfAny([char[]]@('$', '%', '@')) -ge 0 -or $v.IndexOf('..') -ge 0) { return $false }; foreach ($f in $PackageFolders) { if ($v.StartsWith($f.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true } }; $false }
     $propertyRule = '\A(RestoreSuccess|RestoreTool|ProjectAssetsFile|NuGetPackageRoot|NuGetPackageFolders|NuGetProjectStyle|NuGetToolVersion|Pkg[A-Za-z0-9_]+)\z'
     foreach ($group in $root.ChildNodes) {
         if ($group.NodeType -eq [Xml.XmlNodeType]::Comment) { continue }
@@ -190,7 +197,9 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
                 $prefix = '$(NuGetPackageRoot)'
                 if (!$target.StartsWith($prefix, [StringComparison]::Ordinal) -or $target.IndexOf('..') -ge 0) { $problems.Add('import outside the package root'); continue }
                 $relativeTarget = $target.Substring($prefix.Length).TrimStart([char[]]@('\', '/')); $parts = $relativeTarget.Split([char[]]@('\', '/'))
-                if ($parts.Count -lt 3 -or !$UsedPackages.ContainsKey($parts[0] + '/' + $parts[1])) { $problems.Add('import from a package this restore did not use: ' + $relativeTarget) }
+                if ($relativeTarget -cnotmatch '\A[A-Za-z0-9._+/\\-]+\z') { $problems.Add('import path is not a literal package file'); continue }
+                if ($parts.Count -lt 3 -or !$UsedPackages.ContainsKey($parts[0] + '/' + $parts[1])) { $problems.Add('import from a package this restore did not use: ' + $relativeTarget); continue }
+                if (!@($PackageFolders | Where-Object { Test-Path -LiteralPath (Join-Path $_ $relativeTarget.Replace('/', '\')) -PathType Leaf }).Count) { $problems.Add('import target is not a file in its package: ' + $relativeTarget) }
             }
         }
     }
