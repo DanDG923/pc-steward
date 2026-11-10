@@ -40,7 +40,7 @@ public sealed class OwnerOnlySigningDiagnosticCiTests
         StringAssert.Contains(section, "runs-on: windows-latest");
         StringAssert.Contains(section, "continue-on-error: true");
         StringAssert.Matches(section, new System.Text.RegularExpressions.Regex(@"permissions:\s+contents: read"));
-        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(section, "uses: actions/checkout@v4"), "only this commit is checked out");
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(section, @"uses: actions/checkout@v\d+\n"), "only this commit is checked out");
         StringAssert.Contains(section, "persist-credentials: false");
         StringAssert.Contains(section, "fetch-depth: 0");
         StringAssert.Contains(section, "global-json-file: global.json");
