@@ -6,7 +6,8 @@ param(
     [string]$DotnetRoot,
     [string]$PackagesRoot,
     [string]$SdkZipPath,
-    [string[]]$AllowUserEnvironmentName = @()
+    [string[]]$AllowUserEnvironmentName = @(),
+    [string[]]$AllowWindowEnvironmentName = @()
 )
 
 # Task 50 CB3.7c (ADR-033 redeploy; Codex security review of PR #32, owner decision 2026-11-10: "Accept it, add a check").
@@ -27,7 +28,8 @@ param(
 #      SHA-512 and every extracted file equals that .nupkg's entry.
 #   4. Build hooks: no MSBuild user extension files, no Directory.Build.*/NuGet.Config above the worktree, no untracked or
 #      ignored file outside bin/obj, no extra obj import, only package-root imports in the generated NuGet props/targets,
-#      and no unexpected user-scope environment variable (MSBuild reads every environment variable as a property).
+#      no unexpected user-scope environment variable (MSBuild reads every environment variable as a property), and no
+#      build-relevant variable in this window or in the user's volatile environment.
 # It writes only below WorkFolder (the downloaded zip). It cannot see malware that hides from it while it runs; it rules
 # out tampering that is still on disk. Output names files relative to their roots and never prints the user's own paths.
 $ErrorActionPreference = 'Stop'
@@ -183,7 +185,13 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
                     'NuGetPackageRoot' { if (!$value.TrimEnd('\').Equals($PackageFolders[0].TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('NuGetPackageRoot value') } }
                     'NuGetPackageFolders' { foreach ($f in $value.Split(';')) { if ($f -and !(@($PackageFolders | Where-Object { $_.TrimEnd('\').Equals($f.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) }).Count)) { $problems.Add('NuGetPackageFolders value') } } }
                     'ProjectAssetsFile' { if ($value -cne '$(MSBuildThisFileDirectory)project.assets.json' -and !$value.Equals($AssetsPath, [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('ProjectAssetsFile value') } }
-                    default { if ($child.LocalName.StartsWith('Pkg', [StringComparison]::Ordinal)) { if (!(& $underFolder $value)) { $problems.Add($child.LocalName + ' value') } } elseif ($value -cnotmatch '\A[A-Za-z0-9.+-]+\z') { $problems.Add($child.LocalName + ' value') } }
+                    default { if ($child.LocalName.StartsWith('Pkg', [StringComparison]::Ordinal)) {
+                        # Pkg<Id> must be exactly the folder of the used package whose ID it names (Codex security review of PR #32).
+                        $bound = $false
+                        foreach ($u in @($UsedPackages.Values | Where-Object { $_.Id -and ('Pkg' + ([string]$_.Id).Replace('.', '_')).Equals($child.LocalName, [StringComparison]::OrdinalIgnoreCase) })) {
+                            foreach ($f in $PackageFolders) { if ($value.TrimEnd('\').Equals($f.TrimEnd('\') + '\' + ([string]$u.Id).ToLowerInvariant() + '\' + ([string]$u.Version).ToLowerInvariant(), [StringComparison]::OrdinalIgnoreCase)) { $bound = $true } }
+                        }
+                        if (!$bound -or !(& $underFolder $value)) { $problems.Add($child.LocalName + ' value is not its package folder') } } elseif ($value -cnotmatch '\A[A-Za-z0-9.+-]+\z') { $problems.Add($child.LocalName + ' value') } }
                 }
             } elseif ($group.LocalName -ceq 'ItemGroup') {
                 if ($child.LocalName -cne 'SourceRoot') { $problems.Add('item ' + $child.LocalName); continue }
@@ -481,11 +489,20 @@ try {
     $userEnvironment = [Environment]::GetEnvironmentVariables('User')
     $expectedNames = @('Path', 'TEMP', 'TMP', 'OneDrive', 'OneDriveConsumer', 'OneDriveCommercial', 'ChocolateyLastPathUpdate', 'ChocolateyToolsLocation') + $AllowUserEnvironmentName
     $unexpectedNames = @($userEnvironment.Keys | Where-Object { $expectedNames -notcontains $_ } | Sort-Object)
-    $processRisky = @(Get-ChildItem Env: | Where-Object { $_.Name -match '\A(MSBuild|NUGET_|DOTNET_|COMPlus_|CORECLR_|Ilc|_?CL_?\z|_?LINK_?\z)' } | ForEach-Object { $_.Name } | Sort-Object)
-    Write-Safe ('BUILD-HOOKS msbuildUserCurrent=' + $currentHooks.Count + ' msbuildUserOther=' + $otherMsbuildFiles + ' aboveWorktree=' + $ancestorHooks.Count + ' untrackedOutsideBinObj=' + $outsideBuild.Count + ' nugetGeneratedFiles=' + $generatedChecked + ' objImports=' + $objProblems.Count + ' userEnvironment=' + $userEnvironment.Count + ' unexpectedUserEnvironment=' + $unexpectedNames.Count + ' buildEnvironmentInThisWindow=' + $processRisky.Count)
+    # Build-relevant variables in this window (the owner runs CB3.7c and CB3.8 here) or in the user's volatile environment
+    # (HKCU\Volatile Environment, merged into new logon processes) are stops (Codex security review of PR #32): MSBuild reads
+    # every environment variable, and MSBuildSDKsPath, DOTNET_*, LIB or INCLUDE redirect the SDK, the host or the native linker.
+    $riskyPattern = '\A(MSBuild|NUGET_|NuGet|DOTNET_|DOTNETSDK|COMPlus_|CORECLR_|Ilc|VCTools|VCINSTALLDIR|VSINSTALLDIR|VSCMD|WindowsSdk|_?CL_?\z|_?LINK_?\z|INCLUDE\z|LIB\z|LIBPATH\z)'
+    $allowedWindow = @($AllowWindowEnvironmentName | ForEach-Object { ([string]$_).Split(',') } | Where-Object { $_ })
+    $processRisky = @(Get-ChildItem Env: | Where-Object { $_.Name -match $riskyPattern -and $allowedWindow -notcontains $_.Name } | ForEach-Object { $_.Name } | Sort-Object)
+    $volatileRisky = [Collections.Generic.List[string]]::new()
+    if (Test-Path -LiteralPath 'HKCU:\Volatile Environment') {
+        foreach ($key in @(Get-Item -LiteralPath 'HKCU:\Volatile Environment') + @(Get-ChildItem -LiteralPath 'HKCU:\Volatile Environment')) { foreach ($name in $key.GetValueNames()) { if ($name -match $riskyPattern) { $volatileRisky.Add($name) } } }
+    }
+    Write-Safe ('BUILD-HOOKS msbuildUserCurrent=' + $currentHooks.Count + ' msbuildUserOther=' + $otherMsbuildFiles + ' aboveWorktree=' + $ancestorHooks.Count + ' untrackedOutsideBinObj=' + $outsideBuild.Count + ' nugetGeneratedFiles=' + $generatedChecked + ' objImports=' + $objProblems.Count + ' userEnvironment=' + $userEnvironment.Count + ' unexpectedUserEnvironment=' + $unexpectedNames.Count + ' buildEnvironmentInThisWindow=' + $processRisky.Count + ' volatileBuildEnvironment=' + $volatileRisky.Count)
     Write-Examples 'HOOK-MSBUILD-USER' $currentHooks; Write-Examples 'HOOK-ABOVE-WORKTREE' $ancestorHooks; Write-Examples 'HOOK-UNTRACKED' $outsideBuild; Write-Examples 'HOOK-OBJ' $objProblems
-    Write-Examples 'HOOK-USER-ENVIRONMENT-NAME' $unexpectedNames; Write-Examples 'HOOK-WINDOW-ENVIRONMENT-NAME' $processRisky
-    if ($currentHooks.Count + $ancestorHooks.Count + $outsideBuild.Count + $objProblems.Count + $unexpectedNames.Count -gt 0) { Add-Failure 'a build hook outside the SDK and packages is present' }
+    Write-Examples 'HOOK-USER-ENVIRONMENT-NAME' $unexpectedNames; Write-Examples 'HOOK-WINDOW-ENVIRONMENT-NAME' $processRisky; Write-Examples 'HOOK-VOLATILE-ENVIRONMENT-NAME' $volatileRisky
+    if ($currentHooks.Count + $ancestorHooks.Count + $outsideBuild.Count + $objProblems.Count + $unexpectedNames.Count + $processRisky.Count + $volatileRisky.Count -gt 0) { Add-Failure 'a build hook outside the SDK and packages is present' }
 } catch {
     Add-Failure ('the check could not finish: ' + $_.Exception.Message)
 }

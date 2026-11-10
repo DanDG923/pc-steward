@@ -43,8 +43,10 @@ $zip = Join-Path $download (($generatedText | ConvertFrom-Json).sdkZip.name)
 # The generator extracted the official zip into $reference and restored with it, so the clean check also shows that a build
 # leaves the SDK folder unchanged.
 
+# The runner's own .NET and NuGet variables (setup-dotnet, this script) are named so the window check allows exactly them.
+$runnerWindowNames = (@(Get-ChildItem Env: | Where-Object { $_.Name -match '\A(DOTNET_|NUGET_)' } | ForEach-Object { $_.Name }) -join ',')
 function Invoke-Check([string]$Label) {
-    $lines = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-OwnerBuildToolchain.ps1') -Worktree $worktree -PinFile $pinFile -WorkFolder (Join-Path $temp "toolchain-check-$Label") -DotnetRoot $reference -PackagesRoot $env:NUGET_PACKAGES -SdkZipPath $zip 2>&1 | ForEach-Object { [string]$_ })
+    $lines = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-OwnerBuildToolchain.ps1') -Worktree $worktree -PinFile $pinFile -WorkFolder (Join-Path $temp "toolchain-check-$Label") -DotnetRoot $reference -PackagesRoot $env:NUGET_PACKAGES -SdkZipPath $zip -AllowWindowEnvironmentName $runnerWindowNames 2>&1 | ForEach-Object { [string]$_ })
     $code = $LASTEXITCODE
     # Write-Host: the log lines must not become part of this function's return value.
     Write-Host "----- check: $Label (exit $code) -----"; $lines | ForEach-Object { Write-Host $_ }
@@ -69,7 +71,7 @@ Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath([Environment+Spe
 $env:PATH = $fakeGit + [IO.Path]::PathSeparator + $env:PATH
 
 $clean = Invoke-Check 'clean'
-$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe binaries=[1-9][0-9]* signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', "(?m)^SDK-FILES .* extra=0 .* sideBySideManifestFiles=$sideBySideCount workloadStateFiles=0$", '(?m)^CB3\.7c-OK$')
+$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe binaries=[1-9][0-9]* signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', "(?m)^SDK-FILES .* extra=0 .* sideBySideManifestFiles=$sideBySideCount workloadStateFiles=0$", '(?m)^BUILD-HOOKS .* buildEnvironmentInThisWindow=0 volatileBuildEnvironment=0$', '(?m)^CB3\.7c-OK$')
 $cleanMissed = @($cleanExpected | Where-Object { $clean.Text -notmatch $_ })
 if ($clean.Code -ne 0 -or $cleanMissed.Count -gt 0) { throw ('The toolchain check did not pass on the untouched official toolchain: ' + ($cleanMissed -join ' | ')) }
 
@@ -99,9 +101,16 @@ if ([IO.File]::ReadAllText($generatedTargets) -notmatch '<Target Name="Planted"'
 $encodedImport = '<ImportGroup><Import Project="$(NuGetPackageRoot)microsoft.dotnet.ilcompiler/' + $ilcompiler.Name + '/$&#40;[System.String]::Copy(''x''))/x.targets" /></ImportGroup></Project>'
 [IO.File]::WriteAllText($generatedTargets, [IO.File]::ReadAllText($generatedTargets).Replace('</Project>', $encodedImport))
 if ([IO.File]::ReadAllText($generatedTargets) -notmatch '&#40;') { throw 'The encoded import was not planted.' }
+# A Pkg<Id> path pointing at another folder under the package root, and an MSBuild variable in the window.
+$desktopProps = Join-Path $worktree 'src\PCSteward.Desktop\obj\PCSteward.Desktop.csproj.nuget.g.props'
+$propsXml = New-Object Xml.XmlDocument; $propsXml.PreserveWhitespace = $true; $propsXml.Load($desktopProps)
+$pkgProperty = @($propsXml.GetElementsByTagName('*') | Where-Object { $_.LocalName -like 'Pkg*' } | Select-Object -First 1)[0]
+if (!$pkgProperty) { throw 'The desktop has no Pkg property to plant.' }
+$pkgProperty.InnerText = Join-Path $env:NUGET_PACKAGES 'planted.package\1.0.0'; $propsXml.Save($desktopProps)
+$env:MSBuildSDKsPath = Join-Path $temp 'planted-sdks'
 
 $tampered = Invoke-Check 'tampered'
-$expected = @(('(?m)^SDK-FILES .* changed=2 extra=1 .* sideBySideManifestFiles=' + ($sideBySideCount - 1) + ' workloadStateFiles=1$'), '(?m)^  SDK-CHANGED .*\\10\.0\.111\\WorkloadManifest\.json$', '(?m)^  SDK-WORKLOAD-STATE metadata\\workloads\\', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=4 ', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: expression in Import attribute Project$', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
+$expected = @(('(?m)^SDK-FILES .* changed=2 extra=1 .* sideBySideManifestFiles=' + ($sideBySideCount - 1) + ' workloadStateFiles=1$'), '(?m)^  SDK-CHANGED .*\\10\.0\.111\\WorkloadManifest\.json$', '(?m)^  SDK-WORKLOAD-STATE metadata\\workloads\\', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=5 .* buildEnvironmentInThisWindow=1 ', '(?m)^  HOOK-WINDOW-ENVIRONMENT-NAME MSBuildSDKsPath$', '(?m)^  HOOK-OBJ .*Desktop\.csproj\.nuget\.g\.props: Pkg\w+ value is not its package folder$', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: expression in Import attribute Project$', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
 $missed = @($expected | Where-Object { $tampered.Text -notmatch $_ })
 if ($tampered.Code -eq 0 -or $tampered.Text -match '(?m)^CB3\.7c-OK$' -or $missed.Count -gt 0) { throw ('The toolchain check missed planted changes: ' + ($missed -join ' | ')) }
-Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path) and stops on each planted change (SDK file, extra SDK file, older side-by-side manifest file, workload install state, package file, source file, ignored source file, obj import, target added to a generated NuGet file, entity-encoded property function in a generated import).'
+Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path) and stops on each planted change (SDK file, extra SDK file, older side-by-side manifest file, workload install state, package file, source file, ignored source file, obj import, target added to a generated NuGet file, entity-encoded property function in a generated import, Pkg path to another folder, MSBuild variable in the window).'
