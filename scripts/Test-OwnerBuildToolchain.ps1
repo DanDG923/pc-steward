@@ -34,6 +34,12 @@ param(
 # out tampering that is still on disk. Output names files relative to their roots and never prints the user's own paths.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Built-in modules only (Codex security review of PR #32): PowerShell auto-loads a command's module from the first
+# PSModulePath entry that has it, so a module in the user's Documents folder could replace Get-AuthenticodeSignature or
+# Get-FileHash. Before any command is auto-loaded, the module path is reduced to Windows PowerShell's own folder (writable
+# only by administrators) and the three modules this check uses are loaded from there by full path.
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
+foreach ($builtIn in @('Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security')) { Import-Module -Name (Join-Path (Join-Path $PSHOME 'Modules') $builtIn) -Force }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 

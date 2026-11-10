@@ -70,7 +70,17 @@ $fakeGit = Join-Path $temp 'fake-git'; New-Item -ItemType Directory -Path $fakeG
 Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'hostname.exe') -Destination (Join-Path $fakeGit 'git.exe')
 $env:PATH = $fakeGit + [IO.Path]::PathSeparator + $env:PATH
 
+# A module first on PSModulePath named like a built-in one must not load: the check reduces the module path to PSHOME and
+# loads its modules by full path (Codex security review of PR #32). The planted module would leave a marker file.
+$plantedModules = Join-Path $temp 'planted-modules'; $marker = Join-Path $temp 'planted-module-loaded.txt'
+foreach ($name in @('Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Utility')) {
+    New-Item -ItemType Directory -Path (Join-Path $plantedModules $name) -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path (Join-Path $plantedModules $name) ($name + '.psm1')), "[IO.File]::WriteAllText('$marker', '$name')")
+}
+$savedModulePath = $env:PSModulePath; $env:PSModulePath = $plantedModules + [IO.Path]::PathSeparator + $env:PSModulePath
 $clean = Invoke-Check 'clean'
+$env:PSModulePath = $savedModulePath
+if (Test-Path -LiteralPath $marker) { throw ('The toolchain check loaded a planted module: ' + [IO.File]::ReadAllText($marker)) }
 $cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe binaries=[1-9][0-9]* signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', "(?m)^SDK-FILES .* extra=0 .* sideBySideManifestFiles=$sideBySideCount workloadStateFiles=0$", '(?m)^BUILD-HOOKS .* buildEnvironmentInThisWindow=0 unrecognizedWindowEnvironment=0 volatileBuildEnvironment=0$', '(?m)^CB3\.7c-OK$')
 $cleanMissed = @($cleanExpected | Where-Object { $clean.Text -notmatch $_ })
 if ($clean.Code -ne 0 -or $cleanMissed.Count -gt 0) { throw ('The toolchain check did not pass on the untouched official toolchain: ' + ($cleanMissed -join ' | ')) }
@@ -125,4 +135,4 @@ $tampered = Invoke-Check 'tampered'
 $expected = @(('(?m)^SDK-FILES .* changed=2 extra=1 .* sideBySideManifestFiles=' + ($sideBySideCount - 1) + ' workloadStateFiles=1$'), '(?m)^  SDK-CHANGED .*\\10\.0\.111\\WorkloadManifest\.json$', '(?m)^  SDK-WORKLOAD-STATE metadata\\workloads\\', '(?m)^PACKAGES .* changed=1 .* folderProblems=1$', '(?m)^  PACKAGE-FOLDER .*Desktop\.csproj has a fallback package folder that is not a plain Program Files folder$', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=6 .* buildEnvironmentInThisWindow=2 unrecognizedWindowEnvironment=2 volatileBuildEnvironment=1$', '(?m)^  HOOK-WINDOW-ENVIRONMENT-NAME MSBuildSDKsPath$', '(?m)^  HOOK-WINDOW-UNRECOGNIZED-NAME CustomAfterMicrosoftCommonTargets$', '(?m)^  HOOK-VOLATILE-ENVIRONMENT-NAME CustomBeforeMicrosoftCommonTargets$', '(?m)^  HOOK-OBJ .*\\obj\\hooks\\planted\.targets$', '(?m)^  HOOK-OBJ .*Desktop\.csproj\.nuget\.g\.props: Pkg\w+ value is not its package folder$', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: expression in Import attribute Project$', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
 $missed = @($expected | Where-Object { $tampered.Text -notmatch $_ })
 if ($tampered.Code -eq 0 -or $tampered.Text -match '(?m)^CB3\.7c-OK$' -or $missed.Count -gt 0) { throw ('The toolchain check missed planted changes: ' + ($missed -join ' | ')) }
-Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path) and stops on each planted change (SDK file, extra SDK file, older side-by-side manifest file, workload install state, package file, source file, ignored source file, obj import, target added to a generated NuGet file, entity-encoded property function in a generated import, Pkg path to another folder, MSBuild variable in the window, import property in the window and the volatile environment, targets file in an obj subfolder, fallback package folder that climbs out of Program Files).'
+Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path and planted modules first on PSModulePath) and stops on each planted change (SDK file, extra SDK file, older side-by-side manifest file, workload install state, package file, source file, ignored source file, obj import, target added to a generated NuGet file, entity-encoded property function in a generated import, Pkg path to another folder, MSBuild variable in the window, import property in the window and the volatile environment, targets file in an obj subfolder, fallback package folder that climbs out of Program Files).'

@@ -77,6 +77,9 @@ public sealed class OwnerBuildToolchainCheckTests
         StringAssert.Contains(script, "[IO.Path]::GetFullPath($f).TrimEnd('\\').Equals($f, [StringComparison]::OrdinalIgnoreCase)");
         StringAssert.Contains(script, "foreach ($folder in $copies) {");
         Assert.IsFalse(script.Contains("adminProtectedFallback", StringComparison.Ordinal), "a fallback copy is never trusted by location alone");
+        // Only Windows PowerShell's own modules are used, loaded by full path before anything auto-loads (Codex review of PR #32).
+        StringAssert.Contains(script, "$env:PSModulePath = Join-Path $PSHOME 'Modules'");
+        Assert.IsTrue(script.IndexOf("$env:PSModulePath = Join-Path $PSHOME 'Modules'", StringComparison.Ordinal) < script.IndexOf("Add-Type", StringComparison.Ordinal), "the module path is reset before the first auto-loaded command");
         // Output never prints the user's profile path.
         StringAssert.Contains(script, "$Text.Replace($script:Profile, '<PROFILE>')");
     }
