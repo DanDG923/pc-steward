@@ -496,7 +496,7 @@ try {
     # CustomBeforeMicrosoftCommonTargets import files, so names are allowlisted rather than matched against risky prefixes.
     # A new window's variables come from the machine scope (administrators only), the user scope (allowlisted above), the
     # volatile logon scope HKCU\Volatile Environment (allowlisted here), and names Windows, PowerShell or the terminal set.
-    $volatileAllowed = @('LOGONSERVER', 'USERDNSDOMAIN', 'USERDOMAIN', 'USERNAME', 'USERPROFILE', 'HOMEPATH', 'HOMEDRIVE', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'USERDOMAIN_ROAMINGPROFILE', 'CLIENTNAME', 'SESSIONNAME')
+    $volatileAllowed = @('LOGONSERVER', 'USERDNSDOMAIN', 'USERDOMAIN', 'USERNAME', 'USERPROFILE', 'HOMEPATH', 'HOMEDRIVE', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'USERDOMAIN_ROAMINGPROFILE', 'CLIENTNAME', 'SESSIONNAME', 'TEMP', 'TMP')
     $volatileRisky = [Collections.Generic.List[string]]::new()
     if (Test-Path -LiteralPath 'HKCU:\Volatile Environment') {
         foreach ($key in @(Get-Item -LiteralPath 'HKCU:\Volatile Environment') + @(Get-ChildItem -LiteralPath 'HKCU:\Volatile Environment')) { foreach ($name in $key.GetValueNames()) { if ($name -and $volatileAllowed -notcontains $name) { $volatileRisky.Add($name) } } }
