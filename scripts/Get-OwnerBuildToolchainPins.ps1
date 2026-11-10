@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$SourceCommit,
     [Parameter(Mandatory)][string]$OutputPath,
     [Parameter(Mandatory)][string]$DownloadFolder,
-    [Parameter(Mandatory)][string]$SdkRoot
+    [Parameter(Mandatory)][string]$SdkRoot,
+    [string[]]$OlderManifestVersions = @('10.0.111')
 )
 
 # Task 50 CB3.7c pins (CI only). From a clean worktree of the owner's build commit, on a GitHub-hosted runner: look up the
@@ -80,6 +81,39 @@ foreach ($project in $projects) {
     }
 }
 
+# Older side-by-side workload manifests (CB3.7c amendment, 2026-11-10). An SDK install can leave an earlier manifest version next
+# to the zip's own (the owner's dotnet folder holds 10.0.111 beside the zip's 10.0.114). With no workload set or install state the
+# SDK resolves each manifest to its highest version, so the older folder is never imported; the owner's check still accepts it
+# only when every file equals Microsoft's signed manifest package, pinned here, and the zip's own version is higher.
+$manifestPins = @()
+foreach ($band in @(Get-ChildItem -LiteralPath (Join-Path $SdkRoot 'sdk-manifests') -Directory | Sort-Object Name)) {
+    foreach ($manifest in @(Get-ChildItem -LiteralPath $band.FullName -Directory | Sort-Object Name)) {
+        if (!$manifest.Name.StartsWith('microsoft.net.workload.', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $zipVersions = @(Get-ChildItem -LiteralPath $manifest.FullName -Directory | ForEach-Object { [version]($_.Name -replace '-.*\z', '') })
+        foreach ($older in $OlderManifestVersions) {
+            if (@($zipVersions | Where-Object { $_ -gt [version]$older }).Count -eq 0) { throw "$($manifest.Name): the zip's own version is not higher than $older." }
+            $packageId = ($manifest.Name + '.manifest-' + $band.Name).ToLowerInvariant()
+            $url = "https://api.nuget.org/v3-flatcontainer/$packageId/$older/$packageId.$older.nupkg"
+            $nupkgPath = Join-Path $DownloadFolder "$packageId.$older.nupkg"
+            Invoke-WebRequest -Uri $url -OutFile $nupkgPath -UseBasicParsing
+            & $dotnet nuget verify --all $nupkgPath | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "$packageId $older failed NuGet signature verification." }
+            $hasher = [Security.Cryptography.SHA512]::Create(); $s = [IO.File]::OpenRead($nupkgPath)
+            try { $nupkgSha = [Convert]::ToBase64String($hasher.ComputeHash($s)) } finally { $s.Dispose(); $hasher.Dispose() }
+            $files = [ordered]@{}
+            $package = [IO.Compression.ZipFile]::OpenRead($nupkgPath)
+            try {
+                foreach ($entry in @($package.Entries | Where-Object { $_.Name -and $_.FullName.StartsWith('data/', [StringComparison]::Ordinal) } | Sort-Object FullName)) {
+                    $sha = [Security.Cryptography.SHA256]::Create(); $es = $entry.Open()
+                    try { $files[$entry.FullName.Substring(5)] = [BitConverter]::ToString($sha.ComputeHash($es)).Replace('-', '') } finally { $es.Dispose(); $sha.Dispose() }
+                }
+            } finally { $package.Dispose() }
+            if ($files.Count -lt 2) { throw "$packageId $older has no manifest files." }
+            $manifestPins += [ordered]@{ band = $band.Name; id = $manifest.Name; version = $older; package = $packageId; url = $url; sha512 = $nupkgSha; files = $files }
+        }
+    }
+}
+
 $document = [ordered]@{
     schema = 'pc-steward-owner-build-toolchain-pins:1'
     sourceCommit = $SourceCommit
@@ -87,7 +121,8 @@ $document = [ordered]@{
     sdkZip = [ordered]@{ name = $zipName; url = [string]$file[0].url; sha512 = $zipHash; bytes = (Get-Item -LiteralPath $zipPath).Length }
     projects = $projects
     packages = @($packages.Keys | Sort-Object | ForEach-Object { $packages[$_] })
+    sdkSideBySideManifests = $manifestPins
 }
 New-Item -ItemType Directory -Path (Split-Path -Parent $OutputPath) -Force | Out-Null
 [IO.File]::WriteAllText($OutputPath, (($document | ConvertTo-Json -Depth 6) -replace "`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))
-Write-Output "PINS sdk=$sdkVersion zip=$zipName packages=$($document.packages.Count) file=$OutputPath"
+Write-Output "PINS sdk=$sdkVersion zip=$zipName packages=$($document.packages.Count) sideBySideManifests=$($manifestPins.Count) file=$OutputPath"

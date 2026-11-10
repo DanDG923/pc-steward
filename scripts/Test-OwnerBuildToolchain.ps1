@@ -20,7 +20,9 @@ param(
 #      files are found by listing the folder, not by asking Git.
 #   2. .NET SDK: every file of the official SDK zip (downloaded here, SHA-512 pinned) is present and byte-identical in the
 #      owner's dotnet folder, no extra file sits in its versioned folders, and no newer host, runtime or SDK folder would be
-#      chosen instead.
+#      chosen instead. The one tolerated extra is an older side-by-side workload manifest folder whose files all equal
+#      Microsoft's signed manifest package (pinned) while the zip's own version of that manifest is higher; no workload
+#      install state or workload set may exist, since either could pin the older version.
 #   3. NuGet packages: every package the three build projects restored is pinned; its cached .nupkg matches the pinned
 #      SHA-512 and every extracted file equals that .nupkg's entry.
 #   4. Build hooks: no MSBuild user extension files, no Directory.Build.*/NuGet.Config above the worktree, no untracked or
@@ -276,16 +278,18 @@ try {
     else {
         $zip = [IO.Compression.ZipFile]::OpenRead($SdkZipPath)
         try {
-            $groups = New-NameMap; $loose = New-NameMap; $entryCount = 0
+            $groups = New-NameMap; $loose = New-NameMap; $entryCount = 0; $zipPaths = New-NameSet
             foreach ($entry in $zip.Entries) {
                 if (!$entry.Name) { continue }
-                $entryCount++; $relative = $entry.FullName.Replace('/', '\'); $parts = $relative.Split('\')
+                $entryCount++; $relative = $entry.FullName.Replace('/', '\'); $parts = $relative.Split('\'); [void]$zipPaths.Add($relative)
                 $at = -1; for ($i = 0; $i -lt $parts.Count - 1; $i++) { if (Test-VersionName $parts[$i]) { $at = $i; break } }
                 if ($at -lt 0) { $loose[$relative] = $entry; continue }
                 $root = ($parts[0..$at] -join '\')
                 if (!$groups.ContainsKey($root)) { $groups[$root] = New-NameMap }
                 $groups[$root][($parts[($at + 1)..($parts.Count - 1)] -join '\')] = $entry
             }
+            $sideBySide = New-NameMap; $sideBySideSeen = New-NameMap; $sideBySideFiles = 0
+            foreach ($m in @($pins.sdkSideBySideManifests)) { if ($m) { $sideBySide['sdk-manifests\' + $m.band + '\' + $m.id + '\' + $m.version] = $m } }
             $same = 0; $missing = [Collections.Generic.List[string]]::new(); $changed = [Collections.Generic.List[string]]::new(); $extra = [Collections.Generic.List[string]]::new(); $reparse = [Collections.Generic.List[string]]::new(); $newer = [Collections.Generic.List[string]]::new()
             foreach ($relative in $loose.Keys) {
                 $path = Join-Path $DotnetRoot $relative
@@ -296,7 +300,15 @@ try {
                 $comparison = Compare-EntriesWithTree -Expected $groups[$root] -Root (Join-Path $DotnetRoot $root) -AllowedExtra @()
                 $same += $comparison.Same
                 foreach ($x in $comparison.Missing) { $missing.Add($root + '\' + $x) }; foreach ($x in $comparison.Changed) { $changed.Add($root + '\' + $x) }
-                foreach ($x in $comparison.Extra) { $extra.Add($root + '\' + $x) }; foreach ($x in $comparison.Reparse) { $reparse.Add($root + '\' + $x) }
+                foreach ($x in $comparison.Extra) {
+                    $parts = $x.Split('\'); $folderKey = $root + '\' + $parts[0] + '\' + $parts[1]
+                    if ($parts.Count -ge 3 -and $sideBySide.ContainsKey($folderKey)) {
+                        if (!$sideBySideSeen.ContainsKey($folderKey)) { $sideBySideSeen[$folderKey] = [Collections.Generic.List[string]]::new() }
+                        $sideBySideSeen[$folderKey].Add(($parts[2..($parts.Count - 1)] -join '/')); continue
+                    }
+                    $extra.Add($root + '\' + $x)
+                }
+                foreach ($x in $comparison.Reparse) { $reparse.Add($root + '\' + $x) }
                 $parent = Split-Path -Parent $root; $leaf = Split-Path -Leaf $root
                 $ancestor = $DotnetRoot; $walked = ''
                 foreach ($segment in $parent.Split('\')) { $ancestor = Join-Path $ancestor $segment; $walked = ($walked + '\' + $segment).TrimStart('\'); if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { $reparse.Add($walked) } }
@@ -304,11 +316,30 @@ try {
                     if ($sibling.Name -ne $leaf -and (Test-VersionName $sibling.Name) -and (Get-NumericVersion $sibling.Name) -gt (Get-NumericVersion $leaf)) { $newer.Add($parent + '\' + $sibling.Name) }
                 }
             }
+            # Older side-by-side manifest folders: every file equals the pinned package's, and the zip's own version is higher.
+            foreach ($folderKey in $sideBySideSeen.Keys) {
+                $m = $sideBySide[$folderKey]; $pinned = @($m.files.PSObject.Properties)
+                foreach ($f in $pinned) {
+                    $path = Join-Path (Join-Path $DotnetRoot $folderKey) $f.Name.Replace('/', '\')
+                    if (!(Test-Path -LiteralPath $path -PathType Leaf)) { $missing.Add($folderKey + '\' + $f.Name) }
+                    elseif ((Get-FileSha256 $path) -cne [string]$f.Value) { $changed.Add($folderKey + '\' + $f.Name.Replace('/', '\')) }
+                    else { $sideBySideFiles++ }
+                }
+                foreach ($name in $sideBySideSeen[$folderKey]) { if (@($pinned | Where-Object { $_.Name -ceq $name }).Count -eq 0) { $extra.Add($folderKey + '\' + $name.Replace('/', '\')) } }
+                $zipVersions = @($groups['sdk-manifests\' + $m.band].Keys | Where-Object { $_.StartsWith($m.id + '\', [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.Split('\')[1] } | Sort-Object -Unique)
+                if (@($zipVersions | Where-Object { (Test-VersionName $_) -and (Get-NumericVersion $_) -gt (Get-NumericVersion ([string]$m.version)) }).Count -eq 0) { $newer.Add($folderKey + ' is not older than the zip''s own version') }
+            }
+            # A workload install state or workload set could make the SDK pick another manifest version (or a user-local root).
+            $workloadState = [Collections.Generic.List[string]]::new()
+            foreach ($stateFolder in @('metadata\workloads')) {
+                $statePath = Join-Path $DotnetRoot $stateFolder
+                if (Test-Path -LiteralPath $statePath) { foreach ($file in Get-ChildItem -LiteralPath $statePath -Recurse -Force -File) { $relative = $file.FullName.Substring($DotnetRoot.Length + 1); if (!$zipPaths.Contains($relative)) { $workloadState.Add($relative) } } }
+            }
             if ((Get-Item -LiteralPath $DotnetRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $reparse.Add('.') }
             $newer = @($newer | Sort-Object -Unique); $reparse = @($reparse | Sort-Object -Unique)
-            Write-Safe ('SDK-FILES zipEntries=' + $entryCount + ' versionedFolders=' + $groups.Count + ' same=' + $same + ' missing=' + $missing.Count + ' changed=' + $changed.Count + ' extra=' + $extra.Count + ' newerFolders=' + $newer.Count + ' reparsePoints=' + $reparse.Count)
-            Write-Examples 'SDK-MISSING' $missing; Write-Examples 'SDK-CHANGED' $changed; Write-Examples 'SDK-EXTRA' $extra; Write-Examples 'SDK-NEWER' $newer; Write-Examples 'SDK-REPARSE' $reparse
-            if ($missing.Count + $changed.Count + $extra.Count + $newer.Count + $reparse.Count -gt 0 -or $same -lt 1000) { Add-Failure 'the .NET SDK differs from the official zip' }
+            Write-Safe ('SDK-FILES zipEntries=' + $entryCount + ' versionedFolders=' + $groups.Count + ' same=' + $same + ' missing=' + $missing.Count + ' changed=' + $changed.Count + ' extra=' + $extra.Count + ' newerFolders=' + $newer.Count + ' reparsePoints=' + $reparse.Count + ' sideBySideManifestFiles=' + $sideBySideFiles + ' workloadStateFiles=' + $workloadState.Count)
+            Write-Examples 'SDK-MISSING' $missing; Write-Examples 'SDK-CHANGED' $changed; Write-Examples 'SDK-EXTRA' $extra; Write-Examples 'SDK-NEWER' $newer; Write-Examples 'SDK-REPARSE' $reparse; Write-Examples 'SDK-WORKLOAD-STATE' $workloadState
+            if ($missing.Count + $changed.Count + $extra.Count + $newer.Count + $reparse.Count + $workloadState.Count -gt 0 -or $same -lt 1000) { Add-Failure 'the .NET SDK differs from the official zip' }
         } finally { $zip.Dispose() }
     }
 

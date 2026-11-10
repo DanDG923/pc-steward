@@ -32,7 +32,7 @@ $committedPath = Join-Path $repository 'docs/review/task50-owner-build-toolchain
 $pinFile = $generated
 if (Test-Path -LiteralPath $committedPath -PathType Leaf) {
     $committed = [IO.File]::ReadAllText($committedPath) | ConvertFrom-Json; $fresh = $generatedText | ConvertFrom-Json
-    $key = { param($d) (@($d.sdkZip.sha512, $d.sdkZip.url, $d.sourceCommit, $d.sdkVersion) + @($d.packages | ForEach-Object { $_.id.ToLowerInvariant() + '/' + $_.version.ToLowerInvariant() + '=' + $_.sha512 } | Sort-Object)) -join "`n" }
+    $key = { param($d) (@($d.sdkZip.sha512, $d.sdkZip.url, $d.sourceCommit, $d.sdkVersion) + @($d.packages | ForEach-Object { $_.id.ToLowerInvariant() + '/' + $_.version.ToLowerInvariant() + '=' + $_.sha512 } | Sort-Object) + @($d.sdkSideBySideManifests | ForEach-Object { $m = $_; $_.band + '/' + $_.id + '/' + $_.version + '=' + $_.sha512 + ':' + (@($m.files.PSObject.Properties | ForEach-Object { $_.Name + '=' + $_.Value }) -join ',') } | Sort-Object)) -join "`n" }
     $same = (& $key $committed) -ceq (& $key $fresh)
     Write-Output "COMMITTED-PINS match=$same"
     if (!$same) { throw 'The committed toolchain pins differ from this CI run.' }
@@ -51,6 +51,17 @@ function Invoke-Check([string]$Label) {
     [pscustomobject]@{ Code = $code; Text = ($lines -join "`n") }
 }
 
+# Mirror the owner's dotnet folder: the older 10.0.111 workload manifests sit beside the zip's own, unpacked from the same
+# signed packages the generator pinned.
+$generatedPins = $generatedText | ConvertFrom-Json
+foreach ($m in @($generatedPins.sdkSideBySideManifests)) {
+    $target = Join-Path $reference ('sdk-manifests\' + $m.band + '\' + $m.id + '\' + $m.version)
+    $package = [IO.Compression.ZipFile]::OpenRead((Join-Path $download ($m.package + '.' + $m.version + '.nupkg')))
+    try { foreach ($entry in @($package.Entries | Where-Object { $_.Name -and $_.FullName.StartsWith('data/', [StringComparison]::Ordinal) })) { $file = Join-Path $target $entry.FullName.Substring(5).Replace('/', '\'); New-Item -ItemType Directory -Path (Split-Path -Parent $file) -Force | Out-Null; [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $file) } } finally { $package.Dispose() }
+}
+$sideBySideCount = @($generatedPins.sdkSideBySideManifests | ForEach-Object { @($_.files.PSObject.Properties).Count } | Measure-Object -Sum).Sum
+Write-Output "SIDE-BY-SIDE manifests=$(@($generatedPins.sdkSideBySideManifests).Count) files=$sideBySideCount"
+
 # A git.exe placed first on Path must be ignored: the check runs Git only from its signed Program Files install, and re-hashes
 # what Git returns. hostname.exe stands in for a shim; if the check used it, the worktree step would fail.
 $fakeGit = Join-Path $temp 'fake-git'; New-Item -ItemType Directory -Path $fakeGit -Force | Out-Null
@@ -58,7 +69,7 @@ Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath([Environment+Spe
 $env:PATH = $fakeGit + [IO.Path]::PathSeparator + $env:PATH
 
 $clean = Invoke-Check 'clean'
-$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', '(?m)^CB3\.7c-OK$')
+$cleanExpected = @('(?m)^GIT path=ProgramFiles\\Git\\cmd\\git\.exe signers=.+ problems=0$', '(?m)^WORKTREE head=[0-9a-f]{40} commitVerified=True treesVerified=True ', "(?m)^SDK-FILES .* extra=0 .* sideBySideManifestFiles=$sideBySideCount workloadStateFiles=0$", '(?m)^CB3\.7c-OK$')
 $cleanMissed = @($cleanExpected | Where-Object { $clean.Text -notmatch $_ })
 if ($clean.Code -ne 0 -or $cleanMissed.Count -gt 0) { throw ('The toolchain check did not pass on the untouched official toolchain: ' + ($cleanMissed -join ' | ')) }
 
@@ -67,6 +78,10 @@ $sdkFolder = Join-Path $reference ('sdk\' + ($generatedText | ConvertFrom-Json).
 $sdkTarget = Get-ChildItem -LiteralPath $sdkFolder -Filter '*.targets' -Recurse -File | Select-Object -First 1
 [IO.File]::AppendAllText($sdkTarget.FullName, "<!-- planted -->`n")
 [IO.File]::WriteAllText((Join-Path $sdkFolder 'planted.props'), '<Project />')
+$olderManifest = @(Get-ChildItem -LiteralPath (Join-Path $reference 'sdk-manifests') -Recurse -Filter 'WorkloadManifest.json' -File | Where-Object { $_.Directory.Name -eq '10.0.111' } | Select-Object -First 1)[0]
+[IO.File]::AppendAllText($olderManifest.FullName, ' ')
+New-Item -ItemType Directory -Path (Join-Path $reference 'metadata\workloads\10.0.100\InstallState') -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $reference 'metadata\workloads\10.0.100\InstallState\default.json'), '{}')
 $ilcompiler = Get-ChildItem -LiteralPath (Join-Path $env:NUGET_PACKAGES 'microsoft.dotnet.ilcompiler') -Directory | Select-Object -First 1
 $packageTarget = Get-ChildItem -LiteralPath $ilcompiler.FullName -Filter '*.targets' -Recurse -File | Select-Object -First 1
 [IO.File]::AppendAllText($packageTarget.FullName, "<!-- planted -->`n")
@@ -74,11 +89,15 @@ New-Item -ItemType Directory -Path (Join-Path $worktree 'src\PCSteward.ElevatedH
 [IO.File]::WriteAllText((Join-Path $worktree 'src\PCSteward.ElevatedHelper\tmp\Planted.cs'), '// planted')
 [IO.File]::WriteAllText((Join-Path $worktree 'src\PCSteward.ElevatedHelper\obj\PCSteward.ElevatedHelper.csproj.planted.props'), '<Project />')
 [IO.File]::AppendAllText((Join-Path $worktree 'src\PCSteward.ElevatedHelper\Program.cs'), "`n// planted`n")
+# The helper's generated targets file can be an empty <Project ... />, so the target is added as an XML element.
 $generatedTargets = Join-Path $worktree 'src\PCSteward.ElevatedHelper\obj\PCSteward.ElevatedHelper.csproj.nuget.g.targets'
-[IO.File]::WriteAllText($generatedTargets, [IO.File]::ReadAllText($generatedTargets).Replace('</Project>', '<Target Name="Planted" BeforeTargets="CoreCompile" /></Project>'))
+$targetsXml = New-Object Xml.XmlDocument; $targetsXml.PreserveWhitespace = $true; $targetsXml.Load($generatedTargets)
+$plantedTarget = $targetsXml.CreateElement('Target', $targetsXml.DocumentElement.NamespaceURI); $plantedTarget.SetAttribute('Name', 'Planted'); $plantedTarget.SetAttribute('BeforeTargets', 'CoreCompile')
+[void]$targetsXml.DocumentElement.AppendChild($plantedTarget); $targetsXml.Save($generatedTargets)
+if ([IO.File]::ReadAllText($generatedTargets) -notmatch '<Target Name="Planted"') { throw 'The target was not planted.' }
 
 $tampered = Invoke-Check 'tampered'
-$expected = @('(?m)^SDK-FILES .* changed=1 extra=1 ', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=2 ', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
+$expected = @(('(?m)^SDK-FILES .* changed=2 extra=1 .* sideBySideManifestFiles=' + ($sideBySideCount - 1) + ' workloadStateFiles=1$'), '(?m)^  SDK-CHANGED .*\\10\.0\.111\\WorkloadManifest\.json$', '(?m)^  SDK-WORKLOAD-STATE metadata\\workloads\\', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=2 ', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
 $missed = @($expected | Where-Object { $tampered.Text -notmatch $_ })
 if ($tampered.Code -eq 0 -or $tampered.Text -match '(?m)^CB3\.7c-OK$' -or $missed.Count -gt 0) { throw ('The toolchain check missed planted changes: ' + ($missed -join ' | ')) }
-Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path) and stops on each planted change (SDK file, extra SDK file, package file, source file, ignored source file, obj import, target added to a generated NuGet file).'
+Write-Output 'PASS: CB3.7c passes on the official toolchain (ignoring a git.exe shim first on Path) and stops on each planted change (SDK file, extra SDK file, older side-by-side manifest file, workload install state, package file, source file, ignored source file, obj import, target added to a generated NuGet file).'

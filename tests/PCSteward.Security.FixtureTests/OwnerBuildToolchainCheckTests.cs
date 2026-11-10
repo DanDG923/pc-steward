@@ -60,6 +60,9 @@ public sealed class OwnerBuildToolchainCheckTests
         StringAssert.Contains(script, "$folderIds[$folder] = Get-GitObjectId 'tree' $content.ToArray()");
         Assert.IsFalse(script.Contains("Get-Command -Name 'git.exe'", StringComparison.OrdinalIgnoreCase), "git must not be resolved from Path");
         Assert.IsFalse(script.Contains("ls-files", StringComparison.Ordinal), "untracked files must not be listed by Git");
+        // Older side-by-side workload manifests pass only against pinned package bytes, and workload state is never tolerated.
+        StringAssert.Contains(script, "$sideBySide['sdk-manifests\\' + $m.band + '\\' + $m.id + '\\' + $m.version] = $m");
+        StringAssert.Contains(script, "foreach ($stateFolder in @('metadata\\workloads'))");
         // Output never prints the user's profile path.
         StringAssert.Contains(script, "$Text.Replace($script:Profile, '<PROFILE>')");
     }
@@ -84,6 +87,20 @@ public sealed class OwnerBuildToolchainCheckTests
         CollectionAssert.Contains(ids, "runtime.win-x64.microsoft.dotnet.ilcompiler");
         foreach (System.Text.Json.JsonElement package in rootElement.GetProperty("packages").EnumerateArray())
             StringAssert.Matches(package.GetProperty("sha512").GetString(), new Regex(@"\A[A-Za-z0-9+/]{86}==\z"));
+        // The owner's older 10.0.111 workload manifests (CB3.7c amendment): ten signed nuget.org packages, 93 files.
+        System.Text.Json.JsonElement[] manifests = rootElement.GetProperty("sdkSideBySideManifests").EnumerateArray().ToArray();
+        Assert.AreEqual(10, manifests.Length);
+        foreach (System.Text.Json.JsonElement manifest in manifests)
+        {
+            Assert.AreEqual("10.0.111", manifest.GetProperty("version").GetString());
+            Assert.AreEqual("10.0.100", manifest.GetProperty("band").GetString());
+            StringAssert.StartsWith(manifest.GetProperty("id").GetString(), "microsoft.net.workload.");
+            StringAssert.StartsWith(manifest.GetProperty("url").GetString(), "https://api.nuget.org/v3-flatcontainer/");
+            StringAssert.Matches(manifest.GetProperty("sha512").GetString(), new Regex(@"\A[A-Za-z0-9+/]{86}==\z"));
+            foreach (System.Text.Json.JsonProperty file in manifest.GetProperty("files").EnumerateObject())
+                StringAssert.Matches(file.Value.GetString(), new Regex(@"\A[0-9A-F]{64}\z"));
+        }
+        Assert.AreEqual(93, manifests.Sum(m => m.GetProperty("files").EnumerateObject().Count()));
     }
 
     private static string FindRepositoryRoot()
