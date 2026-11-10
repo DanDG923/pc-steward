@@ -49,6 +49,9 @@ public sealed class OwnerBuildToolchainCheckTests
         // The tolerated Git filters are exactly Git for Windows' system-scope Git LFS defaults.
         StringAssert.Contains(script, "$lfsNames = @('filter.lfs.clean', 'filter.lfs.smudge', 'filter.lfs.process', 'filter.lfs.required')");
         StringAssert.Contains(script, "$p[0] -cne 'system'");
+        // NuGet's generated imports are checked element by element, not only by their Import paths (Codex review of PR #32).
+        StringAssert.Contains(script, "function Get-NuGetGeneratedFileProblems");
+        StringAssert.Contains(script, "if ($text.Contains('$([')) { $problems.Add('property function') }");
         // Output never prints the user's profile path.
         StringAssert.Contains(script, "$Text.Replace($script:Profile, '<PROFILE>')");
     }

@@ -93,6 +93,56 @@ function Test-UnderProgramFiles([string]$Path) {
     $false
 }
 
+# NuGet's generated obj\<project>.nuget.g.props/.targets are imported by every build. Restore writes only properties, SourceRoot
+# items and package imports there, so anything else (a target, a task, a property function, another property) is a hook. Imports
+# must point into a package this restore used and verified.
+function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $UsedPackages, [string[]]$PackageFolders) {
+    $problems = [Collections.Generic.List[string]]::new()
+    $text = [IO.File]::ReadAllText($Path)
+    if ($text.Contains('$([')) { $problems.Add('property function') }
+    $xml = New-Object Xml.XmlDocument; $xml.PreserveWhitespace = $false; $xml.LoadXml($text)
+    $root = $xml.DocumentElement
+    if ($root.LocalName -cne 'Project') { $problems.Add('root ' + $root.LocalName); return $problems }
+    foreach ($a in $root.Attributes) { if ($a.Name -cne 'ToolsVersion' -and $a.Name -cne 'xmlns') { $problems.Add('Project attribute ' + $a.Name) } }
+    $underFolder = { param([string]$v) foreach ($f in $PackageFolders) { if ($v.StartsWith($f.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -and $v.IndexOf('..') -lt 0) { return $true } }; $false }
+    $propertyRule = '\A(RestoreSuccess|RestoreTool|ProjectAssetsFile|NuGetPackageRoot|NuGetPackageFolders|NuGetProjectStyle|NuGetToolVersion|Pkg[A-Za-z0-9_]+)\z'
+    foreach ($group in $root.ChildNodes) {
+        if ($group.NodeType -eq [Xml.XmlNodeType]::Comment) { continue }
+        if ($group.NodeType -ne [Xml.XmlNodeType]::Element) { $problems.Add('node ' + $group.NodeType); continue }
+        if (@('PropertyGroup', 'ItemGroup', 'ImportGroup') -cnotcontains $group.LocalName) { $problems.Add('element ' + $group.LocalName); continue }
+        foreach ($a in $group.Attributes) { if ($a.Name -cne 'Condition') { $problems.Add($group.LocalName + ' attribute ' + $a.Name) } }
+        foreach ($child in $group.ChildNodes) {
+            if ($child.NodeType -eq [Xml.XmlNodeType]::Comment) { continue }
+            if ($child.NodeType -ne [Xml.XmlNodeType]::Element) { $problems.Add($group.LocalName + ' node ' + $child.NodeType); continue }
+            $value = [string]$child.InnerText
+            if (@($child.ChildNodes | Where-Object { $_.NodeType -eq [Xml.XmlNodeType]::Element }).Count -gt 0) { $problems.Add($child.LocalName + ' has child elements'); continue }
+            if ($group.LocalName -ceq 'PropertyGroup') {
+                foreach ($a in $child.Attributes) { if ($a.Name -cne 'Condition') { $problems.Add($child.LocalName + ' attribute ' + $a.Name) } }
+                if ($child.LocalName -cnotmatch $propertyRule) { $problems.Add('property ' + $child.LocalName); continue }
+                switch -CaseSensitive ($child.LocalName) {
+                    'NuGetPackageRoot' { if (!$value.TrimEnd('\').Equals($PackageFolders[0].TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('NuGetPackageRoot value') } }
+                    'NuGetPackageFolders' { foreach ($f in $value.Split(';')) { if ($f -and !(@($PackageFolders | Where-Object { $_.TrimEnd('\').Equals($f.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) }).Count)) { $problems.Add('NuGetPackageFolders value') } } }
+                    'ProjectAssetsFile' { if (!$value.Equals($AssetsPath, [StringComparison]::OrdinalIgnoreCase)) { $problems.Add('ProjectAssetsFile value') } }
+                    default { if ($child.LocalName.StartsWith('Pkg', [StringComparison]::Ordinal)) { if (!(& $underFolder $value)) { $problems.Add($child.LocalName + ' value') } } elseif ($value -cnotmatch '\A[A-Za-z0-9.+-]+\z') { $problems.Add($child.LocalName + ' value') } }
+                }
+            } elseif ($group.LocalName -ceq 'ItemGroup') {
+                if ($child.LocalName -cne 'SourceRoot') { $problems.Add('item ' + $child.LocalName); continue }
+                foreach ($a in $child.Attributes) { if ($a.Name -cne 'Include') { $problems.Add('SourceRoot attribute ' + $a.Name) } }
+                if (!(& $underFolder ([string]$child.GetAttribute('Include')) ) -and !@($PackageFolders | Where-Object { $_.TrimEnd('\').Equals(([string]$child.GetAttribute('Include')).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) }).Count) { $problems.Add('SourceRoot value') }
+            } elseif ($group.LocalName -ceq 'ImportGroup') {
+                if ($child.LocalName -cne 'Import') { $problems.Add('ImportGroup child ' + $child.LocalName); continue }
+                foreach ($a in $child.Attributes) { if ($a.Name -cne 'Project' -and $a.Name -cne 'Condition') { $problems.Add('Import attribute ' + $a.Name) } }
+                $target = [string]$child.GetAttribute('Project')
+                $prefix = '$(NuGetPackageRoot)'
+                if (!$target.StartsWith($prefix, [StringComparison]::Ordinal) -or $target.IndexOf('..') -ge 0) { $problems.Add('import outside the package root'); continue }
+                $parts = $target.Substring($prefix.Length).Split('\')
+                if ($parts.Count -lt 3 -or !$UsedPackages.ContainsKey($parts[0] + '/' + $parts[1])) { $problems.Add('import from a package this restore did not use') }
+            }
+        }
+    }
+    , $problems
+}
+
 if (!$DotnetRoot) { $DotnetRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Microsoft\dotnet' }
 if (!$PackagesRoot) { $PackagesRoot = Join-Path $script:Profile '.nuget\packages' }
 $DotnetRoot = $DotnetRoot.TrimEnd('\', '/'); $PackagesRoot = $PackagesRoot.TrimEnd('\', '/'); $Worktree = $Worktree.TrimEnd('\', '/')
@@ -194,6 +244,19 @@ try {
         $assetsPath = Join-Path (Join-Path $Worktree (Split-Path -Parent ([string]$project).Replace('/', '\'))) 'obj\project.assets.json'
         if (!(Test-Path -LiteralPath $assetsPath -PathType Leaf)) { $folderProblems.Add('no restore output for ' + $project); continue }
         $assets = [IO.File]::ReadAllText($assetsPath) | ConvertFrom-Json
+        # Asset paths are resolved inside each package's folder; none may climb out of it.
+        foreach ($target in $assets.targets.PSObject.Properties) {
+            foreach ($lib in $target.Value.PSObject.Properties) {
+                if ($lib.Value.type -cne 'package') { continue }
+                foreach ($category in $lib.Value.PSObject.Properties) {
+                    if ($category.Value -isnot [Management.Automation.PSCustomObject]) { continue }
+                    foreach ($asset in $category.Value.PSObject.Properties) { if ($asset.Name.IndexOf('..') -ge 0 -or $asset.Name.IndexOf(':') -ge 0 -or $asset.Name.StartsWith('/') -or $asset.Name.StartsWith('\')) { $folderProblems.Add($project + ' asset path leaves its package: ' + $lib.Name) } }
+                }
+            }
+        }
+        foreach ($library in $assets.libraries.PSObject.Properties) {
+            if ($library.Value.type -ceq 'package' -and ([string]$library.Value.path) -cne $library.Name.ToLowerInvariant()) { $folderProblems.Add($project + ' library path differs: ' + $library.Name) }
+        }
         $folders = @($assets.packageFolders.PSObject.Properties | ForEach-Object { $_.Name.TrimEnd('\', '/') })
         if ($folders.Count -lt 1 -or !$folders[0].Equals($PackagesRoot, [StringComparison]::OrdinalIgnoreCase)) { $folderProblems.Add($project + ' restores into another package folder') }
         foreach ($f in ($folders | Select-Object -Skip 1)) { if (Test-UnderProgramFiles $f) { [void]$fallbacks.Add($f) } else { $folderProblems.Add($project + ' has a user-writable fallback package folder') } }
@@ -260,7 +323,8 @@ try {
     }
     $untracked = @($null | & $git -C $Worktree -c core.quotePath=false ls-files --others --exclude-standard) + @($null | & $git -C $Worktree -c core.quotePath=false ls-files --others --ignored --exclude-standard)
     $outsideBuild = @($untracked | Where-Object { $_ -and ('/' + $_) -notmatch '/(bin|obj)/' } | Sort-Object -Unique)
-    $objProblems = [Collections.Generic.List[string]]::new()
+    $objProblems = [Collections.Generic.List[string]]::new(); $generatedChecked = 0
+    $packageFolderList = @($PackagesRoot) + @($fallbacks)
     foreach ($project in Get-ChildItem -LiteralPath (Join-Path $Worktree 'src') -Recurse -Force -Filter '*.csproj' -File) {
         $obj = Join-Path $project.DirectoryName 'obj'
         if (!(Test-Path -LiteralPath $obj -PathType Container)) { continue }
@@ -268,16 +332,15 @@ try {
         foreach ($file in Get-ChildItem -LiteralPath $obj -Force -File) {
             if ($file.Name -notmatch '\.(props|targets)\z') { continue }
             if ($file.Name -ne ($project.Name + '.nuget.g.props') -and $file.Name -ne ($project.Name + '.nuget.g.targets')) { $objProblems.Add($relativeObj + '\' + $file.Name); continue }
-            foreach ($import in [regex]::Matches([IO.File]::ReadAllText($file.FullName), '<Import\s+Project="([^"]*)"')) {
-                if (!$import.Groups[1].Value.StartsWith('$(NuGetPackageRoot)', [StringComparison]::Ordinal)) { $objProblems.Add($relativeObj + '\' + $file.Name + ' imports outside the package root') }
-            }
+            $generatedChecked++
+            foreach ($problem in (Get-NuGetGeneratedFileProblems -Path $file.FullName -AssetsPath (Join-Path $obj 'project.assets.json') -UsedPackages $used -PackageFolders $packageFolderList)) { $objProblems.Add($relativeObj + '\' + $file.Name + ': ' + $problem) }
         }
     }
     $userEnvironment = [Environment]::GetEnvironmentVariables('User')
     $expectedNames = @('Path', 'TEMP', 'TMP', 'OneDrive', 'OneDriveConsumer', 'OneDriveCommercial', 'ChocolateyLastPathUpdate', 'ChocolateyToolsLocation') + $AllowUserEnvironmentName
     $unexpectedNames = @($userEnvironment.Keys | Where-Object { $expectedNames -notcontains $_ } | Sort-Object)
     $processRisky = @(Get-ChildItem Env: | Where-Object { $_.Name -match '\A(MSBuild|NUGET_|DOTNET_|COMPlus_|CORECLR_|Ilc|_?CL_?\z|_?LINK_?\z)' } | ForEach-Object { $_.Name } | Sort-Object)
-    Write-Safe ('BUILD-HOOKS msbuildUserCurrent=' + $currentHooks.Count + ' msbuildUserOther=' + $otherMsbuildFiles + ' aboveWorktree=' + $ancestorHooks.Count + ' untrackedOutsideBinObj=' + $outsideBuild.Count + ' objImports=' + $objProblems.Count + ' userEnvironment=' + $userEnvironment.Count + ' unexpectedUserEnvironment=' + $unexpectedNames.Count + ' buildEnvironmentInThisWindow=' + $processRisky.Count)
+    Write-Safe ('BUILD-HOOKS msbuildUserCurrent=' + $currentHooks.Count + ' msbuildUserOther=' + $otherMsbuildFiles + ' aboveWorktree=' + $ancestorHooks.Count + ' untrackedOutsideBinObj=' + $outsideBuild.Count + ' nugetGeneratedFiles=' + $generatedChecked + ' objImports=' + $objProblems.Count + ' userEnvironment=' + $userEnvironment.Count + ' unexpectedUserEnvironment=' + $unexpectedNames.Count + ' buildEnvironmentInThisWindow=' + $processRisky.Count)
     Write-Examples 'HOOK-MSBUILD-USER' $currentHooks; Write-Examples 'HOOK-ABOVE-WORKTREE' $ancestorHooks; Write-Examples 'HOOK-UNTRACKED' $outsideBuild; Write-Examples 'HOOK-OBJ' $objProblems
     Write-Examples 'HOOK-USER-ENVIRONMENT-NAME' $unexpectedNames; Write-Examples 'HOOK-WINDOW-ENVIRONMENT-NAME' $processRisky
     if ($currentHooks.Count + $ancestorHooks.Count + $outsideBuild.Count + $objProblems.Count + $unexpectedNames.Count -gt 0) { Add-Failure 'a build hook outside the SDK and packages is present' }

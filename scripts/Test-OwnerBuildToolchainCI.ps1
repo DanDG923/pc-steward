@@ -66,9 +66,11 @@ New-Item -ItemType Directory -Path (Join-Path $worktree 'src\PCSteward.ElevatedH
 [IO.File]::WriteAllText((Join-Path $worktree 'src\PCSteward.ElevatedHelper\tmp\Planted.cs'), '// planted')
 [IO.File]::WriteAllText((Join-Path $worktree 'src\PCSteward.ElevatedHelper\obj\PCSteward.ElevatedHelper.csproj.planted.props'), '<Project />')
 [IO.File]::AppendAllText((Join-Path $worktree 'src\PCSteward.ElevatedHelper\Program.cs'), "`n// planted`n")
+$generatedTargets = Join-Path $worktree 'src\PCSteward.ElevatedHelper\obj\PCSteward.ElevatedHelper.csproj.nuget.g.targets'
+[IO.File]::WriteAllText($generatedTargets, [IO.File]::ReadAllText($generatedTargets).Replace('</Project>', '<Target Name="Planted" BeforeTargets="CoreCompile" /></Project>'))
 
 $tampered = Invoke-Check 'tampered'
-$expected = @('(?m)^SDK-FILES .* changed=1 extra=1 ', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 objImports=1 ', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
+$expected = @('(?m)^SDK-FILES .* changed=1 extra=1 ', '(?m)^PACKAGES .* changed=1 ', '(?m)^WORKTREE .* mismatched=1 ', '(?m)^BUILD-HOOKS .* untrackedOutsideBinObj=1 nugetGeneratedFiles=\d+ objImports=2 ', '(?m)^  HOOK-OBJ .*nuget\.g\.targets: element Target', '(?m)^STOP: the \.NET SDK differs', '(?m)^STOP: a restored package differs', '(?m)^STOP: worktree files differ', '(?m)^STOP: a build hook')
 $missed = @($expected | Where-Object { $tampered.Text -notmatch $_ })
 if ($tampered.Code -eq 0 -or $tampered.Text -match '(?m)^CB3\.7c-OK$' -or $missed.Count -gt 0) { throw ('The toolchain check missed planted changes: ' + ($missed -join ' | ')) }
-Write-Output 'PASS: CB3.7c passes on the official toolchain and stops on each planted change (SDK file, extra SDK file, package file, source file, ignored source file, obj import).'
+Write-Output 'PASS: CB3.7c passes on the official toolchain and stops on each planted change (SDK file, extra SDK file, package file, source file, ignored source file, obj import, target added to a generated NuGet file).'
