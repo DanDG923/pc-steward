@@ -154,6 +154,9 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
     $root = $xml.DocumentElement
     if ($root.LocalName -cne 'Project') { $problems.Add('root ' + $root.LocalName); return $problems }
     foreach ($a in $root.Attributes) { if ($a.Name -cne 'ToolsVersion' -and $a.Name -cne 'xmlns') { $problems.Add('Project attribute ' + $a.Name) } }
+    # NuGet writes NuGetPackageRoot as '$(UserProfile)\.nuget\packages\' when the folder is under the profile. Only that exact
+    # leading macro is expanded (to this user's profile, which must also be what USERPROFILE says); any other '$(' is a problem.
+    $expand = { param([string]$v) if ($v.StartsWith('$(UserProfile)', [StringComparison]::Ordinal) -and $env:USERPROFILE -and $env:USERPROFILE.TrimEnd('\').Equals($script:Profile.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $script:Profile.TrimEnd('\') + $v.Substring(14) } else { $v } }
     $underFolder = { param([string]$v) foreach ($f in $PackageFolders) { if ($v.StartsWith($f.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -and $v.IndexOf('..') -lt 0) { return $true } }; $false }
     $propertyRule = '\A(RestoreSuccess|RestoreTool|ProjectAssetsFile|NuGetPackageRoot|NuGetPackageFolders|NuGetProjectStyle|NuGetToolVersion|Pkg[A-Za-z0-9_]+)\z'
     foreach ($group in $root.ChildNodes) {
@@ -164,7 +167,7 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
         foreach ($child in $group.ChildNodes) {
             if ($child.NodeType -eq [Xml.XmlNodeType]::Comment) { continue }
             if ($child.NodeType -ne [Xml.XmlNodeType]::Element) { $problems.Add($group.LocalName + ' node ' + $child.NodeType); continue }
-            $value = [string]$child.InnerText
+            $value = & $expand ([string]$child.InnerText)
             if (@($child.ChildNodes | Where-Object { $_.NodeType -eq [Xml.XmlNodeType]::Element }).Count -gt 0) { $problems.Add($child.LocalName + ' has child elements'); continue }
             if ($group.LocalName -ceq 'PropertyGroup') {
                 foreach ($a in $child.Attributes) { if ($a.Name -cne 'Condition') { $problems.Add($child.LocalName + ' attribute ' + $a.Name) } }
@@ -178,7 +181,8 @@ function Get-NuGetGeneratedFileProblems([string]$Path, [string]$AssetsPath, $Use
             } elseif ($group.LocalName -ceq 'ItemGroup') {
                 if ($child.LocalName -cne 'SourceRoot') { $problems.Add('item ' + $child.LocalName); continue }
                 foreach ($a in $child.Attributes) { if ($a.Name -cne 'Include') { $problems.Add('SourceRoot attribute ' + $a.Name) } }
-                if (!(& $underFolder ([string]$child.GetAttribute('Include')) ) -and !@($PackageFolders | Where-Object { $_.TrimEnd('\').Equals(([string]$child.GetAttribute('Include')).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) }).Count) { $problems.Add('SourceRoot value') }
+                $include = & $expand ([string]$child.GetAttribute('Include'))
+                if (!(& $underFolder $include) -and !@($PackageFolders | Where-Object { $_.TrimEnd('\').Equals($include.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) }).Count) { $problems.Add('SourceRoot value') }
             } elseif ($group.LocalName -ceq 'ImportGroup') {
                 if ($child.LocalName -cne 'Import') { $problems.Add('ImportGroup child ' + $child.LocalName); continue }
                 foreach ($a in $child.Attributes) { if ($a.Name -cne 'Project' -and $a.Name -cne 'Condition') { $problems.Add('Import attribute ' + $a.Name) } }

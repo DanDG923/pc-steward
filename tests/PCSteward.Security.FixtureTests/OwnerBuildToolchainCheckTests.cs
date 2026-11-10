@@ -60,6 +60,8 @@ public sealed class OwnerBuildToolchainCheckTests
         StringAssert.Contains(script, "$folderIds[$folder] = Get-GitObjectId 'tree' $content.ToArray()");
         Assert.IsFalse(script.Contains("Get-Command -Name 'git.exe'", StringComparison.OrdinalIgnoreCase), "git must not be resolved from Path");
         Assert.IsFalse(script.Contains("ls-files", StringComparison.Ordinal), "untracked files must not be listed by Git");
+        // NuGet writes NuGetPackageRoot as $(UserProfile)\... under the profile; only that exact leading macro is expanded.
+        StringAssert.Contains(script, "$v.StartsWith('$(UserProfile)', [StringComparison]::Ordinal)");
         // Older side-by-side workload manifests pass only against pinned package bytes, and workload state is never tolerated.
         StringAssert.Contains(script, "$sideBySide['sdk-manifests\\' + $m.band + '\\' + $m.id + '\\' + $m.version] = $m");
         StringAssert.Contains(script, "foreach ($stateFolder in @('metadata\\workloads'))");
