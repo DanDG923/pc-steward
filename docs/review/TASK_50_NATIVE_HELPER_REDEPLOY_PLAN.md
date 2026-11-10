@@ -199,7 +199,7 @@ $pfx = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles); 
 
 The same three steps as C2 ([Part C re-run plan](TASK_50_PART_C_RERUN_PLAN.md) §7), run once each, with the probe script unchanged at `831B5E174E1E5965CA0EF7E325F06936C4AB697A00A373C554690824C230E77A`. **Precondition:** P1 found no runtime-control name, or the owner has removed each one since; otherwise the new desktop's guard refuses C3-run's launch.
 
-**C3-pre:** the first normal launch of the new deployment, from the Start menu. Open Activity → "Reviewed update outcomes", confirm "No reviewed update outcomes are recorded.", then close PC Steward without a scan or refresh.
+**C3-pre:** the first normal launch of the new deployment: double-click `PCSteward.Desktop.exe` in `C:\Program Files\PC Steward` in File Explorer (the owner-only test install adds no Start menu shortcut). Open Activity → "Reviewed update outcomes", confirm "No reviewed update outcomes are recorded.", then close PC Steward without a scan or refresh.
 
 **C3-check** (read-only; launches nothing). Paste line V5 first. The five pins are filled from CB3.3 and CB3.9.
 
