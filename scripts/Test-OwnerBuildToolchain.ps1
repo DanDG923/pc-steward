@@ -28,8 +28,8 @@ param(
 #      SHA-512 and every extracted file equals that .nupkg's entry.
 #   4. Build hooks: no MSBuild user extension files, no Directory.Build.*/NuGet.Config above the worktree, no untracked or
 #      ignored file outside bin/obj, no extra obj import, only package-root imports in the generated NuGet props/targets,
-#      no unexpected user-scope environment variable (MSBuild reads every environment variable as a property), and no
-#      build-relevant variable in this window or in the user's volatile environment.
+#      no unexpected user-scope environment variable (MSBuild reads every environment variable as a property), and only
+#      allowlisted names in this window and in the user's volatile environment.
 # It writes only below WorkFolder (the downloaded zip). It cannot see malware that hides from it while it runs; it rules
 # out tampering that is still on disk. Output names files relative to their roots and never prints the user's own paths.
 $ErrorActionPreference = 'Stop'
@@ -479,9 +479,12 @@ try {
         $obj = Join-Path $project.DirectoryName 'obj'
         if (!(Test-Path -LiteralPath $obj -PathType Container)) { continue }
         $relativeObj = $obj.Substring($Worktree.Length + 1)
-        foreach ($file in Get-ChildItem -LiteralPath $obj -Force -File) {
+        # Every .props/.targets below obj (subfolders too: an environment property could import one from there); only the two
+        # NuGet-generated files directly in obj are allowed, and those are checked element by element.
+        foreach ($file in Get-ChildItem -LiteralPath $obj -Recurse -Force -File) {
             if ($file.Name -notmatch '\.(props|targets)\z') { continue }
-            if ($file.Name -ne ($project.Name + '.nuget.g.props') -and $file.Name -ne ($project.Name + '.nuget.g.targets')) { $objProblems.Add($relativeObj + '\' + $file.Name); continue }
+            $isTop = $file.DirectoryName.TrimEnd('\').Equals($obj.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+            if (!$isTop -or ($file.Name -ne ($project.Name + '.nuget.g.props') -and $file.Name -ne ($project.Name + '.nuget.g.targets'))) { $objProblems.Add($relativeObj + '\' + $file.FullName.Substring($obj.TrimEnd('\').Length + 1)); continue }
             $generatedChecked++
             foreach ($problem in (Get-NuGetGeneratedFileProblems -Path $file.FullName -AssetsPath (Join-Path $obj 'project.assets.json') -UsedPackages $used -PackageFolders $packageFolderList)) { $objProblems.Add($relativeObj + '\' + $file.Name + ': ' + $problem) }
         }
@@ -489,20 +492,25 @@ try {
     $userEnvironment = [Environment]::GetEnvironmentVariables('User')
     $expectedNames = @('Path', 'TEMP', 'TMP', 'OneDrive', 'OneDriveConsumer', 'OneDriveCommercial', 'ChocolateyLastPathUpdate', 'ChocolateyToolsLocation') + $AllowUserEnvironmentName
     $unexpectedNames = @($userEnvironment.Keys | Where-Object { $expectedNames -notcontains $_ } | Sort-Object)
-    # Build-relevant variables in this window (the owner runs CB3.7c and CB3.8 here) or in the user's volatile environment
-    # (HKCU\Volatile Environment, merged into new logon processes) are stops (Codex security review of PR #32): MSBuild reads
-    # every environment variable, and MSBuildSDKsPath, DOTNET_*, LIB or INCLUDE redirect the SDK, the host or the native linker.
-    $riskyPattern = '\A(MSBuild|NUGET_|NuGet|DOTNET_|DOTNETSDK|COMPlus_|CORECLR_|Ilc|VCTools|VCINSTALLDIR|VSINSTALLDIR|VSCMD|WindowsSdk|_?CL_?\z|_?LINK_?\z|INCLUDE\z|LIB\z|LIBPATH\z)'
-    $allowedWindow = @($AllowWindowEnvironmentName | ForEach-Object { ([string]$_).Split(',') } | Where-Object { $_ })
-    $processRisky = @(Get-ChildItem Env: | Where-Object { $_.Name -match $riskyPattern -and $allowedWindow -notcontains $_.Name } | ForEach-Object { $_.Name } | Sort-Object)
+    # Environment (Codex reviews of PR #32). MSBuild reads every environment variable as a property, and properties such as
+    # CustomBeforeMicrosoftCommonTargets import files, so names are allowlisted rather than matched against risky prefixes.
+    # A new window's variables come from the machine scope (administrators only), the user scope (allowlisted above), the
+    # volatile logon scope HKCU\Volatile Environment (allowlisted here), and names Windows, PowerShell or the terminal set.
+    $volatileAllowed = @('LOGONSERVER', 'USERDNSDOMAIN', 'USERDOMAIN', 'USERNAME', 'USERPROFILE', 'HOMEPATH', 'HOMEDRIVE', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'USERDOMAIN_ROAMINGPROFILE', 'CLIENTNAME', 'SESSIONNAME')
     $volatileRisky = [Collections.Generic.List[string]]::new()
     if (Test-Path -LiteralPath 'HKCU:\Volatile Environment') {
-        foreach ($key in @(Get-Item -LiteralPath 'HKCU:\Volatile Environment') + @(Get-ChildItem -LiteralPath 'HKCU:\Volatile Environment')) { foreach ($name in $key.GetValueNames()) { if ($name -match $riskyPattern) { $volatileRisky.Add($name) } } }
+        foreach ($key in @(Get-Item -LiteralPath 'HKCU:\Volatile Environment') + @(Get-ChildItem -LiteralPath 'HKCU:\Volatile Environment')) { foreach ($name in $key.GetValueNames()) { if ($name -and $volatileAllowed -notcontains $name) { $volatileRisky.Add($name) } } }
     }
-    Write-Safe ('BUILD-HOOKS msbuildUserCurrent=' + $currentHooks.Count + ' msbuildUserOther=' + $otherMsbuildFiles + ' aboveWorktree=' + $ancestorHooks.Count + ' untrackedOutsideBinObj=' + $outsideBuild.Count + ' nugetGeneratedFiles=' + $generatedChecked + ' objImports=' + $objProblems.Count + ' userEnvironment=' + $userEnvironment.Count + ' unexpectedUserEnvironment=' + $unexpectedNames.Count + ' buildEnvironmentInThisWindow=' + $processRisky.Count + ' volatileBuildEnvironment=' + $volatileRisky.Count)
+    $riskyPattern = '\A(MSBuild|NUGET_|NuGet|DOTNET_|DOTNETSDK|COMPlus_|CORECLR_|Ilc|VCTools|VCINSTALLDIR|VSINSTALLDIR|VSCMD|WindowsSdk|Custom(Before|After)|Import|DirectoryBuild|AlternateCommon|_?CL_?\z|_?LINK_?\z|INCLUDE\z|LIB\z|LIBPATH\z)'
+    $allowedWindow = @($AllowWindowEnvironmentName | ForEach-Object { ([string]$_).Split(',') } | Where-Object { $_ })
+    $windowKnown = @([Environment]::GetEnvironmentVariables('Machine').Keys) + $expectedNames + $volatileAllowed + $allowedWindow + @('ALLUSERSPROFILE', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'COMPUTERNAME', 'ComSpec', 'DriverData', 'NUMBER_OF_PROCESSORS', 'OS', 'Path', 'PATHEXT', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'PUBLIC', 'SystemDrive', 'SystemRoot', 'TEMP', 'TMP', 'windir', 'PROMPT', 'PSModulePath', 'PSExecutionPolicyPreference', 'POWERSHELL_DISTRIBUTION_CHANNEL', 'POWERSHELL_TELEMETRY_OPTOUT', 'WT_SESSION', 'WT_PROFILE_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'COLORTERM', 'GIT_TERMINAL_PROMPT')
+    $windowNames = @(Get-ChildItem Env: | ForEach-Object { $_.Name })
+    $processRisky = @($windowNames | Where-Object { $_ -match $riskyPattern -and $allowedWindow -notcontains $_ } | Sort-Object)
+    $processUnknown = @($windowNames | Where-Object { $windowKnown -notcontains $_ -and $_ -notmatch '\A(EFC_\d+|FPS_BROWSER_(APP|USER)_PROFILE_STRING|OneDrive\w*|=.*)\z' } | Sort-Object)
+    Write-Safe ('BUILD-HOOKS msbuildUserCurrent=' + $currentHooks.Count + ' msbuildUserOther=' + $otherMsbuildFiles + ' aboveWorktree=' + $ancestorHooks.Count + ' untrackedOutsideBinObj=' + $outsideBuild.Count + ' nugetGeneratedFiles=' + $generatedChecked + ' objImports=' + $objProblems.Count + ' userEnvironment=' + $userEnvironment.Count + ' unexpectedUserEnvironment=' + $unexpectedNames.Count + ' buildEnvironmentInThisWindow=' + $processRisky.Count + ' unrecognizedWindowEnvironment=' + $processUnknown.Count + ' volatileBuildEnvironment=' + $volatileRisky.Count)
     Write-Examples 'HOOK-MSBUILD-USER' $currentHooks; Write-Examples 'HOOK-ABOVE-WORKTREE' $ancestorHooks; Write-Examples 'HOOK-UNTRACKED' $outsideBuild; Write-Examples 'HOOK-OBJ' $objProblems
-    Write-Examples 'HOOK-USER-ENVIRONMENT-NAME' $unexpectedNames; Write-Examples 'HOOK-WINDOW-ENVIRONMENT-NAME' $processRisky; Write-Examples 'HOOK-VOLATILE-ENVIRONMENT-NAME' $volatileRisky
-    if ($currentHooks.Count + $ancestorHooks.Count + $outsideBuild.Count + $objProblems.Count + $unexpectedNames.Count + $processRisky.Count + $volatileRisky.Count -gt 0) { Add-Failure 'a build hook outside the SDK and packages is present' }
+    Write-Examples 'HOOK-USER-ENVIRONMENT-NAME' $unexpectedNames; Write-Examples 'HOOK-WINDOW-ENVIRONMENT-NAME' $processRisky; Write-Examples 'HOOK-WINDOW-UNRECOGNIZED-NAME' $processUnknown; Write-Examples 'HOOK-VOLATILE-ENVIRONMENT-NAME' $volatileRisky
+    if ($currentHooks.Count + $ancestorHooks.Count + $outsideBuild.Count + $objProblems.Count + $unexpectedNames.Count + $processRisky.Count + $processUnknown.Count + $volatileRisky.Count -gt 0) { Add-Failure 'a build hook outside the SDK and packages is present' }
 } catch {
     Add-Failure ('the check could not finish: ' + $_.Exception.Message)
 }

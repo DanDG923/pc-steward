@@ -65,7 +65,8 @@ public sealed class OwnerBuildToolchainCheckTests
         StringAssert.Contains(script, "$problems.Add('import path is not a literal package file')");
         // Pkg<Id> paths are bound to their own package, and build variables in the window or volatile environment stop the check.
         StringAssert.Contains(script, "$problems.Add($child.LocalName + ' value is not its package folder')");
-        StringAssert.Contains(script, "$processRisky.Count + $volatileRisky.Count -gt 0");
+        StringAssert.Contains(script, "$processRisky.Count + $processUnknown.Count + $volatileRisky.Count -gt 0");
+        StringAssert.Contains(script, "foreach ($file in Get-ChildItem -LiteralPath $obj -Recurse -Force -File)");
         // NuGet writes NuGetPackageRoot as $(UserProfile)\... under the profile; only that exact leading macro is expanded.
         StringAssert.Contains(script, "$v.StartsWith('$(UserProfile)', [StringComparison]::Ordinal)");
         // Older side-by-side workload manifests pass only against pinned package bytes, and workload state is never tolerated.
