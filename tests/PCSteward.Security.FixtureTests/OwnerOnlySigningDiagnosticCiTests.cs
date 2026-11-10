@@ -28,6 +28,29 @@ public sealed class OwnerOnlySigningDiagnosticCiTests
     }
 
     [TestMethod]
+    public void NativeHelperSigningDiagnosticJobIsInformationalReadOnlyAndBuildsThisCommit()
+    {
+        // ADR-033 redeploy pre-flight: the same diagnostic on this commit's candidate, whose helper is the native AOT image.
+        string workflow = File.ReadAllText(Path.Combine(FindRepositoryRoot(), ".github", "workflows", "ci.yml")).Replace("\r\n", "\n", StringComparison.Ordinal);
+        int job = workflow.IndexOf("  native-helper-signing-diagnostic:\n", StringComparison.Ordinal);
+        Assert.IsTrue(job > 0, "the native-helper signing-diagnostic job is missing");
+        int next = workflow.IndexOf("\n  owner-only-signing-diagnostic:\n", job, StringComparison.Ordinal);
+        Assert.IsTrue(next > job, "the native-helper job must come before owner-only-signing-diagnostic");
+        string section = workflow[job..next];
+        StringAssert.Contains(section, "runs-on: windows-latest");
+        StringAssert.Contains(section, "continue-on-error: true");
+        StringAssert.Matches(section, new System.Text.RegularExpressions.Regex(@"permissions:\s+contents: read"));
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(section, "uses: actions/checkout@v4"), "only this commit is checked out");
+        StringAssert.Contains(section, "persist-credentials: false");
+        StringAssert.Contains(section, "fetch-depth: 0");
+        StringAssert.Contains(section, "global-json-file: global.json");
+        StringAssert.Contains(section, "pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1");
+        StringAssert.Contains(section, "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/" + Script);
+        Assert.IsFalse(section.Contains("ref:", StringComparison.Ordinal), "no other source commit");
+        Assert.IsFalse(section.Contains("secrets.", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void SigningDiagnosticMirrorsTheInstallerAndCleansUp()
     {
         string root = FindRepositoryRoot();

@@ -1,0 +1,481 @@
+{
+  "schema": "pc-steward-owner-build-toolchain-pins:1",
+  "sourceCommit": "d9a754b8da980a84eb4641cd58c98e27bdfd4444",
+  "sdkVersion": "10.0.403",
+  "sdkZip": {
+    "name": "dotnet-sdk-10.0.403-win-x64.zip",
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.403/dotnet-sdk-10.0.403-win-x64.zip",
+    "sha512": "7a114c318fa7f1d9822991b534b2814d0e78386ceda816b371f5141acefe741d87ccb606ede06cadac8f9ac5070e32b708a67bbd1619ff5e5a7858a27874ef48",
+    "bytes": 300745255
+  },
+  "projects": [
+    "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+    "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+    "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+  ],
+  "packages": [
+    {
+      "id": "Microsoft.AspNetCore.App.Runtime.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "1k8096BmENepiqExfgA3ndME94v7RqMqTqLrNMyN+FpqD7WD6jKL9tYrYWi4WKNCAgvRMFVlAidzA3s/FDmIQg==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.Data.Sqlite.Core",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "/DjPbRUdkJvNKWR5f+OmjxN3jT3WBlNc/TlwJXVkg0CBpKcoWZRrJZSGsdmMgR0g3nNQQ9e1CQdArX6jrhxifA==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.Data.Sqlite",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "K37udQU2dojYZuCUT9F8TlZTAxzE0XOkqUfgIM2+2Lj7yJnfoNhpLmxAp6eSL281R6ncc4uhIAvTxSpv1qjgVA==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.DotNet.ILCompiler",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "obn/HAYT8K4e5aBYP25r2hlbFTdS58QMsUcwFEnxDIwmRJSeFao0aFGdmVbtrU1QIzSshSBXmqB+4625w7c28A==",
+      "projects": [
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "YgO/Gkx7Ebb/0FIjQoNRdqn2e1IuzCZaiT3KzPkIIbTvQ17QRGfYNGBCDwkcMOtx2JOzWn0Kwqnuh6SdbSfZqw==",
+      "projects": [
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.NETCore.App.Runtime.NativeAOT.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "932Q01OgC1k4vtlOWSqCT3+fHDken18kfcyV5sNSBMrKNGuXs9XBcK+GqFeUS65BgWRao4K8BhbaJYxJRythsA==",
+      "projects": [
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.NETCore.App.Runtime.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "mLWGagTP5n7nMfJQI2XpXRYgvPcnyYvAc8ZiDfum8ShM0UcrPDyfW4Lqo45UtlCHCucERUHQuMTI6ybVweCN9A==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.Web.WebView2",
+      "version": "1.0.3179.45",
+      "kind": "library",
+      "sha512": "AqvMjM6eGVbfvi4k/dTOYlqz4f8BOcm6mr7SZDOxnxZw9RNrpxwq+R8pjd5QeynZ3MZfCQ5d2bXrzsIZvk6A6Q==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.Windows.SDK.BuildTools.MSIX",
+      "version": "1.7.20250829.1",
+      "kind": "library",
+      "sha512": "OoKxwzDL1nbqM5rBpB5h05wXsvmKff31Or5KBxjJiKfiUP9rSeqhC8FqZBJQZHOW75Ffn559MuM+J5C3Ulwa0g==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.Windows.SDK.BuildTools",
+      "version": "10.0.26100.4654",
+      "kind": "library",
+      "sha512": "kXdAbJ9Vu1gFheVpgqdxFqbamlponIVeVEnnkIzuvLkcaGrQOoJwaZSRcrhwICgc1UZCoPUE4FWZKxHWTW4s3Q==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.Windows.SDK.NET.Ref",
+      "version": "10.0.22000.57",
+      "kind": "download",
+      "sha512": "pRafUNY3UCHUl9AJjh5aDI2lD1jFv/6Ya0eGkO8FSZjYrt5sQ2lWCWO1/1zOsmqBiflu/xP1PLV9MCrcN+89cQ==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.AI",
+      "version": "1.8.37",
+      "kind": "library",
+      "sha512": "hHfuvxiPUTzOIazGfz4bu4hsfej6i8qQtjlWcS+gRpMNqUmiX89JdZVUtjHg4n6cA8afzLcPWkJUN0yivUO2fw==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Base",
+      "version": "1.8.250831001",
+      "kind": "library",
+      "sha512": "xhTh19d7OGfhE1AcVUsaQxs05XvfE8IlbGBHlgcJ42PF6R9J05ySwtX3VC1cDeUyX5F9Yt+hNArVew0amDqOjg==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.DWrite",
+      "version": "1.8.25090401",
+      "kind": "library",
+      "sha512": "O3HX4bTuPJoESjOfYAGc1k8XRks/U+kJms4cIaOyni60rDZmm/rpWQecEf4vHzpXQRSGMom5ur50IqdAJJ3ORQ==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Foundation",
+      "version": "1.8.250906002",
+      "kind": "library",
+      "sha512": "ecpmrATo4TAYMyIYJF3oarZtOqLhqi3c+NCa0u4cvp3V/PBWSx1jze9JCl4EAS0qcNa2ogvnOTAbLw2eqXVBxQ==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.InteractiveExperiences",
+      "version": "1.8.250906004",
+      "kind": "library",
+      "sha512": "rWG2wWtRGE+TFms2ApVpuVCDI4WqdMGCrl7ITqWfdmDNndt/DdcaDq5KeofSlfXrEvhjagJTuSPGvfBASKJrcw==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Runtime",
+      "version": "1.8.250907003",
+      "kind": "library",
+      "sha512": "au7Nj2kuhyQXUjrhVUI1h7id/Rp8MXxb17ZI59Z3inaVPw698KFIe6A1INMXJwQhryRs02Oock7mdraXJDk3Ng==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Widgets",
+      "version": "1.8.250904007",
+      "kind": "library",
+      "sha512": "sBr64fZdOTCZBP+8SCfCdTITMWKqf3uiMm//UTp+KYwRNQGhWhTy63cFUxsJYTOwTOcnWCVdmSK94osHLjWigQ==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.WinUI",
+      "version": "1.8.250906003",
+      "kind": "library",
+      "sha512": "oer7PQjIJnuM7uUs1IOZ/Gy+m1o6Ub9+hOp2jUaBrfcCAcqmxOmz3sgY019I/gRGWae1twDd8shTNs5LItBivA==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK",
+      "version": "1.8.250907003",
+      "kind": "library",
+      "sha512": "bjUj6Jb0sRpJGfXv9HLEfeO4kCXJ9RXRb50f90vrB6tQRCrtic5WKtOBZK1UO2h+emAyeeXV/ZEWubPZNfC+Uw==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "Hxj4llZzFIss9eBt/EKnxessXLi3/wj6Cwrqp2ZL1j74Pmg8VM+IZd9B7bWGt8flKre7z6cJwoRY5YpwJqX44Q==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsPackageManager.ComInterop",
+      "version": "1.10.340",
+      "kind": "library",
+      "sha512": "DWNish+LVLCtEDb5ztYakK6K0qt/ybrND4IxzP4Q+u/usCSRkbIlDIJKEJ0PvVzaX1/Nl0ampZ1MwCET94PaSg==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsPackageManager.InProcCom",
+      "version": "1.10.340",
+      "kind": "library",
+      "sha512": "S94QgpXDWmsyIdI3w1mo3I0hfAgYcOldIRC95IBBTLYzdLAR+gc03wRdaURWRGg0hnvWgyLifzNi5dyeegZ2NA==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "ZiiQBsOdluailDf6kiMGIqF8fN4nllbQf/B39Mrkc+n2CMb2ZLc3g43GDo4T77aDV6gcmLYCNf2Idxc0AQdZmw==",
+      "projects": [
+        "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+      ]
+    },
+    {
+      "id": "SQLitePCLRaw.bundle_e_sqlite3",
+      "version": "2.1.13",
+      "kind": "library",
+      "sha512": "sef6qu3HuKduXOg73LOvqqaM18WJ94HVwChWGMlsgFW/4W72tqpMhsPPdVkQCl1YHDrxfuYjfyZpFMZFChBdig==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "SQLitePCLRaw.core",
+      "version": "2.1.13",
+      "kind": "library",
+      "sha512": "DNjhn7CS7WDnBnrcIR+6iKLWZgIjMxj/1XnPM13IudFGk1Ijq41Am9fBTiayKu/zfIBSStbuuvyAerZ8jUPxdQ==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "SQLitePCLRaw.lib.e_sqlite3",
+      "version": "2.1.14",
+      "kind": "library",
+      "sha512": "6oIc2tLdN5JFjHgm6Csa/NbKMfy2U0yww0VN5lO7u5K0dPC8Eo5MwPjZKpF4QHLrhAFpy67CBx1LuXArlQgDJw==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "SQLitePCLRaw.provider.e_sqlite3",
+      "version": "2.1.13",
+      "kind": "library",
+      "sha512": "w9dMB40gReMLzOxfCDuvjUhUTuSI9443Q2Hxrp8SW/vIGh6qP8TjkOTZ9p59mH50NpzQM7F3hhp8MAB2py9Now==",
+      "projects": [
+        "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    }
+  ],
+  "sdkSideBySideManifests": [
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.emscripten.current",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.emscripten.current.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.emscripten.current.manifest-10.0.100/10.0.111/microsoft.net.workload.emscripten.current.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "qLIh8eGnuCbrUJ6u/h8fnjisx5jRCWbq36Eh5mlYBUfiM6bZHgWqSwV4B24PEri+rZzMxZYPvP0lpYieNA1xGw==",
+      "files": {
+        "WorkloadManifest.json": "DB5C73679A739052B1884F8C52A981620D96DFC302B09F9E0478401AA092F048",
+        "WorkloadManifest.targets": "33C47F1130A7E22AA5A9EDDE6579FA7166273EA991BAD22EB17738456C881281"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.emscripten.net6",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.emscripten.net6.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.emscripten.net6.manifest-10.0.100/10.0.111/microsoft.net.workload.emscripten.net6.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "l6xEZ+Bw7okechordmsv2t3JeLUNoRM0110tbTVCPMR31svNSwR7Z9RU/080wZq6bweKyLboP64zq49Zu2A2/g==",
+      "files": {
+        "WorkloadManifest.json": "79BA43E2BAD7A01399363938F48627E56C2DEF262F838D835615E3CFCDADA447",
+        "WorkloadManifest.targets": "1651788174AB4269484476A9A31574FF772D36F3FBBEDF5E3FA6DE959E894ADC"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.emscripten.net7",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.emscripten.net7.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.emscripten.net7.manifest-10.0.100/10.0.111/microsoft.net.workload.emscripten.net7.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "V4vcnvEV8HqpxsRuX/E+f849YET1cOLE9V6WVY4khzqBZT7rFV24Xf4z3F2G4y4v4dDUFtWysWIH1X62PmzzpQ==",
+      "files": {
+        "WorkloadManifest.json": "425FCEC513015893B0CCB6CE138101BF220E170A7A8EEF092F8C2FE62D37553A",
+        "WorkloadManifest.targets": "58479B3F1B2E81E8DF7123E0967DA01D8FC671CA6C066B98F27BE5036CFC07D5"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.emscripten.net8",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.emscripten.net8.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.emscripten.net8.manifest-10.0.100/10.0.111/microsoft.net.workload.emscripten.net8.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "tyiqXnlsMfVRGSgChnKPKh2ajpF0KDphy/tm+8Sx4PtIKSCUmY6Xdet8cbSrJYdjw3g5HnrnNfT+7cLuZjJU7g==",
+      "files": {
+        "WorkloadManifest.json": "D44360FF3E86D2B778D8565F674A1B103153A0B5691D985CB90CC6BB9FE58043",
+        "WorkloadManifest.targets": "7F28354F5CB880B7B581B43A21A28A3BEC5AFACDEF431E92EDBA4371FF399B8D"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.emscripten.net9",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.emscripten.net9.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.emscripten.net9.manifest-10.0.100/10.0.111/microsoft.net.workload.emscripten.net9.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "3Zgpj6TiekbhbOqkkvLJrycYUHgNvRPxUMS0zYt5PHISPZ1wKVbTBBvVx2/Xy2JLhjPdDvauwL6Lp4rzcXhZpQ==",
+      "files": {
+        "WorkloadManifest.json": "DF6683BD9E98B06F04F9F19D283629B9A30454FBB57CC27C475FEADFF2E0F062",
+        "WorkloadManifest.targets": "FBC1827C63D8CF8F5816925D7A6E7CB0825E6CFBF5FC9B864DAAD0E2588531CB"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.mono.toolchain.current",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.mono.toolchain.current.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.mono.toolchain.current.manifest-10.0.100/10.0.111/microsoft.net.workload.mono.toolchain.current.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "XrKbUGQ9zy49RoVHpmFyyBEONpvaM8A4IzqGKdVzkacbGNka+dmuXCQ3Rs6aFgbdV3v9FiXVcN844ULLFnfMwA==",
+      "files": {
+        "localize/WorkloadManifest.cs.json": "A812F173253F68E480E4B62521CF489C20823A37F2C77F36740F9646162C842E",
+        "localize/WorkloadManifest.de.json": "7CDCEC396F253588FC53ACF9F2B88243FDF78F8C1DDE402073A0F39DF4AFA91C",
+        "localize/WorkloadManifest.en.json": "F6131F12D8721CAE6391EF045CBB81D4E50DAC7E1C5F60B4B8FD11ABB9EE7BBE",
+        "localize/WorkloadManifest.es.json": "261E1D89EBB0D4C4726C8BBE0C99FEF60A2CE48C4BDAC1BB967BBBDCDCAA4EDB",
+        "localize/WorkloadManifest.fr.json": "70B343B84CFD7EAE14CBF97D898CE2C29C8E3051D8E4FB024048155595FF0CD0",
+        "localize/WorkloadManifest.it.json": "313D19E14382B65E9329C8EFC6DA94D5E2F487C0ABD301A9C30832165C9F4EE0",
+        "localize/WorkloadManifest.ja.json": "4BA3FE48CFB46665235B4634075C75324E7FD774BB19036BC3E235B743B0DC14",
+        "localize/WorkloadManifest.ko.json": "E794046AC7CBCF5CAA1F37B1E6462127F04241911A3EEE8DE792DC4BF8D784CC",
+        "localize/WorkloadManifest.pl.json": "8392802FAC5F58489A1BFA7874BB6B5BCDDA43E583B0B3E198DE5D25742C3212",
+        "localize/WorkloadManifest.pt-BR.json": "10838824DEBBD4D0906EADB5B05A51300C15EC64B396E0D9A4D934BEFFDD30BB",
+        "localize/WorkloadManifest.ru.json": "151E6134996C3D3EA22A4F9A50303B5F4155C3A4ADCAEA4EBD94BC65033769FD",
+        "localize/WorkloadManifest.tr.json": "801A067B16E8E1E74E11A5FF721C4600BB4F860BED9BA08ABA40B2BDC8673857",
+        "localize/WorkloadManifest.zh-Hans.json": "30CE30CA1C79332A654F83B418CB588C859B077D8783A22B744F79CB9803569B",
+        "localize/WorkloadManifest.zh-Hant.json": "9EBC69A583F409AEDBB3CDB460FB580EFEBEC0575677CB93CD46E1765060FE21",
+        "WasmFeatures.props": "5268547BD2CF542C2D0FDBBA070910D122716099B362A7D66B63EF44A7197971",
+        "WorkloadManifest.json": "A35D9B548B927A106F02726A85D4ECA45B3FFDCD4E5136730A2DDDE0DF166017",
+        "WorkloadManifest.targets": "096F1EF0F83C5977D3BEAB582A42FA5B45B3FC2541848FC6F66665A43A697ADB",
+        "WorkloadManifest.Wasi.targets": "C19070244C133C07CDD000C8F33891E09DFC0EDABC0E1BDB3C789E417A756BE7",
+        "WorkloadTelemetry.targets": "C63D8294E7AC3D2440CE2651F44D0629C9BADB58FE2D35C782F325660A98D669"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.mono.toolchain.net6",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.mono.toolchain.net6.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.mono.toolchain.net6.manifest-10.0.100/10.0.111/microsoft.net.workload.mono.toolchain.net6.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "bmLUi0XdYmElM7861SyBbyEonw3u01cAjTt6owaDFU1t4EpQR0WdsHeJsTDsleqk0zb83JZGB1WpbA509uHExQ==",
+      "files": {
+        "localize/WorkloadManifest.cs.json": "7C74F4A0808F9B4CD13ED67D9030AB8A00E7D63BF7414AFCBC02510B4C338F6D",
+        "localize/WorkloadManifest.de.json": "376EE70BEF8FA0E5CD6F0CE7A61C15F0886A6BC2C77726BAF8CCBA951E8704C7",
+        "localize/WorkloadManifest.en.json": "F3F7B901E99C7B9664D44E88B85FF3262720E9FAB865BC6B117CBEDAACEAD804",
+        "localize/WorkloadManifest.es.json": "7A8FE7835AFAB1A1546253E7CD03BA5CFAE4CC87F984AF23DB798A64F5E1C1F3",
+        "localize/WorkloadManifest.fr.json": "B9E10E05CE73A7F6A785BFCE5029DE17C6A1C74AADD9577A3C1FCE931CB9A15C",
+        "localize/WorkloadManifest.it.json": "D4B63FE584EDD5C9E5562E510AFFFD6E685A2EECBAB315B1FCF89D0AB027073D",
+        "localize/WorkloadManifest.ja.json": "1C231A72671A1314C27E15B51E941BCC85553D92E7661DAA69825BFF8A9F4270",
+        "localize/WorkloadManifest.ko.json": "0B8A365BFAE783DA41F49B950DAA9BE45F7E58528085A8A4DF7BACE67C2FAF7B",
+        "localize/WorkloadManifest.pl.json": "4193D311E18A9AB67412471FBD391CEA022D4469DCE0A92CCF59DCDD6686BBC7",
+        "localize/WorkloadManifest.pt-BR.json": "8AD9701C51346B06C278841FBA449B1B53390616F458BF4396D23357D56BA934",
+        "localize/WorkloadManifest.ru.json": "22D2CEFFB09527D9CEB32D06039FE2D9A2CEA1BB2C43951BC76F22E16BAF7573",
+        "localize/WorkloadManifest.tr.json": "D9269C04338A17A5D7513238D40E36ABDABA5DD5E8704F4CFE53FC85FDA2E9E6",
+        "localize/WorkloadManifest.zh-Hans.json": "D750FBE789C1309E83113489F74B6E13D62C3C1464E70760455672675C3AAE57",
+        "localize/WorkloadManifest.zh-Hant.json": "35A0DA2CDBBD6D9377660E00FFC7531A8DCB6D5998ECA06E7FBDC91FB26DD53D",
+        "WorkloadManifest.json": "CF7D32D413D1580B427CF3911BE30B4D528C5E2C6DD915CC6EF00487CFB19570",
+        "WorkloadManifest.targets": "28AC8C25CCF823D78625BB0C555B604B5B5025DD6332F5636DC9078A864E5367"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.mono.toolchain.net7",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.mono.toolchain.net7.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.mono.toolchain.net7.manifest-10.0.100/10.0.111/microsoft.net.workload.mono.toolchain.net7.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "hPtpe6MalwQv7OO83CUx17wHbU8GtQrnapRZpQXG+0xyqcuih+XtyJcN4A6OeX1cittcaYJeDZqT787L2xAUQA==",
+      "files": {
+        "localize/WorkloadManifest.cs.json": "BC3AF0018E0A082B3B4D4B646D5852580F99806C4618A63055758D961DAF1108",
+        "localize/WorkloadManifest.de.json": "F30612EF7E7B8CD6FD741D5E46DA6CF5B1C48A24F1C56A0831C7EE527C24075F",
+        "localize/WorkloadManifest.en.json": "FF740D31CB50BC09D1F5980EB4E058899CDFB46E5E8B3BB1E3249F31BDE1810A",
+        "localize/WorkloadManifest.es.json": "E4E8D62330E1CEB64A68A9B888EE21EB53708D675B3BE4E08A36AEE7438D4771",
+        "localize/WorkloadManifest.fr.json": "0FC58AC190B7AD8A3D38E8279C248FAF947608EFDA54FB6625FFAD554C7F8079",
+        "localize/WorkloadManifest.it.json": "79FED9C903F2D43BA9E97607811F2B56EA130237E6A5CB52A54B8029034AEC63",
+        "localize/WorkloadManifest.ja.json": "C5BE5476E22919AAA092773F961D313D194BDFECF391628B9A77197CCF83F552",
+        "localize/WorkloadManifest.ko.json": "C693695FC24E0AAB8F48B83B6CAB3A4CDC81BE97B9F171761F3B4CBF2CFFC8A4",
+        "localize/WorkloadManifest.pl.json": "A164E26FEE0565DDD6C2F1B27571E01A143E78B92F0A22AC5990F363F7AB9C74",
+        "localize/WorkloadManifest.pt-BR.json": "270532D26A2F0B8F72DBECFD0E89E4FB83D0A0FFD74AA23EE680C2655BFFE033",
+        "localize/WorkloadManifest.ru.json": "A80C78B3593D89BF13AAFACE9DE8851B21E4C46E21255BE43B897E2533AEC266",
+        "localize/WorkloadManifest.tr.json": "3D563CC63485FD62E4FE750EF2118286E1C12F310529E437D5EA38262E049025",
+        "localize/WorkloadManifest.zh-Hans.json": "649AC72E9E03580FE562062D1D8FC04B01F92F6C951947FFB6916615C670181D",
+        "localize/WorkloadManifest.zh-Hant.json": "4FCE9034BFCE165626C11BA0A2E47CF9CD034BB4E536132A9573245B7AD3A0CB",
+        "WorkloadManifest.json": "712A92A4269B937E026EB8FC295E436B7A0F660EF5A8C0A3B544EBCC7F355543",
+        "WorkloadManifest.targets": "824F11EA47A7E458E9EC17D6DEFBC191B89F13678D9324FE7C39B3E18764EF33"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.mono.toolchain.net8",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.mono.toolchain.net8.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.mono.toolchain.net8.manifest-10.0.100/10.0.111/microsoft.net.workload.mono.toolchain.net8.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "M87QuY/2cjf23RT9qZ84eM/d/y42PXNugd09g4Srakn8e8ldAhX4wpDFoOZokj5zaO2psywh35Y+6nm8Gloo5w==",
+      "files": {
+        "localize/WorkloadManifest.cs.json": "5B60CB6B74D2148E82E01663D640476166B601DA0A9315A67ABCCC4C7A670594",
+        "localize/WorkloadManifest.de.json": "FDC4D362D7EBD0DAAE7749AAB3469A14DAAA613A6A82A98CB7B1882DF3BAD00F",
+        "localize/WorkloadManifest.en.json": "F007209457B35693063C7FE85FA67E93D946F4011D16E58E4E813ED7A7CE0B41",
+        "localize/WorkloadManifest.es.json": "9CB7343EAA070FFB74FDFCD98979E448E5E739C7082F08F6948947BD2CEEC5D0",
+        "localize/WorkloadManifest.fr.json": "9203CE3B76F1BF9D42A40F7EEEAB1D8538399F3F5D6CEDCAA0E0193DF21C381C",
+        "localize/WorkloadManifest.it.json": "046114860F23ECE910E58688E4D8424C47C374A12841BEA9B302A59DD6F7CF46",
+        "localize/WorkloadManifest.ja.json": "38E85E8DEE05B6FE2A53003A5C3D6A1DF966BA52D1B59D81E253823D8168470C",
+        "localize/WorkloadManifest.ko.json": "B06ABBE968214AC241D32E337227F1AC4880662A4D2256BB3031503FA76FACD8",
+        "localize/WorkloadManifest.pl.json": "E17B5A7D9F735015AA36932CD2DF9FB0FAF964AE36A474304F742BC6AC62A9F5",
+        "localize/WorkloadManifest.pt-BR.json": "4D18227BE23D22653BCCD81FD034FC2CC5E30586D0575B2D744FCF416A9985E0",
+        "localize/WorkloadManifest.ru.json": "06338C3B5C434B5975DA19127A7B56735FD3410B88DDEB95E154AFC01C4225FE",
+        "localize/WorkloadManifest.tr.json": "F09AAA695FCEF2042D43CFA13E4E34230804C956B9AB24A196F42F7FEB198932",
+        "localize/WorkloadManifest.zh-Hans.json": "63B282C9F5DBDAA02417DAB2C2CC7F29FAA8206D9B2A4115ADF8EB151DE37049",
+        "localize/WorkloadManifest.zh-Hant.json": "F756AAD0F00B6FA60DC12DF2A1AAA168F538AD162F12811E3E50CEA5E65A8BE9",
+        "WorkloadManifest.json": "945F8D998523B9E2B3AF0D433DA86F0F9D36A2D09306CDB29F82BF39AD184F46",
+        "WorkloadManifest.targets": "CAFA491F2320E568F43D5E70E81A170A152B3D8A64F9FFD04F49F73EC453979B"
+      }
+    },
+    {
+      "band": "10.0.100",
+      "id": "microsoft.net.workload.mono.toolchain.net9",
+      "version": "10.0.111",
+      "package": "microsoft.net.workload.mono.toolchain.net9.manifest-10.0.100",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.workload.mono.toolchain.net9.manifest-10.0.100/10.0.111/microsoft.net.workload.mono.toolchain.net9.manifest-10.0.100.10.0.111.nupkg",
+      "sha512": "u3C4BXc1dS97Ls6h5c7zFN7GQDY5t0rrnc6q0wZulFbAllpWMKTok39a9UE1/cr/YPxySDvItMA97pfzyXUecg==",
+      "files": {
+        "localize/WorkloadManifest.cs.json": "FFB9C303F1D2E9BB636E861E2C89640FD4B282B0DCE91C7C8CD081BE6966DD8D",
+        "localize/WorkloadManifest.de.json": "8A6C7A4F46C02117FCF48BD4FB3AC656D5F085EC6F388BA511873806B801245B",
+        "localize/WorkloadManifest.en.json": "944AA51D4548F611253E35D325FE9D941553E0E8783C49BC5FC6A6D4E48E3665",
+        "localize/WorkloadManifest.es.json": "C218D4EEC7980111515D861EC7D6F7E82AA00DB81A77E46232F860CDFB8FA5B1",
+        "localize/WorkloadManifest.fr.json": "733CB9842F5E9BF1BB38846B10C92E021974FC4E9FE0543DD756F5BA5E669881",
+        "localize/WorkloadManifest.it.json": "67BCF7BAADE3327F261C834E718E9FB41AAC260BF05380082E99829C217B5980",
+        "localize/WorkloadManifest.ja.json": "06207C0FD20DAB212EEFC733EB1071409181066F27D97110C398909FB2D0E27A",
+        "localize/WorkloadManifest.ko.json": "65BFFB925A8E238A8E95EF1AE29B6B9766BE12C5854763BA40D1E2EBC56D856D",
+        "localize/WorkloadManifest.pl.json": "051F698A928707C0322A47291896E29A3CE399D5032C8A5877C415222D984B52",
+        "localize/WorkloadManifest.pt-BR.json": "D88E18151BAABB7E48788B7E70A16F20AE99FB7657AD9020E9C4A868BE65E619",
+        "localize/WorkloadManifest.ru.json": "317112E23D942EFC109E60A822F748E365B652D264E9D27B8B0BBEC64F1B561B",
+        "localize/WorkloadManifest.tr.json": "6BDCBBF3B5B3D6D6E4EF61A3A5C05C98A683BBD0EDC3B73007F12A6602D7443D",
+        "localize/WorkloadManifest.zh-Hans.json": "6C77AFC3A7829AABB6F0D960A92FB4E2EE4B6571EB57D4EE0238DCFE1E856198",
+        "localize/WorkloadManifest.zh-Hant.json": "F9914C69D617D4A38AFBD1C3E0EF8980B319096EEE170B4E5AE56D7D4E5E6A76",
+        "WorkloadManifest.json": "C7A2E9C388C01F77BD5CC5BB8FF3CEF4FE2D5DC823CF10C4AB45A5BF286C5692",
+        "WorkloadManifest.targets": "AC85986862D6C54984D12828EDBD9680C0573C8075C3191FDC2DAF3565C41B07"
+      }
+    }
+  ]
+}

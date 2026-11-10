@@ -1,3 +1,10 @@
+# Task 50 — Native AOT helper redeploy plan (ADR-033)
+
+`FR-UPD-15`, `TM-03/04/13`; ADR-022, ADR-033; security review H1; [plan](../review/TASK_50_NATIVE_HELPER_REDEPLOY_PLAN.md).
+
+- **Evidence plan.** CB3.3 and CB3.9 native-image checks (PE32+, no CLR header, no managed helper file); C3 probe re-run on the native helper.
+- **Tests.** Security `OwnerOnlySigningDiagnosticCiTests.NativeHelperSigningDiagnosticJobIsInformationalReadOnlyAndBuildsThisCommit`; CI `native-helper-signing-diagnostic`.
+- **CB3.7c toolchain check** (Codex security review of PR #32; owner decision 2026-11-10). `scripts/Test-OwnerBuildToolchain.ps1` against `docs/review/task50-owner-build-toolchain-pins.json` (from `scripts/Get-OwnerBuildToolchainPins.ps1`). Tests: Security `OwnerBuildToolchainCheckTests`; CI `owner-build-toolchain-check` (`scripts/Test-OwnerBuildToolchainCI.ps1`: passes on the official toolchain, stops on each planted change).
 # Task 50 — Native AOT elevated helper (ADR-033)
 
 `FR-UPD-15`, `TM-03/04/13`; ADR-022, ADR-033; security review H1.
