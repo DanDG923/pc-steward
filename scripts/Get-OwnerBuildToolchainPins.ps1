@@ -58,12 +58,12 @@ foreach ($project in $projects) {
     foreach ($library in $assets.libraries.PSObject.Properties) {
         if ($library.Value.type -cne 'package') { continue }
         $slash = $library.Name.IndexOf('/')
-        $found += [pscustomobject]@{ Id = $library.Name.Substring(0, $slash); Version = $library.Name.Substring($slash + 1); Kind = 'library'; Sha512 = [string]$library.Value.sha512 }
+        $found += [pscustomobject]@{ Id = $library.Name.Substring(0, $slash); Version = $library.Name.Substring($slash + 1); Kind = 'library' }
     }
     foreach ($framework in $assets.project.frameworks.PSObject.Properties) {
         foreach ($download in @($framework.Value.downloadDependencies)) {
             if (!$download) { continue }
-            $found += [pscustomobject]@{ Id = [string]$download.name; Version = ([string]$download.version).Trim('[', ']', ' ').Split(',')[0].Trim(); Kind = 'download'; Sha512 = '' }
+            $found += [pscustomobject]@{ Id = [string]$download.name; Version = ([string]$download.version).Trim('[', ']', ' ').Split(',')[0].Trim(); Kind = 'download' }
         }
     }
     foreach ($p in $found) {
@@ -71,7 +71,8 @@ foreach ($project in $projects) {
         $nupkg = Join-Path (Join-Path (Join-Path $packagesRoot $id) $version) "$id.$version.nupkg"
         $hasher = [Security.Cryptography.SHA512]::Create(); $s = [IO.File]::OpenRead($nupkg)
         try { $computed = [Convert]::ToBase64String($hasher.ComputeHash($s)) } finally { $s.Dispose(); $hasher.Dispose() }
-        if ($p.Sha512 -and $p.Sha512 -cne $computed) { throw "$id $version does not match its restore record." }
+        # The restore record's sha512 is NuGet's content hash (signature excluded); the .nupkg.sha512 file holds the file's own.
+        if ([IO.File]::ReadAllText($nupkg + '.sha512').Trim() -cne $computed) { throw "$id $version does not match its .nupkg.sha512." }
         $key = "$id/$version"
         if (!$packages.ContainsKey($key)) { $packages[$key] = [ordered]@{ id = $p.Id; version = $p.Version; kind = $p.Kind; sha512 = $computed; projects = @() } }
         if ($packages[$key].sha512 -cne $computed) { throw "$key has two hashes." }
