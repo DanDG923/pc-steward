@@ -48,7 +48,7 @@ public sealed partial class MainWindow
             // Colour option 2: one decorative hue per kind of decision (pin, skip, ignore, confirm).
             string[] hues = ["blue", "amber", "pink", "teal"];
             FrameworkElement[] cards = [.. DecisionsPresenter.Explainers.Select((explainer, index) => (FrameworkElement)StewardVisuals.RowCard(explainer.Glyph, explainer.Title, explainer.Description, tone: hues[index % hues.Length]))];
-            explainers.Children.Add(StewardVisuals.ResponsiveColumns(cards, 380, StewardSpacing.XSmall));
+            explainers.Children.Add(StewardVisuals.ResponsiveColumns(cards, 380, StewardSpacing.XSmall, maxColumns: 4));
             panel.Children.Add(explainers);
             return;
         }

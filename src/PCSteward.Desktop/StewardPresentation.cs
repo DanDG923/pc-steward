@@ -42,8 +42,11 @@ internal static class StewardSpacing
     public const double XLarge = 24;
     public const double XXLarge = 32;
     public const double TitleBarHeight = 32;
-    /// <summary>UI polish Phase 1: the page column's content width; the column sits beside the navigation, left aligned.</summary>
-    public const double PageMaxWidth = 1000;
+    /// <summary>
+    /// UI polish Phase 1: the page column's content width; the column sits beside the navigation, left aligned. Phase 5 (owner
+    /// feedback on a maximised window): 1600 epx, so a full-screen window uses its width instead of leaving half of it empty.
+    /// </summary>
+    public const double PageMaxWidth = 1600;
     /// <summary>The page column's padding (left 28, top 12, right 40, bottom 40), mirroring <c>StewardPagePadding</c>.</summary>
     public static readonly Thickness PagePadding = new(28, 12, 40, 40);
 }
@@ -455,24 +458,25 @@ internal static class StewardVisuals
     }
 
     /// <summary>
-    /// UI polish phase 2 (approved Home targets): lays <paramref name="items"/> out in two equal columns when both fit at
-    /// <paramref name="minColumnWidth"/>, otherwise in one, so rows never clip at narrow widths or large text sizes. Items keep
-    /// their order, reading left to right then down.
+    /// UI polish phase 2 (approved Home targets): lays <paramref name="items"/> out in as many equal columns as fit at
+    /// <paramref name="minColumnWidth"/>, from one up to <paramref name="maxColumns"/>, so rows never clip at narrow widths or
+    /// large text sizes and a wide window uses its width (phase 5). Items keep their order, reading left to right then down.
     /// </summary>
-    public static Grid ResponsiveColumns(FrameworkElement[] items, double minColumnWidth, double spacing)
+    public static Grid ResponsiveColumns(FrameworkElement[] items, double minColumnWidth, double spacing, int maxColumns = 2)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxColumns, 1);
         Grid grid = new() { RowSpacing = spacing };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         foreach (FrameworkElement item in items) grid.Children.Add(item);
         int columns = 0;
         void Place(double width)
         {
-            int wanted = width > 0 && width < minColumnWidth * 2 + spacing ? 1 : 2;
+            int wanted = width > 0 ? (int)Math.Clamp(Math.Floor((width + spacing) / (minColumnWidth + spacing)), 1, maxColumns) : maxColumns;
             if (wanted == columns) return;
             columns = wanted;
-            grid.ColumnDefinitions[1].Width = wanted == 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-            grid.ColumnSpacing = wanted == 2 ? spacing : 0;
+            // Only the columns in use exist, so no empty column adds a stray gap.
+            grid.ColumnDefinitions.Clear();
+            for (int column = 0; column < wanted; column++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnSpacing = wanted > 1 ? spacing : 0;
             grid.RowDefinitions.Clear();
             for (int row = 0; row < (items.Length + wanted - 1) / wanted; row++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             for (int index = 0; index < items.Length; index++)
