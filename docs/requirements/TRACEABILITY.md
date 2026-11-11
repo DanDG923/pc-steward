@@ -1,3 +1,12 @@
+# UI polish Phase 1 — layout and colour foundations
+
+`FR-UI-01/02/05`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets, 2026-11-11).
+
+- Architecture `UiPolishFoundationContractTests`: one left-aligned page column fitted to its host; transparent navigation over Mica with the standard selection; the Fluent type ramp (Body descriptions, Body Strong sections); the shared row card, navigation row, icon well, `InfoBar` and status chip.
+- Architecture `UiAccessibilityContractTests.CaptionTextAndBordersMeetContrastInLightAndDark` (updated deliberately): neutral tokens are Fluent aliases, captions use the secondary text fill, status tones are at least 4.5:1 on their surface and on the light and dark base and card layers, and high contrast uses system colours only.
+- `DesktopWindowSource` joins the `MainWindow` partial files for every source contract and fails if a partial file is missing from its list.
+- Not claimed: the runtime look against the targets (owner-host check in polish phase 5).
+
 # Task 50 — Native AOT helper redeploy plan (ADR-033)
 
 `FR-UPD-15`, `TM-03/04/13`; ADR-022, ADR-033; security review H1; [plan](../review/TASK_50_NATIVE_HELPER_REDEPLOY_PLAN.md).

@@ -174,7 +174,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         StringAssert.Contains(window, "entry.Click += async (_, _) => await ShowChocolateyClientUpdateAsync();");
 
         // Opened (and so probed) inside the handler; summaries never probe; nothing is cached in a field.
-        string region = Between(window, "private ChocolateyClientUpdateViewModel ChocolateyClientUpdateView(", "private async Task ShowDetailsAsync");
+        string region = Between(window, "private ChocolateyClientUpdateViewModel ChocolateyClientUpdateView(", DesktopWindowSource.EndOf("MainWindow.Chocolatey.cs"));
         string handler = Between(region, "private async Task ShowChocolateyClientUpdateAsync()", "\n    }\n");
         StringAssert.Contains(handler, "ChocolateyClientUpdateViewModel OpenChecking() => ChocolateyClientUpdateView(probeReviewedRouteSplitToken, ChocolateyInstalledClientVerification.Checking);");
         StringAssert.Contains(handler, "ChocolateyClientUpdateViewModel model = OpenChecking();");
@@ -374,7 +374,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
 
     // Normalised to LF: Windows checkouts use CRLF, and the handler boundary below is matched on "\n    }\n".
     private static string Desktop(string file) =>
-        File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", file)).Replace("\r\n", "\n", StringComparison.Ordinal);
+        DesktopWindowSource.ReadDesktopFile(CompiledIlScanner.FindRepositoryRoot(), file).Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static string ApplicationSource(string file) =>
         File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Application", file)).Replace("\r\n", "\n", StringComparison.Ordinal);

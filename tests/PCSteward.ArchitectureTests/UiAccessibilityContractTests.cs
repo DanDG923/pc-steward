@@ -50,7 +50,7 @@ public sealed partial class UiAccessibilityContractTests
             Assert.IsTrue(body.Contains("PageHeader(", StringComparison.Ordinal) || body.Contains("PageTitle(", StringComparison.Ordinal), $"{name} shows a level-1 page title");
         }
         StringAssert.Contains(Between(window, "private StackPanel BuildUpdateJobPage()", "private static Grid BuildJobStepIndicator("), "StewardVisuals.PageTitle(\"Update\")");
-        StringAssert.Contains(Between(window, "private StackPanel BuildProductDetailPage()", "private static TextBlock SectionHeading("), "StewardVisuals.PageTitle(\"App details\")");
+        StringAssert.Contains(Between(window, "private StackPanel BuildProductDetailPage()", "private static Border DetailItemCard("), "StewardVisuals.PageTitle(\"App details\")");
         StringAssert.Contains(DesktopSource("App.xaml.cs"), "title.Children.Add(StewardVisuals.PageTitle(heading));");
         StringAssert.Contains(Between(presentation, "public static Border EmptyState(", "public static Border MetricCard("), "TextBlock heading = SectionHeading(title);");
     }
@@ -68,16 +68,16 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(live, "RaiseAutomationEvent(AutomationEvents.LiveRegionChanged)");
 
         string source = DesktopSource("MainWindow.cs");
-        StringAssert.Contains(Between(source, "private void AnnounceCompletion(", "private StackPanel BuildOnboardingPage()"), "StewardVisuals.Announce(operationBand is { Visibility: Visibility.Visible } ? operationStatusText");
+        StringAssert.Contains(Between(source, "private void AnnounceCompletion(", "private static Style AppStyle("), "StewardVisuals.Announce(operationBand is { Visibility: Visibility.Visible } ? operationStatusText");
         (string Start, string End, string Call)[] completions =
         [
             ("private async Task StartScanAsync()", "private async Task CheckUpdateSourcesAsync()", "AnnounceCompletion(OperationAnnouncements.ScanFinished("),
-            ("private async Task CheckUpdateSourcesAsync()", "private void AddDataAndResetSection", "AnnounceCompletion(OperationAnnouncements.UpdateCheckFinished("),
+            ("private async Task CheckUpdateSourcesAsync()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"), "AnnounceCompletion(OperationAnnouncements.UpdateCheckFinished("),
             ("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.ReviewReady(sheet.AppName), \"review-ready\");"),
             ("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.JobFinished(sheet.AppName, job.Completion.Headline), \"update-job-finished\");"),
             ("private async Task ApplyScheduleAsync(", "private void CopyDiagnostic(", "AnnounceCompletion("),
             ("private async Task ConfirmAndClearScanDataAsync()", "private async Task ConfirmAndClearDownloadedFilesAsync(", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
-            ("private async Task ConfirmAndClearDownloadedFilesAsync(", "private StackPanel BuildProductDetailPage()", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
+            ("private async Task ConfirmAndClearDownloadedFilesAsync(", DesktopWindowSource.EndOf("MainWindow.DataAndReset.cs"), "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
             ("private void WireAdvancedClear(", "private async Task ConfirmAndArmFactoryResetAsync(", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");")
         ];
         foreach ((string start, string end, string call) in completions) StringAssert.Contains(Between(source, start, end), call, start);
@@ -197,8 +197,8 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(Between(presentation, "public static FrameworkElement MessageWithDetails(", "public static Border StatusBadge("), "Header = \"Technical details\", Content = SelectableText(technicalDetail)");
 
         string source = DesktopSource("MainWindow.cs");
-        StringAssert.Contains(Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()"), "Header = \"Technical details\", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }");
-        StringAssert.Contains(Between(source, "private StackPanel BuildRepositoryAppsPage()", "private StackPanel BuildResultsPage()"), "StewardVisuals.SelectableText($\"Source: {detail.SourceId} · Package ID: {detail.PackageId}\")");
+        StringAssert.Contains(Between(source, "private void AddVerifyStep(", "private async Task<IReadOnlyList<ReviewedUpdateHistoryRecord>?> ReadReviewedHistoryAsync("), "Header = \"Technical details\", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }");
+        StringAssert.Contains(Between(source, "private StackPanel BuildRepositoryAppsPage()", DesktopWindowSource.EndOf("MainWindow.RepositoryApps.cs")), "StewardVisuals.SelectableText($\"Source: {detail.SourceId} · Package ID: {detail.PackageId}\")");
         StringAssert.Contains(Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions("), "StewardVisuals.SelectableText($\"{detail?.SourceId ?? StewardPresentation.Provider(row.Provider)} · {detail?.PackageId ?? \"package ID unknown\"}\")");
         StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "IsTextSelectionEnabled = true");
@@ -213,42 +213,79 @@ public sealed partial class UiAccessibilityContractTests
     }
 
     [TestMethod]
-    [Description("AC-UX-03/04 (audit §5, P-M9; WCAG 1.4.3/1.4.11): caption text ≥ 4.5:1 and strong borders ≥ 3:1 on their backgrounds in light and dark.")]
+    [Description("AC-UX-03/04 (audit §5, P-M9; WCAG 1.4.3/1.4.11; UI polish Phase 1): neutral colours are Fluent theme brushes, captions use the secondary text brush, and status tones meet 4.5:1 in light and dark.")]
     public void CaptionTextAndBordersMeetContrastInLightAndDark()
     {
+        // UI polish Phase 1 deliberately replaces the July 2026 navy palette (and its hex contrast checks) with Windows App SDK
+        // theme brushes. Fluent's own text and stroke brushes are designed for these layers, with one exception the contract pins:
+        // TextFillColorTertiary is below 4.5:1 on light cards, so caption and metadata text uses TextFillColorSecondary.
+        Dictionary<string, Dictionary<string, string>> aliases = ThemeAliases();
+        Dictionary<string, string> expected = new(StringComparer.Ordinal)
+        {
+            ["StewardCanvasBrush"] = "SolidBackgroundFillColorBaseBrush",
+            ["StewardSurfaceBrush"] = "CardBackgroundFillColorDefaultBrush",
+            ["StewardSurfaceSubtleBrush"] = "CardBackgroundFillColorSecondaryBrush",
+            ["StewardBorderBrush"] = "CardStrokeColorDefaultBrush",
+            ["StewardBorderStrongBrush"] = "ControlStrongStrokeColorDefaultBrush",
+            ["StewardTextBrush"] = "TextFillColorPrimaryBrush",
+            ["StewardSecondaryTextBrush"] = "TextFillColorSecondaryBrush",
+            ["StewardTertiaryTextBrush"] = "TextFillColorSecondaryBrush",
+            ["StewardBrandBrush"] = "AccentTextFillColorPrimaryBrush",
+            ["StewardBrandTextBrush"] = "AccentTextFillColorPrimaryBrush",
+            ["StewardFocusBrush"] = "FocusStrokeColorOuterBrush"
+        };
         Dictionary<string, Dictionary<string, string>> themes = ThemeColors();
-        string[] backgrounds = ["StewardCanvasBrush", "StewardCanvasAltBrush", "StewardSurfaceBrush", "StewardSurfaceSubtleBrush", "StewardBrandSubtleBrush"];
+        foreach (string theme in new[] { "Default", "Light", "Dark" })
+        {
+            foreach ((string token, string fluent) in expected)
+            {
+                Assert.AreEqual(fluent, aliases[theme].GetValueOrDefault(token), $"{theme}: {token} is the Fluent {fluent}");
+                Assert.IsFalse(themes[theme].ContainsKey(token), $"{theme}: {token} has no custom colour");
+            }
+            Assert.AreNotEqual("TextFillColorTertiaryBrush", aliases[theme]["StewardTertiaryTextBrush"], "tertiary Fluent text is below 4.5:1 on light cards");
+        }
+
+        // Status tones keep custom colours (the Windows 11 system fill colours, darkened in light where needed). Each tone is at
+        // least 4.5:1 on its own tinted surface and on the Windows 11 base and card colours of that theme (opaque equivalents).
+        string[] lightLayers = ["#FFFFFF", "#FBFBFB", "#F3F3F3"];
+        string[] darkLayers = ["#2B2B2B", "#202020", "#1C1C1C"];
+        (string Foreground, string Surface)[] tones = [("StewardSuccessBrush", "StewardSuccessSurfaceBrush"), ("StewardWarningBrush", "StewardWarningSurfaceBrush"), ("StewardDangerBrush", "StewardDangerSurfaceBrush"), ("StewardInfoBrush", "StewardInfoSurfaceBrush")];
         foreach (string theme in new[] { "Default", "Light", "Dark" })
         {
             Dictionary<string, string> colors = themes[theme];
-            foreach (string background in backgrounds)
+            foreach ((string foreground, string surface) in tones)
             {
-                foreach (string text in new[] { "StewardTertiaryTextBrush", "StewardSecondaryTextBrush", "StewardTextBrush", "StewardBrandTextBrush" })
+                double own = ContrastRatio(colors[foreground], colors[surface]);
+                Assert.IsTrue(own >= 4.5, $"{theme}: {foreground} {colors[foreground]} on {surface} {colors[surface]} is {own:0.00}:1");
+                foreach (string layer in theme == "Dark" ? darkLayers : lightLayers)
                 {
-                    double ratio = ContrastRatio(colors[text], colors[background]);
-                    Assert.IsTrue(ratio >= 4.5, $"{theme}: {text} {colors[text]} on {background} {colors[background]} is {ratio:0.00}:1");
+                    double ratio = ContrastRatio(colors[foreground], layer);
+                    Assert.IsTrue(ratio >= 4.5, $"{theme}: {foreground} {colors[foreground]} on {layer} is {ratio:0.00}:1");
                 }
             }
-            foreach (string background in new[] { "StewardCanvasBrush", "StewardSurfaceBrush", "StewardSurfaceSubtleBrush" })
-            {
-                double ratio = ContrastRatio(colors["StewardBorderStrongBrush"], colors[background]);
-                Assert.IsTrue(ratio >= 3.0, $"{theme}: StewardBorderStrongBrush on {background} is {ratio:0.00}:1");
-            }
-            foreach ((string foreground, string surface) in new[] { ("StewardSuccessBrush", "StewardSuccessSurfaceBrush"), ("StewardWarningBrush", "StewardWarningSurfaceBrush"), ("StewardDangerBrush", "StewardDangerSurfaceBrush") })
-            {
-                double ratio = ContrastRatio(colors[foreground], colors[surface]);
-                Assert.IsTrue(ratio >= 4.5, $"{theme}: {foreground} on {surface} is {ratio:0.00}:1");
-            }
         }
-        // The audit's failing light tertiary value is gone, and the values documented in ColorTokens.xaml are the ones in use.
-        Assert.AreEqual("#5B677B", themes["Light"]["StewardTertiaryTextBrush"]);
-        Assert.AreEqual("#5B677B", themes["Default"]["StewardTertiaryTextBrush"]);
-        Assert.AreEqual(5.28, Math.Round(ContrastRatio("#5B677B", "#F3F6FA"), 2));
-        Assert.AreEqual(5.72, Math.Round(ContrastRatio("#5B677B", "#FFFFFF"), 2));
-        Assert.AreEqual(4.13, Math.Round(ContrastRatio("#6B788D", "#F3F6FA"), 2), "the audit's computed ratio for the old value");
+        Assert.AreEqual(4.76, Math.Round(ContrastRatio("#0F7B0F", "#DFF6DD"), 2), "the lowest status pair, light success");
         // High contrast stays mapped to system colours.
         string tokens = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "Resources", "ColorTokens.xaml"));
-        StringAssert.Contains(Between(tokens, "<ResourceDictionary x:Key=\"HighContrast\">", "</ResourceDictionary>"), "x:Key=\"StewardTertiaryTextBrush\" Color=\"{ThemeResource SystemColorWindowTextColor}\"");
+        string highContrast = Between(tokens, "<ResourceDictionary x:Key=\"HighContrast\">", "</ResourceDictionary>");
+        StringAssert.Contains(highContrast, "x:Key=\"StewardTertiaryTextBrush\" Color=\"{ThemeResource SystemColorWindowTextColor}\"");
+        StringAssert.Contains(highContrast, "x:Key=\"StewardChipBorderBrush\" Color=\"{ThemeResource SystemColorWindowTextColor}\"");
+        Assert.IsFalse(highContrast.Contains("Color=\"#", StringComparison.Ordinal), "no custom colour in high contrast");
+    }
+
+    /// <summary>Per theme dictionary: each StaticResource alias key and the Fluent resource it points to.</summary>
+    private static Dictionary<string, Dictionary<string, string>> ThemeAliases()
+    {
+        XDocument tokens = XDocument.Load(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "Resources", "ColorTokens.xaml"));
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        return tokens.Descendants(presentation + "ResourceDictionary")
+            .Where(dictionary => dictionary.Attribute(xaml + "Key") is not null)
+            .ToDictionary(
+                dictionary => dictionary.Attribute(xaml + "Key")!.Value,
+                dictionary => dictionary.Elements(presentation + "StaticResource")
+                    .ToDictionary(alias => alias.Attribute(xaml + "Key")!.Value, alias => alias.Attribute("ResourceKey")!.Value, StringComparer.Ordinal),
+                StringComparer.Ordinal);
     }
 
     [TestMethod]
@@ -289,7 +326,7 @@ public sealed partial class UiAccessibilityContractTests
             "Snapshot coverage counts are unavailable" // RunningApplicationDetection.CoverageDisclosure.
         ];
         string root = FindRepositoryRoot();
-        IEnumerable<string> files = DesktopFiles.Select(file => Path.Combine(root, "src", "PCSteward.Desktop", file))
+        IEnumerable<string> files = DesktopFiles.Where(file => file != "MainWindow.cs").Concat(DesktopWindowSource.PartialFiles).Select(file => Path.Combine(root, "src", "PCSteward.Desktop", file))
             .Concat(Directory.GetFiles(Path.Combine(root, "src", "PCSteward.Application"), "*Presentation.cs"))
             .Concat(UserFacingApplicationFiles.Select(file => Path.Combine(root, "src", "PCSteward.Application", file)));
         List<string> found = [];
@@ -364,7 +401,7 @@ public sealed partial class UiAccessibilityContractTests
     [GeneratedRegex(@"\$?@?""(?:[^""\\]|\\.)*""")]
     private static partial Regex StringLiteral();
 
-    private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
+    private static string DesktopSource(string relativePath) => DesktopWindowSource.ReadDesktopFile(FindRepositoryRoot(), relativePath);
 
     private static string Between(string source, string startMarker, string endMarker)
     {

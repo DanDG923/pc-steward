@@ -1,3 +1,12 @@
+**UI polish Phase 1 — layout and colour foundations (2026-11-11; code, tests and docs; no host action).** Requirements: `FR-UI-01/02/05`, `AC-UX-01–04` (best effort, ADR-021). [ADR-030 implementation notes](adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md#implementation-notes).
+- **Targets.** The owner approved the dark, real-state target mockups on 2026-11-11, with the standard Windows 11 look. They are the acceptance reference for every polish phase.
+- **Layout.** Pages are one left-aligned column beside the navigation (at most 1,000 epx of content), no longer centred.
+- **Colour.** Fluent theme brushes over Mica replace the custom navy palette. Status tones keep checked custom colours (4.5:1 or better in light and dark); high contrast stays on system colours. NavigationView keeps its standard selection.
+- **Type and pieces.** The Fluent type ramp, with smaller page descriptions under the title. New shared row card, navigation row, icon well, `InfoBar` messages and pill status chips for phases 2–4.
+- **Code.** `MainWindow.cs` is split into one partial file per page, with no behaviour change. The source contracts read the window through `DesktopWindowSource`.
+- **Tests.** Architecture `UiPolishFoundationContractTests` (new) and an updated `UiAccessibilityContractTests` contrast contract (Fluent aliases, status tones). Other contracts only moved their section markers for the split.
+- **Next.** Phase 2 (Home to match the targets), then Phase 3 (Updates, Review, Verify). The look is checked on the owner's PC in phase 5.
+
 **Task 50 — G9-T1 to G9-T4: the first real Chocolatey update through PC Steward PASSED (2026-11-11).** ripgrep 14.1.0 → 15.2.0 on the owner's PC: one UAC prompt, verified Success, independent post-check PASS (reviewed 15.2.0 bytes, no residue, 2.7.5 release files unchanged). Package-route residuals P1–P4 closed; CR1–CR3 still deferred. Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Test record](review/TASK_50_G9_T1_RIPGREP_TEST.md).
 - **Not blocked by G9 CR2.** The missing second reviewed Chocolatey release only affects the client self-update screen; the package route's Confirm (addendum §3) does not need it.
 - **G9-T3 already met.** The deployed `d9a754b` carries the package composition and C3 passed on it.

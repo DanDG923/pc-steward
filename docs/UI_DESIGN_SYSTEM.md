@@ -5,6 +5,8 @@
 **Runtime:** WinUI 3 / Windows App SDK
 **Design authority:** `design/DESIGN_SYSTEM.md` and `design/design-tokens.json`
 
+> **UI polish Phase 1 (2026-11-11):** the runtime palette is now Fluent theme brushes over Mica (see ADR-030 implementation notes). `Resources/ColorTokens.xaml` maps each semantic `Steward*` brush to a Windows App SDK theme brush; only the status tones keep custom, contrast-checked colours. The colour values in `design/design-tokens.json` and `design/DESIGN_SYSTEM.md` describe the retired July 2026 palette. Page layout, type and shared pieces follow the approved targets.
+
 This document maps the Quiet Authority design language to the production desktop app. It supplements the design specification with the exact reusable implementation points that now exist in `src/PCSteward.Desktop`.
 
 ## Product principles

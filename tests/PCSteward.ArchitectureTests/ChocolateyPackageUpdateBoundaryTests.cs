@@ -130,7 +130,7 @@ public sealed class ChocolateyPackageUpdateBoundaryTests
     }
 
     private static string Desktop(string file) =>
-        File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", file)).Replace("\r\n", "\n", StringComparison.Ordinal);
+        DesktopWindowSource.ReadDesktopFile(CompiledIlScanner.FindRepositoryRoot(), file).Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static string ApplicationSource(string file) =>
         File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Application", file)).Replace("\r\n", "\n", StringComparison.Ordinal);

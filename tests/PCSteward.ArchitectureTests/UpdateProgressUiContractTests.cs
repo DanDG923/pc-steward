@@ -70,7 +70,7 @@ public sealed class UpdateProgressUiContractTests
         StringAssert.Contains(step, "UpdateJobProgressText.LeaveNote");
         Assert.IsFalse(step.Contains("Cancel", StringComparison.Ordinal), "no cancel once the update has started");
         Assert.IsFalse(step.Contains("ContentDialog", StringComparison.Ordinal), "progress is a page, not a modal dialog");
-        string visuals = Between(source, "private void RefreshOperationVisuals()", "private StackPanel BuildOnboardingPage()");
+        string visuals = Between(source, "private void RefreshOperationVisuals()", "private static Style AppStyle(");
         // Task 73 Phase 5 (AC-UX-09): the same polled text, now set through the live-region helper (raised only when it changes).
         StringAssert.Contains(visuals, "StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.LiveState(jobProgressLine ?? new(true, null), updateProgressPresentation), announce: true);");
         StringAssert.Contains(visuals, "operationViewJob.Visibility =");
@@ -93,6 +93,6 @@ public sealed class UpdateProgressUiContractTests
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "src", "PCSteward.Desktop", "MainWindow.cs"))) directory = directory.Parent;
         Assert.IsNotNull(directory);
-        return File.ReadAllText(Path.Combine(directory.FullName, "src", "PCSteward.Desktop", "MainWindow.cs"));
+        return DesktopWindowSource.Read(directory.FullName);
     }
 }
