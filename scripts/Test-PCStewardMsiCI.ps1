@@ -87,10 +87,28 @@ function Invoke-Msi([string[]]$Arguments, [string]$LogName) {
     $process = Start-Process -FilePath (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') -ArgumentList (@($Arguments) + @('/qn', '/norestart', '/l*v', ('"' + (Join-Path $logs $LogName) + '"'))) -Wait -PassThru
     $process.ExitCode
 }
+function ConvertTo-PackedProductCode([string]$Guid) {
+    if ($Guid -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "Not an uppercase braced GUID: $Guid" }
+    $tail = $Matches[4] + $Matches[5]
+    (-join @($Matches[1], $Matches[2], $Matches[3] | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
+}
+function ConvertFrom-PackedProductCode([string]$Packed) {
+    if ($Packed -cnotmatch '\A[0-9A-F]{32}\z') { return $null }
+    $hex = (-join @($Packed.Substring(0, 8), $Packed.Substring(8, 4), $Packed.Substring(12, 4) | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $Packed[16 + 2 * $_ + 1]; $Packed[16 + 2 * $_] }))
+    '{' + $hex.Substring(0, 8) + '-' + $hex.Substring(8, 4) + '-' + $hex.Substring(12, 4) + '-' + $hex.Substring(16, 4) + '-' + $hex.Substring(20) + '}'
+}
+# The products installed for the whole machine under PC Steward's UpgradeCode, from the administrator-only machine registration
+# (as the helper reads it, review R2), never the merged machine-plus-user list, which a per-user registration can join.
 function Get-InstalledProducts {
+    $key = 'HKLM:\SOFTWARE\Classes\Installer\UpgradeCodes\' + (ConvertTo-PackedProductCode $upgradeCode)
+    if (!(Test-Path -LiteralPath $key)) { return @() }
     $installer = New-Object -ComObject WindowsInstaller.Installer
-    @($installer.GetType().InvokeMember('RelatedProducts', 'GetProperty', $null, $installer, @($upgradeCode)) | ForEach-Object {
-        [pscustomobject]@{ ProductCode = [string]$_; Version = [string]$installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @([string]$_, 'VersionString')) }
+    @((Get-Item -LiteralPath $key).Property | Where-Object { $_ } | ForEach-Object {
+        $code = ConvertFrom-PackedProductCode $_
+        if ($null -eq $code) { throw "Not a packed product code under the machine UpgradeCode key: $_" }
+        $version = try { [string]$installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @($code, 'VersionString')) }
+        catch { [string](Get-ItemProperty -LiteralPath ('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\' + $_ + '\InstallProperties') -Name DisplayVersion -ErrorAction Stop).DisplayVersion }
+        [pscustomobject]@{ ProductCode = $code; Version = $version }
     })
 }
 function Invoke-AsStandardUser([string]$StepName, [string]$Name, [Security.SecureString]$Password) {
@@ -473,21 +491,24 @@ public static class PCStewardMarkerTransform
         if (!(Test-Path -LiteralPath $transform -PathType Leaf)) { throw "No transform was written for $Case." }
         $transform
     }
-    function ConvertTo-PackedProductCode([string]$Guid) {
-        if ($Guid -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "Not an uppercase braced GUID: $Guid" }
-        $tail = $Matches[4] + $Matches[5]
-        (-join @($Matches[1], $Matches[2], $Matches[3] | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
-    }
     $packedCodes = @((Get-MsiPropertyValue $msis['0.1.1'].Path 'ProductCode'), (Get-MsiPropertyValue $msis['0.1.2'].Path 'ProductCode') | ForEach-Object { ConvertTo-PackedProductCode $_ }) + @(ConvertTo-PackedProductCode $upgradeCode)
     function Get-PerUserInstallerKeys { @(foreach ($root in @('HKCU:\Software\Microsoft\Installer', 'HKCU:\Software\Classes\Installer')) { foreach ($kind in @('Products', 'Features', 'UpgradeCodes')) { foreach ($packedCode in $packedCodes) { if (Test-Path -LiteralPath "$root\$kind\$packedCode") { "$root\$kind\$packedCode" } } } }) }
     function Get-MachineRegisteredProducts {
         $key = 'HKLM:\SOFTWARE\Classes\Installer\UpgradeCodes\' + (ConvertTo-PackedProductCode $upgradeCode)
         if (Test-Path -LiteralPath $key) { @((Get-Item -LiteralPath $key).Property | Where-Object { $_ }) } else { @() }
     }
+    # The per-user registration goes first (its HKCU keys and this user's UserData entries), so the uninstall below acts on the
+    # machine product only.
+    $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     function Clear-ExperimentState {
-        foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'experiment-cleanup-uninstall.log' }
         foreach ($key in @(Get-PerUserInstallerKeys)) { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($packedCode in $packedCodes) { Remove-Item -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$userSid\Products\$packedCode" -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'experiment-cleanup-uninstall.log' }
     }
+    # What the elevated install's own log says about the outcome, the per-user registration and any transform (the CI logs
+    # are not otherwise readable from outside the run).
+    $installLogPattern = 'PCSTEWARDPERUSERMARKER|TRANSFORMS|marker-|Return value 3|Error \d+|error code|MainEngineThread is returning|ProductState|advertis|per-user|Windows Installer (re)?installed|Note: 1:'
+
     try {
         # Windows Installer's logging policy also logs the nested removal of the old product, wherever the marker might show.
         $null = New-Item -Path $loggingPolicy -Force
@@ -506,7 +527,8 @@ public static class PCStewardMarkerTransform
                 $record.elevatedInstall012Exit = Invoke-Msi @('/i', ('"' + $msis['0.1.2'].Path + '"')) "experiment-$($case.Name)-install-0.1.2.log"
                 $record.machineProductsAfter = @(Get-MachineRegisteredProducts)
                 $record.perUserKeysAfterInstall = @(Get-PerUserInstallerKeys)
-                $record.installedVersions = @(Get-InstalledProducts | ForEach-Object { $_.Version })
+                $record.installLogLines = @(Select-String -LiteralPath (Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log") -Pattern $installLogPattern -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $line = $_.Line.Trim(); if ($line.Length -gt 300) { $line.Substring(0, 300) } else { $line } })
+                try { $record.installedVersions = @(Get-InstalledProducts | ForEach-Object { $_.Version }) } catch { $record.installedVersionsError = $_.Exception.Message }
                 $policyLogs = @(foreach ($folder in @($env:TEMP, (Join-Path $env:SystemRoot 'Temp'))) { Get-ChildItem -LiteralPath $folder -Filter 'MSI*.LOG' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $since } })
                 $searched = @((Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log")) + @($policyLogs | ForEach-Object { $_.FullName })
                 $hits = @(Select-String -LiteralPath $searched -Pattern 'PCSTEWARDPERUSERMARKER' -SimpleMatch -ErrorAction SilentlyContinue)
