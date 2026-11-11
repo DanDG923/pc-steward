@@ -35,6 +35,16 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "The MSI build failed with exit code $LASTEXITCODE." }
     $built = @(Get-ChildItem -LiteralPath $build -Recurse -Filter '*.msi' -File)
     if ($built.Count -ne 1) { throw "Expected one MSI in the build output, found $($built.Count)." }
+    # The output copy is taken before the package is opened, because Windows Installer keeps a database file locked until
+    # its automation objects are finalized. The checks below read the build copy, which must hash the same.
+    New-Item -ItemType Directory -Path (Split-Path -Parent $output) -Force | Out-Null
+    Copy-Item -LiteralPath $built[0].FullName -Destination $output
+    function Get-FileSha256([string]$Path) {
+        $sha = [Security.Cryptography.SHA256]::Create(); $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') } finally { $stream.Dispose(); $sha.Dispose() }
+    }
+    $hash = Get-FileSha256 $output
+    if ((Get-FileSha256 $built[0].FullName) -cne $hash) { throw 'The MSI copy differs from the build output.' }
 
     # Package checks through the Windows Installer automation interface (read-only database).
     $installer = New-Object -ComObject WindowsInstaller.Installer
@@ -47,8 +57,10 @@ try {
             if ($null -eq $record) { break }
             $values = foreach ($column in 1..$Columns) { [string]$record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @($column)) }
             $rows.Add([string[]]@($values))
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($record)
         }
         $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null)
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view)
         , $rows.ToArray()
     }
     function Test-MsiTable([object]$Database, [string]$Table) {
@@ -78,15 +90,17 @@ try {
         }
         if ((Test-MsiTable $database 'LockPermissions') -and (Get-MsiRows $database 'SELECT * FROM `LockPermissions`' 1).Count -gt 0) { throw 'The MSI must not use the LockPermissions table.' }
     }
-    finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
-
-    New-Item -ItemType Directory -Path (Split-Path -Parent $output) -Force | Out-Null
-    Copy-Item -LiteralPath $built[0].FullName -Destination $output
-    $sha = [Security.Cryptography.SHA256]::Create()
-    $stream = [IO.File]::OpenRead($output)
-    try { $hash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') } finally { $stream.Dispose(); $sha.Dispose() }
+    catch {
+        Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    finally {
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
+        [GC]::Collect(); [GC]::WaitForPendingFinalizers(); [GC]::Collect()
+    }
     [pscustomobject]@{ msiPath = $output; msiSha256 = $hash; msiVersion = $MsiVersion; upgradeCode = $script:UpgradeCode } | ConvertTo-Json -Compress
 }
 finally {
-    if (Test-Path -LiteralPath $build) { Remove-Item -LiteralPath $build -Recurse -Force }
+    if (Test-Path -LiteralPath $build) { Remove-Item -LiteralPath $build -Recurse -Force -ErrorAction SilentlyContinue }
 }
