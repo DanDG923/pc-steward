@@ -65,7 +65,7 @@ public sealed class ReviewedRouteDesktopUiBoundaryTests
         Assert.AreEqual(1, Regex.Count(window, @"ReviewedRouteSurfaces\.ChocolateyReviewEntryButton\(\)"));
 
         // Opened (and so probed) once per review, inside the handler; never cached in a field.
-        string handler = Between(window, "private async Task ShowChocolateyReviewedRouteAsync()", "private async Task ShowDetailsAsync");
+        string handler = Between(window, "private async Task ShowChocolateyReviewedRouteAsync()", DesktopWindowSource.EndOf("MainWindow.Chocolatey.cs"));
         StringAssert.Contains(handler, "ChocolateyReviewedRouteReviewViewModel review = ChocolateyReviewedRouteReviewViewModel.Open(null, null, probeReviewedRouteSplitToken);");
         Assert.AreEqual(1, Regex.Count(window, @"ChocolateyReviewedRouteReviewViewModel\.Open\("), "one review entry");
         Assert.IsFalse(Regex.IsMatch(window, @"private\s+(readonly\s+)?ChocolateyReviewedRouteReviewViewModel"), "no cached review");
@@ -94,11 +94,11 @@ public sealed class ReviewedRouteDesktopUiBoundaryTests
         StringAssert.Contains(window, "ReviewedRouteSurfaces.RenderHistory(outcomes, history);");
         StringAssert.Contains(surfaces, "foreach (ReviewedUpdateHistoryItemViewModel item in model.Items)");
         StringAssert.Contains(surfaces, "foreach (ReviewedDisplayField field in item.Fields)");
-        string activity = Between(window, "private StackPanel BuildActivityPage()", "private StackPanel BuildPrivacyPage()");
+        string activity = Between(window, "private StackPanel BuildActivityPage()", DesktopWindowSource.EndOf("MainWindow.Activity.cs"));
         StringAssert.Contains(activity, "AddReviewedUpdateOutcomesSection(panel);");
     }
 
-    private static string Desktop(string file) => File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", file));
+    private static string Desktop(string file) => DesktopWindowSource.ReadDesktopFile(CompiledIlScanner.FindRepositoryRoot(), file);
 
     private static string Between(string source, string start, string end)
     {

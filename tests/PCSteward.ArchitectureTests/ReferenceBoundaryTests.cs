@@ -50,8 +50,7 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void MainWindowUsesTheApplicationWorkflowInsteadOfAdapters()
     {
-        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
-        string source = File.ReadAllText(sourcePath);
+        string source = DesktopWindowSource.Read(FindRepositoryRoot());
 
         StringAssert.Contains(source, "InventoryWorkflow");
         foreach (string forbidden in new[] { "SqliteDatabase", "new RegistryLocalInventoryProvider", "new MsixLocalInventoryProvider", "new WingetLocalInventoryProvider" }) Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal));
@@ -80,7 +79,7 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void UnifiedTrustedSourcesSettingUsesOneAtomicStoreOperation()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string source = DesktopWindowSource.Read(FindRepositoryRoot());
 
         StringAssert.Contains(source, "SaveConnectorStatesAsync");
         Assert.IsFalse(source.Contains("await workflow.SaveConnectorStateAsync(\"WinGet installed inventory\", enabled, enabled, token); await workflow.SaveConnectorStateAsync(\"WinGet package sources\"", StringComparison.Ordinal));
@@ -175,7 +174,7 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void PostResetOnboardingReloadsConfirmedFreshStateBeforeOpeningScan()
     {
-        string desktopSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string desktopSource = DesktopWindowSource.Read(FindRepositoryRoot());
         string flowSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Storage", "PostResetOnboardingFlow.cs"));
         int acknowledgement = desktopSource.IndexOf("PostResetOnboardingFlow.Evaluate(", StringComparison.Ordinal);
         int failedAcknowledgement = desktopSource.IndexOf("if (!outcome.AcknowledgementSucceeded)", acknowledgement, StringComparison.Ordinal);
@@ -221,7 +220,7 @@ public sealed class ReferenceBoundaryTests
     {
         string root = FindRepositoryRoot();
         string app = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "App.xaml.cs"));
-        string window = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string window = DesktopWindowSource.Read(root);
         Assert.IsFalse(app.Contains("new(false, FactoryReset.DataOperationMutexName)", StringComparison.Ordinal));
         StringAssert.Contains(app, "CurrentUserDataOperationSession.TryAcquire(TimeSpan.Zero, CancellationToken.None)");
         StringAssert.Contains(app, "DataOperationLease.EnterBootstrap(session)");
@@ -287,8 +286,7 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void ApplicationDetailsUseThePrototypeStyleDetailRouteAndReviewPageShowsDecisionItems()
     {
-        string sourcePath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs");
-        string source = File.ReadAllText(sourcePath);
+        string source = DesktopWindowSource.Read(FindRepositoryRoot());
 
         StringAssert.Contains(source, "BuildProductDetailPage()");
         StringAssert.Contains(source, "NavigateTo(ShellPage.Detail)");
@@ -302,14 +300,17 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void UpdateReviewDisclosesAdministratorRequirementBeforeExecution()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string source = DesktopWindowSource.Read(FindRepositoryRoot());
         int detailRequirement = source.IndexOf("AdministratorRequirementPresenter.BeforeReview()", StringComparison.Ordinal);
         // Task 73 Phase 5 (WCAG 2.5.3): the name is built from the visible label, so it still reads "Review and update this verified package. …".
         int reviewButton = source.IndexOf("StewardVisuals.PrimaryButton(\"Review and update\", $\"this verified package. {administratorRequirement.Label}\")", detailRequirement, StringComparison.Ordinal);
         // Task 73 Phase 6 (SPEC §9.13 G4) deliberately moves the per-app requirement into the portable sheet builder: the Desktop builds
         // one sheet for the frozen set from each reviewed selection, and CreateBatch derives each app's requirement (ForSelection)
         // and the aggregate (ForBatch) before confirmation.
-        int confirmedRequirement = source.IndexOf("item.Preparation.Review!.Selection,", reviewButton, StringComparison.Ordinal);
+        // UI polish Phase 1: the detail page and the review-and-execute flow now live in separate MainWindow partial files, so the
+        // execution chain is located from ReviewAndExecuteAsync itself rather than from the detail page's position in one file.
+        int reviewAndExecute = source.IndexOf("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", StringComparison.Ordinal);
+        int confirmedRequirement = source.IndexOf("item.Preparation.Review!.Selection,", reviewAndExecute, StringComparison.Ordinal);
         // Task 73 Phase 2 (ADR-030 decision 3; audit P-H6): the final confirmation is the review sheet page, awaited through the
         // user's decision, instead of the wall-of-text ContentDialog. The requirement still feeds the sheet before confirmation.
         int sheet = source.IndexOf("UpdateReviewSheet.CreateBatch(inputs,", confirmedRequirement, StringComparison.Ordinal);
@@ -317,7 +318,7 @@ public sealed class ReferenceBoundaryTests
         int execute = source.IndexOf("updates.ConfirmAndRunBatchAsync", showConfirmation, StringComparison.Ordinal);
 
         Assert.IsTrue(detailRequirement >= 0 && reviewButton > detailRequirement);
-        Assert.IsTrue(confirmedRequirement > reviewButton && sheet > confirmedRequirement && showConfirmation > sheet && execute > showConfirmation);
+        Assert.IsTrue(reviewAndExecute >= 0 && confirmedRequirement > reviewAndExecute && sheet > confirmedRequirement && showConfirmation > sheet && execute > showConfirmation);
         StringAssert.Contains(source, "item.Preparation.RunningApplication))];");
         string sheetBuilder = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
         StringAssert.Contains(sheetBuilder, "Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection))");
@@ -337,7 +338,7 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void DetailDecisionControlsAreReadOnTheUiThreadBeforeStartingADataOperationLease()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string source = DesktopWindowSource.Read(FindRepositoryRoot());
 
         Assert.IsFalse(source.Contains("RunAsync(token => workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, reason.Text", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("RunAsync(token => workflow.IgnoreAsync(row.StableProductKey, ignoreUntilEnabled.IsChecked", StringComparison.Ordinal));
@@ -357,7 +358,7 @@ public sealed class ReferenceBoundaryTests
     [TestMethod]
     public void UpdateOutcomeIsShownOnTheJobPageOnlyAfterExecutionFinishes()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string source = DesktopWindowSource.Read(FindRepositoryRoot());
         int reviewStart = source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal);
         Assert.IsTrue(reviewStart >= 0);
         // The execution finally block (the review-preparation finally only clears preparingReview).
@@ -386,7 +387,7 @@ public sealed class ReferenceBoundaryTests
     public void DesktopOnlyReportsCompletionAfterExactPostUpdateVerification()
     {
         string root = FindRepositoryRoot();
-        string source = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "MainWindow.cs"));
+        string source = DesktopWindowSource.Read(root);
         string presenter = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
 
         // Task 73 Phase 6: every app's recorded result maps through the portable presenter (ForBatch delegates each ran item to ForResult).

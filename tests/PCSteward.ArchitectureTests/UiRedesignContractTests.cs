@@ -104,11 +104,11 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(show, "PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey))");
         StringAssert.Contains(show, "?? FocusManager.FindFirstFocusableElement(page) as Control;");
         Assert.IsFalse(source.Contains("FindFocusTarget(page, focusKey)", StringComparison.Ordinal), "the first-match focus search is gone");
-        StringAssert.Contains(Between(source, "private static IEnumerable<Control> FindFocusTargets(", "private StackPanel BuildScanPage()"), "yield return control;");
+        StringAssert.Contains(Between(source, "private static IEnumerable<Control> FindFocusTargets(", DesktopWindowSource.EndOf("MainWindow.Shell.cs")), "yield return control;");
 
         // Task 73 Phase 3 deliberately moves the product-named Remove names into the portable DecisionsPresenter (unit-tested in
         // HomeActivityDecisionsPresentationTests); the Desktop binds them and every name still comes from PageFocusRestore with the product.
-        string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", "private async Task SaveExportAsync(");
+        string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", DesktopWindowSource.EndOf("MainWindow.Decisions.cs"));
         StringAssert.Contains(decisions, "DecisionsPresenter.Build(activeDecisions, manualMappings, viewModel.AllRows)");
         StringAssert.Contains(decisions, "AutomationProperties.SetName(remove, decision.RemoveAccessibleName);");
         string decisionsPresenter = ApplicationSource("DecisionsPresentation.cs");
@@ -136,7 +136,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(apps, "StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString())");
         StringAssert.Contains(apps, "LabelledFilterOptions(viewModel.AllRows.Select(row => row.Provider), StewardPresentation.Provider)");
         StringAssert.Contains(apps, "LabelledFilterOptions(viewModel.AllRows.Select(row => row.Scope), StewardPresentation.Scope)");
-        string results = Between(source, "private StackPanel BuildResultsPage()", "private StackPanel BuildReviewPage()");
+        string results = Between(source, "private StackPanel BuildResultsPage()", DesktopWindowSource.EndOf("MainWindow.Results.cs"));
         StringAssert.Contains(results, "StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate).Label");
         Assert.IsFalse(results.Contains("$\"Show {option} scan results\"", StringComparison.Ordinal), "automation names use the visible label, not the enum");
         StringAssert.Contains(presentation, "StatusChipPresentation chip = StatusVocabulary.For(status);");
@@ -148,7 +148,7 @@ public sealed class UiRedesignContractTests
     public void DesktopCopyTellsOneElevationStory()
     {
         string source = DesktopSource("MainWindow.cs");
-        string about = Between(source, "private static StackPanel BuildAboutPage()", "private StackPanel BuildHomePage()");
+        string about = Between(source, "private static StackPanel BuildAboutPage()", DesktopWindowSource.EndOf("MainWindow.About.cs"));
         StringAssert.Contains(about, "PageCopy(ElevationStory.Summary)");
         StringAssert.Contains(about, "PageCopy(ElevationStory.HelperRequirement)");
         string consent = Between(source, "private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)", "private async Task ChangeConnectorAsync");
@@ -215,7 +215,7 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(scan.Contains("scanCancellation = new", StringComparison.Ordinal), "the active scan's source is never overwritten");
         StringAssert.Contains(scan, "if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null;");
 
-        string activity = Between(source, "private StackPanel BuildActivityPage()", "private void BuildWindowChrome()");
+        string activity = Between(source, "private StackPanel BuildActivityPage()", DesktopWindowSource.EndOf("MainWindow.Activity.cs"));
         int start = activity.IndexOf("Button start = StewardVisuals.PrimaryButton(\"Start local inventory\"", StringComparison.Ordinal);
         Assert.IsTrue(start >= 0);
         StringAssert.Contains(activity[start..], "start.IsEnabled = !HasActiveOperation;");
@@ -290,7 +290,7 @@ public sealed class UiRedesignContractTests
     public void EveryReviewRequiredEntryPointUsesSafeDecisionActionsWithoutUpdateAuthority()
     {
         string source = DesktopSource("MainWindow.cs");
-        string results = Between(source, "private StackPanel BuildResultsPage()", "private StackPanel BuildReviewPage()");
+        string results = Between(source, "private StackPanel BuildResultsPage()", DesktopWindowSource.EndOf("MainWindow.Results.cs"));
         string review = Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions");
         string sharedActions = Between(source, "private void AddReviewDecisionActions", "private async Task PromptAndConfirmPackageIdentityAsync");
         string detail = Between(source, "private StackPanel BuildProductDetailPage()", "private async Task ShowDetailsAsync");
@@ -316,7 +316,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "new(nameof(UpdateIntelligenceStatus.FailedUnavailable), \"Source unavailable\"");
         StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "nothing can be updated");
 
-        string refresh = Between(source, "private async Task CheckUpdateSourcesAsync()", "private void AddDataAndResetSection");
+        string refresh = Between(source, "private async Task CheckUpdateSourcesAsync()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"));
         StringAssert.Contains(refresh, "workflow.RefreshUpdateIntelligenceAsync");
         StringAssert.Contains(refresh, "detailStableProductKey");
         StringAssert.Contains(refresh, "detailRow = viewModel.AllRows.SingleOrDefault");
@@ -368,7 +368,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(presenter, "detail?.CandidateVersion is { } version && !string.IsNullOrWhiteSpace(version)");
         StringAssert.Contains(presenter, "$\"Skip this version ({version.Trim()})\"");
 
-        string overflow = Between(source, "private Button UpdateRowOverflow(", "/// FR-UPD-01/04–09, FR-UI-03/04, FR-DAT-09, UJ-04");
+        string overflow = Between(source, "private Button UpdateRowOverflow(", DesktopWindowSource.EndOf("MainWindow.Updates.cs"));
         foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row)", "PromptAndPinCurrentVersionAsync(row)", "PromptAndSkipVersionAsync(row, version)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)" })
             StringAssert.Contains(overflow, operation);
         Assert.IsFalse(overflow.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
@@ -502,7 +502,7 @@ public sealed class UiRedesignContractTests
         string tail = review[review.IndexOf("job.Completion = run is not null", StringComparison.Ordinal)..];
         Assert.IsFalse(tail.Contains("NavigateTo(", StringComparison.Ordinal), "completion does not move the user");
         StringAssert.Contains(tail, "jobResultPending = navigation.Current != ShellPage.UpdateJob;");
-        string visuals = Between(source, "private void RefreshOperationVisuals()", "private StackPanel BuildOnboardingPage()");
+        string visuals = Between(source, "private void RefreshOperationVisuals()", "private static Style AppStyle(");
         StringAssert.Contains(visuals, "HasActiveOperation || ShowsJobResultInBand ? Visibility.Visible : Visibility.Collapsed");
         StringAssert.Contains(visuals, "string viewLabel = showResult ? \"View result\" : \"View update progress\";");
         StringAssert.Contains(source, "if (navigation.Current != ShellPage.UpdateJob) CancelPendingReview(); else jobResultPending = false;");
@@ -578,7 +578,7 @@ public sealed class UiRedesignContractTests
         foreach (string authority in new[] { "TrySetResult", "ConfirmAndRun", "Stop.Request" })
             Assert.IsFalse(notice.Contains(authority, StringComparison.Ordinal), $"a progress notice only presents: {authority}");
 
-        string verify = Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()");
+        string verify = Between(source, "private void AddVerifyStep(", "private async Task<IReadOnlyList<ReviewedUpdateHistoryRecord>?> ReadReviewedHistoryAsync(");
         StringAssert.Contains(verify, "completion.Groups");
         StringAssert.Contains(verify, "RowsFor([key])");
         StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "public const string PerAppElevationNote =");
@@ -644,7 +644,7 @@ public sealed class UiRedesignContractTests
     public void VerifyStepShowsHonestOutcomesRestartGuidanceAndCleanup()
     {
         string source = DesktopSource("MainWindow.cs");
-        string verify = Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()");
+        string verify = Between(source, "private void AddVerifyStep(", "private async Task<IReadOnlyList<ReviewedUpdateHistoryRecord>?> ReadReviewedHistoryAsync(");
         // AC-UPD-09: cards follow the outcome groups, so an interleaved batch never shows an item under another group's heading.
         StringAssert.Contains(verify, "foreach (UpdateJobItemOutcome item in completion.DisplayItems)");
         Assert.IsFalse(verify.Contains("in completion.Items)", StringComparison.Ordinal), "never the raw batch order");
@@ -747,14 +747,14 @@ public sealed class UiRedesignContractTests
     public void DecisionsAreReversibleAndHomeNeverStartsAnUpdate()
     {
         string source = DesktopSource("MainWindow.cs");
-        string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", "private async Task SaveExportAsync(");
+        string decisions = Between(source, "private void AddDecisionsSection(StackPanel panel)", DesktopWindowSource.EndOf("MainWindow.Decisions.cs"));
         StringAssert.Contains(decisions, "workflow.DeleteManualMappingAsync(decision.Id, token)");
         StringAssert.Contains(decisions, "workflow.ReverseDecisionAsync(decision.Id, token)");
         StringAssert.Contains(decisions, "decision.Reason is { } reason");
         Assert.IsFalse(decisions.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
-        StringAssert.Contains(Between(source, "private StackPanel BuildDecisionsPage()", "private static Style AppStyle("), "AddDecisionsSection(panel);");
+        StringAssert.Contains(Between(source, "private StackPanel BuildDecisionsPage()", "private void AddDecisionsSection("), "AddDecisionsSection(panel);");
 
-        string home = Between(source, "private StackPanel BuildHomePage()", "private StackPanel BuildInstalledAppsPage()");
+        string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         StringAssert.Contains(home, "HomePresenter.Build(new HomeInputs(");
         StringAssert.Contains(home, "Button button = new()");
         StringAssert.Contains(home, "AutomationProperties.SetName(button, tile.AccessibleName);");
@@ -844,7 +844,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(clearScan, "Title = \"Clear scan data?\"");
         StringAssert.Contains(clearScan, "PrimaryButtonText = \"Clear scan data\", CloseButtonText = \"Cancel\", DefaultButton = ContentDialogButton.Close");
         StringAssert.Contains(clearScan, "DataOperationLease.RunAsync(token => workflow.ClearScanDataAsync(token), CancellationToken.None)");
-        string clearDownloads = Between(source, "private async Task ConfirmAndClearDownloadedFilesAsync(", "/// FR-POL-01–05, FR-HIS-02, FR-UI-04");
+        string clearDownloads = Between(source, "private async Task ConfirmAndClearDownloadedFilesAsync(", DesktopWindowSource.EndOf("MainWindow.DataAndReset.cs"));
         StringAssert.Contains(clearDownloads, "PrimaryButtonText = \"Delete downloaded files\", CloseButtonText = \"Cancel\", DefaultButton = ContentDialogButton.Close");
         StringAssert.Contains(clearDownloads, "DataOperationLease.RunAsync(token => downloads.ClearInactiveAsync(token), CancellationToken.None)");
         StringAssert.Contains(clearDownloads, "Windows, WinGet, Microsoft Store, or other provider caches");
@@ -855,7 +855,7 @@ public sealed class UiRedesignContractTests
     public void FactoryResetKeepsTheTwoStepRESETFlow()
     {
         string source = DesktopSource("MainWindow.cs");
-        string reset = Between(source, "private async Task ConfirmAndArmFactoryResetAsync(Button invoker)", "/// FR-POL-01–05 (Task 73 Phase 3, ADR-030 foundation 7)");
+        string reset = Between(source, "private async Task ConfirmAndArmFactoryResetAsync(Button invoker)", "private async Task SaveExportAsync(");
         int scope = reset.IndexOf("Title = \"Review factory reset scope\"", StringComparison.Ordinal);
         int final = reset.IndexOf("Title = \"This cannot be undone\"", StringComparison.Ordinal);
         int lockout = reset.IndexOf("if (viewModel.IsScanning || isExecuting || isClearing || downloads.IsCleaning)", StringComparison.Ordinal);
@@ -876,7 +876,7 @@ public sealed class UiRedesignContractTests
     public void SettingsUseOneSaveModelAndCopyTheSanitizedDiagnostic()
     {
         string source = DesktopSource("MainWindow.cs");
-        string settings = Between(source, "private StackPanel BuildSettingsPage()", "private static ComboBox FilterBox(string selected, params");
+        string settings = Between(source, "private StackPanel BuildSettingsPage()", DesktopWindowSource.EndOf("MainWindow.Settings.cs"));
         string scheduleCard = Between(settings, "ScheduleCardPresentation plan = SettingsPresenter.Schedule(", "StackPanel decisions = new()");
         // Exactly one Save button in Settings, on the Schedule card; every other setting saves immediately.
         Assert.IsFalse(settings.Contains("Content = \"Save", StringComparison.Ordinal), "no other Save button");
@@ -964,7 +964,7 @@ public sealed class UiRedesignContractTests
         Assert.IsTrue(set >= 0 && flush > set && fallback > flush, "Clipboard.Flush() follows SetContent inside the same try");
     }
 
-    private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
+    private static string DesktopSource(string relativePath) => DesktopWindowSource.ReadDesktopFile(FindRepositoryRoot(), relativePath);
 
     private static string ApplicationSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", relativePath));
 

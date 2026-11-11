@@ -108,7 +108,7 @@ public sealed class QualificationProbeDesktopBoundaryTests
         string[] naming = [.. Sources(src).Where(path => Regex.IsMatch(Code(path), @"\bQualificationProbeEntry\b"))
             .Select(path => Path.GetRelativePath(src, path).Replace('\\', '/')).Order(StringComparer.Ordinal)];
         Assert.AreEqual("PCSteward.Desktop/App.xaml.cs, PCSteward.Execution/QualificationProbeEntry.cs", string.Join(", ", naming));
-        foreach (string file in new[] { "MainWindow.cs", "ReviewedRouteSurfaces.cs", "StewardPresentation.cs" })
+        foreach (string file in DesktopWindowSource.PartialFiles.Concat(["ReviewedRouteSurfaces.cs", "StewardPresentation.cs"]))
             Assert.IsFalse(Read(src, "PCSteward.Desktop", file).Contains("QualificationProbe", StringComparison.Ordinal), $"{file} names the probe");
 
         string[] references = [.. XDocument.Load(Path.Combine(src, "PCSteward.Execution", "PCSteward.Execution.csproj")).Descendants("ProjectReference")

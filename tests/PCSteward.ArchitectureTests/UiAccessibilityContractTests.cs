@@ -50,7 +50,7 @@ public sealed partial class UiAccessibilityContractTests
             Assert.IsTrue(body.Contains("PageHeader(", StringComparison.Ordinal) || body.Contains("PageTitle(", StringComparison.Ordinal), $"{name} shows a level-1 page title");
         }
         StringAssert.Contains(Between(window, "private StackPanel BuildUpdateJobPage()", "private static Grid BuildJobStepIndicator("), "StewardVisuals.PageTitle(\"Update\")");
-        StringAssert.Contains(Between(window, "private StackPanel BuildProductDetailPage()", "private static TextBlock SectionHeading("), "StewardVisuals.PageTitle(\"App details\")");
+        StringAssert.Contains(Between(window, "private StackPanel BuildProductDetailPage()", "private static Border DetailItemCard("), "StewardVisuals.PageTitle(\"App details\")");
         StringAssert.Contains(DesktopSource("App.xaml.cs"), "title.Children.Add(StewardVisuals.PageTitle(heading));");
         StringAssert.Contains(Between(presentation, "public static Border EmptyState(", "public static Border MetricCard("), "TextBlock heading = SectionHeading(title);");
     }
@@ -68,16 +68,16 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(live, "RaiseAutomationEvent(AutomationEvents.LiveRegionChanged)");
 
         string source = DesktopSource("MainWindow.cs");
-        StringAssert.Contains(Between(source, "private void AnnounceCompletion(", "private StackPanel BuildOnboardingPage()"), "StewardVisuals.Announce(operationBand is { Visibility: Visibility.Visible } ? operationStatusText");
+        StringAssert.Contains(Between(source, "private void AnnounceCompletion(", "private static Style AppStyle("), "StewardVisuals.Announce(operationBand is { Visibility: Visibility.Visible } ? operationStatusText");
         (string Start, string End, string Call)[] completions =
         [
             ("private async Task StartScanAsync()", "private async Task CheckUpdateSourcesAsync()", "AnnounceCompletion(OperationAnnouncements.ScanFinished("),
-            ("private async Task CheckUpdateSourcesAsync()", "private void AddDataAndResetSection", "AnnounceCompletion(OperationAnnouncements.UpdateCheckFinished("),
+            ("private async Task CheckUpdateSourcesAsync()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"), "AnnounceCompletion(OperationAnnouncements.UpdateCheckFinished("),
             ("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.ReviewReady(sheet.AppName), \"review-ready\");"),
             ("private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)", "private Task<ContentDialogResult> ShowUpdateOutcomeAsync", "AnnounceCompletion(OperationAnnouncements.JobFinished(sheet.AppName, job.Completion.Headline), \"update-job-finished\");"),
             ("private async Task ApplyScheduleAsync(", "private void CopyDiagnostic(", "AnnounceCompletion("),
             ("private async Task ConfirmAndClearScanDataAsync()", "private async Task ConfirmAndClearDownloadedFilesAsync(", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
-            ("private async Task ConfirmAndClearDownloadedFilesAsync(", "private StackPanel BuildProductDetailPage()", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
+            ("private async Task ConfirmAndClearDownloadedFilesAsync(", DesktopWindowSource.EndOf("MainWindow.DataAndReset.cs"), "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");"),
             ("private void WireAdvancedClear(", "private async Task ConfirmAndArmFactoryResetAsync(", "AnnounceCompletion(OperationAnnouncements.Completed(outcomeTitle), \"data-cleared\");")
         ];
         foreach ((string start, string end, string call) in completions) StringAssert.Contains(Between(source, start, end), call, start);
@@ -197,8 +197,8 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(Between(presentation, "public static FrameworkElement MessageWithDetails(", "public static Border StatusBadge("), "Header = \"Technical details\", Content = SelectableText(technicalDetail)");
 
         string source = DesktopSource("MainWindow.cs");
-        StringAssert.Contains(Between(source, "private void AddVerifyStep(", "private StackPanel BuildSettingsPage()"), "Header = \"Technical details\", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }");
-        StringAssert.Contains(Between(source, "private StackPanel BuildRepositoryAppsPage()", "private StackPanel BuildResultsPage()"), "StewardVisuals.SelectableText($\"Source: {detail.SourceId} · Package ID: {detail.PackageId}\")");
+        StringAssert.Contains(Between(source, "private void AddVerifyStep(", "private async Task<IReadOnlyList<ReviewedUpdateHistoryRecord>?> ReadReviewedHistoryAsync("), "Header = \"Technical details\", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }");
+        StringAssert.Contains(Between(source, "private StackPanel BuildRepositoryAppsPage()", DesktopWindowSource.EndOf("MainWindow.RepositoryApps.cs")), "StewardVisuals.SelectableText($\"Source: {detail.SourceId} · Package ID: {detail.PackageId}\")");
         StringAssert.Contains(Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions("), "StewardVisuals.SelectableText($\"{detail?.SourceId ?? StewardPresentation.Provider(row.Provider)} · {detail?.PackageId ?? \"package ID unknown\"}\")");
         StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "IsTextSelectionEnabled = true");
@@ -289,7 +289,7 @@ public sealed partial class UiAccessibilityContractTests
             "Snapshot coverage counts are unavailable" // RunningApplicationDetection.CoverageDisclosure.
         ];
         string root = FindRepositoryRoot();
-        IEnumerable<string> files = DesktopFiles.Select(file => Path.Combine(root, "src", "PCSteward.Desktop", file))
+        IEnumerable<string> files = DesktopFiles.Where(file => file != "MainWindow.cs").Concat(DesktopWindowSource.PartialFiles).Select(file => Path.Combine(root, "src", "PCSteward.Desktop", file))
             .Concat(Directory.GetFiles(Path.Combine(root, "src", "PCSteward.Application"), "*Presentation.cs"))
             .Concat(UserFacingApplicationFiles.Select(file => Path.Combine(root, "src", "PCSteward.Application", file)));
         List<string> found = [];
@@ -364,7 +364,7 @@ public sealed partial class UiAccessibilityContractTests
     [GeneratedRegex(@"\$?@?""(?:[^""\\]|\\.)*""")]
     private static partial Regex StringLiteral();
 
-    private static string DesktopSource(string relativePath) => File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", relativePath));
+    private static string DesktopSource(string relativePath) => DesktopWindowSource.ReadDesktopFile(FindRepositoryRoot(), relativePath);
 
     private static string Between(string source, string startMarker, string endMarker)
     {
