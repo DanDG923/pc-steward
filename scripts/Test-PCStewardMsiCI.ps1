@@ -10,7 +10,10 @@ param([switch]$StandardUser, [ValidateSet('Build', 'Check')][string]$Step, [stri
 #   3. as a standard user, ADR-018 pre-launch trust passes, both executables carry the same compiled pin, Windows does not
 #      trust the key, and the capability reader reports every allow-listed route Supported in both roles;
 #   4. an upgrade that fails part-way rolls back to the installed version, a higher version upgrades in place, a lower
-#      version is refused, and uninstall removes the program files and leaves per-user data alone.
+#      version is refused, and uninstall removes the program files and leaves per-user data alone;
+#   5. the elevated release install step (Invoke-PCStewardReleaseInstall.ps1, security review H1) refuses a wrong artefact
+#      digest, an MSI whose tables differ from the CI reference and an MSI whose files differ (uninstalling it), and installs
+#      and verifies the real signed MSI.
 # The key is created in the runner account's CurrentUser\My, never added to a trust store, and deleted at the end.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -220,6 +223,67 @@ try {
     Set-Check 'uninstall-removes-program-files' (($code -eq 0) -and !(Test-Path -LiteralPath $installRoot) -and (@(Get-InstalledProducts).Count -eq 0) -and !(Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonPrograms)) 'PC Steward.lnk'))) "exit $code"
     Set-Check 'uninstall-keeps-per-user-data' (Test-Path -LiteralPath $marker -PathType Leaf)
 
+    # 5. The elevated release install step (ADR-034 security review H1), run exactly as the owner's paste runs it apart from
+    #    the UAC prompt: a release artefact made from this job's CI payload, its MSI reference, the composed command, and the
+    #    protected execution bundle. A wrong artefact digest, an MSI whose tables differ, and an MSI whose files differ are
+    #    each refused with nothing left installed; the real signed MSI installs and verifies.
+    . (Join-Path $PSScriptRoot 'PCStewardMsiTables.ps1')
+    $release = Join-Path $work 'release-artefact'
+    New-Item -ItemType Directory -Path $release | Out-Null
+    Copy-Item -LiteralPath $candidatePayload -Destination (Join-Path $release 'payload') -Recurse
+    Copy-Item -LiteralPath (Join-Path $work 'candidate\candidate-manifest.json') -Destination $release
+    $backupPin = 'B' * 64
+    $sourceCommit = ([string](& git -C $repository rev-parse HEAD)).Trim()
+    $runId = 4242
+    $releaseRecord = [ordered]@{
+        schema = 'pc-steward-release-payload:1'; repository = 'DanDG923/pc-steward'; runId = [string]$runId; sourceCommit = $sourceCommit; productVersion = '0.1.1'
+        manifestSha256 = (Get-FileSha256 (Join-Path $release 'candidate-manifest.json')); fileCount = 0; pins = [ordered]@{ primary = $pin; backup = $backupPin }
+    }
+    [IO.File]::WriteAllText((Join-Path $release 'release-payload.json'), ($releaseRecord | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+    $reference = & (Join-Path $PSScriptRoot 'New-PCStewardMsiReference.ps1') -ReleasePayloadRoot $release | Select-Object -Last 1 | ConvertFrom-Json
+    $signedTables = Get-PCStewardMsiTables -Path $msis['0.1.1'].Path
+    $referenceLines = @((Get-Content -LiteralPath (Join-Path $release 'msi-reference.json') -Raw | ConvertFrom-Json).tables)
+    $tableDifferences = @(Compare-Object $referenceLines @($signedTables.Lines) -CaseSensitive | ForEach-Object { $_.SideIndicator + ' ' + $_.InputObject })
+    Write-Output ($tableDifferences | Select-Object -First 20)
+    Set-Check 'signed-msi-tables-equal-the-unsigned-ci-reference' ($signedTables.Sha256 -ceq $reference.tablesSha256) "reference $($reference.tablesSha256); signed $($signedTables.Sha256); $($tableDifferences.Count) differing lines"
+    Set-Check 'msi-tables-detect-a-different-package' ((Get-PCStewardMsiTables -Path $msis['0.1.3'].Path).Sha256 -cne $reference.tablesSha256)
+    $artefactZip = Join-Path $work 'pc-steward-release-payload.zip'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::CreateFromDirectory($release, $artefactZip)
+    $artefactSha256 = Get-FileSha256 $artefactZip
+    $scriptPins = @{}
+    foreach ($leaf in @('Invoke-PCStewardReleaseInstallBootstrap.ps1', 'Install-PCStewardRelease.ps1', 'OwnerOnlyExecution.ps1', 'OwnerOnlyPayloadIntegrity.ps1', 'PCStewardMsiTables.ps1', 'PCStewardReleaseSigning.ps1', 'Remove-OwnerOnlyProtectedTestDeployment.ps1')) { $scriptPins[$leaf] = Get-FileSha256 (Join-Path $PSScriptRoot $leaf) }
+    function Invoke-ReleaseInstall([string]$Msi, [string]$Digest, [string]$Name) {
+        $composed = & (Join-Path $PSScriptRoot 'Invoke-PCStewardReleaseInstall.ps1') -ArtefactZip $artefactZip -MsiPath $Msi -RunId $runId -SourceCommit $sourceCommit -ArtefactSha256 $Digest -PrimaryPin $pin -BackupPin $backupPin -ScriptPins $scriptPins -ComposeOnly | ConvertFrom-Json
+        $process = Start-Process -FilePath $windowsPowerShell -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $composed.encodedCommand) -WorkingDirectory ([Environment]::SystemDirectory) -WindowStyle Hidden -Wait -PassThru
+        $resultPath = Join-Path $composed.executionRoot 'result.json'
+        $outcome = if (Test-Path -LiteralPath $resultPath) { Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json } else { $null }
+        foreach ($log in @(Get-ChildItem -LiteralPath (Join-Path $composed.executionRoot 'release') -Filter '*.log' -File -ErrorAction SilentlyContinue)) { Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $logs "$Name-$($log.Name)") }
+        if ($outcome) { [IO.File]::WriteAllText((Join-Path $logs "$Name-result.json"), ($outcome | ConvertTo-Json -Depth 5)) }
+        Write-Output "$Name exit $($process.ExitCode): $($outcome | ConvertTo-Json -Depth 5 -Compress)"
+        [pscustomobject]@{ ExitCode = $process.ExitCode; Result = $outcome }
+    }
+    function Test-NothingInstalled { (@(Get-InstalledProducts).Count -eq 0) -and !(Test-Path -LiteralPath $installRoot) }
+    $run = @(Invoke-ReleaseInstall $msis['0.1.1'].Path ('A' * 64) 'release-wrong-digest')[-1]
+    Set-Check 'release-install-refuses-a-wrong-artefact-digest' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'inputs:*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
+    $run = @(Invoke-ReleaseInstall $msis['0.1.3'].Path $artefactSha256 'release-other-tables')[-1]
+    Set-Check 'release-install-refuses-msi-tables-unlike-ci' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'msi:*tables*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
+    # Same tables, one byte different in a versioned file the package does not hash: caught only after install, so the
+    # product must be uninstalled again.
+    $tamperedPayload = Join-Path $work 'payload-tampered'
+    Copy-Item -LiteralPath $candidatePayload -Destination $tamperedPayload -Recurse
+    $tamperedFile = Join-Path $tamperedPayload 'PCSteward.Execution.dll'
+    $bytes = [IO.File]::ReadAllBytes($tamperedFile); $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 1; [IO.File]::WriteAllBytes($tamperedFile, $bytes)
+    $tampered = Invoke-PCStewardReleaseSigning -PayloadRoot $tamperedPayload -Certificate $certificate -Pin $pin -ProductVersion '0.1.1' -MsiPath (Join-Path $work 'PCSteward-0.1.1-tampered.msi')
+    Set-Check 'tampered-msi-has-the-reference-tables' ((Get-PCStewardMsiTables -Path $tampered.msiPath).Sha256 -ceq $reference.tablesSha256)
+    $run = @(Invoke-ReleaseInstall $tampered.msiPath $artefactSha256 'release-tampered-file')[-1]
+    Set-Check 'release-install-uninstalls-files-unlike-ci' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'verify:*uninstalled*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
+    $run = @(Invoke-ReleaseInstall $msis['0.1.1'].Path $artefactSha256 'release-install')[-1]
+    $products = @(Get-InstalledProducts)
+    Set-Check 'release-install-installs-and-verifies-the-ci-build' (($run.ExitCode -eq 0) -and ($run.Result.validation -ceq 'Pass') -and ($run.Result.tablesSha256 -ceq $reference.tablesSha256) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($run.ExitCode); $($run.Result.phase) $($run.Result.failure)"
+    foreach ($product in $products) { $null = Invoke-Msi @('/x', $product.ProductCode) 'release-uninstall.log' }
+    Set-Check 'release-install-uninstalls-cleanly' (Test-NothingInstalled)
+
     $exitCode = if ($failures.Count -eq 0) { 0 } else { 1 }
 }
 catch {
@@ -238,5 +302,5 @@ finally {
     $evidence.result = if ($failures.Count -eq 0) { 'Pass' } else { 'Fail' }
     [IO.File]::WriteAllText((Join-Path $evidenceRoot 'msi-ci-evidence.json'), ($evidence | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 }
-if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal and uninstall.' }
+if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal, uninstall, and the verified release install step.' }
 exit $exitCode

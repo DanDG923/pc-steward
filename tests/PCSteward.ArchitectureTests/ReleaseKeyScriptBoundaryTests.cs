@@ -46,7 +46,18 @@ public sealed class ReleaseKeyScriptBoundaryTests
         StringAssert.Contains(keys, "-FilePath $target -Password $password -CryptoAlgorithmOption AES256_SHA256");
         StringAssert.Contains(keys, "$info.DriveType -ne [IO.DriveType]::Removable");
         StringAssert.Contains(keys, "This script never overwrites a backup key.");
-        StringAssert.Contains(keys, "if ($plain.Length -lt 12)");
+        StringAssert.Contains(keys, "if ($length -lt 12)");
+        // The two passwords are compared in unmanaged memory that is zeroed; neither becomes a managed string.
+        Assert.IsFalse(keys.Contains("PtrToStringBSTR", StringComparison.Ordinal));
+        Assert.AreEqual(2, Regex.Count(keys, "ZeroFreeBSTR"));
+        // ykman never comes from PATH: Program Files or the owner's path, and a valid Yubico signature either way.
+        Assert.IsFalse(Regex.IsMatch(keys, @"Get-Command|\$env:PATH|where(\.exe)?\s+ykman", RegexOptions.IgnoreCase), "ykman is not resolved from PATH");
+        StringAssert.Contains(keys, "$programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)");
+        StringAssert.Contains(keys, "if ($ykmanSignature.Status -ne 'Valid' -or $null -eq $ykmanSignature.SignerCertificate -or $ykmanSignature.SignerCertificate.Subject -notmatch '(^|, )O=Yubico AB(,|$)')");
+        Assert.IsLessThan(keys.IndexOf("function Invoke-YkmanRaw", StringComparison.Ordinal), keys.IndexOf("$ykmanSignature.Status", StringComparison.Ordinal), "the signature is checked before ykman runs");
+        // Yubico's attestation of the new key is printed with its pin, so the pin can be checked away from the PC.
+        StringAssert.Contains(keys, "@('piv', 'keys', 'attest', '--format', 'PEM', '9c', $attestationFile)");
+        StringAssert.Contains(keys, "if ((Get-PCStewardKeyPin -CertificateDer $attestation.RawData) -cne $pin) { throw 'The attestation is not for the new key.' }");
         Assert.IsFalse(Regex.IsMatch(keys, @"Invoke-(RestMethod|WebRequest)|Net\.WebClient|HttpClient"), "the key script makes no network call");
     }
 
@@ -61,6 +72,11 @@ public sealed class ReleaseKeyScriptBoundaryTests
         StringAssert.Contains(workflow, "persist-credentials: false");
         StringAssert.Contains(workflow, "run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1 -ReleasePayload");
         StringAssert.Contains(workflow, "name: pc-steward-release-payload");
+        // Every action is pinned to a full commit, so a moved tag cannot change what builds the payload.
+        MatchCollection uses = Regex.Matches(workflow, @"^\s*-?\s*uses:\s*(\S+)", RegexOptions.Multiline);
+        Assert.IsNotEmpty(uses);
+        foreach (Match use in uses)
+            Assert.IsTrue(Regex.IsMatch(use.Groups[1].Value, @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}\z"), use.Groups[1].Value);
         Assert.IsFalse(Regex.IsMatch(workflow, @"secrets\.|Set-AuthenticodeSignature|signtool", RegexOptions.IgnoreCase), "CI never signs a release");
 
         string launcher = Script("Test-OwnerOnlyCandidateBuilderCI.ps1");
@@ -84,9 +100,12 @@ public sealed class ReleaseKeyScriptBoundaryTests
         StringAssert.Contains(release, "'-ValidateCandidateRoot', $candidate, '-ExpectedManifestSha256', [string]$record.manifestSha256");
         StringAssert.Contains(release, "foreach ($pin in $pins) { if (!$executionText.Contains($pin))");
         StringAssert.Contains(release, "status --porcelain --untracked-files=all --ignored -- scripts packaging");
+        // The record's pins must be the ones committed at the run commit, read from the clean clone.
+        StringAssert.Contains(release, "Join-Path $repositoryRoot 'src\\PCSteward.Execution\\ReleaseSigningPins.cs'");
+        StringAssert.Contains(release, "if ($committedPins[0] -cne $pins[0] -or $committedPins[1] -cne $pins[1])");
         // Every check comes before the first signature.
         int signing = release.IndexOf("Invoke-PCStewardReleaseSigning -PayloadRoot", StringComparison.Ordinal);
-        foreach (string check in new[] { "$zipHash -cne $expectedZip", "$localCommit -cne", "--untracked-files=all --ignored", "-ValidateCandidateRoot", "$executionText.Contains($pin)" })
+        foreach (string check in new[] { "$zipHash -cne $expectedZip", "$localCommit -cne", "--untracked-files=all --ignored", "-ValidateCandidateRoot", "$executionText.Contains($pin)", "$committedPins[0] -cne $pins[0]" })
             Assert.IsLessThan(signing, release.IndexOf(check, StringComparison.Ordinal), check);
         Assert.IsFalse(Regex.IsMatch(release, @"msiexec|Start-Process", RegexOptions.IgnoreCase), "the signing script installs nothing");
 

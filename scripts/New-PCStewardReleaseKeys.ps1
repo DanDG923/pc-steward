@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][ValidateSet('Primary', 'Backup')][string]$Key,
     # Backup only: the two removable drives (for example E:\ and F:\) that each receive the password-protected PFX.
     [string[]]$BackupDrives,
-    # Primary only: ykman.exe, if it is not on PATH or in the YubiKey Manager folder.
+    # Primary only: ykman.exe, if it is not in one of the YubiKey Manager folders under Program Files. It must carry a valid
+    # Yubico signature wherever it is.
     [string]$YkmanPath
 )
 
@@ -50,10 +51,15 @@ function Get-PCStewardStoreCertificates([string]$Subject) {
 try {
     if ($Key -eq 'Primary') {
         if ($BackupDrives) { throw '-BackupDrives is for -Key Backup only.' }
+        # Never from PATH, which any program running as the owner can change: an administrator-only install folder, or the
+        # path the owner names, and in both cases a Yubico signature that Windows trusts.
+        $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
         $ykman = $YkmanPath
-        if (!$ykman) { $ykman = @(Get-Command ykman.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })[0] }
-        if (!$ykman) { $ykman = Join-Path ${env:ProgramFiles} 'Yubico\YubiKey Manager\ykman.exe' }
-        if (!(Test-Path -LiteralPath $ykman -PathType Leaf)) { throw 'ykman.exe was not found. Install the YubiKey Manager CLI from Yubico, or pass -YkmanPath.' }
+        if (!$ykman) { $ykman = @(@('Yubico\YubiKey Manager CLI\ykman.exe', 'Yubico\YubiKey Manager\ykman.exe') | ForEach-Object { Join-Path $programFiles $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })[0] }
+        if (!$ykman -or !(Test-Path -LiteralPath $ykman -PathType Leaf)) { throw 'ykman.exe was not found. Install the YubiKey Manager CLI from Yubico, or pass -YkmanPath.' }
+        $ykman = [IO.Path]::GetFullPath($ykman)
+        $ykmanSignature = Get-AuthenticodeSignature -LiteralPath $ykman
+        if ($ykmanSignature.Status -ne 'Valid' -or $null -eq $ykmanSignature.SignerCertificate -or $ykmanSignature.SignerCertificate.Subject -notmatch '(^|, )O=Yubico AB(,|$)') { throw "$ykman does not carry a valid Yubico signature." }
         # Windows PowerShell 5.1 turns a native command's stderr into a terminating error under 'Stop', so capture it as text.
         function Invoke-YkmanRaw([string[]]$Arguments) {
             $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
@@ -140,7 +146,19 @@ try {
         if ($final.Count -ne 1) { throw 'Windows does not show the release certificate with the YubiKey key.' }
         Write-Output 'Proving the key signs: enter your PIN and touch the YubiKey once more.'
         Test-PCStewardKeySigns $final[0] $pin
-        [pscustomobject]@{ key = 'Primary'; subject = $primarySubject; algorithm = $algorithm; pin = $pin; notAfter = $signed.NotAfter.ToString('yyyy-MM-dd'); pinLine = "internal const string Primary = `"$pin`";" } | ConvertTo-Json
+        # Yubico's attestation of slot 9c, signed by the YubiKey's factory key (slot f9), which Yubico's own CA certifies.
+        # It lets the pin be checked away from this PC before it is committed: the key was generated inside a YubiKey, with
+        # PIN and touch policies ALWAYS. It names the YubiKey's serial number, so it is for that check only, never the repo.
+        $attestationFile = Join-Path $work 'attestation.pem'
+        $intermediateFile = Join-Path $work 'attestation-intermediate.pem'
+        Invoke-Ykman ($device + @('piv', 'keys', 'attest', '--format', 'PEM', '9c', $attestationFile)) | Out-Null
+        Invoke-Ykman ($device + @('piv', 'certificates', 'export', '--format', 'PEM', 'f9', $intermediateFile)) | Out-Null
+        $attestation = [Security.Cryptography.X509Certificates.X509Certificate2]::new($attestationFile)
+        try { if ((Get-PCStewardKeyPin -CertificateDer $attestation.RawData) -cne $pin) { throw 'The attestation is not for the new key.' } } finally { $attestation.Dispose() }
+        [pscustomobject]@{
+            key = 'Primary'; subject = $primarySubject; algorithm = $algorithm; pin = $pin; notAfter = $signed.NotAfter.ToString('yyyy-MM-dd'); pinLine = "internal const string Primary = `"$pin`";"
+            attestation = [IO.File]::ReadAllText($attestationFile).Trim(); attestationIntermediate = [IO.File]::ReadAllText($intermediateFile).Trim()
+        } | ConvertTo-Json
     }
     else {
         if ($YkmanPath) { throw '-YkmanPath is for -Key Primary only.' }
@@ -156,13 +174,17 @@ try {
 
         $password = Read-Host -AsSecureString 'Choose a password for the backup key (at least 12 characters)'
         $again = Read-Host -AsSecureString 'Type the password again'
-        $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
-        $plainAgain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($again))
+        # Compared in unmanaged memory that is zeroed afterwards; the password never becomes a managed string.
+        $first = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
+        $second = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($again)
         try {
-            if ($plain -cne $plainAgain) { throw 'The passwords differ.' }
-            if ($plain.Length -lt 12) { throw 'The password is shorter than 12 characters.' }
+            $length = $password.Length
+            $same = $length -eq $again.Length
+            for ($index = 0; $same -and $index -lt $length; $index++) { $same = [Runtime.InteropServices.Marshal]::ReadInt16($first, 2 * $index) -eq [Runtime.InteropServices.Marshal]::ReadInt16($second, 2 * $index) }
         }
-        finally { $plain = $null; $plainAgain = $null }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($first); [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($second) }
+        if (!$same) { throw 'The passwords differ.' }
+        if ($length -lt 12) { throw 'The password is shorter than 12 characters.' }
 
         $created = New-SelfSignedCertificate -Type CodeSigningCert -Subject $backupSubject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(10)
         try {

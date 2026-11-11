@@ -108,6 +108,7 @@ The updater (ADR-032, to be revised) hands a verified, signed MSI to Windows Ins
 - The new version verifies its own install (section 4) before reporting success.
 - The helper route is required, not optional. Because UAC shows "Unknown publisher" for a pinned-key MSI, starting `msiexec` directly on a file in a user-writable folder would let a same-user program swap in any MSI behind a prompt the owner expects; the helper's copy-then-check closes that.
 - Because the release key is owner-held and offline, it can also serve as ADR-032's release key; the ADR-032 revision decides that. ADR-032's per-user `versions\` layout is dropped in favour of this route.
+- **Content, not only the pin (security review, 2026-11-11, H1).** Release signing runs unelevated on the owner's PC, so a same-user program present at that time could have the real key sign changed files. The updater therefore installs a release only when its files match a manifest anchored in the CI build of a reviewed commit (executables compared without their signatures), checked by the helper on its administrator-only copy before `msiexec` and again after install. The first install uses the same rule through `scripts/Invoke-PCStewardReleaseInstall.ps1` ([review](../review/ADR_034_SIGNED_INSTALLER_SECURITY_REVIEW.md), H1), which checks the MSI's tables against the `msi-reference.json` digest the release-payload workflow publishes, and the installed files against the CI candidate manifest. The ADR-032 revision decides how the anchor reaches the app.
 
 ## Consequences
 

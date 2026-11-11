@@ -28,6 +28,7 @@ foreach ($module in @('Management', 'Utility', 'Security', 'Archive')) {
     if (Test-Path -LiteralPath $manifest) { Import-Module $manifest -Force }
 }
 . (Join-Path $PSScriptRoot 'PCStewardReleaseSigning.ps1')
+. (Join-Path $PSScriptRoot 'PCStewardMsiTables.ps1')
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from a normal (not elevated) PowerShell window.' }
 
@@ -93,6 +94,14 @@ $validation = @(& $windowsPowerShell @('-NoProfile', '-NonInteractive', '-File',
 if ($LASTEXITCODE -ne 0 -or (ConvertFrom-Json ([string]($validation | Where-Object { $_ } | Select-Object -Last 1))).validation -cne 'Pass') { throw 'The payload does not match its candidate manifest.' }
 $pins = @([string]$record.pins.primary, [string]$record.pins.backup)
 if (@($pins | Where-Object { $_ -cmatch '\A[0-9A-F]{64}\z' }).Count -ne 2 -or $pins[0] -ceq $pins[1]) { throw 'The payload does not carry two distinct release pins.' }
+# They must be the pins committed at the run's commit, read from this clean clone, not only what the payload record says.
+$pinsSource = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'src\PCSteward.Execution\ReleaseSigningPins.cs'))
+$committedPins = @(foreach ($name in @('Primary', 'Backup')) {
+    $found = [regex]::Matches($pinsSource, 'internal const string ' + $name + ' = "([0-9A-F]{64})";')
+    if ($found.Count -ne 1) { throw "ReleaseSigningPins.cs at this commit has no single $name pin." }
+    $found[0].Groups[1].Value
+})
+if ($committedPins[0] -cne $pins[0] -or $committedPins[1] -cne $pins[1]) { throw 'The payload record pins differ from ReleaseSigningPins.cs at the run commit.' }
 # The pins must be compiled into the payload's Execution assembly (its constants are stored as UTF-16).
 $execution = [IO.File]::ReadAllBytes((Join-Path $candidate 'payload\PCSteward.Execution.dll'))
 $executionText = [Text.Encoding]::Unicode.GetString($execution, 0, $execution.Length - ($execution.Length % 2)) + [Text.Encoding]::Unicode.GetString($execution, 1, ($execution.Length - 1) - (($execution.Length - 1) % 2))
@@ -125,10 +134,16 @@ try {
 finally {
     if ($ownedPfx) { $ownedPfx.Dispose() }
 }
+# The signed MSI's tables must be the ones the CI build of this payload published (security review H1). The elevated install
+# step checks this again on its own protected copy; failing here only saves a wasted UAC prompt.
+$reference = Get-Content -LiteralPath (Join-Path $staging 'msi-reference.json') -Raw | ConvertFrom-Json
+if ($reference.schema -cne 'pc-steward-msi-reference:1' -or [string]$reference.productVersion -cne [string]$record.productVersion) { throw 'The artefact has no MSI reference for this product version.' }
+$tables = Get-PCStewardMsiTables -Path $result.msiPath
+if ($tables.Sha256 -cne [string]$reference.tablesSha256) { throw "The signed MSI's tables ($($tables.Sha256)) differ from the CI reference ($($reference.tablesSha256)). Do not install it." }
 $release = [ordered]@{
     schema = 'pc-steward-release:1'; repository = $repository; runId = $RunId; sourceCommit = [string]$run.head_sha; artefactSha256 = $zipHash
     productVersion = $result.productVersion; msiVersion = $result.msiVersion; msiSha256 = $result.msiSha256; manifestSha256 = $result.manifestSha256
-    fileCount = $result.fileCount; signedWith = $(if ($BackupPfx) { 'backup' } else { 'primary' }); pin = $pin
+    fileCount = $result.fileCount; signedWith = $(if ($BackupPfx) { 'backup' } else { 'primary' }); pin = $pin; tablesSha256 = $tables.Sha256
 }
 [IO.File]::WriteAllText((Join-Path $output 'release.json'), ($release | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 Remove-Item -LiteralPath $staging, $candidate -Recurse -Force

@@ -1,3 +1,12 @@
+# Signed protected install — ADR-034 step 5: security review of the whole route
+
+`FR-UPD-04/15`, `TM-03/04/13`; [review](../review/ADR_034_SIGNED_INSTALLER_SECURITY_REVIEW.md), [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) section 7.
+
+- `scripts/New-PCStewardReleaseKeys.ps1` (ykman location and signature, attestation, password comparison), `scripts/New-PCStewardRelease.ps1` (committed pins), `.github/workflows/release-payload.yml` (actions pinned to commits).
+- Evidence: architecture `ReleaseKeyScriptBoundaryTests`.
+- H1: `scripts/Invoke-PCStewardReleaseInstall.ps1`, `scripts/Invoke-PCStewardReleaseInstallBootstrap.ps1`, `scripts/Install-PCStewardRelease.ps1`, `scripts/PCStewardMsiTables.ps1`, `scripts/New-PCStewardMsiReference.ps1`; evidence: the `msi-install-test` release-install checks and architecture `ReleaseInstallBoundaryTests`.
+- Not claimed: any key, pin, signed release or host evidence.
+
 # Signed protected install — ADR-034 step 4: key creation, release payload and signing scripts
 
 `FR-UPD-04/15`, `TM-03/04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) sections 2 and 5 and implementation notes.
