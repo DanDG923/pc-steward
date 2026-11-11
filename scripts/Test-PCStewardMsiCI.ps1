@@ -209,12 +209,13 @@ try {
         $relative = $_.FullName.Substring($installRoot.Length + 1)
         ($relative -ne 'PCSteward.ReleaseManifest.json') -and (!$listed.ContainsKey($relative) -or $listed[$relative].sha256 -ne (Get-FileSha256 $_.FullName))
     })
-    # The log must show the failure came after the old version's removal started, so the rollback is what restored it.
-    $failedLog = @(Get-Content -LiteralPath (Join-Path $logs 'failed-upgrade-0.1.3.log') | Where-Object { $_ -match 'RemoveExistingProducts|Error \d{4}\.|Return value 3|^Rollback:' })
-    $removalStarted = @($failedLog | Where-Object { $_ -match 'Action start [^:]+: RemoveExistingProducts\.' }).Count -gt 0
-    $rolledBack = @($failedLog | Where-Object { $_ -match '^Rollback:' }).Count -gt 0
+    # The log must show the old version's removal was scheduled into the install script (RemoveExistingProducts returned
+    # 1) and that the script then failed (InstallFinalize returned 3), so the rollback is what restored 0.1.1.
+    $failedLog = @(Get-Content -LiteralPath (Join-Path $logs 'failed-upgrade-0.1.3.log') | Where-Object { $_ -match 'RemoveExistingProducts|Error \d{4}\.|Return value 3' })
+    $removalScheduled = @($failedLog | Where-Object { $_ -match 'Action ended [0-9:]+: RemoveExistingProducts\. Return value 1\.' }).Count -gt 0
+    $scriptFailed = @($failedLog | Where-Object { $_ -match 'Action ended [0-9:]+: InstallFinalize\. Return value 3\.' }).Count -gt 0
     Write-Output ($failedLog | Select-Object -First 25)
-    Set-Check 'failed-upgrade-failed-after-removal-began' ($removalStarted -and $rolledBack) "removal started $removalStarted; rollback $rolledBack"
+    Set-Check 'failed-upgrade-failed-after-removal-began' ($removalScheduled -and $scriptFailed) "removal scheduled $removalScheduled; install script failed $scriptFailed"
     Set-Check 'failed-upgrade-rolls-back' (($code -ne 0) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1') -and ($afterRollback.Count -eq 0) -and ((Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion -eq '0.1.1') -and (Test-Path -LiteralPath (Join-Path $installRoot 'PCSteward.Desktop.exe') -PathType Leaf)) "exit $code; $(($products | ForEach-Object { $_.Version }) -join ','); changed $($afterRollback.Count)"
     Remove-Item -LiteralPath $probe -Force
     $code = Invoke-Msi @('/i', ('"' + $msis['0.1.2'].Path + '"')) 'upgrade-0.1.2.log'
