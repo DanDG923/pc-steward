@@ -1,3 +1,13 @@
+# Self-updater — ADR-032 revision 2 build step 2–3: the release check artefact and the update check core
+
+`FR-UPD-04/15`, `TM-03/04/12/13/20/23/24/25`; [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 3–5.
+
+- CI anchor: `scripts/New-PCStewardReleaseCheck.ps1` and the `pc-steward-release-check` artefact in `.github/workflows/release-payload.yml` (90-day retention); evidence: `msi-install-test` checks `release-check-same-bytes-in-both-editions`, `release-check-carries-the-ci-build` and `release-check-csharp-matches-powershell` (C# `ReleaseCheckPolicy`, `MsiTableDigest` and `ReleaseImageComparison` agree with the PowerShell checks on the real signed MSI and executables, via `PCSteward.InstallCheck --release-check-parity`).
+- Shared checks in `PCSteward.Execution`: `ReleaseCheckRecord.cs` (strict record and zip parsing), `ReleaseRunEvidence.cs` (run and artefact rules the desktop and the elevated helper both apply; duplicate properties refused), `ReleaseImageComparison.cs`, `MsiTableDigest.cs`.
+- `PCSteward.SelfUpdate`: `GitHubReleaseClient.cs` (four anonymous GETs to compiled addresses, manual redirects to GitHub hosts only, size and time limits), `GitHubReleaseEvidence.cs`, `ReleaseVersion.cs`, `SelfUpdateText.cs`.
+- Evidence: fixture `ReleaseCheckPolicyTests`, `ReleaseRunEvidenceTests`, `SelfUpdateCheckTests`; architecture `SelfUpdateBoundaryTests` (no unattended or elevated host references the project; only the client uses the network; no file, process, registry or environment access; no credentials; compiled hosts) and `DeploymentCapabilityBoundaryTests`.
+- Not claimed: the download, the helper operation (§6–§7), the success check (§8), `publish-release.yml`, the update screen, any published release or host evidence.
+
 # Signed protected install — ADR-034 step 5: security review of the whole route
 
 `FR-UPD-04/15`, `TM-03/04/13`; [review](../review/ADR_034_SIGNED_INSTALLER_SECURITY_REVIEW.md), [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) section 7.

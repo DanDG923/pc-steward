@@ -33,7 +33,12 @@ public sealed class DeploymentCapabilityBoundaryTests
             if (project == "PCSteward.Execution") continue;
             string source = File.ReadAllText(path);
             foreach (string type in CapabilityTypes)
+            {
+                // ADR-032 revision 2 §3: the update check compares a release's check file with the compiled pins, read in
+                // exactly one place.
+                if (type == "ReleaseSigningPins" && path == Path.Combine(src, "PCSteward.SelfUpdate", "GitHubReleaseClient.cs")) continue;
                 Assert.IsFalse(Regex.IsMatch(source, $@"\b{type}\b"), $"{path} references {type}");
+            }
         }
         // Implementations of the seam exist only in Execution: exactly one, the Windows reader.
         string[] implementations = [.. Sources(src).Where(path =>

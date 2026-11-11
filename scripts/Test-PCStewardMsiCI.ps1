@@ -248,6 +248,24 @@ try {
     Write-Output ($tableDifferences | Select-Object -First 20)
     Set-Check 'signed-msi-tables-equal-the-unsigned-ci-reference' ($signedTables.Sha256 -ceq $reference.tablesSha256) "reference $($reference.tablesSha256); signed $($signedTables.Sha256); $($tableDifferences.Count) differing lines"
     Set-Check 'msi-tables-detect-a-different-package' ((Get-PCStewardMsiTables -Path $msis['0.1.3'].Path).Sha256 -cne $reference.tablesSha256)
+    # ADR-032 revision 2 §3: the release check record the release-payload workflow publishes, made from the same artefact
+    # layout. Both PowerShell editions must write the same bytes, and the record must carry the run, the pins, the tables
+    # digest, every candidate file and the two executables' PE checksums.
+    $checkOutputs = @{}
+    foreach ($edition in @(@{ Name = 'pwsh'; Path = (Get-Process -Id $PID).Path }, @{ Name = 'powershell'; Path = $windowsPowerShell })) {
+        $checkOutput = Join-Path $work ('release-check-' + $edition.Name)
+        $null = & $edition.Path -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'New-PCStewardReleaseCheck.ps1') -ReleasePayloadRoot $release -OutputRoot $checkOutput
+        if ($LASTEXITCODE -ne 0) { throw "New-PCStewardReleaseCheck.ps1 failed under $($edition.Name)." }
+        $checkOutputs[$edition.Name] = [IO.File]::ReadAllBytes((Join-Path $checkOutput 'release-check.json'))
+    }
+    Set-Check 'release-check-same-bytes-in-both-editions' ([Convert]::ToBase64String($checkOutputs['pwsh']) -ceq [Convert]::ToBase64String($checkOutputs['powershell']))
+    $releaseCheck = [Text.Encoding]::ASCII.GetString($checkOutputs['pwsh']) | ConvertFrom-Json
+    $candidateCount = @(Get-Content -LiteralPath (Join-Path $release 'candidate-manifest.json') -Raw | ConvertFrom-Json).Count
+    Set-Check 'release-check-carries-the-ci-build' ($releaseCheck.schema -ceq 'pc-steward-release-check:1' -and [string]$releaseCheck.runId -ceq [string]$runId -and $releaseCheck.sourceCommit -ceq $sourceCommit -and $releaseCheck.msiVersion -ceq '0.1.1' -and $releaseCheck.pins.primary -ceq $pin -and $releaseCheck.pins.backup -ceq $backupPin -and $releaseCheck.msiTablesSha256 -ceq $reference.tablesSha256 -and @($releaseCheck.files).Count -eq $candidateCount -and @($releaseCheck.executables).Count -eq 2) "files $(@($releaseCheck.files).Count) of $candidateCount"
+    # ADR-032 revision 2 §5–§6: the C# checks the desktop and the elevated helper run agree with the PowerShell ones above on
+    # this job's real signed MSI and signed executables (MsiTableDigest, ReleaseCheckPolicy, ReleaseImageComparison).
+    $parity = & (Join-Path $work 'installcheck\PCSteward.InstallCheck.exe') --release-check-parity $msis['0.1.1'].Path (Join-Path $work 'release-check-pwsh\release-check.json') $msis['0.1.1'].Payload
+    Set-Check 'release-check-csharp-matches-powershell' ($LASTEXITCODE -eq 0) "$parity"
     $artefactZip = Join-Path $work 'pc-steward-release-payload.zip'
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($release, $artefactZip)
