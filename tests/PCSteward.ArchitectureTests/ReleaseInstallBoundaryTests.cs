@@ -44,6 +44,11 @@ public sealed class ReleaseInstallBoundaryTests
         StringAssert.Contains(install, "[PCSteward.Deployment.PayloadIntegrity]::AssertTree($installRoot, $expected.ToArray())");
         // Fail closed: a verified-install failure uninstalls.
         StringAssert.Contains(install, "if ($installed) {");
+        // A committed install that needs a restart (3010, 1641) or any change to the installed products also counts as
+        // installed, before any throw, so it is uninstalled rather than left unverified.
+        int committed = install.IndexOf("if ($code -in @(0, 1641, 3010) -or $changed) { $installed = $true }", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, committed);
+        Before(install, "if ($code -in @(0, 1641, 3010) -or $changed) { $installed = $true }", install.IndexOf("if ($code -ne 0) { throw \"msiexec failed", StringComparison.Ordinal));
         StringAssert.Contains(install, "Invoke-Msiexec @('/x', $product.ProductCode) 'msiexec-uninstall.log'");
 
         Assert.IsFalse(Regex.IsMatch(install, @"Set-AuthenticodeSignature|Cert:\\|X509Store|Invoke-(RestMethod|WebRequest)|Net\.WebClient|HttpClient", RegexOptions.IgnoreCase), "the install step signs, trusts and downloads nothing");

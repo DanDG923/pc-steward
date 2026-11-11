@@ -151,8 +151,12 @@ try {
     $code = Invoke-Msiexec @('/i', ('"' + $msi.Path + '"')) 'msiexec-install.log'
     $products = @(Get-RelatedProducts)
     $result.msiexecExitCode = $code
-    if ($code -ne 0) { throw "msiexec failed with exit code $code; Windows Installer rolled the change back (see msiexec-install.log)." }
-    $installed = $true
+    # Anything msiexec may have committed is treated as installed, so a failure from here on uninstalls it (fail closed):
+    # 3010 and 1641 are committed successes that need a restart, and any change to the installed products counts too.
+    $changed = (@($products | ForEach-Object { $_.ProductCode + '=' + $_.Version }) -join ',') -cne (@($before | ForEach-Object { $_.ProductCode + '=' + $_.Version }) -join ',')
+    if ($code -in @(0, 1641, 3010) -or $changed) { $installed = $true }
+    if ($code -in @(1641, 3010)) { throw "msiexec committed the install but needs a restart (exit code $code), so the installed files cannot be verified now (see msiexec-install.log)." }
+    if ($code -ne 0) { throw "msiexec failed with exit code $code (see msiexec-install.log)." }
     if ($products.Count -ne 1 -or $products[0].Version -cne $msiVersion) { throw "Expected one installed PC Steward $msiVersion, found: $(($products | ForEach-Object { $_.Version }) -join ', ')." }
     $result.productCode = $products[0].ProductCode; $result.replacedVersions = @($before | ForEach-Object { $_.Version })
 
