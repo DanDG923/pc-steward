@@ -37,6 +37,7 @@ internal enum SelfUpdateSessionRefusal
     FinishNotStarted,
     TimedOut,
     InternalFault,
+    UserInstallsAllowed,
 }
 
 /// <summary>What the finish copy recorded in <c>result.json</c> (ADR-032 revision 2 §7).</summary>
@@ -109,7 +110,7 @@ internal static partial class SelfUpdateHelperProtocol
         "install-not-intact", "version-not-newer", "per-user-registration", "profile-unavailable", "input-unreadable", "input-changed", "work-folder-unavailable", "check-file-refused",
         "record-not-approved", "run-not-genuine", "artifact-gone", "artifact-mismatch", "could-not-confirm", "msi-not-pinned", "msi-unreadable",
         "msi-structure-refused", "msi-tables-differ", "extract-failed", "image-layout-refused", "content-differs", "executables-not-pinned",
-        "helper-copy-failed", "job-files-failed", "finish-not-started", "timed-out", "internal-fault",
+        "helper-copy-failed", "job-files-failed", "finish-not-started", "timed-out", "internal-fault", "user-installs-allowed",
     ];
 
     private static readonly string[] Outcomes =

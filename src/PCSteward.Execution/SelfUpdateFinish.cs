@@ -50,6 +50,9 @@ internal interface ISelfUpdateFinishHost
     /// <summary>As <see cref="ISelfUpdateSessionHost.HasPerUserRegistration"/> (security review R1, Mythos review S1).</summary>
     bool HasPerUserRegistration(string productCode);
 
+    /// <summary>As <see cref="ISelfUpdateSessionHost.UserInstallsIgnored"/> (Mythos review S1).</summary>
+    bool UserInstallsIgnored();
+
     /// <summary>The current boot time, as Unix seconds (UTC).</summary>
     long BootTimeUnixSeconds();
 
@@ -152,7 +155,10 @@ internal static class SelfUpdateFinish
         if (!string.Equals(host.HashFile(msiPath, SelfUpdateSession.MaximumMsiBytes), job.MsiSha256, StringComparison.Ordinal))
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "msi-changed");
 
-        // Security review R1: no msiexec while the owner's own registry registers this product or PC Steward's UpgradeCode.
+        // Mythos review S1: no msiexec unless Windows Installer ignores per-user registrations (the DisableUserInstalls machine
+        // policy). Security review R1: nor while the owner's own registry registers this product or PC Steward's UpgradeCode.
+        if (!host.UserInstallsIgnored())
+            return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "user-installs-allowed");
         if (host.HasPerUserRegistration(job.ProductCode))
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "per-user-registration");
 
@@ -169,7 +175,7 @@ internal static class SelfUpdateFinish
         if (difference is null) return Result(job, expected, SelfUpdateFinishOutcome.Installed, exit, "installed");
         // Security review R2: only this MSI's own product is ever removed, and only when the machine registration lists it.
         if (!installed) return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; no-product-to-remove");
-        if (host.HasPerUserRegistration(job.ProductCode))
+        if (!host.UserInstallsIgnored() || host.HasPerUserRegistration(job.ProductCode))
             return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; uninstall-refused");
         int? removed = await host.RunMsiexecAsync(["/x", job.ProductCode, "/qn", "/norestart", "/l*v", Path.Combine(privateFolder, SelfUpdateHelperProtocol.UninstallLogName)],
             privateFolder, UninstallLimit, cancellationToken).ConfigureAwait(false);

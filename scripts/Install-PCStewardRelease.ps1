@@ -124,6 +124,20 @@ function Test-PerUserRegistration([string]$ProductCode) {
     }
     $false
 }
+# True only when the administrator-only Windows Installer machine policy DisableUserInstalls is the DWORD 1 (64-bit view), so
+# Windows Installer ignores every per-user registration. Without it, a registration written by any program running as the owner
+# in the moment before msiexec reads it makes the elevated install apply that program's transform (Mythos review S1, confirmed
+# on Windows CI). The same rule as WindowsSelfUpdateHost.UserInstallsIgnored in PCSteward.Execution.
+function Test-UserInstallsIgnored {
+    $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $policy = $machine.OpenSubKey('SOFTWARE\Policies\Microsoft\Windows\Installer', $false)
+        if ($null -eq $policy) { return $false }
+        try { ($policy.GetValueNames() -contains 'DisableUserInstalls') -and ($policy.GetValueKind('DisableUserInstalls') -eq [Microsoft.Win32.RegistryValueKind]::DWord) -and ([int]$policy.GetValue('DisableUserInstalls') -eq 1) }
+        finally { $policy.Dispose() }
+    }
+    finally { $machine.Dispose() }
+}
 # The ProductCode property of the protected MSI copy (read-only database).
 function Get-MsiProductCode([string]$Path) {
     $installer = New-Object -ComObject WindowsInstaller.Installer
@@ -204,6 +218,7 @@ try {
     }
     elseif (Test-Path -LiteralPath $stateRoot) { throw 'The owner-only test deployment is installed; run with -RemoveOwnerOnlyTestDeployment.' }
     $phase = 'msiexec'
+    if (!(Test-UserInstallsIgnored)) { throw "Windows Installer's DisableUserInstalls machine policy is not set, so msiexec was not run. Without it another program running as you could change what this elevated install does. Set HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer\DisableUserInstalls to the DWORD 1 as an administrator, then run this again." }
     if (Test-PerUserRegistration $productCode) { throw "Your account's own registry registers PC Steward with Windows Installer, which PC Steward never does, so msiexec was not run. Another program may have added it." }
     $before = @(Get-RelatedProducts)
     $code = Invoke-Msiexec @('/i', ('"' + $msi.Path + '"')) 'msiexec-install.log'
@@ -267,8 +282,8 @@ catch {
         # Fail closed: an install that does not verify is removed. Only this MSI's own product, only when the machine
         # registration lists it, and never through a per-user registration (security review R1/R2).
         $machine = @(); $perUser = $true
-        try { $machine = @(Get-RelatedProducts | Where-Object { $_.ProductCode -eq $productCode }); $perUser = Test-PerUserRegistration $productCode } catch { $failure += " Reading the registration failed: $($_.Exception.Message)" }
-        if ($perUser) { $failure += ' WARNING: the install was NOT uninstalled, because a per-user registration of PC Steward exists; do not run PC Steward.' }
+        try { $machine = @(Get-RelatedProducts | Where-Object { $_.ProductCode -eq $productCode }); $perUser = (Test-PerUserRegistration $productCode) -or !(Test-UserInstallsIgnored) } catch { $failure += " Reading the registration failed: $($_.Exception.Message)" }
+        if ($perUser) { $failure += ' WARNING: the install was NOT uninstalled, because a per-user registration of PC Steward exists or the DisableUserInstalls policy is no longer set; do not run PC Steward.' }
         elseif ($machine.Count -eq 0) { $failure += " WARNING: this MSI's product is not registered for the machine, so nothing was uninstalled; do not run PC Steward." }
         else {
             $null = Invoke-Msiexec @('/x', $productCode) 'msiexec-uninstall.log'

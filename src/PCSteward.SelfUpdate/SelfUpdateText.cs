@@ -76,6 +76,7 @@ public static class SelfUpdateText
         "install-not-intact" => "PC Steward's own installation did not pass its check, so it cannot update itself. Reinstall it from its release page.",
         "version-not-newer" => "This release is not newer than the PC Steward you have, so nothing was installed.",
         "per-user-registration" => "Windows lists a PC Steward installation for your account alone, which PC Steward never makes, so nothing was installed. Another program may have added it.",
+        "user-installs-allowed" => "Windows still accepts installs for your account alone, which another program could use to change what the update installs, so nothing was installed. Turn on Windows Installer's DisableUserInstalls setting (PC Steward's install guide shows how), then try again.",
         "profile-unavailable" or "input-unreadable" or "input-changed" => "The downloaded files could not be read as they were checked. Download the update again.",
         "work-folder-unavailable" or "helper-copy-failed" or "job-files-failed" or "finish-not-started" => "Windows could not prepare the protected folder the update installs from.",
         "check-file-refused" or "record-not-approved" => "The release's check file did not match what you approved.",

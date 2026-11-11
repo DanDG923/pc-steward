@@ -125,7 +125,8 @@ public sealed class SelfUpdateBoundaryTests
                      "self-update-finish-refuses-outside-the-work-folder", "self-update-finish-refuses-a-per-user-registration",
                      "self-update-finish-installs-and-verifies-the-upgrade",
                      "self-update-desktop-reads-the-installed-job-as-updated", "self-update-uninstalls-cleanly",
-                     "self-update-private-folder-hidden-from-standard-users",
+                     "self-update-private-folder-hidden-from-standard-users", "self-update-finish-refuses-without-the-user-installs-policy",
+                     "release-install-refuses-without-the-user-installs-policy",
                  })
             StringAssert.Contains(script, "Set-Check '" + check + "'");
         // Mythos review S1: the per-user transform experiment runs, records its outcome, and puts the logging policy back.
@@ -162,14 +163,26 @@ public sealed class SelfUpdateBoundaryTests
         int extract = session.IndexOf("[\"/a\", msiPath", StringComparison.Ordinal);
         Assert.IsGreaterThan(0, extract);
         Assert.IsLessThan(extract, session.IndexOf("Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);", StringComparison.Ordinal));
+        // Mythos review S1 (confirmed on Windows CI): no msiexec runs unless the DisableUserInstalls machine policy is set.
+        int policy = session.IndexOf("Require(host.UserInstallsIgnored(), SelfUpdateSessionRefusal.UserInstallsAllowed);", StringComparison.Ordinal);
+        Assert.IsTrue(policy > 0 && policy < extract, "the session checks the policy before the administrative unpack");
+        StringAssert.Contains(host, "RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)");
+        StringAssert.Contains(host, "MsiProductRegistration.IgnoresUserInstalls(policy.GetValue(MsiProductRegistration.DisableUserInstallsValue))");
         string finish = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Execution", "SelfUpdateFinish.cs"));
         Assert.IsLessThan(finish.IndexOf("[\"/i\", msiPath", StringComparison.Ordinal), finish.IndexOf("if (host.HasPerUserRegistration(job.ProductCode))", StringComparison.Ordinal));
         StringAssert.Contains(finish, "[\"/x\", job.ProductCode,");
+        int finishPolicy = finish.IndexOf("if (!host.UserInstallsIgnored())", StringComparison.Ordinal);
+        Assert.IsTrue(finishPolicy > 0 && finishPolicy < finish.IndexOf("[\"/i\", msiPath", StringComparison.Ordinal), "the finish copy checks the policy before installing");
+        int removePolicy = finish.IndexOf("if (!host.UserInstallsIgnored() || host.HasPerUserRegistration(job.ProductCode))", StringComparison.Ordinal);
+        Assert.IsTrue(removePolicy > 0 && removePolicy < finish.IndexOf("[\"/x\", job.ProductCode,", StringComparison.Ordinal), "and before uninstalling");
 
         string install = File.ReadAllText(Path.Combine(root, "scripts", "Install-PCStewardRelease.ps1"));
         Assert.IsFalse(install.Contains("'RelatedProducts'", StringComparison.Ordinal), "the merged machine-plus-user product list");
         Assert.IsLessThan(install.IndexOf("Invoke-Msiexec @('/i'", StringComparison.Ordinal), install.IndexOf("if (Test-PerUserRegistration $productCode) { throw", StringComparison.Ordinal));
         StringAssert.Contains(install, "$null = Invoke-Msiexec @('/x', $productCode) 'msiexec-uninstall.log'");
+        int installPolicy = install.IndexOf("if (!(Test-UserInstallsIgnored)) { throw", StringComparison.Ordinal);
+        Assert.IsTrue(installPolicy > 0 && installPolicy < install.IndexOf("Invoke-Msiexec @('/i'", StringComparison.Ordinal), "the install script checks the policy before msiexec");
+        StringAssert.Contains(install, "$perUser = (Test-PerUserRegistration $productCode) -or !(Test-UserInstallsIgnored)");
         Assert.IsFalse(Regex.IsMatch(install, @"Invoke-Msiexec @\('/x', \$product\."), "never another product's code");
     }
 

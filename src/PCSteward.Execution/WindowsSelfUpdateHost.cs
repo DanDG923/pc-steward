@@ -593,6 +593,26 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         }
     }
 
+    /// <summary>
+    /// Mythos review S1: true only when the 64-bit machine policy <c>DisableUserInstalls</c> is the DWORD 1. Only administrators
+    /// can write that key, so a same-user program cannot turn it off. Anything else, or a read failure, is false (fail closed).
+    /// </summary>
+    public bool UserInstallsIgnored()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        try
+        {
+            using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using RegistryKey? policy = machine.OpenSubKey(MsiProductRegistration.MachinePolicyKey, writable: false);
+            return policy is not null && policy.GetValueKind(MsiProductRegistration.DisableUserInstallsValue) == RegistryValueKind.DWord &&
+                MsiProductRegistration.IgnoresUserInstalls(policy.GetValue(MsiProductRegistration.DisableUserInstallsValue));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
     public long BootTimeUnixSeconds() => DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (Environment.TickCount64 / 1000);
 
     // ---- Shared primitives ----

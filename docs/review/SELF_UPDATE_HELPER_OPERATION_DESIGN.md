@@ -106,7 +106,7 @@ The [security review](ADR_032_SELF_UPDATER_SECURITY_REVIEW.md) found two Medium 
 The owner's independent review (preliminary, same document, section 3) led to three more changes:
 
 - installed products come from the machine registration only;
-- `msiexec` never runs while the owner's registry registers PC Steward (`per-user-registration`);
+- `msiexec` never runs while the owner's registry registers PC Steward (`per-user-registration`), and, after the helper code review (S1), never unless the `DisableUserInstalls` machine policy is set (`user-installs-allowed`);
 - the structure rule is an allow-list.
 
 It also added a branch guard in the release workflow, and recorded two limits for the owner.

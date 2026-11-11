@@ -19,6 +19,19 @@ internal static partial class MsiProductRegistration
     /// <summary>PC Steward's fixed MSI UpgradeCode (ADR-034, <c>packaging/msi/Package.wxs</c>).</summary>
     internal const string UpgradeCode = "{2AD17330-BAD5-46BE-A409-20814B26673C}";
 
+    /// <summary>
+    /// The Windows Installer machine policy key (below <c>HKLM</c>, administrators only) and its <c>DisableUserInstalls</c> value.
+    /// Set to 1, Windows Installer ignores every per-user registration, so a same-user program can no longer steer an elevated
+    /// install through one (Mythos review S1, confirmed on Windows CI). The helper runs <c>msiexec</c> only while it is set.
+    /// </summary>
+    internal const string MachinePolicyKey = @"SOFTWARE\Policies\Microsoft\Windows\Installer";
+
+    /// <summary>The policy value name; see <see cref="MachinePolicyKey"/>.</summary>
+    internal const string DisableUserInstallsValue = "DisableUserInstalls";
+
+    /// <summary>True only for the DWORD 1 that tells Windows Installer to ignore per-user installs and registrations.</summary>
+    internal static bool IgnoresUserInstalls(object? value) => value is int number && number == 1;
+
     /// <summary>The per-machine product codes registered under PC Steward's UpgradeCode (value names, packed), below <c>HKLM</c>.</summary>
     internal static string MachineUpgradeCodeKey => @"SOFTWARE\Classes\Installer\UpgradeCodes\" + Pack(UpgradeCode);
 

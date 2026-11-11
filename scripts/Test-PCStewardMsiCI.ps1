@@ -71,6 +71,14 @@ $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::Progra
 $installRoot = Join-Path $programFiles 'PC Steward'
 $stateRoot = Join-Path $programFiles 'PC Steward OwnerOnlyTest State'
 $upgradeCode = '{2AD17330-BAD5-46BE-A409-20814B26673C}'
+# Windows Installer's machine policy key. Its DisableUserInstalls value (DWORD 1) makes Windows Installer ignore per-user
+# registrations; the release install and the self-update helper run msiexec only while it is set (Mythos review S1).
+$installerPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
+function Set-UserInstallsPolicy([bool]$Ignored) {
+    if (!(Test-Path -LiteralPath $installerPolicy)) { $null = New-Item -Path $installerPolicy }
+    if ($Ignored) { New-ItemProperty -LiteralPath $installerPolicy -Name 'DisableUserInstalls' -Value 1 -PropertyType DWord -Force | Out-Null }
+    else { Remove-ItemProperty -LiteralPath $installerPolicy -Name 'DisableUserInstalls' -ErrorAction SilentlyContinue }
+}
 $pinsFile = Join-Path $repository 'src\PCSteward.Execution\ReleaseSigningPins.cs'
 $evidence = [ordered]@{ schema = 'pc-steward-msi-ci-evidence:1'; checks = [ordered]@{} }
 $failures = [Collections.Generic.List[string]]::new()
@@ -321,6 +329,11 @@ try {
         [pscustomobject]@{ ExitCode = $process.ExitCode; Result = $outcome }
     }
     function Test-NothingInstalled { (@(Get-InstalledProducts).Count -eq 0) -and !(Test-Path -LiteralPath $installRoot) }
+    # Mythos review S1: without the DisableUserInstalls machine policy the release install runs no msiexec at all.
+    Set-UserInstallsPolicy $false
+    $run = @(Invoke-ReleaseInstall $msis['0.1.1'].Path $artefactSha256 'release-policy-off')[-1]
+    Set-Check 'release-install-refuses-without-the-user-installs-policy' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'msiexec:*DisableUserInstalls*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
+    Set-UserInstallsPolicy $true
     $run = @(Invoke-ReleaseInstall $msis['0.1.1'].Path ('A' * 64) 'release-wrong-digest')[-1]
     Set-Check 'release-install-refuses-a-wrong-artefact-digest' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'inputs:*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
     $run = @(Invoke-ReleaseInstall $msis['0.1.3'].Path $artefactSha256 'release-other-tables')[-1]
@@ -414,6 +427,13 @@ try {
     finally { Remove-Item -LiteralPath $perUserKey -Recurse -Force }
     $products = @(Get-InstalledProducts)
     Set-Check 'self-update-finish-refuses-a-per-user-registration' (($perUser.ExitCode -eq 0) -and ($perUser.Result.outcome -ceq 'refused-before-install') -and ($perUser.Result.detail -ceq 'per-user-registration') -and ($null -eq $perUser.Result.exitCode) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($perUser.ExitCode); $($perUser.Result.outcome) $($perUser.Result.detail)"
+    # Mythos review S1: without the DisableUserInstalls machine policy the finish copy runs no msiexec; 0.1.1 stays installed.
+    $leaf = New-SelfUpdateJob 'match'
+    Set-UserInstallsPolicy $false
+    try { $policyOff = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-policy-off')[-1] }
+    finally { Set-UserInstallsPolicy $true }
+    $products = @(Get-InstalledProducts)
+    Set-Check 'self-update-finish-refuses-without-the-user-installs-policy' (($policyOff.ExitCode -eq 0) -and ($policyOff.Result.outcome -ceq 'refused-before-install') -and ($policyOff.Result.detail -ceq 'user-installs-allowed') -and ($null -eq $policyOff.Result.exitCode) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($policyOff.ExitCode); $($policyOff.Result.outcome) $($policyOff.Result.detail)"
     $leaf = New-SelfUpdateJob 'match'
     $finish = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-match')[-1]
     $products = @(Get-InstalledProducts)
@@ -513,7 +533,9 @@ public static class PCStewardMarkerTransform
 
     try {
         # Windows Installer's logging policy also logs the nested removal of the old product, wherever the marker might show.
-        $null = New-Item -Path $loggingPolicy -Force
+        # The first two cases measure Windows Installer as it ships, so DisableUserInstalls is off until the policy case.
+        Set-UserInstallsPolicy $false
+        if (!(Test-Path -LiteralPath $loggingPolicy)) { $null = New-Item -Path $loggingPolicy }
         New-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -Value 'voicewarmupx' -PropertyType String -Force | Out-Null
         # Case 'new-product-policy' repeats 'new-product' with the DisableUserInstalls machine policy set after the registration
         # is written and before the elevated install: does the policy stop Windows Installer from using the owner's registration?
@@ -563,6 +585,7 @@ catch {
 }
 finally {
     foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'cleanup-uninstall.log' }
+    Set-UserInstallsPolicy $false
     foreach ($leaf in $selfUpdateLeaves) { Remove-Item -LiteralPath (Join-Path $programFiles $leaf) -Recurse -Force -ErrorAction SilentlyContinue }
     if ($created) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $created.Thumbprint) -DeleteKey -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllBytes($pinsFile, $pinsOriginal)

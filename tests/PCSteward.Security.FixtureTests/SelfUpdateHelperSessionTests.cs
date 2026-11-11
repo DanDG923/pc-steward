@@ -23,7 +23,7 @@ public sealed class SelfUpdateHelperSessionTests
     private static readonly string[] SessionOrder =
     [
         "ProfileFolder", "CreateProtectedFolder", "CreatePrivateFolder", "CopyInput:zip", "CopyInput:msi", "ConfirmAsync", "RemoveOlderWorkFolders", "CarriesCompiledPin", "ReadMsiTables",
-        "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
+        "UserInstallsIgnored", "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
         "WriteNewFile:expected-install.json", "StartFinish",
     ];
     private const string ProductCode = "{11111111-1111-1111-1111-111111111111}";
@@ -215,6 +215,7 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.TablesSha = new string('0', 64), SelfUpdateSessionRefusal.MsiTablesDiffer),
             (host => host.ForbiddenTable = true, SelfUpdateSessionRefusal.MsiStructureRefused),
             (host => host.NoProductCode = true, SelfUpdateSessionRefusal.MsiStructureRefused),
+            (host => host.UserInstallsAllowed = true, SelfUpdateSessionRefusal.UserInstallsAllowed),
             (host => host.PerUserBefore = true, SelfUpdateSessionRefusal.PerUserRegistration),
             (host => host.PerUserAfterExtract = true, SelfUpdateSessionRefusal.PerUserRegistration),
             (host => host.ExtractExit = 1603, SelfUpdateSessionRefusal.ExtractFailed),
@@ -356,6 +357,16 @@ public sealed class SelfUpdateHelperSessionTests
             CollectionAssert.AreEqual(InstallThenRemove, host.Msiexec.Select(arguments => arguments[0]).ToArray(), detail);
             Assert.AreEqual(ProductCode, host.Msiexec[1][1], detail);
         }
+
+        // Mythos review S1: no msiexec at all unless the DisableUserInstalls machine policy is set, and no uninstall once it is gone.
+        FinishHost policyOff = new() { UserInstallsAllowedBefore = true };
+        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, policyOff, CancellationToken.None);
+        Assert.AreEqual((SelfUpdateFinishOutcome.RefusedBeforeInstall, "user-installs-allowed"), (policyOff.Result().Outcome, policyOff.Result().Detail));
+        Assert.IsEmpty(policyOff.Msiexec);
+        FinishHost policyGone = new() { UserInstallsAllowedAfter = true, TreeDiffers = true };
+        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, policyGone, CancellationToken.None);
+        Assert.AreEqual((SelfUpdateFinishOutcome.MismatchUninstallFailed, "installed-tree-differs; uninstall-refused"), (policyGone.Result().Outcome, policyGone.Result().Detail));
+        CollectionAssert.AreEqual(InstallOnly, policyGone.Msiexec.Select(arguments => arguments[0]).ToArray());
 
         // Security review R1: no msiexec at all while the owner's registry registers the product, and no uninstall after one appears.
         FinishHost perUser = new() { PerUserBefore = true };
@@ -507,6 +518,7 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool NoProductCode { get; set; }
         internal bool PerUserBefore { get; set; }
         internal bool PerUserAfterExtract { get; set; }
+        internal bool UserInstallsAllowed { get; set; }
         internal int? ExtractExit { get; set; } = 0;
         internal Action? OnExtract { get; set; }
         internal bool ImageReadable { get; set; } = true;
@@ -618,6 +630,12 @@ public sealed class SelfUpdateHelperSessionTests
             return Calls.Contains("RunMsiexecAsync:/a") ? PerUserAfterExtract : PerUserBefore;
         }
 
+        public bool UserInstallsIgnored()
+        {
+            Calls.Add("UserInstallsIgnored");
+            return !UserInstallsAllowed;
+        }
+
         public SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf)
         {
             Calls.Add("ReadImage");
@@ -689,6 +707,8 @@ public sealed class SelfUpdateHelperSessionTests
         internal IReadOnlyList<SelfUpdateRelatedProduct> Products { get; set; } = [new(ProductCode, "0.1.2")];
         internal bool PerUserBefore { get; set; }
         internal bool PerUserAfter { get; set; }
+        internal bool UserInstallsAllowedBefore { get; set; }
+        internal bool UserInstallsAllowedAfter { get; set; }
         internal List<IReadOnlyList<string>> Msiexec { get; } = [];
         internal Dictionary<string, byte[]> Written { get; } = new(StringComparer.Ordinal);
         internal int TreeReads { get; private set; }
@@ -754,6 +774,8 @@ public sealed class SelfUpdateHelperSessionTests
             Assert.AreEqual(ProductCode, productCode);
             return Msiexec.Count == 0 ? PerUserBefore : PerUserAfter;
         }
+
+        public bool UserInstallsIgnored() => Msiexec.Count == 0 ? !UserInstallsAllowedBefore : !UserInstallsAllowedAfter;
 
         public long BootTimeUnixSeconds() => 1_700_000_000;
 
