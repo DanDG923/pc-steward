@@ -75,6 +75,10 @@ public sealed class MsiPackageBoundaryTests
         string project = File.ReadAllText(Path.Combine(Msi(), "PCSteward.Installer.wixproj"));
         StringAssert.StartsWith(project, "<Project Sdk=\"WixToolset.Sdk/5.0.2\">");
         Assert.IsFalse(project.Contains("PackageReference", StringComparison.Ordinal), "no WiX extension package");
+        // Exactly three validation checks are suppressed (the per-machine Start menu shortcut and harvested file languages).
+        Assert.AreEqual(1, Regex.Count(project, "<SuppressIces>"));
+        StringAssert.Contains(project, "<SuppressIces>ICE43;ICE57;ICE60</SuppressIces>");
+        StringAssert.Contains(project, "<SuppressValidation>false</SuppressValidation>");
         Assert.IsFalse(File.ReadAllText(Path.Combine(FindRepositoryRoot(), "PCSteward.slnx")).Contains("PCSteward.Installer", StringComparison.Ordinal),
             "the MSI is built only by New-PCStewardMsi.ps1");
 
