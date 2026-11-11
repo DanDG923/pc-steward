@@ -428,21 +428,48 @@ try {
         }
         finally { $null = Invoke-InstallerCom $view 'Close' 'InvokeMethod' $null; $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view); $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
     }
-    # A transform of $Msi that adds one public property, PCSTEWARDPERUSERMARKER=<case>, made from a scratch copy.
+    # A transform of $Msi that adds one public property, PCSTEWARDPERUSERMARKER=<case>, made from a scratch copy through msi.dll
+    # (the COM automation layer refuses PowerShell-wrapped database objects as arguments).
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PCStewardMarkerTransform
+{
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiOpenDatabaseW(string path, IntPtr persist, out IntPtr database);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiDatabaseOpenViewW(IntPtr database, string query, out IntPtr view);
+    [DllImport("msi.dll")] private static extern uint MsiViewExecute(IntPtr view, IntPtr record);
+    [DllImport("msi.dll")] private static extern uint MsiViewClose(IntPtr view);
+    [DllImport("msi.dll")] private static extern uint MsiDatabaseCommit(IntPtr database);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiDatabaseGenerateTransformW(IntPtr database, IntPtr reference, string transform, int reserved1, int reserved2);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiCreateTransformSummaryInfoW(IntPtr database, IntPtr reference, string transform, int errorConditions, int validation);
+    [DllImport("msi.dll")] private static extern uint MsiCloseHandle(IntPtr handle);
+    private static void Check(uint status, string what) { if (status != 0) throw new InvalidOperationException(what + " failed with " + status + "."); }
+    public static void Create(string original, string scratch, string transform, string marker)
+    {
+        IntPtr changed, reference, view;
+        Check(MsiOpenDatabaseW(scratch, new IntPtr(1), out changed), "MsiOpenDatabase (transact)");
+        try
+        {
+            Check(MsiOpenDatabaseW(original, IntPtr.Zero, out reference), "MsiOpenDatabase (read-only)");
+            try
+            {
+                Check(MsiDatabaseOpenViewW(changed, "INSERT INTO `Property` (`Property`, `Value`) VALUES ('PCSTEWARDPERUSERMARKER', '" + marker + "')", out view), "MsiDatabaseOpenView");
+                try { Check(MsiViewExecute(view, IntPtr.Zero), "MsiViewExecute"); }
+                finally { MsiViewClose(view); MsiCloseHandle(view); }
+                Check(MsiDatabaseCommit(changed), "MsiDatabaseCommit");
+                Check(MsiDatabaseGenerateTransformW(changed, reference, transform, 0, 0), "MsiDatabaseGenerateTransform");
+                Check(MsiCreateTransformSummaryInfoW(changed, reference, transform, 0, 0), "MsiCreateTransformSummaryInfo");
+            }
+            finally { MsiCloseHandle(reference); }
+        }
+        finally { MsiCloseHandle(changed); }
+    }
+}
+'@
     function New-MarkerTransform([string]$Msi, [string]$Case) {
-        $installer = New-Object -ComObject WindowsInstaller.Installer
         $scratch = Join-Path $work "marker-$Case.msi"; $transform = Join-Path $work "marker-$Case.mst"
         Copy-Item -LiteralPath $Msi -Destination $scratch
-        $changed = Invoke-InstallerCom $installer 'OpenDatabase' 'InvokeMethod' @($scratch, 1)
-        $reference = Invoke-InstallerCom $installer 'OpenDatabase' 'InvokeMethod' @($Msi, 0)
-        try {
-            $view = Invoke-InstallerCom $changed 'OpenView' 'InvokeMethod' @("INSERT INTO ``Property`` (``Property``, ``Value``) VALUES ('PCSTEWARDPERUSERMARKER', '$Case')")
-            $null = Invoke-InstallerCom $view 'Execute' 'InvokeMethod' $null; $null = Invoke-InstallerCom $view 'Close' 'InvokeMethod' $null
-            $null = Invoke-InstallerCom $changed 'Commit' 'InvokeMethod' $null
-            $null = Invoke-InstallerCom $changed 'GenerateTransform' 'InvokeMethod' @($reference, $transform)
-            $null = Invoke-InstallerCom $changed 'CreateTransformSummaryInfo' 'InvokeMethod' @($reference, $transform, 0, 0)
-        }
-        finally { $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($changed); $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($reference) }
+        [PCStewardMarkerTransform]::Create($Msi, $scratch, $transform, $Case)
         if (!(Test-Path -LiteralPath $transform -PathType Leaf)) { throw "No transform was written for $Case." }
         $transform
     }
