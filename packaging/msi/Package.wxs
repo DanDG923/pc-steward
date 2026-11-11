@@ -21,7 +21,7 @@
            Language="1033">
     <SummaryInformation Description="PC Steward" Manufacturer="PC Steward" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of PC Steward is already installed. Setup will now exit."
-                  Schedule="afterInstallValidate" />
+                  Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="PCStewardIcon" SourceFile="$(var.PayloadDir)\Assets\pc-steward.ico" />

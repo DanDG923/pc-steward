@@ -9,8 +9,8 @@ param([switch]$StandardUser, [ValidateSet('Build', 'Check')][string]$Step, [stri
 #      exactly the files the release manifest lists;
 #   3. as a standard user, ADR-018 pre-launch trust passes, both executables carry the same compiled pin, Windows does not
 #      trust the key, and the capability reader reports every allow-listed route Supported in both roles;
-#   4. a higher version upgrades in place, a lower version is refused, and uninstall removes the program files and leaves
-#      per-user data alone.
+#   4. an upgrade that fails part-way rolls back to the installed version, a higher version upgrades in place, a lower
+#      version is refused, and uninstall removes the program files and leaves per-user data alone.
 # The key is created in the runner account's CurrentUser\My, never added to a trust store, and deleted at the end.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -128,11 +128,13 @@ try {
     if ($build.ExitCode -ne 0) { throw "The candidate builder failed with exit code $($build.ExitCode)." }
     $candidatePayload = Join-Path $work 'candidate\payload'
 
-    # Two signed payloads that differ only in version: the signing step a release script performs, with the throwaway key.
+    # Signed payloads that differ only in version: the signing step a release script performs, with the throwaway key.
+    # 0.1.3 also carries one extra file, which the failed-upgrade check blocks with a folder of the same name.
     $msis = [ordered]@{}
-    foreach ($version in @('0.1.1', '0.1.2')) {
+    foreach ($version in @('0.1.1', '0.1.2', '0.1.3')) {
         $payload = Join-Path $work "payload-$version"
         Copy-Item -LiteralPath $candidatePayload -Destination $payload -Recurse
+        if ($version -eq '0.1.3') { [IO.File]::WriteAllText((Join-Path $payload 'rollback-probe.txt'), 'blocked in CI to force a failed upgrade') }
         foreach ($leaf in @('PCSteward.Desktop.exe', 'PCSteward.ElevatedHelper.exe')) {
             $target = Join-Path $payload $leaf
             $null = Set-AuthenticodeSignature -FilePath $target -Certificate $certificate -HashAlgorithm SHA256
@@ -146,7 +148,7 @@ try {
         if ((Get-AuthenticodeSignature -FilePath $msiPath).SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Signing the $version MSI did not embed the throwaway signer." }
         $msis[$version] = [pscustomobject]@{ Path = $msiPath; Payload = $payload; ManifestSha256 = $manifest.manifestSha256; FileCount = $manifest.fileCount }
     }
-    Set-Check 'msi-built-without-custom-actions' $true 'New-PCStewardMsi.ps1 checked the tables of both packages'
+    Set-Check 'msi-built-without-custom-actions' $true 'New-PCStewardMsi.ps1 checked the tables of every package'
 
     # The install check runs the production checks compiled with the throwaway pin.
     & dotnet build (Join-Path $repository 'tests\PCSteward.InstallCheck\PCSteward.InstallCheck.csproj') --configuration Release --output (Join-Path $work 'installcheck') -nologo
@@ -197,6 +199,18 @@ try {
     $marker = Join-Path $env:LOCALAPPDATA 'PC Steward\msi-ci-marker.txt'
     New-Item -ItemType Directory -Path (Split-Path -Parent $marker) -Force | Out-Null
     [IO.File]::WriteAllText($marker, 'per-user data must survive uninstall')
+    # A folder where 0.1.3 must write a file makes that upgrade fail after the old version's removal has been scheduled.
+    # MajorUpgrade runs that removal inside the install transaction, so the failure must leave 0.1.1 installed and intact.
+    $probe = Join-Path $installRoot 'rollback-probe.txt'
+    New-Item -ItemType Directory -Path $probe | Out-Null
+    $code = Invoke-Msi @('/i', ('"' + $msis['0.1.3'].Path + '"')) 'failed-upgrade-0.1.3.log'
+    $products = @(Get-InstalledProducts)
+    $afterRollback = @(Get-ChildItem -LiteralPath $installRoot -Recurse -File -Force | Where-Object {
+        $relative = $_.FullName.Substring($installRoot.Length + 1)
+        ($relative -ne 'PCSteward.ReleaseManifest.json') -and (!$listed.ContainsKey($relative) -or $listed[$relative].sha256 -ne (Get-FileSha256 $_.FullName))
+    })
+    Set-Check 'failed-upgrade-rolls-back' (($code -ne 0) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1') -and ($afterRollback.Count -eq 0) -and ((Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion -eq '0.1.1') -and (Test-Path -LiteralPath (Join-Path $installRoot 'PCSteward.Desktop.exe') -PathType Leaf)) "exit $code; $(($products | ForEach-Object { $_.Version }) -join ','); changed $($afterRollback.Count)"
+    Remove-Item -LiteralPath $probe -Force
     $code = Invoke-Msi @('/i', ('"' + $msis['0.1.2'].Path + '"')) 'upgrade-0.1.2.log'
     $products = @(Get-InstalledProducts)
     Set-Check 'major-upgrade' (($code -eq 0) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.2') -and ($manifestJson = Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion -eq '0.1.2') "exit $code; $(($products | ForEach-Object { $_.Version }) -join ',')"
@@ -225,5 +239,5 @@ finally {
     $evidence.result = if ($failures.Count -eq 0) { 'Pass' } else { 'Fail' }
     [IO.File]::WriteAllText((Join-Path $evidenceRoot 'msi-ci-evidence.json'), ($evidence | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 }
-if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, upgrade, downgrade refusal and uninstall.' }
+if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal and uninstall.' }
 exit $exitCode

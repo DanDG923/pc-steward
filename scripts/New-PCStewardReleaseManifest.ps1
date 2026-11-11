@@ -14,7 +14,8 @@ $manifestLeaf = 'PCSteward.ReleaseManifest.json'
 $format = 'pc-steward-release-manifest:1'
 
 function Test-PCStewardReleaseVersion([string]$Version) {
-    $Version -cmatch '\A(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?\z'
+    # 64 is ReleaseManifestPolicy.MaximumVersionLength: a longer version would write a manifest the app cannot read.
+    $Version.Length -le 64 -and $Version -cmatch '\A(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?\z'
 }
 
 function Test-PCStewardReleasePath([string]$Path) {

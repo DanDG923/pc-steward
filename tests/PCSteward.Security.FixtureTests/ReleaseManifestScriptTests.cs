@@ -69,6 +69,7 @@ public sealed class ReleaseManifestScriptTests
         {
             ("two-part version", "1.0", null),
             ("leading zero", "01.0.0", null),
+            ("version over the reader's limit", "0.1.0-" + new string('a', ReleaseManifestPolicy.MaximumVersionLength - 5), null),
             ("non-ASCII path", Version, "Assets\\café.png"),
             ("path over 240 characters", Version, new string('a', ReleaseManifestPolicy.MaximumPathLength + 1)),
         })

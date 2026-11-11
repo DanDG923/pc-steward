@@ -26,6 +26,8 @@ public sealed class MsiPackageBoundaryTests
         XElement upgrade = package.Element(Wix + "MajorUpgrade")!;
         Assert.IsNotNull(upgrade.Attribute("DowngradeErrorMessage"), "a lower version is refused");
         Assert.IsNull(upgrade.Attribute("AllowDowngrades"));
+        Assert.AreEqual("afterInstallInitialize", (string?)upgrade.Attribute("Schedule"),
+            "the old version is removed inside the install transaction, so a failed upgrade rolls back to it");
         Assert.IsNull(upgrade.Attribute("AllowSameVersionUpgrades"));
 
         // Only the core WiX namespace: no util, firewall, netfx or other extension.
