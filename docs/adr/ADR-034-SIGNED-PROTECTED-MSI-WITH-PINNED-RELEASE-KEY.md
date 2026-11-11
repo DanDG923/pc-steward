@@ -228,6 +228,13 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
   - `-DiscardUnfinished` removed the unfinished attempts, which were one-day placeholders for the slot's own key.
 - Both pins are now compiled in `ReleaseSigningPins.cs`. Launch trust still also accepts the ADR-022 rule during the transition (until step 7), so the owner's current test deployment keeps working.
 
+### Build order step 6, part 2 — the first signed release (2026-11-11)
+
+- **Payload.** The `Release payload` workflow ran at `a219e42` (run 43088600172). Artefact SHA-256 `47E5DC1649097414E379457A912AB2B5186543CFAF9B6FE5F3245B04FDE7F41A`.
+- **Signing.** On the owner's PC, `New-PCStewardRelease.ps1` signed PC Steward 0.1.0-private-beta with the YubiKey key. MSI SHA-256 `84FF23B83CBAF70CEEA4FEB022711CD55F1E5C3B89622E4120927288970CBF4C`, pin `F8204BDB…2496A`, tables `269A1CD824F9C72D90A295DE244094E2A210C4AAF5B23FC5E293190ACC3D38DB`, equal to the CI reference.
+- **Install.** `Invoke-PCStewardReleaseInstall.ps1 -RemoveOwnerOnlyTestDeployment`, one UAC prompt. The owner-only test deployment and its test signer were removed (Windows asked the owner to confirm deleting the test certificate from the root store). The MSI installed (msiexec exit 0), and all 99 installed files matched the CI build (`validation: Pass`).
+- **Mark of the Web.** The artefact zip came from the browser, so it carried a `Zone.Identifier` stream. `HoldStableFile` refuses every alternate data stream, so the first attempt stopped in the `inputs` phase with nothing changed. The owner then ran the install on stream-free copies. `Invoke-PCStewardReleaseInstall.ps1` now makes such a copy itself (new file, same SHA-256, checked to carry no stream) and never changes the download. The elevated step's checks are unchanged. The Windows CI MSI job gives its zip a `Zone.Identifier` stream, so every CI install run covers this.
+
 ## Reconsider when
 
 - The owner chooses a publicly trusted certificate, or SignPath Foundation accepts the project. A public certificate can then be added as a further accepted pin.

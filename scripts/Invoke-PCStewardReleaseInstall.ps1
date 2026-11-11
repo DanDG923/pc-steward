@@ -47,6 +47,27 @@ foreach ($name in $expectedNames) {
     $texts[$name] = [Text.UTF8Encoding]::new($false, $true).GetString($bytes).TrimStart([char]0xfeff)
 }
 
+# A browser download carries a Zone.Identifier stream (Mark of the Web), and the elevated step refuses any file with an
+# alternate data stream. Such an input is copied byte for byte into a new file with no streams, in a new folder under this
+# user's temp folder, and the copy is used instead. It is the same trust as the original path: the elevated step copies
+# what it is given into the protected root and checks the artefact digest, the MSI pin and its tables there.
+function Get-StreamFreeInput([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    if (!(Test-Path -LiteralPath $full -PathType Leaf)) { throw "$full was not found." }
+    if (@(Get-Item -LiteralPath $full -Stream * -ErrorAction Stop | Where-Object { $_.Stream -cne ':$DATA' }).Count -eq 0) { return $full }
+    $folder = Join-Path ([IO.Path]::GetTempPath()) ('PCSteward-StreamFree-' + [Guid]::NewGuid().ToString('N'))
+    $null = [IO.Directory]::CreateDirectory($folder)
+    $copy = Join-Path $folder ([IO.Path]::GetFileName($full))
+    $source = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try { $target = [IO.FileStream]::new($copy, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None); try { $source.CopyTo($target) } finally { $target.Dispose() } } finally { $source.Dispose() }
+    if ((Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash) { throw "The stream-free copy of $full differs from it." }
+    if (@(Get-Item -LiteralPath $copy -Stream * -ErrorAction Stop | Where-Object { $_.Stream -cne ':$DATA' }).Count) { throw "The copy of $full still carries an alternate data stream." }
+    Write-Host ("$([IO.Path]::GetFileName($full)) carries the downloaded-from-the-internet mark; using a stream-free copy.")
+    return $copy
+}
+$ArtefactZip = Get-StreamFreeInput $ArtefactZip
+$MsiPath = Get-StreamFreeInput $MsiPath
+
 $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $executionRoot = Join-Path $programFiles ('PC Steward OwnerOnlyTest Execution ' + [Guid]::NewGuid().ToString('N'))
 $record = [ordered]@{
