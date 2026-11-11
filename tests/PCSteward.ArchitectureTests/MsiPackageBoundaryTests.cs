@@ -48,7 +48,12 @@ public sealed class MsiPackageBoundaryTests
         Assert.AreEqual("PC Steward", (string?)folder.Attribute("Name"));
         Assert.AreEqual("ProgramFiles64Folder", (string?)folder.Parent!.Attribute("Id"));
         Assert.AreEqual(1, Regex.Count(source, "<Files Include="), "the payload folder is the only file source");
-        StringAssert.Contains(source, "<Files Include=\"$(var.PayloadDir)\\**\" />");
+        StringAssert.Contains(source, "<Files Include=\"$(var.PayloadDir)\\**\">");
+        // The one file declared by hand is the desktop executable, which carries the Start menu shortcut.
+        Assert.AreEqual(1, document.Descendants(Wix + "File").Count());
+        Assert.AreEqual("$(var.PayloadDir)\\PCSteward.Desktop.exe", (string?)document.Descendants(Wix + "File").Single().Attribute("Source"));
+        Assert.AreEqual("$(var.PayloadDir)\\PCSteward.Desktop.exe", (string?)document.Descendants(Wix + "Exclude").Single().Attribute("Files"));
+        Assert.IsFalse(document.Descendants(Wix + "RegistryValue").Any() || document.Descendants(Wix + "RegistryKey").Any(), "the MSI writes no registry values of its own");
     }
 
     [TestMethod]

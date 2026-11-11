@@ -48,25 +48,29 @@
 
     <Feature Id="Main" Title="PC Steward" AllowAbsent="no">
       <ComponentGroupRef Id="Payload" />
+      <ComponentRef Id="DesktopExecutable" />
       <ComponentRef Id="InstallFolderPermissions" />
-      <ComponentRef Id="StartMenuShortcut" />
     </Feature>
 
     <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
-      <Files Include="$(var.PayloadDir)\**" />
+      <Files Include="$(var.PayloadDir)\**">
+        <Exclude Files="$(var.PayloadDir)\PCSteward.Desktop.exe" />
+      </Files>
     </ComponentGroup>
+
+    <!-- The desktop executable carries the all-users Start menu shortcut, so the shortcut lives in a per-machine component. -->
+    <Component Id="DesktopExecutable" Directory="INSTALLFOLDER" Guid="20302711-AC15-4BBD-8EE2-793943DA68F8">
+      <File Id="PCStewardDesktopExe" Source="$(var.PayloadDir)\PCSteward.Desktop.exe" KeyPath="yes">
+        <Shortcut Id="PCStewardShortcut" Directory="ProgramMenuFolder" Name="PC Steward" Description="Keep your PC's software safely up to date"
+                  WorkingDirectory="INSTALLFOLDER" Advertise="no" />
+      </File>
+    </Component>
 
     <Component Id="InstallFolderPermissions" Directory="INSTALLFOLDER" Guid="86C8247A-8E15-4423-9F38-A860CFE1AE7B">
       <CreateFolder>
         <!-- Protected DACL, inherited by every file and folder below: SYSTEM and Administrators full control, Users read and execute. -->
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
       </CreateFolder>
-    </Component>
-
-    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="20302711-AC15-4BBD-8EE2-793943DA68F8">
-      <Shortcut Id="PCStewardShortcut" Name="PC Steward" Description="Keep your PC's software safely up to date"
-                Target="[INSTALLFOLDER]PCSteward.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
-      <RegistryValue Root="HKLM" Key="Software\PC Steward\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
   </Package>
 </Wix>

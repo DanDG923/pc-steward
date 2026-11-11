@@ -30,7 +30,8 @@ $build = Join-Path ([IO.Path]::GetTempPath()) ('pcsteward-msi-' + [Guid]::NewGui
 try {
     $arguments = @('build', $project, '--configuration', 'Release', '--output', $build, '--disable-build-servers', '-nologo',
         "-p:PayloadDir=$payload", "-p:ProductVersion=$MsiVersion")
-    & dotnet @arguments
+    # The build log goes to the console, never into this script's output (the last output line is the JSON result).
+    & dotnet @arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "The MSI build failed with exit code $LASTEXITCODE." }
     $built = @(Get-ChildItem -LiteralPath $build -Recurse -Filter '*.msi' -File)
     if ($built.Count -ne 1) { throw "Expected one MSI in the build output, found $($built.Count)." }
