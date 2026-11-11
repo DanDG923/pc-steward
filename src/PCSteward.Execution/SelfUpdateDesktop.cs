@@ -195,18 +195,20 @@ internal static partial class SelfUpdateDesktop
 
         switch (result.Outcome)
         {
-            // A difference in the running install blocks further updates until it is gone; it is checked again at every launch.
+            // A difference in the running install blocks further updates until a signed release is installed again (checked at
+            // every launch): see Reinstalled.
             case SelfUpdateFinishOutcome.Installed:
                 return RunningAsExpected(job, expected, inputs) is { } installedDifference
-                    ? new(SelfUpdateJobState.Failed, installedDifference, BlocksUpdates: true)
+                    ? new(SelfUpdateJobState.Failed, installedDifference, BlocksUpdates: !Reinstalled(expected, inputs))
                     : new(SelfUpdateJobState.Updated, "installed");
             case SelfUpdateFinishOutcome.RestartNeeded:
                 if (result.BootTimeUnixSeconds is not { } recorded || inputs.BootTimeUnixSeconds <= recorded + RestartMarginSeconds)
                     return new(SelfUpdateJobState.RestartToFinish, "restart-needed");
-                if (RunningAsExpected(job, expected, inputs) is { } restartedDifference) return new(SelfUpdateJobState.Failed, restartedDifference, BlocksUpdates: true);
+                if (RunningAsExpected(job, expected, inputs) is { } restartedDifference)
+                    return new(SelfUpdateJobState.Failed, restartedDifference, BlocksUpdates: !Reinstalled(expected, inputs));
                 return TreeMatches(expected, inputs)
                     ? new(SelfUpdateJobState.Updated, "installed-after-restart")
-                    : new(SelfUpdateJobState.Failed, "installed-tree-differs", BlocksUpdates: true);
+                    : new(SelfUpdateJobState.Failed, "installed-tree-differs", BlocksUpdates: !Reinstalled(expected, inputs));
             case SelfUpdateFinishOutcome.InstallFailed:
                 return new(SelfUpdateJobState.Failed, "install-failed");
             // The finish copy found an install unlike the CI build. That blocks further updates until a signed release is
@@ -230,7 +232,10 @@ internal static partial class SelfUpdateDesktop
         catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
     }
 
-    /// <summary>After a mismatch: the running install is intact and is either another release or exactly the expected tree.</summary>
+    /// <summary>
+    /// A signed release is installed again: the running install is intact (pinned executables, protected binding set) and is
+    /// either another release or exactly the expected tree with its permissions.
+    /// </summary>
     private static bool Reinstalled(SelfUpdateExpectedInstall expected, SelfUpdateOutcomeInputs inputs) =>
         inputs.InstallIntact && inputs.InstalledManifestSha256 is { } manifest &&
         (!string.Equals(manifest, expected.ManifestSha256, StringComparison.Ordinal) || TreeMatches(expected, inputs));

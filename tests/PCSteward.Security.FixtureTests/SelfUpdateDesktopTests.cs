@@ -85,11 +85,12 @@ public sealed class SelfUpdateDesktopTests
         Assert.AreEqual(SelfUpdateJobState.Updated, verdict.State);
         Assert.IsTrue(verdict.IsFinal);
         Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "running-version-differs", BlocksUpdates: true),
-            SelfUpdateDesktop.Decide(Job, Inputs(Result(SelfUpdateFinishOutcome.Installed)) with { RunningVersion = "0.1.1" }));
+            SelfUpdateDesktop.Decide(Job, Inputs(Result(SelfUpdateFinishOutcome.Installed), () => false) with { RunningVersion = "0.1.1" }));
         Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "install-not-intact", BlocksUpdates: true),
             SelfUpdateDesktop.Decide(Job, Inputs(Result(SelfUpdateFinishOutcome.Installed)) with { InstallIntact = false }));
-        Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "installed-manifest-differs", BlocksUpdates: true),
-            SelfUpdateDesktop.Decide(Job, Inputs(Result(SelfUpdateFinishOutcome.Installed)) with { InstalledManifestSha256 = new string('E', 64) }));
+        Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "installed-manifest-differs"),
+            SelfUpdateDesktop.Decide(Job, Inputs(Result(SelfUpdateFinishOutcome.Installed)) with { InstalledManifestSha256 = new string('E', 64) }),
+            "an intact install of another release is a signed release installed again: shown once, no block");
         Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "installed-manifest-differs", BlocksUpdates: true),
             SelfUpdateDesktop.Decide(Job, Inputs(Result(SelfUpdateFinishOutcome.Installed)) with { InstalledManifestSha256 = null }));
     }
@@ -110,7 +111,10 @@ public sealed class SelfUpdateDesktopTests
         Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "installed-tree-differs", BlocksUpdates: true),
             SelfUpdateDesktop.Decide(Job, Inputs(restart, () => throw new IOException()) with { BootTimeUnixSeconds = Boot + 3600 }));
         Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "running-version-differs", BlocksUpdates: true),
-            SelfUpdateDesktop.Decide(Job, Inputs(restart) with { BootTimeUnixSeconds = Boot + 3600, RunningVersion = "0.1.1" }));
+            SelfUpdateDesktop.Decide(Job, Inputs(restart, () => false) with { BootTimeUnixSeconds = Boot + 3600, RunningVersion = "0.1.1" }));
+        SelfUpdateJobVerdict another = SelfUpdateDesktop.Decide(Job, Inputs(restart, () => false) with { BootTimeUnixSeconds = Boot + 3600, InstalledManifestSha256 = new string('E', 64), RunningVersion = "0.1.1" });
+        Assert.IsTrue(another.State == SelfUpdateJobState.Failed && !another.BlocksUpdates && another.IsFinal,
+            "another intact signed release installed after the failure clears the block");
     }
 
     [TestMethod]
