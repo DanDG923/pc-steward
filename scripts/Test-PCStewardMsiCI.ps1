@@ -252,6 +252,10 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($release, $artefactZip)
     $artefactSha256 = Get-FileSha256 $artefactZip
+    # Like the owner's browser download, the zip carries Mark of the Web, which the elevated step refuses; every run below
+    # therefore also proves the caller hands it a stream-free copy.
+    Set-Content -LiteralPath $artefactZip -Stream 'Zone.Identifier' -Value "[ZoneTransfer]`r`nZoneId=3"
+    Set-Check 'artefact-zip-carries-mark-of-the-web' (@(Get-Item -LiteralPath $artefactZip -Stream 'Zone.Identifier' -ErrorAction SilentlyContinue).Count -eq 1)
     $scriptPins = @{}
     foreach ($leaf in @('Invoke-PCStewardReleaseInstallBootstrap.ps1', 'Install-PCStewardRelease.ps1', 'OwnerOnlyExecution.ps1', 'OwnerOnlyPayloadIntegrity.ps1', 'PCStewardMsiTables.ps1', 'PCStewardReleaseSigning.ps1', 'Remove-OwnerOnlyProtectedTestDeployment.ps1')) { $scriptPins[$leaf] = Get-FileSha256 (Join-Path $PSScriptRoot $leaf) }
     function Invoke-ReleaseInstall([string]$Msi, [string]$Digest, [string]$Name) {

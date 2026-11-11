@@ -83,6 +83,15 @@ public sealed class ReleaseInstallBoundaryTests
         foreach (string check in new[] { "throw 'Run this from a normal (not elevated) Windows PowerShell window; it asks for elevation itself.'", "'^(COMPLUS_|COR_ENABLE_PROFILING$|COR_PROFILER|APPDOMAIN_MANAGER_)'", "if ($ComposeOnly) {" })
             Before(caller, check, start);
         StringAssert.Contains(caller, "Assert-OwnerOnlyExecutionAcl -Acl (Get-Acl -LiteralPath $resultPath)");
+
+        // A browser download carries Mark of the Web, which the elevated step refuses: both inputs are replaced by a
+        // byte-for-byte copy with no alternate data stream before the record is composed, and never by an unblocked original.
+        int record = caller.IndexOf("$record = [ordered]@{", StringComparison.Ordinal);
+        Before(caller, "$ArtefactZip = Get-StreamFreeInput $ArtefactZip", record);
+        Before(caller, "$MsiPath = Get-StreamFreeInput $MsiPath", record);
+        StringAssert.Contains(caller, "[IO.FileStream]::new($copy, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)");
+        StringAssert.Contains(caller, "throw \"The copy of $full still carries an alternate data stream.\"");
+        Assert.IsFalse(caller.Contains("Unblock-File", StringComparison.Ordinal), "the original download is never changed");
     }
 
     [TestMethod]
@@ -101,7 +110,7 @@ public sealed class ReleaseInstallBoundaryTests
         StringAssert.Contains(release, "if ($tables.Sha256 -cne [string]$reference.tablesSha256)");
 
         string ci = Script("Test-PCStewardMsiCI.ps1");
-        foreach (string check in new[] { "signed-msi-tables-equal-the-unsigned-ci-reference", "release-install-refuses-a-wrong-artefact-digest", "release-install-refuses-msi-tables-unlike-ci", "release-install-uninstalls-files-unlike-ci", "release-install-installs-and-verifies-the-ci-build" })
+        foreach (string check in new[] { "signed-msi-tables-equal-the-unsigned-ci-reference", "release-install-refuses-a-wrong-artefact-digest", "release-install-refuses-msi-tables-unlike-ci", "release-install-uninstalls-files-unlike-ci", "release-install-installs-and-verifies-the-ci-build", "artefact-zip-carries-mark-of-the-web" })
             StringAssert.Contains(ci, "Set-Check '" + check + "'");
     }
 

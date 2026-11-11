@@ -89,6 +89,8 @@ The pinned check is not weakened: it still needs the fixed Program Files paths, 
 
 The installed program is then the CI build of a reviewed commit, whatever happened during signing. Signatures stay meaningful as "made with the owner's key", not as "built from the reviewed commit".
 
+**Mark of the Web (found at the first real install, 2026-11-11).** The owner downloads the artefact in a browser, so the zip carries a `Zone.Identifier` stream, and the elevated step refused it. The caller now copies a file that carries any alternate data stream into a new stream-free file under the user's temp folder and passes that path instead. This keeps the trust boundary where it was: the elevated step still copies what it is given into the protected root and checks the artefact digest, the MSI pin and its tables there. The download itself is not changed (no `Unblock-File`).
+
 **For the updater.** ADR-034 §7 now says the updater must apply the same content rule, not the pin alone. A release must match a CI-anchored manifest before the helper starts `msiexec`. The ADR-032 revision decides how the anchor reaches the app.
 
 ### M1 — `ykman` from `PATH` (Medium, fixed)
