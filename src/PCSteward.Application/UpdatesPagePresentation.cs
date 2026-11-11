@@ -142,7 +142,12 @@ public enum UpdateRowAction
 /// </summary>
 public sealed record UpdateRowActionPresentation(UpdateRowAction Action, string Label, string Glyph, string? Version = null);
 
-/// <summary>One row on the Updates page.</summary>
+/// <summary>
+/// One row on the Updates page. UI polish phase 3 (approved target T-Updates-Ready): <see cref="SameApp"/> holds other inventory
+/// records of the same app (for example 7-Zip found by both Windows and WinGet) that the presenter shows as this one row. The row's
+/// own <see cref="StableProductKey"/> is the only one that can be selected or reviewed, so a duplicate is never reviewed or updated
+/// twice; a decision taken on the row (ignore, pin, skip, reverse) is recorded for every record it stands for.
+/// </summary>
 public sealed record UpdateRowPresentation(
     string StableProductKey,
     string Name,
@@ -155,7 +160,12 @@ public sealed record UpdateRowPresentation(
     IReadOnlyList<string> Reasons,
     string Freshness,
     IReadOnlyList<UpdateRowActionPresentation> Actions,
-    Guid? DecisionId = null)
+    Guid? DecisionId = null,
+    string Provider = "",
+    string MatchText = "",
+    string SourceName = "",
+    string Scope = "",
+    IReadOnlyList<UpdateRowPresentation>? SameApp = null)
 {
     /// <summary>Only Ready rows can be selected for review. Selection is not approval.</summary>
     public bool CanSelect => Group == UpdateGroup.Ready;
@@ -171,6 +181,59 @@ public sealed record UpdateRowPresentation(
 
     /// <summary>The reason in words, as one sentence block (empty for Ready rows).</summary>
     public string ReasonText => string.Join(" ", Reasons);
+
+    /// <summary>The other records of this app that this row stands for (empty for most apps).</summary>
+    public IReadOnlyList<UpdateRowPresentation> AlsoFound => SameApp ?? [];
+
+    /// <summary>
+    /// "Found twice (Windows and WinGet)" when this row stands for more than one inventory record, otherwise null. It explains why
+    /// one app can appear twice on Installed apps but once here.
+    /// </summary>
+    public string? FoundText
+    {
+        get
+        {
+            if (AlsoFound.Count == 0) return null;
+            int count = AlsoFound.Count + 1;
+            string times = count == 2 ? "Found twice" : $"Found {count.ToString(CultureInfo.CurrentCulture)} times";
+            string[] places = [.. new[] { Provider }.Concat(AlsoFound.Select(row => row.Provider)).Where(place => place.Length > 0).Distinct(StringComparer.Ordinal)];
+            return places.Length < 2 ? times : $"{times} ({string.Join(", ", places[..^1])} and {places[^1]})";
+        }
+    }
+
+    /// <summary>
+    /// The row's one-line description (approved target T-Updates-Ready). Ready: publisher, how sure the match is, and a note that a
+    /// major version can bring bigger changes. Needs review: the installed and offered versions, then the reason in words. Ignored
+    /// and skipped: the decision in words.
+    /// </summary>
+    public string Summary
+    {
+        get
+        {
+            List<string> parts = [];
+            switch (Group)
+            {
+                case UpdateGroup.Ready:
+                    parts.Add(Publisher);
+                    if (MatchText.Length > 0) parts.Add(MatchText);
+                    if (Badge is { Jump: VersionJump.Major }) parts.Add("bigger changes are possible");
+                    break;
+                case UpdateGroup.NeedsReview:
+                    parts.Add($"Installed {InstalledVersion}");
+                    if (NewVersion is not null) parts.Add(SourceName.Length > 0 ? $"{SourceName} offers {NewVersion}" : $"{NewVersion} offered");
+                    parts.Add(ReasonText);
+                    break;
+                default:
+                    parts.Add(ReasonText);
+                    break;
+            }
+            if (FoundText is { } found) parts.Add(found);
+            return string.Join(" · ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
+        }
+    }
+
+    /// <summary>Every record this row stands for, its own first: the keys a decision on the row is recorded for.</summary>
+    public IReadOnlyList<string> AllKeys => [StableProductKey, .. AlsoFound.Select(row => row.StableProductKey)];
 }
 
 /// <summary>
@@ -186,7 +249,7 @@ public sealed record UpdatesPagePresentation(
     /// <summary>The chosen Ready rows, in Ready order.</summary>
     public IReadOnlyList<UpdateRowPresentation> Selected => [.. Ready.Where(row => SelectedKeys.Contains(row.StableProductKey, StringComparer.Ordinal))];
 
-    /// <summary>Every Ready key, in order: what "Select all ready" and "Review all ready" choose — exactly the Ready group.</summary>
+    /// <summary>Every Ready key, in order: what "Select all ready" and "Review all N updates" choose — exactly the Ready group.</summary>
     public IReadOnlyList<string> ReadyKeys => [.. Ready.Select(row => row.StableProductKey)];
 
     public bool IsSelected(string stableProductKey) => SelectedKeys.Contains(stableProductKey, StringComparer.Ordinal);
@@ -194,7 +257,7 @@ public sealed record UpdatesPagePresentation(
     /// <summary>The review button is enabled only once the user has chosen at least one Ready row.</summary>
     public bool CanReview => SelectedKeys.Count > 0;
 
-    /// <summary>"Review all ready (N)" is offered whenever something is ready. It opens the review; it never starts an update.</summary>
+    /// <summary>"Review all N updates" is offered whenever something is ready. It opens the review; it never starts an update.</summary>
     public bool CanReviewAll => Ready.Count > 0;
 
     public bool AllReadySelected => Ready.Count > 0 && SelectedKeys.Count == Ready.Count;
@@ -204,13 +267,31 @@ public sealed record UpdatesPagePresentation(
     {
         [] => "Review selected updates",
         [var row] => $"Review update for {row.Name}",
-        var rows => $"Review {rows.Count} selected updates"
+        var rows => $"Review {rows.Count.ToString(CultureInfo.CurrentCulture)} updates"
     };
 
-    public string ReviewAllLabel => $"Review all ready ({Ready.Count})";
+    /// <summary>
+    /// "Review all N updates" (or "Review update for X" when one is ready): reviews the whole Ready group. It opens the review only;
+    /// it never starts an update.
+    /// </summary>
+    public string ReviewAllLabel => Ready.Count == 1 ? $"Review update for {Ready[0].Name}" : $"Review all {Ready.Count.ToString(CultureInfo.CurrentCulture)} updates";
+
+    /// <summary>The selection bar's sentence (approved target T-Updates-Ready), for example "2 of 4 ready updates selected".</summary>
+    public string SelectionText => SelectedKeys.Count == 0
+        ? Ready.Count == 1 ? "1 update is ready. Select it to review it, or review it now." : $"{Ready.Count.ToString(CultureInfo.CurrentCulture)} updates are ready. Select the ones to review, or review all of them."
+        : $"{SelectedKeys.Count.ToString(CultureInfo.CurrentCulture)} of {DisplayFormat.Plural(Ready.Count, "ready update")} selected";
 
     public bool HasAnyRow => Ready.Count + NeedsReview.Count + IgnoredAndSkipped.Count > 0;
 }
+
+/// <summary>
+/// The Updates page header (UI polish phase 3, approved targets T-Updates and T-Updates-Ready). <see cref="Description"/> is the line
+/// under the title; <see cref="Notice"/> is the info bar shown under it when update checks are off or the evidence isn't live.
+/// </summary>
+public sealed record UpdatesPageHeader(string Description, UpdatesPageNotice? Notice, string EmptyTitle, string EmptyMessage, string Footer, bool ShowsCheckForUpdates);
+
+/// <summary>An Updates page info bar. <see cref="OffersTurnOnUpdateChecks"/> adds the "Turn on update checks…" button.</summary>
+public sealed record UpdatesPageNotice(string Title, string Message, StatusTone Tone, bool OffersTurnOnUpdateChecks);
 
 /// <summary>
 /// FR-UPD-01, FR-POL-01–05, FR-UI-04 (Task 73 Phase 2, ADR-030 decision 2): groups update evidence into Ready, Needs review and
@@ -279,9 +360,102 @@ public static class UpdatesPagePresenter
                     break;
             }
         }
+        // UI polish phase 3 (approved target): records of the same app are shown as one row. Only the row's own key can be chosen.
+        ready = SameAppRows(ready, details);
+        review = SameAppRows(review, details);
+        ignored = SameAppRows(ignored, details);
         // Only Ready keys survive: needs-review, ignored, skipped and pinned rows can never be selected, whatever was passed in.
         string[] selected = selectedKeys is null ? [] : [.. ready.Select(row => row.StableProductKey).Where(key => selectedKeys.Contains(key, StringComparer.Ordinal))];
         return new(ready, review, ignored, selected);
+    }
+
+    /// <summary>The Updates page's footer line when there is something to review (approved target T-Updates-Ready).</summary>
+    public const string ReviewFooter = "Nothing is installed until you review and confirm. Windows asks for administrator permission once for each app installed for all users.";
+
+    /// <summary>The Updates page's footer line when nothing is shown yet (approved target T-Updates).</summary>
+    public const string EmptyFooter = "Low-confidence matches are shown under Needs review and can't be updated until you resolve them.";
+
+    /// <summary>
+    /// UI polish phase 3 (approved targets T-Updates and T-Updates-Ready; FR-UI-05): the header line, the info bar under it and the
+    /// empty state. With update checks off the page says so calmly and offers "Turn on update checks…" (the existing source consent).
+    /// With checks on, the line counts the rows and states freshness in words; anything less fresh than live also gets an info bar.
+    /// Presentation only: it decides nothing about what can be updated.
+    /// </summary>
+    public static UpdatesPageHeader Header(UpdatesPagePresentation page, bool sourcesEnabled, IReadOnlyCollection<SourceSnapshot> sources, DateTimeOffset now,
+        CultureInfo? culture = null, TimeZoneInfo? zone = null)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(sources);
+        string footer = page.HasAnyRow ? ReviewFooter : EmptyFooter;
+        if (!sourcesEnabled)
+        {
+            return new("Choose which ready updates to install. Nothing changes until you confirm.",
+                new("Update checks are off.", "PC Steward is working local-only, so it hasn't looked for updates.", StatusTone.Information, true),
+                "No updates to show yet", "Updates appear here when a package source you've turned on finds an exact, compatible match for one of your apps.",
+                footer, false);
+        }
+        FreshnessPresentation freshness = FreshnessPresenter.Describe(true, sources, now, culture, zone);
+        LeastFreshSuccess least = FreshnessPresenter.LeastFresh(FreshnessPresenter.Checked(sources));
+        string age = least.OldestSuccessAt is { } at ? DisplayFormat.Relative(at, now, culture, zone) : string.Empty;
+        string evidence = freshness.Freshness switch
+        {
+            EvidenceFreshness.LocalOnly => "sources not checked yet",
+            EvidenceFreshness.Live => $"live results, checked {age}",
+            _ when least.AnyNeverSucceeded || age.Length == 0 => $"{freshness.Word.ToLowerInvariant()} results",
+            _ => $"{freshness.Word.ToLowerInvariant()} results, last checked {age}"
+        };
+        List<string> parts = [$"{page.Ready.Count.ToString(CultureInfo.CurrentCulture)} ready"];
+        if (page.NeedsReview.Count > 0) parts.Add($"{page.NeedsReview.Count.ToString(CultureInfo.CurrentCulture)} {(page.NeedsReview.Count == 1 ? "needs" : "need")} review");
+        parts.Add(evidence);
+        UpdatesPageNotice? notice = freshness.Freshness switch
+        {
+            EvidenceFreshness.Live => null,
+            EvidenceFreshness.LocalOnly => new("Not checked yet", "Your package sources are on but haven't been checked. Check for updates to look now.", StatusTone.Information, false),
+            _ => new($"{freshness.Word} results", freshness.Sentence, freshness.Tone, false)
+        };
+        bool checkedAtAll = freshness.Freshness != EvidenceFreshness.LocalOnly;
+        return new(string.Join(" · ", parts), notice,
+            checkedAtAll ? "No updates ready" : "No updates to show yet",
+            checkedAtAll
+                ? "PC Steward checked your package sources and found no exact, compatible update for your apps."
+                : "Check for updates to look for them. Updates appear here when a package source finds an exact, compatible match.",
+            footer, true);
+    }
+
+    /// <summary>
+    /// UI polish phase 3 (approved targets; owner approved 2026-11-11): shows records of the same app — such as 7-Zip found by both
+    /// Windows and WinGet — as one row. Records are only treated as the same app when everything shown and acted on matches: name,
+    /// publisher, status, installed and new version, the reason in words, and (where known) scope, package source, package ID and
+    /// architecture. The first record keeps its place and its key; the others go in <see cref="UpdateRowPresentation.SameApp"/>.
+    /// </summary>
+    private static List<UpdateRowPresentation> SameAppRows(List<UpdateRowPresentation> rows, IReadOnlyDictionary<string, UpdateDetail> details)
+    {
+        List<UpdateRowPresentation> shown = [];
+        List<List<UpdateRowPresentation>> same = [];
+        foreach (UpdateRowPresentation row in rows)
+        {
+            int index = shown.FindIndex(existing => IsSameApp(existing, row, details));
+            if (index < 0) { shown.Add(row); same.Add([]); }
+            else same[index].Add(row);
+        }
+        return [.. shown.Select((row, index) => same[index].Count == 0 ? row : row with { SameApp = same[index] })];
+    }
+
+    private static bool IsSameApp(UpdateRowPresentation left, UpdateRowPresentation right, IReadOnlyDictionary<string, UpdateDetail> details)
+    {
+        static bool Same(string? a, string? b) => string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
+        static bool SameWhenKnown(string? a, string? b) =>
+            string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b) || string.Equals(a, "Unknown", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(b, "Unknown", StringComparison.OrdinalIgnoreCase) || Same(a, b);
+        if (left.Group != right.Group || !Same(left.Name, right.Name) || !Same(left.Publisher, right.Publisher) || !string.Equals(left.Status, right.Status, StringComparison.Ordinal) ||
+            !Same(left.InstalledVersion, right.InstalledVersion) || !Same(left.NewVersion, right.NewVersion) || !string.Equals(left.ReasonText, right.ReasonText, StringComparison.Ordinal))
+            return false;
+        UpdateDetail? a = details.GetValueOrDefault(left.StableProductKey);
+        UpdateDetail? b = details.GetValueOrDefault(right.StableProductKey);
+        if (left.Group == UpdateGroup.Ready && (a is null || b is null || !Same(a.SourceId, b.SourceId) || !Same(a.PackageId, b.PackageId))) return false;
+        if (left.Group == UpdateGroup.IgnoredAndSkipped && (left.DecisionId is null) != (right.DecisionId is null)) return false;
+        return (a is null || b is null || (SameWhenKnown(a.SourceId, b.SourceId) && SameWhenKnown(a.PackageId, b.PackageId) && SameWhenKnown(a.Architecture, b.Architecture)))
+            && SameWhenKnown(left.Scope, right.Scope);
     }
 
     /// <summary>Reasons in words for a review-required row; never empty.</summary>
@@ -309,9 +483,31 @@ public static class UpdatesPagePresenter
     {
         string? newVersion = detail?.CandidateVersion;
         VersionJumpBadge? badge = group == UpdateGroup.Ready ? VersionJumpPresenter.Badge(VersionJumpPresenter.Classify(row.Version, newVersion)) : null;
+        // How sure the match is, in words, from the domain's computed confidence (never decided here).
+        string match = group == UpdateGroup.Ready && detail is not null ? $"{ReviewReasonText.Confidence(detail.Confidence)} match" : string.Empty;
         return new(row.StableProductKey, row.Name, row.Publisher, row.Status, group, row.Version, newVersion, badge, reasons,
-            detail?.Freshness ?? string.Empty, actions, decisionId);
+            detail?.Freshness ?? string.Empty, actions, decisionId, PlaceFound(row.Provider), match, SourceName(detail?.SourceId), row.Scope);
     }
+
+    /// <summary>Where Windows or a package manager reported an inventory record, in words ("Windows", "WinGet").</summary>
+    private static string PlaceFound(string provider) => provider.Trim().ToLowerInvariant() switch
+    {
+        "winget" => "WinGet",
+        "msstore" => "Microsoft Store",
+        "chocolatey" => "Chocolatey",
+        "registry" or "msix" or "appx" => "Windows",
+        _ => string.Empty
+    };
+
+    /// <summary>A package source's name in words, or empty when it isn't known.</summary>
+    private static string SourceName(string? sourceId) => sourceId?.Trim().ToLowerInvariant() switch
+    {
+        "winget" => "WinGet",
+        "msstore" => "Microsoft Store",
+        null or "" => string.Empty,
+        _ when sourceId.Contains("chocolatey", StringComparison.OrdinalIgnoreCase) => "Chocolatey",
+        _ => sourceId.Trim()
+    };
 
     private static StableDecision? Latest(IReadOnlyCollection<StableDecision> decisions, string key, params string[] kinds) => decisions
         .Where(decision => string.Equals(decision.StableProductKey, key, StringComparison.Ordinal) && kinds.Contains(decision.Kind, StringComparer.Ordinal))

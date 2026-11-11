@@ -305,8 +305,9 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "root.Changed += OnXamlRootChanged;");
         StringAssert.Contains(source, "private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);");
         Assert.AreEqual(2, Count(source, "presenter.PreferredMinimum"), "the minimum size is set in one place");
-        // The only horizontal StackPanels left are icon+text pairs (tile heading, title-bar brand, the shield button content).
-        Assert.AreEqual(3, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
+        // The only horizontal StackPanels left are icon+text pairs (tile heading, title-bar brand, the shield button content, and
+        // from UI polish phase 3 the job stepper's step dot and label and the Updates "Check for updates" button content).
+        Assert.AreEqual(5, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
         Assert.IsFalse(source.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto", StringComparison.Ordinal), "filter rows wrap instead of scrolling sideways");
         Assert.IsTrue(Count(source, "StewardVisuals.ActionRow()") >= 12);
     }

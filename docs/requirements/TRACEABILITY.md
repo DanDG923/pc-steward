@@ -1,3 +1,13 @@
+# UI polish Phase 3 — Updates, Review and Verify
+
+`FR-UPD-01/04–09/14`, `FR-POL-01–05`, `FR-UI-03/04/05`, `FR-DAT-09`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets T-Updates, T-Updates-Ready, T-Review and T-Verify, 2026-11-11).
+
+- `UpdatesAndJobPresentationTests.RecordsOfTheSameAppAreOneRowAndOnlyItsOwnKeyCanBeChosen`: Windows and WinGet records of one package are one row ("Found twice (Windows and WinGet)"); a different scope or package stays apart; Review all chooses each shown row once; a record inside another row can't be chosen; ignored rows carry each record's decision for reversal; different reasons are never merged.
+- `UpdatesAndJobPresentationTests.UpdatesHeaderStatesCountsFreshnessAndOffersTurningOnChecks`: checks off offers the existing consent and shows nothing ready; live, cached and unchecked evidence in words (FR-UI-05); selection-bar and review-button words.
+- `UpdatesAndJobPresentationTests.ReviewAndVerifyTitlesAndTheIdentityLineKeepEveryProtectedFact`: the review row's identity line carries package ID, architecture, channel, source and provider; titles never say "approved"; the Verify title and description; "Delete downloaded files" keeps its label.
+- Architecture `UiRedesignContractTests.UpdatesPageGroupsEvidenceAndNeedsReviewRowsHaveNoUpdateControl` (updated deliberately): only Ready rows have a checkbox, nothing is preselected, Needs review and Ignored rows have no update control, exactly two review buttons, decisions on a merged row go through the same confirmations and lease; `UiAccessibilityContractTests.ActionRowsWrapAndTheWindowHasAMinimumSize` (two more icon-and-label pairs). The job review, update and verify contracts are unchanged and still pass.
+- Not claimed: the runtime look against the targets (owner-host check in polish phase 5).
+
 # UI polish Phase 2 — Home
 
 `FR-UI-01/05/06`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets T-Home and T-Home-Ready, 2026-11-11).

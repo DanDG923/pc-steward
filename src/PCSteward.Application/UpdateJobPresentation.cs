@@ -65,7 +65,20 @@ public sealed record UpdateReviewSheetItem(
     IReadOnlyList<string> ConfidenceEvidence,
     AdministratorRequirementPresentation AdministratorRequirement,
     bool AppearsToBeRunning,
-    IReadOnlyList<string> RunningProcessNames);
+    IReadOnlyList<string> RunningProcessNames)
+{
+    /// <summary>The value of one of this app's §17.2 facts (<see cref="UpdateReviewSheet.FactLabels"/>), or empty.</summary>
+    public string Fact(string label) => Facts.FirstOrDefault(fact => string.Equals(fact.Label, label, StringComparison.Ordinal))?.Value ?? string.Empty;
+
+    /// <summary>
+    /// UI polish phase 3 (approved target T-Review): the "What will change" row's identity line under the app name — the exact package
+    /// ID, architecture and channel, then the source and the provider that runs the update — so the row shows every protected fact.
+    /// </summary>
+    public string IdentityLine => $"{Fact("Package ID")} · {Fact("Architecture")} · {Fact("Channel")} · {Fact("Source")} source, updated with {Fact("Updated with")}";
+
+    /// <summary>The scope in the short words of the "Installed for" column ("All users" or "Current user").</summary>
+    public string InstalledFor => Fact("Scope").StartsWith("All users", StringComparison.Ordinal) ? "All users" : Fact("Scope");
+}
 
 /// <summary>A selected app that isn't in the frozen set, with the reason in words (SPEC §9.13: excluded rows are explained).</summary>
 public sealed record UpdateReviewExclusion(string AppName, string Reason);
@@ -103,6 +116,15 @@ public sealed class UpdateReviewSheet
     /// <summary>"Review update" — never "approved" before approval (audit P-M3).</summary>
     public string Title => ItemCount == 1 ? "Review update" : "Review updates";
     public const string Intro = "Check these details. Nothing changes until you choose the update button below, and you can cancel now.";
+
+    /// <summary>UI polish phase 3 (approved target T-Review): the page title names what is reviewed, for example "Review 2 updates".</summary>
+    public string PageTitle => ItemCount == 1 ? $"Review the update for {AppName}" : $"Review {ItemCount.ToString(System.Globalization.CultureInfo.CurrentCulture)} updates";
+
+    /// <summary>The line under the review title (approved target T-Review). The frozen plan is the existing immutable reviewed selection.</summary>
+    public const string PageDescription = "Check what will change, then choose whether to go ahead. This plan is fixed: if anything changes, you'll review it again.";
+
+    /// <summary>The note beside the review's buttons: nothing changes until the specific update button is chosen.</summary>
+    public string ConfirmNote => $"Nothing changes until you select {PrimaryButtonLabel}.";
     /// <summary>Every app in the frozen set, in the order it will run.</summary>
     public IReadOnlyList<UpdateReviewSheetItem> Items { get; }
     /// <summary>Selected apps that couldn't be reviewed and aren't included, each with its reason.</summary>
@@ -294,6 +316,12 @@ public static class UpdateJobCleanupText
 {
     public const string Heading = "Delete downloaded files";
 
+    /// <summary>UI polish phase 3 (approved target T-Verify): the cleanup row's title. The button keeps the exact label <see cref="Heading"/>.</summary>
+    public const string TidyUpTitle = "Tidy up";
+
+    /// <summary>What deleting the downloaded files keeps, shown after the recoverable size.</summary>
+    public const string KeptNote = "Your scan data and Activity are kept.";
+
     /// <summary>A human-readable size (audit P-M6: no raw byte counts).</summary>
     public static string Size(long bytes) => DisplayFormat.Size(bytes);
 
@@ -422,6 +450,21 @@ public sealed record UpdateOutcomeGroup(UpdateOutcomeKind Kind, string Label, IR
 public sealed record UpdateJobCompletion(IReadOnlyList<UpdateJobItemOutcome> Items)
 {
     public const string NeverRestartsNote = "PC Steward never restarts your PC.";
+
+    /// <summary>UI polish phase 3 (approved target T-Verify): the Verify step's page title.</summary>
+    public const string PageTitle = "Here's what happened";
+
+    /// <summary>The Verify step's footer: the outcomes PC Steward uses, and that Verified needs the new version to be found.</summary>
+    public const string OutcomesNote =
+        "Outcomes PC Steward uses: Verified, Restart required, Installed, not verified, and Failed. It says Verified only when it finds the new version.";
+
+    /// <summary>The line under the Verify title: how many apps, then the outcome counts in words (the recorded results, never upgraded).</summary>
+    public string Description => Items.Count switch
+    {
+        0 => "No outcome was recorded for this update.",
+        1 => $"{Items[0].AppName}: {Headline.ToLowerInvariant()}.",
+        _ => $"{DisplayFormat.Plural(Items.Count, "app")}: {Headline}."
+    };
 
     public bool ReturnsToReview => Items.Count != 0 && Items.All(item => item.Outcome.ReturnsToReview);
     public bool RestartRequired => Items.Any(item => item.Outcome.Kind == UpdateOutcomeKind.RestartRequired);
