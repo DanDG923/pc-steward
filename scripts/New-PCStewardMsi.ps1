@@ -147,8 +147,12 @@ public static class PCStewardMsiReader
             }
         }
         $properties = @{}
-        foreach ($row in Get-MsiRows 'SELECT `Property`, `Value` FROM `Property`' 2) { $properties[$row[0]] = $row[1] }
-        if ($properties['UpgradeCode'] -cne $script:UpgradeCode) { throw "The MSI UpgradeCode is $($properties['UpgradeCode']), not $script:UpgradeCode." }
+        $propertyRows = @(Get-MsiRows 'SELECT `Property`, `Value` FROM `Property`' 2)
+        foreach ($row in $propertyRows) { $properties[$row[0]] = $row[1] }
+        if ($propertyRows.Count -eq 0 -or $properties.ContainsKey('')) {
+            throw "The MSI Property table did not read back ($($propertyRows.Count) rows: $(($propertyRows | ForEach-Object { $_ -join '=' }) -join '; '))."
+        }
+        if ($properties['UpgradeCode'] -cne $script:UpgradeCode) { throw "The MSI UpgradeCode is $($properties['UpgradeCode']), not $script:UpgradeCode (properties read: $(($properties.Keys | Sort-Object) -join ', '))." }
         if ($properties['ProductVersion'] -cne $MsiVersion) { throw "The MSI ProductVersion is $($properties['ProductVersion']), not $MsiVersion." }
         if ($properties['ALLUSERS'] -cne '1') { throw 'The MSI must install per machine (ALLUSERS=1).' }
         $locks = @(Get-MsiRows 'SELECT `LockObject`, `Table`, `SDDLText` FROM `MsiLockPermissionsEx`' 3)
