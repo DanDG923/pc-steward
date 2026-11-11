@@ -76,7 +76,7 @@ public sealed class SelfUpdateReleaseVerificationTests
     [TestMethod]
     public void APointThatIsNotOnTheCurveIsNotAKey()
     {
-        Assert.Throws<CryptographicException>(() => ReleaseSigningKey.FromHex("bad", new string('1', 64), new string('2', 64)));
+        Assert.ThrowsExactly<ArgumentException>(() => ReleaseSigningKey.FromHex("bad", new string('1', 64), new string('2', 64)));
         Assert.ThrowsExactly<ArgumentException>(() => ReleaseSigningKey.FromHex("short", new string('1', 62), new string('2', 64)));
     }
 

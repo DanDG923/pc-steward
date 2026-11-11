@@ -35,7 +35,15 @@ public sealed class ReleaseSigningKey
         byte[] y = Convert.FromHexString(yHex);
         if (x.Length != CoordinateLength || y.Length != CoordinateLength) throw new ArgumentException("A P-256 coordinate is 32 bytes.");
         ReleaseSigningKey key = new(name, x, y);
-        key.Create().Dispose();
+        try
+        {
+            key.Create().Dispose();
+        }
+        catch (Exception exception) when (exception is CryptographicException or PlatformNotSupportedException)
+        {
+            // Windows CNG reports an off-curve point as PlatformNotSupportedException, OpenSSL as CryptographicException.
+            throw new ArgumentException("The coordinates are not a valid P-256 public key.", exception);
+        }
         return key;
     }
 
