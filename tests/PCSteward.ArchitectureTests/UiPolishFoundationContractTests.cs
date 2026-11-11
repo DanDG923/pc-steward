@@ -13,13 +13,13 @@ namespace PCSteward.ArchitectureTests;
 public sealed class UiPolishFoundationContractTests
 {
     [TestMethod]
-    [Description("UI polish Phase 1 (plan root cause 2): every page is one left-aligned column, at most 1600 epx of content (phase 5), fitted to its host.")]
+    [Description("UI polish Phase 1 (plan root cause 2): every page is one left-aligned column beside the navigation that fills its host (phase 5: no maximum width).")]
     public void PagesAreOneLeftAlignedColumnBesideTheNavigation()
     {
         string window = DesktopWindowSource.Read(Root());
         string create = Between(window, "private static StackPanel CreatePagePanel()", "private static TextBlock PageCopy(");
         StringAssert.Contains(create, "HorizontalAlignment = HorizontalAlignment.Left");
-        StringAssert.Contains(create, "MaxWidth = StewardSpacing.PageMaxWidth + padding.Left + padding.Right");
+        Assert.IsFalse(create.Contains("MaxWidth", StringComparison.Ordinal), "phase 5: the column has no maximum width, so a maximised window is filled");
         StringAssert.Contains(create, "Spacing = StewardSpacing.Section");
         Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(window, @"CreatePagePanel\(\s*\d"), "no page sets its own width");
         Assert.IsFalse(create.Contains("MaxWidth = maxWidth", StringComparison.Ordinal), "the column is not a centred, per-page width");
@@ -30,11 +30,11 @@ public sealed class UiPolishFoundationContractTests
         // Windows checkouts use CRLF, so compare the two consecutive lines without depending on the line ending.
         StringAssert.Contains(window.Replace("\r\n", "\n", StringComparison.Ordinal), "pageHost.Content = page;\n        StewardVisuals.FitPageColumn(pageHost);");
         string presentation = Desktop("StewardPresentation.cs");
-        StringAssert.Contains(Between(presentation, "public static void FitPageColumn(", "public static void KeepPageColumnFitted("), "page.Width = Math.Min(host.ActualWidth, page.MaxWidth);");
-        StringAssert.Contains(presentation, "public const double PageMaxWidth = 1600;");
+        StringAssert.Contains(Between(presentation, "public static void FitPageColumn(", "public static void KeepPageColumnFitted("), "page.Width = host.ActualWidth;");
+        Assert.IsFalse(presentation.Contains("PageMaxWidth", StringComparison.Ordinal), "no page width cap remains");
         StringAssert.Contains(presentation, "public static readonly Thickness PagePadding = new(28, 12, 40, 40);");
         StringAssert.Contains(Desktop("Resources/ThemeResources.xaml"), "<Thickness x:Key=\"StewardPagePadding\">28,12,40,40</Thickness>");
-        StringAssert.Contains(Desktop("Resources/ThemeResources.xaml"), "<x:Double x:Key=\"StewardPageMaxWidth\">1600</x:Double>");
+        Assert.IsFalse(Desktop("Resources/ThemeResources.xaml").Contains("StewardPageMaxWidth", StringComparison.Ordinal), "no page width cap remains");
     }
 
     [TestMethod]
