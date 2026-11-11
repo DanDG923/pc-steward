@@ -74,10 +74,24 @@ public static class SettingsPresenter
     /// <summary>Shown instead of saving when the cadence or weekday has no selection (fail closed).</summary>
     public const string ScheduleNotChosen = "Choose a schedule before saving.";
 
-    /// <summary>The cards on the Settings page, in order (single column).</summary>
-    public static IReadOnlyList<string> Sections { get; } = ["Update sources", "Scan scope", "Schedule", "Decisions", "Privacy & exports", "Data & reset", "About"];
+    /// <summary>
+    /// The sections on the Settings page, in order (single column). UI polish phase 4 (approved target T-Settings): Decisions and
+    /// About are left to the navigation pane, and Data &amp; reset opens from Privacy &amp; data.
+    /// </summary>
+    public static IReadOnlyList<string> Sections { get; } = ["Update checks", "Scan scope", "Schedule", "Privacy & data"];
 
-    /// <summary>The cadence choices, in RadioButtons order.</summary>
+    /// <summary>The Settings page description (approved target T-Settings).</summary>
+    public const string PageDescription = "Choose what PC Steward looks at, when it checks and what it keeps. Changes save straight away, except the schedule.";
+
+    /// <summary>
+    /// The trusted-sources row's description: off says PC Steward works local-only and that turning it on asks first; on gives the
+    /// current source evidence in words.
+    /// </summary>
+    public static string SourceRowDescription(bool enabled, string freshness) => enabled
+        ? $"On. {freshness}"
+        : "Off: PC Steward works local-only. Turning this on shows exactly what is shared and asks you first.";
+
+    /// <summary>The cadence choices, in the cadence list's order.</summary>
     public static IReadOnlyList<string> CadenceOptions { get; } = ["Manual only", "Daily", "Weekly"];
 
     /// <summary>The source disclosure reminder shown beside the source consent toggle.</summary>

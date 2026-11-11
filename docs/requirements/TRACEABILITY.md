@@ -1,3 +1,12 @@
+# UI polish Phase 4 — Installed apps, Activity, Decisions, Settings, Data & reset and About
+
+`FR-UI-01/03/05`, `FR-HIS-01–03/05`, `FR-POL-01–05`, `FR-DAT-01/03`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets T-Installed, T-Activity, T-Decisions, T-Settings, T-Data and T-About, 2026-11-11).
+
+- `HomeActivityDecisionsPresentationTests.PhaseFourPagesStateFactsCalmlyAndInWords`: the Installed apps count ("3 apps", "1 of 3 apps") and the No update source footnote; Activity headings carry the outcome in words; the decision explainers use the same icons as the decision rows.
+- `SettingsDataResetPresentationTests.SettingsUseOneSaveModelAndGroupedSections` (updated): the four Settings sections; update checks off is stated calmly and on gives the evidence in words.
+- Architecture `UiRedesignContractTests.PhaseFourPagesKeepChoicesCalmAndDescriptionsAligned` (new): no eyebrow on phase 4 page headers, neutral statuses are plain text, no freshness banner on Installed apps, no attention styling on Settings, the export warning kept. Installed apps, Activity, Settings and About pins updated deliberately (Copy diagnostic is on About; Activity details are inside each row's expander); `UiAccessibilityContractTests` Activity row marker updated.
+- Not claimed: the runtime look against the targets (owner-host check in polish phase 5).
+
 # UI polish Phase 3 — Updates, Review and Verify
 
 `FR-UPD-01/04–09/14`, `FR-POL-01–05`, `FR-UI-03/04/05`, `FR-DAT-09`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets T-Updates, T-Updates-Ready, T-Review and T-Verify, 2026-11-11).

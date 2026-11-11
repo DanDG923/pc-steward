@@ -16,7 +16,8 @@ public sealed class SettingsDataResetPresentationTests
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
     private static readonly TimeZoneInfo Utc = TimeZoneInfo.Utc;
     private static readonly DateTimeOffset Cleared = new(2026, 10, 30, 9, 15, 0, TimeSpan.Zero);
-    private static readonly string[] SettingsSections = ["Update sources", "Scan scope", "Schedule", "Decisions", "Privacy & exports", "Data & reset", "About"];
+    // UI polish phase 4 (approved target T-Settings): Decisions and About are in the navigation pane; Data & reset opens from Privacy & data.
+    private static readonly string[] SettingsSections = ["Update checks", "Scan scope", "Schedule", "Privacy & data"];
     private static readonly string[] Cadences = ["Manual only", "Daily", "Weekly"];
     private static readonly string[] CardTitles = ["Scan data", "Downloaded update files", "Source metadata", "Logs and history", "Mappings, pins and ignores"];
     private static readonly string[] ActionLabels = ["Clear scan data", "Clear downloaded files", "Clear source metadata", "Clear logs", "Clear update history", "Clear mappings and policies"];
@@ -139,6 +140,11 @@ public sealed class SettingsDataResetPresentationTests
         Assert.AreEqual("Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", SettingsPresenter.ExportWarning);
         Assert.AreEqual("Data & reset", ShellNavigation.TitleOf(ShellPage.Privacy), "the data subpage is named Data & reset (SPEC §17.3)");
         Assert.AreEqual(ShellPage.Settings, ShellNavigation.ParentOf(ShellPage.Privacy));
+        // UI polish phase 4 (approved target T-Settings): off is a choice, stated calmly; on gives the source evidence in words.
+        StringAssert.StartsWith(SettingsPresenter.SourceRowDescription(false, "ignored"), "Off: PC Steward works local-only.");
+        Assert.IsFalse(SettingsPresenter.SourceRowDescription(false, "ignored").Contains("ignored", StringComparison.Ordinal));
+        Assert.AreEqual("On. Live results from your update sources.", SettingsPresenter.SourceRowDescription(true, "Live results from your update sources."));
+        StringAssert.Contains(SettingsPresenter.PageDescription, "except the schedule");
     }
 
     [TestMethod]

@@ -19,11 +19,14 @@ namespace PCSteward.Desktop;
 
 public sealed partial class MainWindow
 {
-    /// <summary>FR-POL-01–05 (ADR-030 foundation 7): pins, ignores and confirmed package identities in one reversible view.</summary>
+    /// <summary>
+    /// FR-POL-01–05 (ADR-030 foundation 7): pins, ignores and confirmed package identities in one reversible view. UI polish phase 4
+    /// (approved target T-Decisions): a calm empty state with "What each decision does", or the decisions grouped by kind in list cards.
+    /// </summary>
     private StackPanel BuildDecisionsPage()
     {
         StackPanel panel = CreatePagePanel();
-        panel.Children.Add(StewardVisuals.PageHeader("Decisions", "Pins, ignores and package identities you confirmed. Each one is reversible, and none of them starts an update."));
+        panel.Children.Add(StewardVisuals.PageHeader("Decisions", DecisionsPresenter.PageDescription));
         AddDecisionsSection(panel);
         return panel;
     }
@@ -37,34 +40,32 @@ public sealed partial class MainWindow
     private void AddDecisionsSection(StackPanel panel)
     {
         IReadOnlyList<DecisionRow> rows = DecisionsPresenter.Build(activeDecisions, manualMappings, viewModel.AllRows);
-        panel.Children.Add(PageCopy(rows.Count == 0
-            ? "No active pins, ignores, skipped versions or confirmed package identities. Decisions are optional, reversible, and never enable or start updates."
-            : "Remove a decision to reapply the normal review rules on the next source check. Nothing is updated when you do."));
+        if (rows.Count == 0)
+        {
+            panel.Children.Add(StewardVisuals.EmptyState("\uE8C8", DecisionsPresenter.EmptyTitle, DecisionsPresenter.EmptyMessage));
+            StackPanel explainers = new() { Spacing = StewardSpacing.Small };
+            explainers.Children.Add(SectionHeading("What each decision does"));
+            FrameworkElement[] cards = [.. DecisionsPresenter.Explainers.Select(explainer => (FrameworkElement)StewardVisuals.RowCard(explainer.Glyph, explainer.Title, explainer.Description))];
+            explainers.Children.Add(StewardVisuals.ResponsiveColumns(cards, 380, StewardSpacing.XSmall));
+            panel.Children.Add(explainers);
+            return;
+        }
         foreach (DecisionKind kind in new[] { DecisionKind.Pin, DecisionKind.Ignore, DecisionKind.Skip, DecisionKind.Mapping, DecisionKind.Other })
         {
             DecisionRow[] group = rows.Where(row => row.Kind == kind).ToArray();
             if (group.Length == 0) continue;
-            StackPanel section = new() { Spacing = 0 };
+            StackPanel section = new() { Spacing = StewardSpacing.Small };
             section.Children.Add(SectionHeading(DecisionsPresenter.GroupHeading(kind, group.Length)));
-            foreach (DecisionRow decision in group) section.Children.Add(DecisionRowView(decision));
-            panel.Children.Add(Card(section));
+            section.Children.Add(StewardVisuals.ListCard([.. group.Select(DecisionRowView)]));
+            panel.Children.Add(section);
         }
+        panel.Children.Add(StewardVisuals.FootNote("\uE946", DecisionsPresenter.RemoveNote));
     }
 
-    private Border DecisionRowView(DecisionRow decision)
+    /// <summary>One decision: its icon, the app, what was decided (with its date and any reason) and its Remove button.</summary>
+    private FrameworkElement DecisionRowView(DecisionRow decision)
     {
-        Grid line = new() { ColumnSpacing = StewardSpacing.Medium };
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        line.Children.Add(new FontIcon { Glyph = decision.Glyph, FontSize = 16, Foreground = StewardVisuals.Brush("StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
-        StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
-        copy.Children.Add(new TextBlock { Text = decision.ProductName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        copy.Children.Add(new TextBlock { Text = decision.Title, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        copy.Children.Add(new TextBlock { Text = decision.Detail, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
-        if (decision.Reason is { } reason) copy.Children.Add(new TextBlock { Text = $"Reason: {reason}", TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        Grid.SetColumn(copy, 1); line.Children.Add(copy);
-        Button remove = new() { Content = decision.RemoveLabel, VerticalAlignment = VerticalAlignment.Top, IsEnabled = !HasActiveOperation };
+        Button remove = new() { Content = decision.RemoveLabel, IsEnabled = !HasActiveOperation };
         AutomationProperties.SetName(remove, decision.RemoveAccessibleName);
         remove.Click += async (_, _) =>
         {
@@ -78,9 +79,12 @@ public sealed partial class MainWindow
             }
             catch (InvalidOperationException) { remove.IsEnabled = true; await ShowDataOperationUnavailableAsync(); }
         };
-        Grid.SetColumn(remove, 2); line.Children.Add(remove);
-        Border row = new() { BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, StewardSpacing.Medium, 0, StewardSpacing.Medium), Child = line };
-        AutomationProperties.SetName(row, $"{decision.ProductName}: {decision.Title}");
-        return row;
+        Grid line = StewardVisuals.ListRow(StewardVisuals.IconWell(decision.Glyph), decision.ProductName, $"{decision.Title} · {decision.Detail}", remove);
+        if (decision.Reason is { } reason)
+        {
+            StackPanel copy = line.Children.OfType<StackPanel>().First();
+            copy.Children.Add(new TextBlock { Text = $"Reason: {reason}", Style = AppStyle("StewardCaptionStyle"), IsTextSelectionEnabled = true });
+        }
+        return line;
     }
 }

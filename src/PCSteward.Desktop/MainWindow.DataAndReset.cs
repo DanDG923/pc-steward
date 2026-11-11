@@ -23,7 +23,8 @@ public sealed partial class MainWindow
     private StackPanel BuildPrivacyPage()
     {
         StackPanel panel = CreatePagePanel();
-        panel.Children.Add(StewardVisuals.PageHeader("Data & reset", "What PC Steward stores on this PC, how much space it uses, and separate controls to remove it. Exports are in Settings › Privacy & exports.", "Settings"));
+        // UI polish phase 4: no eyebrow, so the title and description share one left edge like every other page.
+        panel.Children.Add(StewardVisuals.PageHeader("Data & reset", "What PC Steward keeps on this PC, how much space it uses, and separate controls to remove it. Exports are in Settings › Privacy & data."));
         AddDataAndResetSection(panel);
         return panel;
     }

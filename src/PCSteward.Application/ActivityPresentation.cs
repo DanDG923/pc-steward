@@ -175,6 +175,12 @@ public sealed record ActivityEntry(
 {
     /// <summary>The entry's accessible name: title, outcome and time.</summary>
     public string AccessibleName => $"{Title}: {OutcomeLabel}. {TimeText}";
+
+    /// <summary>
+    /// UI polish phase 4 (approved target T-Activity): the row's one-line heading with the outcome in words, for example "Inventory
+    /// scan: Completed", so the tinted icon is never the only signal. A saved decision's title already says what it is.
+    /// </summary>
+    public string Heading => Kind == ActivityKind.Decision ? Title : $"{Title}: {OutcomeLabel}";
 }
 
 /// <summary>One day of Activity, newest first.</summary>
