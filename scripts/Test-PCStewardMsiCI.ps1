@@ -105,8 +105,10 @@ try {
     # Re-read from the store: a live certificate with its private key, whichever PowerShell edition created it.
     $certificate = Get-Item -LiteralPath ('Cert:\CurrentUser\My\' + $created.Thumbprint)
     if (!$certificate.HasPrivateKey) { throw 'The throwaway release key has no private key in CurrentUser\My.' }
-    $pinHash = [Security.Cryptography.SHA256]::HashData($certificate.PublicKey.ExportSubjectPublicKeyInfo())
-    $pin = [Convert]::ToHexString($pinHash)
+    $pin = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($certificate.PublicKey.ExportSubjectPublicKeyInfo()))
+    # The script-side pin function must agree with .NET's SubjectPublicKeyInfo export.
+    . (Join-Path $PSScriptRoot 'PCStewardReleaseSigning.ps1')
+    if ((Get-PCStewardKeyPin -CertificateDer $certificate.RawData) -cne $pin) { throw 'Get-PCStewardKeyPin disagrees with ExportSubjectPublicKeyInfo.' }
     $pinsText = [Text.Encoding]::UTF8.GetString($pinsOriginal)
     $placeholder = 'internal const string Primary = "";'
     if (([regex]::Matches($pinsText, [regex]::Escape($placeholder))).Count -ne 1) { throw 'ReleaseSigningPins.cs does not hold exactly one empty primary pin to replace in this CI checkout.' }
@@ -128,27 +130,17 @@ try {
     if ($build.ExitCode -ne 0) { throw "The candidate builder failed with exit code $($build.ExitCode)." }
     $candidatePayload = Join-Path $work 'candidate\payload'
 
-    # Signed payloads that differ only in version: the signing step a release script performs, with the throwaway key.
+    # Signed payloads that differ only in version, through the same signing function the release script uses.
     # 0.1.3 also carries one extra file, which the failed-upgrade check blocks with a folder of the same name.
     $msis = [ordered]@{}
     foreach ($version in @('0.1.1', '0.1.2', '0.1.3')) {
         $payload = Join-Path $work "payload-$version"
         Copy-Item -LiteralPath $candidatePayload -Destination $payload -Recurse
         if ($version -eq '0.1.3') { [IO.File]::WriteAllText((Join-Path $payload 'rollback-probe.txt'), 'blocked in CI to force a failed upgrade') }
-        foreach ($leaf in @('PCSteward.Desktop.exe', 'PCSteward.ElevatedHelper.exe')) {
-            $target = Join-Path $payload $leaf
-            $null = Set-AuthenticodeSignature -FilePath $target -Certificate $certificate -HashAlgorithm SHA256
-            $signed = Get-AuthenticodeSignature -FilePath $target
-            if ($null -eq $signed.SignerCertificate -or $signed.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Signing $leaf did not embed the throwaway signer." }
-        }
-        $manifest = & (Join-Path $PSScriptRoot 'New-PCStewardReleaseManifest.ps1') -PayloadRoot $payload -ProductVersion $version | ConvertFrom-Json
-        $msiPath = Join-Path $work "PCSteward-$version.msi"
-        $msi = & (Join-Path $PSScriptRoot 'New-PCStewardMsi.ps1') -PayloadRoot $payload -MsiVersion $version -OutputPath $msiPath | Select-Object -Last 1 | ConvertFrom-Json
-        $null = Set-AuthenticodeSignature -FilePath $msiPath -Certificate $certificate -HashAlgorithm SHA256
-        if ((Get-AuthenticodeSignature -FilePath $msiPath).SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Signing the $version MSI did not embed the throwaway signer." }
-        $msis[$version] = [pscustomobject]@{ Path = $msiPath; Payload = $payload; ManifestSha256 = $manifest.manifestSha256; FileCount = $manifest.fileCount }
+        $signedRelease = Invoke-PCStewardReleaseSigning -PayloadRoot $payload -Certificate $certificate -Pin $pin -ProductVersion $version -MsiPath (Join-Path $work "PCSteward-$version.msi")
+        $msis[$version] = [pscustomobject]@{ Path = $signedRelease.msiPath; Payload = $payload; ManifestSha256 = $signedRelease.manifestSha256; FileCount = $signedRelease.fileCount }
     }
-    Set-Check 'msi-built-without-custom-actions' $true 'New-PCStewardMsi.ps1 checked the tables of every package'
+    Set-Check 'msi-built-signed-and-checked' $true 'Invoke-PCStewardReleaseSigning signed both executables and every MSI with the pinned key, and New-PCStewardMsi.ps1 checked the tables'
 
     # The install check runs the production checks compiled with the throwaway pin.
     & dotnet build (Join-Path $repository 'tests\PCSteward.InstallCheck\PCSteward.InstallCheck.csproj') --configuration Release --output (Join-Path $work 'installcheck') -nologo

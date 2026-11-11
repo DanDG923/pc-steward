@@ -1,3 +1,10 @@
+**Signed protected install — ADR-034 step 4: key creation, release payload and signing scripts (2026-11-11; scripts, workflow and tests; no host action).** Requirements: `FR-UPD-04/15`, `TM-03/04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
+- **Keys.** `New-PCStewardReleaseKeys.ps1 -Key Primary` makes the release key inside the owner's YubiKey (PIN and touch for every signature) and prints its pin. `-Key Backup` writes the backup key to two removable drives and deletes it from the PC.
+- **Payload.** The hand-started `Release payload` workflow builds the unsigned payload from a commit that carries both pins.
+- **Signing.** `New-PCStewardRelease.ps1` checks the run, the artefact digest, the local commit and the compiled pins. It then signs both executables, writes the release manifest, builds and signs the MSI, and checks every signature. It installs nothing.
+- **Tests.** `ReleaseSigningScriptTests` (Windows) and architecture `ReleaseKeyScriptBoundaryTests`; the CI MSI job now signs through the same function.
+- **Next.** Step 5: security review of the whole route, then the owner's key session.
+
 **Signed protected install — ADR-034 step 3: WiX MSI and its CI install test (2026-11-11; packaging, scripts and tests; no host action).** Requirements: `FR-UPD-04/15`, `FR-DAT-12`, `TM-04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
 - **The MSI.** A per-machine package that installs the signed payload to `%ProgramFiles%\PC Steward` with the protected DACL (SYSTEM and Administrators full control, Users read and execute) and one Start menu shortcut. Fixed UpgradeCode, major upgrades, a refused downgrade, and no custom action that runs code, service or task.
 - **Refusals.** It will not install while the owner-only test deployment is present, or over a PC Steward folder that it does not own.

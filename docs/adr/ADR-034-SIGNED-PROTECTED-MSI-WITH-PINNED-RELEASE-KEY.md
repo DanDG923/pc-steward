@@ -180,6 +180,41 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
 - The helper operation that copies an MSI into an administrator-only folder and checks it again (section 7) is built with the updater, where it is first used; adding an unused elevated route now would only widen the helper.
 - Tests: architecture `MsiPackageBoundaryTests` (package source, launch conditions, pinned SDK, the build script's table checks, the CI job and its pin handling) and `ReleaseManifestScriptTests` (Windows CI: the script's bytes under both PowerShell editions, accepted by `ReleaseManifestPolicy`, and its refusals).
 
+### Build order step 4 — key creation, release payload and signing scripts (2026-11-11)
+
+- **`scripts/New-PCStewardReleaseKeys.ps1`** (owner's PC, Windows PowerShell 5.1, not elevated; makes no network call):
+  - `-Key Primary` uses the YubiKey Manager CLI (`ykman`). It first replaces a factory PIN, PUK or management key (the new management key is random and kept on the YubiKey behind the PIN). It refuses if slot 9c already holds a key or certificate. It then generates the key in slot 9c with PIN policy ALWAYS and touch policy ALWAYS: RSA 3072 on firmware 5.7 or later, otherwise RSA 2048.
+  - It then has the slot key sign its own certificate: `CN=PC Steward Release Signing`, code signing only, not a CA, ten years. A one-day placeholder certificate from `ykman` lets Windows reach the key for that one signature. The certificate is stored in the slot, and the script proves the key signs before printing its pin.
+  - `-Key Backup` creates an RSA 3072 key (`CN=PC Steward Release Signing (Backup)`) and exports it to a password-protected PFX (AES-256, a password of at least 12 characters) on each of two removable drives. It never overwrites a backup. It reads each copy back and checks that it signs, then deletes the key from the PC.
+  - Each run prints only the pin, the subject and the expiry date, plus the line to put in `ReleaseSigningPins.cs`.
+- **`.github/workflows/release-payload.yml`** runs only when started by hand, with a read-only token. It runs the candidate builder with `-ReleasePayload`, which:
+  - refuses a commit without both compiled pins;
+  - builds clean (no `-AllowDirty`) as a disposable standard user and re-validates the candidate;
+  - uploads the payload, the candidate manifest and `release-payload.json` (commit, run, product version from `Directory.Build.props`, both pins) as `pc-steward-release-payload`.
+  
+  CI never sees a release key.
+- **`scripts/New-PCStewardRelease.ps1`** (owner's PC, Windows PowerShell 5.1, not elevated):
+  - **Before signing, it checks:**
+    - through GitHub's public API, with no sign-in, that the run is this repository's hand-started `release-payload.yml` run on `phase/4-beta` or `main`, and that it finished green;
+    - that the downloaded zip's SHA-256 equals the artefact digest GitHub publishes;
+    - that the local clone is at the run's commit with no changes to tracked files;
+    - that `release-payload.json` names that run and commit;
+    - that the candidate re-validates with the builder's own validator;
+    - that both pins are compiled into the payload's `PCSteward.Execution.dll`.
+  - **Then it signs** with the YubiKey certificate, or with `-BackupPfx` the backup key, through `Invoke-PCStewardReleaseSigning`. That function signs both executables, writes the release manifest, builds the MSI, signs it, and checks every signature.
+  - **Timestamps.** Signatures are timestamped by DigiCert's public RFC 3161 service when it answers. Signing does not depend on it.
+  - **Output.** It writes the MSI and `release.json` (run, commit, hashes, which key signed) and installs nothing.
+- **`scripts/PCStewardReleaseSigning.ps1`** holds the shared functions. The CI MSI job now signs through the same function, so CI exercises it on every PR:
+  - `Get-PCStewardKeyPin` walks the certificate's DER to the SubjectPublicKeyInfo. It works under Windows PowerShell 5.1, which has no SubjectPublicKeyInfo export.
+  - `Test-PCStewardPinnedSignature` is the §3 check as a script can make it before installing:
+    - Windows has verified the digest, and the only chain problem is the untrusted root;
+    - the chain is one self-signed certificate valid for code signing;
+    - the key carries a given pin.
+  - `Invoke-PCStewardReleaseSigning` is the signing step described above.
+- Tests: `ReleaseSigningScriptTests` (Windows CI, both PowerShell editions) and architecture `ReleaseKeyScriptBoundaryTests`.
+  - The first shows the script's pin equals .NET's for RSA 2048, RSA 3072 and ECDSA P-256. It also shows the check accepts a pinned signature and refuses tampered, other-key, unsigned and non-code-signing files.
+  - The second shows that no release script names a trust store; that the YubiKey policies, the slot refusal, the backup's drives and the single key deletion hold; that the workflow runs on demand only; and that the signing script makes every check before it signs.
+
 ## Reconsider when
 
 - The owner chooses a publicly trusted certificate, or SignPath Foundation accepts the project. A public certificate can then be added as a further accepted pin.
