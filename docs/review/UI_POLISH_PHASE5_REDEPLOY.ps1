@@ -9,7 +9,7 @@ $cm = '57d8f47d03e3c15ccd4b51938662d52cbea21692'
 $oldTp = 'A935E49391C5D111D932BBAB1B9B8B0C05C1A476'
 $oldLedger = '87E0173B49F7B52F41FB05F8096B50D4F71423CE3F404247D56F09D4AA590FCD'
 $up = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
-$wk = Join-Path $up 'PCSteward-UI5'; $wt = Join-Path $wk '57d8f47'; $sc = Join-Path $wt 'scripts'; $co = Join-Path $wk 'candidate'; $pd = Join-Path $wk 'plan'; $pf = Join-Path $pd 'redeploy-plan.json'; $tf = Join-Path $wk 'toolchain-check'
+$wk = Join-Path $up ('PCSteward-UI5-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')); $wt = Join-Path $wk '57d8f47'; $sc = Join-Path $wt 'scripts'; $co = Join-Path $wk 'candidate'; $pd = Join-Path $wk 'plan'; $pf = Join-Path $pd 'redeploy-plan.json'; $tf = Join-Path $wk 'toolchain-check'
 $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $pfx = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $g = Join-Path $pfx 'Git\cmd\git.exe'
@@ -30,7 +30,7 @@ try {
     if (!(Test-Path -LiteralPath $g -PathType Leaf)) { Halt 'Git for Windows not found under Program Files' }
     $url = [string]($null | & $g -C $rc config --get remote.origin.url 2>$null)
     if (!(Test-Path -LiteralPath (Join-Path $rc 'PCSteward.slnx')) -or $url -notmatch 'pc-steward') { Halt 'the PC Steward clone was not found in Documents\Codex\PC Steward\pc-steward' }
-    if (Test-Path -LiteralPath $wk) { Halt 'work folder PCSteward-UI5 already exists (this paste runs once; ask for a new one)' }
+    if (Test-Path -LiteralPath $wk) { Halt 'the work folder for this run already exists; paste again in a minute' }
     $pn = @(Get-Process -Name 'PCSteward*' -ErrorAction SilentlyContinue).Count; $sd = @(@('-wal', '-shm', '-journal') | Where-Object { Test-Path -LiteralPath ($db + $_) }).Count; $st = @(Get-ScheduledTask -TaskName 'PCSteward.ScheduledCheck' -ErrorAction SilentlyContinue).Count
     $dbh = Sha $db; $dbl = (Get-Item -LiteralPath $db).Length
     Say ('U0 DB sha256=' + $dbh + ' bytes=' + $dbl + ' sidecars=' + $sd + ' pcstewardProcesses=' + $pn + ' scheduledTask=' + $st)
@@ -74,8 +74,10 @@ try {
     # --- U4: build the candidate once (CB3.3; 10 to 60 minutes) ---
     Say ('U4 building ' + $cm.Substring(0, 7) + ' (this is the long step) ' + [DateTime]::UtcNow.ToString('u'))
     $lg = Join-Path $wk 'build.log'
-    $env:DOTNET_ROOT = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Microsoft\dotnet'; $env:PATH = $env:DOTNET_ROOT + ';' + $env:PATH
+    $path0 = $env:PATH; $env:DOTNET_ROOT = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Microsoft\dotnet'; $env:PATH = $env:DOTNET_ROOT + ';' + $env:PATH
     $null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $sc 'New-OwnerOnlyCandidate.ps1') -OutputRoot $co 2>&1 > $lg; $bx = $LASTEXITCODE
+    # DOTNET_ROOT is for the build only: the toolchain check (U5) stops on build variables in its window, as CB3.7c ran in a fresh one.
+    Remove-Item -LiteralPath 'Env:DOTNET_ROOT' -ErrorAction SilentlyContinue; $env:PATH = $path0
     Say ('U4 BUILD-EXIT ' + $bx + ' ' + [DateTime]::UtcNow.ToString('u'))
     $sj = Join-Path $co 'candidate-build.json'
     if ($bx -ne 0 -or !(Test-Path -LiteralPath $sj)) { @(Get-Content -LiteralPath $lg | Where-Object { $_ -match "dotnet step '|OutputRoot|must|refus|differs|missing|Conflicting|failed|error" } | Select-Object -Last 5) | ForEach-Object { Say ('  ' + $_) }; Halt 'build did not pass' }
@@ -102,7 +104,10 @@ try {
     $pt = [IO.File]::ReadAllText($po, [Text.Encoding]::ASCII); [IO.File]::WriteAllText($pn2, $pt.Replace('d9a754b8da980a84eb4641cd58c98e27bdfd4444', $cm), (New-Object Text.ASCIIEncoding))
     $h3 = Sha $pn2; Say ('U5 CHECK-SCRIPT ' + $h1.Substring(0, 8) + ' PIN-FILE ' + $h3.Substring(0, 8))
     if ($h3 -cne '2A54AC23FB89E2FAC620FA57F8A6217B3E8EB0D2DC5E877ABB92A0DB3027A8D7') { Halt 'the re-pinned toolchain file is not the expected one' }
-    $tc = @($null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ck -Worktree $wt -PinFile $pn2 -WorkFolder $tf); $tx = $LASTEXITCODE
+    # Windows sets EFC_<n>_<n> names in windows started from the Start menu or Explorer; the check already accepts the EFC_<n> form. Allow exactly those present.
+    $ef = @(Get-ChildItem Env: | Where-Object { $_.Name -match '\AEFC_\d+_\d+\z' } | ForEach-Object { $_.Name }); $ta = @('-Worktree', $wt, '-PinFile', $pn2, '-WorkFolder', $tf); if ($ef.Count) { $ta += @('-AllowWindowEnvironmentName', ($ef -join ',')) }
+    Say ('U5 EXPLORER-NAMES-ALLOWED ' + $ef.Count + ' DOTNET_ROOT-cleared=' + !(Test-Path -LiteralPath 'Env:DOTNET_ROOT'))
+    $tc = @($null | & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ck @ta); $tx = $LASTEXITCODE
     $tc | ForEach-Object { Say ('  ' + $_) }
     if ($tx -ne 0 -or ($tc -notcontains 'CB3.7c-OK')) { Halt ('toolchain check did not pass (exit ' + $tx + ')') }
     Say 'U5-OK'
