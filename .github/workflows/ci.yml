@@ -25,6 +25,44 @@ jobs:
       # Security fixtures must compile/run without the hosted runner's admin token.
       - run: pwsh -NoProfile -File ./scripts/Test-CI.ps1
 
+  desktop-launch-smoke:
+    # UI polish phase 5 pre-flight, informational only (never gates): build the desktop app, start it on the hosted runner,
+    # open every page from the navigation pane through UI Automation and check that the process survives each one (a
+    # missing XAML resource ends it). Logs each page's UI Automation tree and unnamed controls, and saves screenshots.
+    # No owner-only script, certificate, install or elevation request.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    permissions:
+      contents: read
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      # The owner's phase 5 redeploy paste must parse under Windows PowerShell 5.1 before it is handed over.
+      - shell: powershell
+        run: |
+          $e = $null; $t = $null
+          [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'docs/review/UI_POLISH_PHASE5_REDEPLOY.ps1').Path, [ref]$t, [ref]$e)
+          $e | ForEach-Object { 'PARSE-ERROR line ' + $_.Extent.StartLineNumber + ': ' + $_.Message }
+          'PASTE-PARSE errors=' + @($e).Count
+          exit @($e).Count
+      - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DesktopLaunchSmokeCI.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: desktop-launch-smoke
+          path: |
+            artifacts/desktop-launch-smoke/*.png
+            artifacts/desktop-launch-smoke/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
   helper-native-aot-feasibility:
     # Security review H1 follow-up (owner decision: Native AOT helper before G9-T1). Informational until the ADR is
     # accepted: compile the elevated helper with Native AOT into a scratch folder, list trim/AOT warnings, and start the
