@@ -38,25 +38,25 @@ public sealed partial class MainWindow
         AutomationProperties.SetName(winget, "WinGet and Chocolatey trusted sources");
         AutomationProperties.SetHelpText(winget, SettingsPresenter.SourceConsentNote);
         winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);
-        sources.Children.Add(StewardVisuals.RowCard("\uE753", "WinGet and Chocolatey trusted sources", SettingsPresenter.SourceRowDescription(viewModel.IsWinGetTrustedSourcesEnabled, viewModel.UpdateFreshnessLabel), winget));
+        sources.Children.Add(StewardVisuals.RowCard("\uE753", "WinGet and Chocolatey trusted sources", SettingsPresenter.SourceRowDescription(viewModel.IsWinGetTrustedSourcesEnabled, viewModel.UpdateFreshnessLabel), winget, "blue"));
 
         // ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update, shown as unavailable until a reviewed Desktop composition and owner admission exist.
         // The summary is display only ("Not checked yet": only the review checks the installed client); opening it starts nothing.
         ChocolateyClientUpdateViewModel chocolateyClientSummary = ChocolateyClientUpdateView();
         // Why it is not offered yet stays one hover or screen-reader query away (help text and tooltip on the button).
         Button chocolateyEntry = WithHelpText(chocolateyClientSummary.UnavailableFields[0].Text, ChocolateyClientUpdateEntry(chocolateyClientSummary));
-        sources.Children.Add(StewardVisuals.RowCard("\uE7B8", $"{ChocolateyClientUpdateViewModel.SettingsCardTitle} client", chocolateyClientSummary.Summary, chocolateyEntry));
+        sources.Children.Add(StewardVisuals.RowCard("\uE7B8", $"{ChocolateyClientUpdateViewModel.SettingsCardTitle} client", chocolateyClientSummary.Summary, chocolateyEntry, "blue"));
         panel.Children.Add(sources);
 
         // Scan scope / AppX.
         StackPanel scope = SettingsSection("Scan scope", "Scanning never asks for administrator permission and never changes anything.");
         TextBlock alwaysOn = new() { Text = "Always on", Style = AppStyle("StewardBodyStyle") };
-        scope.Children.Add(StewardVisuals.RowCard("\uE7F8", "Windows installed apps", "Always on. Read-only and never shared.", alwaysOn));
+        scope.Children.Add(StewardVisuals.RowCard("\uE7F8", "Windows installed apps", "Always on. Read-only and never shared.", alwaysOn, "teal"));
         ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
         ToggleSwitch includeAppx = new() { IsOn = appx.IsEnabled, OffContent = "Off", OnContent = "On" };
         AutomationProperties.SetName(includeAppx, "Store and packaged apps for your account");
         includeAppx.Toggled += async (_, _) => await ChangeConnectorAsync(appx.Name, includeAppx.IsOn);
-        scope.Children.Add(StewardVisuals.RowCard("\uE719", "Store and packaged apps for your account", "AppX and MSIX apps. Read locally; nothing is shared.", includeAppx));
+        scope.Children.Add(StewardVisuals.RowCard("\uE719", "Store and packaged apps for your account", "AppX and MSIX apps. Read locally; nothing is shared.", includeAppx, "teal"));
         panel.Children.Add(scope);
 
         // Schedule: nothing applies until "Save schedule", which saves the whole record through the register-then-save operation.
@@ -105,11 +105,11 @@ public sealed partial class MainWindow
             scheduleEnabled.IsEnabled = enable;
         };
         saveSchedule.Click += async (_, _) => await SaveScheduleAsync();
-        schedule.Children.Add(StewardVisuals.RowCard("\uE787", "Check automatically", "Manual only means PC Steward checks only when you start a scan.", cadence));
-        schedule.Children.Add(StewardVisuals.RowCard("\uE823", "Start time", "Used for daily and weekly checks.", startTime));
-        schedule.Children.Add(StewardVisuals.RowCard("\uE8BF", "Day of the week", "Used for weekly checks.", weeklyDay));
-        schedule.Children.Add(StewardVisuals.RowCard("\uE768", "Turn on scheduled checks", "Runs for your account only, with no background service. Unavailable with Manual only.", scheduleEnabled));
-        schedule.Children.Add(StewardVisuals.RowCard("\uEA8F", "Windows notifications", "Only when something needs your attention or checks keep failing.", notifications));
+        schedule.Children.Add(StewardVisuals.RowCard("\uE787", "Check automatically", "Manual only means PC Steward checks only when you start a scan.", cadence, "amber"));
+        schedule.Children.Add(StewardVisuals.RowCard("\uE823", "Start time", "Used for daily and weekly checks.", startTime, "amber"));
+        schedule.Children.Add(StewardVisuals.RowCard("\uE8BF", "Day of the week", "Used for weekly checks.", weeklyDay, "amber"));
+        schedule.Children.Add(StewardVisuals.RowCard("\uE768", "Turn on scheduled checks", "Runs for your account only, with no background service. Unavailable with Manual only.", scheduleEnabled, "amber"));
+        schedule.Children.Add(StewardVisuals.RowCard("\uEA8F", "Windows notifications", "Only when something needs your attention or checks keep failing.", notifications, "amber"));
         // The save row: what is saved now (a live region), the scheduled task's status, and the one Save button.
         StackPanel saved = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
         saved.Children.Add(scheduleSummary);
@@ -133,8 +133,8 @@ public sealed partial class MainWindow
         exportFormats.Items.Add(exportJson);
         DropDownButton export = new() { Content = "Export…", Flyout = exportFormats };
         StewardVisuals.Named(export, "Export…", "(inventory as a CSV or JSON file)");
-        privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export inventory", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export));
-        Button openData = StewardVisuals.NavigationRow("\uE74E", "Data & reset", "Clear scan data, downloads, source data, logs or history, or reset PC Steward.");
+        privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export inventory", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export, "purple"));
+        Button openData = StewardVisuals.NavigationRow("\uE74E", "Data & reset", "Clear scan data, downloads, source data, logs or history, or reset PC Steward.", "purple");
         openData.Click += (_, _) => NavigateTo(ShellPage.Privacy);
         privacy.Children.Add(openData);
         panel.Children.Add(privacy);

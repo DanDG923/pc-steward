@@ -301,8 +301,27 @@ internal static class StewardVisuals
         "attention" => (Brush("StewardWarningBrush"), Brush("StewardWarningSurfaceBrush")),
         "blocked" => (Brush("StewardDangerBrush"), Brush("StewardDangerSurfaceBrush")),
         "information" => (Brush("StewardInfoBrush"), Brush("StewardInfoSurfaceBrush")),
+        // Colour option 2 (owner choice 2026-11-11): decorative hues for icon wells that carry no status (Settings-style).
+        "blue" => (Brush("StewardHueBlueBrush"), Brush("StewardHueBlueSurfaceBrush")),
+        "teal" => (Brush("StewardHueTealBrush"), Brush("StewardHueTealSurfaceBrush")),
+        "amber" => (Brush("StewardHueAmberBrush"), Brush("StewardHueAmberSurfaceBrush")),
+        "purple" => (Brush("StewardHuePurpleBrush"), Brush("StewardHuePurpleSurfaceBrush")),
+        "pink" => (Brush("StewardHuePinkBrush"), Brush("StewardHuePinkSurfaceBrush")),
+        "green" => (Brush("StewardHueGreenBrush"), Brush("StewardHueGreenSurfaceBrush")),
         _ => (Brush("StewardSecondaryTextBrush"), Brush("StewardIconWellBrush"))
     };
+
+    /// <summary>
+    /// Colour option 2: a card background tinted with a tone's surface colour at 60% opacity, so the window's Mica Alt tint shows
+    /// through and the full-strength icon well stays distinct. Neutral keeps the standard card fill; in high contrast every
+    /// surface is the system window colour, so the card stays opaque and system-coloured.
+    /// </summary>
+    public static Brush ToneTint(string tone)
+    {
+        if (tone == "neutral") return Brush("StewardSurfaceBrush");
+        Windows.UI.Color surface = ((SolidColorBrush)ToneBrushes(tone).Background).Color;
+        return new SolidColorBrush(surface) { Opacity = 0.6 };
+    }
 
     public static Border Badge(string label, string glyph, string tone = "neutral", string? automationName = null)
     {
@@ -528,12 +547,12 @@ internal static class StewardVisuals
     /// in the header, and <paramref name="content"/> when expanded. Collapsed by default; the expander's name is the title and its
     /// help text the description, so the header reads the same to a screen reader as it looks.
     /// </summary>
-    public static Expander ExpanderRow(string glyph, string title, string? description, FrameworkElement content)
+    public static Expander ExpanderRow(string glyph, string title, string? description, FrameworkElement content, string tone = "neutral")
     {
         Grid header = new() { ColumnSpacing = StewardSpacing.Large, Padding = new Thickness(0, StewardSpacing.Small, 0, StewardSpacing.Small) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        header.Children.Add(IconWell(glyph));
+        header.Children.Add(IconWell(glyph, tone));
         StackPanel copy = RowCopy(title, description);
         Grid.SetColumn(copy, 1);
         header.Children.Add(copy);
