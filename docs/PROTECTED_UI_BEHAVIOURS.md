@@ -32,7 +32,7 @@ These behaviours are invariants for the production redesign. Visual or navigatio
 ## Product trust
 
 - No health score, fake urgency, fear-based wording, vulnerability claim without a real data source, or red treatment for harmless states.
-- Unmanaged means inventoried but not managed; it does not mean unsafe.
+- Unmanaged (shown as "No update source") means inventoried but not managed; it does not mean unsafe.
 - Fresh, cached, partial, offline, unavailable, and local-only evidence remain visibly distinct in text.
 - Status never relies on colour alone; label, icon, location, and explanation carry the meaning.
 - No drivers, firmware, Windows Update, registry cleaning, broad optimisation, arbitrary web search, telemetry, cloud inventory, or mandatory account is introduced.

@@ -4,7 +4,7 @@ using PCSteward.Domain;
 
 namespace PCSteward.Application;
 
-/// <summary>The saved Installed apps filters (Task 73 Phase 3, ADR-030 decision 5: Unmanaged is a saved filter, not a page).</summary>
+/// <summary>The saved Installed apps filters (Task 73 Phase 3, ADR-030 decision 5: Unmanaged, shown as "No update source", is a saved filter, not a page).</summary>
 public enum InstalledAppsFilter
 {
     All,
@@ -44,7 +44,7 @@ public static class InstalledAppsFilters
     {
         InstalledAppsFilter.Updates => "Updates",
         InstalledAppsFilter.NeedsReview => "Needs review",
-        InstalledAppsFilter.Unmanaged => "Unmanaged",
+        InstalledAppsFilter.Unmanaged => StatusVocabulary.NoUpdateSourceLabel,
         InstalledAppsFilter.PinnedAndIgnored => "Pinned, ignored & skipped",
         _ => "All"
     };

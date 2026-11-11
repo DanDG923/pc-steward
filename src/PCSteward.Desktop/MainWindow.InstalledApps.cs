@@ -20,7 +20,7 @@ namespace PCSteward.Desktop;
 public sealed partial class MainWindow
 {
     /// <summary>
-    /// FR-UI-01, AC-UX-03 (Task 73 Phase 3; ADR-030 decision 5; audit P-L7): saved filters (All, Updates, Needs review, Unmanaged,
+    /// FR-UI-01, AC-UX-03 (Task 73 Phase 3; ADR-030 decision 5; audit P-L7): saved filters (All, Updates, Needs review, No update source,
     /// Pinned &amp; ignored) with counts over every saved app, search, and the detailed filters behind "More filters". The list stays
     /// virtualized with a bounded height inside the page host. Repository apps stays reachable from the header.
     /// </summary>
@@ -56,7 +56,7 @@ public sealed partial class MainWindow
         }
         panel.Children.Add(savedFilters);
         if (viewModel.SavedFilter == InstalledAppsFilter.Unmanaged)
-            panel.Children.Add(StewardVisuals.InformationBanner("Unmanaged isn't unsafe", StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged)).Meaning, "neutral"));
+            panel.Children.Add(StewardVisuals.InformationBanner("No update source isn't a safety warning", StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged)).Meaning, "neutral"));
 
         TextBox search = new() { Header = "Search", PlaceholderText = "Name or publisher", Text = viewModel.SearchText };
         AutomationProperties.SetName(search, "Search applications");

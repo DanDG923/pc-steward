@@ -395,6 +395,73 @@ internal static class StewardVisuals
         return Named(new Button { Style = Style("StewardRowCardButtonStyle"), Content = row }, title, description);
     }
 
+    /// <summary>
+    /// UI polish phase 2 (approved Home targets): the status card's 56 epx round icon well, tinted with a status tone's surface and
+    /// glyph colour. Decorative: the sentence beside it carries the meaning.
+    /// </summary>
+    public static Border StatusWell(string glyph, string tone = "information")
+    {
+        (Brush foreground, Brush background) = tone == "neutral" ? (Brush("StewardTextBrush"), Brush("StewardIconWellBrush")) : ToneBrushes(tone);
+        Border well = new()
+        {
+            Width = 56,
+            Height = 56,
+            CornerRadius = new CornerRadius(28),
+            Background = background,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new FontIcon { Glyph = glyph, FontSize = 28, Foreground = foreground, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        };
+        AutomationProperties.SetAccessibilityView(well, AccessibilityView.Raw);
+        return well;
+    }
+
+    /// <summary>
+    /// UI polish phase 2 (approved Home targets): lays <paramref name="items"/> out in two equal columns when both fit at
+    /// <paramref name="minColumnWidth"/>, otherwise in one, so rows never clip at narrow widths or large text sizes. Items keep
+    /// their order, reading left to right then down.
+    /// </summary>
+    public static Grid ResponsiveColumns(FrameworkElement[] items, double minColumnWidth, double spacing)
+    {
+        Grid grid = new() { RowSpacing = spacing };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        foreach (FrameworkElement item in items) grid.Children.Add(item);
+        int columns = 0;
+        void Place(double width)
+        {
+            int wanted = width > 0 && width < minColumnWidth * 2 + spacing ? 1 : 2;
+            if (wanted == columns) return;
+            columns = wanted;
+            grid.ColumnDefinitions[1].Width = wanted == 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            grid.ColumnSpacing = wanted == 2 ? spacing : 0;
+            grid.RowDefinitions.Clear();
+            for (int row = 0; row < (items.Length + wanted - 1) / wanted; row++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (int index = 0; index < items.Length; index++)
+            {
+                Grid.SetColumn(items[index], index % wanted);
+                Grid.SetRow(items[index], index / wanted);
+            }
+        }
+        Place(0);
+        grid.SizeChanged += (_, args) => Place(args.NewSize.Width);
+        return grid;
+    }
+
+    /// <summary>A small icon and a short line in the secondary text colour, such as the status card's facts and Home's footer.</summary>
+    public static Grid IconLine(string glyph, string text, string tone = "neutral", string? styleKey = null)
+    {
+        Brush foreground = tone == "neutral" ? Brush("StewardSecondaryTextBrush") : ToneBrushes(tone).Foreground;
+        // A Grid, not a horizontal StackPanel, so a long line wraps beside its icon instead of clipping.
+        Grid line = new() { ColumnSpacing = 6 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
+        TextBlock copy = new() { Text = text, Style = Style(styleKey ?? "StewardBodyStyle"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(copy, 1);
+        line.Children.Add(copy);
+        return line;
+    }
+
     public static Border EmptyState(string glyph, string title, string message, Button? action = null)
     {
         StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };

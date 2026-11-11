@@ -14,11 +14,13 @@ public sealed class HomeActivityDecisionsPresentationTests
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
     private static readonly TimeZoneInfo Utc = TimeZoneInfo.Utc;
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
-    private static readonly string[] FilterLabels = ["All", "Updates", "Needs review", "Unmanaged", "Pinned, ignored & skipped"];
+    private static readonly string[] FilterLabels = ["All", "Updates", "Needs review", "No update source", "Pinned, ignored & skipped"];
     private static readonly string[] ActivityFilterLabels = ["All", "Updates", "Scans", "Problems"];
     private static readonly string[] FreshnessWords = ["Local-only", "Live", "Cached", "Offline", "Unavailable"];
     private static readonly string[] OutcomeLabels = ["Verified", "Restart required", "Installed, not verified", "Result not verified", "Failed", "Not started"];
     private static readonly string[] AttentionKeys = ["failed", "restart"];
+    private static readonly string[] LiveFacts = ["Live results from your update sources", "Scanned 5 hours ago"];
+    private static readonly string[] LocalOnlyFacts = ["Scanned 30 minutes ago", "Local-only: no package source is on."];
     private static readonly int[] FilterCounts = [9, 1, 2, 1, 3];
     private static readonly string[] UpdatesLabels = ["Update available — verified"];
     private static readonly string[] NeedsReviewLabels = ["Update available — review", "Source unavailable"];
@@ -89,8 +91,8 @@ public sealed class HomeActivityDecisionsPresentationTests
     }
 
     [TestMethod]
-    [Description("FR-UI-01/05/06; ADR-030 concept A; audit P-H4/P-M4: one hero sentence, FR-UI-01 counts including pinned, ignored and failed, tiles that open filtered pages, and the compact attention view.")]
-    public void HomeHasOneHeroSentenceCountsAndTilesThatOpenFilteredPages()
+    [Description("FR-UI-01/05/06; ADR-030 concept A; UI polish phase 2 (T-Home-Ready): one status sentence, every FR-UI-01 count once, rows that open filtered pages, and info bars for problems and restarts.")]
+    public void HomeHasOneStatusSentenceCountsAndRowsThatOpenFilteredPages()
     {
         InventoryRow[] rows =
         [
@@ -116,66 +118,136 @@ public sealed class HomeActivityDecisionsPresentationTests
             [], jobs, activity, Now.AddHours(-5), Now), Culture, Utc);
 
         Assert.IsTrue(home.HasInventory);
-        Assert.AreEqual("2 updates ready · scanned 5 hours ago · sources checked 10 minutes ago", home.Hero, "the scan time is shown even with sources on (independent review L4)");
+        Assert.AreEqual("2 updates ready · checked 10 minutes ago", home.Hero);
+        Assert.AreEqual(StatusTone.Information, home.HeroTone);
         Assert.AreEqual("Live", home.Freshness.Word);
-        Assert.AreEqual("Review updates", home.PrimaryLabel);
-        StringAssert.StartsWith(home.PrimaryAccessibleName, home.PrimaryLabel, "label-in-name");
-        Assert.AreEqual("Check for updates", home.SecondaryLabel);
-        StringAssert.StartsWith(home.SecondaryAccessibleName, home.SecondaryLabel);
-        StringAssert.Contains(home.SecondaryHelpText, "never asks for administrator permission");
-        Assert.AreEqual("Scans this PC, then checks your enabled update sources.", home.SecondaryCaption, "independent review L1");
+        CollectionAssert.AreEqual(LiveFacts, home.Facts.Select(fact => fact.Text).ToArray(),
+            "freshness in words and the scan time are always shown (FR-UI-05, independent review L4)");
+        Assert.IsTrue(home.Facts.All(fact => fact.Glyph.Length == 1), "every fact has an icon as well as text");
+
+        Assert.AreEqual(HomeActionKind.ReviewUpdates, home.Primary.Kind, "updates are ready: the primary action reviews them");
+        Assert.AreEqual("Review updates", home.Primary.Label);
+        StringAssert.StartsWith(home.Primary.AccessibleName, home.Primary.Label, "label-in-name");
+        Assert.AreEqual(HomeActionKind.CheckForUpdates, home.Secondary!.Kind);
+        Assert.AreEqual("Check for updates", home.Secondary.Label);
+        StringAssert.StartsWith(home.Secondary.AccessibleName, home.Secondary.Label);
+        StringAssert.Contains(home.Secondary.HelpText, "never asks for administrator permission");
+        StringAssert.Contains(home.Secondary.HelpText, "Scans this PC, then checks your enabled update sources.", "independent review L1");
 
         Assert.AreEqual(new HomeCounts(rows.Length, 2, 1, 1, 4, 1, 1, 1, 1, 1, 1), home.Counts, "FR-UI-01 counts include pinned, ignored and failed; a later scan resolves an old attempt");
 
-        Dictionary<HomeTileKind, HomeTile> tiles = home.Tiles.ToDictionary(tile => tile.Kind);
-        Assert.HasCount(Enum.GetValues<HomeTileKind>().Length, tiles);
-        Assert.AreEqual(new HomeTileTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.Updates), tiles[HomeTileKind.RestartRequired].Target);
-        Assert.AreEqual(new HomeTileTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.Problems), tiles[HomeTileKind.NeedsAttention].Target);
-        Assert.AreEqual(new HomeTileTarget(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview), tiles[HomeTileKind.NeedsReview].Target);
-        Assert.AreEqual(new HomeTileTarget(ShellPage.Decisions), tiles[HomeTileKind.PinnedAndIgnored].Target);
-        Assert.AreEqual(new HomeTileTarget(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.Unmanaged), tiles[HomeTileKind.Unmanaged].Target);
-        Assert.AreEqual(new HomeTileTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.All), tiles[HomeTileKind.RecentActivity].Target);
-        Assert.AreEqual("2", tiles[HomeTileKind.NeedsReview].Value);
-        Assert.AreEqual("1 pinned · 1 ignored · 1 skipped", tiles[HomeTileKind.PinnedAndIgnored].Value);
-        Assert.AreEqual("Pinned, ignored & skipped", tiles[HomeTileKind.PinnedAndIgnored].Title, "Phase 6: skipped versions are counted with pins and ignores");
-        StringAssert.Contains(tiles[HomeTileKind.Unmanaged].Description, "not a safety warning", "unmanaged never reads as unsafe");
-        Assert.IsFalse(home.Tiles.Any(tile => tile.Description.Contains("unsafe", StringComparison.OrdinalIgnoreCase)));
-        Assert.IsTrue(home.Tiles.All(tile => tile.Glyph.Length == 1), "every tile has an icon as well as text");
-        foreach (HomeTile tile in home.Tiles)
+        CollectionAssert.AreEqual(new[] { HomeRowKind.RestartsAndChecks, HomeRowKind.NeedsReview, HomeRowKind.InstalledApps, HomeRowKind.Decisions, HomeRowKind.RecentActivity },
+            home.Rows.Select(row => row.Kind).ToArray(), "something that needs the owner comes first; with sources on there is no separate Updates row");
+        Dictionary<HomeRowKind, HomeRow> glance = home.Rows.ToDictionary(row => row.Kind);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.Updates), glance[HomeRowKind.RestartsAndChecks].Target, "a counted restart opens a filter that includes it");
+        Assert.AreEqual(new HomeRowTarget(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview), glance[HomeRowKind.NeedsReview].Target);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.All), glance[HomeRowKind.InstalledApps].Target);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.Decisions), glance[HomeRowKind.Decisions].Target);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.All), glance[HomeRowKind.RecentActivity].Target);
+        Assert.AreEqual("Needs attention", glance[HomeRowKind.RestartsAndChecks].Title);
+        Assert.AreEqual("1 update needs attention. 1 update is waiting for a restart.", glance[HomeRowKind.RestartsAndChecks].Description);
+        Assert.AreEqual(StatusTone.Attention, glance[HomeRowKind.RestartsAndChecks].Tone);
+        Assert.AreEqual("2 possible matches need a look before they can update. This includes 1 app whose source couldn't be checked.", glance[HomeRowKind.NeedsReview].Description);
+        Assert.AreEqual("12 apps: 4 current, 1 with no update source.", glance[HomeRowKind.InstalledApps].Description, "the unmanaged count is merged into Installed apps");
+        Assert.AreEqual("1 pinned, 1 ignored and 1 skipped. You can undo any of them.", glance[HomeRowKind.Decisions].Description);
+        foreach (HomeRow row in home.Rows)
         {
-            StringAssert.StartsWith(tile.AccessibleName, tile.Title, "each tile's accessible name starts with its visible title");
-            StringAssert.Contains(tile.AccessibleName, tile.Value);
+            StringAssert.StartsWith(row.AccessibleName, row.Title, "each row's accessible name starts with its visible title");
+            StringAssert.Contains(row.AccessibleName, row.Description);
+            Assert.AreEqual(1, row.Glyph.Length, "every row has an icon as well as text");
+            Assert.AreNotEqual(StatusTone.Critical, row.Tone, "no row is red");
+            foreach (string forbidden in new[] { "unsafe", "Unmanaged", "danger" })
+                Assert.IsFalse(row.Description.Contains(forbidden, StringComparison.OrdinalIgnoreCase), $"{row.Kind}: {forbidden}");
         }
 
         CollectionAssert.AreEqual(AttentionKeys, home.Attention.Select(item => item.StableProductKey).ToArray(), "compact attention view: failed then restart, resolved attempts dropped");
         Assert.AreEqual("Failed", home.Attention[0].OutcomeLabel);
         Assert.AreEqual("Restart required", home.Attention[1].OutcomeLabel);
         Assert.IsTrue(home.Attention.Count <= HomePresenter.MaximumAttentionItems);
-        Assert.AreEqual(ActivityFilter.Updates, home.AttentionActivityFilter, "a listed restart opens a filter that includes it (independent review L3)");
-        Assert.IsTrue(ActivityPresenter.Matches(home.AttentionActivityFilter, activity.Single(entry => entry.OutcomeLabel == "Restart required")));
-        Assert.IsTrue(ActivityPresenter.Matches(home.AttentionActivityFilter, activity.Single(entry => entry.OutcomeLabel == "Failed")));
-        StringAssert.StartsWith(home.AttentionLinkAccessibleName, "View in Activity", "label-in-name");
+
+        Assert.HasCount(2, home.Notices);
+        HomeNotice problem = home.Notices[0];
+        Assert.AreEqual(HomeNoticeKind.NeedsAttention, problem.Kind);
+        Assert.AreEqual(StatusTone.Attention, problem.Tone);
+        StringAssert.StartsWith(problem.Message, "App failed: Failed.");
+        Assert.AreEqual(ActivityFilter.Problems, problem.ActivityFilter);
+        Assert.IsTrue(ActivityPresenter.Matches(problem.ActivityFilter, activity.Single(entry => entry.OutcomeLabel == "Failed")));
+        StringAssert.StartsWith(problem.ActionAccessibleName, problem.ActionLabel, "label-in-name");
+        HomeNotice restart = home.Notices[1];
+        Assert.AreEqual(HomeNoticeKind.RestartRequired, restart.Kind);
+        Assert.AreEqual(StatusTone.Information, restart.Tone, "Restart required is never alarming (final review L3)");
+        Assert.AreEqual("Windows needs to restart to finish updating App restart. PC Steward won't restart your PC.", restart.Message);
+        Assert.IsTrue(ActivityPresenter.Matches(restart.ActivityFilter, activity.Single(entry => entry.OutcomeLabel == "Restart required")), "independent review L3");
+        StringAssert.StartsWith(restart.ActionAccessibleName, restart.ActionLabel, "label-in-name");
     }
 
     [TestMethod]
-    [Description("FR-UI-01/05: Home before the first scan, and with sources off, never claims a check that didn't happen.")]
-    public void HomeWithoutInventoryOrSourcesIsHonest()
+    [Description("UI polish phase 2 (T-Home): local-only is calm. The primary action turns on update checks, the other is a scan only, and nothing claims a check that didn't happen.")]
+    public void HomeWhenLocalOnlyOffersToTurnOnUpdateChecksCalmly()
+    {
+        InventoryRow[] rows = [Row("a", "Unmanaged", "1.0"), Row("b", "Unmanaged", "2.0"), Row("ready", "VerifiedUpdate", "1.0")];
+        HomePresentation home = HomePresenter.Build(new HomeInputs(rows,
+            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, false, [], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
+
+        Assert.AreEqual("3 apps found · update checks are off", home.Hero);
+        Assert.AreEqual(0, home.Counts.Verified, "the ready count is the Updates page's Ready group, which fails closed with sources off");
+        CollectionAssert.AreEqual(LocalOnlyFacts, home.Facts.Select(fact => fact.Text).ToArray());
+        Assert.IsTrue(home.Facts.All(fact => fact.Tone == StatusTone.Neutral), "an off-by-choice state is never a warning");
+        Assert.AreNotEqual(StatusTone.Attention, home.HeroTone);
+
+        Assert.AreEqual(HomeActionKind.TurnOnUpdateChecks, home.Primary.Kind);
+        Assert.AreEqual("Turn on update checks…", home.Primary.Label);
+        StringAssert.StartsWith(home.Primary.AccessibleName, "Turn on update checks", "label-in-name, without the ellipsis");
+        StringAssert.Contains(home.Primary.HelpText, "asks you first");
+        StringAssert.Contains(home.Primary.HelpText, "doesn't scan, check or install anything");
+        Assert.AreEqual(HomeActionKind.ScanAgain, home.Secondary!.Kind, "with sources off the other action is a scan only (independent review L1)");
+        Assert.AreEqual("Scan again", home.Secondary.Label);
+        StringAssert.StartsWith(home.Secondary.AccessibleName, home.Secondary.Label);
+        Assert.AreEqual(HomePresenter.ScanAgainHelp, home.Secondary.HelpText);
+
+        CollectionAssert.AreEqual(new[] { HomeRowKind.InstalledApps, HomeRowKind.Updates, HomeRowKind.NeedsReview, HomeRowKind.RestartsAndChecks, HomeRowKind.Decisions, HomeRowKind.RecentActivity },
+            home.Rows.Select(row => row.Kind).ToArray(), "the order of the approved target");
+        Dictionary<HomeRowKind, HomeRow> glance = home.Rows.ToDictionary(row => row.Kind);
+        Assert.AreEqual("Not checked. Turn on a package source to look for updates.", glance[HomeRowKind.Updates].Description);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.Updates), glance[HomeRowKind.Updates].Target);
+        Assert.AreEqual("Nothing needs your review.", glance[HomeRowKind.NeedsReview].Description);
+        Assert.AreEqual("Restarts and checks", glance[HomeRowKind.RestartsAndChecks].Title);
+        Assert.AreEqual("Nothing is waiting for a restart or a check.", glance[HomeRowKind.RestartsAndChecks].Description);
+        Assert.AreEqual("No apps pinned, ignored or skipped.", glance[HomeRowKind.Decisions].Description);
+        Assert.AreEqual("Nothing yet. Scans, updates and decisions are recorded on this PC.", glance[HomeRowKind.RecentActivity].Description);
+        Assert.IsTrue(home.Rows.All(row => row.Tone == StatusTone.Neutral), "nothing on a calm local-only Home is tinted");
+        Assert.IsEmpty(home.Notices);
+
+        HomePresentation allUnmanaged = HomePresenter.Build(new HomeInputs([Row("a", "Unmanaged", "1.0"), Row("b", StatusVocabulary.InstalledKey, "1.0")],
+            new Dictionary<string, UpdateDetail>(), false, [], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
+        Assert.AreEqual("2 apps. None has an update source yet.", allUnmanaged.Rows.Single(row => row.Kind == HomeRowKind.InstalledApps).Description);
+        Assert.AreEqual(HomeActionKind.TurnOnUpdateChecks, allUnmanaged.Primary.Kind);
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05: Home before the first scan, and with sources on but nothing ready, never claims a check that didn't happen.")]
+    public void HomeWithoutInventoryOrReadyUpdatesIsHonest()
     {
         HomePresentation empty = HomePresenter.Build(new HomeInputs([], new Dictionary<string, UpdateDetail>(), false, [], [], [], [], null, Now), Culture, Utc);
         Assert.IsFalse(empty.HasInventory);
         Assert.AreEqual("PC Steward hasn't looked at this PC yet", empty.Hero);
         Assert.AreEqual(EvidenceFreshness.LocalOnly, empty.Freshness.Freshness);
-        Assert.AreEqual("Nothing yet", empty.Tiles.Single(tile => tile.Kind == HomeTileKind.RecentActivity).Value);
+        Assert.IsEmpty(empty.Rows);
+        Assert.IsEmpty(empty.Notices);
 
-        InventoryRow[] rows = [Row("ready", "VerifiedUpdate", "1.0")];
-        HomePresentation sourcesOff = HomePresenter.Build(new HomeInputs(rows,
-            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, false, [], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
-        Assert.AreEqual("No updates ready · scanned 30 minutes ago", sourcesOff.Hero, "the ready count is the Updates page's Ready group, which fails closed with sources off");
-        Assert.AreEqual(0, sourcesOff.Counts.Verified);
-        Assert.AreEqual("Scan again", sourcesOff.SecondaryLabel, "with sources off the secondary action is a scan only (independent review L1)");
-        StringAssert.StartsWith(sourcesOff.SecondaryAccessibleName, sourcesOff.SecondaryLabel);
-        Assert.AreEqual(HomePresenter.ScanAgainHelp, sourcesOff.SecondaryHelpText);
-        Assert.AreEqual(string.Empty, sourcesOff.SecondaryCaption);
+        InventoryRow[] rows = [Row("current", "Current", "1.0")];
+        HomePresentation notChecked = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true, [], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
+        Assert.AreEqual("No updates ready · sources not checked yet", notChecked.Hero);
+        Assert.AreEqual(HomeActionKind.CheckForUpdates, notChecked.Primary.Kind, "nothing is ready: the primary action checks, it never offers an empty review");
+        Assert.IsNull(notChecked.Secondary);
+        Assert.AreEqual("Local-only: no package source has been checked yet.", notChecked.Facts[0].Text);
+        Assert.AreNotEqual(StatusTone.Success, notChecked.HeroTone, "an unchecked state never reads as all clear");
+
+        HomePresentation live = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
+            [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-3))], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
+        Assert.AreEqual("No updates ready · checked 3 minutes ago", live.Hero);
+        Assert.AreEqual(StatusTone.Success, live.HeroTone);
+        Assert.AreEqual("1 app: 1 current.", live.Rows.Single(row => row.Kind == HomeRowKind.InstalledApps).Description);
     }
 
     [TestMethod]
@@ -206,12 +278,13 @@ public sealed class HomeActivityDecisionsPresentationTests
         HomePresentation home = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
             [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-2)), Source("msstore", SourceSnapshotState.Unavailable, Now.AddDays(-5))],
             [], [], [], Now.AddMinutes(-10), Now), Culture, Utc);
-        Assert.AreEqual("No updates ready · scanned 10 minutes ago · sources checked 5 days ago", home.Hero);
+        Assert.AreEqual("No updates ready · checked 5 days ago", home.Hero);
+        Assert.AreEqual("Scanned 10 minutes ago", home.Facts[1].Text);
         Assert.AreEqual("Unavailable", home.Freshness.Word);
         HomePresentation neverChecked = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
             [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-2)), Source("msstore", SourceSnapshotState.Unavailable, null)],
             [], [], [], Now.AddMinutes(-10), Now), Culture, Utc);
-        Assert.AreEqual("No updates ready · scanned 10 minutes ago · a source hasn't been checked successfully", neverChecked.Hero);
+        Assert.AreEqual("No updates ready · a source hasn't been checked successfully", neverChecked.Hero);
     }
 
     [TestMethod]
@@ -254,8 +327,9 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("same", home.Attention.Single().StableProductKey, "resolved attempts drop off Home's attention list");
         Assert.AreEqual(1, home.Counts.Failed);
         Assert.AreEqual(0, home.Counts.RestartRequired);
-        Assert.AreEqual(ActivityFilter.Problems, home.AttentionActivityFilter, "no restart listed: the problems filter is enough");
-        Assert.AreEqual(HomePresenter.AttentionProblemsLinkName, home.AttentionLinkAccessibleName);
+        Assert.AreEqual(ActivityFilter.Problems, home.Notices.Single().ActivityFilter, "no restart listed: the problems filter is enough");
+        Assert.AreEqual(HomePresenter.AttentionProblemsLinkName, home.Notices.Single().ActionAccessibleName);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.Problems), home.Rows.Single(row => row.Kind == HomeRowKind.RestartsAndChecks).Target);
         Assert.IsFalse(activity.Any(entry => entry.OutcomeLabel == "Verified"), "resolution never relabels an attempt as Verified");
         Assert.AreEqual(4, activity.Count(entry => entry.IsProblem), "Activity keeps every recorded outcome");
     }

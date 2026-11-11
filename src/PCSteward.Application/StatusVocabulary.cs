@@ -33,6 +33,12 @@ public static class StatusVocabulary
     // required) were removed. Update outcomes, including "Restart required" (Information tone), are presented only by
     // UpdateOutcomePresenter, so there is one tone per outcome and no flattened "Update failed" chip.
 
+    /// <summary>
+    /// UI polish phase 2 (owner-approved targets, 2026-11-11): the user-facing name of the <c>Unmanaged</c> status. The stored status
+    /// key stays <c>Unmanaged</c>; only the words on screen change.
+    /// </summary>
+    public const string NoUpdateSourceLabel = "No update source";
+
     /// <summary>The filter entry that shows every status.</summary>
     public const string AllStatusesLabel = "All statuses";
 
@@ -48,8 +54,8 @@ public static class StatusVocabulary
             "The package source could not complete its check. Refresh source evidence to try again; nothing can be updated."),
         new(nameof(UpdateIntelligenceStatus.Current), "Current", "", StatusTone.Success,
             "The installed version is the same as, or newer than, the latest compatible trusted package."),
-        new(nameof(UpdateIntelligenceStatus.Unmanaged), "Unmanaged", "", StatusTone.Neutral,
-            "Inventoried only: no approved update source is mapped. This is not a safety warning."),
+        new(nameof(UpdateIntelligenceStatus.Unmanaged), NoUpdateSourceLabel, "", StatusTone.Neutral,
+            "PC Steward hasn't matched this app to a package source you've turned on, so it's inventoried only. This is not a safety warning."),
         new(nameof(UpdateIntelligenceStatus.Pinned), "Pinned", "", StatusTone.Neutral,
             "You chose to stay on this version. No update is offered until you remove the pin."),
         new(nameof(UpdateIntelligenceStatus.Ignored), "Ignored", "", StatusTone.Neutral,
