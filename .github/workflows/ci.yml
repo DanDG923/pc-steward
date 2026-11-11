@@ -44,6 +44,14 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      # The owner's phase 5 redeploy paste must parse under Windows PowerShell 5.1 before it is handed over.
+      - shell: powershell
+        run: |
+          $e = $null; $t = $null
+          [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'docs/review/UI_POLISH_PHASE5_REDEPLOY.ps1').Path, [ref]$t, [ref]$e)
+          $e | ForEach-Object { 'PARSE-ERROR line ' + $_.Extent.StartLineNumber + ': ' + $_.Message }
+          'PASTE-PARSE errors=' + @($e).Count
+          exit @($e).Count
       - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DesktopLaunchSmokeCI.ps1
       - uses: actions/upload-artifact@v7
         if: always()
