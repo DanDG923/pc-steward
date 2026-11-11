@@ -68,7 +68,7 @@ internal sealed class SelfUpdateDesktopFiles
     {
         try
         {
-            if (!IsInFolder(partialPath) || !IsInFolder(finalPath)) return false;
+            if (!IsInFolder(partialPath) || !IsInFolder(finalPath) || !ProtectedLaunchLayout.HasNoReparseComponents(Folder)) { Discard(partialPath); return false; }
             File.Move(partialPath, finalPath, overwrite: true);
             return true;
         }
@@ -97,14 +97,13 @@ internal sealed class SelfUpdateDesktopFiles
         }
     }
 
-    /// <summary>Deletes one file in the folder, ignoring a file already gone.</summary>
+    /// <summary>
+    /// Deletes one file in the folder, ignoring a file already gone. The delete goes through a handle whose final path must be
+    /// the checked path, so a junction or link put in place of the folder or any ancestor cannot redirect it.
+    /// </summary>
     internal void Discard(string path)
     {
-        try
-        {
-            if (!string.IsNullOrEmpty(path) && IsInFolder(path)) File.Delete(path);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        if (!string.IsNullOrEmpty(path) && IsInFolder(path)) _ = WindowsSelfUpdateHost.DeleteExactFile(path);
     }
 
     /// <summary>§5: the downloaded MSI carries a compiled pin, passes the structure rule, and its tables give the record's digest.</summary>

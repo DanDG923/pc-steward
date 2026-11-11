@@ -599,6 +599,45 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         return null;
     }
 
+    /// <summary>
+    /// Deletes the plain file at <paramref name="path"/> through a handle opened without following a reparse point, and only
+    /// when that handle's final path is <paramref name="path"/> itself. A junction, symbolic link or mount point anywhere on
+    /// the path therefore never redirects the delete outside the folder the caller checked (AGENTS.md deletion boundary).
+    /// True when the file is gone, including when it was never there.
+    /// </summary>
+    internal static bool DeleteExactFile(string path)
+    {
+        if (!OperatingSystem.IsWindows() || string.IsNullOrEmpty(path) || !Path.IsPathFullyQualified(path)) return false;
+        string full = Path.GetFullPath(path);
+        SafeFileHandle handle = NativeMethods.CreateFile(full, NativeMethods.DeleteAccess | NativeMethods.FileReadAttributes,
+            (uint)(FileShare.Read | FileShare.Write | FileShare.Delete), IntPtr.Zero, NativeMethods.OpenExisting, NativeMethods.FileFlagOpenReparsePoint, IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            return error is NativeMethods.ErrorFileNotFound or NativeMethods.ErrorPathNotFound;
+        }
+        using (handle)
+        {
+            try
+            {
+                if (NativeMethods.GetFileType(handle) != NativeMethods.FileTypeDisk ||
+                    !NativeMethods.GetFileInformationByHandleEx(handle, NativeMethods.FileAttributeTagInfoClass, out NativeMethods.FileAttributeTagInfo tag,
+                        (uint)Marshal.SizeOf<NativeMethods.FileAttributeTagInfo>()) ||
+                    (tag.FileAttributes & (NativeMethods.FileAttributeReparsePoint | NativeMethods.FileAttributeDirectory)) != 0 ||
+                    !DeploymentFileAccess.TryGetFinalPath(handle, out string final) || !string.Equals(final, full, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                NativeMethods.FileDispositionInfo disposition = new() { DeleteFile = 1 };
+                return NativeMethods.SetFileInformationByHandle(handle, NativeMethods.FileDispositionInfoClass, ref disposition,
+                    (uint)Marshal.SizeOf<NativeMethods.FileDispositionInfo>());
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                return false;
+            }
+        }
+    }
+
     /// <summary><c>FileStreamInfo</c> lists exactly one stream, the unnamed <c>::$DATA</c>.</summary>
     private static bool HasOneDataStream(SafeFileHandle handle)
     {
@@ -727,6 +766,21 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         internal const uint FileAttributeDirectory = 0x10;
         internal const uint FileAttributeReparsePoint = 0x400;
         internal const uint FileTypeDisk = 1;
+        internal const uint DeleteAccess = 0x00010000;
+        internal const int FileDispositionInfoClass = 4;
+        internal const int ErrorFileNotFound = 2;
+        internal const int ErrorPathNotFound = 3;
+
+        /// <summary>FILE_DISPOSITION_INFO: one BOOLEAN.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct FileDispositionInfo
+        {
+            internal byte DeleteFile;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetFileInformationByHandle(SafeFileHandle file, int informationClass, ref FileDispositionInfo information, uint size);
         internal const int FileAttributeTagInfoClass = 9;
         internal const int FileStandardInfoClass = 1;
         internal const int FileStreamInfoClass = 7;

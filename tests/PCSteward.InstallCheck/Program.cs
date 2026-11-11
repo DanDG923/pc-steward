@@ -96,12 +96,15 @@ internal static class ReleaseCheckParity
             }
         }
 
-        bool pass = recordRead && tablesEqual && structure == MsiStructureVerdict.Allowed && executables.Count == 2 && executables.Values.All(match => match) && tamperedRefused;
+        // The helper reads the package's own ProductCode beside the normalised tables (it removes only that product).
+        bool productCode = MsiProductRegistration.IsProductCode(snapshot.ProductCode);
+        bool pass = recordRead && tablesEqual && productCode && structure == MsiStructureVerdict.Allowed && executables.Count == 2 && executables.Values.All(match => match) && tamperedRefused;
         Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object>
         {
             ["recordRead"] = recordRead,
             ["tablesSha256"] = tables,
             ["tablesEqual"] = tablesEqual,
+            ["productCode"] = productCode,
             ["structure"] = structure.ToString() + (structureDetail.Length > 0 ? " " + structureDetail : ""),
             ["executablesMatch"] = executables,
             ["tamperedRefused"] = tamperedRefused,

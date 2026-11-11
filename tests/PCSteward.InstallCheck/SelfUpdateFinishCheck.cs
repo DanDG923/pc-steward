@@ -35,7 +35,7 @@ internal static class SelfUpdateFinishCheck
         string msiName = SelfUpdateInstallPolicy.MsiFileName(msiSha);
         string msiCopy = Path.Combine(work, msiName);
         if (host.CopyInput(msiPath, msiCopy, SelfUpdateSession.MaximumMsiBytes, msiSha) != SelfUpdateCopyVerdict.Copied) return Fail("copy-msi");
-        if (host.ReadMsiTables(msiCopy) is not { } tables || MsiProductRegistration.ProductCode(tables.Tables) is not { } productCode) return Fail("product-code");
+        if (host.ReadMsiTables(msiCopy) is not { } tables || tables.ProductCode is not { } productCode) return Fail("product-code");
         if (host.HasPerUserRegistration(productCode)) return Fail("per-user-registration");
         string image = Path.Combine(work, SelfUpdateHelperProtocol.ImageFolder);
         int? extracted = host.RunMsiexecAsync(["/a", msiCopy, "/qn", "TARGETDIR=" + image, "/l*v", Path.Combine(work, "extract.log")],

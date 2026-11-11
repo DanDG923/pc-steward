@@ -517,8 +517,9 @@ public sealed class SelfUpdateHelperSessionTests
             Calls.Add("ReadMsiTables");
             Dictionary<string, MsiTable> tables = new(StringComparer.Ordinal);
             if (ForbiddenTable) tables["ServiceInstall"] = new("ServiceInstall", ["ServiceInstall"], [["svc"]]);
-            tables["Property"] = new("Property", ["Property", "Value"], NoProductCode ? [["ProductName", "PC Steward"]] : [["ProductName", "PC Steward"], ["ProductCode", ProductCode]]);
-            return TablesReadable ? new([], TablesSha, tables) : null;
+            // As MsiTableDigest.Read returns them: the tables normalised (ProductCode "*"), the real code beside them.
+            tables["Property"] = new("Property", ["Property", "Value"], [["ProductName", "PC Steward"], ["ProductCode", "*"]]);
+            return TablesReadable ? new([], TablesSha, tables, NoProductCode ? null : ProductCode) : null;
         }
 
         public async Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken)

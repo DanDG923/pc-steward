@@ -304,7 +304,7 @@ internal static class SelfUpdateSession
             MsiDatabaseSnapshot tables = host.ReadMsiTables(msiPath) ?? throw new RefusedException(SelfUpdateSessionRefusal.MsiUnreadable);
             Require(MsiStructurePolicy.Check(tables.Tables, out _) == MsiStructureVerdict.Allowed, SelfUpdateSessionRefusal.MsiStructureRefused);
             Require(string.Equals(tables.Sha256, record!.MsiTablesSha256, StringComparison.OrdinalIgnoreCase), SelfUpdateSessionRefusal.MsiTablesDiffer);
-            string productCode = MsiProductRegistration.ProductCode(tables.Tables) ?? throw new RefusedException(SelfUpdateSessionRefusal.MsiStructureRefused);
+            string productCode = tables.ProductCode ?? throw new RefusedException(SelfUpdateSessionRefusal.MsiStructureRefused);
             // Security review R1: Windows Installer would consult the owner's own registrations of this product, which a same-user
             // program can write, so msiexec never runs while one exists.
             Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);

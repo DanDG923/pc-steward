@@ -19,8 +19,11 @@ namespace PCSteward.Execution;
 /// <summary>One MSI table as read: its columns and its rows (null for a null field, <c>sha256:</c> plus hex for a stream).</summary>
 internal sealed record MsiTable(string Name, IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<string?>> Rows);
 
-/// <summary>The canonical lines, their digest and the tables of one MSI database.</summary>
-internal sealed record MsiDatabaseSnapshot(IReadOnlyList<string> Lines, string Sha256, IReadOnlyDictionary<string, MsiTable> Tables);
+/// <summary>
+/// The canonical lines, their digest and the tables of one MSI database (normalised like the lines, so the ProductCode
+/// property reads "*"), and the package's own ProductCode as stored, when it has exactly one well-formed one.
+/// </summary>
+internal sealed record MsiDatabaseSnapshot(IReadOnlyList<string> Lines, string Sha256, IReadOnlyDictionary<string, MsiTable> Tables, string? ProductCode = null);
 
 internal static class MsiTableDigest
 {
@@ -44,9 +47,9 @@ internal static class MsiTableDigest
     internal static MsiDatabaseSnapshot Read(string databasePath)
     {
         ArgumentException.ThrowIfNullOrEmpty(databasePath);
-        List<string> lines = Dump(databasePath, out Dictionary<string, Table> tables);
+        List<string> lines = Dump(databasePath, out Dictionary<string, Table> tables, out string? productCode);
         return new(lines, Hash(lines), tables.ToDictionary(pair => pair.Key,
-            pair => new MsiTable(pair.Key, pair.Value.Columns, [.. pair.Value.Rows.Select(row => (IReadOnlyList<string?>)row)]), StringComparer.Ordinal));
+            pair => new MsiTable(pair.Key, pair.Value.Columns, [.. pair.Value.Rows.Select(row => (IReadOnlyList<string?>)row)]), StringComparer.Ordinal), productCode);
     }
 
     /// <summary>SHA-256 of the lines joined by LF, as ASCII.</summary>
@@ -64,7 +67,7 @@ internal static class MsiTableDigest
         public List<string?[]> Rows { get; } = [];
     }
 
-    private static List<string> Dump(string databasePath, out Dictionary<string, Table> tables)
+    private static List<string> Dump(string databasePath, out Dictionary<string, Table> tables, out string? productCode)
     {
         uint status = NativeMethods.MsiOpenDatabaseW(databasePath, ReadOnly, out IntPtr database);
         if (status != Success) throw new InvalidOperationException("MsiOpenDatabase failed with " + status + ".");
@@ -74,6 +77,9 @@ internal static class MsiTableDigest
             names.Sort(StringComparer.Ordinal);
             tables = new(StringComparer.Ordinal);
             foreach (string name in names) tables[name] = ReadTable(database, name);
+            // The real ProductCode, read before normalisation replaces it (the helper removes only this product).
+            productCode = MsiProductRegistration.ProductCode(tables.ToDictionary(pair => pair.Key,
+                pair => new MsiTable(pair.Key, pair.Value.Columns, [.. pair.Value.Rows.Select(row => (IReadOnlyList<string?>)row.ToArray())]), StringComparer.Ordinal));
             Normalise(tables);
             List<string> lines = [];
             foreach (string name in names)
