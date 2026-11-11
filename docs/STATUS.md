@@ -1,3 +1,9 @@
+**Task 50 — G9-T1 to G9-T4: the ripgrep real-update test planned (2026-11-11; docs only; no host action yet).** Requirements: `FR-UPD-15`, `TM-03/04/07/13`. [Test record](review/TASK_50_G9_T1_RIPGREP_TEST.md).
+- **Not blocked by G9 CR2.** The missing second reviewed Chocolatey release only affects the client self-update screen; the package route's Confirm (addendum §3) does not need it.
+- **G9-T3 already met.** The deployed `d9a754b` carries the package composition and C3 passed on it.
+- **G9-T1.** One administrator paste: environment (M1) and not-installed checks, the 56-file 2.7.5 release check before and after, ripgrep 14.1.0 fetched once and pinned to the §12 nupkg SHA-256, installed with `choco install` from that checked file only.
+- **G9-T2** becomes PC Steward's own review check up to Confirm; **G9-T4** is one press of Confirm with exactly one UAC prompt, before the signer expires on 2026-11-24.
+
 **Task 50 — Native AOT helper redeploy plan (ADR-033; docs and an informational CI job; no host action yet).** Requirements: `FR-UPD-15`, `TM-03/04/13`. [Plan](review/TASK_50_NATIVE_HELPER_REDEPLOY_PLAN.md).
 - **Merged.** PR #31 (`d9a754b`) after the owner OKed the hash-pinned builder edit (2026-11-10). New builder pins: LF `B4159B53…606D`, CRLF `8C4F46AE…77C1`; the other nine tooling scripts, probe script and capability statement are unchanged.
 - **Done on the PC.** P0: the owner installed Visual Studio Build Tools 2022 (C++ workload). P1 (read-only): linker present, SDK 10.0.403, database and ledger unchanged since C2, no .NET runtime-control names set, signer `C7372974…` has about 244 hours left.
