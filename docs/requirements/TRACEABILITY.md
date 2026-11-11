@@ -1,3 +1,12 @@
+# Signed protected install — ADR-034 step 2a: pinned signature check
+
+`FR-UPD-15`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) section 3 and implementation notes, ADR-018.
+
+- `ReleaseSigningPins` (compiled, empty until the owner's key session) and `AuthenticodeIdentity.TryReadPinnedSigner` / `HaveSamePinnedSigner` in `WindowsElevatedHelperTransport.cs`.
+- `InstalledHelperLaunchTrust.Validate`, the desktop peer check and the helper peer check accept the same compiled pin or the unchanged ADR-018 rule (transition until ADR-034 step 7).
+- Evidence: `tests/PCSteward.Security.FixtureTests/PinnedReleaseSignatureTests.cs` (Windows CI), `tests/PCSteward.ArchitectureTests/ReleaseSigningPinBoundaryTests.cs`.
+- Not claimed: any release key, release install, MSI or host evidence.
+
 # Signed protected install — ADR-034 proposed (design only)
 
 `FR-UPD-04`, `FR-UPD-15`, `FR-DAT-12`, `AC-UPD-03–05`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) (Proposed), ADR-002, ADR-018, ADR-022, ADR-033.

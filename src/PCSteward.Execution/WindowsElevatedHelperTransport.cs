@@ -360,10 +360,14 @@ internal static class InstalledHelperLaunchTrust
                 ProtectedLaunchLayout.HasNoReparseComponents(installedRoot, expectedDesktop, expectedHelper);
             bool callerCannotModify = noReparse &&
                 ProtectedLaunchLayout.CallerCannotModify(installedRoot, expectedDesktop, expectedHelper);
-            bool desktopTrusted = desktopPresent && AuthenticodeIdentity.IsTrusted(expectedDesktop);
-            bool helperTrusted = helperPresent && AuthenticodeIdentity.IsTrusted(expectedHelper);
-            bool sameSigner = desktopTrusted && helperTrusted &&
-                AuthenticodeIdentity.HaveSameSigner(expectedDesktop, expectedHelper);
+            // ADR-034 §3: both images carry the same compiled release pin; otherwise the ADR-022 rule (trusted by Windows,
+            // same raw signer certificate) applies until the owner-only test route is retired.
+            bool samePin = desktopPresent && helperPresent &&
+                AuthenticodeIdentity.HaveSamePinnedSigner(expectedDesktop, expectedHelper, ReleaseSigningPins.Compiled);
+            bool desktopTrusted = desktopPresent && (samePin || AuthenticodeIdentity.IsTrusted(expectedDesktop));
+            bool helperTrusted = helperPresent && (samePin || AuthenticodeIdentity.IsTrusted(expectedHelper));
+            bool sameSigner = samePin || (desktopTrusted && helperTrusted &&
+                AuthenticodeIdentity.HaveSameSigner(expectedDesktop, expectedHelper));
             return Evaluate(new(
                 fixedLayout,
                 desktopPresent,
@@ -892,12 +896,26 @@ internal static partial class WindowsPeerIdentityVerifier
     }
 }
 
+/// <summary>
+/// ADR-018 signer checks for PC Steward's own executables, amended by ADR-034 §3. A pair of images is accepted when both
+/// carry the same compiled release pin (<see cref="ReleaseSigningPins"/>), or, while the ADR-022 owner-only test route still
+/// exists (ADR-034 build order step 7 removes it), when Windows trusts both and they carry the same raw signer certificate.
+/// Every <c>WinVerifyTrust</c> call goes through <see cref="VerifyTrust"/>: no UI, no revocation check, cache-only URL
+/// retrieval, so no check here does network I/O.
+/// </summary>
 internal static class AuthenticodeIdentity
 {
+    /// <summary><c>CERT_E_UNTRUSTEDROOT</c> (winerror.h): the only failure ADR-034 §3 step 1 tolerates for a pinned key.</summary>
+    internal const int CertUntrustedRoot = unchecked((int)0x800B0109);
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
     internal static bool IsTrustedAndSameSigner(string firstPath, string secondPath)
     {
+        if (HaveSamePinnedSigner(firstPath, secondPath, ReleaseSigningPins.Compiled))
+        {
+            return true;
+        }
+
         if (!IsTrusted(firstPath) || !IsTrusted(secondPath))
         {
             return false;
@@ -906,7 +924,48 @@ internal static class AuthenticodeIdentity
         return HaveSameSigner(firstPath, secondPath);
     }
 
-    internal static bool IsTrusted(string path) => VerifyTrust(path);
+    internal static bool IsTrusted(string path) => VerifyTrust(path, out _) == 0;
+
+    /// <summary>ADR-034 §3 step 4: both images carry a pin from <paramref name="pins"/>, and it is the same pin.</summary>
+    internal static bool HaveSamePinnedSigner(string firstPath, string secondPath, IReadOnlyList<string> pins) =>
+        TryReadPinnedSigner(firstPath, pins, out string? first) &&
+        TryReadPinnedSigner(secondPath, pins, out string? second) &&
+        string.Equals(first, second, StringComparison.Ordinal);
+
+    /// <summary>
+    /// ADR-034 §3 steps 1–3. <c>WinVerifyTrust</c> must return success or exactly <see cref="CertUntrustedRoot"/> (any other
+    /// result, such as a bad digest, no signature or a malformed signature, is a rejection); the signer is the leaf of the
+    /// chain <c>WinVerifyTrust</c> built from the signature it verified, never a second parse of the file; that chain must be
+    /// the single self-signed certificate; and the SHA-256 of its DER SubjectPublicKeyInfo must equal one of
+    /// <paramref name="pins"/>. <paramref name="pin"/> is the matched pin. An empty pin list accepts nothing.
+    /// </summary>
+    internal static bool TryReadPinnedSigner(string path, IReadOnlyList<string> pins, out string? pin)
+    {
+        pin = null;
+        if (pins is null || pins.Count == 0 || string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        int status = VerifyTrust(path, out VerifiedSigner? signer);
+        if (status is not (0 or CertUntrustedRoot) || signer is null || signer.ChainLength != 1)
+        {
+            return false;
+        }
+
+        byte[] actual = Convert.FromHexString(signer.SubjectPublicKeyInfoSha256);
+        foreach (string candidate in pins)
+        {
+            if (ReleaseSigningPins.IsWellFormed(candidate) &&
+                CryptographicOperations.FixedTimeEquals(actual, Convert.FromHexString(candidate)))
+            {
+                pin = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     internal static bool HaveSameSigner(string firstPath, string secondPath)
     {
@@ -924,8 +983,14 @@ internal static class AuthenticodeIdentity
         }
     }
 
-    private static bool VerifyTrust(string path)
+    /// <summary>
+    /// One <c>WinVerifyTrust</c> verification of the embedded signature, returning its status. When the provider built a
+    /// signer chain, <paramref name="signer"/> describes it (chain length and the leaf's SubjectPublicKeyInfo hash), read from
+    /// the same state data before the state is closed; otherwise it is null. Any read failure leaves it null.
+    /// </summary>
+    private static int VerifyTrust(string path, out VerifiedSigner? signer)
     {
+        signer = null;
         IntPtr pathPointer = Marshal.StringToCoTaskMemUni(path);
         NativeMethods.WinTrustFileInfo fileInfo = new()
         {
@@ -933,27 +998,78 @@ internal static class AuthenticodeIdentity
             FilePath = pathPointer
         };
         IntPtr fileInfoPointer = Marshal.AllocHGlobal(Marshal.SizeOf<NativeMethods.WinTrustFileInfo>());
+        NativeMethods.WinTrustData data = default;
+        bool stateOpen = false;
         try
         {
             Marshal.StructureToPtr(fileInfo, fileInfoPointer, false);
-            NativeMethods.WinTrustData data = new()
+            data = new()
             {
                 Size = (uint)Marshal.SizeOf<NativeMethods.WinTrustData>(),
                 UiChoice = NativeMethods.WtdUiNone,
                 RevocationChecks = NativeMethods.WtdRevokeNone,
                 UnionChoice = NativeMethods.WtdChoiceFile,
                 FileInfo = fileInfoPointer,
-                StateAction = NativeMethods.WtdStateActionIgnore,
+                StateAction = NativeMethods.WtdStateActionVerify,
                 ProviderFlags = NativeMethods.WtdCacheOnlyUrlRetrieval
             };
-            return NativeMethods.WinVerifyTrust(IntPtr.Zero, ActionGenericVerifyV2, ref data) == 0;
+            int status = NativeMethods.WinVerifyTrust(IntPtr.Zero, ActionGenericVerifyV2, ref data);
+            stateOpen = data.StateData != IntPtr.Zero;
+            if (stateOpen)
+            {
+                signer = ReadSigner(data.StateData);
+            }
+
+            return status;
         }
         finally
         {
+            if (stateOpen)
+            {
+                data.StateAction = NativeMethods.WtdStateActionClose;
+                _ = NativeMethods.WinVerifyTrust(IntPtr.Zero, ActionGenericVerifyV2, ref data);
+            }
+
             Marshal.FreeHGlobal(fileInfoPointer);
             Marshal.FreeCoTaskMem(pathPointer);
         }
     }
+
+    /// <summary>
+    /// The primary signer's chain from <c>WinVerifyTrust</c>'s provider state: <c>CRYPT_PROVIDER_SGNR.csCertChain</c> (offset
+    /// 12: DWORD <c>cbStruct</c>, then the 8-byte <c>FILETIME</c>) and the leaf <c>CRYPT_PROVIDER_CERT.pCert</c> (DWORD
+    /// <c>cbStruct</c>, then the pointer at pointer alignment). Null when any part is missing or unreadable.
+    /// </summary>
+    private static VerifiedSigner? ReadSigner(IntPtr stateData)
+    {
+        try
+        {
+            IntPtr provider = NativeMethods.WTHelperProvDataFromStateData(stateData);
+            IntPtr primary = provider == IntPtr.Zero ? IntPtr.Zero : NativeMethods.WTHelperGetProvSignerFromChain(provider, 0, false, 0);
+            if (primary == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            int chainLength = Marshal.ReadInt32(primary, 12);
+            IntPtr leaf = NativeMethods.WTHelperGetProvCertFromChain(primary, 0);
+            IntPtr context = leaf == IntPtr.Zero ? IntPtr.Zero : Marshal.ReadIntPtr(leaf, IntPtr.Size);
+            if (chainLength <= 0 || context == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            using X509Certificate2 certificate = new(context);
+            byte[] subjectPublicKeyInfo = certificate.PublicKey.ExportSubjectPublicKeyInfo();
+            return new(chainLength, Convert.ToHexString(SHA256.HashData(subjectPublicKeyInfo)));
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record VerifiedSigner(int ChainLength, string SubjectPublicKeyInfoSha256);
 }
 
 internal static class NativeMethods
@@ -984,7 +1100,8 @@ internal static class NativeMethods
     internal const uint WtdUiNone = 2;
     internal const uint WtdRevokeNone = 0;
     internal const uint WtdChoiceFile = 1;
-    internal const uint WtdStateActionIgnore = 0;
+    internal const uint WtdStateActionVerify = 1;
+    internal const uint WtdStateActionClose = 2;
     internal const uint WtdCacheOnlyUrlRetrieval = 0x00001000;
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint TokenQuery = 0x0008;
@@ -1092,6 +1209,22 @@ internal static class NativeMethods
         IntPtr windowHandle,
         in Guid actionId,
         ref WinTrustData trustData);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static extern IntPtr WTHelperProvDataFromStateData(IntPtr stateData);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static extern IntPtr WTHelperGetProvSignerFromChain(
+        IntPtr providerData,
+        uint signerIndex,
+        [MarshalAs(UnmanagedType.Bool)] bool counterSigner,
+        uint counterSignerIndex);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static extern IntPtr WTHelperGetProvCertFromChain(IntPtr signer, uint certificateIndex);
 
     internal static bool TryGetProcessIdentity(
         int processId,

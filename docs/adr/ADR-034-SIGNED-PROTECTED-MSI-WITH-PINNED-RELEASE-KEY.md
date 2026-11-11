@@ -151,6 +151,15 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
 1. **Backup key:** "Agreed": an offline backup key with its pin compiled in from the start.
 2. **Key storage:** "I owned a Yubikey": the primary key lives on the owner's YubiKey (slot 9c); the backup is a password-protected PFX on two removable drives.
 
+## Implementation notes
+
+### Build order step 2a — pinned signature check (2026-11-11)
+
+- `ReleaseSigningPins` holds the two compiled pins (primary, backup): the SHA-256 of each certificate's DER SubjectPublicKeyInfo, as 64 uppercase hex characters. Both are empty until the owner's key session creates the keys; an empty pin matches nothing, so no file passes the pinned check yet.
+- `AuthenticodeIdentity.TryReadPinnedSigner` implements section 3 steps 1–3: `WinVerifyTrust` (no UI, no revocation, cache-only URL retrieval, as before) must return success or exactly `CERT_E_UNTRUSTEDROOT`; the signer is read from the same state data before it is closed; the chain must have exactly one certificate; its key hash must equal a compiled pin (constant-time compare). `HaveSamePinnedSigner` is step 4.
+- **Transition (deliberate):** the pre-launch check and both peer checks accept a pair that carries the same compiled pin, **or** a pair that passes the existing ADR-018 rule (trusted by Windows, same raw certificate). The second branch keeps the owner's ADR-022 test install working until the MSI replaces it; step 7 removes it together with the owner-only reader. Accepting the union adds nothing an attacker can use: with no pins compiled the new branch accepts nothing, and the old branch is unchanged.
+- Tests: `PinnedReleaseSignatureTests` (Windows CI signs real PE copies with two throwaway self-signed keys that are never trusted, and proves the five section 3 cases plus same-pin pairing) and architecture `ReleaseSigningPinBoundaryTests` (pins are constants, the status and chain rules, and every production caller uses the compiled pins).
+
 ## Reconsider when
 
 - The owner chooses a publicly trusted certificate, or SignPath Foundation accepts the project. A public certificate can then be added as a further accepted pin.
