@@ -263,3 +263,33 @@ The owner turned trusted sources on, refreshed package sources, and opened ripgr
 ### G9-T4 (2026-11-11, about 10:38Z): Success reported by PC Steward
 
 The owner pressed **Update ripgrep** within the check window. **Exactly one UAC prompt** appeared, confirmed by the owner. Result dialog: "Package updated. Updated: the target version was verified after the update. Verification: the target version was detected after the update." An independent read-only post-check (`G9T4` lines) follows below.
+
+### G9-T4 post-check (2026-11-11, about 10:40Z; read-only, non-elevated): PASS
+
+```text
+G9T4 choco-list ripgrep|15.2.0
+G9T4 lib-nupkg 3421805 8B17A4FE60A65D553F2FDE39DCA001CB0543107D409B849B21BFDA5AADEBFBF7
+G9T4 lib-nupkg-is-reviewed-15.2.0 True
+G9T4 rg-exe-count 1
+G9T4 rg-exe ripgrep-15.2.0-x86_64-pc-windows-msvc -> ripgrep 15.2.0 (rev e89fff89ac)
+G9T4 shim -> ripgrep 15.2.0 (rev e89fff89ac)
+G9T4 residue none store ripgrep.14.1.0,ripgrep.15.2.0
+G9T4 release matched=56/56 changed=0 missing=0 extra=0
+G9T4 winget-rg-still-present True
+G9T4 RESULT PASS
+```
+
+The installed package is byte-identical to the reviewed 15.2.0 nupkg (G9 plan §12). The old 14.1.0 extraction is gone, there is no `lib-bkp` or `lib-bad` residue, and Chocolatey's 2.7.5 release files are unchanged. The `.chocolatey` store keeps both version folders, which is Chocolatey's normal behaviour. The owner's WinGet copy is untouched.
+
+### G9 package-route residuals
+
+| # | Residual | Result | Basis |
+|---|---|---|---|
+| P1 | `7z.exe` / `7z.dll` load while the helper holds them read-share | **Closed** | On the package route, `ChocolateyHeldClientBinding` holds the engine and every `helpers`/`tools` file read-share until the last launch exits; it has no unheld path. The 15.2.0 script's `Get-ChocolateyUnzip` extracted the embedded zip (the 15.2.0 `rg.exe` is present and runs), which in 2.7.5 goes through the bundled `7z.exe`. |
+| P2 | PowerShell reads of held `helpers` files | **Closed** | Same holds; the package script ran under `powershellHost`, which imports `chocolateyInstaller.psm1` and the helper functions it called. |
+| P3 | The elevated helper launches `choco.exe` while holding it | **Closed** | The binding launches only its held engine path; the upgrade ran and exited successfully. |
+| P4 | ADR-025 stages C, D and Launch on the real client, installed-state outcome, verification before Success | **Closed** | One reviewed upgrade with exactly one UAC prompt; PC Steward reported Success only after "the target version was verified after the update"; the independent post-check agrees (15.2.0, reviewed bytes, no residue). |
+
+**Limit of this evidence.** P1–P3 are shown by a successful real run on a path that has no unheld variant, not by a handle-level trace during the run. Any later change that adds a fallback to the binding reopens them. CR1–CR3 (client route) stay deferred until a second reviewed Chocolatey release exists.
+
+**What this unlocks.** The compiled package allowlist (`ChocolateyPackageUpdateAdmission.AdmittedPackageId = "ripgrep"`, addendum C1a) may now be widened, but only in its own reviewed commit, as an owner decision. Optional cleanup (G9-T5): `choco uninstall ripgrep` in an administrator window puts the WinGet copy first on PATH again.
