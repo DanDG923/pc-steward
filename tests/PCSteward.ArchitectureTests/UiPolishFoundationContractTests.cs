@@ -27,7 +27,8 @@ public sealed class UiPolishFoundationContractTests
         // Both hosts (the shell's page host and the bare host) fit the column to their width; the shell re-fits after each page.
         StringAssert.Contains(window, "StewardVisuals.KeepPageColumnFitted(pageHost);");
         StringAssert.Contains(window, "StewardVisuals.KeepPageColumnFitted(host);");
-        StringAssert.Contains(window, "pageHost.Content = page;\n        StewardVisuals.FitPageColumn(pageHost);");
+        // Windows checkouts use CRLF, so compare the two consecutive lines without depending on the line ending.
+        StringAssert.Contains(window.Replace("\r\n", "\n", StringComparison.Ordinal), "pageHost.Content = page;\n        StewardVisuals.FitPageColumn(pageHost);");
         string presentation = Desktop("StewardPresentation.cs");
         StringAssert.Contains(Between(presentation, "public static void FitPageColumn(", "public static void KeepPageColumnFitted("), "page.Width = Math.Min(host.ActualWidth, page.MaxWidth);");
         StringAssert.Contains(presentation, "public const double PageMaxWidth = 1000;");
