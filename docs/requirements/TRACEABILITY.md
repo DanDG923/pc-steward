@@ -1,3 +1,11 @@
+# Signed protected install — ADR-034 proposed (design only)
+
+`FR-UPD-04`, `FR-UPD-15`, `FR-DAT-12`, `AC-UPD-03–05`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) (Proposed), ADR-002, ADR-018, ADR-022, ADR-033.
+
+- Design only: a per-machine MSI with no custom actions, an offline pinned release key and backup key, a pinned signature check amending ADR-018, a release capability reader, and the updater hand-off through a typed helper operation.
+- No code, tests, scripts or host steps change. ADR-018's accepted rules and the ADR-022 test route remain in force until ADR-034 is accepted and its follow-up tests, security review and host evidence pass.
+- Not claimed: any implementation, test evidence or acceptance.
+
 # UI polish Phase 4 — Installed apps, Activity, Decisions, Settings, Data & reset and About
 
 `FR-UI-01/03/05`, `FR-HIS-01–03/05`, `FR-POL-01–05`, `FR-DAT-01/03`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets T-Installed, T-Activity, T-Decisions, T-Settings, T-Data and T-About, 2026-11-11).
