@@ -5,7 +5,7 @@ namespace PCSteward.ArchitectureTests;
 /// <summary>
 /// ADR-034 §2 and §5: the release key script, the release-payload workflow and the release signing script. No release
 /// script touches a Windows trust store. The primary key is made on the YubiKey (slot 9c, PIN and touch for every
-/// signature) and never replaces an existing slot; the backup key goes to two removable drives and is deleted from the PC.
+/// signature) and never replaces an existing slot; the backup key goes to one or two removable drives (a second copy can be added later) and is deleted from the PC.
 /// The payload is built on demand from a commit with both pins, and the signing script checks the run, the artefact digest,
 /// its own commit and the compiled pins before it signs.
 /// </summary>
@@ -41,12 +41,25 @@ public sealed class ReleaseKeyScriptBoundaryTests
         // Exactly one -DeleteKey: the backup key leaving the personal store. Card certificates are removed without it.
         Assert.AreEqual(1, Regex.Count(keys, "-DeleteKey"));
         StringAssert.Contains(keys, "Remove-Item -LiteralPath ('Cert:\\CurrentUser\\My\\' + $created.Thumbprint) -DeleteKey");
-        // The PFX goes only to the two removable drives, never overwrites, and needs a 12-character password.
+        // The PFX goes only to removable drives, never overwrites, and needs a 12-character password.
         Assert.AreEqual(1, Regex.Count(keys, "Export-PfxCertificate"));
         StringAssert.Contains(keys, "-FilePath $target -Password $password -CryptoAlgorithmOption AES256_SHA256");
         StringAssert.Contains(keys, "$info.DriveType -ne [IO.DriveType]::Removable");
         StringAssert.Contains(keys, "This script never overwrites a backup key.");
         StringAssert.Contains(keys, "if ($length -lt 12)");
+        // One or two drives now (owner, 2026-11-11); BackupCopy adds the second copy later. The copy never overwrites, is
+        // written only after the source opens and carries the backup pin, and is compared byte for byte and checked again.
+        StringAssert.Contains(keys, "if ($drives.Count -lt 1 -or $drives.Count -gt 2 -or $drives.Count -ne @($BackupDrives).Count)");
+        StringAssert.Contains(keys, "if ($from -ieq $to) { throw");
+        StringAssert.Contains(keys, "[IO.FileMode]::CreateNew");
+        Assert.AreEqual(1, Regex.Count(keys, @"\[IO\.FileStream\]::new\("), "the copy is the only file the script writes itself");
+        int sourceCheck = keys.IndexOf("Test-PCStewardBackupPfx $bytes $password $expected $source", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, sourceCheck);
+        Assert.IsLessThan(keys.IndexOf("[IO.FileMode]::CreateNew", StringComparison.Ordinal), sourceCheck, "the source is checked before the copy is written");
+        StringAssert.Contains(keys, "if (!$same) { throw \"The copy on $target differs from $source.\" }");
+        StringAssert.Contains(keys, "Test-PCStewardBackupPfx $written $password $expected $target");
+        StringAssert.Contains(keys, "if ($expected -and $expected -cne $BackupPin) { throw");
+        StringAssert.Contains(keys, "[Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)");
         // The two passwords are compared in unmanaged memory that is zeroed; neither becomes a managed string.
         Assert.IsFalse(keys.Contains("PtrToStringBSTR", StringComparison.Ordinal));
         Assert.AreEqual(2, Regex.Count(keys, "ZeroFreeBSTR"));
