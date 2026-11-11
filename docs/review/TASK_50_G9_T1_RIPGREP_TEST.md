@@ -25,7 +25,7 @@ What the paste does, in order, stopping at the first problem:
 
 1. Checks the window is elevated, `ChocolateyInstall` is the native root, and neither `choco` nor PC Steward is running.
 2. Refuses when a runtime code-loading name (`DOTNET_`, `COMPlus_`, `CORECLR_`, `COR_`, `APPDOMAIN_MANAGER_`, minus the two SDK-only names the guard allows) is set in the process, `HKCU\Environment`, `HKCU\Volatile Environment` (and its session subkeys) or the machine environment (security review M1: Chocolatey reloads these for its .NET children).
-3. Refuses when ripgrep is already present: `lib\ripgrep`, any `ripgrep*` in `lib-bkp`, `lib-bad` or `.chocolatey`, or `rg` on PATH (G9 criteria 7 and 9).
+3. Refuses when ripgrep is already present: `lib\ripgrep`, any `ripgrep*` in `lib-bkp`, `lib-bad` or `.chocolatey`, or an `rg` on PATH other than the owner's WinGet copy (G9 criteria 7 and 9; the WinGet exception is the owner's decision in §6).
 4. Compares `choco.exe`, `choco.exe.manifest` and every file under `helpers` and `tools` with the 56 pinned 2.7.5 entries (`ChocolateyReleaseManifest2_7_5`): expects `matched=56/56 changed=0 missing=0 extra=0`, no reparse points.
 5. Creates `%ProgramData%\PCSteward-G9T1` (SYSTEM and Administrators only), downloads the 14.1.0 nupkg into it and checks length 3,928,942 and the §12 SHA-256.
 6. Runs `choco install ripgrep --version 14.1.0 --source <that folder> --yes --no-progress --execution-timeout 300`.
@@ -38,10 +38,10 @@ What the paste does, in order, stopping at the first problem:
 
 **Paste-back.** Only the lines that start with `G9T1`. They carry no personal paths.
 
-The paste is in the project files as `task50/g9t1/G9T1-install-ripgrep.ps1.txt` (CRLF). The LF text below has SHA-256 `2AF111D9BAAC70201EC6B5746E3F7459CEEC084F18857875579CDEBF2A9B7E2C`.
+The paste is in the project files as `task50/g9t1/G9T1-install-ripgrep-v2.ps1.txt` (CRLF). The LF text below (revision 2, after the owner decision in §6) has SHA-256 `1150CADD5F875D529C76DAAF0C6CBEB371CA422758BA3ABA506BF9787F223C82`.
 
 ```powershell
-# PC Steward G9-T1: install ripgrep 14.1.0 from hash-checked bytes (run once, in an administrator PowerShell window).
+# PC Steward G9-T1 (v2, WinGet rg kept): install ripgrep 14.1.0 from hash-checked bytes (run once, in an administrator PowerShell window).
 & {
 $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
@@ -150,7 +150,10 @@ if (Test-Path -LiteralPath (Join-Path $root 'lib\ripgrep')) { $present += 'lib' 
 foreach ($p in 'lib-bkp', 'lib-bad') { $q = Join-Path $root $p; if ((Test-Path -LiteralPath $q) -and @(Get-ChildItem -LiteralPath $q -Force -Filter 'ripgrep*').Count -gt 0) { $present += $p } }
 $store = Join-Path $root '.chocolatey'
 if ((Test-Path -LiteralPath $store) -and @(Get-ChildItem -LiteralPath $store -Force -Filter 'ripgrep*').Count -gt 0) { $present += 'store' }
-if (Get-Command 'rg' -ErrorAction SilentlyContinue) { $present += 'rg-on-PATH' }
+$wingetRg = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\rg.exe'
+$otherRg = @(Get-Command 'rg' -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -ne $wingetRg })
+if ($otherRg.Count -gt 0) { $present += 'rg-on-PATH-other-than-WinGet' }
+Write-Output ('G9T1 winget-rg-present ' + (Test-Path -LiteralPath $wingetRg) + ' (kept, owner decision)')
 if ($present.Count -gt 0) { throw ('ripgrep-already-present=' + ($present -join ',')) }
 Write-Output 'G9T1 not-installed-ok'
 # 4. Chocolatey's own files still match the reviewed 2.7.5 release
@@ -188,6 +191,7 @@ Write-Output ('G9T1 lib-nupkg-same-as-reviewed ' + ($lh -eq $reviewedNupkg))
 $exes = @(Get-ChildItem -LiteralPath (Join-Path $lib 'tools') -Recurse -Force -Filter 'rg.exe')
 Write-Output ('G9T1 rg-exe-count ' + $exes.Count + ' shim ' + (Test-Path -LiteralPath (Join-Path $root 'bin\rg.exe')))
 foreach ($p in 'lib-bkp', 'lib-bad') { $q = Join-Path $root $p; if ((Test-Path -LiteralPath $q) -and @(Get-ChildItem -LiteralPath $q -Force -Filter 'ripgrep*').Count -gt 0) { throw ('ripgrep-left-in-' + $p) } }
+Write-Output ('G9T1 rg-on-PATH-first-is-chocolatey ' + ((@(Get-Command 'rg' -All -ErrorAction SilentlyContinue)[0]).Source -eq (Join-Path $root 'bin\rg.exe')))
 $after = Test-Release $root
 Write-Output ('G9T1 release-after ' + $after)
 if ($after -ne $clean) { throw 'release-files-changed-during-install' }
@@ -220,4 +224,10 @@ As G9 plan §8. A STOP in G9-T1 is not retried without a new paste. A G9-T4 fail
 
 ## 6. Results
 
-(none yet)
+### G9-T1 run 1 (2026-11-11, about 10:31Z): STOP, nothing changed
+
+`G9T1 window-ok`, `G9T1 environment-ok`, then `G9T1 STOP ripgrep-already-present=rg-on-PATH`. The run stopped at check 3, before the release check, the work folder, the download or any install. The owner's follow-up showed one `rg` on PATH: the WinGet links folder under the owner's local application data, `ripgrep 15.2.0`. It was installed through WinGet after criterion 7 was confirmed on 2026-11-06.
+
+### Owner decision (2026-11-11, 10:32Z): keep the WinGet copy and test ripgrep anyway
+
+Options offered: keep it and test ripgrep (recommended), remove the WinGet copy first, or switch to fd (which needs an allowlist code change, review and a redeploy). The owner chose **keep it**. Consequences, as stated on the card: while the test runs, Chocolatey's `bin` shim comes first on PATH (machine PATH before user PATH), so `rg` is 14.1.0 and then 15.2.0, from the same upstream bytes. The WinGet copy is untouched, and `choco uninstall ripgrep` puts it back first on PATH. Paste revision 2 narrows check 3 to allow only that WinGet copy, and adds two information lines.
