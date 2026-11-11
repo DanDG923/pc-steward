@@ -93,6 +93,14 @@ $validation = @(& $windowsPowerShell @('-NoProfile', '-NonInteractive', '-File',
 if ($LASTEXITCODE -ne 0 -or (ConvertFrom-Json ([string]($validation | Where-Object { $_ } | Select-Object -Last 1))).validation -cne 'Pass') { throw 'The payload does not match its candidate manifest.' }
 $pins = @([string]$record.pins.primary, [string]$record.pins.backup)
 if (@($pins | Where-Object { $_ -cmatch '\A[0-9A-F]{64}\z' }).Count -ne 2 -or $pins[0] -ceq $pins[1]) { throw 'The payload does not carry two distinct release pins.' }
+# They must be the pins committed at the run's commit, read from this clean clone, not only what the payload record says.
+$pinsSource = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'src\PCSteward.Execution\ReleaseSigningPins.cs'))
+$committedPins = @(foreach ($name in @('Primary', 'Backup')) {
+    $found = [regex]::Matches($pinsSource, 'internal const string ' + $name + ' = "([0-9A-F]{64})";')
+    if ($found.Count -ne 1) { throw "ReleaseSigningPins.cs at this commit has no single $name pin." }
+    $found[0].Groups[1].Value
+})
+if ($committedPins[0] -cne $pins[0] -or $committedPins[1] -cne $pins[1]) { throw 'The payload record pins differ from ReleaseSigningPins.cs at the run commit.' }
 # The pins must be compiled into the payload's Execution assembly (its constants are stored as UTF-16).
 $execution = [IO.File]::ReadAllBytes((Join-Path $candidate 'payload\PCSteward.Execution.dll'))
 $executionText = [Text.Encoding]::Unicode.GetString($execution, 0, $execution.Length - ($execution.Length % 2)) + [Text.Encoding]::Unicode.GetString($execution, 1, ($execution.Length - 1) - (($execution.Length - 1) % 2))
