@@ -52,10 +52,10 @@ public sealed partial class MainWindow
         if (activityHistoryUnavailable)
             panel.Children.Add(StewardVisuals.InformationBanner("Update history unavailable", "PC Steward couldn't read its recorded update history just now, so restart and attention counts may be incomplete. Nothing was changed.", "neutral"));
 
-        // "At a glance": Settings-style rows, each one button that opens a filtered page, in one or two columns.
+        // "At a glance": Settings-style rows, each one button that opens a filtered page, in one to three columns (three on a wide window).
         StackPanel glance = new() { Spacing = StewardSpacing.Small };
         glance.Children.Add(SectionHeading("At a glance"));
-        glance.Children.Add(StewardVisuals.ResponsiveColumns([.. home.Rows.Select(HomeRowButton)], 380, StewardSpacing.XSmall));
+        glance.Children.Add(StewardVisuals.ResponsiveColumns([.. home.Rows.Select(HomeRowButton)], 380, StewardSpacing.XSmall, maxColumns: 3));
         panel.Children.Add(glance);
         panel.Children.Add(StewardVisuals.IconLine("\uEA18", HomePresenter.Reassurance, styleKey: "StewardCaptionStyle"));
         return panel;

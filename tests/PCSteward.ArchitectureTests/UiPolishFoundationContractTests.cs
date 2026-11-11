@@ -13,7 +13,7 @@ namespace PCSteward.ArchitectureTests;
 public sealed class UiPolishFoundationContractTests
 {
     [TestMethod]
-    [Description("UI polish Phase 1 (plan root cause 2): every page is one left-aligned column, at most 1000 epx of content, fitted to its host.")]
+    [Description("UI polish Phase 1 (plan root cause 2): every page is one left-aligned column, at most 1600 epx of content (phase 5), fitted to its host.")]
     public void PagesAreOneLeftAlignedColumnBesideTheNavigation()
     {
         string window = DesktopWindowSource.Read(Root());
@@ -31,10 +31,23 @@ public sealed class UiPolishFoundationContractTests
         StringAssert.Contains(window.Replace("\r\n", "\n", StringComparison.Ordinal), "pageHost.Content = page;\n        StewardVisuals.FitPageColumn(pageHost);");
         string presentation = Desktop("StewardPresentation.cs");
         StringAssert.Contains(Between(presentation, "public static void FitPageColumn(", "public static void KeepPageColumnFitted("), "page.Width = Math.Min(host.ActualWidth, page.MaxWidth);");
-        StringAssert.Contains(presentation, "public const double PageMaxWidth = 1000;");
+        StringAssert.Contains(presentation, "public const double PageMaxWidth = 1600;");
         StringAssert.Contains(presentation, "public static readonly Thickness PagePadding = new(28, 12, 40, 40);");
         StringAssert.Contains(Desktop("Resources/ThemeResources.xaml"), "<Thickness x:Key=\"StewardPagePadding\">28,12,40,40</Thickness>");
-        StringAssert.Contains(Desktop("Resources/ThemeResources.xaml"), "<x:Double x:Key=\"StewardPageMaxWidth\">1000</x:Double>");
+        StringAssert.Contains(Desktop("Resources/ThemeResources.xaml"), "<x:Double x:Key=\"StewardPageMaxWidth\">1600</x:Double>");
+    }
+
+    [TestMethod]
+    [Description("UI polish phase 5 (owner feedback on a maximised window): card grids use as many columns as fit, so a wide window is not half empty.")]
+    public void WideWindowsUseMoreColumns()
+    {
+        string presentation = Desktop("StewardPresentation.cs");
+        string columns = Between(presentation, "public static Grid ResponsiveColumns(", "public static Grid IconLine(");
+        StringAssert.Contains(columns, "int maxColumns = 2");
+        StringAssert.Contains(columns, "Math.Clamp(Math.Floor((width + spacing) / (minColumnWidth + spacing)), 1, maxColumns)");
+        StringAssert.Contains(columns, "grid.ColumnDefinitions.Clear();");
+        StringAssert.Contains(Desktop("MainWindow.Home.cs"), "ResponsiveColumns([.. home.Rows.Select(HomeRowButton)], 380, StewardSpacing.XSmall, maxColumns: 3)");
+        StringAssert.Contains(Desktop("MainWindow.Decisions.cs"), "ResponsiveColumns(cards, 380, StewardSpacing.XSmall, maxColumns: 4)");
     }
 
     [TestMethod]
