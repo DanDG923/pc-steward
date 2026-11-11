@@ -1,3 +1,14 @@
+# UI polish Phase 2 — Home
+
+`FR-UI-01/05/06`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets T-Home and T-Home-Ready, 2026-11-11).
+
+- `HomeActivityDecisionsPresentationTests.HomeHasOneStatusSentenceCountsAndRowsThatOpenFilteredPages`: one status sentence, every FR-UI-01 count once (rows), rows open filtered pages and are named label-first, failed and restart info bars name the apps and open a filter that contains them (FR-UI-06), Restart required stays Information.
+- `HomeActivityDecisionsPresentationTests.HomeWhenLocalOnlyOffersToTurnOnUpdateChecksCalmly`: local-only primary action "Turn on update checks…", scan-only secondary, neutral facts and rows, the target's row order.
+- `HomeActivityDecisionsPresentationTests.HomeWithoutInventoryOrReadyUpdatesIsHonest`: no inventory; sources on but unchecked never reads as all clear; nothing ready makes "Check for updates" primary (FR-UI-05).
+- Architecture `UiRedesignContractTests.DecisionsAreReversibleAndHomeNeverStartsAnUpdate` and `HomeBindsItsReviewFixesAndRowNamesHaveAnAutomationPeer`, `UiAccessibilityContractTests` access keys (updated deliberately): Home never reviews, approves or runs an update; "Turn on update checks…" reaches only `ChangeWinGetTrustedSourcesAsync(true)`, whose consent dialog defaults to Keep local-only and starts no scan or check.
+- "Unmanaged" is shown as "No update source" (`StatusVocabulary.NoUpdateSourceLabel`); `DesktopFoundationsPresentationTests.StatusVocabularyUsesSpecLabelsWithGlyphAndText`.
+- Not claimed: the runtime look against the targets (owner-host check in polish phase 5).
+
 # UI polish Phase 1 — layout and colour foundations
 
 `FR-UI-01/02/05`, `AC-UX-01–04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (approved targets, 2026-11-11).

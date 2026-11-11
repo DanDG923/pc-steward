@@ -171,9 +171,9 @@ public sealed partial class UiAccessibilityContractTests
 
         // Access keys on the primary commands; the review's confirm button has none and no accelerator.
         StringAssert.Contains(Between(source, "private void BuildWindowChrome()", "private void AddWindowShortcuts("), "titleBarBack.AccessKey = \"B\";");
-        string home = Between(source, "private StackPanel BuildHomePage()", "private Button HomeTileButton(");
-        StringAssert.Contains(home, "review.AccessKey = \"R\";");
-        StringAssert.Contains(home, "AccessKey = AccessKeyFor(home.SecondaryLabel)");
+        // UI polish phase 2: every Home action has an access key from its label ("Review updates" → R, "Turn on update checks…" → T).
+        string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
+        StringAssert.Contains(home, "AccessKey = AccessKeyFor(action.Label)");
         StringAssert.Contains(Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions"), "scan.AccessKey = \"S\";");
         StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "review.AccessKey = \"R\";");
         StringAssert.Contains(Between(source, "private StackPanel BuildSettingsPage()", "private async Task ApplyScheduleAsync("), "saveSchedule.AccessKey = \"S\";");

@@ -756,11 +756,23 @@ public sealed class UiRedesignContractTests
 
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         StringAssert.Contains(home, "HomePresenter.Build(new HomeInputs(");
-        StringAssert.Contains(home, "Button button = new()");
-        StringAssert.Contains(home, "AutomationProperties.SetName(button, tile.AccessibleName);");
-        StringAssert.Contains(home, "check.Click += async (_, _) => await CheckForUpdatesAsync();");
-        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys." })
-            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update: {authority}");
+        // UI polish phase 2: the "At a glance" rows are real buttons named by the presenter.
+        StringAssert.Contains(home, "Button button = StewardVisuals.NavigationRow(");
+        StringAssert.Contains(home, "AutomationProperties.SetName(button, row.AccessibleName);");
+        // Each action does only its own thing: Review opens Updates, Turn on opens the existing consent, Check and Scan run the read-only scan.
+        string actions = Between(home, "private Button HomeActionButton(", "private InfoBar HomeNoticeBar(");
+        StringAssert.Contains(actions, "button.Click += (_, _) => NavigateTo(ShellPage.Updates);");
+        StringAssert.Contains(actions, "button.Click += async (_, _) => await ChangeWinGetTrustedSourcesAsync(true);");
+        StringAssert.Contains(actions, "button.Click += async (_, _) => await CheckForUpdatesAsync();");
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys.", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "ChangeWinGetTrustedSourcesAsync(false)" })
+            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update, and never changes a source without its consent: {authority}");
+        // Turning sources on from Home goes through the one consent path: the disclosure dialog, Keep local-only as the default.
+        string consent = Between(source, "private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)", "private async Task ChangeConnectorAsync(");
+        StringAssert.Contains(consent, "PrimaryButtonText = \"I approve\"");
+        StringAssert.Contains(consent, "DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(consent, "if (!approved) { Render(); return; }");
+        foreach (string started in new[] { "StartScanAsync", "CheckUpdateSourcesAsync", "CheckForUpdatesAsync" })
+            Assert.IsFalse(consent.Contains(started, StringComparison.Ordinal), $"turning sources on starts nothing: {started}");
         string check = Between(source, "private async Task CheckForUpdatesAsync()", "private async Task StartScanAsync()");
         StringAssert.Contains(check, "if (HasActiveOperation) { Render(); return; }");
         StringAssert.Contains(check, "await StartScanAsync();");
@@ -768,7 +780,8 @@ public sealed class UiRedesignContractTests
         foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "Elevat", "runas" })
             Assert.IsFalse(check.Contains(authority, StringComparison.OrdinalIgnoreCase), authority);
         string homePresenter = ApplicationSource("HomePresentation.cs");
-        StringAssert.Contains(homePresenter, "Inventoried only: no approved update source is mapped. This is not a safety warning.");
+        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "This is not a safety warning.");
+        Assert.IsFalse(homePresenter.Contains("\"Unmanaged\"", StringComparison.Ordinal), "Home says \"No update source\", never \"Unmanaged\"");
         StringAssert.Contains(homePresenter, "UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now).Ready.Count", "Home's ready count is the Updates Ready group with nothing selected");
         Assert.IsFalse(homePresenter.Contains("unsafe", StringComparison.OrdinalIgnoreCase));
     }
@@ -783,20 +796,24 @@ public sealed class UiRedesignContractTests
     public void HomeBindsItsReviewFixesAndRowNamesHaveAnAutomationPeer()
     {
         string source = DesktopSource("MainWindow.cs");
-        string home = Between(source, "private StackPanel BuildHomePage()", "private Button HomeTileButton(");
-        StringAssert.Contains(home, ": home.SecondaryLabel");
-        StringAssert.Contains(home, "home.SecondaryCaption");
-        StringAssert.Contains(home, "AutomationProperties.SetName(openActivity, home.AttentionLinkAccessibleName);");
-        StringAssert.Contains(home, "ActivityFilter attentionFilter = home.AttentionActivityFilter;");
-        Assert.IsFalse(home.Contains("activityFilter = ActivityFilter.Problems;", StringComparison.Ordinal), "the attention link's filter comes from the presenter");
-        StringAssert.Contains(home, "AutomationProperties.SetName(appName, item.AccessibleName);");
-        Assert.IsFalse(home.Contains("AutomationProperties.SetName(line, item.AccessibleName);", StringComparison.Ordinal), "a Grid has no automation peer");
+        string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
+        // UI polish phase 2: the actions come from the presenter (scan-only "Scan again" when sources are off) and their names and
+        // help text are bound, never hard-coded; info bars take their action name and Activity filter from the presenter.
+        StringAssert.Contains(home, "HomeActionButton(home.Primary, isPrimary: true)");
+        StringAssert.Contains(home, "if (home.Secondary is { } secondary) actions.Children.Add(HomeActionButton(secondary, isPrimary: false));");
+        StringAssert.Contains(home, "AutomationProperties.SetName(button, action.AccessibleName);");
+        StringAssert.Contains(home, "AutomationProperties.SetHelpText(button, action.HelpText);");
+        StringAssert.Contains(home, "AutomationProperties.SetName(open, notice.ActionAccessibleName);");
+        StringAssert.Contains(home, "ActivityFilter filter = notice.ActivityFilter;");
+        Assert.IsFalse(home.Contains("activityFilter = ActivityFilter.", StringComparison.Ordinal), "every Activity filter Home opens comes from the presenter");
+        // Names sit on elements with an automation peer (a Button or HyperlinkButton), never on a Grid or Border.
+        Assert.IsFalse(home.Contains("AutomationProperties.SetName(card,", StringComparison.Ordinal) || home.Contains("AutomationProperties.SetName(copy,", StringComparison.Ordinal), "a Grid has no automation peer");
         string row = Between(source, "private static Border ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection(");
         StringAssert.Contains(row, "AutomationProperties.SetName(title, entry.AccessibleName);");
         Assert.IsFalse(row.Contains("AutomationProperties.SetName(row,", StringComparison.Ordinal), "a Border has no automation peer");
 
         string homePresenter = ApplicationSource("HomePresentation.cs");
-        StringAssert.Contains(homePresenter, "string secondary = inputs.SourcesEnabled ? \"Check for updates\" : \"Scan again\";");
+        StringAssert.Contains(homePresenter, "secondary = new(HomeActionKind.ScanAgain, \"Scan again\"");
         StringAssert.Contains(homePresenter, "public static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(15);");
         string activity = ApplicationSource("ActivityPresentation.cs");
         StringAssert.Contains(activity, "VersionComparison.Compare(new VersionComparisonRequest(installedVersion, job.TargetVersion, AllowPrereleaseCandidate: true))", "resolution uses the domain comparer");

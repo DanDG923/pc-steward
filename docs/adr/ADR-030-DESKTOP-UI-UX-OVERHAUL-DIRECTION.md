@@ -103,3 +103,9 @@ Validation follows the phased plan in [Task 73](../review/TASK_73_UI_UX_OVERHAUL
   - Controls: the Windows App SDK defaults (32 epx buttons and inputs). Shared pieces for the later phases: a Settings-style row card, a navigation row (one button), an icon well, the standard `InfoBar` for page messages, and pill status chips.
   - Code: `MainWindow.cs` is split into one partial file per page (`MainWindow.<Area>.cs`) with no behaviour change. This is the first part of the split this ADR's consequences call for; pages are still built in code.
   - Not claimed: the runtime look. It is checked against the targets on the owner's PC in polish phase 5.
+- **UI polish Phase 2: Home.** No safety rule changes.
+  - Home is one status card (round icon, one sentence, facts with icons, actions on the right, under the sentence when narrow), then "At a glance" rows in one or two columns, then a footer line saying scanning and checking never ask for administrator permission.
+  - The primary action follows the state: "Turn on update checks…" when local-only (the existing consent dialog; turning on starts nothing), "Review updates" when updates are ready (it only opens Updates), otherwise "Check for updates".
+  - Failed or unverified updates and pending restarts are info bars at the top that open Activity filtered to them, instead of a tile and a separate attention card. Local-only, an owner's choice, is a neutral fact, never a warning.
+  - The status `Unmanaged` is shown as "No update source"; its stored key is unchanged. The Unmanaged tile is merged into the Installed apps row.
+  - The visible caption under the old buttons ("Scans this PC, then checks your enabled update sources") is now the button's tooltip and help text; the scan results link moved beside the scan time.

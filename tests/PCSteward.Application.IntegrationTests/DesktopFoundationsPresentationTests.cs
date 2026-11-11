@@ -165,7 +165,7 @@ public sealed class DesktopFoundationsPresentationTests
         Assert.AreEqual("Update available — verified", StatusVocabulary.For(UpdateIntelligenceStatus.VerifiedUpdate).Label);
         Assert.AreEqual("Update available — review", StatusVocabulary.For(UpdateIntelligenceStatus.ReviewRequired).Label);
         Assert.AreEqual("Source unavailable", StatusVocabulary.For(UpdateIntelligenceStatus.FailedUnavailable).Label);
-        Assert.AreEqual("Unmanaged", StatusVocabulary.For(UpdateIntelligenceStatus.Unmanaged).Label);
+        Assert.AreEqual("No update source", StatusVocabulary.For(UpdateIntelligenceStatus.Unmanaged).Label, "UI polish phase 2: owner-approved wording");
         Assert.AreEqual("Pinned", StatusVocabulary.For(UpdateIntelligenceStatus.Pinned).Label);
         Assert.AreEqual("Ignored", StatusVocabulary.For(UpdateIntelligenceStatus.Ignored).Label);
         Assert.AreEqual("Source not checked", StatusVocabulary.For(StatusVocabulary.InstalledKey).Label);
