@@ -462,6 +462,73 @@ internal static class StewardVisuals
         return line;
     }
 
+    /// <summary>
+    /// UI polish phase 3 (approved targets T-Updates-Ready and T-Verify): one card holding a list of rows, separated by thin dividers,
+    /// as in Windows Settings lists. Each row keeps its own controls and names; the card only lays them out.
+    /// </summary>
+    public static Border ListCard(IReadOnlyList<FrameworkElement> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        StackPanel list = new();
+        for (int index = 0; index < rows.Count; index++)
+        {
+            list.Children.Add(new Border
+            {
+                MinHeight = 56,
+                Padding = new Thickness(StewardSpacing.Large, StewardSpacing.Small, StewardSpacing.Large, StewardSpacing.Small),
+                BorderBrush = Brush("StewardBorderBrush"),
+                BorderThickness = new Thickness(0, index == 0 ? 0 : 1, 0, 0),
+                Child = rows[index]
+            });
+        }
+        return new Border { Style = Style("StewardCardStyle"), Padding = new Thickness(0), Child = list };
+    }
+
+    /// <summary>
+    /// UI polish phase 3 (approved target T-Updates-Ready): a 32 epx rounded tile with an app's initials. Decorative: the app's name is
+    /// always shown beside it.
+    /// </summary>
+    public static Border Avatar(string initials)
+    {
+        Border avatar = new()
+        {
+            Width = 32,
+            Height = 32,
+            CornerRadius = new CornerRadius(6),
+            Background = Brush("StewardIconWellBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = initials, Style = Style("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("StewardTextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        };
+        AutomationProperties.SetAccessibilityView(avatar, AccessibilityView.Raw);
+        return avatar;
+    }
+
+    /// <summary>
+    /// UI polish phase 3 (approved target T-Review): a Settings-style expander row — an icon well, a title and one-line description
+    /// in the header, and <paramref name="content"/> when expanded. Collapsed by default; the expander's name is the title and its
+    /// help text the description, so the header reads the same to a screen reader as it looks.
+    /// </summary>
+    public static Expander ExpanderRow(string glyph, string title, string? description, FrameworkElement content)
+    {
+        Grid header = new() { ColumnSpacing = StewardSpacing.Large, Padding = new Thickness(0, StewardSpacing.Small, 0, StewardSpacing.Small) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.Children.Add(IconWell(glyph));
+        StackPanel copy = RowCopy(title, description);
+        Grid.SetColumn(copy, 1);
+        header.Children.Add(copy);
+        Expander expander = new()
+        {
+            Header = header,
+            Content = content,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        AutomationProperties.SetName(expander, title);
+        if (!string.IsNullOrWhiteSpace(description)) AutomationProperties.SetHelpText(expander, description);
+        return expander;
+    }
+
     public static Border EmptyState(string glyph, string title, string message, Button? action = null)
     {
         StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };

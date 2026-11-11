@@ -27,6 +27,8 @@ public sealed class UpdatesAndJobPresentationTests
     private static readonly string[] StepLabels = ["Review", "Update", "Verify"];
     private static readonly int[] StepNumbers = [1, 2, 3];
     private static readonly ReviewRiskKind[] RiskOrder = [ReviewRiskKind.RunningApplication, ReviewRiskKind.Restart, ReviewRiskKind.Administrator];
+    private static readonly string[] SevenZipRecordKeys = ["registry:7zip", "winget:7zip"];
+    private static readonly string[] ShownSevenZipKeys = ["registry:7zip", "user:7zip", "fork:7zip"];
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
 
     [TestMethod]
@@ -64,7 +66,8 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsFalse(page.CanReview);
         Assert.AreEqual("Review selected updates", page.ReviewButtonLabel);
         Assert.IsTrue(page.CanReviewAll);
-        Assert.AreEqual("Review all ready (1)", page.ReviewAllLabel);
+        // UI polish phase 3 (approved target T-Updates-Ready): the review-all button names the one ready app, or counts them.
+        Assert.AreEqual("Review update for App ready", page.ReviewAllLabel);
         CollectionAssert.AreEqual(ReadyKeys, page.ReadyKeys.ToArray(), "Review all ready chooses exactly the Ready group");
         Assert.IsTrue(page.HasAnyRow);
         Assert.AreEqual(decisions[0].Id, page.IgnoredAndSkipped.Single(row => row.StableProductKey == "ignored").DecisionId);
@@ -500,6 +503,139 @@ public sealed class UpdatesAndJobPresentationTests
         navigation.Navigate(ShellPage.Home);
         Assert.IsTrue(navigation.GoBack());
         Assert.AreEqual(ShellPage.Updates, navigation.Current, "Back skips the left update job page");
+    }
+
+    [TestMethod]
+    [Description("UI polish phase 3 (approved target T-Updates-Ready; owner approved 2026-11-11): records of the same app are one row; only its own key can be chosen; anything that differs stays apart.")]
+    public void RecordsOfTheSameAppAreOneRowAndOnlyItsOwnKeyCanBeChosen()
+    {
+        InventoryRow windows = new(Guid.NewGuid(), "7-Zip", "Igor Pavlov", "registry", "Machine", "23.01", "VerifiedUpdate", "Application", [], "registry:7zip");
+        InventoryRow winget = new(Guid.NewGuid(), "7-Zip", "Igor Pavlov", "winget", "Machine", "23.01", "VerifiedUpdate", "Application", [], "winget:7zip");
+        InventoryRow userCopy = new(Guid.NewGuid(), "7-Zip", "Igor Pavlov", "winget", "User", "23.01", "VerifiedUpdate", "Application", [], "user:7zip");
+        InventoryRow otherPackage = new(Guid.NewGuid(), "7-Zip", "Igor Pavlov", "winget", "Machine", "23.01", "VerifiedUpdate", "Application", [], "fork:7zip");
+        Dictionary<string, UpdateDetail> details = new(StringComparer.Ordinal)
+        {
+            ["registry:7zip"] = Detail("registry:7zip", "23.01", "24.08", packageId: "7zip.7zip"),
+            ["winget:7zip"] = Detail("winget:7zip", "23.01", "24.08", packageId: "7zip.7zip"),
+            ["user:7zip"] = Detail("user:7zip", "23.01", "24.08", packageId: "7zip.7zip"),
+            ["fork:7zip"] = Detail("fork:7zip", "23.01", "24.08", packageId: "Fork.7zip")
+        };
+
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build([windows, winget, userCopy, otherPackage], details, true, [], null, Now);
+
+        Assert.HasCount(3, page.Ready, "only the Windows and WinGet records of the same machine-wide package become one row");
+        UpdateRowPresentation sevenZip = page.Ready[0];
+        Assert.AreEqual("registry:7zip", sevenZip.StableProductKey, "the first record keeps its place and its key");
+        CollectionAssert.AreEqual(SevenZipRecordKeys, sevenZip.AllKeys.ToArray());
+        Assert.AreEqual("Found twice (Windows and WinGet)", sevenZip.FoundText);
+        Assert.AreEqual("Igor Pavlov · High confidence match · bigger changes are possible · Found twice (Windows and WinGet)", sevenZip.Summary, "23 to 24 is a major version");
+        Assert.IsNull(page.Ready[1].FoundText, "a different scope is a different install");
+        Assert.IsNull(page.Ready[2].FoundText, "a different package is a different app");
+        CollectionAssert.AreEqual(ShownSevenZipKeys, page.ReadyKeys.ToArray(),
+            "Review all chooses each shown row once, so a duplicate is never reviewed or updated twice");
+        Assert.IsEmpty(UpdatesPagePresenter.Build([windows, winget], details, true, [], ["winget:7zip"], Now).SelectedKeys,
+            "a record shown inside another row can't be chosen on its own");
+
+        // An unknown scope can't bridge two records whose known scopes differ (independent review).
+        InventoryRow unknownScope = windows with { Scope = "Unknown" };
+        InventoryRow machineCopy = winget;
+        InventoryRow userOnly = userCopy with { StableProductKey = "user2:7zip" };
+        Dictionary<string, UpdateDetail> bridged = new(details, StringComparer.Ordinal) { ["user2:7zip"] = Detail("user2:7zip", "23.01", "24.08", packageId: "7zip.7zip") };
+        UpdatesPagePresentation noBridge = UpdatesPagePresenter.Build([unknownScope, machineCopy, userOnly], bridged, true, [], null, Now);
+        Assert.HasCount(2, noBridge.Ready, "the unknown-scope record joins one known install, never both");
+        Assert.IsTrue(noBridge.Ready.All(row => row.AllKeys.Count <= 2));
+        Assert.IsFalse(noBridge.Ready.Any(row => row.AllKeys.Contains("winget:7zip") && row.AllKeys.Contains("user2:7zip")), "Machine and User stay apart");
+
+        // Ignored rows join only when their decisions read the same; Needs review rows only when their reasons match.
+        StableDecision ignoreWindows = new(Guid.NewGuid(), "registry:7zip", "Ignore", "Indefinitely", Now.AddDays(-1));
+        StableDecision ignoreWinget = new(Guid.NewGuid(), "winget:7zip", "Ignore", "Indefinitely", Now.AddDays(-1));
+        UpdatesPagePresentation ignored = UpdatesPagePresenter.Build([windows with { Status = "Ignored" }, winget with { Status = "Ignored" }], details, true, [ignoreWindows, ignoreWinget], null, Now);
+        UpdateRowPresentation ignoredRow = ignored.IgnoredAndSkipped.Single();
+        Assert.AreEqual(ignoreWindows.Id, ignoredRow.DecisionId);
+        Assert.AreEqual(ignoreWinget.Id, ignoredRow.AlsoFound.Single().DecisionId, "Stop ignoring reverses the decision for both records");
+        UpdatesPagePresentation reviews = UpdatesPagePresenter.Build([windows with { Status = "ReviewRequired" }, winget with { Status = "ReviewRequired" }],
+            new Dictionary<string, UpdateDetail>(StringComparer.Ordinal)
+            {
+                ["registry:7zip"] = Detail("registry:7zip", "23.01", "24.08", confidence: "Low"),
+                ["winget:7zip"] = Detail("winget:7zip", "23.01", "24.08", reasons: ["ArchitectureConflict"])
+            }, true, [], null, Now);
+        Assert.HasCount(2, reviews.NeedsReview, "different reasons are never hidden inside one row");
+        StringAssert.StartsWith(reviews.NeedsReview[0].Summary, "Installed 23.01 · WinGet offers 24.08 · ");
+    }
+
+    [TestMethod]
+    [Description("UI polish phase 3 (approved targets T-Updates and T-Updates-Ready; FR-UI-05): the header counts rows and states freshness in words; with checks off it offers the existing source consent.")]
+    public void UpdatesHeaderStatesCountsFreshnessAndOffersTurningOnChecks()
+    {
+        InventoryRow[] rows = [Row("ready", "VerifiedUpdate", "1.0"), Row("other", "VerifiedUpdate", "1.0"), Row("review", "ReviewRequired", "1.0")];
+        Dictionary<string, UpdateDetail> details = new(StringComparer.Ordinal)
+        {
+            ["ready"] = Detail("ready", "1.0", "2.0"),
+            ["other"] = Detail("other", "1.0", "1.1", packageId: "Contoso.Other"),
+            ["review"] = Detail("review", "1.0", "2.0", confidence: "Low")
+        };
+
+        UpdatesPagePresentation off = UpdatesPagePresenter.Build(rows, details, false, [], null, Now);
+        UpdatesPageHeader offHeader = UpdatesPagePresenter.Header(off, false, [], Now);
+        Assert.IsNotNull(offHeader.Notice);
+        Assert.AreEqual("Update checks are off.", offHeader.Notice.Title);
+        Assert.IsTrue(offHeader.Notice.OffersTurnOnUpdateChecks, "the info bar offers the existing source consent");
+        Assert.IsFalse(offHeader.ShowsCheckForUpdates, "nothing to check while sources are off");
+        Assert.IsEmpty(off.Ready, "with checks off nothing is ready");
+
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build(rows, details, true, [], ["ready"], Now);
+        SourceSnapshot live = new("winget", "1.9", Now.AddMinutes(-5), SourceSnapshotState.Live, [], []);
+        UpdatesPageHeader header = UpdatesPagePresenter.Header(page, true, [live], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        Assert.AreEqual("2 ready · 1 needs review · live results, checked 5 minutes ago", header.Description);
+        Assert.IsNull(header.Notice, "live evidence needs no info bar");
+        Assert.IsTrue(header.ShowsCheckForUpdates);
+        Assert.AreEqual(UpdatesPagePresenter.ReviewFooter, header.Footer);
+        Assert.AreEqual("1 of 2 ready updates selected", page.SelectionText);
+        Assert.AreEqual("Review update for App ready", page.ReviewButtonLabel);
+        Assert.AreEqual("Review all 2 updates", page.ReviewAllLabel);
+        Assert.AreEqual("2 updates are ready. Select the ones to review, or review all of them.", UpdatesPagePresenter.Build(rows, details, true, [], null, Now).SelectionText);
+
+        SourceSnapshot stale = new("winget", "1.9", Now.AddDays(-1), SourceSnapshotState.Cached, [], []);
+        UpdatesPageHeader cached = UpdatesPagePresenter.Header(page, true, [stale], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        StringAssert.EndsWith(cached.Description, "cached results, last checked yesterday");
+        Assert.IsNotNull(cached.Notice, "anything less than live is called out");
+        Assert.AreEqual(StatusTone.Attention, cached.Notice.Tone);
+        Assert.IsFalse(cached.Notice.OffersTurnOnUpdateChecks);
+
+        UpdatesPagePresentation empty = UpdatesPagePresenter.Build([], details, true, [], null, Now);
+        UpdatesPageHeader none = UpdatesPagePresenter.Header(empty, true, [live], Now);
+        Assert.AreEqual("No updates ready", none.EmptyTitle);
+        Assert.AreEqual(UpdatesPagePresenter.EmptyFooter, none.Footer);
+    }
+
+    [TestMethod]
+    [Description("UI polish phase 3 (approved targets T-Review and T-Verify): the review row shows every protected fact on one identity line; the titles name what is reviewed and what happened.")]
+    public void ReviewAndVerifyTitlesAndTheIdentityLineKeepEveryProtectedFact()
+    {
+        UpdateJobSelection machine = Selection(UpdateScope.Machine, UpdateChannel.Stable);
+        UpdateDetail detail = Detail("winget:contoso.widget", "1.0", "2.0", packageId: "Contoso.Widget");
+        UpdateReviewSheet sheet = UpdateReviewSheet.Create(machine, "Contoso Widget", "Contoso Ltd", detail, RunningApplicationDetection.NotDetected,
+            AdministratorRequirementPresenter.ForSelection(machine));
+        UpdateReviewSheetItem item = sheet.Items.Single();
+        Assert.AreEqual("Contoso.Widget · x64 · Stable · WinGet source, updated with WinGet", item.IdentityLine);
+        Assert.AreEqual("All users", item.InstalledFor);
+        Assert.AreEqual("1.0 → 2.0", item.Fact("Version"));
+        Assert.AreEqual(string.Empty, item.Fact("Not a fact"));
+        Assert.AreEqual("Review the update for Contoso Widget", sheet.PageTitle);
+        Assert.AreEqual("Nothing changes until you select Update 1 app.", sheet.ConfirmNote);
+        foreach (string text in new[] { sheet.PageTitle, UpdateReviewSheet.PageDescription, sheet.ConfirmNote })
+            Assert.IsFalse(text.Contains("approved", StringComparison.OrdinalIgnoreCase), $"never 'approved' before approval: {text}");
+
+        UpdateJobSelection user = Selection(UpdateScope.User, UpdateChannel.Stable);
+        Assert.AreEqual("Current user", UpdateReviewSheet.Create(user, "Contoso Widget", "Contoso Ltd", detail, RunningApplicationDetection.NotDetected,
+            AdministratorRequirementPresenter.ForSelection(user)).Items.Single().InstalledFor);
+
+        UpdateJobCompletion verified = UpdateOutcomePresenter.ForResult(Result(true, machine, UpdateHistoryStatus.Success), machine, "Widget");
+        Assert.AreEqual("Here's what happened", UpdateJobCompletion.PageTitle);
+        Assert.AreEqual("Widget: update verified.", verified.Description);
+        Assert.AreEqual("No outcome was recorded for this update.", new UpdateJobCompletion([]).Description);
+        StringAssert.Contains(UpdateJobCompletion.OutcomesNote, "Verified only when it finds the new version");
+        Assert.AreEqual("Delete downloaded files", UpdateJobCleanupText.Heading, "the cleanup button keeps its exact label under the Tidy up row");
     }
 
     private static string Reason(UpdatesPagePresentation page, string key) => page.NeedsReview.Single(row => row.StableProductKey == key).ReasonText;

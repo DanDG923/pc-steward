@@ -336,11 +336,15 @@ public sealed class UiRedesignContractTests
         string page = Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow(");
         StringAssert.Contains(page, "UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKeys, DateTimeOffset.UtcNow)");
         StringAssert.Contains(page, "selectedReadyKeys.RemoveWhere(key => !page.IsSelected(key));");
-        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "if (page.Ready.Count > 0)");
+        // UI polish phase 3 (approved target T-Updates-Ready): the selection bar now sits above the Ready list card, so the Ready rows
+        // end where the Ready group section is added.
+        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "panel.Children.Add(UpdateGroupSection($\"Ready");
         string needsReview = Between(page, "foreach (UpdateRowPresentation needsReview in page.NeedsReview)", "// Ignored and skipped");
         string ignored = Between(page, "foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)", "Expander ignoredGroup");
         // Task 73 Phase 6 (SPEC §9.13 G4) deliberately replaces the single radio with a checkbox per Ready row; it still starts unticked.
-        StringAssert.Contains(ready, "CheckBox choose = new() { IsChecked = page.IsSelected(ready.StableProductKey), Content = ready.Name };");
+        // UI polish phase 3: the app's name moved beside its avatar, so the checkbox has no content and is named for the app instead.
+        StringAssert.Contains(ready, "CheckBox choose = new() { IsChecked = page.IsSelected(ready.StableProductKey), MinWidth = 0, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };");
+        StringAssert.Contains(ready, "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: select to review\");");
         Assert.IsFalse(source.Contains("RadioButton choose", StringComparison.Ordinal), "the single-choice radio is gone");
         Assert.AreEqual(1, Count(page, "CheckBox choose = new()"), "the only selection control on Updates is on Ready rows");
         // "Select all ready" and "Review all ready" choose exactly the Ready group, and only on an explicit press.
@@ -369,11 +373,13 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(presenter, "$\"Skip this version ({version.Trim()})\"");
 
         string overflow = Between(source, "private Button UpdateRowOverflow(", DesktopWindowSource.EndOf("MainWindow.Updates.cs"));
-        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row)", "PromptAndPinCurrentVersionAsync(row)", "PromptAndSkipVersionAsync(row, version)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)" })
+        // UI polish phase 3: a row that stands for several records of one app passes those records along, so the same confirmed
+        // decision is recorded (or reversed) for each of them.
+        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row, sameApp)", "PromptAndPinCurrentVersionAsync(row, sameApp)", "PromptAndSkipVersionAsync(row, version, sameApp)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)", "foreach (Guid other in alsoReverse) await workflow.ReverseDecisionAsync(other, token);" })
             StringAssert.Contains(overflow, operation);
         Assert.IsFalse(overflow.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
         // The skip prompt uses the existing decision confirmation pattern: Cancel default, optional bounded reason, and no update authority.
-        string skip = Between(source, "private async Task PromptAndSkipVersionAsync(InventoryRow row, string version)", "private static TextBox DecisionReasonBox(");
+        string skip = Between(source, "private async Task PromptAndSkipVersionAsync(InventoryRow row, string version, IReadOnlyList<InventoryRow>? sameApp = null)", "private static TextBox DecisionReasonBox(");
         StringAssert.Contains(skip, "DefaultButton = ContentDialogButton.Close");
         StringAssert.Contains(skip, "DecisionReasonBox(");
         StringAssert.Contains(skip, "workflow.SkipVersionAsync(row.StableProductKey, version, decisionReason, token)");

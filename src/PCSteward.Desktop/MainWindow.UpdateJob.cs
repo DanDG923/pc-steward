@@ -20,10 +20,11 @@ namespace PCSteward.Desktop;
 public sealed partial class MainWindow
 {
     /// <summary>
-    /// FR-UPD-01/04–09, FR-UI-03/04, FR-DAT-09, UJ-04 (Task 73 Phase 2, ADR-030 decision 3): the update job stepper, used only for
-    /// the job — Review → Update → Verify. Review shows the structured sheet for the reviewed immutable selection with Cancel
-    /// focused first; Update is non-modal progress with no cancel; Verify shows the honest outcomes, evidence, restart guidance
-    /// and Delete downloaded files. The page only presents; ReviewAndExecuteAsync owns the review, the approval and the run.
+    /// FR-UPD-01/04–09, FR-UI-03/04, FR-DAT-09, UJ-04 (Task 73 Phase 2, ADR-030 decision 3; UI polish phase 3, approved targets
+    /// T-Review and T-Verify): the update job stepper, used only for the job — Review → Update → Verify. The steps come first, then
+    /// the page title. Review shows what will change for the reviewed immutable selection, the "Before you update" notes, and Cancel
+    /// focused first; Update is non-modal progress with no cancel; Verify shows the honest outcomes with their evidence, restart
+    /// guidance and Delete downloaded files. The page only presents; ReviewAndExecuteAsync owns the review, the approval and the run.
     /// </summary>
     private StackPanel BuildUpdateJobPage()
     {
@@ -34,16 +35,16 @@ public sealed partial class MainWindow
             panel.Children.Add(StewardVisuals.PageTitle("Update"));
             Button open = StewardVisuals.ActionButton("Open Updates");
             open.Click += (_, _) => NavigateTo(ShellPage.Updates);
-            panel.Children.Add(StewardVisuals.EmptyState("", "No update is open", "Choose an app that's ready on the Updates page to review its update.", open));
+            panel.Children.Add(StewardVisuals.EmptyState("\uE896", "No update is open", "Choose an app that's ready on the Updates page to review its update.", open));
             return panel;
         }
-        panel.Children.Add(StewardVisuals.PageHeader(job.Step switch
-        {
-            UpdateJobStep.Review => job.Sheet.Title,
-            UpdateJobStep.Update => $"Updating {job.Sheet.AppName}",
-            _ => job.Completion?.Headline ?? "No outcome recorded"
-        }, job.Sheet.AppName));
         panel.Children.Add(BuildJobStepIndicator(job.Step));
+        panel.Children.Add(job.Step switch
+        {
+            UpdateJobStep.Review => StewardVisuals.PageHeader(job.Sheet.PageTitle, UpdateReviewSheet.PageDescription),
+            UpdateJobStep.Update => StewardVisuals.PageHeader(UpdateJobProgressText.Heading(job.Sheet.ItemCount), UpdateJobProgressText.LeaveNote),
+            _ => StewardVisuals.PageHeader(UpdateJobCompletion.PageTitle, (job.Completion ?? new UpdateJobCompletion([])).Description)
+        });
         switch (job.Step)
         {
             case UpdateJobStep.Review: AddReviewStep(panel, job); break;
@@ -53,24 +54,57 @@ public sealed partial class MainWindow
         return panel;
     }
 
+    /// <summary>
+    /// UI polish phase 3 (approved targets): the three job steps as numbered circles joined by short lines. A finished step shows a
+    /// tick, the current step is outlined in the accent colour with a bold label, and later steps are plain. Each step's accessible
+    /// name says its number, label and state, so the state never relies on colour.
+    /// </summary>
     private static Grid BuildJobStepIndicator(UpdateJobStep current)
     {
-        Grid steps = new() { ColumnSpacing = StewardSpacing.Medium };
-        AutomationProperties.SetName(steps, "Update steps");
-        int column = 0;
+        StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small };
+        bool first = true;
         foreach (UpdateJobStepPresentation step in UpdateJobSteps.For(current))
         {
-            steps.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            string tone = step.State switch { UpdateJobStepState.Completed => "success", UpdateJobStepState.Current => "information", _ => "neutral" };
-            string glyph = step.State == UpdateJobStepState.Completed ? "" : step.State == UpdateJobStepState.Current ? "" : "";
-            Border entry = StewardVisuals.Badge($"{step.Number} {step.Label}", glyph, tone, step.AccessibleName);
-            entry.HorizontalAlignment = HorizontalAlignment.Stretch;
-            if (step.State == UpdateJobStepState.Current) entry.BorderThickness = new Thickness(2);
-            Grid.SetColumn(entry, column++);
-            steps.Children.Add(entry);
+            if (!first) row.Children.Add(new Border { Width = 40, Height = 1, Background = StewardVisuals.Brush("StewardBorderStrongBrush"), VerticalAlignment = VerticalAlignment.Center });
+            first = false;
+            bool done = step.State == UpdateJobStepState.Completed;
+            bool now = step.State == UpdateJobStepState.Current;
+            Border dot = new()
+            {
+                Width = 24,
+                Height = 24,
+                CornerRadius = new CornerRadius(12),
+                BorderThickness = new Thickness(now ? 2 : 1),
+                BorderBrush = StewardVisuals.Brush(now ? "StewardBrandBrush" : done ? "StewardIconWellBrush" : "StewardBorderStrongBrush"),
+                Background = StewardVisuals.Brush(now ? "StewardInfoSurfaceBrush" : done ? "StewardIconWellBrush" : "StewardSurfaceBrush"),
+                Child = done
+                    ? new FontIcon { Glyph = "\uE73E", FontSize = 12, Foreground = StewardVisuals.Brush("StewardSuccessBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    : new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            };
+            StackPanel entry = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+            entry.Children.Add(dot);
+            entry.Children.Add(new TextBlock
+            {
+                Text = step.Label,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = now ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+                Foreground = StewardVisuals.Brush(now ? "StewardTextBrush" : "StewardSecondaryTextBrush")
+            });
+            AutomationProperties.SetName(entry, step.AccessibleName);
+            row.Children.Add(entry);
         }
+        Grid steps = new() { Children = { row } };
+        AutomationProperties.SetName(steps, "Update steps");
         return steps;
     }
+
+    /// <summary>The icon for a "Before you update" note.</summary>
+    private static string RiskGlyph(ReviewRiskKind kind) => kind switch
+    {
+        ReviewRiskKind.RunningApplication => "\uE7C4",
+        ReviewRiskKind.Restart => "\uE777",
+        _ => "\uEA18"
+    };
 
     private void AddReviewStep(StackPanel panel, UpdateJobSession job)
     {
@@ -82,43 +116,66 @@ public sealed partial class MainWindow
             // new review of fresh evidence; nothing was changed and it is not a failure.
             panel.Children.Add(StewardVisuals.InformationBanner("Nothing was changed", job.Completion!.Items[0].Outcome.Summary + " " + job.Completion.Items[0].Outcome.NextStep, "neutral"));
         }
-        else panel.Children.Add(PageCopy(UpdateReviewSheet.Intro));
+        // Review L2: the 30-minute dispatch ceiling is shown while the review is still open, under the title (approved target).
+        else if (reviewDecision is not null && sheet.ExpiryNote is { } expiryNote)
+            panel.Children.Add(StewardVisuals.IconLine("\uE823", expiryNote, styleKey: "StewardCaptionStyle"));
 
         // SPEC §9.13 G4: selected apps that couldn't be reviewed are explained and are not part of this review.
         if (sheet.Excluded.Count > 0)
             panel.Children.Add(StewardVisuals.InformationBanner($"Not included ({sheet.Excluded.Count})",
                 string.Join(" ", sheet.Excluded.Select(excluded => $"{excluded.AppName}: {excluded.Reason}")), "attention"));
 
-        // Every app in the frozen set keeps its own §17.2 facts and confidence in words.
+        // "What will change" (approved target T-Review): one row per app in the frozen set, with the exact package ID, architecture,
+        // channel, source and provider, the version change, publisher, scope and how sure the match is — every protected fact, shown.
+        List<FrameworkElement> changes = [];
+        List<Action<bool>> layouts = [];
+        foreach (UpdateReviewSheetItem item in sheet.Items)
+        {
+            StackPanel app = new() { Spacing = 2 };
+            app.Children.Add(new TextBlock { Text = item.AppName, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap });
+            app.Children.Add(new TextBlock { Text = item.IdentityLine, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            if (sheet.ItemCount > 1 && item.AppearsToBeRunning)
+                app.Children.Add(new TextBlock { Text = $"Appears to be running ({string.Join(", ", item.RunningProcessNames)})", Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            changes.Add(ReviewChangeRow(layouts, app, item.Fact("Version"), item.Fact("Publisher"), item.InstalledFor, item.ConfidenceSummary,
+                $"{item.AppName}: {item.Fact("Version")}, {item.Fact("Publisher")}, {item.InstalledFor}, {item.ConfidenceSummary}. {item.IdentityLine}."));
+        }
+        StackPanel whatChanges = new() { Spacing = StewardSpacing.Small };
+        whatChanges.Children.Add(SectionHeading("What will change"));
+        whatChanges.Children.Add(ReviewChangeHeader(layouts));
+        whatChanges.Children.Add(StewardVisuals.ListCard(changes));
+        // Under 640 epx the columns stack under each app and the headings hide; the layout only changes when the breakpoint is crossed.
+        bool? wasNarrow = null;
+        whatChanges.SizeChanged += (_, args) =>
+        {
+            bool narrow = args.NewSize.Width < 640;
+            if (wasNarrow == narrow) return;
+            wasNarrow = narrow;
+            foreach (Action<bool> layout in layouts) layout(narrow);
+        };
+        panel.Children.Add(whatChanges);
+
+        // Every app keeps its full §17.2 facts and the evidence for its confidence, one expander away (approved target).
+        StackPanel evidence = new() { Spacing = StewardSpacing.Medium };
         foreach (UpdateReviewSheetItem item in sheet.Items)
         {
             StackPanel facts = new() { Spacing = 0 };
-            TextBlock factsHeading = SectionHeading(sheet.ItemCount == 1 ? "What will be updated" : item.AppName);
-            factsHeading.Margin = new Thickness(0, 0, 0, StewardSpacing.Small);
-            facts.Children.Add(factsHeading);
+            facts.Children.Add(new TextBlock { Text = item.AppName, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap });
             foreach (ReviewFact fact in item.Facts) facts.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
-            if (sheet.ItemCount > 1 && item.AppearsToBeRunning)
-                facts.Children.Add(StewardVisuals.EvidenceRow("Running", $"Appears to be running ({string.Join(", ", item.RunningProcessNames)})"));
-            panel.Children.Add(Card(facts));
-
-            StackPanel confidence = new() { Spacing = StewardSpacing.Small };
-            confidence.Children.Add(SectionHeading(sheet.ItemCount == 1 ? "How sure PC Steward is" : $"How sure PC Steward is about {item.AppName}",
-                sheet.ItemCount == 1 ? AutomationHeadingLevel.Level2 : AutomationHeadingLevel.Level3));
-            confidence.Children.Add(new TextBlock { Text = item.ConfidenceSummary, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-            StackPanel evidence = new() { Spacing = StewardSpacing.XSmall };
-            foreach (string line in item.ConfidenceEvidence) evidence.Children.Add(new TextBlock { Text = line, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            confidence.Children.Add(new Expander { Header = "Evidence", Content = evidence, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
-            panel.Children.Add(Card(confidence));
+            facts.Children.Add(StewardVisuals.EvidenceRow("Confidence", item.ConfidenceSummary));
+            foreach (string line in item.ConfidenceEvidence) facts.Children.Add(new TextBlock { Text = line, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            evidence.Children.Add(facts);
         }
+        panel.Children.Add(StewardVisuals.ExpanderRow("\uE8A5", "Evidence for each match", "The installed entry, package ID, publisher and installer details behind each match.", evidence));
 
+        // "Before you update": the running-app, restart and administrator notes, each a row with its icon (approved target).
+        StackPanel before = new() { Spacing = StewardSpacing.XSmall };
+        before.Children.Add(SectionHeading("Before you update"));
         foreach (ReviewRiskCallout risk in sheet.Risks)
-            panel.Children.Add(StewardVisuals.InformationBanner(risk.Title, risk.Message, StewardStatus.ToneName(risk.Tone)));
+            before.Children.Add(StewardVisuals.RowCard(RiskGlyph(risk.Kind), risk.Title, risk.Message, tone: StewardStatus.ToneName(risk.Tone)));
         // The one-shot helper takes one approved job per prompt, so a batch elevates each machine-wide app on its own.
         if (sheet.ElevationNote is { } elevationNote)
-            panel.Children.Add(StewardVisuals.InformationBanner("Windows may ask more than once", elevationNote, "information"));
-        // Review L2: the 30-minute dispatch ceiling is shown while the review is still open.
-        if (!refused && reviewDecision is not null && sheet.ExpiryNote is { } expiryNote)
-            panel.Children.Add(StewardVisuals.InformationBanner("Start within 30 minutes", expiryNote, "neutral"));
+            before.Children.Add(StewardVisuals.RowCard("\uEA18", "Windows may ask more than once", elevationNote));
+        panel.Children.Add(before);
 
         StackPanel fineprint = new() { Spacing = StewardSpacing.Small };
         fineprint.Children.Add(new TextBlock { Text = sheet.Attestation, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
@@ -171,29 +228,93 @@ public sealed partial class MainWindow
         };
         actions.Children.Add(cancel);
         actions.Children.Add(confirm);
-        panel.Children.Add(actions);
+        // The action bar (approved target): a reminder that nothing changes until the specific update button, then the buttons.
+        panel.Children.Add(new Border { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(StewardSpacing.Large, StewardSpacing.Medium, StewardSpacing.Large, StewardSpacing.Medium), Child = StewardVisuals.SettingsRow(sheet.ConfirmNote, null, actions) });
         pageInitialFocus = cancel;
+    }
+
+    /// <summary>
+    /// A "What will change" row: the app (name and identity line), the version change, publisher, who it's installed for and how sure
+    /// the match is. On wide windows these are columns under <see cref="ReviewChangeHeader"/>; on narrow ones they stack under the app.
+    /// The row registers its layout in <paramref name="layouts"/>, which the list calls when its width crosses the narrow breakpoint.
+    /// </summary>
+    private static Grid ReviewChangeRow(List<Action<bool>> layouts, FrameworkElement app, string version, string publisher, string installedFor, string confidence, string accessibleName)
+    {
+        Grid row = ReviewChangeColumns();
+        FrameworkElement[] cells =
+        [
+            app,
+            new TextBlock { Text = version, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = publisher, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = installedFor, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = confidence, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center }
+        ];
+        foreach (FrameworkElement cell in cells) row.Children.Add(cell);
+        void Layout(bool narrow)
+        {
+            row.RowDefinitions.Clear();
+            row.RowSpacing = narrow ? 2 : 0;
+            for (int index = 0; index < cells.Length; index++)
+            {
+                if (narrow) row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetColumn(cells[index], narrow ? 0 : index);
+                Grid.SetColumnSpan(cells[index], narrow ? cells.Length : 1);
+                Grid.SetRow(cells[index], narrow ? index : 0);
+            }
+        }
+        Layout(false);
+        layouts.Add(Layout);
+        AutomationProperties.SetName(row, accessibleName);
+        return row;
+    }
+
+    /// <summary>The column headings over the "What will change" list. Narrow windows hide them, because each row then stacks.</summary>
+    private static Grid ReviewChangeHeader(List<Action<bool>> layouts)
+    {
+        Grid header = ReviewChangeColumns();
+        header.Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0);
+        string[] labels = ["App", "Installed → new", "Publisher", "Installed for", "How sure"];
+        for (int index = 0; index < labels.Length; index++)
+        {
+            TextBlock label = new() { Text = labels[index], Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
+            Grid.SetColumn(label, index);
+            header.Children.Add(label);
+        }
+        // Each row's own accessible name already says what every value is, so the headings are visual only.
+        AutomationProperties.SetAccessibilityView(header, AccessibilityView.Raw);
+        layouts.Add(narrow => header.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible);
+        return header;
+    }
+
+    private static Grid ReviewChangeColumns()
+    {
+        Grid grid = new() { ColumnSpacing = StewardSpacing.Large };
+        foreach (double share in new[] { 2.2, 1.4, 1.1, 1.0, 1.2 }) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(share, GridUnitType.Star) });
+        return grid;
     }
 
     private void AddUpdateStep(StackPanel panel, UpdateJobSession job)
     {
-        panel.Children.Add(PageCopy(UpdateJobProgressText.LeaveNote));
-        StackPanel item = new() { Spacing = StewardSpacing.Small };
-        item.Children.Add(SectionHeading(UpdateJobProgressText.Heading(job.Sheet.ItemCount)));
         // Task 73 Phase 6 (AC-UPD-09): one line per app, in run order. Only the app updating now follows the polled progress.
         // Review L1: a finished app shows its outcome (never a progress bar or "Waiting to start"); while the batch waits for its owned
-        // work to settle, the next app carries the live "Waiting for the previous app to finish…".
+        // work to settle, the next app carries the live "Waiting for the previous app to finish…". The page header carries
+        // UpdateJobProgressText.Heading and UpdateJobProgressText.LeaveNote (UI polish phase 3).
         jobProgressStateText = null;
         jobProgressLine = null;
+        List<FrameworkElement> lines = [];
         for (int index = 0; index < job.Sheet.ItemCount; index++)
         {
             UpdateReviewSheetItem entry = job.Sheet.Items[index];
-            item.Children.Add(StewardVisuals.EvidenceRow(entry.AppName, entry.Facts.Single(fact => fact.Label == "Version").Value));
+            StackPanel item = new() { Spacing = StewardSpacing.XSmall };
+            StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
+            title.Children.Add(new TextBlock { Text = entry.AppName, Style = AppStyle("StewardBodyStrongStyle"), VerticalAlignment = VerticalAlignment.Center });
+            title.Children.Add(new TextBlock { Text = entry.Facts.Single(fact => fact.Label == "Version").Value, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true });
+            item.Children.Add(title);
             UpdateJobItemLine line = UpdateJobProgressText.Line(index, job.CurrentIndex, job.FinishedLabels, job.Stop.IsRequested);
             if (line.IsLive && jobProgressStateText is null)
             {
                 jobProgressLine = line;
-                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.LiveState(line, updateProgressPresentation), TextWrapping = TextWrapping.Wrap };
+                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.LiveState(line, updateProgressPresentation), Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
                 // A polite live region: its text (not a fixed name) is what a screen reader hears when the state changes.
                 AutomationProperties.SetLiveSetting(jobProgressStateText, AutomationLiveSetting.Polite);
                 item.Children.Add(jobProgressStateText);
@@ -201,9 +322,10 @@ public sealed partial class MainWindow
                 AutomationProperties.SetName(progress, $"{entry.AppName} update progress");
                 item.Children.Add(progress);
             }
-            else item.Children.Add(PageCopy(line.Text ?? UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index])));
+            else item.Children.Add(new TextBlock { Text = line.Text ?? UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index]), Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            lines.Add(item);
         }
-        panel.Children.Add(Card(item));
+        panel.Children.Add(StewardVisuals.ListCard(lines));
         // FR-UPD-11, AC-UPD-10: stop before the next app starts. It never interrupts the app that is updating now.
         if (job.Sheet.ItemCount > 1 && job.CurrentIndex < job.Sheet.ItemCount - 1)
         {
@@ -226,26 +348,45 @@ public sealed partial class MainWindow
         UpdateJobCompletion completion = job.Completion ?? new UpdateJobCompletion([]);
         // Task 73 Phase 6 (AC-UPD-09): a batch is grouped by outcome; every app keeps its own recorded outcome and evidence.
         IReadOnlyList<UpdateOutcomeGroup> groups = completion.Items.Count > 1 ? completion.Groups : [];
-        if (groups.Count > 0) panel.Children.Add(PageCopy(completion.Headline));
+        List<FrameworkElement> rows = [];
+        void AddGroup(string? heading)
+        {
+            if (rows.Count == 0) return;
+            StackPanel section = new() { Spacing = StewardSpacing.Small };
+            if (heading is not null) section.Children.Add(SectionHeading(heading));
+            section.Children.Add(StewardVisuals.ListCard([.. rows]));
+            panel.Children.Add(section);
+            rows.Clear();
+        }
+        string? currentHeading = null;
         foreach (UpdateJobItemOutcome item in completion.DisplayItems)
         {
             if (groups.Count > 0 && groups.FirstOrDefault(group => ReferenceEquals(group.Items[0], item)) is { } group)
-                panel.Children.Add(SectionHeading(group.Heading));
+            {
+                AddGroup(currentHeading);
+                currentHeading = group.Heading;
+            }
             UpdateOutcomePresentation outcome = item.Outcome;
-            StackPanel card = new() { Spacing = StewardSpacing.Small };
-            Grid heading = new() { ColumnSpacing = StewardSpacing.Medium };
-            heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            heading.Children.Add(SectionHeading(item.AppName, groups.Count > 0 ? AutomationHeadingLevel.Level3 : AutomationHeadingLevel.Level2));
-            Border badge = StewardVisuals.Badge(outcome.Label, outcome.Glyph, StewardStatus.ToneName(outcome.Tone), outcome.AccessibleName(item.AppName));
-            badge.VerticalAlignment = VerticalAlignment.Top;
-            Grid.SetColumn(badge, 1); heading.Children.Add(badge);
-            card.Children.Add(heading);
-            card.Children.Add(StewardVisuals.EvidenceRow("Version", $"{item.InstalledVersion} → {item.TargetVersion}"));
-            card.Children.Add(StewardVisuals.EvidenceRow("Package ID", item.PackageId));
+            string tone = StewardStatus.ToneName(outcome.Tone);
+            Grid row = new() { ColumnSpacing = StewardSpacing.Large };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Border well = StewardVisuals.IconWell(outcome.Glyph, tone);
+            well.VerticalAlignment = VerticalAlignment.Top;
+            row.Children.Add(well);
+            StackPanel card = new() { Spacing = 2 };
+            StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
+            TextBlock name = new() { Text = $"{item.AppName} {item.TargetVersion}", Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetHeadingLevel(name, groups.Count > 0 ? AutomationHeadingLevel.Level3 : AutomationHeadingLevel.Level2);
+            title.Children.Add(name);
+            Border badge = StewardVisuals.Badge(outcome.Label, outcome.Glyph, tone, outcome.AccessibleName(item.AppName));
+            badge.VerticalAlignment = VerticalAlignment.Center;
+            title.Children.Add(badge);
+            card.Children.Add(title);
             card.Children.Add(new TextBlock { Text = outcome.Summary, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            card.Children.Add(PageCopy(outcome.NextStep));
-            card.Children.Add(new Expander { Header = "Technical details", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            card.Children.Add(new TextBlock { Text = outcome.NextStep, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            card.Children.Add(new TextBlock { Text = $"Was {item.InstalledVersion} · {item.PackageId}", Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            card.Children.Add(new Expander { Header = "Technical details", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, StewardSpacing.XSmall, 0, 0) });
             if (outcome.Kind is UpdateOutcomeKind.Failed or UpdateOutcomeKind.NotStarted)
             {
                 // A fresh review of this app only; never a replay of the earlier approval.
@@ -253,25 +394,33 @@ public sealed partial class MainWindow
                 Button reviewAgain = StewardVisuals.ActionButton("Review again", $"the update for {item.AppName}");
                 reviewAgain.IsEnabled = !HasActiveOperation && again.Count > 0;
                 reviewAgain.Click += async (_, _) => await ReviewAndExecuteAsync(again);
+                reviewAgain.Margin = new Thickness(0, StewardSpacing.XSmall, 0, 0);
                 card.Children.Add(reviewAgain);
             }
-            panel.Children.Add(Card(card));
+            Grid.SetColumn(card, 1);
+            row.Children.Add(card);
+            rows.Add(row);
         }
-        panel.Children.Add(StewardVisuals.InformationBanner(completion.RestartRequired ? "Restart to finish" : "Restart", completion.RestartGuidance, completion.RestartRequired ? "attention" : "neutral"));
+        AddGroup(currentHeading);
+        // Restart guidance: an info bar when Windows reported that a restart is needed, otherwise a quiet line.
+        if (completion.RestartRequired) panel.Children.Add(StewardVisuals.InformationBanner("Restart to finish", completion.RestartGuidance, "attention"));
+        else panel.Children.Add(StewardVisuals.IconLine("\uE777", completion.RestartGuidance, styleKey: "StewardCaptionStyle"));
 
         // FR-DAT-09 / UJ-04 step 9: Delete downloaded files on the completion view, through the existing confirmation and cleanup.
-        StackPanel cleanup = new() { Spacing = StewardSpacing.Small };
-        cleanup.Children.Add(SectionHeading(UpdateJobCleanupText.Heading));
-        cleanup.Children.Add(PageCopy(UpdateJobCleanupText.Recoverable(downloadCache.RecoverableBytes)));
-        Button delete = StewardVisuals.ActionButton("Delete downloaded files", "after update completion");
+        Button delete = StewardVisuals.ActionButton(UpdateJobCleanupText.Heading, "after update completion");
         delete.IsEnabled = downloadCache.RecoverableBytes > 0 && !HasActiveOperation;
         delete.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Delete downloaded files after update completion?");
-        cleanup.Children.Add(delete);
-        panel.Children.Add(Card(cleanup));
+        panel.Children.Add(StewardVisuals.RowCard("\uE74D", UpdateJobCleanupText.TidyUpTitle, $"{UpdateJobCleanupText.Recoverable(downloadCache.RecoverableBytes)} {UpdateJobCleanupText.KeptNote}", delete));
+        panel.Children.Add(StewardVisuals.IconLine("\uE946", UpdateJobCompletion.OutcomesNote, styleKey: "StewardCaptionStyle"));
 
+        StewardWrapPanel actions = StewardVisuals.ActionRow();
+        Button activity = StewardVisuals.ActionButton("View in Activity", "(this update and earlier ones)");
+        activity.Click += (_, _) => { activityFilter = ActivityFilter.Updates; updateJob = null; jobResultPending = false; NavigateTo(ShellPage.Activity); };
         Button done = StewardVisuals.PrimaryButton("Done", "(close the update result and return to Updates)");
         done.Click += (_, _) => { updateJob = null; jobResultPending = false; NavigateTo(ShellPage.Updates); };
-        panel.Children.Add(done);
+        actions.Children.Add(activity);
+        actions.Children.Add(done);
+        panel.Children.Add(actions);
     }
 
     /// <summary>Recent reviewed-update history for the Chocolatey review (C6 and the result text); null when it cannot be read.</summary>

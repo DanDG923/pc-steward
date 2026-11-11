@@ -143,7 +143,11 @@ public sealed partial class MainWindow
         await ShowUpdateOutcomeAsync("Package identity confirmed", validation.Explanation + " No update was started.");
     }
 
-    private async Task PromptAndPinCurrentVersionAsync(InventoryRow row)
+    /// <summary>
+    /// Pins the installed version after the confirmation. <paramref name="sameApp"/> (UI polish phase 3) are other records of the same
+    /// app shown as one Updates row; the same pin is recorded for each of them in the same data operation.
+    /// </summary>
+    private async Task PromptAndPinCurrentVersionAsync(InventoryRow row, IReadOnlyList<InventoryRow>? sameApp = null)
     {
         TextBox reason = DecisionReasonBox("Optional reason for pinning this version");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
@@ -160,14 +164,22 @@ public sealed partial class MainWindow
         };
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
         string decisionReason = reason.Text;
-        try { await DataOperationLease.RunAsync(token => workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, decisionReason, token), CancellationToken.None); }
+        try
+        {
+            await DataOperationLease.RunAsync(async token =>
+            {
+                await workflow.PinCurrentVersionAsync(row.StableProductKey, row.Version, decisionReason, token);
+                foreach (InventoryRow same in sameApp ?? []) await workflow.PinCurrentVersionAsync(same.StableProductKey, same.Version, decisionReason, token);
+            }, CancellationToken.None);
+        }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
         Render();
         await ShowUpdateOutcomeAsync("Current version pinned", $"{row.Name} is pinned at {row.Version}. No application was changed.");
     }
 
-    private async Task PromptAndIgnoreProductAsync(InventoryRow row)
+    /// <summary>Ignores the app after the confirmation, for <paramref name="sameApp"/> too (other records of the same app, phase 3).</summary>
+    private async Task PromptAndIgnoreProductAsync(InventoryRow row, IReadOnlyList<InventoryRow>? sameApp = null)
     {
         CheckBox ignoreUntilEnabled = new() { Content = "Ignore until a selected date" };
         DatePicker ignoreUntil = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) };
@@ -191,7 +203,14 @@ public sealed partial class MainWindow
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
         DateTimeOffset? ignoredUntil = ignoreUntilEnabled.IsChecked == true ? ignoreUntil.Date : null;
         string decisionReason = reason.Text;
-        try { await DataOperationLease.RunAsync(token => workflow.IgnoreAsync(row.StableProductKey, ignoredUntil, decisionReason, token), CancellationToken.None); }
+        try
+        {
+            await DataOperationLease.RunAsync(async token =>
+            {
+                await workflow.IgnoreAsync(row.StableProductKey, ignoredUntil, decisionReason, token);
+                foreach (InventoryRow same in sameApp ?? []) await workflow.IgnoreAsync(same.StableProductKey, ignoredUntil, decisionReason, token);
+            }, CancellationToken.None);
+        }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
         Render();
@@ -200,9 +219,10 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// Owner decision 2026-11-02 (FR-POL-01/03/05): Skip this version, through the same confirmation pattern as pin and ignore — Cancel
-    /// is the default, the reason is optional and bounded. It only hides this exact version; nothing is installed or changed.
+    /// is the default, the reason is optional and bounded. It only hides this exact version; nothing is installed or changed. Other
+    /// records of the same app shown as one Updates row (<paramref name="sameApp"/>, UI polish phase 3) skip the same version.
     /// </summary>
-    private async Task PromptAndSkipVersionAsync(InventoryRow row, string version)
+    private async Task PromptAndSkipVersionAsync(InventoryRow row, string version, IReadOnlyList<InventoryRow>? sameApp = null)
     {
         TextBox reason = DecisionReasonBox("Optional reason for skipping this version");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
@@ -219,7 +239,14 @@ public sealed partial class MainWindow
         };
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
         string decisionReason = reason.Text;
-        try { await DataOperationLease.RunAsync(token => workflow.SkipVersionAsync(row.StableProductKey, version, decisionReason, token), CancellationToken.None); }
+        try
+        {
+            await DataOperationLease.RunAsync(async token =>
+            {
+                await workflow.SkipVersionAsync(row.StableProductKey, version, decisionReason, token);
+                foreach (InventoryRow same in sameApp ?? []) await workflow.SkipVersionAsync(same.StableProductKey, version, decisionReason, token);
+            }, CancellationToken.None);
+        }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
         Render();

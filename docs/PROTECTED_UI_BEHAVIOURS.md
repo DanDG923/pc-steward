@@ -9,6 +9,7 @@ These behaviours are invariants for the production redesign. Visual or navigatio
 - Detection, source identification, confidence assessment, user decision, immutable review, explicit approval, execution, and post-update verification remain distinct states.
 - Low-confidence, conflicting, stale, unavailable, architecture-conflicting, channel-conflicting, or incomparable evidence is not actionable.
 - Selection is not approval. No update action is preselected, silent, unattended, or inferred from navigation.
+- One Updates row may stand for several inventory records of the same app. It is selected, reviewed and updated once, and a decision taken on it is recorded for every record it stands for, through the same confirmation.
 - The final update dialog shows the exact provider, package ID, installed version, target version, scope, architecture, running-app warning, and administrator requirement derived from the reviewed immutable selection.
 - UAC is requested only after final confirmation for a validated machine-scope job. The desktop remains unelevated.
 - Provider exit code zero is not success until controlled re-inventory verifies the expected version or a reliable restart-required result is recorded.
