@@ -1,3 +1,9 @@
+**Signed protected install — ADR-034 step 2b: release capability reader (2026-11-11; code and tests; no host action).** Requirements: `FR-UPD-15`, `FR-DAT-12`, `TM-03/04/07/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
+- **Release manifest.** An MSI install will carry `PCSteward.ReleaseManifest.json`: the product version and the path, size and SHA-256 of every installed file. `ReleaseManifestPolicy` parses it strictly and checks the binding set, the capability statement and the same compiled pin on both executables against it.
+- **One reader.** The existing capability reader reads the release manifest when it is present, instead of the ADR-022 ledger, with the same protection checks, bounds and held handles. Both records together are a mismatch. Nothing else changes for the owner's test install.
+- **Tests.** `ReleaseManifestPolicyTests`, `ReleaseDeploymentCapabilityReaderTests` (Windows) and architecture `ReleaseCapabilityReaderBoundaryTests`.
+- **Next.** Step 3: the WiX MSI and its CI install test.
+
 **Signed protected install — ADR-034 step 2a: pinned signature check (2026-11-11; code and tests; no host action).** Requirements: `FR-UPD-15`, `TM-04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
 - **Pinned check.** `AuthenticodeIdentity.TryReadPinnedSigner` accepts a file only when `WinVerifyTrust` reports success or exactly an untrusted root, the signer chain is one certificate, and its public-key hash equals a compiled pin. Two images count as the same signer only with the same pin.
 - **Compiled pins, empty for now.** `ReleaseSigningPins` has a primary (YubiKey) and backup slot. Both stay empty until the owner's key session, so nothing passes the pinned check yet and behaviour on the owner's PC is unchanged.

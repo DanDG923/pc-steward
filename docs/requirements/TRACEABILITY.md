@@ -1,3 +1,11 @@
+# Signed protected install — ADR-034 step 2b: release capability reader
+
+`FR-UPD-15`, `FR-DAT-12`, `TM-03/04/07/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) section 4 and implementation notes, ADR-033.
+
+- `ReleaseManifestPolicy.cs` (new, pure) and the release path in `OwnerOnlyDeploymentCapabilityReader.cs`.
+- Evidence: `ReleaseManifestPolicyTests`, `ReleaseDeploymentCapabilityReaderTests` (Windows CI), architecture `ReleaseCapabilityReaderBoundaryTests` and `HelperEndpointBoundaryTests` (constructor chain).
+- Not claimed: any MSI, release key, signed release or host evidence.
+
 # Signed protected install — ADR-034 step 2a: pinned signature check
 
 `FR-UPD-15`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) section 3 and implementation notes, ADR-018.

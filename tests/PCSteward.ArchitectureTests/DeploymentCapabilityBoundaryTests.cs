@@ -14,7 +14,9 @@ public sealed class DeploymentCapabilityBoundaryTests
     private static readonly string[] CapabilityTypes =
         ["IHelperProtocolCapability", "HelperProtocolCapabilityStatus", "HelperProtocolCapabilityResult", "DeploymentCapabilityPolicy",
          "DeploymentCapabilityInputs", "DeploymentObservedFile", "DeploymentLedger", "HeldHelperBinding", "OwnerOnlyDeploymentCapabilityReader",
-         "DeploymentCapabilityLayout", "DeploymentLayoutProtectionCheck", "DeploymentCapabilityStage", "DeploymentFileAccess", "WindowsFileIdentity"];
+         "DeploymentCapabilityLayout", "DeploymentLayoutProtectionCheck", "DeploymentCapabilityStage", "DeploymentFileAccess", "WindowsFileIdentity",
+         // ADR-034 §3–§4: the release manifest policy and the compiled pins are Execution-only too.
+         "ReleaseManifestPolicy", "ReleaseCapabilityInputs", "ReleaseManifest", "ReleaseManifestFile", "ReleaseSigningPins"];
     private static readonly string[] BindingReferencingFiles =
         ["HeldHelperBinding.cs", "IHelperProtocolCapability.cs", "OwnerOnlyDeploymentCapabilityReader.cs", "ReviewedHelperProbeTransport.cs",
          "ReviewedHelperProtocol2Transport.cs"];

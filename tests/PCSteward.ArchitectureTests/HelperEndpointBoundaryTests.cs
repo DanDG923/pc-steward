@@ -342,6 +342,9 @@ public sealed class HelperEndpointBoundaryTests
         const string ReaderTwo = "(System.Func`1<PCSteward.Execution.DeploymentCapabilityLayout>, PCSteward.Execution.DeploymentLayoutProtectionCheck)";
         const string ReaderRole = "(PCSteward.Execution.DeploymentCapabilityRole, System.Func`1<PCSteward.Execution.DeploymentCapabilityLayout>, " +
             "PCSteward.Execution.DeploymentLayoutProtectionCheck)";
+        // ADR-034 §4: the role constructor chains into the one that also takes the release pin check (a fixture seam).
+        const string ReaderPin = "(PCSteward.Execution.DeploymentCapabilityRole, System.Func`1<PCSteward.Execution.DeploymentCapabilityLayout>, " +
+            "PCSteward.Execution.DeploymentLayoutProtectionCheck, System.Func`3<System.String, System.String, System.Boolean>)";
         const string HostFacts = "(System.String, System.String, System.String, System.Int32)";
         // Each permitted edge: target type, member, target signature, logical caller, caller signature (null: any).
         (string Type, string Member, string Signature, string Caller, string? CallerSignature)[] permitted =
@@ -358,6 +361,7 @@ public sealed class HelperEndpointBoundaryTests
             (Reader, ".ctor", ReaderRole, CapabilityCheck + ".Evaluate", null),
             (Reader, ".ctor", ReaderRole, Reader + "..ctor", ReaderTwo),
             (Reader, ".ctor", ReaderTwo, Reader + "..ctor", "()"),
+            (Reader, ".ctor", ReaderPin, Reader + "..ctor", ReaderRole),
             // Probe spec rev 4 §5.2 step 6 (S4): the desktop probe's production composition is the only src caller of the
             // Desktop-role production (parameterless) reader; the fixture seam constructors stay without a src caller.
             (Reader, ".ctor", "()", "PCSteward.Execution.ReviewedHelperProbeTransport.ProductionDependencies", "()"),
