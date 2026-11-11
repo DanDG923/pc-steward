@@ -255,3 +255,11 @@ G9T1 RESULT PASS
 
 Chocolatey 2.7.5 installed from the checked local file only. The package script extracted the 64-bit embedded zip into `lib\ripgrep\tools` (so Chocolatey's `7z` and helper modules ran, unheld, in the owner's own install) and ShimGen made the `rg` shim. The installed `lib\ripgrep\ripgrep.nupkg` is byte-identical to the reviewed nupkg. Chocolatey's 56 release files were unchanged before and after.
 
+
+### G9-T2 (2026-11-11, about 10:37Z): PASS
+
+The owner turned trusted sources on, refreshed package sources, and opened ripgrep's Chocolatey Community detail page. **Review Chocolatey update…** showed "ripgrep 14.1.0 → 15.2.0 (Chocolatey, Machine)" and "Ready to review". The candidate was checked in the user cache at 2026-11-11 10:37:44 UTC, and the Profile V2 disclosure lines (candidate, user cache, installer mode, package scripts and downloads) were shown. **Update ripgrep** was enabled.
+
+### G9-T4 (2026-11-11, about 10:38Z): Success reported by PC Steward
+
+The owner pressed **Update ripgrep** within the check window. **Exactly one UAC prompt** appeared, confirmed by the owner. Result dialog: "Package updated. Updated: the target version was verified after the update. Verification: the target version was detected after the update." An independent read-only post-check (`G9T4` lines) follows below.
