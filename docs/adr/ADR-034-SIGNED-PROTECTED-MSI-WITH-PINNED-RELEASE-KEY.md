@@ -61,9 +61,10 @@ Facts this design rests on:
 
 ### 2. The release key
 
-- One self-signed code-signing certificate, subject `CN=PC Steward Release Signing`, RSA 3072, SHA-256, code-signing EKU only, no CA rights, valid for ten years. It contains no personal data.
-- It is created on the owner's PC by a reviewed script and kept as a password-protected PFX on removable media, with a second copy stored separately. It is never imported into a Windows certificate store, never placed in GitHub, CI or cloud storage, and loaded only by the signing script for the duration of one signing session.
-- A **backup key** (`CN=PC Steward Release Signing (Backup)`) is created at the same time, kept offline separately, and its pin is compiled in from the start, so losing the primary key never strands an installed copy. (Owner question 1.)
+- **Primary key on the owner's YubiKey (owner, 2026-11-11: "I owned a Yubikey").** The key pair is generated inside the YubiKey's PIV Digital Signature slot (9c), so the private key never exists outside the device and cannot be exported. The slot's PIN policy requires the PIN for every signature and its touch policy is "always", so signing needs the owner present. The self-signed certificate (subject `CN=PC Steward Release Signing`, code-signing EKU only, no CA rights, valid for ten years, no personal data) is stored in the same slot. RSA 3072 where the YubiKey firmware supports it (5.7 or later), otherwise RSA 2048 or ECDSA P-256; SHA-256 throughout. Signing uses the Windows smart-card stack (the YubiKey minidriver), so the public certificate appears in the owner's personal store only while the key is plugged in; it is never added to Root or TrustedPublisher.
+- **Backup key offline (owner, 2026-11-11: "Agreed").** A second key (`CN=PC Steward Release Signing (Backup)`) is generated off the YubiKey by a reviewed script, written once to a password-protected PFX on two separate removable drives kept apart from the YubiKey, and deleted from the PC. Its pin is compiled in from the start, so losing or breaking the YubiKey never strands an installed copy. It is used only to sign a release that moves the primary pin to a new key.
+- Neither key is placed in GitHub, CI or cloud storage.
+- Setting the YubiKey's PIN, PUK and management key, generating the slot 9c key and creating the backup PFX are part of the host session in section "Build order" step 6, approved separately at the time.
 - Signatures are timestamped by a public RFC 3161 timestamp service when one is reachable, so a signature's time is recorded. The pin check (section 3) does not depend on Windows trusting the certificate or the timestamp.
 
 ### 3. Pinned signature check (amends ADR-018)
@@ -122,7 +123,7 @@ The updater (ADR-032, to be revised) hands a verified, signed MSI to Windows Ins
 
 - UAC shows "Unknown publisher" for the helper and for MSI upgrades. The owner must recognise PC Steward's prompt by its timing and program name.
 - ADR-018's signature rule changes, so the pre-UAC check needs a fresh security review.
-- Release signing depends on the owner keeping two offline keys and their passwords safe. Losing both means uninstalling and installing a build with new pins by hand.
+- Release signing depends on the owner keeping the YubiKey, its PIN and the backup PFX and its password safe. Losing both keys means uninstalling and installing a build with new pins by hand.
 - Other people installing a release see SmartScreen and "Unknown publisher" warnings. This is acceptable while releases are for the owner only.
 - New build tooling (WiX) and a signing script on the owner's PC. WiX 6 and later ask users to accept FireGiant's Open Source Maintenance Fee terms; whether a free, no-revenue project owes anything is confirmed before the packaging PR.
 
@@ -145,10 +146,10 @@ The updater (ADR-032, to be revised) hands a verified, signed MSI to Windows Ins
 
 The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unless it is redeployed with a fresh fourteen-day certificate; that is the owner's call and is not part of this ADR.
 
-## Owner questions
+## Owner answers (2026-11-11)
 
-1. **Backup key.** Create and compile in a second offline key from the start (recommended), or a single key only?
-2. **Key storage.** Password-protected PFX on two separate removable drives (recommended), or a hardware security key such as a YubiKey if you already own one?
+1. **Backup key:** "Agreed": an offline backup key with its pin compiled in from the start.
+2. **Key storage:** "I owned a Yubikey": the primary key lives on the owner's YubiKey (slot 9c); the backup is a password-protected PFX on two removable drives.
 
 ## Reconsider when
 

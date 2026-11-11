@@ -2,7 +2,7 @@
 
 `FR-UPD-04`, `FR-UPD-15`, `FR-DAT-12`, `AC-UPD-03–05`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) (Proposed), ADR-002, ADR-018, ADR-022, ADR-033.
 
-- Design only: a per-machine MSI with no custom actions, an offline pinned release key and backup key, a pinned signature check amending ADR-018, a release capability reader, and the updater hand-off through a typed helper operation.
+- Design only: a per-machine MSI with no custom actions, a pinned release key on the owner's YubiKey with an offline backup key, a pinned signature check amending ADR-018, a release capability reader, and the updater hand-off through a typed helper operation.
 - No code, tests, scripts or host steps change. ADR-018's accepted rules and the ADR-022 test route remain in force until ADR-034 is accepted and its follow-up tests, security review and host evidence pass.
 - Not claimed: any implementation, test evidence or acceptance.
 
