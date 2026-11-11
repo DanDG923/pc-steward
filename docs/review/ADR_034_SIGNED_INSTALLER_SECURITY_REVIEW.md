@@ -8,7 +8,7 @@ ADR-034's build order asks for a security review of the whole route once it is b
 
 The whole route from key to installed program:
 
-- **Keys:** `scripts/New-PCStewardReleaseKeys.ps1` (primary on the YubiKey, backup to two removable drives).
+- **Keys:** `scripts/New-PCStewardReleaseKeys.ps1` (primary on the YubiKey, backup to one or two removable drives; `-Key BackupCopy` adds the second copy later).
 - **Payload:** `.github/workflows/release-payload.yml` and the candidate builder's `-ReleasePayload` mode.
 - **Signing:** `scripts/New-PCStewardRelease.ps1`, `scripts/PCStewardReleaseSigning.ps1`, `scripts/New-PCStewardReleaseManifest.ps1`, `scripts/New-PCStewardMsi.ps1`.
 - **Package:** `packaging/msi/` (WiX 5.0.2 source, permissions row, launch conditions, upgrade schedule).
@@ -129,6 +129,8 @@ The two password entries were turned into managed strings to compare them, and t
 ### L3 — the backup key on the PC (Low, residual)
 
 `New-SelfSignedCertificate` creates the backup key in the owner's key store as exportable, until the script exports it and deletes it. At signing time, `-BackupPfx` loads it into a temporary user key set for the run. In both windows a same-user program can use or copy it. This is the session-trust residual of H1 and M3. The backup is used only to move the primary pin to a new key.
+
+`-Key BackupCopy` (added 2026-11-11, after the owner chose "One drive now, copy later") makes the second copy later. It opens the PFX only in memory with an ephemeral key set, never in a store. It refuses a source that lacks the committed backup pin, or the owner's `-BackupPin` before the pins are committed. It writes with `CreateNew`, then compares the copy byte for byte and checks that it signs. While the copy runs, the key is in memory in the owner's session, which is the same L3 residual. Until the second copy exists, the backup rests on one drive.
 
 ### I1 — standard-user repair (Info)
 

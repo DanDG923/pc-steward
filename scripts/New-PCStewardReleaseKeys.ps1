@@ -1,8 +1,13 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('Primary', 'Backup')][string]$Key,
-    # Backup only: the two removable drives (for example E:\ and F:\) that each receive the password-protected PFX.
+    [Parameter(Mandatory)][ValidateSet('Primary', 'Backup', 'BackupCopy')][string]$Key,
+    # Backup only: the one or two removable drives (for example E:\ and F:\) that each receive the password-protected PFX.
     [string[]]$BackupDrives,
+    # BackupCopy only: the removable drive that holds the backup PFX, and the different removable drive that receives a copy.
+    [string]$CopyFrom,
+    [string]$CopyTo,
+    # BackupCopy only: the backup pin the copy must carry, when ReleaseSigningPins.cs at this commit has none yet.
+    [string]$BackupPin,
     # Primary only: ykman.exe, if it is not in one of the YubiKey Manager folders under Program Files. It must carry a valid
     # Yubico signature wherever it is.
     [string]$YkmanPath
@@ -17,8 +22,12 @@ param(
 #                 code signing only, not a CA, ten years) is signed by the slot key itself and stored in the slot; Windows
 #                 shows it in the personal store while the YubiKey is plugged in. Refuses if slot 9c already holds a key.
 #   -Key Backup   An RSA 3072 key (CN=PC Steward Release Signing (Backup)) is created in the personal store, exported once
-#                 to a password-protected PFX on each of two removable drives, checked from each drive, and deleted from
-#                 the PC. Keep the drives apart from each other and from the YubiKey.
+#                 to a password-protected PFX on each of one or two removable drives, checked from each drive, and
+#                 deleted from the PC. Keep the drives apart from each other and from the YubiKey.
+#   -Key BackupCopy  Copies the backup PFX from one removable drive to a second (owner, 2026-11-11: one drive now, the second
+#                 copy later). The copy is written only if the source opens with the password and carries the backup pin
+#                 (from ReleaseSigningPins.cs, or -BackupPin before the pins are committed); it is then read back, compared
+#                 byte for byte, and checked to sign. The key never enters a certificate store.
 #
 # Neither key is added to Root, TrustedPublisher or any other trust store, and nothing is sent anywhere. The output holds
 # only the pins and the certificate subjects, which contain no personal data.
@@ -32,6 +41,7 @@ if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
 $primarySubject = 'CN=PC Steward Release Signing'
 $backupSubject = 'CN=PC Steward Release Signing (Backup)'
 $codeSigning = '1.3.6.1.5.5.7.3.3'
+$backupFileName = 'PCSteward-Release-Backup-Key.pfx'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('pcsteward-keys-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
 
@@ -44,13 +54,37 @@ function Test-PCStewardKeySigns([Security.Cryptography.X509Certificates.X509Cert
     Remove-Item -LiteralPath $probe -Force
 }
 
+# The root of a ready removable drive (for example E:\), or a refusal.
+function Get-PCStewardRemovableRoot([string]$Drive) {
+    if (!$Drive) { throw 'Name a removable drive, for example E:\' }
+    $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Drive))
+    $info = [IO.DriveInfo]::new($root)
+    if (!$info.IsReady -or $info.DriveType -ne [IO.DriveType]::Removable) { throw "$root is not a ready removable drive." }
+    $root
+}
+
+# A backup PFX: the password opens it in memory only (never a store), it holds the private key, its certificate carries
+# $Pin, and the private key signs data that the certificate's public key verifies.
+function Test-PCStewardBackupPfx([byte[]]$Bytes, [Security.SecureString]$Password, [string]$Pin, [string]$Name) {
+    $copy = [Security.Cryptography.X509Certificates.X509Certificate2]::new($Bytes, $Password, [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+    try {
+        if ($copy.Subject -cne $backupSubject -or !$copy.HasPrivateKey -or (Get-PCStewardKeyPin -CertificateDer $copy.RawData) -cne $Pin) { throw "The backup on $Name does not hold the backup key." }
+        $data = [Text.Encoding]::UTF8.GetBytes('PC Steward backup key check')
+        $private = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($copy)
+        $public = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($copy)
+        $signature = $private.SignData($data, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        if (!$public.VerifyData($data, $signature, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)) { throw "The backup on $Name does not sign." }
+    }
+    finally { $copy.Dispose() }
+}
+
 function Get-PCStewardStoreCertificates([string]$Subject) {
     @(Get-ChildItem -LiteralPath 'Cert:\CurrentUser\My' | Where-Object { $_.Subject -ceq $Subject })
 }
 
 try {
     if ($Key -eq 'Primary') {
-        if ($BackupDrives) { throw '-BackupDrives is for -Key Backup only.' }
+        if ($BackupDrives -or $CopyFrom -or $CopyTo -or $BackupPin) { throw '-BackupDrives, -CopyFrom, -CopyTo and -BackupPin are not for -Key Primary.' }
         # Never from PATH, which any program running as the owner can change: an administrator-only install folder, or the
         # path the owner names, and in both cases a Yubico signature that Windows trusts.
         $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -160,15 +194,48 @@ try {
             attestation = [IO.File]::ReadAllText($attestationFile).Trim(); attestationIntermediate = [IO.File]::ReadAllText($intermediateFile).Trim()
         } | ConvertTo-Json
     }
-    else {
-        if ($YkmanPath) { throw '-YkmanPath is for -Key Primary only.' }
-        $drives = @($BackupDrives | ForEach-Object { [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($_)) } | Select-Object -Unique)
-        if ($drives.Count -ne 2) { throw 'Name two different removable drives with -BackupDrives, for example -BackupDrives E:\, F:\' }
-        foreach ($drive in $drives) {
-            $info = [IO.DriveInfo]::new($drive)
-            if (!$info.IsReady -or $info.DriveType -ne [IO.DriveType]::Removable) { throw "$drive is not a ready removable drive." }
+    elseif ($Key -eq 'BackupCopy') {
+        if ($YkmanPath -or $BackupDrives) { throw '-YkmanPath and -BackupDrives are not for -Key BackupCopy.' }
+        $from = Get-PCStewardRemovableRoot $CopyFrom
+        $to = Get-PCStewardRemovableRoot $CopyTo
+        if ($from -ieq $to) { throw '-CopyFrom and -CopyTo must be two different removable drives.' }
+        $source = Join-Path $from $backupFileName
+        $target = Join-Path $to $backupFileName
+        if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "$source was not found." }
+        if (Test-Path -LiteralPath $target) { throw "$target already exists. This script never overwrites a backup key." }
+        # The pin the copy must carry: the committed one, or the owner's before the pins are committed; never a different one.
+        $pinsSource = [IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'src', 'PCSteward.Execution', 'ReleaseSigningPins.cs'))
+        $committed = [regex]::Matches($pinsSource, 'internal const string Backup = "([0-9A-F]{64})";')
+        $expected = if ($committed.Count -eq 1) { $committed[0].Groups[1].Value } else { '' }
+        if ($BackupPin) {
+            if ($BackupPin -cnotmatch '\A[0-9A-F]{64}\z') { throw '-BackupPin must be 64 uppercase hex characters.' }
+            if ($expected -and $expected -cne $BackupPin) { throw '-BackupPin differs from the backup pin in ReleaseSigningPins.cs.' }
+            $expected = $BackupPin
         }
-        $targets = @($drives | ForEach-Object { Join-Path $_ 'PCSteward-Release-Backup-Key.pfx' })
+        if (!$expected) { throw 'ReleaseSigningPins.cs at this commit has no backup pin; pass the pin the backup step printed with -BackupPin.' }
+
+        $bytes = [IO.File]::ReadAllBytes($source)
+        $password = Read-Host -AsSecureString 'Enter the backup key password'
+        try {
+            Test-PCStewardBackupPfx $bytes $password $expected $source
+            # CreateNew: never overwrites, even if the file appeared since the check above.
+            $stream = [IO.FileStream]::new($target, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+            $written = [IO.File]::ReadAllBytes($target)
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try { $same = [BitConverter]::ToString($sha.ComputeHash($bytes)) -ceq [BitConverter]::ToString($sha.ComputeHash($written)) } finally { $sha.Dispose() }
+            if (!$same) { throw "The copy on $target differs from $source." }
+            Test-PCStewardBackupPfx $written $password $expected $target
+        }
+        finally { $password.Dispose() }
+        [pscustomobject]@{ key = 'BackupCopy'; subject = $backupSubject; pin = $expected; copiedTo = $to; result = 'The backup key is now on two drives. Keep them apart from each other and from the YubiKey.' } | ConvertTo-Json
+    }
+    else {
+        if ($YkmanPath -or $CopyFrom -or $CopyTo -or $BackupPin) { throw '-YkmanPath, -CopyFrom, -CopyTo and -BackupPin are not for -Key Backup.' }
+        # One or two drives (owner, 2026-11-11: one drive now; -Key BackupCopy adds the second copy later).
+        $drives = @($BackupDrives | ForEach-Object { Get-PCStewardRemovableRoot $_ } | Select-Object -Unique)
+        if ($drives.Count -lt 1 -or $drives.Count -gt 2 -or $drives.Count -ne @($BackupDrives).Count) { throw 'Name one or two different removable drives with -BackupDrives, for example -BackupDrives E:\ or -BackupDrives E:\, F:\' }
+        $targets = @($drives | ForEach-Object { Join-Path $_ $backupFileName })
         foreach ($target in $targets) { if (Test-Path -LiteralPath $target) { throw "$target already exists. This script never overwrites a backup key." } }
         if (@(Get-PCStewardStoreCertificates $backupSubject).Count -ne 0) { throw 'A backup key is already in the personal store. Stop and ask before going on.' }
 
@@ -211,7 +278,8 @@ try {
             $password.Dispose(); $again.Dispose()
         }
         if (@(Get-PCStewardStoreCertificates $backupSubject).Count -ne 0) { throw 'The backup key is still in the personal store.' }
-        [pscustomobject]@{ key = 'Backup'; subject = $backupSubject; algorithm = 'RSA3072'; pin = $pin; notAfter = $created.NotAfter.ToString('yyyy-MM-dd'); copies = $targets.Count; pinLine = "internal const string Backup = `"$pin`";" } | ConvertTo-Json
+        $note = if ($targets.Count -eq 1) { 'Only one copy so far: run -Key BackupCopy when a second removable drive is available.' } else { 'Two copies. Keep the drives apart from each other and from the YubiKey.' }
+        [pscustomobject]@{ key = 'Backup'; subject = $backupSubject; algorithm = 'RSA3072'; pin = $pin; notAfter = $created.NotAfter.ToString('yyyy-MM-dd'); copies = $targets.Count; note = $note; pinLine = "internal const string Backup = `"$pin`";" } | ConvertTo-Json
     }
 }
 finally {

@@ -5,7 +5,7 @@
 - **Next.** The owner's key session.
 
 **Signed protected install — ADR-034 step 4: key creation, release payload and signing scripts (2026-11-11; scripts, workflow and tests; no host action).** Requirements: `FR-UPD-04/15`, `TM-03/04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
-- **Keys.** `New-PCStewardReleaseKeys.ps1 -Key Primary` makes the release key inside the owner's YubiKey (PIN and touch for every signature) and prints its pin. `-Key Backup` writes the backup key to two removable drives and deletes it from the PC.
+- **Keys.** `New-PCStewardReleaseKeys.ps1 -Key Primary` makes the release key inside the owner's YubiKey (PIN and touch for every signature) and prints its pin. `-Key Backup` writes the backup key to one or two removable drives and deletes it from the PC. `-Key BackupCopy` later adds a checked copy on a second drive.
 - **Payload.** The hand-started `Release payload` workflow builds the unsigned payload from a commit that carries both pins.
 - **Signing.** `New-PCStewardRelease.ps1` checks the run, the artefact digest, the local commit and the compiled pins. It then signs both executables, writes the release manifest, builds and signs the MSI, and checks every signature. It installs nothing.
 - **Tests.** `ReleaseSigningScriptTests` (Windows) and architecture `ReleaseKeyScriptBoundaryTests`; the CI MSI job now signs through the same function.
