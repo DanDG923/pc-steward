@@ -4,7 +4,8 @@
 
 - `scripts/New-PCStewardReleaseKeys.ps1` (ykman location and signature, attestation, password comparison), `scripts/New-PCStewardRelease.ps1` (committed pins), `.github/workflows/release-payload.yml` (actions pinned to commits).
 - Evidence: architecture `ReleaseKeyScriptBoundaryTests`.
-- Not claimed: the H1 install-and-verify step, any key, pin, signed release or host evidence.
+- H1: `scripts/Invoke-PCStewardReleaseInstall.ps1`, `scripts/Invoke-PCStewardReleaseInstallBootstrap.ps1`, `scripts/Install-PCStewardRelease.ps1`, `scripts/PCStewardMsiTables.ps1`, `scripts/New-PCStewardMsiReference.ps1`; evidence: the `msi-install-test` release-install checks and architecture `ReleaseInstallBoundaryTests`.
+- Not claimed: any key, pin, signed release or host evidence.
 
 # Signed protected install — ADR-034 step 4: key creation, release payload and signing scripts
 

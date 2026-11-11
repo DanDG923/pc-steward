@@ -23,7 +23,7 @@ Threat model: the product's own. The attacker is any program running as the owne
 
 | ID | Severity | Finding | Status |
 |---|---|---|---|
-| H1 | High | Release signing runs unelevated in user-writable folders, so a same-user program can change what the YubiKey signs or what is installed | **Open, fix designed:** the elevated install-and-verify step (next change) installs only bytes equal to the CI build. The updater must keep that rule (§7 note in ADR-034) |
+| H1 | High | Release signing runs unelevated in user-writable folders, so a same-user program can change what the YubiKey signs or what is installed | **Fixed** here: an elevated install step that installs only the CI build of the named run (proven in the Windows CI MSI job). The updater must keep that rule (§7 note in ADR-034) |
 | M1 | Medium | `ykman` was taken from `PATH`, which a same-user program can change | **Fixed** here |
 | M2 | Medium | The signing script trusted the pins in the payload record without reading them from the committed source | **Fixed** here |
 | M3 | Medium | The pins printed by the key script are only as trustworthy as the session that ran it | **Narrowed** here (YubiKey attestation, checked away from the PC); backup residual for the owner |
@@ -52,14 +52,40 @@ The YubiKey stops a copied key, not a changed input. PIN policy ALWAYS and touch
 
 The pinned check is not weakened: it still needs the fixed Program Files paths, which only an administrator can write.
 
-**Fix (designed, next change, before any install on the owner's PC).** An elevated install-and-verify step that trusts nothing the signing session wrote:
+**Fixed here.** Release installs go through one elevated step that trusts nothing the signing session wrote:
 
-- Run from the protected execution bundle (`Assert-OwnerOnlyExecutionEnvironment`, as the ADR-022 installer does), never from the clone.
-- Take its trust anchor from the owner's paste, not from disk or the network: the run id, the artefact's SHA-256 digest (read from GitHub's public API in the cloud when the paste is prepared), and the source commit.
-- Copy the artefact zip and the MSI into an administrator-only folder; check the zip's digest; re-validate the candidate manifest there with `Read-OwnerOnlyCandidateManifest`.
-- Check the MSI copy with the pinned rule (one self-signed certificate, the committed primary pin) and its tables as `New-PCStewardMsi.ps1` does.
-- Run `msiexec` on that copy only, with fixed arguments and a log in the protected folder.
-- After install, compare the installed tree with the CI candidate manifest: each executable's unsigned image (`PayloadIntegrity::GetUnsignedImage`) equals the CI executable, every other file is byte-equal, the release manifest matches, and both executables carry the pinned signature. On any difference, uninstall and fail.
+- **The anchor comes from the owner's paste**, never from disk or the network: the run id, its commit, the artefact's SHA-256 digest (read from GitHub's public API in the cloud when the paste is prepared), both committed pins, and the SHA-256 of every script involved.
+- **The caller** is `scripts/Invoke-PCStewardReleaseInstall.ps1`, run in the owner's normal Windows PowerShell 5.1 window.
+  - It checks each script against its pin.
+  - It refuses .NET Framework startup overrides and enforced execution policies.
+  - It composes one compressed `-EncodedCommand`, which runs only if it expands to exactly the composed program. That program holds the anchor, the pinned `OwnerOnlyExecution.ps1` functions and the pinned bootstrap template.
+  - It asks for one UAC prompt.
+- **The bootstrap** is `scripts/Invoke-PCStewardReleaseInstallBootstrap.ps1`, run elevated.
+  - It checks the installing SID and that the process has no package identity.
+  - It creates a new protected execution root and copies the six reviewed scripts into it, each only after its SHA-256 matches.
+  - It points TEMP and TMP at the private compiler folder, then runs the install script from there. This is the ADR-022 execution-bundle pattern.
+- **The install** is `scripts/Install-PCStewardRelease.ps1`, which works only from that bundle.
+  - It reads the artefact zip through a held, reparse-free handle, and must match the digest before anything is written.
+  - The copy is unpacked in the protected folder, with entry paths checked.
+  - `release-payload.json` must name the paste's run, commit and pins. The candidate payload must match its manifest (`Read-OwnerOnlyCandidateManifest`, `AssertTree`).
+  - The MSI is copied, admin-readable only, and its copy must carry a release pin.
+  - **The copy's tables must give the digest the CI build published.** `msi-reference.json` is written by `scripts/New-PCStewardMsiReference.ps1` in the release-payload workflow, from the same payload built unsigned. `scripts/PCStewardMsiTables.ps1` reads every table, streams included, and normalises only the ProductCode and the sizes and hashes of the two signed executables and the release manifest. So the package's actions, custom actions, folders, permissions, registry, shortcuts and file list are the CI build's, and nothing it runs is unreviewed.
+  - `msiexec` runs on that copy only, with fixed arguments.
+  - **After install:**
+    - the folder DACL and every inherited file ACL are exact;
+    - each executable equals the CI one apart from its signature (`AssertSignedImage` against `GetUnsignedImage` of the CI file), and its signature carries a release pin;
+    - the release manifest lists exactly the installed CI payload;
+    - the whole tree is exact (`AssertTree`).
+  - Any difference uninstalls the product and fails the run. With `-RemoveOwnerOnlyTestDeployment`, the first install removes the ADR-022 test deployment in the same elevated run, through its reviewed removal script.
+- **`New-PCStewardRelease.ps1`** also compares the signed MSI's tables with the reference before it reports success, so a mismatch shows up before the UAC prompt.
+- **The Windows CI MSI job** builds a release artefact and its reference from the job's own payload and runs the composed command elevated, exactly as on the owner's PC apart from the prompt. It shows:
+  - the signed MSI's tables equal the unsigned reference;
+  - a wrong artefact digest is refused before anything is copied;
+  - an MSI with different tables (the 0.1.3 probe) is refused before `msiexec`;
+  - an MSI that differs only by one byte of an unhashed versioned file installs, fails verification and is uninstalled;
+  - the real signed MSI installs and verifies.
+
+**Residual (as for every ADR-022 redeploy).** The unelevated window that composes the command is a same-user process. A program that injects into it before the UAC prompt could change the command it elevates. The owner approves that prompt for a step they started themselves, as in ADR-018 and ADR-025. Everything after the prompt checks itself against the paste.
 
 The installed program is then the CI build of a reviewed commit, whatever happened during signing. Signatures stay meaningful as "made with the owner's key", not as "built from the reviewed commit".
 
@@ -130,6 +156,10 @@ RFC 3161 responses are signed by the timestamp authority and checked by Windows,
 - **Workflow.** It runs only when started by hand, with a read-only token, `persist-credentials: false`, and no secrets. CI never signs a release.
 
 ## 4. Tests
+
+Windows CI (`msi-install-test`): the five release-install checks listed under H1, beside the existing install, upgrade and uninstall checks.
+
+Architecture (`ReleaseInstallBoundaryTests`): the install step runs only from the bundle; the digest is checked before anything is copied or unpacked; the pin, tables and candidate checks come before the only `msiexec /i`, which uses the protected copy; the tree is checked after install, with uninstall on failure; the bootstrap writes a script only after its pin matched; the caller elevates once, after its environment checks; the workflow, the signing script and the CI job use the MSI reference.
 
 Architecture (`ReleaseKeyScriptBoundaryTests`):
 

@@ -1,8 +1,8 @@
 **Signed protected install — ADR-034 step 5: security review of the whole route (2026-11-11; review, script fixes and tests; no host action).** Requirements: `FR-UPD-04/15`, `TM-03/04/13`. [Review](review/ADR_034_SIGNED_INSTALLER_SECURITY_REVIEW.md).
 - **Fixed.** `ykman` only from Program Files or a named path, with a valid Yubico signature (M1). The signing script checks the record's pins against `ReleaseSigningPins.cs` in the clean clone (M2). Workflow actions are pinned to full commits (L1). The backup password never becomes a managed string (L2).
 - **Narrowed.** The primary key run prints Yubico's attestation, so the pin can be checked away from the PC before it is committed (M3).
-- **Open (H1, High).** Signing runs unelevated, so a same-user program could change what is signed or installed. The fix is the next change: an elevated install-and-verify step that installs only bytes equal to the CI build. ADR-034 §7 now requires the updater to keep the same content rule.
-- **Next.** The install-and-verify step, then the owner's key session.
+- **Fixed (H1, High).** Signing runs unelevated, so a same-user program could change what is signed or installed. Release installs now go through `Invoke-PCStewardReleaseInstall.ps1`: one UAC prompt, a protected execution bundle, and an install only when the MSI's tables match the CI build's published digest and the installed files match the CI payload (anything else is uninstalled). The Windows CI MSI job runs it, including three refusals. ADR-034 §7 now requires the updater to keep the same content rule.
+- **Next.** The owner's key session.
 
 **Signed protected install — ADR-034 step 4: key creation, release payload and signing scripts (2026-11-11; scripts, workflow and tests; no host action).** Requirements: `FR-UPD-04/15`, `TM-03/04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
 - **Keys.** `New-PCStewardReleaseKeys.ps1 -Key Primary` makes the release key inside the owner's YubiKey (PIN and touch for every signature) and prints its pin. `-Key Backup` writes the backup key to two removable drives and deletes it from the PC.

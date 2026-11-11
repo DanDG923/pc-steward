@@ -28,6 +28,9 @@ jobs:
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1 -ReleasePayload
+      # The unsigned MSI built from this payload, reduced to the digest of its tables (msi-reference.json): the signed MSI must
+      # match it before the owner's PC installs it (security review H1).
+      - run: pwsh -NoProfile -File ./scripts/New-PCStewardMsiReference.ps1 -ReleasePayloadRoot artifacts/release-payload
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pc-steward-release-payload

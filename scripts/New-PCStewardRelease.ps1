@@ -28,6 +28,7 @@ foreach ($module in @('Management', 'Utility', 'Security', 'Archive')) {
     if (Test-Path -LiteralPath $manifest) { Import-Module $manifest -Force }
 }
 . (Join-Path $PSScriptRoot 'PCStewardReleaseSigning.ps1')
+. (Join-Path $PSScriptRoot 'PCStewardMsiTables.ps1')
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from a normal (not elevated) PowerShell window.' }
 
@@ -133,10 +134,16 @@ try {
 finally {
     if ($ownedPfx) { $ownedPfx.Dispose() }
 }
+# The signed MSI's tables must be the ones the CI build of this payload published (security review H1). The elevated install
+# step checks this again on its own protected copy; failing here only saves a wasted UAC prompt.
+$reference = Get-Content -LiteralPath (Join-Path $staging 'msi-reference.json') -Raw | ConvertFrom-Json
+if ($reference.schema -cne 'pc-steward-msi-reference:1' -or [string]$reference.productVersion -cne [string]$record.productVersion) { throw 'The artefact has no MSI reference for this product version.' }
+$tables = Get-PCStewardMsiTables -Path $result.msiPath
+if ($tables.Sha256 -cne [string]$reference.tablesSha256) { throw "The signed MSI's tables ($($tables.Sha256)) differ from the CI reference ($($reference.tablesSha256)). Do not install it." }
 $release = [ordered]@{
     schema = 'pc-steward-release:1'; repository = $repository; runId = $RunId; sourceCommit = [string]$run.head_sha; artefactSha256 = $zipHash
     productVersion = $result.productVersion; msiVersion = $result.msiVersion; msiSha256 = $result.msiSha256; manifestSha256 = $result.manifestSha256
-    fileCount = $result.fileCount; signedWith = $(if ($BackupPfx) { 'backup' } else { 'primary' }); pin = $pin
+    fileCount = $result.fileCount; signedWith = $(if ($BackupPfx) { 'backup' } else { 'primary' }); pin = $pin; tablesSha256 = $tables.Sha256
 }
 [IO.File]::WriteAllText((Join-Path $output 'release.json'), ($release | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 Remove-Item -LiteralPath $staging, $candidate -Recurse -Force
