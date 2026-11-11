@@ -1,3 +1,11 @@
+# Signed protected install — ADR-034 step 3: WiX MSI and CI install test
+
+`FR-UPD-04/15`, `FR-DAT-12`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) sections 1 and 5 and implementation notes.
+
+- `packaging/msi/` (WiX package), `scripts/New-PCStewardReleaseManifest.ps1`, `scripts/New-PCStewardMsi.ps1`, `scripts/Test-PCStewardMsiCI.ps1`, `tests/PCSteward.InstallCheck` (CI only) and the `msi-install-test` CI job.
+- Evidence: the `msi-install-test` job and its `msi-install-evidence` artefact (Windows CI), `ReleaseManifestScriptTests` (Windows CI), architecture `MsiPackageBoundaryTests`.
+- Not claimed: the release key, a signed release or any host evidence.
+
 # Signed protected install — ADR-034 step 2b: release capability reader
 
 `FR-UPD-15`, `FR-DAT-12`, `TM-03/04/07/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) section 4 and implementation notes, ADR-033.

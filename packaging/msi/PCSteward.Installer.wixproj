@@ -1,0 +1,20 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!--
+    ADR-034 §1 and §5: the per-machine PC Steward MSI. It packs a payload folder that is already complete (signed executables
+    and PCSteward.ReleaseManifest.json written by the release script, or by the CI MSI job with a throwaway key) and adds
+    nothing else. Built only by scripts/New-PCStewardMsi.ps1, which passes PayloadDir and ProductVersion. WiX 5.0.2 is the
+    owner's choice: it asks for no EULA (ADR-034 owner answers). Not part of PCSteward.slnx.
+  -->
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>PCSteward</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SuppressValidation>false</SuppressValidation>
+    <DefineConstants>PayloadDir=$(PayloadDir);ProductVersion=$(ProductVersion)</DefineConstants>
+  </PropertyGroup>
+  <Target Name="PCStewardRequireInputs" BeforeTargets="CoreCompile">
+    <Error Condition="'$(PayloadDir)' == '' Or !Exists('$(PayloadDir)\PCSteward.ReleaseManifest.json')" Text="PayloadDir must name a payload folder that holds PCSteward.ReleaseManifest.json." />
+    <Error Condition="'$(ProductVersion)' == ''" Text="ProductVersion is required." />
+  </Target>
+</Project>

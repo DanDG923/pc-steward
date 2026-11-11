@@ -21,5 +21,6 @@
     <Project Path="tests/PCSteward.ArchitectureTests/PCSteward.ArchitectureTests.csproj" />
     <Project Path="tests/PCSteward.Security.FixtureTests/PCSteward.Security.FixtureTests.csproj" />
     <Project Path="tests/PCSteward.Performance/PCSteward.Performance.csproj" />
+    <Project Path="tests/PCSteward.InstallCheck/PCSteward.InstallCheck.csproj" />
   </Folder>
 </Solution>

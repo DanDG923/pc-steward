@@ -9,5 +9,7 @@
     <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
     <InternalsVisibleTo Include="PCSteward.ProductionTrustDesktop" />
     <InternalsVisibleTo Include="PCSteward.ProductionTrustHelper" />
+    <!-- ADR-034 §5: the CI MSI job's install check (never shipped). -->
+    <InternalsVisibleTo Include="PCSteward.InstallCheck" />
   </ItemGroup>
 </Project>
