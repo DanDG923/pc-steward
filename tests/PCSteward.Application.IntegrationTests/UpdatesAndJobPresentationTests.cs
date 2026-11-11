@@ -536,6 +536,16 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsEmpty(UpdatesPagePresenter.Build([windows, winget], details, true, [], ["winget:7zip"], Now).SelectedKeys,
             "a record shown inside another row can't be chosen on its own");
 
+        // An unknown scope can't bridge two records whose known scopes differ (independent review).
+        InventoryRow unknownScope = windows with { Scope = "Unknown" };
+        InventoryRow machineCopy = winget;
+        InventoryRow userOnly = userCopy with { StableProductKey = "user2:7zip" };
+        Dictionary<string, UpdateDetail> bridged = new(details, StringComparer.Ordinal) { ["user2:7zip"] = Detail("user2:7zip", "23.01", "24.08", packageId: "7zip.7zip") };
+        UpdatesPagePresentation noBridge = UpdatesPagePresenter.Build([unknownScope, machineCopy, userOnly], bridged, true, [], null, Now);
+        Assert.HasCount(2, noBridge.Ready, "the unknown-scope record joins one known install, never both");
+        Assert.IsTrue(noBridge.Ready.All(row => row.AllKeys.Count <= 2));
+        Assert.IsFalse(noBridge.Ready.Any(row => row.AllKeys.Contains("winget:7zip") && row.AllKeys.Contains("user2:7zip")), "Machine and User stay apart");
+
         // Ignored rows join only when their decisions read the same; Needs review rows only when their reasons match.
         StableDecision ignoreWindows = new(Guid.NewGuid(), "registry:7zip", "Ignore", "Indefinitely", Now.AddDays(-1));
         StableDecision ignoreWinget = new(Guid.NewGuid(), "winget:7zip", "Ignore", "Indefinitely", Now.AddDays(-1));

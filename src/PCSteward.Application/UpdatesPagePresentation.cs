@@ -434,7 +434,10 @@ public static class UpdatesPagePresenter
         List<List<UpdateRowPresentation>> same = [];
         foreach (UpdateRowPresentation row in rows)
         {
-            int index = shown.FindIndex(existing => IsSameApp(existing, row, details));
+            // The record must match every record already in the row, not only the first: an unknown scope or architecture must never
+            // bridge two installations whose known values differ (independent review).
+            int index = Enumerable.Range(0, shown.Count).FirstOrDefault(
+                candidate => IsSameApp(shown[candidate], row, details) && same[candidate].All(member => IsSameApp(member, row, details)), -1);
             if (index < 0) { shown.Add(row); same.Add([]); }
             else same[index].Add(row);
         }
