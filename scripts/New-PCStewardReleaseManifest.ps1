@@ -51,8 +51,12 @@ try {
 }
 finally { $sha.Dispose() }
 if ($entries.Count -eq 0 -or $entries.Count -gt 4096) { throw "The payload must hold 1 to 4096 files; it holds $($entries.Count)." }
-$sorted = [object[]]($entries.ToArray())
-[Array]::Sort([string[]]@($sorted | ForEach-Object { $_.Path }), $sorted, [StringComparer]::Ordinal)
+# Ordinal order. The keys array is sorted in place (a typed string[] variable, so PowerShell passes it without copying).
+$byPath = @{}
+foreach ($entry in $entries) { $byPath[$entry.Path] = $entry }
+[string[]]$paths = @($entries | ForEach-Object { $_.Path })
+[Array]::Sort($paths, [StringComparer]::Ordinal)
+$sorted = @($paths | ForEach-Object { $byPath[$_] })
 
 # Written by hand so the bytes are the same in Windows PowerShell 5.1 and pwsh 7 (paths are printable ASCII, checked above).
 function ConvertTo-PCStewardJsonString([string]$Value) { '"' + $Value.Replace('\', '\\').Replace('"', '\"') + '"' }
