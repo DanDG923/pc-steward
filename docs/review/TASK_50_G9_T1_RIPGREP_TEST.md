@@ -231,3 +231,27 @@ As G9 plan §8. A STOP in G9-T1 is not retried without a new paste. A G9-T4 fail
 ### Owner decision (2026-11-11, 10:32Z): keep the WinGet copy and test ripgrep anyway
 
 Options offered: keep it and test ripgrep (recommended), remove the WinGet copy first, or switch to fd (which needs an allowlist code change, review and a redeploy). The owner chose **keep it**. Consequences, as stated on the card: while the test runs, Chocolatey's `bin` shim comes first on PATH (machine PATH before user PATH), so `rg` is 14.1.0 and then 15.2.0, from the same upstream bytes. The WinGet copy is untouched, and `choco uninstall ripgrep` puts it back first on PATH. Paste revision 2 narrows check 3 to allow only that WinGet copy, and adds two information lines.
+
+### G9-T1 run 2 (2026-11-11, about 10:33Z; paste revision 2): PASS
+
+Run once by the owner in an administrator Windows PowerShell window. Lines as printed:
+
+```text
+G9T1 window-ok
+G9T1 environment-ok
+G9T1 winget-rg-present True (kept, owner decision)
+G9T1 not-installed-ok
+G9T1 release-before matched=56/56 changed=0 missing=0 extra=0
+G9T1 nupkg 3928942 646C589224874BA7F20DE8C52CD6A6C7BEF5E8A978FAE955DEEA03ACBE9E92F6
+G9T1 choco-exit 0
+G9T1 choco-list ripgrep|14.1.0
+G9T1 lib-nupkg-same-as-reviewed True
+G9T1 rg-exe-count 1 shim True
+G9T1 rg-on-PATH-first-is-chocolatey True
+G9T1 release-after matched=56/56 changed=0 missing=0 extra=0
+G9T1 work-folder-removed True
+G9T1 RESULT PASS
+```
+
+Chocolatey 2.7.5 installed from the checked local file only. The package script extracted the 64-bit embedded zip into `lib\ripgrep\tools` (so Chocolatey's `7z` and helper modules ran, unheld, in the owner's own install) and ShimGen made the `rg` shim. The installed `lib\ripgrep\ripgrep.nupkg` is byte-identical to the reviewed nupkg. Chocolatey's 56 release files were unchanged before and after.
+
