@@ -102,6 +102,30 @@ public sealed class DownloadedArtifactCacheTests
     }
 
     [TestMethod]
+    public async Task TheSelfUpdateJobRecordIsWorkflowStateAndSurvivesClearingDownloads()
+    {
+        // FR-DAT-08, ADR-032 §8: clearing downloaded files removes the self-updater's downloads but never its job record,
+        // which the reopened desktop needs after a restart; the folder holding it stays too.
+        await using ArtifactFixture fixture = new();
+        string folder = Path.Combine(fixture.Root, "SelfUpdate");
+        Directory.CreateDirectory(folder);
+        await File.WriteAllBytesAsync(Path.Combine(folder, "job.json"), [1, 2, 3]);
+        await File.WriteAllBytesAsync(Path.Combine(folder, "AAAA.msi"), [4, 5, 6, 7]);
+        DownloadedArtifactCache cache = fixture.CreateCache();
+
+        Assert.AreEqual(4, (await cache.GetSummaryAsync(CancellationToken.None)).RecoverableBytes, "the job record is not counted as recoverable");
+        DownloadCleanupResult result = await cache.ClearInactiveAsync(CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded, string.Join(",", result.Residuals.Select(item => item.RelativePath + ":" + item.Reason)));
+        Assert.IsTrue(File.Exists(Path.Combine(folder, "job.json")));
+        Assert.IsFalse(File.Exists(Path.Combine(folder, "AAAA.msi")));
+
+        File.Delete(Path.Combine(folder, "job.json"));
+        Assert.IsTrue((await cache.ClearInactiveAsync(CancellationToken.None)).Succeeded);
+        Assert.IsFalse(Directory.Exists(folder), "an empty self-update folder is an ordinary orphan");
+    }
+
+    [TestMethod]
     public async Task NestedOrphanDirectoriesAreDeletedDeepestFirst()
     {
         await using ArtifactFixture fixture = new();

@@ -104,7 +104,7 @@ public static class SelfUpdateText
             {
                 "install-failed" => "Windows could not install " + to + " and kept " + status.FromVersion + ". The install log is in " + status.InstallLogPath + " (administrators only).",
                 "pc-steward-did-not-close" => to + " was not installed because PC Steward did not close in time. Nothing was changed.",
-                "refused-before-install" => to + " was not installed: the installer changed after it was checked. Nothing was changed.",
+                "refused-before-install" => to + " was not installed: a check just before installing failed. Nothing was changed.",
                 "mismatch-uninstalled" => "The installed files did not match the release build, so PC Steward was removed. Reinstall it from its release page.",
                 "mismatch-uninstall-failed" => "The installed files did not match the release build and could not be removed. Reinstall PC Steward from its release page.",
                 _ => "The update did not finish as checked. Don't start other updates until you reinstall PC Steward from its release page.",

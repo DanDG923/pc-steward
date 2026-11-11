@@ -31,6 +31,13 @@ public sealed class DownloadedArtifactCache : IDisposable
         CacheRoot = PathSafety.EnsureRoot(cacheRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PCSteward", "downloads"));
     }
 
+    /// <summary>
+    /// Workflow state that lives under the cache root but is not a downloaded payload (FR-DAT-08): the self-updater's job record
+    /// (ADR-032 §8), which the reopened desktop must still find after a restart. Cleanup never removes it, nor the folders that
+    /// hold it; the self-updater removes it itself once the job is decided.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> WorkflowStatePaths = [Path.Combine("SelfUpdate", "job.json")];
+
     public string CacheRoot { get; }
     public long SoftQuotaBytes { get; }
     public bool IsCleaning => cleanupGate.CurrentCount == 0;
@@ -49,7 +56,8 @@ public sealed class DownloadedArtifactCache : IDisposable
         FileSystemObject[] objects = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
         HashSet<string> active = artifacts.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         long total = objects.Sum(item => item.SizeBytes);
-        long recoverable = objects.Where(item => !IsActivePath(item.RelativePath, active)).Sum(item => item.SizeBytes);
+        HashSet<string> state = WorkflowState(objects);
+        long recoverable = objects.Where(item => !IsActivePath(item.RelativePath, active) && !state.Contains(item.RelativePath)).Sum(item => item.SizeBytes);
         return new DownloadCacheSummary(total, recoverable, objects.Length, active.Count, await store.GetDownloadedArtifactsLastCleanedAtAsync(cancellationToken).ConfigureAwait(false));
     }
 
@@ -72,13 +80,14 @@ public sealed class DownloadedArtifactCache : IDisposable
             Dictionary<string, DownloadedArtifact> ledger = all.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
             HashSet<string> active = all.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             HashSet<string> attempted = [];
+            HashSet<string> state = WorkflowState(initialObjects);
             foreach (FileSystemObject item in initialObjects
                 .OrderBy(item => item.IsDirectory)
                 .ThenBy(item => item.IsDirectory ? -PathDepth(item.RelativePath) : 0)
                 .ThenBy(item => ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? registered) ? registered.CreatedAt.UtcDateTime : item.LastWriteTimeUtc)
                 .ThenBy(item => item.RelativePath, StringComparer.Ordinal))
             {
-                if (IsActivePath(item.RelativePath, active)) continue;
+                if (IsActivePath(item.RelativePath, active) || state.Contains(item.RelativePath)) continue;
                 ledger.TryGetValue(item.RelativePath, out DownloadedArtifact? artifact);
                 bool expired = artifact is not null && (artifact.Outcome == DownloadedArtifactOutcome.VerifiedSuccess ? artifact.CreatedAt < now.AddDays(-7) : artifact.CreatedAt < now.AddDays(-1));
                 bool quotaExceeded = retainedBytes > SoftQuotaBytes;
@@ -104,13 +113,25 @@ public sealed class DownloadedArtifactCache : IDisposable
             ledger = remaining.ToDictionary(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath), StringComparer.OrdinalIgnoreCase);
             active = remaining.Where(artifact => artifact.IsActive).Select(artifact => PathSafety.NormalizeRelativePath(artifact.RelativePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             FileSystemObject[] filesystemRemaining = PathSafety.EnumerateOwnedObjects(CacheRoot).ToArray();
-            foreach (FileSystemObject item in filesystemRemaining.Where(item => !IsActivePath(item.RelativePath, active) && (clearAllInactive || ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
+            foreach (FileSystemObject item in filesystemRemaining.Where(item => !IsActivePath(item.RelativePath, active) && !state.Contains(item.RelativePath) && (clearAllInactive || ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && (!ledger.ContainsKey(item.RelativePath) || attempted.Contains(item.RelativePath)) && !residuals.Any(residual => string.Equals(residual.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase))))
                 residuals.Add(new DownloadCleanupResidual(item.RelativePath, ledger.ContainsKey(item.RelativePath) ? "UndeletedOwnedObject" : "UnknownOwnedObject"));
             bool succeeded = residuals.Count == 0;
             if (succeeded) await store.SetDownloadedArtifactsLastCleanedAtAsync(now, cancellationToken).ConfigureAwait(false);
             return new DownloadCleanupResult(succeeded, deleted, filesystemRemaining.Length, recovered, filesystemRemaining.Sum(item => item.SizeBytes), residuals);
         }
         finally { cleanupGate.Release(); }
+    }
+
+    /// <summary>The workflow state files present as plain files, and every folder that holds one.</summary>
+    private static HashSet<string> WorkflowState(IEnumerable<FileSystemObject> objects)
+    {
+        HashSet<string> state = new(StringComparer.OrdinalIgnoreCase);
+        foreach (FileSystemObject item in objects)
+        {
+            if (item.IsDirectory || item.IsUnsafe || !WorkflowStatePaths.Any(path => string.Equals(path, item.RelativePath, StringComparison.OrdinalIgnoreCase))) continue;
+            for (string? path = item.RelativePath; !string.IsNullOrEmpty(path); path = Path.GetDirectoryName(path)) state.Add(path);
+        }
+        return state;
     }
 
     private static bool IsActivePath(string relativePath, IReadOnlySet<string> active) => active.Any(path => string.Equals(path, relativePath, StringComparison.OrdinalIgnoreCase) || relativePath.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));

@@ -51,6 +51,7 @@ public sealed partial class MainWindow
         catch (Exception exception) when (exception is not OutOfMemoryException) { status = null; }
         if (status is null || windowClosed) return;
         selfUpdateStatus = status;
+        // A failure that blocks further updates (ADR-032 §8) is kept and decided again at the next launch.
         if (status.IsFinal) updater.ForgetJob();
         if (navigation.Current is ShellPage.Home or ShellPage.About) Render();
     }
@@ -94,8 +95,7 @@ public sealed partial class MainWindow
 
         StewardWrapPanel actions = StewardVisuals.ActionRow();
         bool busy = selfUpdateStage is SelfUpdateStage.Checking or SelfUpdateStage.Downloading or SelfUpdateStage.Installing or SelfUpdateStage.Closing;
-        bool blocked = selfUpdateStatus is { State: PcStewardUpdateState.InProgress or PcStewardUpdateState.RestartToFinish } ||
-            selfUpdateStatus is { State: PcStewardUpdateState.Failed, Code: not ("install-failed" or "pc-steward-did-not-close" or "refused-before-install") };
+        bool blocked = selfUpdateStatus is { State: PcStewardUpdateState.InProgress or PcStewardUpdateState.RestartToFinish } or { BlocksUpdates: true };
         if (busy)
         {
             actions.Children.Add(new ProgressRing { IsActive = true, Width = 20, Height = 20 });
@@ -212,6 +212,13 @@ public sealed partial class MainWindow
         try { answer = await confirm.ShowAsync(); }
         catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or InvalidOperationException) { return; }
         if (answer != ContentDialogResult.Primary) return;
+        // PC Steward closes once the session is ready, so no other work may be running or start meanwhile: Installing and
+        // Closing count as an active operation (HasActiveOperation) until the window exits.
+        if (HasActiveOperation)
+        {
+            ShowSelfUpdate(SelfUpdateStage.Downloaded, "Another task is running. Install the update once it has finished.");
+            return;
+        }
         ShowSelfUpdate(SelfUpdateStage.Installing, "Waiting for Windows permission and PC Steward's administrator checks…");
         PcStewardApprovedUpdate approved = new(RunningMsiVersion(), release.Version.Major + "." + release.Version.Minor + "." + release.Version.Patch,
             release.RunId, release.SourceCommit, release.CheckZipSha256, sha);

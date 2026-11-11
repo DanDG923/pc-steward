@@ -49,7 +49,10 @@ public enum PcStewardUpdateState
 /// <param name="ToVersion">The version the owner approved.</param>
 /// <param name="InstallLogPath">The administrator-only install log in the job's work folder.</param>
 /// <param name="IsFinal">The job is decided and is forgotten once shown.</param>
-public sealed record PcStewardUpdateStatus(PcStewardUpdateState State, string Code, string FromVersion, string ToVersion, string InstallLogPath, bool IsFinal);
+/// <param name="BlocksUpdates">ADR-032 §8: the install may differ from a signed release; no self-update is offered and the job is
+/// kept until a signed release is installed again.</param>
+public sealed record PcStewardUpdateStatus(PcStewardUpdateState State, string Code, string FromVersion, string ToVersion, string InstallLogPath, bool IsFinal,
+    bool BlocksUpdates);
 
 /// <summary>The values the owner approved: the checked release and the downloaded files' SHA-256.</summary>
 public sealed record PcStewardApprovedUpdate(string FromVersion, string ToVersion, long RunId, string SourceCommit, string CheckZipSha256, string MsiSha256);
@@ -178,7 +181,8 @@ public sealed class PcStewardSelfUpdate
         {
             if (files.ReadJob() is not { } job) return null;
             SelfUpdateJobVerdict verdict = files.Evaluate(job, runningVersion ?? string.Empty, now);
-            return new((PcStewardUpdateState)verdict.State, verdict.Code, job.FromVersion, job.ToVersion, files.InstallLogPath(job), verdict.IsFinal);
+            return new((PcStewardUpdateState)verdict.State, verdict.Code, job.FromVersion, job.ToVersion, files.InstallLogPath(job), verdict.IsFinal,
+                verdict.BlocksUpdates);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {

@@ -27,11 +27,15 @@ internal enum SelfUpdateJobState
     Inconclusive,
 }
 
-/// <summary>One decision: the state and a fixed lowercase code naming why (shown to the owner through compiled text only).</summary>
-internal sealed record SelfUpdateJobVerdict(SelfUpdateJobState State, string Code)
+/// <summary>
+/// One decision: the state and a fixed lowercase code naming why (shown to the owner through compiled text only).
+/// <paramref name="BlocksUpdates"/>: ADR-032 §8, the install may differ from a signed release, so no further self-update is
+/// offered and the job is kept (and decided again at every launch) until a signed release is installed again.
+/// </summary>
+internal sealed record SelfUpdateJobVerdict(SelfUpdateJobState State, string Code, bool BlocksUpdates = false)
 {
     /// <summary>The job is over; the desktop forgets it and removes its downloads once the owner has seen the verdict.</summary>
-    internal bool IsFinal => State is SelfUpdateJobState.Updated or SelfUpdateJobState.Failed or SelfUpdateJobState.Inconclusive;
+    internal bool IsFinal => !BlocksUpdates && State is SelfUpdateJobState.Updated or SelfUpdateJobState.Failed or SelfUpdateJobState.Inconclusive;
 }
 
 /// <summary>What the reopened desktop can see, read once per launch (§8). Every file read is bounded and read-only.</summary>
@@ -191,24 +195,26 @@ internal static partial class SelfUpdateDesktop
 
         switch (result.Outcome)
         {
+            // A difference in the running install blocks further updates until it is gone; it is checked again at every launch.
             case SelfUpdateFinishOutcome.Installed:
                 return RunningAsExpected(job, expected, inputs) is { } installedDifference
-                    ? new(SelfUpdateJobState.Failed, installedDifference)
+                    ? new(SelfUpdateJobState.Failed, installedDifference, BlocksUpdates: true)
                     : new(SelfUpdateJobState.Updated, "installed");
             case SelfUpdateFinishOutcome.RestartNeeded:
                 if (result.BootTimeUnixSeconds is not { } recorded || inputs.BootTimeUnixSeconds <= recorded + RestartMarginSeconds)
                     return new(SelfUpdateJobState.RestartToFinish, "restart-needed");
-                if (RunningAsExpected(job, expected, inputs) is { } restartedDifference) return new(SelfUpdateJobState.Failed, restartedDifference);
-                bool matches;
-                try { matches = inputs.InstalledTreeMatches(expected); }
-                catch (Exception exception) when (exception is not OutOfMemoryException) { matches = false; }
-                return matches ? new(SelfUpdateJobState.Updated, "installed-after-restart") : new(SelfUpdateJobState.Failed, "installed-tree-differs");
+                if (RunningAsExpected(job, expected, inputs) is { } restartedDifference) return new(SelfUpdateJobState.Failed, restartedDifference, BlocksUpdates: true);
+                return TreeMatches(expected, inputs)
+                    ? new(SelfUpdateJobState.Updated, "installed-after-restart")
+                    : new(SelfUpdateJobState.Failed, "installed-tree-differs", BlocksUpdates: true);
             case SelfUpdateFinishOutcome.InstallFailed:
                 return new(SelfUpdateJobState.Failed, "install-failed");
+            // The finish copy found an install unlike the CI build. That blocks further updates until a signed release is
+            // installed again: an intact install of another release, or one whose whole tree and permissions match the expected one.
             case SelfUpdateFinishOutcome.MismatchUninstalled:
-                return new(SelfUpdateJobState.Failed, "mismatch-uninstalled");
+                return new(SelfUpdateJobState.Failed, "mismatch-uninstalled", BlocksUpdates: !Reinstalled(expected, inputs));
             case SelfUpdateFinishOutcome.MismatchUninstallFailed:
-                return new(SelfUpdateJobState.Failed, "mismatch-uninstall-failed");
+                return new(SelfUpdateJobState.Failed, "mismatch-uninstall-failed", BlocksUpdates: !Reinstalled(expected, inputs));
             case SelfUpdateFinishOutcome.PcStewardDidNotClose:
                 return new(SelfUpdateJobState.Failed, "pc-steward-did-not-close");
             case SelfUpdateFinishOutcome.RefusedBeforeInstall:
@@ -217,6 +223,17 @@ internal static partial class SelfUpdateDesktop
                 return new(SelfUpdateJobState.Inconclusive, "result-unreadable");
         }
     }
+
+    private static bool TreeMatches(SelfUpdateExpectedInstall expected, SelfUpdateOutcomeInputs inputs)
+    {
+        try { return inputs.InstalledTreeMatches(expected); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+    }
+
+    /// <summary>After a mismatch: the running install is intact and is either another release or exactly the expected tree.</summary>
+    private static bool Reinstalled(SelfUpdateExpectedInstall expected, SelfUpdateOutcomeInputs inputs) =>
+        inputs.InstallIntact && inputs.InstalledManifestSha256 is { } manifest &&
+        (!string.Equals(manifest, expected.ManifestSha256, StringComparison.Ordinal) || TreeMatches(expected, inputs));
 
     /// <summary>Null when this process is the to-version, its install is intact and its manifest is the expected one; otherwise a code.</summary>
     private static string? RunningAsExpected(SelfUpdateDesktopJob job, SelfUpdateExpectedInstall expected, SelfUpdateOutcomeInputs inputs)
