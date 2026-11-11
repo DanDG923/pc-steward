@@ -53,7 +53,7 @@ public sealed class UiPolishFoundationContractTests
         Assert.IsFalse(Between(tokens, "<ResourceDictionary x:Key=\"HighContrast\">", "</ResourceDictionary>").Contains("NavigationView", StringComparison.Ordinal), "high contrast keeps the system navigation colours");
         // Mica stays the base layer (Desktop Acrylic, then the Fluent solid base, as fallbacks; opaque in high contrast).
         string window = DesktopWindowSource.Read(Root());
-        StringAssert.Contains(window, ": MicaController.IsSupported() ? new MicaBackdrop()");
+        StringAssert.Contains(window, ": MicaController.IsSupported() ? new MicaBackdrop { Kind = MicaKind.BaseAlt }");
         StringAssert.Contains(window, "windowRoot.Background = SystemBackdrop is null ? StewardVisuals.Brush(\"StewardCanvasBrush\")");
     }
 

@@ -66,15 +66,15 @@ public sealed partial class MainWindow
         StackPanel works = new() { Spacing = StewardSpacing.XSmall };
         works.Children.Add(SectionHeading("How PC Steward works"));
         works.Children.Add(StewardVisuals.ExpanderRow("\uE72E", "Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates.",
-            PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved.")));
+            PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved."), "green"));
         StackPanel elevation = new() { Spacing = StewardSpacing.Small };
         elevation.Children.Add(PageCopy(ElevationStory.Summary));
         elevation.Children.Add(PageCopy(ElevationStory.HelperRequirement));
-        works.Children.Add(StewardVisuals.ExpanderRow("\uEA18", "Updates and administrator permission", "Checking never asks for permission. Windows asks once for each machine-wide app you approve.", elevation));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uEA18", "Updates and administrator permission", "Checking never asks for permission. Windows asks once for each machine-wide app you approve.", elevation, "amber"));
         works.Children.Add(StewardVisuals.ExpanderRow("\uE74E", "Data and removal", "Everything is kept locally. Factory reset removes PC Steward's data and its scheduled check.",
-            PageCopy("Inventory, settings, decisions, history, source evidence, downloads and logs are stored locally under your PC Steward data root. Removing the extracted package removes its binaries but retains that data by default. Use Factory reset PC Steward to remove app-owned local data and the current-user scheduled check before removal.")));
+            PageCopy("Inventory, settings, decisions, history, source evidence, downloads and logs are stored locally under your PC Steward data root. Removing the extracted package removes its binaries but retains that data by default. Use Factory reset PC Steward to remove app-owned local data and the current-user scheduled check before removal."), "purple"));
         works.Children.Add(StewardVisuals.ExpanderRow("\uE777", "Support and rollback", "If a newer build fails, copy the diagnostic and use the rollback package from the same channel.",
-            PageCopy("If replacing PC Steward with a newer build fails, stop, select Copy diagnostic above, and use the rollback package from the same private release channel. Don't download PC Steward from mirrors or other download sites.")));
+            PageCopy("If replacing PC Steward with a newer build fails, stop, select Copy diagnostic above, and use the rollback package from the same private release channel. Don't download PC Steward from mirrors or other download sites."), "blue"));
         panel.Children.Add(works);
         panel.Children.Add(StewardVisuals.FootNote("\uE8A5", "Open source under the MIT licence."));
         return panel;

@@ -104,7 +104,9 @@ public sealed partial class MainWindow
         }
         Place(0);
         card.SizeChanged += (_, args) => Place(args.NewSize.Width);
-        return new Border { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(StewardSpacing.XLarge, StewardSpacing.Section, StewardSpacing.XLarge, StewardSpacing.Section), Child = card };
+        // Colour option 2: the status card is tinted with its state's tone (blue local-only or checking, green up to date, amber
+        // needs attention); the sentence and facts still carry the meaning, never colour alone.
+        return new Border { Style = AppStyle("StewardCardStyle"), Background = StewardVisuals.ToneTint(StewardStatus.ToneName(home.HeroTone)), Padding = new Thickness(StewardSpacing.XLarge, StewardSpacing.Section, StewardSpacing.XLarge, StewardSpacing.Section), Child = card };
     }
 
     /// <summary>
@@ -158,10 +160,22 @@ public sealed partial class MainWindow
         return StewardVisuals.InformationBanner(notice.Title, notice.Message, StewardStatus.ToneName(notice.Tone), open);
     }
 
+    /// <summary>Colour option 2: each "At a glance" row keeps one decorative hue while it has no status to show.</summary>
+    private static string RowHue(HomeRowKind kind) => kind switch
+    {
+        HomeRowKind.InstalledApps => "blue",
+        HomeRowKind.Updates => "teal",
+        HomeRowKind.NeedsReview => "amber",
+        HomeRowKind.RestartsAndChecks => "purple",
+        HomeRowKind.Decisions => "pink",
+        _ => "green"
+    };
+
     /// <summary>An "At a glance" row: one button (keyboard, Narrator and focus visuals for free) that opens its filtered page.</summary>
     private Button HomeRowButton(HomeRow row)
     {
-        Button button = StewardVisuals.NavigationRow(row.Glyph, row.Title, row.Description, StewardStatus.ToneName(row.Tone));
+        string tone = StewardStatus.ToneName(row.Tone);
+        Button button = StewardVisuals.NavigationRow(row.Glyph, row.Title, row.Description, tone == "neutral" ? RowHue(row.Kind) : tone);
         button.VerticalAlignment = VerticalAlignment.Stretch;
         AutomationProperties.SetName(button, row.AccessibleName);
         HomeRowTarget target = row.Target;

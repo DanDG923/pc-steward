@@ -249,7 +249,9 @@ public sealed partial class UiAccessibilityContractTests
         // least 4.5:1 on its own tinted surface and on the Windows 11 base and card colours of that theme (opaque equivalents).
         string[] lightLayers = ["#FFFFFF", "#FBFBFB", "#F3F3F3"];
         string[] darkLayers = ["#2B2B2B", "#202020", "#1C1C1C"];
-        (string Foreground, string Surface)[] tones = [("StewardSuccessBrush", "StewardSuccessSurfaceBrush"), ("StewardWarningBrush", "StewardWarningSurfaceBrush"), ("StewardDangerBrush", "StewardDangerSurfaceBrush"), ("StewardInfoBrush", "StewardInfoSurfaceBrush")];
+        (string Foreground, string Surface)[] tones = [("StewardSuccessBrush", "StewardSuccessSurfaceBrush"), ("StewardWarningBrush", "StewardWarningSurfaceBrush"), ("StewardDangerBrush", "StewardDangerSurfaceBrush"), ("StewardInfoBrush", "StewardInfoSurfaceBrush"),
+            // Colour option 2 (owner choice 2026-11-11): the decorative icon-well hues meet the same bar.
+            .. new[] { "Blue", "Teal", "Amber", "Purple", "Pink", "Green" }.Select(hue => ($"StewardHue{hue}Brush", $"StewardHue{hue}SurfaceBrush"))];
         foreach (string theme in new[] { "Default", "Light", "Dark" })
         {
             Dictionary<string, string> colors = themes[theme];

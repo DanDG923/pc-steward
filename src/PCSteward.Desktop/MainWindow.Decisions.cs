@@ -45,7 +45,9 @@ public sealed partial class MainWindow
             panel.Children.Add(StewardVisuals.EmptyState("\uE8C8", DecisionsPresenter.EmptyTitle, DecisionsPresenter.EmptyMessage));
             StackPanel explainers = new() { Spacing = StewardSpacing.Small };
             explainers.Children.Add(SectionHeading("What each decision does"));
-            FrameworkElement[] cards = [.. DecisionsPresenter.Explainers.Select(explainer => (FrameworkElement)StewardVisuals.RowCard(explainer.Glyph, explainer.Title, explainer.Description))];
+            // Colour option 2: one decorative hue per kind of decision (pin, skip, ignore, confirm).
+            string[] hues = ["blue", "amber", "pink", "teal"];
+            FrameworkElement[] cards = [.. DecisionsPresenter.Explainers.Select((explainer, index) => (FrameworkElement)StewardVisuals.RowCard(explainer.Glyph, explainer.Title, explainer.Description, tone: hues[index % hues.Length]))];
             explainers.Children.Add(StewardVisuals.ResponsiveColumns(cards, 380, StewardSpacing.XSmall));
             panel.Children.Add(explainers);
             return;

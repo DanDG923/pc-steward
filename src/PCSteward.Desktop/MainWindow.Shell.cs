@@ -233,7 +233,9 @@ public sealed partial class MainWindow
         // MicaBackdrop also falls back to a solid colour in high contrast; the explicit check keeps the system-mapped canvas brush.
         bool highContrast = accessibilitySettings?.HighContrast == true;
         SystemBackdrop = highContrast ? null
-            : MicaController.IsSupported() ? new MicaBackdrop()
+            // Colour option 2 (owner choice 2026-11-11): Mica Alt, the stronger wallpaper tint Windows uses for tabbed and
+            // long-lived app windows, so the app reads less grey on dark wallpapers.
+            : MicaController.IsSupported() ? new MicaBackdrop { Kind = MicaKind.BaseAlt }
             : DesktopAcrylicController.IsSupported() ? new DesktopAcrylicBackdrop()
             : null;
         windowRoot.Background = SystemBackdrop is null ? StewardVisuals.Brush("StewardCanvasBrush") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
