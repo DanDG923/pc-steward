@@ -19,6 +19,9 @@ internal interface ISelfUpdateFinishHost
     /// <summary>The folder carries the protected work folder descriptor, is owned by SYSTEM or Administrators and is no reparse point (nor any ancestor).</summary>
     bool IsProtectedWorkFolder(string path);
 
+    /// <summary>The folder carries the administrators-only private folder descriptor (Mythos review S2), with the same owner and reparse rules.</summary>
+    bool IsPrivateFolder(string path);
+
     byte[]? ReadFile(string path, int maximumBytes);
 
     /// <summary>SHA-256 (uppercase hex) of the file through a held handle, at most <paramref name="maximumBytes"/>; null otherwise.</summary>
@@ -27,8 +30,8 @@ internal interface ISelfUpdateFinishHost
     /// <summary>Waits until the desktop process has exited and no process runs an image under the install root. False when the limit passes first.</summary>
     Task<bool> WaitForPcStewardToCloseAsync(int desktopProcessId, TimeSpan limit, CancellationToken cancellationToken);
 
-    /// <summary>As <see cref="ISelfUpdateSessionHost.RunMsiexecAsync"/>: compiled environment, temporary folder <paramref name="workFolder"/>.</summary>
-    Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken);
+    /// <summary>As <see cref="ISelfUpdateSessionHost.RunMsiexecAsync"/>: compiled environment, temporary folder <paramref name="privateFolder"/>.</summary>
+    Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string privateFolder, TimeSpan limit, CancellationToken cancellationToken);
 
     /// <summary>Every file under the install root (relative paths), hashed through held handles; null on a reparse point or any read failure.</summary>
     IReadOnlyList<SelfUpdateTreeFile>? ReadInstalledTree();
@@ -44,10 +47,7 @@ internal interface ISelfUpdateFinishHost
     /// </summary>
     IReadOnlyList<SelfUpdateRelatedProduct>? RelatedProducts();
 
-    /// <summary>
-    /// True when the current user's registry holds any Windows Installer registration for <paramref name="productCode"/> or
-    /// PC Steward's UpgradeCode, or when it cannot be read (security review R1).
-    /// </summary>
+    /// <summary>As <see cref="ISelfUpdateSessionHost.HasPerUserRegistration"/> (security review R1, Mythos review S1).</summary>
     bool HasPerUserRegistration(string productCode);
 
     /// <summary>The current boot time, as Unix seconds (UTC).</summary>
@@ -61,7 +61,8 @@ internal interface ISelfUpdateFinishHost
 /// <c>bin</c>, never from the install root it replaces, and acts only on the job its own folder holds:
 /// <list type="number">
 /// <item>it refuses (exit <see cref="Refused"/>, nothing written) unless it runs elevated as exactly
-/// <c>%ProgramFiles%\&lt;leaf&gt;\bin\PCSteward.ElevatedHelper.exe</c>, the work folder and <c>bin</c> are protected, and
+/// <c>%ProgramFiles%\&lt;leaf&gt;\bin\PCSteward.ElevatedHelper.exe</c>, the work folder and <c>bin</c> are protected, its
+/// <c>private</c> folder (MSI copy, logs, temporary files) is administrators-only, and
 /// <c>job.json</c> and <c>expected-install.json</c> parse and name the same job, and the job has no <c>result.json</c> yet;</item>
 /// <item>it waits at most <see cref="CloseWait"/> for PC Steward to close;</item>
 /// <item>it hashes the MSI copy again and runs <c>msiexec /i</c> (at most <see cref="InstallLimit"/>);</item>
@@ -97,7 +98,8 @@ internal static class SelfUpdateFinish
             string bin = Path.Combine(workFolder, SelfUpdateHelperProtocol.HelperCopyFolder);
             if (host.ProcessPath is not { } self ||
                 !string.Equals(Path.GetFullPath(self), Path.Combine(bin, InstalledHelperLaunchTrust.HelperExecutableName), StringComparison.OrdinalIgnoreCase) ||
-                !host.IsProtectedWorkFolder(workFolder) || !host.IsProtectedWorkFolder(bin))
+                !host.IsProtectedWorkFolder(workFolder) || !host.IsProtectedWorkFolder(bin) ||
+                !host.IsPrivateFolder(Path.Combine(workFolder, SelfUpdateHelperProtocol.PrivateFolder)))
                 return Refused;
             if (host.ReadFile(Path.Combine(workFolder, SelfUpdateHelperProtocol.JobFileName), SelfUpdateHelperProtocol.MaximumFileBytes) is not { } jobBytes ||
                 !SelfUpdateHelperProtocol.TryReadJob(jobBytes, out SelfUpdateJobFile? parsedJob) || parsedJob is null ||
@@ -145,7 +147,8 @@ internal static class SelfUpdateFinish
             return Result(job, expected, SelfUpdateFinishOutcome.PcStewardDidNotClose, null, "pc-steward-did-not-close");
 
         // Step 3: the MSI copy is still the approved one.
-        string msiPath = Path.Combine(workFolder, SelfUpdateInstallPolicy.MsiFileName(job.MsiSha256));
+        string privateFolder = Path.Combine(workFolder, SelfUpdateHelperProtocol.PrivateFolder);
+        string msiPath = Path.Combine(privateFolder, SelfUpdateInstallPolicy.MsiFileName(job.MsiSha256));
         if (!string.Equals(host.HashFile(msiPath, SelfUpdateSession.MaximumMsiBytes), job.MsiSha256, StringComparison.Ordinal))
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "msi-changed");
 
@@ -154,8 +157,8 @@ internal static class SelfUpdateFinish
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "per-user-registration");
 
         // Step 4: the install. Windows Installer rolls a failed major upgrade back to the old version.
-        int? exit = await host.RunMsiexecAsync(["/i", msiPath, "/qn", "/norestart", "/l*v", Path.Combine(workFolder, "install.log")],
-            workFolder, InstallLimit, cancellationToken).ConfigureAwait(false);
+        int? exit = await host.RunMsiexecAsync(["/i", msiPath, "/qn", "/norestart", "/l*v", Path.Combine(privateFolder, SelfUpdateHelperProtocol.InstallLogName)],
+            privateFolder, InstallLimit, cancellationToken).ConfigureAwait(false);
         if (exit is null) return Result(job, expected, SelfUpdateFinishOutcome.InstallFailed, null, "msiexec-did-not-finish");
         if (exit is 3010 or 1641)
             return Result(job, expected, SelfUpdateFinishOutcome.RestartNeeded, exit, "restart-needed") with { BootTimeUnixSeconds = host.BootTimeUnixSeconds() };
@@ -168,8 +171,8 @@ internal static class SelfUpdateFinish
         if (!installed) return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; no-product-to-remove");
         if (host.HasPerUserRegistration(job.ProductCode))
             return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; uninstall-refused");
-        int? removed = await host.RunMsiexecAsync(["/x", job.ProductCode, "/qn", "/norestart", "/l*v", Path.Combine(workFolder, "uninstall.log")],
-            workFolder, UninstallLimit, cancellationToken).ConfigureAwait(false);
+        int? removed = await host.RunMsiexecAsync(["/x", job.ProductCode, "/qn", "/norestart", "/l*v", Path.Combine(privateFolder, SelfUpdateHelperProtocol.UninstallLogName)],
+            privateFolder, UninstallLimit, cancellationToken).ConfigureAwait(false);
         return removed is 0 or 3010 or 1641
             ? Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstalled, exit, difference)
             : Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; uninstall-failed");

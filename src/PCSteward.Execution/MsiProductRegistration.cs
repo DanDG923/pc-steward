@@ -48,19 +48,33 @@ internal static partial class MsiProductRegistration
     }
 
     /// <summary>
-    /// The current user's Windows Installer keys (below <c>HKCU</c>) that would make Windows Installer treat this product, or any
-    /// PC Steward product, as registered for that user: the product, its features, and PC Steward's UpgradeCode.
+    /// The current user's Windows Installer keys (below <c>HKCU</c>) that would make Windows Installer treat any of
+    /// <paramref name="productCodes"/>, or any PC Steward product, as registered for that user: each product and its features,
+    /// and PC Steward's UpgradeCode. Each is listed under <c>Software\Microsoft\Installer</c> and under the user's own classes,
+    /// <c>Software\Classes\Installer</c>, which the merged classes view puts in front of the machine's (Mythos review S1).
+    /// The caller passes the new package's product code and every one the machine registration lists, since an upgrade acts
+    /// on the installed product too.
     /// </summary>
-    internal static IReadOnlyList<string> PerUserKeys(string productCode)
+    internal static IReadOnlyList<string> PerUserKeys(IEnumerable<string> productCodes)
     {
-        string product = Pack(productCode);
-        return
-        [
-            @"Software\Microsoft\Installer\Products\" + product,
-            @"Software\Microsoft\Installer\Features\" + product,
-            @"Software\Microsoft\Installer\UpgradeCodes\" + Pack(UpgradeCode),
-        ];
+        ArgumentNullException.ThrowIfNull(productCodes);
+        string[] packed = [.. productCodes.Select(Pack).Distinct(StringComparer.Ordinal)];
+        if (packed.Length == 0) throw new ArgumentException("At least one product code is required.", nameof(productCodes));
+        List<string> keys = [];
+        foreach (string root in PerUserRoots)
+        {
+            foreach (string product in packed)
+            {
+                keys.Add(root + @"Products\" + product);
+                keys.Add(root + @"Features\" + product);
+            }
+            keys.Add(root + @"UpgradeCodes\" + Pack(UpgradeCode));
+        }
+        return keys;
     }
+
+    /// <summary>The two places below <c>HKCU</c> where a per-user Windows Installer registration can live.</summary>
+    private static readonly string[] PerUserRoots = [@"Software\Microsoft\Installer\", @"Software\Classes\Installer\"];
 
     /// <summary>The package's <c>ProductCode</c> property, when its Property table holds exactly one well-formed one; null otherwise.</summary>
     internal static string? ProductCode(IReadOnlyDictionary<string, MsiTable> tables)

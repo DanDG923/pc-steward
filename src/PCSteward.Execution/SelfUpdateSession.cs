@@ -31,6 +31,12 @@ internal interface ISelfUpdateSessionHost
     /// <summary>Creates <paramref name="path"/> new, with the protected work folder descriptor at creation. False if it exists or fails.</summary>
     bool CreateProtectedFolder(string path);
 
+    /// <summary>
+    /// Creates <paramref name="path"/> new, with the administrators-only descriptor at creation (Mythos review S2). False if it
+    /// exists or fails.
+    /// </summary>
+    bool CreatePrivateFolder(string path);
+
     /// <summary>Best effort: removes earlier protected work folders except <paramref name="keepLeaf"/> and the newest earlier one.</summary>
     void RemoveOlderWorkFolders(string keepLeaf);
 
@@ -55,13 +61,15 @@ internal interface ISelfUpdateSessionHost
 
     /// <summary>
     /// Runs <c>%SystemRoot%\System32\msiexec.exe</c> with the arguments, no shell, working directory System32, and a compiled
-    /// environment whose temporary folder is <paramref name="workFolder"/>. Null when it did not finish in time.
+    /// environment whose temporary folder is <paramref name="privateFolder"/>, the work folder's administrators-only folder
+    /// (refused otherwise). Null when it did not finish in time.
     /// </summary>
-    Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken);
+    Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string privateFolder, TimeSpan limit, CancellationToken cancellationToken);
 
     /// <summary>
-    /// True when the current user's registry holds any Windows Installer registration for <paramref name="productCode"/> or
-    /// PC Steward's UpgradeCode, or when it cannot be read (security review R1).
+    /// True when the current user's registry holds any Windows Installer registration for <paramref name="productCode"/>, for
+    /// any product the machine registration lists under PC Steward's UpgradeCode, or for that UpgradeCode, or when it cannot
+    /// be read (security review R1, Mythos review S1).
     /// </summary>
     bool HasPerUserRegistration(string productCode);
 
@@ -113,6 +121,9 @@ internal static class SelfUpdateSession
     internal const int MaximumCheckZipBytes = ReleaseCheckPolicy.MaximumZipBytes;
     internal const long MaximumMsiBytes = 512L * 1024 * 1024;
     internal const int MaximumExecutableBytes = (int)DeploymentCapabilityPolicy.MaximumBindingFileBytes;
+
+    /// <summary>The result detail of a job the session closed because it stopped before the finish copy started (Mythos review S3).</summary>
+    internal const string SessionStoppedDetail = "session-stopped";
 
     /// <summary>The download folder under the requesting user's profile; the desktop writes both inputs there by hash.</summary>
     internal static readonly IReadOnlyList<string> DownloadFolderParts = ["AppData", "Local", "PCSteward", "Downloads", "SelfUpdate"];
@@ -253,17 +264,18 @@ internal static class SelfUpdateSession
             Require(Path.IsPathFullyQualified(profile), SelfUpdateSessionRefusal.ProfileUnavailable);
             string downloads = Path.Combine([profile, .. DownloadFolderParts]);
 
-            // Step 5: a new administrator-only work folder.
+            // Step 5: a new administrator-only work folder. Users may read it (the desktop reads the result there); everything
+            // the helper reads from the owner's folder, unpacks or logs goes in its administrators-only private folder (Mythos review S2).
             string leaf = SelfUpdateInstallPolicy.WorkFolderName(request.JobId);
             string workFolder = Path.Combine(host.ProgramFiles, leaf);
-            Require(host.CreateProtectedFolder(workFolder), SelfUpdateSessionRefusal.WorkFolderUnavailable);
-            host.RemoveOlderWorkFolders(leaf);
+            string privateFolder = Path.Combine(workFolder, SelfUpdateHelperProtocol.PrivateFolder);
+            Require(host.CreateProtectedFolder(workFolder) && host.CreatePrivateFolder(privateFolder), SelfUpdateSessionRefusal.WorkFolderUnavailable);
             token.ThrowIfCancellationRequested();
 
             string zipName = SelfUpdateInstallPolicy.CheckZipFileName(request.CheckZipSha256);
             string msiName = SelfUpdateInstallPolicy.MsiFileName(request.MsiSha256);
-            string zipPath = Path.Combine(workFolder, zipName);
-            string msiPath = Path.Combine(workFolder, msiName);
+            string zipPath = Path.Combine(privateFolder, zipName);
+            string msiPath = Path.Combine(privateFolder, msiName);
             Copy(Path.Combine(downloads, zipName), zipPath, MaximumCheckZipBytes, request.CheckZipSha256);
             token.ThrowIfCancellationRequested();
             Copy(Path.Combine(downloads, msiName), msiPath, MaximumMsiBytes, request.MsiSha256);
@@ -297,6 +309,9 @@ internal static class SelfUpdateSession
                 HelperGitHubVerdict.ArtifactMismatch => SelfUpdateSessionRefusal.ArtifactMismatch,
                 _ => SelfUpdateSessionRefusal.CouldNotConfirm,
             });
+            // Mythos review S4: earlier jobs' folders go only once GitHub has confirmed this request, so made-up requests
+            // cannot clear away the folder whose result the desktop has yet to read.
+            host.RemoveOlderWorkFolders(leaf);
             token.ThrowIfCancellationRequested();
 
             // Step 7: the MSI copy itself, before Windows Installer touches it.
@@ -311,9 +326,9 @@ internal static class SelfUpdateSession
             token.ThrowIfCancellationRequested();
 
             // Step 8: an administrative image (it unpacks files and runs no custom action of the package).
-            string imageRoot = Path.Combine(workFolder, SelfUpdateHelperProtocol.ImageFolder);
-            int? extracted = await host.RunMsiexecAsync(
-                ["/a", msiPath, "/qn", "TARGETDIR=" + imageRoot, "/l*v", Path.Combine(workFolder, "extract.log")], workFolder, budgets.Extract, token).ConfigureAwait(false);
+            string imageRoot = Path.Combine(privateFolder, SelfUpdateHelperProtocol.ImageFolder);
+            int? extracted = await host.RunMsiexecAsync(["/a", msiPath, "/qn", "TARGETDIR=" + imageRoot, "/l*v",
+                Path.Combine(privateFolder, SelfUpdateHelperProtocol.ExtractLogName)], privateFolder, budgets.Extract, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             Require(extracted == 0, SelfUpdateSessionRefusal.ExtractFailed);
             Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);
@@ -337,16 +352,38 @@ internal static class SelfUpdateSession
             string helperCopy = Path.Combine(bin, InstalledHelperLaunchTrust.HelperExecutableName);
             Require(host.CreateProtectedFolder(bin) && host.CopyOwnImage(helperCopy, helperEntry.Sha256.ToUpperInvariant()), SelfUpdateSessionRefusal.HelperCopyFailed);
 
-            // Step 11: the job and the expected installed tree, for the finish copy and the desktop after a restart.
-            Require(host.WriteNewFile(Path.Combine(workFolder, SelfUpdateHelperProtocol.JobFileName), SelfUpdateHelperProtocol.WriteJob(new(request.JobId,
-                    request.ToVersion, request.RunId, request.SourceCommit, request.CheckZipSha256, request.MsiSha256, peer.DesktopProcessId, productCode))) &&
-                host.WriteNewFile(Path.Combine(workFolder, SelfUpdateInstallPolicy.ExpectedInstallFileName), SelfUpdateInstallPolicy.WriteExpected(expected!)),
-                SelfUpdateSessionRefusal.JobFilesFailed);
+            // Steps 11–12. Mythos review S3: once a job file may exist, a session that stops before the finish copy has started
+            // closes the job with a result, so the finish copy (which never runs a job that has one) cannot install it later.
+            bool started = false;
+            try
+            {
+                // Step 11: the job and the expected installed tree, for the finish copy and the desktop after a restart.
+                Require(host.WriteNewFile(Path.Combine(workFolder, SelfUpdateHelperProtocol.JobFileName), SelfUpdateHelperProtocol.WriteJob(new(request.JobId,
+                        request.ToVersion, request.RunId, request.SourceCommit, request.CheckZipSha256, request.MsiSha256, peer.DesktopProcessId, productCode))) &&
+                    host.WriteNewFile(Path.Combine(workFolder, SelfUpdateInstallPolicy.ExpectedInstallFileName), SelfUpdateInstallPolicy.WriteExpected(expected!)),
+                    SelfUpdateSessionRefusal.JobFilesFailed);
 
-            // Step 12: the finish copy, only while the desktop is still connected and the budget holds.
-            token.ThrowIfCancellationRequested();
-            Require(host.StartFinish(helperCopy, leaf), SelfUpdateSessionRefusal.FinishNotStarted);
+                // Step 12: the finish copy, only while the desktop is still connected and the budget holds.
+                token.ThrowIfCancellationRequested();
+                Require(host.StartFinish(helperCopy, leaf), SelfUpdateSessionRefusal.FinishNotStarted);
+                started = true;
+            }
+            finally
+            {
+                if (!started) CloseJob(workFolder, expected!);
+            }
             return new(request.Nonce, true, leaf, request.ToVersion, expected!.ManifestSha256, null);
+        }
+
+        /// <summary>Best effort (Mythos review S3): a result that refuses the job, written where the finish copy looks for one.</summary>
+        private void CloseJob(string workFolder, SelfUpdateExpectedInstall expected)
+        {
+            try
+            {
+                _ = host.WriteNewFile(Path.Combine(workFolder, SelfUpdateHelperProtocol.ResultFileName), SelfUpdateHelperProtocol.WriteResult(new(request.JobId,
+                    SelfUpdateFinishOutcome.RefusedBeforeInstall, null, request.ToVersion, expected.ManifestSha256, null, SessionStoppedDetail)));
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException) { }
         }
 
         private void Copy(string source, string destination, long maximumBytes, string sha256)

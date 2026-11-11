@@ -89,6 +89,15 @@ internal static partial class SelfUpdateHelperProtocol
     internal const string ResultFileName = "result.json";
     internal const string HelperCopyFolder = "bin";
     internal const string ImageFolder = "image";
+
+    /// <summary>
+    /// Mythos review S2: the administrators-only folder inside the work folder that holds the input copies, the administrative
+    /// image, every msiexec log and the temporary folder. Only the job files, <c>bin</c> and the result stay readable by users.
+    /// </summary>
+    internal const string PrivateFolder = "private";
+    internal const string ExtractLogName = "extract.log";
+    internal const string InstallLogName = "install.log";
+    internal const string UninstallLogName = "uninstall.log";
     internal const string JobSchema = "pc-steward-self-update-job:1";
     internal const string ResultSchema = "pc-steward-self-update-result:1";
     internal const int MaximumFileBytes = 64 * 1024;

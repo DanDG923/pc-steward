@@ -11,12 +11,13 @@ namespace PCSteward.InstallCheck;
 /// the screens is the owner's own update). Two modes:
 /// <list type="bullet">
 /// <item><c>--self-update-prepare &lt;msi&gt; &lt;case&gt;</c> (elevated) lays out a job exactly as the session's steps 5 and 8–11
-/// leave it, through the production Windows host: a new protected work folder, the MSI copied by hash, its administrative
-/// image, the expected tree read from that image, <c>job.json</c>, <c>expected-install.json</c> and a copy of the installed
+/// leave it, through the production Windows host: a new protected work folder and its administrators-only private folder,
+/// the MSI copied by hash into the private folder, its administrative image there, the expected tree read from that image, <c>job.json</c>, <c>expected-install.json</c> and a copy of the installed
 /// helper in <c>bin</c>. Case <c>match</c> records the image as it is; case <c>mismatch</c> records one file's hash changed, so
 /// the finish copy must uninstall. It prints the work folder leaf.</item>
 /// <item><c>--self-update-decide &lt;leaf&gt; &lt;from&gt;</c> (standard user) is the reopened desktop's §8 read of that job through
-/// the production desktop pieces, with this install's own version as the running version. It prints the state and code.</item>
+/// the production desktop pieces, with this install's own version as the running version. It prints the state and code, and
+/// whether this user is kept out of the job's private folder.</item>
 /// </list>
 /// The finish copy itself is the real helper copy, started by the CI script with <c>--finish-self-update &lt;leaf&gt;</c>.
 /// </summary>
@@ -30,16 +31,17 @@ internal static class SelfUpdateFinishCheck
         string leaf = SelfUpdateInstallPolicy.WorkFolderName(jobId);
         string work = Path.Combine(host.ProgramFiles, leaf);
         string bin = Path.Combine(work, SelfUpdateHelperProtocol.HelperCopyFolder);
-        if (!host.CreateProtectedFolder(work)) return Fail("create-work-folder");
+        string privateFolder = Path.Combine(work, SelfUpdateHelperProtocol.PrivateFolder);
+        if (!host.CreateProtectedFolder(work) || !host.CreatePrivateFolder(privateFolder)) return Fail("create-work-folder");
         string msiSha = Sha256(msiPath);
         string msiName = SelfUpdateInstallPolicy.MsiFileName(msiSha);
-        string msiCopy = Path.Combine(work, msiName);
+        string msiCopy = Path.Combine(privateFolder, msiName);
         if (host.CopyInput(msiPath, msiCopy, SelfUpdateSession.MaximumMsiBytes, msiSha) != SelfUpdateCopyVerdict.Copied) return Fail("copy-msi");
         if (host.ReadMsiTables(msiCopy) is not { } tables || tables.ProductCode is not { } productCode) return Fail("product-code");
         if (host.HasPerUserRegistration(productCode)) return Fail("per-user-registration");
-        string image = Path.Combine(work, SelfUpdateHelperProtocol.ImageFolder);
-        int? extracted = host.RunMsiexecAsync(["/a", msiCopy, "/qn", "TARGETDIR=" + image, "/l*v", Path.Combine(work, "extract.log")],
-            work, TimeSpan.FromMinutes(10), CancellationToken.None).GetAwaiter().GetResult();
+        string image = Path.Combine(privateFolder, SelfUpdateHelperProtocol.ImageFolder);
+        int? extracted = host.RunMsiexecAsync(["/a", msiCopy, "/qn", "TARGETDIR=" + image, "/l*v", Path.Combine(privateFolder, SelfUpdateHelperProtocol.ExtractLogName)],
+            privateFolder, TimeSpan.FromMinutes(10), CancellationToken.None).GetAwaiter().GetResult();
         if (extracted != 0) return Fail("extract " + extracted);
         if (host.ReadImage(image, msiName) is not { } extractedImage) return Fail("image-layout");
         byte[] manifest = host.ReadFile(Path.Combine(extractedImage.InstallFolder, ReleaseManifestPolicy.FileName), ReleaseManifestPolicy.MaximumManifestBytes)
@@ -87,11 +89,23 @@ internal static class SelfUpdateFinishCheck
             DateTimeOffset.UtcNow.AddMinutes(-5), leaf, expected.ManifestSha256);
         SelfUpdateDesktopFiles files = SelfUpdateDesktopFiles.TryCreate() ?? throw new InvalidOperationException("No desktop files.");
         SelfUpdateJobVerdict verdict = files.Evaluate(desktopJob, running, DateTimeOffset.UtcNow);
+        // Mythos review S2: this standard user must not be able to list the private folder (MSI copy, image, logs).
+        bool privateHidden;
+        try
+        {
+            _ = Directory.GetFileSystemEntries(Path.Combine(work, SelfUpdateHelperProtocol.PrivateFolder));
+            privateHidden = false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            privateHidden = true;
+        }
         Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, string>
         {
             ["state"] = verdict.State.ToString(),
             ["code"] = verdict.Code,
             ["running"] = running,
+            ["privateHidden"] = privateHidden ? "true" : "false",
         }));
         return 0;
     }

@@ -83,13 +83,18 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         }
     }
 
-    public bool CreateProtectedFolder(string path)
+    public bool CreateProtectedFolder(string path) => CreateFolder(path, SelfUpdateAclPolicy.WorkFolderDescriptor) && IsProtectedWorkFolder(path);
+
+    public bool CreatePrivateFolder(string path) => CreateFolder(path, SelfUpdateAclPolicy.PrivateFolderDescriptor) && IsPrivateFolder(path);
+
+    /// <summary>Creates <paramref name="path"/> new under a work folder, with <paramref name="sddl"/> applied at creation.</summary>
+    private bool CreateFolder(string path, string sddl)
     {
         if (!OperatingSystem.IsWindows() || !IsUnderProgramFiles(path)) return false;
         IntPtr descriptor = IntPtr.Zero;
         try
         {
-            if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(SelfUpdateAclPolicy.WorkFolderDescriptor, 1, out descriptor, IntPtr.Zero))
+            if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, 1, out descriptor, IntPtr.Zero))
                 return false;
             NativeMethods.SecurityAttributes attributes = new()
             {
@@ -97,8 +102,7 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
                 SecurityDescriptor = descriptor,
                 InheritHandle = 0,
             };
-            if (!NativeMethods.CreateDirectory(path, ref attributes)) return false;
-            return IsProtectedWorkFolder(path);
+            return NativeMethods.CreateDirectory(path, ref attributes);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -141,7 +145,8 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
     {
         if (!OperatingSystem.IsWindows() || !IsUnderProgramFiles(destination)) return SelfUpdateCopyVerdict.Unreadable;
         // Security review M1: a copy that is not the approved file is removed again, so nothing the helper could read but the
-        // requesting user could not stays in the work folder, which every user can read.
+        // requesting user could not stays behind. Since Mythos review S2 the copy is also made in the administrators-only
+        // private folder, so no other user can open it while it is written or before it is removed.
         bool created = false;
         SelfUpdateCopyVerdict verdict = SelfUpdateCopyVerdict.Unreadable;
         try
@@ -250,9 +255,9 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
     }
 
-    public async Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken)
+    public async Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string privateFolder, TimeSpan limit, CancellationToken cancellationToken)
     {
-        if (!OperatingSystem.IsWindows() || !IsProtectedWorkFolder(workFolder)) return null;
+        if (!OperatingSystem.IsWindows() || !IsPrivateFolder(privateFolder)) return null;
         string system = Environment.SystemDirectory;
         ProcessStartInfo start = new(Path.Combine(system, "msiexec.exe"), MsiexecCommandLine(arguments))
         {
@@ -262,7 +267,7 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         };
         // Security review M2: none of the environment this elevated process inherited from the user's registry reaches msiexec.
         start.Environment.Clear();
-        foreach ((string name, string value) in CompiledEnvironment(workFolder)) start.Environment[name] = value;
+        foreach ((string name, string value) in CompiledEnvironment(privateFolder)) start.Environment[name] = value;
         using Process? process = Process.Start(start);
         if (process is null) return null;
         using CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -282,11 +287,12 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
 
     /// <summary>
     /// Security review M2: the whole environment of msiexec and the finish copy, built from the system directory and known
-    /// folders (never from an environment value), with the temporary folder set to the protected work folder. An elevated
+    /// folders (never from an environment value), with the temporary folder set to the work folder's administrators-only
+    /// <c>private</c> folder (Mythos review S2). An elevated
     /// process started through <c>runas</c> inherits the owner's <c>HKCU\Environment</c>, which any program running as the owner
     /// can write, so nothing of it is passed on.
     /// </summary>
-    internal static IReadOnlyList<(string Name, string Value)> CompiledEnvironment(string workFolder)
+    internal static IReadOnlyList<(string Name, string Value)> CompiledEnvironment(string temporaryFolder)
     {
         string system = Environment.SystemDirectory;
         string windows = Path.GetDirectoryName(system) ?? throw new InvalidOperationException("No Windows folder.");
@@ -300,7 +306,7 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
             ("ALLUSERSPROFILE", programData), ("CommonProgramFiles", common), ("CommonProgramFiles(x86)", commonX86), ("CommonProgramW6432", common),
             ("ComSpec", Path.Combine(system, "cmd.exe")), ("PATH", string.Join(';', system, windows, Path.Combine(system, "Wbem"))), ("PATHEXT", ".COM;.EXE"),
             ("ProgramData", programData), ("ProgramFiles", programFiles), ("ProgramFiles(x86)", programFilesX86), ("ProgramW6432", programFiles),
-            ("SystemDrive", (Path.GetPathRoot(windows) ?? string.Empty).TrimEnd('\\')), ("SystemRoot", windows), ("TEMP", workFolder), ("TMP", workFolder),
+            ("SystemDrive", (Path.GetPathRoot(windows) ?? string.Empty).TrimEnd('\\')), ("SystemRoot", windows), ("TEMP", temporaryFolder), ("TMP", temporaryFolder),
             ("windir", windows),
         ];
         if (environment.Any(entry => string.IsNullOrEmpty(entry.Value) || entry.Value.Contains('\0', StringComparison.Ordinal) || entry.Value.Contains('=', StringComparison.Ordinal)))
@@ -408,7 +414,7 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
             char[] commandLine = (SelfUpdateHelperProtocol.FinishCommandLine(helperCopyPath, workFolderLeaf) + "\0").ToCharArray();
             // Security review M2: the finish copy gets the compiled environment, not the one this process inherited.
             StringBuilder block = new();
-            foreach ((string name, string value) in CompiledEnvironment(Path.Combine(ProgramFiles, workFolderLeaf)).OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+            foreach ((string name, string value) in CompiledEnvironment(Path.Combine(ProgramFiles, workFolderLeaf, SelfUpdateHelperProtocol.PrivateFolder)).OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase))
                 block.Append(name).Append('=').Append(value).Append('\0');
             block.Append('\0');
             IntPtr environment = Marshal.StringToHGlobalUni(block.ToString());
@@ -443,6 +449,20 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         {
             return ProtectedLaunchLayout.HasNoReparseComponents(path) &&
                 TryReadDescriptor(path, directory: true, owner: true, out string sddl) && SelfUpdateAclPolicy.IsProtectedWorkFolder(sddl);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
+    public bool IsPrivateFolder(string path)
+    {
+        if (!OperatingSystem.IsWindows() || !IsUnderProgramFiles(path)) return false;
+        try
+        {
+            return ProtectedLaunchLayout.HasNoReparseComponents(path) &&
+                TryReadDescriptor(path, directory: true, owner: true, out string sddl) && SelfUpdateAclPolicy.IsPrivateFolder(sddl);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -539,16 +559,28 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
     }
 
     /// <summary>
-    /// Security review R1: true when the current user's registry holds any Windows Installer registration for the product or for
-    /// PC Steward's UpgradeCode, or when that cannot be read (fail closed). Windows Installer would consult such a registration,
-    /// which a same-user program can write, when it installs, unpacks or removes the product.
+    /// Security review R1 and Mythos review S1: true when the current user's registry holds any Windows Installer registration
+    /// for the product, for any product the machine registration lists under PC Steward's UpgradeCode (the one an upgrade
+    /// replaces), or for that UpgradeCode, in either per-user location; or when that cannot be read (fail closed). Windows
+    /// Installer would consult such a registration, which a same-user program can write, when it installs, unpacks or removes
+    /// the product.
     /// </summary>
     public bool HasPerUserRegistration(string productCode)
     {
         if (!OperatingSystem.IsWindows() || !MsiProductRegistration.IsProductCode(productCode)) return true;
         try
         {
-            foreach (string path in MsiProductRegistration.PerUserKeys(productCode))
+            List<string> products = [productCode];
+            using (RegistryKey? machine = Registry.LocalMachine.OpenSubKey(MsiProductRegistration.MachineUpgradeCodeKey, writable: false))
+            {
+                foreach (string name in machine?.GetValueNames() ?? [])
+                {
+                    if (name.Length == 0) continue;
+                    if (MsiProductRegistration.Unpack(name) is not { } installed) return true;
+                    products.Add(installed);
+                }
+            }
+            foreach (string path in MsiProductRegistration.PerUserKeys(products))
             {
                 using RegistryKey? key = Registry.CurrentUser.OpenSubKey(path, writable: false);
                 if (key is not null) return true;

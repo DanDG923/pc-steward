@@ -19,9 +19,10 @@ public sealed class SelfUpdateHelperSessionTests
     private static readonly Guid Job = new("6f1c2d3e-4b5a-4978-8c6d-5e4f3a2b1c0d");
     private static readonly string Leaf = SelfUpdateInstallPolicy.WorkFolderName(Job);
     private static readonly string ProgramFiles = Path.Combine(Path.GetTempPath(), "pcsteward-fixture-program-files");
+    private static readonly string Private = Path.Combine(ProgramFiles, Leaf, "private");
     private static readonly string[] SessionOrder =
     [
-        "ProfileFolder", "CreateProtectedFolder", "RemoveOlderWorkFolders", "CopyInput:zip", "CopyInput:msi", "ConfirmAsync", "CarriesCompiledPin", "ReadMsiTables",
+        "ProfileFolder", "CreateProtectedFolder", "CreatePrivateFolder", "CopyInput:zip", "CopyInput:msi", "ConfirmAsync", "RemoveOlderWorkFolders", "CarriesCompiledPin", "ReadMsiTables",
         "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
         "WriteNewFile:expected-install.json", "StartFinish",
     ];
@@ -129,6 +130,20 @@ public sealed class SelfUpdateHelperSessionTests
             "", "garbage",
         })
             Assert.IsFalse(SelfUpdateAclPolicy.IsProtectedWorkFolder(bad), bad);
+        // Mythos review S2: the private folder is SYSTEM and Administrators only, and the work folder descriptor is not it.
+        Assert.IsTrue(SelfUpdateAclPolicy.IsPrivateFolder(SelfUpdateAclPolicy.PrivateFolderDescriptor));
+        Assert.IsTrue(SelfUpdateAclPolicy.IsPrivateFolder("O:SYD:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)"));
+        foreach (string bad in new[]
+        {
+            SelfUpdateAclPolicy.WorkFolderDescriptor,
+            "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)",
+            "O:BAG:SYD:AI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)",
+            "O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)",
+            "O:S-1-5-21-1-2-3-1001D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)",
+            "O:BAG:SYD:PAI(A;OICI;FA;;;SY)",
+        })
+            Assert.IsFalse(SelfUpdateAclPolicy.IsPrivateFolder(bad), bad);
+        Assert.IsFalse(SelfUpdateAclPolicy.IsProtectedWorkFolder(SelfUpdateAclPolicy.PrivateFolderDescriptor));
         Assert.IsTrue(SelfUpdateAclPolicy.IsProtectedInstallRoot("D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"));
         Assert.IsFalse(SelfUpdateAclPolicy.IsProtectedInstallRoot("D:AI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"));
         Assert.IsTrue(SelfUpdateAclPolicy.IsInheritedInstallEntry("D:AI(A;ID;FA;;;SY)(A;ID;FA;;;BA)(A;ID;0x1200a9;;;BU)", directory: false));
@@ -182,6 +197,7 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.RequestToVersion("0.1.0"), SelfUpdateSessionRefusal.VersionNotNewer),
             (host => host.ProfileOverride = "", SelfUpdateSessionRefusal.ProfileUnavailable),
             (host => host.CreateFolder = false, SelfUpdateSessionRefusal.WorkFolderUnavailable),
+            (host => host.CreatePrivate = false, SelfUpdateSessionRefusal.WorkFolderUnavailable),
             (host => host.ZipCopy = SelfUpdateCopyVerdict.Unreadable, SelfUpdateSessionRefusal.InputUnreadable),
             (host => host.MsiCopy = SelfUpdateCopyVerdict.Changed, SelfUpdateSessionRefusal.InputChanged),
             (host => host.ZipBytesOverride = Encoding.ASCII.GetBytes("not a zip"), SelfUpdateSessionRefusal.InputChanged),
@@ -220,6 +236,11 @@ public sealed class SelfUpdateHelperSessionTests
             Assert.AreEqual(expected, response.Reason, expected.ToString());
             Assert.AreEqual(Nonce, response.Nonce);
             if (expected != SelfUpdateSessionRefusal.FinishNotStarted) Assert.IsNull(host.FinishPath, expected.ToString());
+            // Mythos review S3: once a job file may exist, a stop before the finish copy started closes the job with a result.
+            if (expected is SelfUpdateSessionRefusal.JobFilesFailed or SelfUpdateSessionRefusal.FinishNotStarted) host.AssertJobClosed(expected.ToString());
+            else Assert.IsFalse(host.Written.ContainsKey(SelfUpdateHelperProtocol.ResultFileName), expected.ToString());
+            // Mythos review S4: earlier jobs' folders are removed only after GitHub confirmed this request.
+            Assert.AreEqual(host.Calls.Contains("CarriesCompiledPin"), host.Calls.Contains("RemoveOlderWorkFolders"), expected.ToString());
         }
     }
 
@@ -255,6 +276,29 @@ public sealed class SelfUpdateHelperSessionTests
         Assert.AreNotEqual(SelfUpdateSessionExit.ResponseWritten, result.Exit);
         Assert.IsNull(host.FinishPath, "the finish copy never starts without the desktop");
         Assert.AreEqual(SelfUpdateSessionRefusal.TimedOut, result.Response?.Reason);
+    }
+
+    [TestMethod]
+    public async Task ADesktopDisconnectAfterTheJobFilesClosesTheJob()
+    {
+        SessionHost host = new();
+        string name = "pcsteward-test-" + Guid.NewGuid().ToString("N");
+        await using NamedPipeServerStream server = new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        await using NamedPipeClientStream client = new(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+        Task waiting = server.WaitForConnectionAsync();
+        await client.ConnectAsync();
+        await waiting;
+        await PipeMessageFraming.WriteAsync(server, SelfUpdateInstallPolicy.WriteRequest(host.Request), CancellationToken.None);
+        host.OnExpectedWritten = () =>
+        {
+            server.Disconnect();
+            Thread.Sleep(TimeSpan.FromSeconds(1));
+        };
+        SelfUpdateSessionResult result = await SelfUpdateSession.RunAsync(client, Nonce, Peer(), host, host, TimeProvider.System,
+            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None);
+        Assert.AreEqual(SelfUpdateSessionRefusal.TimedOut, result.Response?.Reason);
+        Assert.IsNull(host.FinishPath, "the finish copy never starts without the desktop");
+        host.AssertJobClosed("disconnect after the job files");
     }
 
     // ---- Finish copy ----
@@ -343,6 +387,7 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.Path = Path.Combine(ProgramFiles, SelfUpdateInstallPolicy.WorkFolderName(Guid.NewGuid()), "bin", "PCSteward.ElevatedHelper.exe"), true, "another job's copy"),
             (host => host.UnprotectedFolder = Leaf, true, "work folder not protected"),
             (host => host.UnprotectedFolder = "bin", true, "bin not protected"),
+            (host => host.UnprotectedFolder = "private", true, "private folder not administrators-only"),
             (host => host.JobBytes = Encoding.ASCII.GetBytes("{}"), true, "job unreadable"),
             (host => host.ExpectedJob = Guid.NewGuid(), true, "files name different jobs"),
             (host => host.EarlierResult = SelfUpdateHelperProtocol.WriteResult(new(Job, SelfUpdateFinishOutcome.Installed, 0, "0.1.2", new string('A', 64), null, "installed")),
@@ -437,6 +482,8 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool InstallSupported { get; set; } = true;
         internal string? ProfileOverride { get; set; }
         internal bool CreateFolder { get; set; } = true;
+        internal bool CreatePrivate { get; set; } = true;
+        internal Action? OnExpectedWritten { get; set; }
         internal SelfUpdateCopyVerdict ZipCopy { get; set; } = SelfUpdateCopyVerdict.Copied;
         internal SelfUpdateCopyVerdict MsiCopy { get; set; } = SelfUpdateCopyVerdict.Copied;
         internal byte[]? ZipBytesOverride { get; set; }
@@ -461,7 +508,15 @@ public sealed class SelfUpdateHelperSessionTests
 
         public string InstallRoot => Path.Combine(ProgramFiles, "PC Steward");
         string ISelfUpdateSessionHost.ProgramFiles => SelfUpdateHelperSessionTests.ProgramFiles;
-        private static string InstallFolder => Path.Combine(ProgramFiles, Leaf, "image", "PFiles64", "PC Steward");
+        private static string InstallFolder => Path.Combine(Private, "image", "PFiles64", "PC Steward");
+
+        /// <summary>Mythos review S3: the session wrote a result that makes the finish copy refuse this job.</summary>
+        internal void AssertJobClosed(string label)
+        {
+            Assert.IsTrue(Written.TryGetValue(SelfUpdateHelperProtocol.ResultFileName, out byte[]? bytes), label);
+            Assert.IsTrue(SelfUpdateHelperProtocol.TryReadResult(bytes!, out SelfUpdateResultFile? result), label);
+            Assert.AreEqual((Job, SelfUpdateFinishOutcome.RefusedBeforeInstall, SelfUpdateSession.SessionStoppedDetail), (result!.JobId, result.Outcome, result.Detail), label);
+        }
 
         public HelperProtocolCapabilityResult EvaluateInstalledRelease(DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath) =>
             HelperProtocolCapabilityResult.For(InstallSupported ? HelperProtocolCapabilityStatus.Supported : HelperProtocolCapabilityStatus.Mismatch);
@@ -478,12 +533,20 @@ public sealed class SelfUpdateHelperSessionTests
             return CreateFolder;
         }
 
+        public bool CreatePrivateFolder(string path)
+        {
+            Calls.Add("CreatePrivateFolder");
+            Assert.AreEqual(Private, path);
+            return CreatePrivate;
+        }
+
         public void RemoveOlderWorkFolders(string keepLeaf) => Calls.Add("RemoveOlderWorkFolders");
 
         public SelfUpdateCopyVerdict CopyInput(string source, string destination, long maximumBytes, string expectedSha256)
         {
             bool isZip = source.EndsWith(".zip", StringComparison.Ordinal);
             Calls.Add("CopyInput:" + (isZip ? "zip" : "msi"));
+            Assert.AreEqual(Private, Path.GetDirectoryName(destination), "input copies go in the private folder");
             if (!isZip) MsiSource = source;
             return isZip ? ZipCopy : MsiCopy;
         }
@@ -522,10 +585,13 @@ public sealed class SelfUpdateHelperSessionTests
             return TablesReadable ? new([], TablesSha, tables, NoProductCode ? null : ProductCode) : null;
         }
 
-        public async Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken)
+        public async Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string privateFolder, TimeSpan limit, CancellationToken cancellationToken)
         {
             Calls.Add("RunMsiexecAsync:" + arguments[0]);
-            Assert.AreEqual("TARGETDIR=" + Path.Combine(ProgramFiles, Leaf, "image"), arguments[3]);
+            Assert.AreEqual(Private, privateFolder);
+            Assert.AreEqual(Path.Combine(Private, Request.MsiSha256 + ".msi"), arguments[1]);
+            Assert.AreEqual("TARGETDIR=" + Path.Combine(Private, "image"), arguments[3]);
+            Assert.AreEqual(Path.Combine(Private, "extract.log"), arguments[5]);
             if (OnExtract is not null)
             {
                 OnExtract();
@@ -568,8 +634,10 @@ public sealed class SelfUpdateHelperSessionTests
         public bool WriteNewFile(string path, byte[] bytes)
         {
             Calls.Add("WriteNewFile:" + Path.GetFileName(path));
+            Assert.AreEqual(Path.Combine(ProgramFiles, Leaf), Path.GetDirectoryName(path), "the job files and result stay where users can read them");
             Written[Path.GetFileName(path)] = bytes;
-            return WriteFiles;
+            if (Path.GetFileName(path) == SelfUpdateInstallPolicy.ExpectedInstallFileName) OnExpectedWritten?.Invoke();
+            return WriteFiles || Path.GetFileName(path) == SelfUpdateHelperProtocol.ResultFileName;
         }
 
         public bool StartFinish(string helperCopyPath, string workFolderLeaf)
@@ -628,6 +696,12 @@ public sealed class SelfUpdateHelperSessionTests
         public bool IsProtectedWorkFolder(string path) =>
             UnprotectedFolder is null || !string.Equals(System.IO.Path.GetFileName(path), UnprotectedFolder, StringComparison.Ordinal);
 
+        public bool IsPrivateFolder(string path)
+        {
+            Assert.AreEqual(Private, path);
+            return UnprotectedFolder != "private";
+        }
+
         public byte[]? ReadFile(string path, int maximumBytes) => System.IO.Path.GetFileName(path) switch
         {
             SelfUpdateHelperProtocol.JobFileName => JobBytes,
@@ -644,8 +718,11 @@ public sealed class SelfUpdateHelperSessionTests
             return Task.FromResult(Closes);
         }
 
-        public Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken)
+        public Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string privateFolder, TimeSpan limit, CancellationToken cancellationToken)
         {
+            Assert.AreEqual(Private, privateFolder);
+            Assert.AreEqual(System.IO.Path.Combine(Private, arguments[0] == "/i" ? "install.log" : "uninstall.log"), arguments[^1]);
+            if (arguments[0] == "/i") Assert.AreEqual(System.IO.Path.Combine(Private, new string('F', 64) + ".msi"), arguments[1]);
             Msiexec.Add(arguments);
             return Task.FromResult(arguments[0] == "/i" ? InstallExit : UninstallExit);
         }

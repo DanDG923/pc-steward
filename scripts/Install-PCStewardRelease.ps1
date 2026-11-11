@@ -108,13 +108,19 @@ function Get-RelatedProducts {
         [pscustomobject]@{ ProductCode = (ConvertFrom-PackedGuid $_); Version = $version }
     })
 }
-# True when the owner's own registry registers this product or PC Steward's UpgradeCode. Windows Installer would consult such
-# a registration (and any transforms it names) when installing or removing the product. A key that cannot be read throws.
+# True when the owner's own registry registers this product, any product the machine registration lists under PC Steward's
+# UpgradeCode (an upgrade acts on that one too), or the UpgradeCode itself, below either Software\Microsoft\Installer or the
+# owner's own Software\Classes\Installer (Mythos review S1). Windows Installer would consult such a registration (and any
+# transforms it names) when installing or removing the product. A key that cannot be read throws. The same keys as
+# MsiProductRegistration.PerUserKeys in PCSteward.Execution.
 function Test-PerUserRegistration([string]$ProductCode) {
-    $packed = ConvertTo-PackedGuid $ProductCode
-    foreach ($path in @("Software\Microsoft\Installer\Products\$packed", "Software\Microsoft\Installer\Features\$packed", ('Software\Microsoft\Installer\UpgradeCodes\' + (ConvertTo-PackedGuid $upgradeCode)))) {
-        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path, $false)
-        if ($null -ne $key) { $key.Dispose(); return $true }
+    $products = @(@($ProductCode) + @(Get-RelatedProducts | ForEach-Object { $_.ProductCode }) | Select-Object -Unique | ForEach-Object { ConvertTo-PackedGuid $_ })
+    foreach ($root in @('Software\Microsoft\Installer\', 'Software\Classes\Installer\')) {
+        $paths = @($products | ForEach-Object { "${root}Products\$_"; "${root}Features\$_" }) + @("${root}UpgradeCodes\" + (ConvertTo-PackedGuid $upgradeCode))
+        foreach ($path in $paths) {
+            $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path, $false)
+            if ($null -ne $key) { $key.Dispose(); return $true }
+        }
     }
     $false
 }

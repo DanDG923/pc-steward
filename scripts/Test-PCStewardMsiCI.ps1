@@ -18,7 +18,9 @@ param([switch]$StandardUser, [ValidateSet('Build', 'Check', 'SelfUpdateDecide')]
 #      the production Windows host laid out: it refuses to run from anywhere but that folder's bin or while the account's own
 #      registry registers the product (security review R1), uninstalls an upgrade
 #      whose files differ from the expected tree, installs and verifies one that matches, and the reopened desktop's read of
-#      each job (as a standard user) reports Failed and Updated.
+#      each job (as a standard user) reports Failed and Updated;
+#   7. (evidence only, Mythos review S1) whether an elevated install of the per-machine package applies a transform that a
+#      per-user registration of the new or the installed PC Steward product names.
 # The key is created in the runner account's CurrentUser\My, never added to a trust store, and deleted at the end.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -347,7 +349,7 @@ try {
         try {
             if (!$process.WaitForExit(2700000)) { $process.Kill($true); $process.WaitForExit(); throw "$Name exceeded forty-five minutes." }
             $folder = Join-Path $programFiles $Leaf
-            foreach ($log in @('install.log', 'uninstall.log')) { if (Test-Path -LiteralPath (Join-Path $folder $log)) { Copy-Item -LiteralPath (Join-Path $folder $log) -Destination (Join-Path $logs "$Name-$log") } }
+            foreach ($log in @('install.log', 'uninstall.log')) { if (Test-Path -LiteralPath (Join-Path $folder "private\$log")) { Copy-Item -LiteralPath (Join-Path $folder "private\$log") -Destination (Join-Path $logs "$Name-$log") } }
             $resultPath = Join-Path $folder 'result.json'
             $outcome = if (Test-Path -LiteralPath $resultPath) { Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json } else { $null }
             Write-Output "$Name exit $($process.ExitCode): $($outcome | ConvertTo-Json -Compress)"
@@ -398,9 +400,103 @@ try {
     $installedVersion = if (Test-Path -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json')) { (Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion } else { '' }
     Set-Check 'self-update-finish-installs-and-verifies-the-upgrade' (($finish.ExitCode -eq 0) -and ($finish.Result.outcome -ceq 'installed') -and ($finish.Result.exitCode -eq 0) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.2') -and ($installedVersion -eq '0.1.2')) "exit $($finish.ExitCode); $($finish.Result.outcome) $($finish.Result.detail); $(($products | ForEach-Object { $_.Version }) -join ',')"
     $decide = @(Invoke-SelfUpdateDecide $leaf 'self-update-match-decide')[-1]
+    Set-Check 'self-update-private-folder-hidden-from-standard-users' (($decide.ExitCode -eq 0) -and ($decide.Verdict.privateHidden -ceq 'true')) "privateHidden $($decide.Verdict.privateHidden)"
     Set-Check 'self-update-desktop-reads-the-installed-job-as-updated' (($decide.ExitCode -eq 0) -and ($decide.Verdict.state -ceq 'Updated') -and ($decide.Verdict.code -ceq 'installed') -and ($decide.Verdict.running -ceq '0.1.2')) "exit $($decide.ExitCode); $($decide.Verdict.state) $($decide.Verdict.code) running $($decide.Verdict.running)"
     foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'self-update-uninstall.log' }
     Set-Check 'self-update-uninstalls-cleanly' (Test-NothingInstalled)
+
+    # 7. Mythos review S1 experiment. Evidence only: its outcome never fails the job (a broken experiment is recorded, not
+    #    hidden). Does an elevated `msiexec /i` of the per-machine package apply a transform that the owner's own (per-user)
+    #    registration of a PC Steward product names? Any same-user program can write that registration; `msiexec /ju` writes
+    #    the same HKCU keys here. The transform only adds a property, so the verbose logs show whether it was applied. Case
+    #    'new-product' registers the 0.1.2 product the update installs; case 'installed-product' the installed 0.1.1 product
+    #    that the upgrade removes. The helper itself never runs msiexec while such a registration exists; this measures how
+    #    much a registration written in the moment between that check and msiexec reading it could do.
+    $experiment = [ordered]@{}
+    $evidence.perUserTransformExperiment = $experiment
+    $loggingPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
+    function Invoke-InstallerCom($Target, [string]$Member, [string]$Kind, [object[]]$Arguments) { $Target.GetType().InvokeMember($Member, $Kind, $null, $Target, $Arguments) }
+    function Get-MsiPropertyValue([string]$Msi, [string]$Property) {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = Invoke-InstallerCom $installer 'OpenDatabase' 'InvokeMethod' @($Msi, 0)
+        $view = Invoke-InstallerCom $database 'OpenView' 'InvokeMethod' @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$Property'")
+        try {
+            $null = Invoke-InstallerCom $view 'Execute' 'InvokeMethod' $null
+            $row = Invoke-InstallerCom $view 'Fetch' 'InvokeMethod' $null
+            if ($null -eq $row) { throw "No $Property in $Msi." }
+            [string](Invoke-InstallerCom $row 'StringData' 'GetProperty' @(1))
+        }
+        finally { $null = Invoke-InstallerCom $view 'Close' 'InvokeMethod' $null; $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view); $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
+    }
+    # A transform of $Msi that adds one public property, PCSTEWARDPERUSERMARKER=<case>, made from a scratch copy.
+    function New-MarkerTransform([string]$Msi, [string]$Case) {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $scratch = Join-Path $work "marker-$Case.msi"; $transform = Join-Path $work "marker-$Case.mst"
+        Copy-Item -LiteralPath $Msi -Destination $scratch
+        $changed = Invoke-InstallerCom $installer 'OpenDatabase' 'InvokeMethod' @($scratch, 1)
+        $reference = Invoke-InstallerCom $installer 'OpenDatabase' 'InvokeMethod' @($Msi, 0)
+        try {
+            $view = Invoke-InstallerCom $changed 'OpenView' 'InvokeMethod' @("INSERT INTO ``Property`` (``Property``, ``Value``) VALUES ('PCSTEWARDPERUSERMARKER', '$Case')")
+            $null = Invoke-InstallerCom $view 'Execute' 'InvokeMethod' $null; $null = Invoke-InstallerCom $view 'Close' 'InvokeMethod' $null
+            $null = Invoke-InstallerCom $changed 'Commit' 'InvokeMethod' $null
+            $null = Invoke-InstallerCom $changed 'GenerateTransform' 'InvokeMethod' @($reference, $transform)
+            $null = Invoke-InstallerCom $changed 'CreateTransformSummaryInfo' 'InvokeMethod' @($reference, $transform, 0, 0)
+        }
+        finally { $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($changed); $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($reference) }
+        if (!(Test-Path -LiteralPath $transform -PathType Leaf)) { throw "No transform was written for $Case." }
+        $transform
+    }
+    function ConvertTo-PackedProductCode([string]$Guid) {
+        if ($Guid -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "Not an uppercase braced GUID: $Guid" }
+        $tail = $Matches[4] + $Matches[5]
+        (-join @($Matches[1], $Matches[2], $Matches[3] | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
+    }
+    $packedCodes = @((Get-MsiPropertyValue $msis['0.1.1'].Path 'ProductCode'), (Get-MsiPropertyValue $msis['0.1.2'].Path 'ProductCode') | ForEach-Object { ConvertTo-PackedProductCode $_ }) + @(ConvertTo-PackedProductCode $upgradeCode)
+    function Get-PerUserInstallerKeys { @(foreach ($root in @('HKCU:\Software\Microsoft\Installer', 'HKCU:\Software\Classes\Installer')) { foreach ($kind in @('Products', 'Features', 'UpgradeCodes')) { foreach ($packedCode in $packedCodes) { if (Test-Path -LiteralPath "$root\$kind\$packedCode") { "$root\$kind\$packedCode" } } } }) }
+    function Get-MachineRegisteredProducts {
+        $key = 'HKLM:\SOFTWARE\Classes\Installer\UpgradeCodes\' + (ConvertTo-PackedProductCode $upgradeCode)
+        if (Test-Path -LiteralPath $key) { @((Get-Item -LiteralPath $key).Property | Where-Object { $_ }) } else { @() }
+    }
+    function Clear-ExperimentState {
+        foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'experiment-cleanup-uninstall.log' }
+        foreach ($key in @(Get-PerUserInstallerKeys)) { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    try {
+        # Windows Installer's logging policy also logs the nested removal of the old product, wherever the marker might show.
+        $null = New-Item -Path $loggingPolicy -Force
+        New-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -Value 'voicewarmupx' -PropertyType String -Force | Out-Null
+        foreach ($case in @(@{ Name = 'new-product'; Advertise = '0.1.2' }, @{ Name = 'installed-product'; Advertise = '0.1.1' })) {
+            $record = [ordered]@{}
+            $experiment[$case.Name] = $record
+            try {
+                Clear-ExperimentState
+                $record.machineInstall011Exit = Invoke-Msi @('/i', ('"' + $msis['0.1.1'].Path + '"')) "experiment-$($case.Name)-install-0.1.1.log"
+                $transform = New-MarkerTransform $msis[$case.Advertise].Path $case.Name
+                $record.perUserAdvertiseExit = Invoke-Msi @('/ju', ('"' + $msis[$case.Advertise].Path + '"'), '/t', ('"' + $transform + '"')) "experiment-$($case.Name)-advertise.log"
+                $record.perUserKeysAfterAdvertise = @(Get-PerUserInstallerKeys)
+                # Only logs written from here on: the advertisement's own logs name the marker by design.
+                $since = Get-Date
+                $record.elevatedInstall012Exit = Invoke-Msi @('/i', ('"' + $msis['0.1.2'].Path + '"')) "experiment-$($case.Name)-install-0.1.2.log"
+                $record.machineProductsAfter = @(Get-MachineRegisteredProducts)
+                $record.perUserKeysAfterInstall = @(Get-PerUserInstallerKeys)
+                $record.installedVersions = @(Get-InstalledProducts | ForEach-Object { $_.Version })
+                $policyLogs = @(foreach ($folder in @($env:TEMP, (Join-Path $env:SystemRoot 'Temp'))) { Get-ChildItem -LiteralPath $folder -Filter 'MSI*.LOG' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $since } })
+                $searched = @((Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log")) + @($policyLogs | ForEach-Object { $_.FullName })
+                $hits = @(Select-String -LiteralPath $searched -Pattern 'PCSTEWARDPERUSERMARKER' -SimpleMatch -ErrorAction SilentlyContinue)
+                $record.transformAppliedDuringElevatedInstall = $hits.Count -gt 0
+                $record.markerLines = @($hits | Select-Object -First 10 | ForEach-Object { "$([IO.Path]::GetFileName($_.Path)): $($_.Line.Trim())" })
+                $record.transformLines = @(Select-String -LiteralPath $searched -Pattern 'marker-.*\.mst|TRANSFORMS' -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { "$([IO.Path]::GetFileName($_.Path)): $($_.Line.Trim())" })
+                foreach ($log in $policyLogs) { Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $logs "experiment-$($case.Name)-policy-$($log.Name)") -ErrorAction SilentlyContinue }
+            }
+            catch { $record.error = $_.Exception.Message }
+            Write-Output ("EXPERIMENT {0}: {1}" -f $case.Name, ($record | ConvertTo-Json -Depth 4 -Compress))
+        }
+    }
+    catch { $experiment.error = $_.Exception.Message; Write-Output "EXPERIMENT error: $($_.Exception.Message)" }
+    finally {
+        Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -ErrorAction SilentlyContinue
+        try { Clear-ExperimentState } catch { $experiment.cleanupError = $_.Exception.Message }
+    }
 
     $exitCode = if ($failures.Count -eq 0) { 0 } else { 1 }
 }

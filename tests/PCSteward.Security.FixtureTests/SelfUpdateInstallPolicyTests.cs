@@ -230,11 +230,23 @@ public sealed class SelfUpdateInstallPolicyTests
         Assert.AreEqual(@"SOFTWARE\Classes\Installer\UpgradeCodes\03371DA25DABEB644A900218B46276C3", MsiProductRegistration.MachineUpgradeCodeKey);
         const string product = "{0123ABCD-4567-89EF-0123-456789ABCDEF}";
         Assert.AreEqual(product, MsiProductRegistration.Unpack(MsiProductRegistration.Pack(product)));
+        // Mythos review S1: the new product, every product the machine lists (the one an upgrade replaces), the UpgradeCode, in
+        // both per-user locations; a code listed twice is checked once.
+        const string installed = "{11111111-2222-3333-4444-555555555555}";
         Assert.AreEqual(
             @"Software\Microsoft\Installer\Products\DCBA32107654FE981032547698BADCFE|" +
             @"Software\Microsoft\Installer\Features\DCBA32107654FE981032547698BADCFE|" +
-            @"Software\Microsoft\Installer\UpgradeCodes\03371DA25DABEB644A900218B46276C3",
-            string.Join('|', MsiProductRegistration.PerUserKeys(product)));
+            @"Software\Microsoft\Installer\Products\11111111222233334444555555555555|" +
+            @"Software\Microsoft\Installer\Features\11111111222233334444555555555555|" +
+            @"Software\Microsoft\Installer\UpgradeCodes\03371DA25DABEB644A900218B46276C3|" +
+            @"Software\Classes\Installer\Products\DCBA32107654FE981032547698BADCFE|" +
+            @"Software\Classes\Installer\Features\DCBA32107654FE981032547698BADCFE|" +
+            @"Software\Classes\Installer\Products\11111111222233334444555555555555|" +
+            @"Software\Classes\Installer\Features\11111111222233334444555555555555|" +
+            @"Software\Classes\Installer\UpgradeCodes\03371DA25DABEB644A900218B46276C3",
+            string.Join('|', MsiProductRegistration.PerUserKeys([product, installed, product])));
+        Assert.ThrowsExactly<ArgumentException>(() => MsiProductRegistration.PerUserKeys([]));
+        Assert.ThrowsExactly<ArgumentException>(() => MsiProductRegistration.PerUserKeys([product, "{bad}"]));
         foreach (string bad in new[] { "", "0123ABCD-4567-89EF-0123-456789ABCDEF", "{0123abcd-4567-89ef-0123-456789abcdef}", "{0123ABCD-4567-89EF-0123-456789ABCDE}" })
             Assert.ThrowsExactly<ArgumentException>(() => MsiProductRegistration.Pack(bad), bad);
         Assert.IsNull(MsiProductRegistration.Unpack("03371da25dabeb644a900218b46276c3"));

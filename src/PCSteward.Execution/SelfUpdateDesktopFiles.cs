@@ -48,7 +48,8 @@ internal sealed class SelfUpdateDesktopFiles
     internal string CheckZipPath(string checkZipSha256) => Path.Combine(Folder, SelfUpdateInstallPolicy.CheckZipFileName(checkZipSha256));
 
     /// <summary>The work folder's install log, readable by administrators only.</summary>
-    internal string InstallLogPath(SelfUpdateDesktopJob job) => Path.Combine(machine.ProgramFiles, job.WorkFolder, SelfUpdateDesktop.InstallLogName);
+    internal string InstallLogPath(SelfUpdateDesktopJob job) =>
+        Path.Combine(machine.ProgramFiles, job.WorkFolder, SelfUpdateHelperProtocol.PrivateFolder, SelfUpdateHelperProtocol.InstallLogName);
 
     // ---- Downloads (§5) ----
 

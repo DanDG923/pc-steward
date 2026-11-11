@@ -125,14 +125,19 @@ public sealed class SelfUpdateBoundaryTests
                      "self-update-finish-refuses-outside-the-work-folder", "self-update-finish-refuses-a-per-user-registration",
                      "self-update-finish-installs-and-verifies-the-upgrade",
                      "self-update-desktop-reads-the-installed-job-as-updated", "self-update-uninstalls-cleanly",
+                     "self-update-private-folder-hidden-from-standard-users",
                  })
             StringAssert.Contains(script, "Set-Check '" + check + "'");
+        // Mythos review S1: the per-user transform experiment runs, records its outcome, and puts the logging policy back.
+        StringAssert.Contains(script, "$evidence.perUserTransformExperiment = $experiment");
+        StringAssert.Contains(script, "Invoke-Msi @('/ju', ");
+        StringAssert.Contains(script, "Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging'");
         StringAssert.Contains(script, "Join-Path $programFiles \"$Leaf\\bin\\PCSteward.ElevatedHelper.exe\"");
         StringAssert.Contains(script, "--self-update-prepare $msis['0.1.2'].Path $Mode");
         StringAssert.Contains(script, "$decided = Invoke-AsStandardUser 'SelfUpdateDecide' $name $password");
         string prepare = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "tests", "PCSteward.InstallCheck", "SelfUpdateFinishCheck.cs"));
         // The job is laid out through the production host and read back through the production desktop pieces.
-        foreach (string call in new[] { "WindowsSelfUpdateHost.TryCreate()", "host.CreateProtectedFolder(work)", "host.CopyInput(msiPath", "host.ReadImage(", "SelfUpdateDesktopFiles.TryCreate()", "files.Evaluate(" })
+        foreach (string call in new[] { "WindowsSelfUpdateHost.TryCreate()", "host.CreateProtectedFolder(work)", "host.CreatePrivateFolder(privateFolder)", "host.CopyInput(msiPath", "host.ReadImage(", "SelfUpdateDesktopFiles.TryCreate()", "files.Evaluate(" })
             StringAssert.Contains(prepare, call);
     }
 

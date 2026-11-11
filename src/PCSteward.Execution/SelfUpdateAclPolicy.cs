@@ -12,7 +12,11 @@ internal static partial class SelfUpdateAclPolicy
     /// <summary>The descriptor the helper creates each work folder (and its <c>bin</c>) with.</summary>
     internal const string WorkFolderDescriptor = "O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;AU)";
 
+    /// <summary>Mythos review S2: the descriptor of the work folder's <c>private</c> folder, administrators and SYSTEM only.</summary>
+    internal const string PrivateFolderDescriptor = "O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+
     private static readonly string[] WorkFolderAces = ["A;OICI;FA;;;SY", "A;OICI;FA;;;BA", "A;OICI;0x1200a9;;;AU"];
+    private static readonly string[] PrivateFolderAces = ["A;OICI;FA;;;SY", "A;OICI;FA;;;BA"];
     private static readonly string[] InstallRootAces = ["A;OICI;FA;;;SY", "A;OICI;FA;;;BA", "A;OICI;0x1200a9;;;BU"];
     private static readonly string[] InheritedFileAces = ["A;ID;FA;;;SY", "A;ID;FA;;;BA", "A;ID;0x1200a9;;;BU"];
     private static readonly string[] InheritedFolderAces = ["A;OICIID;FA;;;SY", "A;OICIID;FA;;;BA", "A;OICIID;0x1200a9;;;BU"];
@@ -22,6 +26,11 @@ internal static partial class SelfUpdateAclPolicy
     internal static bool IsProtectedWorkFolder(string? sddl) =>
         TryParse(sddl, out string? owner, out string flags, out string[] aces) && owner is not null && TrustedOwners.Contains(owner, StringComparer.Ordinal) &&
         flags.Contains('P', StringComparison.Ordinal) && SameSet(aces, WorkFolderAces);
+
+    /// <summary>Owner SYSTEM or Administrators, a protected DACL of exactly SYSTEM and Administrators full control (Mythos review S2).</summary>
+    internal static bool IsPrivateFolder(string? sddl) =>
+        TryParse(sddl, out string? owner, out string flags, out string[] aces) && owner is not null && TrustedOwners.Contains(owner, StringComparer.Ordinal) &&
+        flags.Contains('P', StringComparison.Ordinal) && SameSet(aces, PrivateFolderAces);
 
     /// <summary>The ADR-034 install root: a protected DACL of exactly SYSTEM and Administrators full control and Users read and execute.</summary>
     internal static bool IsProtectedInstallRoot(string? sddl) =>

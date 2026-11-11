@@ -111,7 +111,34 @@ Both change the owner's PC beyond PC Steward, so they are the owner's decision.
 
 **R4, accepted.** The MSI the finish copy installs has passed every check before `msiexec` (pin, tables, the unpacked image against the CI build), and the R1 checks run before the install. A forced restart therefore delays the verdict but cannot turn it into a wrong install. After the restart, the desktop decides against the helper's protected `expected-install.json`, and every later helper launch still checks the installed helper's pin first.
 
-## 4. What holds
+## 4. Independent review of the helper code
+
+The same reviewer then read the admin-side code at `87b4991` in full (the session, the Windows host, the finish copy, the structure rule, the GitHub check, the registration rules, the ACL policy, the bootstrap, the job and result parsing, the install script and the release workflow). It found no way for a same-user program to make the helper install, run or expose anything but the CI build the release key signed. Its findings are numbered S1–S6 so they do not clash with the ones above:
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| S1 | High if confirmed (untested) | The R1 check can be timed: the logs sat in a folder every user can read, so a program can tell when `msiexec` runs. It also missed the product the upgrade replaces and the owner's own `HKCU\Software\Classes\Installer` | **Narrowed** here; Windows CI now measures the open question |
+| S2 | Low | The input copies, image and logs were readable by every user while written, and a refused copy until it was removed | **Fixed** here |
+| S3 | Low | A session stopped after the job files were written left a job the finish copy could still install later | **Fixed** here |
+| S4 | Info | Earlier work folders were removed before the request was checked, so made-up requests could clear the last job's result | **Fixed** here |
+| S5 | Info | The structure allow-list is by table name; allowed tables can still place files anywhere | No change: the tables digest covers their contents once GitHub has confirmed the check file |
+| S6 | Info | The release-branch guard lives in the workflow it guards | No code change: rulesets on the release branches and on tags with those names are the owner's GitHub setting |
+
+**S1, narrowed.**
+
+- The check now covers the new product, every product the machine registration lists under PC Steward's UpgradeCode (the one the upgrade removes), and the UpgradeCode itself. It looks under both `HKCU\Software\Microsoft\Installer` and `HKCU\Software\Classes\Installer` (`MsiProductRegistration.PerUserKeys`). The helper, the finish copy and `Install-PCStewardRelease.ps1` use the same keys.
+- The logs no longer give the timing away (S2).
+- A new section 7 of the MSI CI job answers the open question on a real runner, as evidence only. As the runner's user it registers each PC Steward product per-user with a marker transform (`msiexec /ju … /t …`, which writes the same `HKCU` keys a same-user program could), then runs a plain elevated `msiexec /i` of the per-machine 0.1.2 package and looks for the marker in the logs. It does this once for the new product and once for the installed 0.1.1 product.
+  - If the transform is never applied, S1 closes and the check stays as defence in depth.
+  - If it is applied, the check cannot be made race-free and the fix is the machine policy or a separate account (section 3). That would affect every MSI the owner installs with a UAC prompt, not only PC Steward.
+
+**S2, fixed.** Each work folder now has a `private` folder created with SYSTEM and Administrators only. The input copies, the administrative image, every `msiexec` log and `msiexec`'s temporary folder go there. The finish copy refuses a job whose `private` folder does not carry that descriptor. Only `job.json`, `expected-install.json`, `result.json` and `bin` stay readable by users. The CI job checks, as a standard user, that the folder cannot be listed.
+
+**S3, fixed.** From the moment a job file may exist until the finish copy has started, a session that stops writes a `result.json` (`refused-before-install`, `session-stopped`). That covers a desktop disconnect, a spent budget, a failed write and a failed start. The finish copy never runs a job that already has a result.
+
+**S4, fixed.** Earlier work folders are removed only after the helper's own GitHub check has confirmed the request.
+
+## 5. What holds
 
 These properties were checked and need no change:
 
@@ -121,7 +148,7 @@ These properties were checked and need no change:
 - **The launch is the reviewed one.** The desktop side reuses the protocol-2 launch checks: fixed paths, launch trust before and after the prompt, the runtime-environment guard, a restricted per-launch pipe, and peer checks by PID, path, session, SID, signer and the held helper image. The binding set is released only after the helper's exit has been observed.
 - **No account.** All GitHub requests are anonymous, to compiled addresses. The desktop follows redirects only to GitHub hosts. The helper follows none.
 
-## 5. Evidence
+## 6. Evidence
 
 - **Fixture tests:** `SelfUpdateHelperSessionTests` now covers the two `version-not-newer` refusals and the finish copy's refusal of a job with a result, and `SelfUpdateInstallPolicyTests` covers `IsNewerVersion`.
 - **Independent review fixes:**
@@ -129,6 +156,10 @@ These properties were checked and need no change:
   - `SelfUpdateInstallPolicyTests` covers the packed-GUID rule and the structure allow-list (27 refused tables, every allowed one).
   - The architecture test `TheOwnersRegistryNeverSteersMsiexec` keeps the merged product list out of the helper and the install script.
   - `ThePayloadIsBuiltOnDemandFromACommitWithBothPins` requires the branch guard before checkout.
+- **Helper code review fixes:**
+  - `SelfUpdateHelperSessionTests` requires the input copies, image and logs in the private folder, the job files beside it, a refusal when the private folder cannot be made or is not administrators-only, a closed job after a failed write, a failed start or a desktop disconnect after the job files, and old folders removed only after GitHub confirmed.
+  - `SelfUpdateInstallPolicyTests` covers the per-user keys for several products in both locations.
+  - The MSI CI job checks that a standard user cannot list the private folder, and records the section 7 experiment in its evidence file.
 - **Windows CI (section 6 of the MSI job):** the real finish copy, through the production host and its compiled environment, uninstalls a mismatching install and installs and verifies a matching one. The installed helper refuses to act as a finish copy. The desktop's read reports Failed and Updated as a standard user.
 
 Some of the fixes are Windows-only paths in `WindowsSelfUpdateHost` that CI reaches only partly:

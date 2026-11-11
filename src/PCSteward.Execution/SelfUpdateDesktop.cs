@@ -64,7 +64,6 @@ internal static partial class SelfUpdateDesktop
     internal const string FolderName = "SelfUpdate";
     internal const string JobFileName = "job.json";
     internal const string JobSchema = "pc-steward-self-update-desktop-job:1";
-    internal const string InstallLogName = "install.log";
     internal const int MaximumJobBytes = 4 * 1024;
 
     /// <summary>How long a job without a result counts as still installing: the close wait plus the install limit, with margin.</summary>
