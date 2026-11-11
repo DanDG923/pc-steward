@@ -12,7 +12,6 @@ param(
 # restores the pinned WiX SDK from NuGet; that is the only network effect.
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$project = Join-Path $repositoryRoot 'packaging\msi\PCSteward.Installer.wixproj'
 $script:UpgradeCode = '{2AD17330-BAD5-46BE-A409-20814B26673C}'
 $script:FolderSddl = 'D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)'
 
@@ -28,13 +27,29 @@ if (Test-Path -LiteralPath $output) { throw "OutputPath already exists: $output"
 
 $build = Join-Path ([IO.Path]::GetTempPath()) ('pcsteward-msi-' + [Guid]::NewGuid().ToString('N'))
 try {
-    $arguments = @('build', $project, '--configuration', 'Release', '--output', $build, '--no-incremental', '--disable-build-servers', '-nologo',
+    # The build runs on copies of the tracked project files (and the repository's SDK pin) in a new folder, so no other file
+    # in the clone, tracked or not, can reach it: MSBuild, NuGet and the .NET host look upwards from the project folder for
+    # build hooks, and none may sit above that folder either.
+    $source = Join-Path $build 'source'
+    New-Item -ItemType Directory -Path $source | Out-Null
+    foreach ($file in @('packaging\msi\PCSteward.Installer.wixproj', 'packaging\msi\Package.wxs', 'packaging\msi\Directory.Build.props', 'packaging\msi\Directory.Packages.props', 'global.json')) {
+        $item = Get-Item -LiteralPath (Join-Path $repositoryRoot $file) -Force
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "$file is not a plain file." }
+        Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $source $item.Name)
+    }
+    $hookNames = @('Directory.Build.props', 'Directory.Build.targets', 'Directory.Build.rsp', 'Directory.Packages.props', 'Directory.Solution.props', 'Directory.Solution.targets', 'NuGet.Config', 'global.json')
+    for ($folder = Split-Path -Parent $source; $folder; $folder = Split-Path -Parent $folder) {
+        foreach ($name in $hookNames) { if (Test-Path -LiteralPath (Join-Path $folder $name)) { throw "A build hook sits above the MSI build folder: $(Join-Path $folder $name)" } }
+    }
+    $project = Join-Path $source 'PCSteward.Installer.wixproj'
+    $buildOutput = Join-Path $build 'out'
+    $arguments = @('build', $project, '--configuration', 'Release', '--output', $buildOutput, '--no-incremental', '--disable-build-servers', '-nologo',
         "-p:PayloadDir=$payload", "-p:ProductVersion=$MsiVersion")
     # --no-incremental: the version and payload come in as properties, which an incremental build does not see change.
     # The build log goes to the console, never into this script's output (the last output line is the JSON result).
     & dotnet @arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "The MSI build failed with exit code $LASTEXITCODE." }
-    $built = @(Get-ChildItem -LiteralPath $build -Recurse -Filter '*.msi' -File)
+    $built = @(Get-ChildItem -LiteralPath $buildOutput -Recurse -Filter '*.msi' -File)
     if ($built.Count -ne 1) { throw "Expected one MSI in the build output, found $($built.Count)." }
     # The output copy is taken before the package is opened. The checks below read the build copy, which must hash the same.
     New-Item -ItemType Directory -Path (Split-Path -Parent $output) -Force | Out-Null

@@ -71,6 +71,10 @@ $localCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $localCommit -cne [string]$run.head_sha) { throw "Check out commit $($run.head_sha) in $repositoryRoot first (this clone is at $localCommit)." }
 $dirty = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
 if ($dirty.Count -ne 0) { throw 'The clone has uncommitted changes to tracked files.' }
+# Nothing untracked or ignored beside the scripts and the installer project either (the MSI build itself runs on copies
+# of the tracked project files in a new folder; this keeps a stray or planted file from being mistaken for one of them).
+$extra = @(& git -C $repositoryRoot status --porcelain --untracked-files=all --ignored -- scripts packaging)
+if ($LASTEXITCODE -ne 0 -or $extra.Count -ne 0) { throw "The clone has untracked or ignored files under scripts or packaging: $(($extra | Select-Object -First 5) -join '; ')" }
 
 New-Item -ItemType Directory -Path $output | Out-Null
 $staging = Join-Path $output 'artefact'

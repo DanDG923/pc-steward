@@ -83,9 +83,10 @@ public sealed class ReleaseKeyScriptBoundaryTests
         StringAssert.Contains(release, "if ($LASTEXITCODE -ne 0 -or $localCommit -cne [string]$run.head_sha)");
         StringAssert.Contains(release, "'-ValidateCandidateRoot', $candidate, '-ExpectedManifestSha256', [string]$record.manifestSha256");
         StringAssert.Contains(release, "foreach ($pin in $pins) { if (!$executionText.Contains($pin))");
+        StringAssert.Contains(release, "status --porcelain --untracked-files=all --ignored -- scripts packaging");
         // Every check comes before the first signature.
         int signing = release.IndexOf("Invoke-PCStewardReleaseSigning -PayloadRoot", StringComparison.Ordinal);
-        foreach (string check in new[] { "$zipHash -cne $expectedZip", "$localCommit -cne", "-ValidateCandidateRoot", "$executionText.Contains($pin)" })
+        foreach (string check in new[] { "$zipHash -cne $expectedZip", "$localCommit -cne", "--untracked-files=all --ignored", "-ValidateCandidateRoot", "$executionText.Contains($pin)" })
             Assert.IsLessThan(signing, release.IndexOf(check, StringComparison.Ordinal), check);
         Assert.IsFalse(Regex.IsMatch(release, @"msiexec|Start-Process", RegexOptions.IgnoreCase), "the signing script installs nothing");
 

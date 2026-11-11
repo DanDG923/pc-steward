@@ -197,7 +197,7 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
   - **Before signing, it checks:**
     - through GitHub's public API, with no sign-in, that the run is this repository's hand-started `release-payload.yml` run on `phase/4-beta` or `main`, and that it finished green;
     - that the downloaded zip's SHA-256 equals the artefact digest GitHub publishes;
-    - that the local clone is at the run's commit with no changes to tracked files;
+    - that the local clone is at the run's commit with no changes to tracked files, and no untracked or ignored files under `scripts` or `packaging`;
     - that `release-payload.json` names that run and commit;
     - that the candidate re-validates with the builder's own validator;
     - that both pins are compiled into the payload's `PCSteward.Execution.dll`.
@@ -211,6 +211,7 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
     - the chain is one self-signed certificate valid for code signing;
     - the key carries a given pin.
   - `Invoke-PCStewardReleaseSigning` is the signing step described above.
+- **`scripts/New-PCStewardMsi.ps1`** now builds from copies of the four tracked installer project files and `global.json` in a new temporary folder, and refuses to build if any MSBuild, NuGet or .NET SDK hook file (`Directory.Build.*`, `Directory.Packages.props`, `Directory.Solution.*`, `NuGet.Config`, `global.json`) sits in a folder above it. No other file in the clone, tracked or not, can change the package before it is signed.
 - Tests: `ReleaseSigningScriptTests` (Windows CI, both PowerShell editions) and architecture `ReleaseKeyScriptBoundaryTests`.
   - The first shows the script's pin equals .NET's for RSA 2048, RSA 3072 and ECDSA P-256. It also shows the check accepts a pinned signature and refuses tampered, other-key, unsigned and non-code-signing files.
   - The second shows that no release script names a trust store; that the YubiKey policies, the slot refusal, the backup's drives and the single key deletion hold; that the workflow runs on demand only; and that the signing script makes every check before it signs.

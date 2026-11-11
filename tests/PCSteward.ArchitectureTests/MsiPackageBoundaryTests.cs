@@ -90,6 +90,10 @@ public sealed class MsiPackageBoundaryTests
         StringAssert.Contains(script, "$script:FolderSddl = 'D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)'");
         StringAssert.Contains(script, "$script:UpgradeCode = '{2AD17330-BAD5-46BE-A409-20814B26673C}'");
         Assert.IsFalse(Regex.IsMatch(script, @"Set-AuthenticodeSignature|Cert:\\|msiexec", RegexOptions.IgnoreCase), "building signs and installs nothing");
+        // The build runs on copies of the tracked project files in a new folder, with no build hook above it.
+        StringAssert.Contains(script, "foreach ($file in @('packaging\\msi\\PCSteward.Installer.wixproj', 'packaging\\msi\\Package.wxs', 'packaging\\msi\\Directory.Build.props', 'packaging\\msi\\Directory.Packages.props', 'global.json'))");
+        StringAssert.Contains(script, "$hookNames = @('Directory.Build.props', 'Directory.Build.targets', 'Directory.Build.rsp', 'Directory.Packages.props', 'Directory.Solution.props', 'Directory.Solution.targets', 'NuGet.Config', 'global.json')");
+        StringAssert.Contains(script, "$project = Join-Path $source 'PCSteward.Installer.wixproj'");
     }
 
     [TestMethod]
