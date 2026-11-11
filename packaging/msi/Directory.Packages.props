@@ -1,0 +1,6 @@
+<Project>
+  <!-- ADR-034 §1: the WiX SDK is pinned in the project's Sdk attribute; no central NuGet package management here. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

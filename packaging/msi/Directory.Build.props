@@ -1,0 +1,3 @@
+<Project>
+  <!-- ADR-034 §1: the installer project takes none of the repository's .NET build settings (target framework, analyzers). -->
+</Project>

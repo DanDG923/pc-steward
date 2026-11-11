@@ -149,6 +149,38 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  msi-install-test:
+    # ADR-034 §5 (FR-UPD-04/15, TM-04/13): build this commit's payload as a disposable standard user, sign it and the MSI with
+    # a throwaway self-signed key whose pin is written into this job's checkout only, then install to Program Files and check
+    # the refusals, the protected DACL, the installed files against the release manifest, the pinned trust and capability
+    # reader as a standard user, a major upgrade, a refused downgrade and uninstall. The key never enters a trust store and
+    # is deleted at the end; the runner is disposable.
+    runs-on: windows-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Full history: the candidate builder's probe-build mark checks the build commit's lineage.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/Test-PCStewardMsiCI.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: msi-install-evidence
+          path: |
+            artifacts/msi-ci-evidence/*.json
+            artifacts/msi-ci-evidence/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
   native-helper-signing-diagnostic:
     # ADR-033 redeploy pre-flight, informational only (never gates): build this commit's candidate with the real builder
     # as a disposable standard user (native AOT helper), then run the owner-only signing diagnostic on COPIES of its two

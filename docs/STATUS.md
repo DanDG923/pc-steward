@@ -1,3 +1,11 @@
+**Signed protected install — ADR-034 step 3: WiX MSI and its CI install test (2026-11-11; packaging, scripts and tests; no host action).** Requirements: `FR-UPD-04/15`, `FR-DAT-12`, `TM-04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
+- **The MSI.** A per-machine package that installs the signed payload to `%ProgramFiles%\PC Steward` with the protected DACL (SYSTEM and Administrators full control, Users read and execute) and one Start menu shortcut. Fixed UpgradeCode, major upgrades, a refused downgrade, and no custom action that runs code, service or task.
+- **Refusals.** It will not install while the owner-only test deployment is present, or over a PC Steward folder that it does not own.
+- **Scripts.** `New-PCStewardReleaseManifest.ps1` writes the release manifest after signing; `New-PCStewardMsi.ps1` builds the MSI with the pinned WiX SDK and checks its tables.
+- **CI evidence.** The `msi-install-test` job signs everything with a throwaway key whose pin exists only in that job's checkout, installs on the hosted runner, and checks the refusals, permissions, files, standard-user trust and capability, upgrade, downgrade refusal and uninstall.
+- **Tests.** Architecture `MsiPackageBoundaryTests`; `ReleaseManifestScriptTests` (Windows).
+- **Next.** Step 4: key creation and release signing scripts.
+
 **Signed protected install — ADR-034 step 2b: release capability reader (2026-11-11; code and tests; no host action).** Requirements: `FR-UPD-15`, `FR-DAT-12`, `TM-03/04/07/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
 - **Release manifest.** An MSI install will carry `PCSteward.ReleaseManifest.json`: the product version and the path, size and SHA-256 of every installed file. `ReleaseManifestPolicy` parses it strictly and checks the binding set, the capability statement and the same compiled pin on both executables against it.
 - **One reader.** The existing capability reader reads the release manifest when it is present, instead of the ADR-022 ledger, with the same protection checks, bounds and held handles. Both records together are a mismatch. Nothing else changes for the owner's test install.

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ADR-034 §1: one install route, a per-machine MSI into %ProgramFiles%\PC Steward.
+  - No custom actions that run code, services, scheduled tasks or launch at the end; nothing but standard Windows Installer
+    tables (the only custom action allowed is MajorUpgrade's type 19 downgrade error, which shows a message and runs nothing).
+  - The install folder's DACL is protected (not inherited from Program Files) and matches ADR-022: SYSTEM and Administrators
+    full control, Users read and execute. Files and subfolders inherit it from the folder (MsiLockPermissionsEx, declarative).
+  - One fixed UpgradeCode, major upgrades, and a lower version is refused.
+  - The install is refused beside the ADR-022 owner-only test deployment, or over a PC Steward folder that no installed MSI
+    owns; Remove-OwnerOnlyProtectedTestDeployment.ps1 -Remove clears both first.
+  - Uninstall removes program files only; per-user data is never touched (ADR-013).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="PC Steward"
+           Manufacturer="PC Steward"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="2AD17330-BAD5-46BE-A409-20814B26673C"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500"
+           Language="1033">
+    <SummaryInformation Description="PC Steward" Manufacturer="PC Steward" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of PC Steward is already installed. Setup will now exit."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="PCStewardIcon" SourceFile="$(var.PayloadDir)\Assets\pc-steward.ico" />
+    <Property Id="ARPPRODUCTICON" Value="PCStewardIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="DISABLEADVTSHORTCUTS" Value="1" />
+
+    <!-- The ADR-022 owner-only test deployment's protected state folder, and any existing PC Steward install folder. -->
+    <Property Id="PCSTEWARD_OWNERONLY_STATE">
+      <DirectorySearch Id="OwnerOnlyStateSearch" Path="[ProgramFiles64Folder]PC Steward OwnerOnlyTest State" Depth="0" AssignToProperty="yes" />
+    </Property>
+    <Property Id="PCSTEWARD_EXISTING_FOLDER">
+      <DirectorySearch Id="ExistingFolderSearch" Path="[ProgramFiles64Folder]PC Steward" Depth="0" AssignToProperty="yes" />
+    </Property>
+    <Launch Condition="Installed OR NOT PCSTEWARD_OWNERONLY_STATE"
+            Message="The PC Steward owner-only test deployment is still installed. Remove it with Remove-OwnerOnlyProtectedTestDeployment.ps1 -Remove, then run this installer again." />
+    <Launch Condition="Installed OR WIX_UPGRADE_DETECTED OR WIX_DOWNGRADE_DETECTED OR NOT PCSTEWARD_EXISTING_FOLDER"
+            Message="A PC Steward folder that this installer does not own already exists in Program Files. Remove the owner-only test deployment first, then run this installer again." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="PC Steward" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="PC Steward" AllowAbsent="no">
+      <ComponentGroupRef Id="Payload" />
+      <ComponentRef Id="DesktopExecutable" />
+      <ComponentRef Id="InstallFolderPermissions" />
+    </Feature>
+
+    <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**">
+        <Exclude Files="$(var.PayloadDir)\PCSteward.Desktop.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- The desktop executable carries the all-users Start menu shortcut, so the shortcut lives in a per-machine component. -->
+    <Component Id="DesktopExecutable" Directory="INSTALLFOLDER" Guid="20302711-AC15-4BBD-8EE2-793943DA68F8">
+      <File Id="PCStewardDesktopExe" Source="$(var.PayloadDir)\PCSteward.Desktop.exe" KeyPath="yes">
+        <Shortcut Id="PCStewardShortcut" Directory="ProgramMenuFolder" Name="PC Steward" Description="Keep your PC's software safely up to date"
+                  WorkingDirectory="INSTALLFOLDER" Advertise="no" />
+      </File>
+    </Component>
+
+    <Component Id="InstallFolderPermissions" Directory="INSTALLFOLDER" Guid="86C8247A-8E15-4423-9F38-A860CFE1AE7B">
+      <CreateFolder>
+        <!-- Protected DACL, inherited by every file and folder below: SYSTEM and Administrators full control, Users read and execute. -->
+        <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+      </CreateFolder>
+    </Component>
+  </Package>
+</Wix>
