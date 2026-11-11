@@ -687,7 +687,13 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(apps, "AutomationProperties.SetName(filter, option.AccessibleName);");
         StringAssert.Contains(apps, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
         StringAssert.Contains(apps, "ItemTemplate = (DataTemplate)");
-        StringAssert.Contains(apps, "MaxHeight = 620", "the virtualized list keeps a bounded height inside the page host");
+        // The virtualized list keeps a bounded height inside the page host; phase 5 grows the bound to the bottom of the window.
+        StringAssert.Contains(apps, "StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);");
+        Assert.IsFalse(apps.Contains("MaxHeight = 620", StringComparison.Ordinal), "the list height follows the window, not a fixed 620");
+        string fill = Between(DesktopSource("StewardPresentation.cs"), "public static void FillViewportHeight(", "/// <summary>AC-UX-01: a page title");
+        StringAssert.Contains(fill, "list.MaxHeight = minimumHeight;", "the list is bounded before it is first laid out");
+        StringAssert.Contains(fill, "Math.Max(minimumHeight, Math.Floor(host.ViewportHeight - top - below - chrome))");
+        StringAssert.Contains(fill, "host.SizeChanged -= Resized;", "the page stops listening to the shared page host when it is unloaded");
         // UI polish phase 4 (approved target T-Installed): "No update source" is plain text on each row, explained once by a calm
         // footnote that says it is not a safety warning (replacing the info bar on that filter).
         StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE946\", InstalledAppsFilters.NoUpdateSourceNote)");
