@@ -117,11 +117,10 @@ else {
         $index++
         $process.Refresh()
         if ($process.HasExited) { $failures.Add('the app exited before opening ' + $page + ' (code ' + $process.ExitCode + ')'); break }
-        $cond = New-Object Windows.Automation.AndCondition (
-            (New-Object Windows.Automation.PropertyCondition ([Windows.Automation.AutomationElement]::NameProperty), $page)),
-            (New-Object Windows.Automation.PropertyCondition ([Windows.Automation.AutomationElement]::ControlTypeProperty), [Windows.Automation.ControlType]::ListItem))
-        $item = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $cond)
-        if ($null -eq $item) { $item = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, (New-Object Windows.Automation.PropertyCondition ([Windows.Automation.AutomationElement]::NameProperty), $page)) }
+        $byName = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $page)
+        $isItem = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+        $item = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.AndCondition]::new($byName, $isItem))
+        if ($null -eq $item) { $item = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byName) }
         if ($null -eq $item) { $failures.Add('navigation item not found: ' + $page); continue }
         $opened = $false
         try { ($item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); $opened = $true } catch { }
