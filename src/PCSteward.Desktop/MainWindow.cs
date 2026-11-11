@@ -152,7 +152,7 @@ public sealed partial class MainWindow : Window
         if (!showPostResetOnboarding) startupStateLoadFailed = !LoadSavedInventory();
         Render();
         // ADR-032 revision 2 §8: a recorded PC Steward update is decided once per launch.
-        if (!showPostResetOnboarding) _ = LoadSelfUpdateStatusAsync();
+        if (!showPostResetOnboarding) selfUpdateStatusLoad = LoadSelfUpdateStatusAsync();
     }
 
     private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);

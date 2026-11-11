@@ -233,4 +233,22 @@ public sealed class SelfUpdateBoundaryTests
         string facade = File.ReadAllText(Path.Combine(execution, "PcStewardSelfUpdate.cs"));
         Assert.IsFalse(Regex.IsMatch(facade, @"Process\.|runas|File\.(Move|Delete|Write)"), "the façade launches and writes only through its pieces");
     }
+
+    /// <summary>
+    /// ADR-032 revision 2 §8 (FR-UPD-04/15): while a PC Steward update may have left an install unlike a signed release, the one
+    /// package review and confirmation site refuses, after waiting for this launch's decision of the recorded job.
+    /// </summary>
+    [TestMethod]
+    public void AFailedSelfUpdateThatBlocksAlsoRefusesPackageUpdates()
+    {
+        string desktop = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop");
+        string job = File.ReadAllText(Path.Combine(desktop, "MainWindow.UpdateJob.cs"));
+        int start = job.IndexOf("private async Task ReviewAndExecuteAsync(", StringComparison.Ordinal);
+        Assert.IsTrue(start >= 0);
+        int wait = job.IndexOf("try { await statusLoad; }", start, StringComparison.Ordinal);
+        int refuse = job.IndexOf("if (selfUpdateStatus is { BlocksUpdates: true })", start, StringComparison.Ordinal);
+        int prepare = job.IndexOf("preparingReview = true;", start, StringComparison.Ordinal);
+        Assert.IsTrue(wait > start && refuse > wait && prepare > refuse, "the block is checked before any review is prepared");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(desktop, "MainWindow.cs")), "selfUpdateStatusLoad = LoadSelfUpdateStatusAsync();");
+    }
 }

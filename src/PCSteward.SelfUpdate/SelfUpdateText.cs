@@ -9,6 +9,9 @@ namespace PCSteward.SelfUpdate;
 /// </summary>
 public static class SelfUpdateText
 {
+    /// <summary>ADR-032 §8: why a package update is refused while a PC Steward update may have left an install unlike a signed release.</summary>
+    public const string OtherUpdatesPaused = "PC Steward's own update did not finish as checked, so other updates are paused until you reinstall PC Steward from its release page. No update was started.";
+
     public static string Describe(SelfUpdateRefusal refusal) => refusal switch
     {
         SelfUpdateRefusal.ReleaseUnreadable => "GitHub's description of the release is not in the expected form.",

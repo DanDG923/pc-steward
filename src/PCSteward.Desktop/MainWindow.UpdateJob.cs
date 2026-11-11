@@ -474,6 +474,18 @@ public sealed partial class MainWindow
     private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)
     {
         if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;
+        // ADR-032 §8 (FR-UPD-04/15): while a PC Steward update may have left an install unlike a signed release, no other update
+        // starts until a signed release is reinstalled. The recorded job is decided first if this launch has not finished it yet.
+        if (selfUpdateStatusLoad is { IsCompleted: false } statusLoad)
+        {
+            try { await statusLoad; } catch (Exception exception) when (exception is not OutOfMemoryException) { }
+            if (HasActiveOperation || windowClosed || reviewDecision is not null) return;
+        }
+        if (selfUpdateStatus is { BlocksUpdates: true })
+        {
+            await ShowUpdateOutcomeAsync("Update not available", PCSteward.SelfUpdate.SelfUpdateText.OtherUpdatesPaused);
+            return;
+        }
         // Independent review: while the review is prepared every review entry point is disabled (HasActiveOperation) and the band
         // says "Preparing review…", so a second review cannot start. The flag covers preparation only, never the sheet.
         preparingReview = true;

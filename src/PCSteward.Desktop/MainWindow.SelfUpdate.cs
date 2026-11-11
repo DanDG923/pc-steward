@@ -24,6 +24,7 @@ public sealed partial class MainWindow
     private string? selfUpdateMsiSha256;
     private string? selfUpdateMessage;
     private PcStewardUpdateStatus? selfUpdateStatus;
+    private Task? selfUpdateStatusLoad;
     private PcStewardSelfUpdate? selfUpdater;
     private bool selfUpdaterResolved;
 
