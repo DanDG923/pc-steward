@@ -28,8 +28,9 @@ if (Test-Path -LiteralPath $output) { throw "OutputPath already exists: $output"
 
 $build = Join-Path ([IO.Path]::GetTempPath()) ('pcsteward-msi-' + [Guid]::NewGuid().ToString('N'))
 try {
-    $arguments = @('build', $project, '--configuration', 'Release', '--output', $build, '--disable-build-servers', '-nologo',
+    $arguments = @('build', $project, '--configuration', 'Release', '--output', $build, '--no-incremental', '--disable-build-servers', '-nologo',
         "-p:PayloadDir=$payload", "-p:ProductVersion=$MsiVersion")
+    # --no-incremental: the version and payload come in as properties, which an incremental build does not see change.
     # The build log goes to the console, never into this script's output (the last output line is the JSON result).
     & dotnet @arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "The MSI build failed with exit code $LASTEXITCODE." }
