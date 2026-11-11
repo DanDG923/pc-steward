@@ -507,13 +507,15 @@ public static class PCStewardMarkerTransform
     }
     # What the elevated install's own log says about the outcome, the per-user registration and any transform (the CI logs
     # are not otherwise readable from outside the run).
-    $installLogPattern = 'PCSTEWARDPERUSERMARKER|TRANSFORMS|marker-|Return value 3|Error \d+|error code|MainEngineThread is returning|ProductState|advertis|per-user|Windows Installer (re)?installed|Note: 1:'
+    $installLogPattern = 'PCSTEWARDPERUSERMARKER|TRANSFORMS|marker-|Return value 3|Error \d+|error code|MainEngineThread is returning|ProductState|advertis|per-user|DisableUserInstalls|Product: PC Steward|Installation success or error status|Windows Installer (re)?installed'
 
     try {
         # Windows Installer's logging policy also logs the nested removal of the old product, wherever the marker might show.
         $null = New-Item -Path $loggingPolicy -Force
         New-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -Value 'voicewarmupx' -PropertyType String -Force | Out-Null
-        foreach ($case in @(@{ Name = 'new-product'; Advertise = '0.1.2' }, @{ Name = 'installed-product'; Advertise = '0.1.1' })) {
+        # Case 'new-product-policy' repeats 'new-product' with the DisableUserInstalls machine policy set after the registration
+        # is written and before the elevated install: does the policy stop Windows Installer from using the owner's registration?
+        foreach ($case in @(@{ Name = 'new-product'; Advertise = '0.1.2' }, @{ Name = 'installed-product'; Advertise = '0.1.1' }, @{ Name = 'new-product-policy'; Advertise = '0.1.2'; Policy = $true })) {
             $record = [ordered]@{}
             $experiment[$case.Name] = $record
             try {
@@ -524,10 +526,12 @@ public static class PCStewardMarkerTransform
                 $record.perUserKeysAfterAdvertise = @(Get-PerUserInstallerKeys)
                 # Only logs written from here on: the advertisement's own logs name the marker by design.
                 $since = Get-Date
-                $record.elevatedInstall012Exit = Invoke-Msi @('/i', ('"' + $msis['0.1.2'].Path + '"')) "experiment-$($case.Name)-install-0.1.2.log"
+                if ($case.Policy) { New-ItemProperty -LiteralPath $loggingPolicy -Name 'DisableUserInstalls' -Value 1 -PropertyType DWord -Force | Out-Null; $record.disableUserInstalls = 1 }
+                try { $record.elevatedInstall012Exit = Invoke-Msi @('/i', ('"' + $msis['0.1.2'].Path + '"')) "experiment-$($case.Name)-install-0.1.2.log" }
+                finally { Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'DisableUserInstalls' -ErrorAction SilentlyContinue }
                 $record.machineProductsAfter = @(Get-MachineRegisteredProducts)
                 $record.perUserKeysAfterInstall = @(Get-PerUserInstallerKeys)
-                $record.installLogLines = @(Select-String -LiteralPath (Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log") -Pattern $installLogPattern -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $line = $_.Line.Trim(); if ($line.Length -gt 300) { $line.Substring(0, 300) } else { $line } })
+                $record.installLogLines = @(Select-String -LiteralPath (Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log") -Pattern $installLogPattern -ErrorAction SilentlyContinue | Where-Object { $_.Line -notmatch 'Note: 1:' } | Select-Object -First 40 | ForEach-Object { $line = $_.Line.Trim(); if ($line.Length -gt 300) { $line.Substring(0, 300) } else { $line } })
                 try { $record.installedVersions = @(Get-InstalledProducts | ForEach-Object { $_.Version }) } catch { $record.installedVersionsError = $_.Exception.Message }
                 $policyLogs = @(foreach ($folder in @($env:TEMP, (Join-Path $env:SystemRoot 'Temp'))) { Get-ChildItem -LiteralPath $folder -Filter 'MSI*.LOG' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $since } })
                 $searched = @((Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log")) + @($policyLogs | ForEach-Object { $_.FullName })
@@ -544,6 +548,7 @@ public static class PCStewardMarkerTransform
     catch { $experiment.error = $_.Exception.Message; Write-Output "EXPERIMENT error: $($_.Exception.Message)" }
     finally {
         Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'DisableUserInstalls' -ErrorAction SilentlyContinue
         try { Clear-ExperimentState } catch { $experiment.cleanupError = $_.Exception.Message }
     }
 
