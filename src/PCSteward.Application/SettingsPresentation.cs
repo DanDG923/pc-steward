@@ -177,7 +177,7 @@ public static class SettingsPresenter
     /// </summary>
     public static DiagnosticCopyPresentation DiagnosticCopy(bool historyUnavailable) => new(
         "Copy diagnostic",
-        "Copy a sanitized diagnostic of recent update outcomes",
+        "Copy diagnostic (a sanitized summary of recent update outcomes)",
         "Copies a sanitized summary of recent update outcomes (package IDs, versions, outcomes and exit codes) for a support report. Paths, passwords and tokens are removed and nothing is sent anywhere. It names installed apps, so share it only with people you trust.",
         !historyUnavailable,
         historyUnavailable ? "PC Steward couldn't read its recorded update history just now, so there is nothing to copy." : null);

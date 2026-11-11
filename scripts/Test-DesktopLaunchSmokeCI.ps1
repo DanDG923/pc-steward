@@ -76,6 +76,11 @@ function Write-Tree([Windows.Automation.AutomationElement]$Root, [string]$Page) 
             $name = [string]$c.Name; if ($name.Length -gt 90) { $name = $name.Substring(0, 90) + '...' }
             $isInteractive = $interactive -contains $type
             if ($isInteractive -and [string]::IsNullOrWhiteSpace($c.Name)) { $unnamed++; Write-Line ('  UNNAMED ' + $type + ' automationId=' + $c.AutomationId + ' class=' + $c.ClassName) }
+            # WCAG 2.5.3 label in name: a control's visible words must appear in its accessible name (speech users say them).
+            if ($isInteractive -and $c.ClassName -ne 'ToggleSwitch' -and ![string]::IsNullOrWhiteSpace($c.Name)) {
+                $label = $e.FindFirst([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Text))
+                if ($null -ne $label -and ![string]::IsNullOrWhiteSpace($label.Current.Name) -and $c.Name.IndexOf($label.Current.Name, [StringComparison]::OrdinalIgnoreCase) -lt 0) { $script:labelMismatch++; Write-Line ('  LABEL-NOT-IN-NAME ' + $type + ' visible="' + $label.Current.Name + '" name="' + $name + '"') }
+            }
             $isLabel = ($type -eq 'Text' -or $type -eq 'Header' -or $type -eq 'Group') -and ![string]::IsNullOrWhiteSpace($c.Name)
             if ($shown -lt 160 -and ($isInteractive -or $isLabel)) {
                 $shown++
@@ -100,6 +105,7 @@ while ((Get-Date) -lt $deadline) {
 }
 $failures = New-Object Collections.Generic.List[string]
 $unnamedTotal = 0
+$script:labelMismatch = 0
 if ($process.HasExited) { $failures.Add('the app exited during start-up with code ' + $process.ExitCode) }
 elseif ($handle -eq [IntPtr]::Zero) { $failures.Add('no main window within ' + $StartTimeoutSeconds + ' seconds') }
 else {
@@ -145,7 +151,7 @@ try {
 
 $process.Refresh()
 if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
-Write-Line ('UNNAMED-INTERACTIVE-TOTAL ' + $unnamedTotal)
+Write-Line ('UNNAMED-INTERACTIVE-TOTAL ' + $unnamedTotal + ' LABEL-NOT-IN-NAME-TOTAL ' + $script:labelMismatch)
 if ($failures.Count -eq 0) { Write-Line 'DESKTOP-LAUNCH-SMOKE-OK'; exit 0 }
 foreach ($f in $failures) { Write-Line ('STOP: ' + $f) }
 exit 1
