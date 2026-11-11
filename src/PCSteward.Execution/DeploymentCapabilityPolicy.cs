@@ -117,8 +117,8 @@ internal static class DeploymentCapabilityPolicy
     private static readonly HashSet<string> FileKeys = Keys([], "path", "sha256");
     private static readonly HashSet<string> ManifestEntryKeys = Keys([], "bytes", "path", "sha256");
     private static readonly HashSet<string> ImageKeys = Keys([], "path", "bytes", "originalChecksum");
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
-    private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 8 };
+    internal static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    internal static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 8 };
 
     /// <summary>Bytes generated from <see cref="ReviewedUpdateWireCodec.ProtocolVersion"/> and the compiled allowlist (A.3).</summary>
     internal static byte[] CanonicalCapabilityBytes()
@@ -422,7 +422,7 @@ internal static class DeploymentCapabilityPolicy
         return true;
     }
 
-    private static bool TryCollect(JsonElement element, out Dictionary<string, JsonElement> fields)
+    internal static bool TryCollect(JsonElement element, out Dictionary<string, JsonElement> fields)
     {
         fields = new(StringComparer.Ordinal);
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
@@ -440,7 +440,7 @@ internal static class DeploymentCapabilityPolicy
         return element.ValueKind is JsonValueKind.True or JsonValueKind.False;
     }
 
-    private static bool TryString(JsonElement element, int maximumLength, out string value)
+    internal static bool TryString(JsonElement element, int maximumLength, out string value)
     {
         value = string.Empty;
         if (element.ValueKind != JsonValueKind.String || element.GetString() is not { } text || text.Length == 0 || text.Length > maximumLength) return false;
@@ -468,12 +468,12 @@ internal static class DeploymentCapabilityPolicy
 
     private static bool IsLeaf(string path, string leaf) => string.Equals(path, leaf, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsHex(string value, int length) =>
+    internal static bool IsHex(string value, int length) =>
         value.Length == length && value.All(c => c is (>= '0' and <= '9') or (>= 'A' and <= 'F') or (>= 'a' and <= 'f'));
 
-    private static string Sha256Hex(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
+    internal static string Sha256Hex(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
     // Manifest-sourced ledger hashes may be lowercase (the script accepts either case), so compare decoded bytes.
-    private static bool HashEquals(string left, string right) =>
+    internal static bool HashEquals(string left, string right) =>
         IsHex(left, 64) && IsHex(right, 64) && CryptographicOperations.FixedTimeEquals(Convert.FromHexString(left), Convert.FromHexString(right));
 }
