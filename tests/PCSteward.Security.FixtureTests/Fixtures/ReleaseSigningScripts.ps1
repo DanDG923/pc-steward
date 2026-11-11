@@ -6,7 +6,9 @@ param([Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][stri
 # end), and writes results.json: each certificate's DER and the script's pin for it, and what Test-PCStewardPinnedSignature
 # says about signed, tampered, wrongly pinned, unsigned and non-code-signing files.
 $ErrorActionPreference = 'Stop'
-$env:PSModulePath = Join-Path $PSHOME 'Modules'
+# The edition's own modules plus the system ones, where New-SelfSignedCertificate (PKI) lives for both editions.
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + (Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\Modules')
+Import-Module PKI
 . (Join-Path $RepositoryRoot 'scripts\PCStewardReleaseSigning.ps1')
 
 function Get-Outcome([scriptblock]$Action) {
