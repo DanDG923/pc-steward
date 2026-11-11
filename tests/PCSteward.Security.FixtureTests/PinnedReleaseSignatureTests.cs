@@ -214,6 +214,8 @@ public sealed class PinnedReleaseSignatureTests
             static string List(IEnumerable<string> values) => "@(" + string.Join(",", values.Select(Quote)) + ")";
             string script = $$"""
                 $ErrorActionPreference = 'Stop'
+                # Started from pwsh 7, the inherited module path would load PowerShell 7 modules: use only this host's own.
+                $env:PSModulePath = Join-Path $PSHOME 'Modules'
                 $made = @()
                 try {
                     foreach ($pair in @(@({{List(signWithA)}}, {{Quote(certA)}}), @({{List(signWithB)}}, {{Quote(certB)}}))) {
