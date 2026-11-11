@@ -13,6 +13,7 @@ namespace PCSteward.ArchitectureTests;
 [TestClass]
 public sealed partial class UiAccessibilityContractTests
 {
+    private static readonly string[] DecorativeHues = ["Blue", "Teal", "Amber", "Purple", "Pink", "Green"];
     private static readonly string[] DesktopFiles = ["MainWindow.cs", "StewardPresentation.cs", "ReviewedRouteSurfaces.cs", "App.xaml.cs"];
     private static readonly string[] UserFacingApplicationFiles = ["StatusVocabulary.cs", "ElevationStory.cs", "ShellNavigation.cs", "PageFocusRestore.cs", "AccessibilityText.cs", "ChocolateyReviewDisclosure.cs", "ReviewedRouteViewModels.cs", "RunningApplicationDetection.cs", "InventoryExperienceViewModel.cs"];
 
@@ -251,7 +252,7 @@ public sealed partial class UiAccessibilityContractTests
         string[] darkLayers = ["#2B2B2B", "#202020", "#1C1C1C"];
         (string Foreground, string Surface)[] tones = [("StewardSuccessBrush", "StewardSuccessSurfaceBrush"), ("StewardWarningBrush", "StewardWarningSurfaceBrush"), ("StewardDangerBrush", "StewardDangerSurfaceBrush"), ("StewardInfoBrush", "StewardInfoSurfaceBrush"),
             // Colour option 2 (owner choice 2026-11-11): the decorative icon-well hues meet the same bar.
-            .. new[] { "Blue", "Teal", "Amber", "Purple", "Pink", "Green" }.Select(hue => ($"StewardHue{hue}Brush", $"StewardHue{hue}SurfaceBrush"))];
+            .. DecorativeHues.Select(hue => ($"StewardHue{hue}Brush", $"StewardHue{hue}SurfaceBrush"))];
         foreach (string theme in new[] { "Default", "Light", "Dark" })
         {
             Dictionary<string, string> colors = themes[theme];
