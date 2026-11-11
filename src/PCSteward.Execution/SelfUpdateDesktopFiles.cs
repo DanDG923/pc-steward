@@ -161,13 +161,18 @@ internal sealed class SelfUpdateDesktopFiles
 
     // ---- §8 ----
 
-    /// <summary>Reads what §8 needs, once, and decides. <paramref name="runningVersion"/> is this process's MSI version.</summary>
-    internal SelfUpdateJobVerdict Evaluate(SelfUpdateDesktopJob job, string runningVersion, DateTimeOffset now)
+    /// <summary>
+    /// Reads what §8 needs, once, and decides. <paramref name="runningVersion"/> is this process's MSI version.
+    /// <paramref name="installReader"/> is a CI seam: the install check runs from outside the install root, so it passes a
+    /// Desktop-role reader laid out for the installed desktop; the desktop itself uses the production reader.
+    /// </summary>
+    internal SelfUpdateJobVerdict Evaluate(SelfUpdateDesktopJob job, string runningVersion, DateTimeOffset now,
+        OwnerOnlyDeploymentCapabilityReader? installReader = null)
     {
         ArgumentNullException.ThrowIfNull(job);
         string workFolder = Path.Combine(machine.ProgramFiles, job.WorkFolder);
         bool intact;
-        try { intact = new OwnerOnlyDeploymentCapabilityReader().EvaluateInstalledRelease().IsSupported; }
+        try { intact = (installReader ?? new OwnerOnlyDeploymentCapabilityReader()).EvaluateInstalledRelease().IsSupported; }
         catch (Exception exception) when (exception is not OutOfMemoryException) { intact = false; }
         bool folderProtected = machine.IsProtectedWorkFolder(workFolder);
         SelfUpdateOutcomeInputs inputs = new(

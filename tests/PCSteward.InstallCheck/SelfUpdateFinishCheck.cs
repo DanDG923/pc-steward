@@ -88,7 +88,14 @@ internal static class SelfUpdateFinishCheck
         SelfUpdateDesktopJob desktopJob = new(job.JobId, fromVersion, job.ToVersion, job.RunId, job.SourceCommit, job.CheckZipSha256, job.MsiSha256,
             DateTimeOffset.UtcNow.AddMinutes(-5), leaf, expected.ManifestSha256);
         SelfUpdateDesktopFiles files = SelfUpdateDesktopFiles.TryCreate() ?? throw new InvalidOperationException("No desktop files.");
-        SelfUpdateJobVerdict verdict = files.Evaluate(desktopJob, running, DateTimeOffset.UtcNow);
+        // The reopened desktop's install check runs as PCSteward.Desktop.exe; this check runs from elsewhere, so it gives the
+        // production Desktop-role reader the installed desktop's path, as Program.cs does for the capability check.
+        using System.Security.Principal.WindowsIdentity identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        DeploymentCapabilityLayout layout = new(host.InstallRoot, Path.Combine(programFiles, OwnerOnlyDeploymentCapabilityReader.StateDirectoryName),
+            Path.Combine(host.InstallRoot, InstalledHelperLaunchTrust.DesktopExecutableName), identity.User?.Value ?? string.Empty);
+        OwnerOnlyDeploymentCapabilityReader reader = new(DeploymentCapabilityRole.Desktop, () => layout, OwnerOnlyDeploymentCapabilityReader.IsProtectedLayout);
+        SelfUpdateJobVerdict verdict = files.Evaluate(desktopJob, running, DateTimeOffset.UtcNow, reader);
         // Mythos review S2: this standard user must not be able to list the private folder (MSI copy, image, logs).
         bool privateHidden;
         try

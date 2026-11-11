@@ -27,6 +27,7 @@ public sealed class SelfUpdateHelperSessionTests
         "WriteNewFile:expected-install.json", "StartFinish",
     ];
     private const string ProductCode = "{11111111-1111-1111-1111-111111111111}";
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(60);
     private static readonly string[] InstallOnly = ["/i"];
     private static readonly string[] InstallThenRemove = ["/i", "/x"];
     private static readonly SelfUpdateSessionBudgets Budgets = new(TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1),
@@ -264,15 +265,15 @@ public sealed class SelfUpdateHelperSessionTests
     {
         SessionHost host = new() { ExtractExit = 0 };
         string name = "pcsteward-test-" + Guid.NewGuid().ToString("N");
-        await using NamedPipeServerStream server = new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        await using NamedPipeServerStream server = Server(name);
         await using NamedPipeClientStream client = new(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
         Task waiting = server.WaitForConnectionAsync();
         await client.ConnectAsync();
         await waiting;
-        await PipeMessageFraming.WriteAsync(server, SelfUpdateInstallPolicy.WriteRequest(host.Request), CancellationToken.None);
+        await PipeMessageFraming.WriteAsync(server, SelfUpdateInstallPolicy.WriteRequest(host.Request), CancellationToken.None).WaitAsync(Wait);
         host.OnExtract = () => server.Disconnect();
         SelfUpdateSessionResult result = await SelfUpdateSession.RunAsync(client, Nonce, Peer(), host, host, TimeProvider.System,
-            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None);
+            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None).WaitAsync(Wait);
         Assert.AreNotEqual(SelfUpdateSessionExit.ResponseWritten, result.Exit);
         Assert.IsNull(host.FinishPath, "the finish copy never starts without the desktop");
         Assert.AreEqual(SelfUpdateSessionRefusal.TimedOut, result.Response?.Reason);
@@ -283,19 +284,19 @@ public sealed class SelfUpdateHelperSessionTests
     {
         SessionHost host = new();
         string name = "pcsteward-test-" + Guid.NewGuid().ToString("N");
-        await using NamedPipeServerStream server = new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        await using NamedPipeServerStream server = Server(name);
         await using NamedPipeClientStream client = new(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
         Task waiting = server.WaitForConnectionAsync();
         await client.ConnectAsync();
         await waiting;
-        await PipeMessageFraming.WriteAsync(server, SelfUpdateInstallPolicy.WriteRequest(host.Request), CancellationToken.None);
+        await PipeMessageFraming.WriteAsync(server, SelfUpdateInstallPolicy.WriteRequest(host.Request), CancellationToken.None).WaitAsync(Wait);
         host.OnExpectedWritten = () =>
         {
             server.Disconnect();
             Thread.Sleep(TimeSpan.FromSeconds(1));
         };
         SelfUpdateSessionResult result = await SelfUpdateSession.RunAsync(client, Nonce, Peer(), host, host, TimeProvider.System,
-            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None);
+            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None).WaitAsync(Wait);
         Assert.AreEqual(SelfUpdateSessionRefusal.TimedOut, result.Response?.Reason);
         Assert.IsNull(host.FinishPath, "the finish copy never starts without the desktop");
         host.AssertJobClosed("disconnect after the job files");
@@ -410,21 +411,30 @@ public sealed class SelfUpdateHelperSessionTests
     private static async Task<(SelfUpdateSessionResult Result, SelfUpdateResponse? Response)> RunSessionAsync(SessionHost host, byte[]? request = null)
     {
         string name = "pcsteward-test-" + Guid.NewGuid().ToString("N");
-        await using NamedPipeServerStream server = new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        await using NamedPipeServerStream server = Server(name);
         await using NamedPipeClientStream client = new(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
         Task waiting = server.WaitForConnectionAsync();
         await client.ConnectAsync();
         await waiting;
         request ??= SelfUpdateInstallPolicy.WriteRequest(host.Request);
-        if (request.Length > 0) await PipeMessageFraming.WriteAsync(server, request, CancellationToken.None);
-        SelfUpdateSessionResult result = await SelfUpdateSession.RunAsync(client, Nonce, Peer(), host, host, TimeProvider.System,
-            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None);
+        // The session reads while the desktop end writes, as in production; a hang fails the test instead of the whole run.
+        Task<SelfUpdateSessionResult> session = Task.Run(() => SelfUpdateSession.RunAsync(client, Nonce, Peer(), host, host, TimeProvider.System,
+            TimeProvider.System.GetTimestamp(), Budgets, CancellationToken.None));
+        if (request.Length > 0) await PipeMessageFraming.WriteAsync(server, request, CancellationToken.None).WaitAsync(Wait);
+        SelfUpdateSessionResult result = await session.WaitAsync(Wait);
         if (result.Exit != SelfUpdateSessionExit.ResponseWritten) return (result, null);
-        byte[] frame = await PipeMessageFraming.ReadAsync(server, CancellationToken.None);
+        byte[] frame = await PipeMessageFraming.ReadAsync(server, CancellationToken.None).WaitAsync(Wait);
         Assert.IsTrue(SelfUpdateHelperProtocol.TryReadResponse(frame, out SelfUpdateResponse? response));
         Assert.AreEqual(result.Response, response);
         return (result, response);
     }
+
+    /// <summary>
+    /// The desktop end. Windows pipe writes wait for buffer quota, so both directions get room for a whole frame, as the
+    /// protocol-2 fixtures give theirs.
+    /// </summary>
+    private static NamedPipeServerStream Server(string name) =>
+        new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 64 * 1024, 64 * 1024);
 
     private static string[] Replace(string[] source, int index, string value)
     {
