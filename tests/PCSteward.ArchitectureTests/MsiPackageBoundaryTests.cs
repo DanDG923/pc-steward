@@ -112,7 +112,8 @@ public sealed class MsiPackageBoundaryTests
 
         string script = File.ReadAllText(Path.Combine(root, "scripts", "Test-PCStewardMsiCI.ps1"));
         StringAssert.Contains(script, "if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or !$isAdministrator)");
-        StringAssert.Contains(script, "$placeholder = 'internal const string Primary = \"\";'");
+        StringAssert.Contains(script, "$primaryLine = [regex]'internal const string Primary = \"(?:[0-9A-F]{64})?\";'");
+        StringAssert.Contains(script, "if ($primaryLine.Matches($pinsText).Count -ne 1) { throw");
         StringAssert.Contains(script, "[IO.File]::WriteAllBytes($pinsFile, $pinsOriginal)");
         // The committed file is read before the main try block and written back in its finally block.
         Assert.IsLessThan(script.IndexOf("\ntry {", StringComparison.Ordinal), script.IndexOf("$pinsOriginal = [IO.File]::ReadAllBytes($pinsFile)", StringComparison.Ordinal));

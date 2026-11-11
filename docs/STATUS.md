@@ -1,3 +1,8 @@
+**Signed protected install — ADR-034 step 6, part 1: the owner's key session (2026-11-11; pins committed; host steps run by the owner).** Requirements: `FR-UPD-15`, `TM-04/13`. [ADR-034 implementation notes](adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md#implementation-notes).
+- **Keys.** The primary release key is inside the owner's YubiKey (RSA 3072; PIN and touch for every signature). Yubico's attestation of it was checked off the PC. The offline backup key is on one removable drive, and a second copy will follow.
+- **Pins.** Both are now compiled in `ReleaseSigningPins.cs`, so a release payload can be built.
+- **Next.** Part 2: run the `Release payload` workflow at this commit, then the owner's paste to sign (`New-PCStewardRelease.ps1`) and install (`Invoke-PCStewardReleaseInstall.ps1`).
+
 **Signed protected install — ADR-034 step 5: security review of the whole route (2026-11-11; review, script fixes and tests; no host action).** Requirements: `FR-UPD-04/15`, `TM-03/04/13`. [Review](review/ADR_034_SIGNED_INSTALLER_SECURITY_REVIEW.md).
 - **Fixed.** `ykman` only from Program Files or a named path, with a valid Yubico signature (M1). The signing script checks the record's pins against `ReleaseSigningPins.cs` in the clean clone (M2). Workflow actions are pinned to full commits (L1). The backup password never becomes a managed string (L2).
 - **Narrowed.** The primary key run prints Yubico's attestation, so the pin can be checked away from the PC before it is committed (M3).

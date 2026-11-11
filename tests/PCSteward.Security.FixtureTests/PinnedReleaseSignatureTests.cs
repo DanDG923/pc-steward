@@ -28,10 +28,10 @@ public sealed class PinnedReleaseSignatureTests
         foreach (string compiled in ReleaseSigningPins.Compiled)
             Assert.IsTrue(ReleaseSigningPins.IsWellFormed(compiled), compiled);
         Assert.AreEqual(ReleaseSigningPins.Compiled.Count, ReleaseSigningPins.Compiled.Distinct(StringComparer.Ordinal).Count());
-        // Until the owner's key session commits the public-key hashes, no key is pinned and the pinned check accepts no file.
-        Assert.IsEmpty(ReleaseSigningPins.Primary);
-        Assert.IsEmpty(ReleaseSigningPins.Backup);
-        Assert.IsEmpty(ReleaseSigningPins.Compiled);
+        // The owner's key session (2026-11-11) created both keys; both pins are compiled, primary first.
+        CollectionAssert.AreEqual(new[] { ReleaseSigningPins.Primary, ReleaseSigningPins.Backup }, ReleaseSigningPins.Compiled.ToArray());
+        Assert.AreEqual(2, ReleaseSigningPins.Compiled.Count);
+        // An empty pin list still accepts nothing.
         Assert.IsFalse(AuthenticodeIdentity.TryReadPinnedSigner(typeof(object).Assembly.Location, [], out string? pin));
         Assert.IsNull(pin);
     }

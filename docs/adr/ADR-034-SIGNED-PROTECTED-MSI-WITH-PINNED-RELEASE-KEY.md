@@ -218,6 +218,16 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
   - The first shows the script's pin equals .NET's for RSA 2048, RSA 3072 and ECDSA P-256. It also shows the check accepts a pinned signature and refuses tampered, other-key, unsigned and non-code-signing files.
   - The second shows that no release script names a trust store; that the YubiKey policies, the slot refusal, the backup's drives and the single key deletion hold; that the workflow runs on demand only; and that the signing script makes every check before it signs.
 
+### Build order step 6, part 1 — the owner's key session (2026-11-11)
+
+- **Primary key.** Created inside the owner's YubiKey 5 (firmware 5.7.4) in slot 9c: RSA 3072, PIN policy ALWAYS, touch policy ALWAYS, certificate `CN=PC Steward Release Signing` until 2036-11-11. Pin `F8204BDBE73D3F4D898B3A1ECC0142DEE1AC3A136E7AE5D37FF8F3AD8DD2496A`.
+- **Checked away from the PC (M3).** Yubico's attestation of slot 9c chains through the YubiKey's slot f9 certificate, `Yubico PIV Attestation B 1` and `Yubico Attestation Intermediate B 1` to `Yubico Attestation Root 1` (SHA-256 `62:76:0C:6A:…:D5:A8`). It records firmware 5.7.4 and PIN and touch policies ALWAYS, and its public key gives the pin above. The attestation names the YubiKey's serial number, so it is not committed.
+- **Backup key.** Created by `-Key Backup` on one removable drive (owner: "One drive now, copy later"), then deleted from the PC: RSA 3072, `CN=PC Steward Release Signing (Backup)` until 2036-11-11. Pin `1F001AE0DA222A346C77F9831EC7A68B7F8910CAAD84CBF7F3502D6966499BA3`. It has no hardware attestation. The owner accepted that M3 residual on 2026-11-11 ("Accept it"). A second copy is made later with `-Key BackupCopy`.
+- **Two fixes during the session.**
+  - Windows refused to attach the smart-card key to the new certificate object (`CopyWithPrivateKey`, 0x80090027), so the certificate is now made with `CertificateRequest.Create` (PR #50).
+  - `-DiscardUnfinished` removed the unfinished attempts, which were one-day placeholders for the slot's own key.
+- Both pins are now compiled in `ReleaseSigningPins.cs`. Launch trust still also accepts the ADR-022 rule during the transition (until step 7), so the owner's current test deployment keeps working.
+
 ## Reconsider when
 
 - The owner chooses a publicly trusted certificate, or SignPath Foundation accepts the project. A public certificate can then be added as a further accepted pin.
