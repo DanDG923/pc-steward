@@ -42,11 +42,6 @@ internal static class StewardSpacing
     public const double XLarge = 24;
     public const double XXLarge = 32;
     public const double TitleBarHeight = 32;
-    /// <summary>
-    /// UI polish Phase 1: the page column's content width; the column sits beside the navigation, left aligned. Phase 5 (owner
-    /// feedback on a maximised window): 1600 epx, so a full-screen window uses its width instead of leaving half of it empty.
-    /// </summary>
-    public const double PageMaxWidth = 1600;
     /// <summary>The page column's padding (left 28, top 12, right 40, bottom 40), mirroring <c>StewardPagePadding</c>.</summary>
     public static readonly Thickness PagePadding = new(28, 12, 40, 40);
 }
@@ -187,15 +182,14 @@ internal static class StewardVisuals
     }
 
     /// <summary>
-    /// UI polish Phase 1 (plan root cause 2): keeps the hosted page column left aligned beside the navigation. A page is a
-    /// left-aligned column with a maximum width; this gives it the host's full width up to that maximum, so the column fills a
-    /// narrow window and stops at its maximum on a wide one instead of floating in the middle. Call it after setting the
-    /// host's content; the host re-fits the column whenever it is resized.
+    /// UI polish Phase 1 (plan root cause 2): keeps the hosted page column left aligned beside the navigation. Phase 5 (owner
+    /// feedback on a maximised window): the column has no maximum width, so it always fills the host from the navigation to the
+    /// window's right edge. Call it after setting the host's content; the host re-fits the column whenever it is resized.
     /// </summary>
     public static void FitPageColumn(ScrollViewer host)
     {
         ArgumentNullException.ThrowIfNull(host);
-        if (host.Content is FrameworkElement page && host.ActualWidth > 0) page.Width = Math.Min(host.ActualWidth, page.MaxWidth);
+        if (host.Content is FrameworkElement page && host.ActualWidth > 0) page.Width = host.ActualWidth;
     }
 
     /// <summary>Re-fits the hosted page column (<see cref="FitPageColumn"/>) whenever <paramref name="host"/> is resized.</summary>
@@ -203,6 +197,44 @@ internal static class StewardVisuals
     {
         ArgumentNullException.ThrowIfNull(host);
         host.SizeChanged += (_, _) => FitPageColumn(host);
+    }
+
+    /// <summary>
+    /// UI polish phase 5 (owner feedback on a maximised window): grows the bounded, virtualized <paramref name="list"/> inside
+    /// <paramref name="card"/> so the card reaches the bottom of the page host's viewport, keeping whatever follows the card on
+    /// the page (such as a footnote) in view. The list never drops below <paramref name="minimumHeight"/>, so on a short window
+    /// the page scrolls instead. It re-fits when the window or the content above the card changes size.
+    /// </summary>
+    public static void FillViewportHeight(StackPanel page, FrameworkElement card, ListViewBase list, double minimumHeight)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(list);
+        list.MaxHeight = minimumHeight;
+        ScrollViewer? host = null;
+        void Fit()
+        {
+            if (host is null || host.ViewportHeight <= 0 || card.Visibility != Visibility.Visible || card.ActualHeight <= 0) return;
+            double top = card.TransformToVisual(page).TransformPoint(new global::Windows.Foundation.Point(0, 0)).Y;
+            double below = page.ActualHeight - top - card.ActualHeight;
+            double chrome = card.ActualHeight - list.ActualHeight;
+            double wanted = Math.Max(minimumHeight, Math.Floor(host.ViewportHeight - top - below - chrome));
+            if (Math.Abs(wanted - list.MaxHeight) >= 1) list.MaxHeight = wanted;
+        }
+        void Resized(object sender, SizeChangedEventArgs args) => Fit();
+        page.Loaded += (_, _) =>
+        {
+            host = null;
+            for (DependencyObject? node = VisualTreeHelper.GetParent(page); node is not null && host is null; node = VisualTreeHelper.GetParent(node)) host = node as ScrollViewer;
+            if (host is not null) host.SizeChanged += Resized;
+            Fit();
+        };
+        page.Unloaded += (_, _) =>
+        {
+            if (host is not null) host.SizeChanged -= Resized;
+            host = null;
+        };
+        page.SizeChanged += Resized;
     }
 
     /// <summary>AC-UX-01: a page title, exposed to assistive technology as a level-1 heading.</summary>

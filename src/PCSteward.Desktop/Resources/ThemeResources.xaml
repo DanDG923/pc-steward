@@ -11,9 +11,7 @@
     <x:Double x:Key="StewardSpacingXXLarge">32</x:Double>
     <x:Double x:Key="StewardTitleBarHeight">32</x:Double>
     <!-- UI polish Phase 1 (approved targets): the page column sits beside the navigation, left aligned, like Windows Settings
-         (mirrored by StewardSpacing.PageMaxWidth and StewardSpacing.PagePadding). Phase 5: at most 1600 epx wide, so a maximised
-         window uses its width. -->
-    <x:Double x:Key="StewardPageMaxWidth">1600</x:Double>
+         (mirrored by StewardSpacing.PagePadding). Phase 5: the column has no maximum width, so a maximised window is filled. -->
     <Thickness x:Key="StewardPagePadding">28,12,40,40</Thickness>
     <Thickness x:Key="StewardCardPadding">20</Thickness>
     <Thickness x:Key="StewardRowCardPadding">16,12</Thickness>

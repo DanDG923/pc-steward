@@ -23,7 +23,7 @@ public sealed partial class MainWindow
     /// <summary>
     /// FR-UI-01, AC-UX-03 (Task 73 Phase 3; ADR-030 decision 5; audit P-L7): saved filters (All, Updates, Needs review, No update source,
     /// Pinned &amp; ignored) with counts over every saved app, search, and the detailed filters behind "Filters". The list stays
-    /// virtualized with a bounded height inside the page host. Repository apps stays reachable from the header's More options.
+    /// virtualized with a bounded height inside the page host; phase 5 grows that height to the bottom of the window. Repository apps stays reachable from the header's More options.
     /// UI polish phase 4 (approved target T-Installed): a quiet freshness line, filter tabs, one toolbar (search, sort, Filters and
     /// the count), column headings, and the list in one card. "No update source" is plain text with a calm footnote, not a badge
     /// on every row. Owner decision 2026-11-11: every inventory record keeps its own row here (Updates shows same-app records once).
@@ -107,8 +107,10 @@ public sealed partial class MainWindow
         panel.Children.Add(moreFilters);
 
         // Bounded height keeps the list virtualized inside the page's own scroll host (wheel scrolling chains to the page at the ends).
-        ListView list = new() { Style = AppStyle("StewardListViewStyle"), ItemContainerStyle = AppStyle("StewardListItemStyle"), ItemTemplate = (DataTemplate)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardApplicationRowTemplate"], MaxHeight = 620 };
+        // Phase 5: the bound follows the window, so the card reaches the bottom of a tall window (never shorter than MinimumListHeight).
+        ListView list = new() { Style = AppStyle("StewardListViewStyle"), ItemContainerStyle = AppStyle("StewardListItemStyle"), ItemTemplate = (DataTemplate)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardApplicationRowTemplate"] };
         Border listCard = new() { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall), Child = list };
+        StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);
         Border empty = StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters. The saved inventory hasn't changed.");
         // Column headings line up with StewardApplicationRowTemplate (32 | 3* | 1* | 1* | 1.4* | 16), inside the card's row padding.
         Grid columns = new() { Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0), ColumnSpacing = StewardSpacing.Large };
@@ -145,6 +147,9 @@ public sealed partial class MainWindow
             panel.Children.Add(StewardVisuals.FootNote("\uE946", InstalledAppsFilters.NoUpdateSourceNote));
         return panel;
     }
+
+    /// <summary>The Installed apps list is never shorter than this (about six rows), so a short window scrolls the page instead.</summary>
+    private const double MinimumListHeight = 320;
 
     private static (string Raw, string Label)[] LabelledFilterOptions(IEnumerable<string> rawValues, Func<string, string> label) => rawValues
         .Distinct(StringComparer.OrdinalIgnoreCase)

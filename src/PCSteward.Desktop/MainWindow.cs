@@ -274,8 +274,8 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// UI polish Phase 1 (approved targets; plan root cause 2): every page is one left-aligned column beside the navigation, like
-    /// Windows Settings — at most <see cref="StewardSpacing.PageMaxWidth"/> wide plus its padding, and never centred in the window.
-    /// The host gives the column its width (<see cref="StewardVisuals.FitPageColumn"/>).
+    /// Windows Settings, and never centred in the window. Phase 5 (owner feedback on a maximised window): the column has no
+    /// maximum width; the host gives it the window's full width (<see cref="StewardVisuals.FitPageColumn"/>).
     /// </summary>
     private static StackPanel CreatePagePanel()
     {
@@ -284,7 +284,6 @@ public sealed partial class MainWindow : Window
         {
             Spacing = StewardSpacing.Section,
             Padding = padding,
-            MaxWidth = StewardSpacing.PageMaxWidth + padding.Left + padding.Right,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
