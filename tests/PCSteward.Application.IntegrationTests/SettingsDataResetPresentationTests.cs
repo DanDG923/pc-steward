@@ -272,7 +272,8 @@ public sealed class SettingsDataResetPresentationTests
     {
         DiagnosticCopyPresentation available = SettingsPresenter.DiagnosticCopy(historyUnavailable: false);
         Assert.AreEqual("Copy diagnostic", available.Label);
-        StringAssert.StartsWith(available.AccessibleName, "Copy");
+        // WCAG 2.5.3 (label in name): speech users say the visible words, so the accessible name starts with them.
+        StringAssert.StartsWith(available.AccessibleName, available.Label);
         Assert.IsTrue(available.IsEnabled);
         StringAssert.Contains(available.Description, "Paths, passwords and tokens are removed");
         Assert.IsFalse(SettingsPresenter.DiagnosticCopy(historyUnavailable: true).IsEnabled);

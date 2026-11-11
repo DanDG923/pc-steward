@@ -42,6 +42,19 @@
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#FDE7E9" />
             <SolidColorBrush x:Key="StewardInfoBrush" Color="#005A9E" />
             <SolidColorBrush x:Key="StewardInfoSurfaceBrush" Color="#E5F1FB" />
+            <!-- Colour option 2 (owner choice 2026-11-11): Settings-style hues for decorative icon wells; each glyph is at least 4.5:1 on its surface. -->
+            <SolidColorBrush x:Key="StewardHueBlueBrush" Color="#005FB8" />
+            <SolidColorBrush x:Key="StewardHueBlueSurfaceBrush" Color="#DCEBFA" />
+            <SolidColorBrush x:Key="StewardHueTealBrush" Color="#00735C" />
+            <SolidColorBrush x:Key="StewardHueTealSurfaceBrush" Color="#D5F2EA" />
+            <SolidColorBrush x:Key="StewardHueAmberBrush" Color="#8A5300" />
+            <SolidColorBrush x:Key="StewardHueAmberSurfaceBrush" Color="#FFF0CC" />
+            <SolidColorBrush x:Key="StewardHuePurpleBrush" Color="#6B4FBB" />
+            <SolidColorBrush x:Key="StewardHuePurpleSurfaceBrush" Color="#ECE6FB" />
+            <SolidColorBrush x:Key="StewardHuePinkBrush" Color="#B4264A" />
+            <SolidColorBrush x:Key="StewardHuePinkSurfaceBrush" Color="#FBE3E8" />
+            <SolidColorBrush x:Key="StewardHueGreenBrush" Color="#0F7B0F" />
+            <SolidColorBrush x:Key="StewardHueGreenSurfaceBrush" Color="#DFF6DD" />
             <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
             <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
             <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
@@ -71,6 +84,19 @@
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#FDE7E9" />
             <SolidColorBrush x:Key="StewardInfoBrush" Color="#005A9E" />
             <SolidColorBrush x:Key="StewardInfoSurfaceBrush" Color="#E5F1FB" />
+            <!-- Colour option 2 (owner choice 2026-11-11): Settings-style hues for decorative icon wells; each glyph is at least 4.5:1 on its surface. -->
+            <SolidColorBrush x:Key="StewardHueBlueBrush" Color="#005FB8" />
+            <SolidColorBrush x:Key="StewardHueBlueSurfaceBrush" Color="#DCEBFA" />
+            <SolidColorBrush x:Key="StewardHueTealBrush" Color="#00735C" />
+            <SolidColorBrush x:Key="StewardHueTealSurfaceBrush" Color="#D5F2EA" />
+            <SolidColorBrush x:Key="StewardHueAmberBrush" Color="#8A5300" />
+            <SolidColorBrush x:Key="StewardHueAmberSurfaceBrush" Color="#FFF0CC" />
+            <SolidColorBrush x:Key="StewardHuePurpleBrush" Color="#6B4FBB" />
+            <SolidColorBrush x:Key="StewardHuePurpleSurfaceBrush" Color="#ECE6FB" />
+            <SolidColorBrush x:Key="StewardHuePinkBrush" Color="#B4264A" />
+            <SolidColorBrush x:Key="StewardHuePinkSurfaceBrush" Color="#FBE3E8" />
+            <SolidColorBrush x:Key="StewardHueGreenBrush" Color="#0F7B0F" />
+            <SolidColorBrush x:Key="StewardHueGreenSurfaceBrush" Color="#DFF6DD" />
             <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
             <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
             <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
@@ -100,6 +126,19 @@
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="#442726" />
             <SolidColorBrush x:Key="StewardInfoBrush" Color="#99EBFF" />
             <SolidColorBrush x:Key="StewardInfoSurfaceBrush" Color="#1F3A47" />
+            <!-- Colour option 2 (owner choice 2026-11-11): Settings-style hues for decorative icon wells; each glyph is at least 4.5:1 on its surface. -->
+            <SolidColorBrush x:Key="StewardHueBlueBrush" Color="#60CDFF" />
+            <SolidColorBrush x:Key="StewardHueBlueSurfaceBrush" Color="#1F3347" />
+            <SolidColorBrush x:Key="StewardHueTealBrush" Color="#4FD8B4" />
+            <SolidColorBrush x:Key="StewardHueTealSurfaceBrush" Color="#173B33" />
+            <SolidColorBrush x:Key="StewardHueAmberBrush" Color="#FFC83D" />
+            <SolidColorBrush x:Key="StewardHueAmberSurfaceBrush" Color="#43351A" />
+            <SolidColorBrush x:Key="StewardHuePurpleBrush" Color="#B9A6FF" />
+            <SolidColorBrush x:Key="StewardHuePurpleSurfaceBrush" Color="#30284A" />
+            <SolidColorBrush x:Key="StewardHuePinkBrush" Color="#FF9AA8" />
+            <SolidColorBrush x:Key="StewardHuePinkSurfaceBrush" Color="#45252F" />
+            <SolidColorBrush x:Key="StewardHueGreenBrush" Color="#6CCB5F" />
+            <SolidColorBrush x:Key="StewardHueGreenSurfaceBrush" Color="#2A3A25" />
             <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
             <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
             <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
@@ -129,6 +168,18 @@
             <SolidColorBrush x:Key="StewardDangerSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="StewardInfoBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="StewardInfoSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="StewardHueBlueBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="StewardHueBlueSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="StewardHueTealBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="StewardHueTealSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="StewardHueAmberBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="StewardHueAmberSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="StewardHuePurpleBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="StewardHuePurpleSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="StewardHuePinkBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="StewardHuePinkSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="StewardHueGreenBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="StewardHueGreenSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>
