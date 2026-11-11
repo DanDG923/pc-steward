@@ -40,8 +40,8 @@ Facts this design depends on:
 
 How does the app learn which CI build a release must match?
 
-- **A. GitHub's public Actions API, checked by the desktop; content re-checked offline by the helper (chosen, owner decision 2).** The release carries a small CI-made check file. The desktop accepts it only when GitHub's API says it is the artefact of a green, hand-started `release-payload.yml` run of this repository on `phase/4-beta` or `main` at the commit it names. The helper then checks the MSI against that check file on its administrator-only copies, with no network access.
-- **B. The helper asks GitHub itself.** The elevated helper makes the same API requests before installing. It removes the desktop from the anchor, but puts an HTTPS client, TLS and JSON from the internet into the elevated process, and the residual it closes is the one section 10 explains is already open through UAC.
+- **A. GitHub's public Actions API checked by the desktop only; content re-checked offline by the helper.** The release carries a small CI-made check file, which the desktop accepts only when GitHub's API says it is the artefact of a genuine run. Rejected (Codex review of this revision): the offline helper cannot tell a genuine check file from one a same-user program wrote. A program holding an MSI from a misused signing session could hand the helper its own check file with matching table and file hashes, and the helper would install it. The desktop is not a security boundary.
+- **B. GitHub's public Actions API, checked by the desktop and again by the elevated helper itself (chosen, owner decision 2).** The desktop's check gives the owner early, readable answers; the helper's own two read-only requests are the security decision. This puts a small HTTPS client into the elevated process, constrained in section 6 (compiled addresses, no redirects, no proxy, no credentials, machine-wide TLS roots only, bounded strict JSON), and nothing it reads is used as a path, command or argument.
 - **C. The owner's key signs a statement naming the CI build.** This adds nothing: the attack the content rule exists for is a misused signing session, which could sign a false statement too.
 - **D. Reproducible builds.** The desktop build is not byte-identical across build environments (Task 48), so the app cannot rebuild and compare.
 - **E. GitHub artifact attestations (Sigstore).** Verifying them properly needs an online transparency log and trust-root refresh; rejected in revision 1 as a cloud dependency. Useful as extra evidence, never as the decision.
@@ -64,7 +64,7 @@ Nothing is downloaded or installed without the owner's action, and there is no "
 PC Steward installs a release only when all three hold:
 
 1. **The owner's key signed it.** The MSI and both executables carry an Authenticode signature whose signer's key matches a compiled pin (ADR-034 section 3). Nobody without the YubiKey (PIN and touch) or the offline backup key can produce this.
-2. **It is the CI build of a reviewed commit.** The release's check file is the artefact of a genuine `release-payload.yml` run of this repository on `phase/4-beta` or `main` (section 3). Nobody without write access to GitHub can produce this.
+2. **It is the CI build of a reviewed commit.** The release's check file is the artefact of a genuine `release-payload.yml` run of this repository on `phase/4-beta` or `main` (section 3), confirmed with GitHub by the elevated helper itself (section 6). Nobody without write access to GitHub can produce this.
 3. **The MSI installs exactly that build.** The MSI's tables give the CI build's digest, and every file it installs equals the CI payload, executables compared without their signatures (section 6). This ties condition 1 to condition 2.
 
 A GitHub compromise without the key fails condition 1. A misused signing session without a matching CI build fails condition 3. Both together need the owner's GitHub account (or a reviewed commit that is itself malicious) **and** a misused signing session.
@@ -83,11 +83,12 @@ A GitHub compromise without the key fails condition 1. A misused signing session
   2. `GET /repos/DanDG923/pc-steward/actions/runs/{runId}/artifacts` lists exactly one artefact named `pc-steward-release-check`, and its digest equals the SHA-256 of the downloaded zip;
   3. the zip holds exactly `release-check.json`, which parses strictly (closed key sets, size limits, no duplicates) and names that run, commit and repository, the compiled pins, and an `msiVersion` equal to the release tag.
 - The run id comes from the check file; the tag and asset names come from the release. Everything GitHub returns is untrusted input to these checks, never an instruction.
+- The desktop's acceptance only decides what the owner is shown. The elevated helper repeats checks 1 to 3 itself on its administrator-only copy of the zip before anything is extracted or installed (section 6 step 3). The pure checks (run fields, artefact list, digest, check-file parsing) live in one shared place, `PCSteward.Execution`, so the desktop and the helper apply exactly the same rules.
 
 ### 4. The check (desktop, unelevated)
 
 - A new project, `PCSteward.SelfUpdate`, holds the network client and the pure checks; it grows from the parked check core in draft PR #39 (strict parsing, compiled hosts, manual redirects to compiled GitHub hosts only, size and time limits, fail-closed results). Its ECDSA release-manifest key, signature file and sequence are removed (section 11).
-- One check makes at most four unauthenticated HTTPS GETs to compiled addresses (plus GitHub's redirects to its own asset host, followed by hand): the repository's latest release, the check zip (at most 1 MiB), the run and the run's artefacts. Download addresses are built from compiled parts and the validated tag (`v` + `major.minor.patch`), never from URLs in a response. The User-Agent is `PCSteward`, with no version. No token, cookie or account is sent.
+- One check makes at most four unauthenticated HTTPS GETs to compiled addresses (plus GitHub's redirects to its own asset host, followed by hand): the repository's latest release, the check zip (at most 1 MiB), the run and the run's artefacts. Download addresses are built from compiled parts and the validated tag (`v` + `major.minor.patch`), never from URLs in a response. The User-Agent is `PCSteward`, with no version. No token, cookie or account is sent, so nothing counts against the owner's GitHub account; GitHub's anonymous limit (60 requests an hour per IP address) is far above an owner-pressed check plus the helper's two requests, and a rate-limit answer ends as "Could not check" (or, in the helper, a Failed job that installed nothing).
 - Drafts and pre-releases are ignored (the "latest release" endpoint excludes them). The release must have exactly the two assets `PCSteward-<msiVersion>.msi` and `pc-steward-release-check.zip`.
 - The release is "newer" only when `msiVersion` is above the running version. A release at or below it is "current" or "older"; the MSI refuses downgrades in any case.
 - What the check reveals: the owner's IP address reaches GitHub, which learns that this address checks PC Steward's releases, but not which version. Settings says so.
@@ -105,15 +106,20 @@ After the owner's **Download and check**:
 
 After **Install**, the desktop starts the helper as for any update (ADR-018 launch trust, one UAC prompt) with one new operation, `Update/PCStewardSelfUpdateV1`, added to the pinned capability statement. Its request carries only the job's values: to-version, run id, commit, check-file SHA-256 and MSI SHA-256. It carries no path: the helper derives both file names from the two hashes under the requesting user's fixed `Downloads\SelfUpdate` folder.
 
-The helper, elevated and with no network access:
+The helper, elevated:
 
-1. Creates a new administrator-only work folder `%ProgramFiles%\PC Steward Update <32 hex>` (only administrators can create folders there; protected DACL: SYSTEM and Administrators full control, nothing else) and removes such folders left by earlier runs through the owned-root deletion rules.
+1. Creates a new administrator-only work folder `%ProgramFiles%\PC Steward Update <32 hex>` (only administrators can create folders there; protected DACL: SYSTEM and Administrators full control, Authenticated Users read only) and removes such folders left by earlier runs through the owned-root deletion rules, keeping the folder of the newest earlier job until its outcome has been read (section 8).
 2. Reads each input once through a held, reparse-free handle with no alternate stream, checks its length bound and SHA-256 against the request, and writes it into the work folder; the copy is hashed again. From here on only the copies are used.
-3. Parses the copied `release-check.json` (same strict rules as section 3) and requires it to name the request's run, commit and version and the compiled pins.
-4. Checks the copied MSI: a compiled pin (`AuthenticodeIdentity`), tables equal to `msiTablesSha256`. Equal tables mean the MSI runs no code (no custom actions beyond the downgrade message), installs only to `%ProgramFiles%\PC Steward`, and has the CI build's file table.
+3. **Confirms the CI anchor with GitHub itself** (owner decision 2). From the copied zip it reads `release-check.json` (same strict rules as section 3) and requires it to name the request's run, commit and version and the compiled pins. It then makes exactly two unauthenticated GETs, `…/actions/runs/{runId}` and `…/actions/runs/{runId}/artifacts`, and applies section 3 checks 1 and 2 to the answers, with the digest compared against the SHA-256 of its own copy of the zip. The client is constrained so that nothing a same-user program controls can change the answer:
+   - the host `api.github.com` and the repository path are compiled; the run id is the number from the check file; no redirect is followed (any 3xx is a refusal);
+   - no proxy (the user's proxy settings and environment are ignored), no cookies, no credentials, no token;
+   - the server certificate chain must build to a root in the **LocalMachine** Root store only (custom root trust built from that store), never the user's own store, which a same-user program can change; revocation is checked online, and a revocation check that cannot complete is a refusal;
+   - each answer is at most 512 KiB, read within a fixed time limit (30 seconds for both), and parsed with the same strict rules as the desktop's; anything unexpected is a refusal.
+   If GitHub cannot be reached or any check fails, nothing is installed and the job is Failed with "Could not confirm the release with GitHub" or the failed check. Nothing GitHub returns is used as a path, command or argument.
+4. Checks the copied MSI: a compiled pin (`AuthenticodeIdentity`), tables equal to the now-authenticated `msiTablesSha256`. Equal tables mean the MSI runs no code (no custom actions beyond the downgrade message), installs only to `%ProgramFiles%\PC Steward`, and has the CI build's file table. As a separate rule that does not depend on the check file, the helper also refuses any MSI whose `CustomAction` table holds anything other than the one error-message action (type 19), or that has a `Binary`, `ServiceInstall`, `ServiceControl` or `MsiEmbeddedChainer` row, before `msiexec` touches it.
 5. Extracts the copied MSI with a Windows Installer administrative install (`msiexec /a`, fixed arguments, `TARGETDIR` inside the work folder). Step 4 has proved the package has no custom actions, so this only unpacks files. The unpacked tree must be exactly the CI payload of the check file (every non-executable file byte-identical; each executable equal to the CI one apart from its single Authenticode signature, which must carry the same compiled pin as the other) plus a release manifest that lists exactly those files. This is the pre-install half of the ADR-034 H1 content rule.
-6. Copies its own image into `<work>\bin\` (held read, hash compared with the running image, written, hashed again) and writes `job.json` (request values, the verified release manifest's SHA-256, the PID of the desktop it is serving) into the work folder.
-7. Starts that copy with one fixed argument, `--finish-self-update "<work folder name>"`, answers the desktop "ready" with the verified values, and exits within the normal exit budget.
+6. Copies its own image into `<work>\bin\` (held read, hash compared with the running image, written, hashed again) and writes two files into the work folder: `job.json` (request values, the PID of the desktop it is serving) and **`expected-install.json`** (job id, to-version, the verified release manifest's SHA-256, and the path, length and SHA-256 of every file the install must leave in `%ProgramFiles%\PC Steward`, signed executables as extracted in step 5). Both are written by the elevated helper into the protected folder, so a same-user program can read them but not change them.
+7. Starts that copy with one fixed argument, `--finish-self-update "<work folder name>"`, answers the desktop "ready" with the verified values and the work folder name (recorded in the job), and exits within the normal exit budget.
 
 The copy is needed because `msiexec` must replace `PCSteward.ElevatedHelper.exe` in `%ProgramFiles%\PC Steward`, which cannot happen while that file is running, and an elevated process in an administrator-only folder is as protected as one in Program Files.
 
@@ -123,33 +129,38 @@ The helper copy refuses to run unless it is elevated, its own path is `%ProgramF
 
 1. Waits, for at most five minutes, until the desktop it served and every process whose image is under `%ProgramFiles%\PC Steward` has exited. If they have not, it installs nothing and records "PC Steward did not close".
 2. Re-hashes the MSI copy and runs `msiexec /i "<work>\<msi>" /qn /norestart /l*v "<work>\install.log"` with exactly those arguments, from `%SystemRoot%\System32`, and waits for it (at most 30 minutes).
-3. Records the exit code. 1641 and 3010 (restart needed) and any change to the installed product count as "installed but unverified" and end in the restart outcome of section 9.
-4. Verifies the installed tree exactly as `Install-PCStewardRelease.ps1` step 4 does: the protected install-folder DACL on the folder and every file, every installed file equal to the files verified in section 6 step 5, both executables carrying the same compiled pin, and the installed release manifest equal to the one verified. One installed product, at the new version, owns the folder.
+3. Records the exit code. 0 continues to step 4. 3010 (restart needed; 1641 cannot occur with `/norestart` and is treated the same) means files may be waiting for the restart to be replaced, so the helper copy skips steps 4 and 5, records "restart needed" with the current boot time, and the post-restart check of section 8 decides the outcome. Any other code is a failed install (section 9).
+4. Verifies the installed tree exactly as `Install-PCStewardRelease.ps1` step 4 does, against `expected-install.json`: the protected install-folder DACL on the folder and every file, every installed file equal to its expected length and SHA-256 and no other file, both executables carrying the same compiled pin, and the installed release manifest equal to the one verified. One installed product, at the new version, owns the folder.
 5. On any difference after `msiexec` changed the install, uninstalls the product (fail closed, as the first install does) and records why.
-6. Writes `result.json` (job id, outcome, versions, exit code, verified hashes) into the work folder, readable by the owner's account, and exits. Nothing is launched afterwards.
+6. Writes `result.json` (job id, outcome, versions, exit code, boot time, verified hashes) into the work folder, readable by the owner's account, and exits. Nothing is launched afterwards.
 
 ### 8. Success
 
-The self-update job becomes **Updated** only when the reopened PC Steward:
+When PC Steward next opens, it looks for the job's work folder (its name is recorded in the job) and reads `result.json` and `expected-install.json` there. Both must be in the protected work folder (owner SYSTEM or Administrators, the protected DACL of section 6 step 1, no reparse points) and name this job id. The job becomes **Updated** only when the reopened PC Steward:
 
 - is the job's to-version (its own assembly version), and
 - passes the release capability check of its own install (ADR-034 section 4: pinned signatures and the release manifest), and
-- reads a `result.json` for this job id saying the helper verified the installed tree, with the same release manifest SHA-256 as the installed manifest.
+- finds the installed release manifest's SHA-256 equal to the one in `expected-install.json`, and
+- either reads a `result.json` saying the helper copy verified the installed tree (exit code 0), **or**, when `result.json` says "restart needed", the PC has restarted since (current boot time later than the recorded one) and PC Steward's own read-only check of the installed tree passes: the protected install-folder DACL on the folder and every file, and every file in `%ProgramFiles%\PC Steward` equal to its entry in `expected-install.json`, with no extra or missing file. This check is bounded (the file list is fixed and capped) and runs once per launch until the job is decided.
 
-Anything else is **Failed** or **Inconclusive**, never Updated (`TM-12`). The owner is told what happened and where the install log is (readable by administrators).
+A restart-needed job seen before a restart stays "Restart to finish". After a restart, a failed check makes the job **Failed** ("The update did not finish as checked") with the reinstall guidance of section 9; it does not stay Inconclusive. The desktop cannot uninstall (it is not elevated), so it then refuses to start any other update until the owner reinstalls a signed release by hand, as ADR-034 section 4 already does for an install that fails its capability check.
+
+Anything else is **Failed** or **Inconclusive**, never Updated (`TM-12`). Inconclusive is used only when the job's work folder or its files are missing or unreadable. The owner is told what happened and where the install log is (readable by administrators).
 
 ### 9. Failures and rollback
 
 - Before `msiexec` starts, any failure leaves the installed version untouched and the job Failed with its reason.
 - A failed `msiexec` rolls the install back to the previous version (MSI transaction).
-- A restart-needed result is reported as "Restart to finish, then reopen PC Steward"; the next launch reruns section 8's checks and the job stays Inconclusive until they pass.
+- A restart-needed result is reported as "Restart to finish, then reopen PC Steward". The first launch after a restart runs section 8's post-restart check, which ends the job as Updated or Failed.
 - A verified mismatch after install uninstalls PC Steward (fail closed). Per-user data stays. The owner reinstalls the previous signed MSI by hand (ADR-034 section 6).
 - There is no in-app downgrade: the MSI refuses lower versions. Going back means uninstalling and installing an older signed MSI by hand. Database migrations stay forward-only (ADR-015).
 - The manual route stays documented and tested: the owner can always install a release with `Invoke-PCStewardReleaseInstall.ps1` and an anchor checked by hand.
 
 ### 10. Residual risks
 
-- **A same-user program present at update time.** It can feed the helper its own inputs and the desktop its own GitHub answers. To get past section 6 it still needs an MSI signed with a release key that installs a matching CI build, so it gains nothing unless it also misused a signing session **and** has a CI build of the malicious content. Even then it gains no more than it could by showing its own "Unknown publisher" UAC prompt, which looks the same as PC Steward's (ADR-034 option A). Option B would move the anchor into the helper but cannot remove that UAC residual. Accepted.
+- **A same-user program present at update time.** It can feed the helper its own inputs and the desktop its own GitHub answers, but not the helper's: the helper confirms the check file with GitHub itself, through a client the user's proxy settings, certificate store and redirects cannot steer (section 6 step 3). To get past section 6 the program therefore needs an MSI signed with a release key **and** a genuine CI run whose artefact describes the malicious content, which means a misused signing session and write access to GitHub (or a malicious reviewed commit). It can still show its own "Unknown publisher" UAC prompt, which looks the same as PC Steward's (ADR-034 option A); that residual is outside the updater and accepted.
+- **A TLS certificate for `api.github.com` from a root in the machine store that is not GitHub's.** Only an administrator can add machine roots, and a mis-issued certificate would still need a release-key signature over the malicious MSI. Accepted.
+- **The helper now makes network requests.** Two fixed GETs, during an owner-approved update only, through the constrained client of section 6 step 3. Its JSON parser is the same strict, size-bounded one the desktop uses and is fuzz-tested. Accepted as the price of closing the residual above.
 - **Hidden newer releases (freeze).** A network attacker or a GitHub compromise can hide newer releases; the app then reports the newest release it could check, with the time of the check. The app never says "up to date" when a check failed. Accepted while PC Steward is used by the owner only.
 - **Older genuine release offered.** A GitHub compromise could make "latest" point at an older genuine release; it can only be at or below the running version or a genuine newer build, and the MSI refuses downgrades. Accepted.
 - **Malicious reviewed commit.** A commit merged into `phase/4-beta`, built by CI and signed by the owner is installed. The updater trusts the owner's review and merge rules; it does not review code.
@@ -176,13 +187,13 @@ Proposed additions to `docs/architecture/THREAT_MODEL.md` once accepted:
 | ID | Threat | Controls in this design |
 |---|---|---|
 | TM-19 | **Compromised release**: an attacker with GitHub access publishes a release, swaps an asset or pushes and builds a commit | Release key signature (YubiKey or offline backup, pins compiled), content equal to the CI build, immutable releases. GitHub access alone fails the key check. |
-| TM-20 | **Misused signing session**: a program running as the owner while they sign gets the key to sign other files | CI anchor (section 3) and the content rule (sections 6 and 7): the signed MSI must install exactly the CI build of the run it names. |
+| TM-20 | **Misused signing session**: a program running as the owner while they sign gets the key to sign other files | CI anchor (section 3) confirmed by the elevated helper with GitHub itself, and the content rule (sections 6 and 7): the signed MSI must install exactly the CI build of the run it names. A check-file-independent MSI structure rule refuses custom actions, binaries, services and chainers before `msiexec`. |
 | TM-21 | **Stolen or lost release key** | Hardware primary key, offline backup, both compiled in; the other key signs the replacement. No online revocation (accepted). |
 | TM-22 | **Downgrade, replay or freeze** | Version must rise; MSI refuses downgrade; "up to date" only after a fully checked release; freeze accepted (section 10). |
-| TM-23 | **Same-user substitution between check and install** | Helper copies inputs into an administrator-only folder by hash, re-checks pin, tables and content on the copies, installs only the copy, verifies again after install. |
+| TM-23 | **Same-user substitution between check and install** | Helper copies inputs into an administrator-only folder by hash, confirms the check file with GitHub through a client the user cannot steer, re-checks pin, tables and content on the copies, installs only the copy, verifies again after install (or after the restart, against its own protected `expected-install.json`). |
 | TM-24 | **Remote metadata becomes execution authority** | No URL, path, command or argument from GitHub is used; compiled hosts, repository, workflow file, branch names, asset names; release notes are plain untrusted text; the helper request carries hashes and versions only. |
 | TM-25 | **Updater becomes an unattended installer or persistence** | Owner-pressed check only; one immutable job per approval; the helper copy is one bounded, one-off process that exits; no service, task or resident updater; the scheduled host has no updater reference. |
-| TM-26 | **Interrupted or failed update** | MSI transaction rolls back; restart-needed reported as such; mismatch after install uninstalls; job never Updated without section 8. |
+| TM-26 | **Interrupted or failed update** | MSI transaction rolls back; restart-needed reported as such and decided by the post-restart check against the helper's protected expected tree; mismatch after install uninstalls (or, after a restart, fails the job and blocks other updates); job never Updated without section 8. |
 | TM-27 | **Verification fails open** | Every error in every step ends the job before or after `msiexec` as Failed; no override; fixture test for each refusal. |
 | TM-28 | **Privacy** | Only when the owner presses Check; no token, identifier or version sent; disclosed in Settings. |
 
@@ -194,11 +205,11 @@ Existing `TM-03`, `TM-04`, `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 
 - One-click, owner-approved updates of the protected install, with one UAC prompt and no paste.
 - Neither a GitHub compromise nor a misused signing session alone can put code on the owner's PC.
-- No new key, signing step, service or background process. The elevated helper gains one typed operation and no network access.
+- No new key, signing step, service or background process. The elevated helper gains one typed operation.
 
 ### Negative / trade-offs
 
-- The app makes its first network requests (to GitHub only, on the owner's request).
+- The app makes its first network requests (to GitHub only, on the owner's request), and the elevated helper makes two of them during an approved update (owner decision 2). An update cannot be installed while GitHub is unreachable.
 - The UAC prompt says "Unknown publisher" (ADR-034); the owner recognises it by its timing and program name.
 - PC Steward closes during the install and must be reopened by hand: the MSI launches nothing, and an elevated process cannot safely start the desktop as the owner.
 - A mismatch found after install leaves no PC Steward until the owner reinstalls by hand. This is the same fail-closed rule as the first install.
@@ -207,9 +218,10 @@ Existing `TM-03`, `TM-04`, `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 ### Follow-up controls and tests
 
 - Fixture tests for every check refusal: wrong run, workflow, event, branch, conclusion, commit, repository; artefact missing, duplicated or with another digest; check file malformed, oversized, with unknown keys or other pins; tag not matching; extra or missing assets; redirects to other hosts; oversized or truncated downloads.
-- Helper tests for every section 6 and 7 refusal: hash mismatch, reparse point, alternate stream, unpinned or other-key MSI, tables mismatch, extra, missing or changed file in the extracted image, executables with different pins, stale work folders, the helper copy run from any other place.
+- Helper tests for every section 6 and 7 refusal: hash mismatch, reparse point, alternate stream, check file not confirmed by GitHub (each section 3 refusal, a redirect, an oversized or slow answer, an untrusted or user-store-only root), unpinned or other-key MSI, tables mismatch, forbidden MSI table rows, extra, missing or changed file in the extracted image, executables with different pins, stale work folders, the helper copy run from any other place.
+- Post-restart tests (section 8): restart-needed before a restart stays "Restart to finish"; after a restart a matching tree is Updated; a changed, extra or missing file, a wrong DACL, or an `expected-install.json` or `result.json` not in a protected folder is Failed.
 - The Windows CI MSI job gains an end-to-end self-update run: install 0.1.1, then update to 0.1.2 through the helper operation (throwaway key), including a tampered MSI refused before `msiexec` and a failed upgrade rolling back.
-- Architecture tests: `PCSteward.ScheduledHost` has no reference to `PCSteward.SelfUpdate`; only `PCSteward.SelfUpdate` references `System.Net.Http`; the helper references no network API; the helper operation has no path field.
+- Architecture tests: `PCSteward.ScheduledHost` has no reference to `PCSteward.SelfUpdate`; `System.Net.Http` is used only by `PCSteward.SelfUpdate` and by the helper's one self-update GitHub client, which uses compiled addresses only; the helper operation has no path field.
 
 ## Build order
 
@@ -225,7 +237,7 @@ Existing `TM-03`, `TM-04`, `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 ## Owner decisions
 
 1. **Publishing.** Publish signed releases as GitHub releases of the public repository, and turn on immutable releases (repository Settings, General, Releases)? Recommended: yes. Without published releases there is nothing for the app to fetch. **Owner, 2026-11-11: "Yes, publish releases"** (with immutable releases).
-2. **Where the CI anchor is checked.** The desktop checks GitHub's public API, and the offline helper re-checks the content on its own copies (option A, recommended), or the elevated helper also asks GitHub itself (option B)?
+2. **Where the CI anchor is checked.** Should the elevated helper confirm the CI build with GitHub itself (option B, recommended after the Codex review showed option A lets a same-user program forge the check file), or only the desktop (option A)? **Owner, 2026-11-11: "Yes, helper asks GitHub"** (option B).
 3. **When to check.** Only when the owner presses Check for updates (recommended), or also a notify-only check during the scheduled scan?
 
 ## Reconsider when
