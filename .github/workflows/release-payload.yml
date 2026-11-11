@@ -1,0 +1,35 @@
+name: Release payload
+
+# ADR-034 §5 (FR-UPD-15, TM-03/13): build the unsigned release payload (desktop and Native AOT helper) for the owner's
+# signing script, on demand only. The candidate builder runs as a disposable standard user on a clean checkout of the
+# chosen branch and refuses a commit without both compiled release pins. The artefact's SHA-256 digest, which GitHub
+# publishes for the run, is what scripts/New-PCStewardRelease.ps1 checks the downloaded file against. No signing, key,
+# certificate store or install happens here.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-payload:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Full history: the builder's probe-build mark checks the build commit's lineage.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1 -ReleasePayload
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pc-steward-release-payload
+          path: artifacts/release-payload/
+          if-no-files-found: error
+          retention-days: 30

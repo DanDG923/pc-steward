@@ -1,3 +1,11 @@
+# Signed protected install — ADR-034 step 4: key creation, release payload and signing scripts
+
+`FR-UPD-04/15`, `TM-03/04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) sections 2 and 5 and implementation notes.
+
+- `scripts/New-PCStewardReleaseKeys.ps1`, `scripts/New-PCStewardRelease.ps1`, `scripts/PCStewardReleaseSigning.ps1`, `.github/workflows/release-payload.yml`, and the `-ReleasePayload` mode of `scripts/Test-OwnerOnlyCandidateBuilderCI.ps1`.
+- Evidence: `ReleaseSigningScriptTests` (Windows CI), architecture `ReleaseKeyScriptBoundaryTests`, and the `msi-install-test` job signing through `Invoke-PCStewardReleaseSigning`.
+- Not claimed: any key, pin, signed release or host evidence.
+
 # Signed protected install — ADR-034 step 3: WiX MSI and CI install test
 
 `FR-UPD-04/15`, `FR-DAT-12`, `TM-04/13`; [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md) sections 1 and 5 and implementation notes.

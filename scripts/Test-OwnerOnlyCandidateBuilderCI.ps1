@@ -1,15 +1,28 @@
 [CmdletBinding()]
-param([switch]$StandardUser, [string]$WorkRoot)
+param([switch]$StandardUser, [string]$WorkRoot, [switch]$ReleasePayload)
 
 # Task 50 G3 Windows CI evidence: run scripts/New-OwnerOnlyCandidate.ps1 end to end under a disposable standard user
 # (the builder refuses an elevated token, and hosted runners are elevated), then re-validate the written candidate in a
 # fresh Windows PowerShell 5.1 process from the bytes on disk. No signing, certificate store, install or launch.
+# -ReleasePayload (ADR-034 §5, release-payload workflow only): the commit must carry both compiled release pins, and the
+# validated candidate is kept in artifacts\release-payload with release-payload.json for the owner's signing script.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 $repository = Split-Path -Parent $PSScriptRoot
 $builder = Join-Path $PSScriptRoot 'New-OwnerOnlyCandidate.ps1'
 $windowsPowerShell = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'WindowsPowerShell\v1.0\powershell.exe'
+# ADR-034 §2: the two compiled release pins of this checkout; a release payload needs both.
+function Get-ReleasePins {
+    $source = Get-Content -LiteralPath (Join-Path $repository 'src\PCSteward.Execution\ReleaseSigningPins.cs') -Raw
+    $pins = [ordered]@{}
+    foreach ($name in @('Primary', 'Backup')) {
+        $match = [regex]::Match($source, 'internal const string ' + $name + ' = "([0-9A-F]{64})";')
+        if (!$match.Success) { throw "ReleaseSigningPins.$name is not set; a release payload needs both compiled pins." }
+        $pins[$name.ToLowerInvariant()] = $match.Groups[1].Value
+    }
+    $pins
+}
 
 if ($StandardUser) {
     if ($isAdministrator) { throw 'The candidate builder CI run requires a standard-user token.' }
@@ -72,6 +85,20 @@ if ($StandardUser) {
     New-Item -ItemType Directory -Path $evidence -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $candidate 'candidate-manifest.json'), $summaryPath -Destination $evidence
     [IO.File]::WriteAllText((Join-Path $evidence 'candidate-revalidation.json'), ($validationOutput | Where-Object { $_ } | Select-Object -Last 1), [Text.UTF8Encoding]::new($false))
+    if ($ReleasePayload) {
+        $release = Join-Path $repository 'artifacts\release-payload'
+        New-Item -ItemType Directory -Path $release -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $candidate 'payload'), (Join-Path $candidate 'candidate-manifest.json'), $summaryPath -Destination $release -Recurse
+        $props = [xml](Get-Content -LiteralPath (Join-Path $repository 'Directory.Build.props') -Raw)
+        $prefix = [string]@($props.Project.PropertyGroup | ForEach-Object { $_.VersionPrefix } | Where-Object { $_ })[0]
+        $suffix = [string]@($props.Project.PropertyGroup | ForEach-Object { $_.VersionSuffix } | Where-Object { $_ })[0]
+        $record = [ordered]@{
+            schema = 'pc-steward-release-payload:1'; repository = $env:GITHUB_REPOSITORY; runId = $env:GITHUB_RUN_ID; sourceCommit = [string]$summary.sourceCommit
+            productVersion = $(if ($suffix) { "$prefix-$suffix" } else { $prefix }); manifestSha256 = [string]$summary.manifestSha256
+            fileCount = $summary.fileCount; pins = Get-ReleasePins
+        }
+        [IO.File]::WriteAllText((Join-Path $release 'release-payload.json'), ($record | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+    }
     Write-Output "PASS: owner-only candidate built and re-validated: $($summary.fileCount) files, $($summary.totalBytes) bytes, manifest $($summary.manifestSha256), commit $($summary.sourceCommit), SDK $($summary.sdkVersion), probe included $($summary.probeIncluded)"
     exit 0
 }
@@ -81,6 +108,7 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
     throw 'Run New-OwnerOnlyCandidate.ps1 directly on a developer machine; this launcher requires an administrator on a GitHub-hosted runner.'
 }
 if (!$env:RUNNER_TEMP) { throw 'RUNNER_TEMP is required.' }
+if ($ReleasePayload) { $null = Get-ReleasePins }
 
 $name = 'pcsc' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
 $password = ConvertTo-SecureString ('Aa1!' + [Guid]::NewGuid().ToString('N')) -AsPlainText -Force
@@ -103,7 +131,7 @@ try {
     $stdout = Join-Path $logs 'stdout.log'
     $stderr = Join-Path $logs 'stderr.log'
     $credential = [PSCredential]::new("$env:COMPUTERNAME\$name", $password)
-    $arguments = '-NoProfile -File "' + (Join-Path $PSScriptRoot 'Test-OwnerOnlyCandidateBuilderCI.ps1') + '" -StandardUser -WorkRoot "' + $work + '"'
+    $arguments = '-NoProfile -File "' + (Join-Path $PSScriptRoot 'Test-OwnerOnlyCandidateBuilderCI.ps1') + '" -StandardUser -WorkRoot "' + $work + '"' + $(if ($ReleasePayload) { ' -ReleasePayload' } else { '' })
     $process = Start-Process -FilePath (Get-Command pwsh.exe).Source -ArgumentList $arguments -Credential $credential -LoadUserProfile -WorkingDirectory $repository -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     # Retain the handle before waiting so ExitCode remains available after exit.
     $null = $process.Handle
