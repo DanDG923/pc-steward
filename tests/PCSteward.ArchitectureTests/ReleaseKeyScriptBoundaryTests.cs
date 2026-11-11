@@ -34,6 +34,15 @@ public sealed class ReleaseKeyScriptBoundaryTests
         StringAssert.Contains(keys, "if ($keyPresent -or ($info -join \"`n\") -match '(?m)^Slot 9C')");
         Assert.IsLessThan(keys.IndexOf("'keys', 'generate'", StringComparison.Ordinal), keys.IndexOf("$keyPresent = ", StringComparison.Ordinal), "the slot is checked before a key is generated");
         StringAssert.Contains(keys, "if ($info -match 'default (PIN|PUK|management key)')");
+        // An unfinished attempt is discarded only on request, and only when the slot holds this script's one-day placeholder
+        // for the slot's own key under the release subject; a real release certificate is never touched.
+        StringAssert.Contains(keys, "if ($DiscardUnfinished -and $keyPresent) {");
+        StringAssert.Contains(keys, "$isPlaceholder = $unfinished.Subject -ceq $primarySubject -and ($unfinished.NotAfter - $unfinished.NotBefore).TotalDays -le 2 -and (Get-PCStewardKeyPin -CertificateDer $unfinished.RawData) -ceq $slotPin");
+        Assert.IsLessThan(keys.IndexOf("'piv', 'certificates', 'delete', '9c'", StringComparison.Ordinal), keys.IndexOf("if ($isPlaceholder) {", StringComparison.Ordinal), "nothing is deleted before the placeholder check");
+        Assert.AreEqual(1, Regex.Count(keys, @"'piv', 'keys', 'delete'"));
+        // The release certificate is made with the slot key's signature only; Windows refuses to attach a smart-card key to it.
+        Assert.IsFalse(keys.Contains("CreateSelfSigned", StringComparison.Ordinal));
+        StringAssert.Contains(keys, "$signed = $request.Create([Security.Cryptography.X509Certificates.X500DistinguishedName]::new($primarySubject), $generator, $now.AddMinutes(-5), $now.AddYears(10), $serial)");
         // The certificate is code signing only and not a CA.
         StringAssert.Contains(keys, "X509BasicConstraintsExtension]::new($false, $false, 0, $true)");
         StringAssert.Contains(keys, "$codeSigning = '1.3.6.1.5.5.7.3.3'");

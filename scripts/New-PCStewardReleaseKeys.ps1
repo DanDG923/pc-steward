@@ -10,7 +10,10 @@ param(
     [string]$BackupPin,
     # Primary only: ykman.exe, if it is not in one of the YubiKey Manager folders under Program Files. It must carry a valid
     # Yubico signature wherever it is.
-    [string]$YkmanPath
+    [string]$YkmanPath,
+    # Primary only: if slot 9c holds only this script's own unfinished attempt (its one-day placeholder certificate for the
+    # slot key, under the release subject), delete that attempt and start again. Anything else in the slot is still refused.
+    [switch]$DiscardUnfinished
 )
 
 # ADR-034 §2 (FR-UPD-15, TM-04/13): create one of PC Steward's two release keys on the owner's PC, and print its pin (the
@@ -110,7 +113,8 @@ try {
         $device = @('--device', $serials[0])
         $firmware = [string](@(Invoke-Ykman ($device + @('info'))) | Where-Object { $_ -match '^Firmware version:\s*(\d+)\.(\d+)\.(\d+)' } | Select-Object -First 1)
         if ($firmware -notmatch '^Firmware version:\s*(\d+)\.(\d+)\.(\d+)') { throw 'Could not read the YubiKey firmware version.' }
-        $algorithm = if ([int]$Matches[1] -gt 5 -or ([int]$Matches[1] -eq 5 -and [int]$Matches[2] -ge 7)) { 'RSA3072' } else { 'RSA2048' }
+        $firmware57 = [int]$Matches[1] -gt 5 -or ([int]$Matches[1] -eq 5 -and [int]$Matches[2] -ge 7)
+        $algorithm = if ($firmware57) { 'RSA3072' } else { 'RSA2048' }
 
         # The factory PIN, PUK and management key are public; they are changed before the key exists. ykman asks for each.
         $info = @(Invoke-Ykman ($device + @('piv', 'info')))
@@ -125,6 +129,35 @@ try {
         if ($info -match 'default (PIN|PUK|management key)') { throw 'The YubiKey still uses a factory PIN, PUK or management key.' }
         # Never overwrite slot 9c: no certificate listed there, and (firmware 5.3 and later) no key metadata either.
         $keyPresent = (Invoke-YkmanRaw ($device + @('piv', 'keys', 'info', '9c'))).ExitCode -eq 0
+        if ($DiscardUnfinished -and $keyPresent) {
+            # Only this script's own unfinished attempt: the slot's certificate is the one-day placeholder under the release
+            # subject, and it carries the slot's own public key. A real release certificate (ten years) is never touched.
+            $slotCertificateFile = Join-Path $work 'unfinished-certificate.pem'
+            $slotPublicFile = Join-Path $work 'unfinished-public.pem'
+            $haveCertificate = (Invoke-YkmanRaw ($device + @('piv', 'certificates', 'export', '--format', 'PEM', '9c', $slotCertificateFile))).ExitCode -eq 0
+            $havePublic = (Invoke-YkmanRaw ($device + @('piv', 'keys', 'export', '--format', 'PEM', '9c', $slotPublicFile))).ExitCode -eq 0
+            if ($haveCertificate -and $havePublic) {
+                $unfinished = [Security.Cryptography.X509Certificates.X509Certificate2]::new($slotCertificateFile)
+                try {
+                    $slotSpki = [Convert]::FromBase64String(((Get-Content -LiteralPath $slotPublicFile) | Where-Object { $_ -notmatch '^-----' }) -join '')
+                    $slotSha = [Security.Cryptography.SHA256]::Create()
+                    try { $slotPin = [BitConverter]::ToString($slotSha.ComputeHash($slotSpki)).Replace('-', '') } finally { $slotSha.Dispose() }
+                    $isPlaceholder = $unfinished.Subject -ceq $primarySubject -and ($unfinished.NotAfter - $unfinished.NotBefore).TotalDays -le 2 -and (Get-PCStewardKeyPin -CertificateDer $unfinished.RawData) -ceq $slotPin
+                }
+                finally { $unfinished.Dispose() }
+                if ($isPlaceholder) {
+                    Write-Output 'Slot 9c holds the unfinished attempt from an earlier run (nothing uses it). Deleting it to start again: enter your PIN if asked.'
+                    # Not captured: ykman asks for the PIN, which unlocks the management key kept on the YubiKey.
+                    & $ykman @($device + @('piv', 'certificates', 'delete', '9c'))
+                    if ($LASTEXITCODE -ne 0) { throw 'The unfinished certificate was not deleted.' }
+                    # Firmware 5.7 and later can delete the key itself; older firmware replaces it when the new key is generated.
+                    if ($firmware57) { & $ykman @($device + @('piv', 'keys', 'delete', '9c')); if ($LASTEXITCODE -ne 0) { throw 'The unfinished key was not deleted.' } }
+                    foreach ($stale in @(Get-PCStewardStoreCertificates $primarySubject | Where-Object { (Get-PCStewardKeyPin -CertificateDer $_.RawData) -ceq $slotPin })) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $stale.Thumbprint) }
+                    $keyPresent = $firmware57 -and (Invoke-YkmanRaw ($device + @('piv', 'keys', 'info', '9c'))).ExitCode -eq 0
+                    $info = @(Invoke-Ykman ($device + @('piv', 'info')))
+                }
+            }
+        }
         if ($keyPresent -or ($info -join "`n") -match '(?m)^Slot 9C') { throw 'Slot 9c already holds a key or certificate. This script never replaces one; stop and ask.' }
 
         Write-Output "Generating the $algorithm key inside the YubiKey (slot 9c). Enter your PIN, then touch the YubiKey when it blinks."
@@ -166,7 +199,16 @@ try {
         $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($usages, $false))
         $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new($request.PublicKey, $false))
         $now = [DateTimeOffset]::UtcNow
-        $signed = $request.CreateSelfSigned($now.AddMinutes(-5), $now.AddYears(10))
+        # Create with a signature generator: the certificate only needs the slot key's signature. The self-signed shortcut
+        # also attaches the private key to the result (CopyWithPrivateKey), which Windows refuses for a smart-card key
+        # (0x80090027 on the owner's PC, 2026-11-11, while the same key signed data and a certificate without it).
+        $serial = [byte[]]::new(16)
+        $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $random.GetBytes($serial) } finally { $random.Dispose() }
+        $serial[0] = $serial[0] -band 0x7F
+        if ($serial[0] -eq 0) { $serial[0] = 1 }
+        $generator = [Security.Cryptography.X509Certificates.X509SignatureGenerator]::CreateForRSA($rsa, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $signed = $request.Create([Security.Cryptography.X509Certificates.X500DistinguishedName]::new($primarySubject), $generator, $now.AddMinutes(-5), $now.AddYears(10), $serial)
         $certificateFile = Join-Path $work 'primary.cer'
         [IO.File]::WriteAllBytes($certificateFile, $signed.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert))
         if ((Get-PCStewardKeyPin -CertificateDer $signed.RawData) -cne $pin) { throw 'The new certificate does not carry the slot key.' }
@@ -195,7 +237,7 @@ try {
         } | ConvertTo-Json
     }
     elseif ($Key -eq 'BackupCopy') {
-        if ($YkmanPath -or $BackupDrives) { throw '-YkmanPath and -BackupDrives are not for -Key BackupCopy.' }
+        if ($YkmanPath -or $BackupDrives -or $DiscardUnfinished) { throw '-YkmanPath, -BackupDrives and -DiscardUnfinished are not for -Key BackupCopy.' }
         $from = Get-PCStewardRemovableRoot $CopyFrom
         $to = Get-PCStewardRemovableRoot $CopyTo
         if ($from -ieq $to) { throw '-CopyFrom and -CopyTo must be two different removable drives.' }
@@ -231,7 +273,7 @@ try {
         [pscustomobject]@{ key = 'BackupCopy'; subject = $backupSubject; pin = $expected; copiedTo = $to; result = 'The backup key is now on two drives. Keep them apart from each other and from the YubiKey.' } | ConvertTo-Json
     }
     else {
-        if ($YkmanPath -or $CopyFrom -or $CopyTo -or $BackupPin) { throw '-YkmanPath, -CopyFrom, -CopyTo and -BackupPin are not for -Key Backup.' }
+        if ($YkmanPath -or $CopyFrom -or $CopyTo -or $BackupPin -or $DiscardUnfinished) { throw '-YkmanPath, -CopyFrom, -CopyTo, -BackupPin and -DiscardUnfinished are not for -Key Backup.' }
         # One or two drives (owner, 2026-11-11: one drive now; -Key BackupCopy adds the second copy later).
         $drives = @($BackupDrives | ForEach-Object { Get-PCStewardRemovableRoot $_ } | Select-Object -Unique)
         if ($drives.Count -lt 1 -or $drives.Count -gt 2 -or $drives.Count -ne @($BackupDrives).Count) { throw 'Name one or two different removable drives with -BackupDrives, for example -BackupDrives E:\ or -BackupDrives E:\, F:\' }
