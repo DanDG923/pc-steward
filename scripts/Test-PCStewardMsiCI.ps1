@@ -113,9 +113,10 @@ try {
     . (Join-Path $PSScriptRoot 'PCStewardReleaseSigning.ps1')
     if ((Get-PCStewardKeyPin -CertificateDer $certificate.RawData) -cne $pin) { throw 'Get-PCStewardKeyPin disagrees with ExportSubjectPublicKeyInfo.' }
     $pinsText = [Text.Encoding]::UTF8.GetString($pinsOriginal)
-    $placeholder = 'internal const string Primary = "";'
-    if (([regex]::Matches($pinsText, [regex]::Escape($placeholder))).Count -ne 1) { throw 'ReleaseSigningPins.cs does not hold exactly one empty primary pin to replace in this CI checkout.' }
-    [IO.File]::WriteAllText($pinsFile, $pinsText.Replace($placeholder, "internal const string Primary = `"$pin`";"), [Text.UTF8Encoding]::new($false))
+    # The committed primary pin (the owner's YubiKey key since step 6) is replaced by the throwaway pin in this checkout only.
+    $primaryLine = [regex]'internal const string Primary = "(?:[0-9A-F]{64})?";'
+    if ($primaryLine.Matches($pinsText).Count -ne 1) { throw 'ReleaseSigningPins.cs does not hold exactly one primary pin to replace in this CI checkout.' }
+    [IO.File]::WriteAllText($pinsFile, $primaryLine.Replace($pinsText, "internal const string Primary = `"$pin`";", 1), [Text.UTF8Encoding]::new($false))
     $evidence.throwawayPin = $pin
 
     # Disposable standard user for the builder and the install check.

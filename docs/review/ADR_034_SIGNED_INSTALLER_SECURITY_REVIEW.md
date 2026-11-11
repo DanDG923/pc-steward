@@ -26,7 +26,7 @@ Threat model: the product's own. The attacker is any program running as the owne
 | H1 | High | Release signing runs unelevated in user-writable folders, so a same-user program can change what the YubiKey signs or what is installed | **Fixed** here: an elevated install step that installs only the CI build of the named run (proven in the Windows CI MSI job). The updater must keep that rule (§7 note in ADR-034) |
 | M1 | Medium | `ykman` was taken from `PATH`, which a same-user program can change | **Fixed** here |
 | M2 | Medium | The signing script trusted the pins in the payload record without reading them from the committed source | **Fixed** here |
-| M3 | Medium | The pins printed by the key script are only as trustworthy as the session that ran it | **Narrowed** here (YubiKey attestation, checked away from the PC); backup residual for the owner |
+| M3 | Medium | The pins printed by the key script are only as trustworthy as the session that ran it | **Narrowed** here (YubiKey attestation, checked away from the PC). The backup residual was accepted by the owner (2026-11-11) |
 | L1 | Low | The release workflow's actions were pinned by moving tag | **Fixed** here |
 | L2 | Low | The backup password was copied into managed strings that are never cleared | **Fixed** here |
 | L3 | Low | The backup key exists briefly in the owner's key store, and is loaded into a user key set when used | Residual, covered by H1/M3 |
@@ -116,7 +116,7 @@ The installed program is then the CI build of a reviewed commit, whatever happen
 
 A program on the PC cannot make a Yubico-signed attestation for a key it holds outside a YubiKey. The attestation names the YubiKey's serial number, so it is used for this check only and never committed.
 
-**Residual (owner).** The backup key has no hardware attestation. Its pin and its private key are only as safe as the session that creates it. Recommendation: create both keys in a fresh sign-in with nothing else started, as the host session plan will say. The owner accepts or rejects this residual when the key session is proposed.
+**Residual (owner).** The backup key has no hardware attestation. Its pin and its private key are only as safe as the session that creates it. Recommendation: create both keys in a fresh sign-in with nothing else started, as the host session plan will say. The owner accepts or rejects this residual when the key session is proposed. **Accepted by the owner on 2026-11-11 ("Accept it")**, after the backup key was created in the key session.
 
 ### L1 — actions pinned by tag (Low, fixed)
 
