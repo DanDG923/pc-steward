@@ -20,6 +20,7 @@
     <ProjectReference Include="../PCSteward.Provider.WinGet/PCSteward.Provider.WinGet.csproj" />
     <ProjectReference Include="../PCSteward.Provider.Chocolatey/PCSteward.Provider.Chocolatey.csproj" />
     <ProjectReference Include="../PCSteward.Execution/PCSteward.Execution.csproj" />
+    <ProjectReference Include="../PCSteward.SelfUpdate/PCSteward.SelfUpdate.csproj" />
     <ProjectReference Include="../PCSteward.Storage/PCSteward.Storage.csproj" />
     <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
     <ProjectReference Include="../PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" ReferenceOutputAssembly="false" />

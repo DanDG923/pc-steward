@@ -104,7 +104,7 @@ After the owner's **Download and check**:
 
 ### 6. Install: one new typed helper operation
 
-After **Install**, the desktop starts the helper as for any update (ADR-018 launch trust, one UAC prompt) with one new operation, `Update/PCStewardSelfUpdateV1`, added to the pinned capability statement. Its request carries only the job's values: to-version, run id, commit, check-file SHA-256 and MSI SHA-256. It carries no path: the helper derives both file names from the two hashes under the requesting user's fixed `Downloads\SelfUpdate` folder.
+After **Install**, the desktop starts the helper as for any update (ADR-018 launch trust, one UAC prompt) with one new operation, `Update/PCStewardSelfUpdateV1`, added to the pinned capability statement. *(Build note, 2026-11-11: built as a separate helper mode gated by a route-less installed-release check instead of a statement entry; see the [helper operation design](../review/SELF_UPDATE_HELPER_OPERATION_DESIGN.md), part 2 step 2.)* Its request carries only the job's values: to-version, run id, commit, check-file SHA-256 and MSI SHA-256. It carries no path: the helper derives both file names from the two hashes under the requesting user's fixed `Downloads\SelfUpdate` folder.
 
 The helper, elevated:
 
@@ -177,7 +177,7 @@ Anything else is **Failed** or **Inconclusive**, never Updated (`TM-12`). Inconc
 
 1. The owner (or Claude, with the owner's approval) starts `Release payload` on `phase/4-beta`.
 2. The owner signs with `New-PCStewardRelease.ps1`, as for the first release.
-3. A new hand-started workflow, `publish-release.yml`, given the run id: checks that the run is a green `release-payload.yml` run of this repository on `phase/4-beta` or `main`, downloads its `pc-steward-release-check` artefact, checks the zip against the recorded digest, and creates a **draft** release, tag `v<msiVersion>` at the run's commit, with the zip attached. It has `contents: write` and nothing else. It cannot sign, and the app trusts nothing it writes beyond what sections 3 and 6 check.
+3. A new hand-started workflow, `publish-release.yml`, given the run id: checks that the run is a green `release-payload.yml` run of this repository on `phase/4-beta` or `main`, downloads its `pc-steward-release-check` artefact, checks the zip against the recorded digest, and creates a **draft** release, tag `v<msiVersion>` at the run's commit, with the zip attached. It has `contents: write` and nothing else. *(Build note, 2026-11-11: it also needs `actions: read` to download the run's artefact.)* It cannot sign, and the app trusts nothing it writes beyond what sections 3 and 6 check.
 4. The owner attaches `PCSteward-<msiVersion>.msi` to the draft in the browser and publishes it. GitHub immutable releases (owner decision 1) then stop its assets and tag being changed.
 
 ## Threats

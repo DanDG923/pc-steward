@@ -16,6 +16,12 @@ namespace PCSteward.Execution;
 /// ordinally (tables by name, rows within a table) and joined by LF before hashing; ASCII only by construction.
 /// </para>
 /// </summary>
+/// <summary>One MSI table as read: its columns and its rows (null for a null field, <c>sha256:</c> plus hex for a stream).</summary>
+internal sealed record MsiTable(string Name, IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<string?>> Rows);
+
+/// <summary>The canonical lines, their digest and the tables of one MSI database.</summary>
+internal sealed record MsiDatabaseSnapshot(IReadOnlyList<string> Lines, string Sha256, IReadOnlyDictionary<string, MsiTable> Tables);
+
 internal static class MsiTableDigest
 {
     internal static readonly IReadOnlyList<string> SignedLeaves = ["PCSteward.Desktop.exe", "PCSteward.ElevatedHelper.exe", ReleaseManifestPolicy.FileName];
@@ -27,9 +33,20 @@ internal static class MsiTableDigest
     /// <summary>The canonical lines and their SHA-256 (64 uppercase hex characters).</summary>
     internal static (IReadOnlyList<string> Lines, string Sha256) Compute(string databasePath)
     {
+        MsiDatabaseSnapshot snapshot = Read(databasePath);
+        return (snapshot.Lines, snapshot.Sha256);
+    }
+
+    /// <summary>
+    /// The canonical lines, their SHA-256 and the tables they were rendered from (after the same normalisation), so that
+    /// <see cref="MsiStructurePolicy"/> can judge the package's structure from the one read-only pass.
+    /// </summary>
+    internal static MsiDatabaseSnapshot Read(string databasePath)
+    {
         ArgumentException.ThrowIfNullOrEmpty(databasePath);
-        IReadOnlyList<string> lines = Dump(databasePath);
-        return (lines, Hash(lines));
+        List<string> lines = Dump(databasePath, out Dictionary<string, Table> tables);
+        return new(lines, Hash(lines), tables.ToDictionary(pair => pair.Key,
+            pair => new MsiTable(pair.Key, pair.Value.Columns, [.. pair.Value.Rows.Select(row => (IReadOnlyList<string?>)row)]), StringComparer.Ordinal));
     }
 
     /// <summary>SHA-256 of the lines joined by LF, as ASCII.</summary>
@@ -47,16 +64,16 @@ internal static class MsiTableDigest
         public List<string?[]> Rows { get; } = [];
     }
 
-    private static List<string> Dump(string databasePath)
+    private static List<string> Dump(string databasePath, out Dictionary<string, Table> tables)
     {
         uint status = NativeMethods.MsiOpenDatabaseW(databasePath, ReadOnly, out IntPtr database);
         if (status != Success) throw new InvalidOperationException("MsiOpenDatabase failed with " + status + ".");
         try
         {
-            List<string> names = [.. Read(database, "_Tables").Rows.Select(row => row[0] ?? throw new InvalidDataException("A table has no name."))];
+            List<string> names = [.. ReadTable(database, "_Tables").Rows.Select(row => row[0] ?? throw new InvalidDataException("A table has no name."))];
             names.Sort(StringComparer.Ordinal);
-            Dictionary<string, Table> tables = new(StringComparer.Ordinal);
-            foreach (string name in names) tables[name] = Read(database, name);
+            tables = new(StringComparer.Ordinal);
+            foreach (string name in names) tables[name] = ReadTable(database, name);
             Normalise(tables);
             List<string> lines = [];
             foreach (string name in names)
@@ -124,7 +141,7 @@ internal static class MsiTableDigest
         }
     }
 
-    private static Table Read(IntPtr database, string name)
+    private static Table ReadTable(IntPtr database, string name)
     {
         if (name.Contains('`', StringComparison.Ordinal)) throw new InvalidDataException("Unexpected table name.");
         string query = "SELECT * FROM `" + name + "`";

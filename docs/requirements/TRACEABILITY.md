@@ -1,3 +1,48 @@
+# Self-updater — security review and the CI test of the install step
+
+`FR-UPD-04/15`, `TM-03/04/12/13/19/20/23/24/26/27`; [review](../review/ADR_032_SELF_UPDATER_SECURITY_REVIEW.md), [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 6–8.
+
+- `src/PCSteward.Execution/WindowsSelfUpdateHost.cs`: refused copies deleted and hard-linked files refused (M1); the compiled environment for `msiexec` and the finish copy (M2).
+- `src/PCSteward.Execution/SelfUpdateSession.cs` and `SelfUpdateInstallPolicy.IsNewerVersion`: only a newer release (L1); `src/PCSteward.Execution/SelfUpdateFinish.cs`: one run per job (L2).
+- `scripts/Test-PCStewardMsiCI.ps1` section 6 and `tests/PCSteward.InstallCheck/SelfUpdateFinishCheck.cs`: the real finish copy on a real install (mismatch uninstalled, match installed and verified, wrong path refused) and the desktop's read as a standard user.
+- Evidence: fixture `SelfUpdateHelperSessionTests`, `SelfUpdateInstallPolicyTests`; architecture `SelfUpdateBoundaryTests.TheMsiCiJobRunsTheRealFinishCopy`; the Windows MSI CI job.
+- Not claimed: a full run through the screens, or the elevated session itself on a real install (the owner's first update).
+
+# Self-updater — ADR-032 revision 2 build step 4, part 3: the desktop side, the update screen and the publishing workflow
+
+`FR-UPD-04/15`, `FR-UI-06`, `TM-03/04/12/13/19/26`; [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 1, 5, 6, 8 and 12, [design](../review/SELF_UPDATE_HELPER_OPERATION_DESIGN.md) part 3.
+
+- `src/PCSteward.Execution/SelfUpdateDesktop.cs`: the session line, accepting only this launch's answer, the desktop job file, and the §8 decision.
+- `src/PCSteward.Execution/SelfUpdateDesktopTransport.cs`: the one elevated launch with the reviewed pre-launch order and binding lifetime.
+- `src/PCSteward.Execution/SelfUpdateDesktopFiles.cs` and `PcStewardSelfUpdate.cs`: the per-user folder, the first MSI check, the §8 reads, and the public façade the desktop uses.
+- `src/PCSteward.Desktop/MainWindow.SelfUpdate.cs`: the About card and the Home info bar; `src/PCSteward.SelfUpdate/SelfUpdateText.cs`: their sentences.
+- `.github/workflows/publish-release.yml`: the draft release from a checked run (TM-19: GitHub access alone cannot make the app install anything).
+- Evidence: fixture `SelfUpdateDesktopTests`; architecture `SelfUpdateBoundaryTests`, `DeploymentCapabilityBoundaryTests`, `ElevatedRuntimeEnvironmentBoundaryTests`, `HelperEndpointBoundaryTests`.
+- Not claimed: a full run through the screens (the owner's first update). The CI test of the install step is recorded above.
+
+# Self-updater — ADR-032 revision 2 build step 4, part 2: the elevated session and the finish copy
+
+`FR-UPD-04/15`, `TM-03/04/12/13/26/27`; [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 6–7, [design](../review/SELF_UPDATE_HELPER_OPERATION_DESIGN.md) part 2.
+
+- `src/PCSteward.Execution/SelfUpdateHelperProtocol.cs`: the session and finish command lines, the closed refusal and outcome codes, and the canonical response, `job.json` and `result.json` with strict readers.
+- `src/PCSteward.Execution/SelfUpdateHelperBootstrap.cs`: connect with identification-level impersonation, the protocol-2 peer checks through a held handle, the requester token as protection principal; the two composition roots in `ElevatedHelperEntryPoint`.
+- `src/PCSteward.Execution/SelfUpdateSession.cs`: one nonce-checked frame, the session steps in order with the first refusal ending the job, a disconnect or a budget cancelling the work, and one response.
+- `src/PCSteward.Execution/SelfUpdateFinish.cs`: the finish copy's self checks, close wait, re-hash, install, post-install checks with uninstall on a difference, restart recording and result.
+- `src/PCSteward.Execution/SelfUpdateAclPolicy.cs` and `WindowsSelfUpdateHost.cs`: the work-folder and install-tree security descriptors, and the Windows side (no reparse points, held-handle hashing, fixed paths, `msiexec` quoting, `CreateProcessW` without handle inheritance).
+- `ReleaseManifestPolicy.EvaluateInstalledRelease` / `HelperDeploymentCapabilityCheck.EvaluateInstalledRelease`: the release reader with no route (TM-04: the session needs an intact protected install, not a statement entry).
+- Evidence: fixture `SelfUpdateHelperSessionTests`, `ReleaseManifestPolicyTests.TheInstalledReleaseCheckNamesNoRouteButKeepsEveryOtherRule`; architecture `HelperEndpointBoundaryTests`, `ReleaseCapabilityReaderBoundaryTests`.
+- Not claimed: the Windows host against a real MSI (the CI end-to-end update in part 3), the desktop wiring and the update screen.
+
+# Self-updater — ADR-032 revision 2 build step 4, part 1: the helper operation's pure rules and GitHub client
+
+`FR-UPD-15`, `TM-12/20/23/24/26/27`; [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 6–8, [design](../review/SELF_UPDATE_HELPER_OPERATION_DESIGN.md).
+
+- `src/PCSteward.Execution/SelfUpdateInstallPolicy.cs`: the canonical, nonce-bound request with no path; the record must be the one approved; the extracted MSI tree must be exactly the CI payload plus its release manifest; the installed tree must be exactly `expected-install.json`, which is written canonically and read back strictly.
+- `src/PCSteward.Execution/MsiStructurePolicy.cs`: refuses code, services, chainers, embedded UI, self-registration, ODBC and environment rows, and any custom action other than an error message, without depending on the check file. `MsiTableDigest.Read` exposes the tables from the same read-only pass.
+- `src/PCSteward.Execution/HelperGitHubConfirmation.cs`: the helper's own confirmation of the CI anchor (owner decision 2). It makes two fixed GETs with no proxy, cookies, credentials or redirects; TLS is anchored only in `LocalMachine\Root` and `AuthRoot` with online revocation; answers are bounded.
+- Evidence: fixture `SelfUpdateInstallPolicyTests` and `HelperGitHubConfirmationTests`; architecture `SelfUpdateBoundaryTests` (only the two GitHub clients use the network, and the helper client is constrained). The `msi-install-test` parity check also runs `MsiStructurePolicy` on the real signed MSI.
+- Not claimed: the elevated session, the finish copy, the desktop wiring or the CI end-to-end update (parts 2 and 3 of the design).
+
 # Self-updater — ADR-032 revision 2 build step 2–3: the release check artefact and the update check core
 
 `FR-UPD-04/15`, `TM-03/04/12/13/20/23/24/25`; [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 3–5.

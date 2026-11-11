@@ -24,7 +24,10 @@ public sealed class ReleaseCapabilityReaderBoundaryTests
             reader.IndexOf("Path.Combine(installRoot, ExpectedProcessLeaf(role))", StringComparison.Ordinal));
         // Both paths converge on the single binding creation point.
         Assert.AreEqual(1, Regex.Count(reader, @"HeldHelperBinding\.TryCreate\("));
-        StringAssert.Contains(reader, "return ReleaseManifestPolicy.Evaluate(inputs with { ObservedHashes = observed, ExecutablesCarrySamePin = samePin }, route).Status;");
+        StringAssert.Contains(reader, "ReleaseCapabilityInputs complete = inputs with { ObservedHashes = observed, ExecutablesCarrySamePin = samePin };");
+        // ADR-032 revision 2 §6 step 2: a route evaluation, or (no route) PC Steward's own update, which needs the release path.
+        StringAssert.Contains(reader, "return (route is { } named ? ReleaseManifestPolicy.Evaluate(complete, named) : ReleaseManifestPolicy.EvaluateInstalledRelease(complete)).Status;");
+        StringAssert.Contains(reader, ": HelperProtocolCapabilityStatus.Absent;");
     }
 
     [TestMethod]

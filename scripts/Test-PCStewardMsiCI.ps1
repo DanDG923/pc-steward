@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$StandardUser, [ValidateSet('Build', 'Check')][string]$Step, [string]$WorkRoot)
+param([switch]$StandardUser, [ValidateSet('Build', 'Check', 'SelfUpdateDecide')][string]$Step, [string]$WorkRoot)
 
 # ADR-034 §5 Windows CI evidence (FR-UPD-04/15, FR-DAT-12, TM-04/13): build the MSI exactly as a release would be built, but
 # signed with a throwaway self-signed key whose pin is written into this job's own checkout only (never committed, never in a
@@ -13,7 +13,11 @@ param([switch]$StandardUser, [ValidateSet('Build', 'Check')][string]$Step, [stri
 #      version is refused, and uninstall removes the program files and leaves per-user data alone;
 #   5. the elevated release install step (Invoke-PCStewardReleaseInstall.ps1, security review H1) refuses a wrong artefact
 #      digest, an MSI whose tables differ from the CI reference and an MSI whose files differ (uninstalling it), and installs
-#      and verifies the real signed MSI.
+#      and verifies the real signed MSI;
+#   6. the self-update finish copy (ADR-032 revision 2 §7–§8), run as the real helper copy from a protected work folder that
+#      the production Windows host laid out: it refuses to run from anywhere but that folder's bin, uninstalls an upgrade
+#      whose files differ from the expected tree, installs and verifies one that matches, and the reopened desktop's read of
+#      each job (as a standard user) reports Failed and Updated.
 # The key is created in the runner account's CurrentUser\My, never added to a trust store, and deleted at the end.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -27,6 +31,12 @@ if ($StandardUser) {
     if ($Step -eq 'Check') {
         $check = Join-Path $WorkRoot 'installcheck\PCSteward.InstallCheck.exe'
         & $check
+        exit $LASTEXITCODE
+    }
+    if ($Step -eq 'SelfUpdateDecide') {
+        # ADR-032 revision 2 §8: the reopened desktop's read of the job the elevated part of this script prepared.
+        $leaf = ([IO.File]::ReadAllText((Join-Path $WorkRoot 'self-update-leaf.txt'))).Trim()
+        & (Join-Path $WorkRoot 'installcheck\PCSteward.InstallCheck.exe') --self-update-decide $leaf '0.1.1'
         exit $LASTEXITCODE
     }
     # Step Build: the candidate builder refuses an elevated token. Same per-user environment as Test-OwnerOnlyCandidateBuilderCI.ps1.
@@ -99,6 +109,7 @@ $account = $null
 $password = ConvertTo-SecureString ('Aa1!' + [Guid]::NewGuid().ToString('N')) -AsPlainText -Force
 $pinsOriginal = [IO.File]::ReadAllBytes($pinsFile)
 $marker = $null
+$selfUpdateLeaves = [Collections.Generic.List[string]]::new()
 $exitCode = 1
 try {
     if ((Test-Path -LiteralPath $installRoot) -or (Test-Path -LiteralPath $stateRoot)) { throw 'The runner already has a PC Steward folder in Program Files.' }
@@ -307,6 +318,72 @@ try {
     foreach ($product in $products) { $null = Invoke-Msi @('/x', $product.ProductCode) 'release-uninstall.log' }
     Set-Check 'release-install-uninstalls-cleanly' (Test-NothingInstalled)
 
+    # 6. The self-update finish copy (ADR-032 revision 2 §7–§8). The install check lays each job out through the production
+    #    Windows host as the elevated session leaves it (work folder, MSI copy, image, expected tree, job, helper copy); the
+    #    finish copy is then the real installed helper, copied into the work folder's bin and started there, with the .NET
+    #    runtime names removed from its environment as the desktop's guard ensures for the session that starts it.
+    $installCheck = Join-Path $work 'installcheck\PCSteward.InstallCheck.exe'
+    function New-SelfUpdateJob([string]$Mode) {
+        $code = Invoke-Msi @('/i', ('"' + $msis['0.1.1'].Path + '"')) "self-update-$Mode-from-0.1.1.log"
+        $products = @(Get-InstalledProducts)
+        if (($code -ne 0) -or ($products.Count -ne 1) -or ($products[0].Version -ne '0.1.1')) { throw "0.1.1 did not install before the $Mode self-update job (exit $code)." }
+        $prepared = @(& $installCheck --self-update-prepare $msis['0.1.2'].Path $Mode)
+        if ($LASTEXITCODE -ne 0) { throw "The $Mode self-update job was not prepared: $($prepared -join ' ')" }
+        $leaf = ([string]$prepared[-1]).Trim()
+        if ($leaf -notmatch '^PC Steward Update [0-9a-f]{32}$') { throw "Unexpected work folder name '$leaf'." }
+        $selfUpdateLeaves.Add($leaf)
+        $leaf
+    }
+    function Invoke-FinishCopy([string]$Helper, [string]$Leaf, [string]$Name) {
+        $start = [Diagnostics.ProcessStartInfo]::new($Helper)
+        $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = [Environment]::SystemDirectory
+        $start.ArgumentList.Add('--finish-self-update'); $start.ArgumentList.Add($Leaf)
+        foreach ($key in @($start.Environment.Keys)) { if ($key -match '^(DOTNET_|COMPlus_|CORECLR_|COR_|APPDOMAIN_MANAGER_)') { $null = $start.Environment.Remove($key) } }
+        $process = [Diagnostics.Process]::Start($start)
+        try {
+            if (!$process.WaitForExit(2700000)) { $process.Kill($true); $process.WaitForExit(); throw "$Name exceeded forty-five minutes." }
+            $folder = Join-Path $programFiles $Leaf
+            foreach ($log in @('install.log', 'uninstall.log')) { if (Test-Path -LiteralPath (Join-Path $folder $log)) { Copy-Item -LiteralPath (Join-Path $folder $log) -Destination (Join-Path $logs "$Name-$log") } }
+            $resultPath = Join-Path $folder 'result.json'
+            $outcome = if (Test-Path -LiteralPath $resultPath) { Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json } else { $null }
+            Write-Output "$Name exit $($process.ExitCode): $($outcome | ConvertTo-Json -Compress)"
+            [pscustomobject]@{ ExitCode = $process.ExitCode; Result = $outcome }
+        }
+        finally { $process.Dispose() }
+    }
+    # $Label, not $Name: PowerShell names are case-insensitive and $name is the disposable account.
+    function Invoke-SelfUpdateDecide([string]$Leaf, [string]$Label) {
+        [IO.File]::WriteAllText((Join-Path $work 'self-update-leaf.txt'), $Leaf)
+        $decided = Invoke-AsStandardUser 'SelfUpdateDecide' $name $password
+        Write-Output "$Label exit $($decided.ExitCode): $($decided.Output.Trim())"
+        $line = @($decided.Output -split "`r?`n" | Where-Object { $_ -match '^\{' })[-1]
+        [pscustomobject]@{ ExitCode = $decided.ExitCode; Verdict = $(if ($line) { $line | ConvertFrom-Json } else { $null }) }
+    }
+    $selfUpdateHelper = { param([string]$Leaf) Join-Path $programFiles "$Leaf\bin\PCSteward.ElevatedHelper.exe" }
+
+    # A job whose expected tree differs from what the MSI installs: the finish copy installs 0.1.2, finds the difference,
+    # and uninstalls it, so nothing is left installed.
+    $leaf = New-SelfUpdateJob 'mismatch'
+    $finish = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-mismatch')[-1]
+    Set-Check 'self-update-finish-uninstalls-an-install-unlike-the-expected-tree' (($finish.ExitCode -eq 0) -and ($finish.Result.outcome -ceq 'mismatch-uninstalled') -and ($finish.Result.detail -ceq 'installed-tree-differs') -and ($finish.Result.exitCode -eq 0) -and (Test-NothingInstalled)) "exit $($finish.ExitCode); $($finish.Result.outcome) $($finish.Result.detail)"
+    $decide = @(Invoke-SelfUpdateDecide $leaf 'self-update-mismatch-decide')[-1]
+    Set-Check 'self-update-desktop-reads-the-uninstalled-job-as-failed' (($decide.ExitCode -eq 0) -and ($decide.Verdict.state -ceq 'Failed') -and ($decide.Verdict.code -ceq 'mismatch-uninstalled')) "exit $($decide.ExitCode); $($decide.Verdict.state) $($decide.Verdict.code)"
+
+    # A matching job. The installed helper itself, outside the work folder, is refused before it reads or writes anything;
+    # the copy in bin installs 0.1.2, verifies it, and the reopened desktop (now 0.1.2) reads the job as Updated.
+    $leaf = New-SelfUpdateJob 'match'
+    $refused = @(Invoke-FinishCopy (Join-Path $installRoot 'PCSteward.ElevatedHelper.exe') $leaf 'self-update-wrong-path')[-1]
+    $products = @(Get-InstalledProducts)
+    Set-Check 'self-update-finish-refuses-outside-the-work-folder' (($refused.ExitCode -eq 20) -and ($null -eq $refused.Result) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($refused.ExitCode)"
+    $finish = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-match')[-1]
+    $products = @(Get-InstalledProducts)
+    $installedVersion = if (Test-Path -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json')) { (Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion } else { '' }
+    Set-Check 'self-update-finish-installs-and-verifies-the-upgrade' (($finish.ExitCode -eq 0) -and ($finish.Result.outcome -ceq 'installed') -and ($finish.Result.exitCode -eq 0) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.2') -and ($installedVersion -eq '0.1.2')) "exit $($finish.ExitCode); $($finish.Result.outcome) $($finish.Result.detail); $(($products | ForEach-Object { $_.Version }) -join ',')"
+    $decide = @(Invoke-SelfUpdateDecide $leaf 'self-update-match-decide')[-1]
+    Set-Check 'self-update-desktop-reads-the-installed-job-as-updated' (($decide.ExitCode -eq 0) -and ($decide.Verdict.state -ceq 'Updated') -and ($decide.Verdict.code -ceq 'installed') -and ($decide.Verdict.running -ceq '0.1.2')) "exit $($decide.ExitCode); $($decide.Verdict.state) $($decide.Verdict.code) running $($decide.Verdict.running)"
+    foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'self-update-uninstall.log' }
+    Set-Check 'self-update-uninstalls-cleanly' (Test-NothingInstalled)
+
     $exitCode = if ($failures.Count -eq 0) { 0 } else { 1 }
 }
 catch {
@@ -316,6 +393,7 @@ catch {
 }
 finally {
     foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'cleanup-uninstall.log' }
+    foreach ($leaf in $selfUpdateLeaves) { Remove-Item -LiteralPath (Join-Path $programFiles $leaf) -Recurse -Force -ErrorAction SilentlyContinue }
     if ($created) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $created.Thumbprint) -DeleteKey -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllBytes($pinsFile, $pinsOriginal)
     if ($account) { Remove-LocalUser -SID $account.SID }
@@ -325,5 +403,5 @@ finally {
     $evidence.result = if ($failures.Count -eq 0) { 'Pass' } else { 'Fail' }
     [IO.File]::WriteAllText((Join-Path $evidenceRoot 'msi-ci-evidence.json'), ($evidence | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 }
-if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal, uninstall, and the verified release install step.' }
+if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal, uninstall, the verified release install step, and the self-update finish copy.' }
 exit $exitCode

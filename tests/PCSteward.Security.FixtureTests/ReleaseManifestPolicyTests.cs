@@ -67,6 +67,23 @@ public sealed class ReleaseManifestPolicyTests
     }
 
     [TestMethod]
+    public void TheInstalledReleaseCheckNamesNoRouteButKeepsEveryOtherRule()
+    {
+        // ADR-032 r2 §6 step 2: PC Steward's own update is no capability route; the helper asks only whether the release install is intact.
+        Release release = Release.Create();
+        Assert.AreEqual(Status.Supported, ReleaseManifestPolicy.EvaluateInstalledRelease(release.Inputs()).Status);
+        Assert.AreEqual(Status.Absent, ReleaseManifestPolicy.EvaluateInstalledRelease(release.Inputs() with { ManifestBytes = null }).Status);
+        byte[] changed = [.. release.Capability];
+        changed[^2] ^= 1;
+        Assert.AreEqual(Status.Mismatch, ReleaseManifestPolicy.EvaluateInstalledRelease(release.Inputs() with { CapabilityBytes = changed }).Status);
+        Assert.AreEqual(Status.Mismatch, ReleaseManifestPolicy.EvaluateInstalledRelease(release.Inputs() with { CapabilityBytes = null }).Status);
+        Assert.AreEqual(Status.Mismatch, ReleaseManifestPolicy.EvaluateInstalledRelease(release.Inputs() with { ExecutablesCarrySamePin = false }).Status);
+        string leaf = DeploymentCapabilityPolicy.BindingSet[0];
+        Dictionary<string, DeploymentObservedFile> wrong = new(release.Observed) { [leaf] = release.Observed[leaf] with { Sha256 = new string('0', 64) } };
+        Assert.AreEqual(Status.Mismatch, ReleaseManifestPolicy.EvaluateInstalledRelease(release.Inputs() with { ObservedHashes = wrong }).Status);
+    }
+
+    [TestMethod]
     public void EveryBindingHashAndLengthMustEqualTheManifest()
     {
         Release release = Release.Create();

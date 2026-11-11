@@ -14,7 +14,7 @@ namespace PCSteward.Execution;
 /// hashes (taken through read-share-only handles on exactly those paths) must equal their ledger entries. Any failure or
 /// exception is not supported (the endpoint reports <c>Refused/RequestNotAdmitted</c>).
 /// </summary>
-internal sealed class HelperDeploymentCapabilityCheck : IReviewedHelperCapabilityCheck
+internal sealed class HelperDeploymentCapabilityCheck : IReviewedHelperCapabilityCheck, ISelfUpdateInstallCheck
 {
     private readonly Func<DeploymentCapabilityLayout?> resolveLayout;
 
@@ -26,7 +26,14 @@ internal sealed class HelperDeploymentCapabilityCheck : IReviewedHelperCapabilit
     internal HelperDeploymentCapabilityCheck(Func<DeploymentCapabilityLayout?> resolveLayout) =>
         this.resolveLayout = resolveLayout ?? throw new ArgumentNullException(nameof(resolveLayout));
 
-    public HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route, DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath)
+    public HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route, DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath) =>
+        EvaluateFor(route, requesterCannotModify, peerImagePath);
+
+    /// <summary>ADR-032 revision 2 §6 step 2: the same Helper-role check for PC Steward's own update, with no route.</summary>
+    public HelperProtocolCapabilityResult EvaluateInstalledRelease(DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath) =>
+        EvaluateFor(null, requesterCannotModify, peerImagePath);
+
+    private HelperProtocolCapabilityResult EvaluateFor(UpdateRouteContract? route, DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath)
     {
         ArgumentNullException.ThrowIfNull(requesterCannotModify);
         try
@@ -38,11 +45,21 @@ internal sealed class HelperDeploymentCapabilityCheck : IReviewedHelperCapabilit
                     Path.Combine(Path.GetFullPath(layout.InstallRoot), InstalledHelperLaunchTrust.DesktopExecutableName), StringComparison.OrdinalIgnoreCase))
                 return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Unreadable);
             OwnerOnlyDeploymentCapabilityReader reader = new(DeploymentCapabilityRole.Helper, () => layout, requesterCannotModify);
-            return reader.Evaluate(route);
+            return route is { } named ? reader.Evaluate(named) : reader.EvaluateInstalledRelease();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Unreadable);
         }
     }
+}
+
+/// <summary>
+/// ADR-032 revision 2 §6 step 2: the self-update session's install check. PC Steward updates only an intact MSI release
+/// install whose helper and peer desktop are its protected, pinned binding set; the requester check is the protection
+/// principal, as for a package route.
+/// </summary>
+internal interface ISelfUpdateInstallCheck
+{
+    HelperProtocolCapabilityResult EvaluateInstalledRelease(DeploymentLayoutProtectionCheck requesterCannotModify, string peerImagePath);
 }

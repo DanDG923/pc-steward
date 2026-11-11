@@ -20,6 +20,8 @@ internal static class Program
     {
         if (!OperatingSystem.IsWindows()) return 2;
         if (args.Length == 4 && args[0] == "--release-check-parity") return ReleaseCheckParity.Run(args[1], args[2], args[3]);
+        if (args.Length == 3 && args[0] == "--self-update-prepare") return SelfUpdateFinishCheck.Prepare(args[1], args[2]);
+        if (args.Length == 3 && args[0] == "--self-update-decide") return SelfUpdateFinishCheck.Decide(args[1], args[2]);
         if (args.Length != 0) return 2;
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         string root = Path.Combine(programFiles, InstalledHelperLaunchTrust.InstallDirectoryName);
@@ -66,6 +68,7 @@ internal static class Program
 /// <list type="bullet">
 /// <item><see cref="ReleaseCheckPolicy.TryRead"/> accepts the <c>release-check.json</c> that <c>New-PCStewardReleaseCheck.ps1</c> wrote;</item>
 /// <item><see cref="MsiTableDigest"/> gives the signed MSI the same tables digest as <c>PCStewardMsiTables.ps1</c> (recorded in the check file);</item>
+/// <item><see cref="MsiStructurePolicy"/> allows the real PC Steward MSI;</item>
 /// <item><see cref="ReleaseImageComparison"/> finds each signed executable equal to its unsigned CI original, and refuses one
 /// with a byte changed.</item>
 /// </list>
@@ -75,7 +78,9 @@ internal static class ReleaseCheckParity
     internal static int Run(string msiPath, string releaseCheckPath, string signedPayloadRoot)
     {
         bool recordRead = ReleaseCheckPolicy.TryRead(File.ReadAllBytes(releaseCheckPath), out ReleaseCheckRecord? record);
-        string tables = MsiTableDigest.Compute(msiPath).Sha256;
+        MsiDatabaseSnapshot snapshot = MsiTableDigest.Read(msiPath);
+        string tables = snapshot.Sha256;
+        MsiStructureVerdict structure = MsiStructurePolicy.Check(snapshot.Tables, out string structureDetail);
         bool tablesEqual = record is not null && string.Equals(tables, record.MsiTablesSha256, StringComparison.Ordinal);
         Dictionary<string, bool> executables = new(StringComparer.Ordinal);
         bool tamperedRefused = true;
@@ -91,12 +96,13 @@ internal static class ReleaseCheckParity
             }
         }
 
-        bool pass = recordRead && tablesEqual && executables.Count == 2 && executables.Values.All(match => match) && tamperedRefused;
+        bool pass = recordRead && tablesEqual && structure == MsiStructureVerdict.Allowed && executables.Count == 2 && executables.Values.All(match => match) && tamperedRefused;
         Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object>
         {
             ["recordRead"] = recordRead,
             ["tablesSha256"] = tables,
             ["tablesEqual"] = tablesEqual,
+            ["structure"] = structure.ToString() + (structureDetail.Length > 0 ? " " + structureDetail : ""),
             ["executablesMatch"] = executables,
             ["tamperedRefused"] = tamperedRefused,
             ["pass"] = pass,

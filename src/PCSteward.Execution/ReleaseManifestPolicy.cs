@@ -41,7 +41,17 @@ internal static partial class ReleaseManifestPolicy
     private static readonly HashSet<string> ManifestKeys = ["format", "productVersion", "files"];
     private static readonly HashSet<string> FileKeys = ["path", "bytes", "sha256"];
 
-    internal static HelperProtocolCapabilityResult Evaluate(ReleaseCapabilityInputs inputs, UpdateRouteContract route)
+    internal static HelperProtocolCapabilityResult Evaluate(ReleaseCapabilityInputs inputs, UpdateRouteContract route) => EvaluateFor(inputs, route);
+
+    /// <summary>
+    /// ADR-032 revision 2 §6 step 2: the same checks with no route, for PC Steward's own update. The install must be an intact
+    /// release (manifest, statement bytes and protocol, binding-set hashes, both executables on the same compiled pin); the
+    /// statement need not list any package route, because the self-update is not a package route and no package job can
+    /// name it.
+    /// </summary>
+    internal static HelperProtocolCapabilityResult EvaluateInstalledRelease(ReleaseCapabilityInputs inputs) => EvaluateFor(inputs, null);
+
+    private static HelperProtocolCapabilityResult EvaluateFor(ReleaseCapabilityInputs inputs, UpdateRouteContract? route)
     {
         try { return HelperProtocolCapabilityResult.For(EvaluateCore(inputs, route, DeploymentCapabilityStage.BindingSet)); }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -56,7 +66,15 @@ internal static partial class ReleaseManifestPolicy
     /// <see cref="HelperProtocolCapabilityStatus.Supported"/>.
     /// </summary>
     internal static bool PassesThrough(
-        ReleaseCapabilityInputs inputs, UpdateRouteContract route, DeploymentCapabilityStage stage, out HelperProtocolCapabilityStatus failure)
+        ReleaseCapabilityInputs inputs, UpdateRouteContract route, DeploymentCapabilityStage stage, out HelperProtocolCapabilityStatus failure) =>
+        PassesThroughFor(inputs, route, stage, out failure);
+
+    /// <summary><see cref="PassesThrough"/> for <see cref="EvaluateInstalledRelease"/> (no route).</summary>
+    internal static bool PassesThroughInstalledRelease(ReleaseCapabilityInputs inputs, DeploymentCapabilityStage stage, out HelperProtocolCapabilityStatus failure) =>
+        PassesThroughFor(inputs, null, stage, out failure);
+
+    private static bool PassesThroughFor(
+        ReleaseCapabilityInputs inputs, UpdateRouteContract? route, DeploymentCapabilityStage stage, out HelperProtocolCapabilityStatus failure)
     {
         try
         {
@@ -73,10 +91,10 @@ internal static partial class ReleaseManifestPolicy
         }
     }
 
-    private static HelperProtocolCapabilityStatus EvaluateCore(ReleaseCapabilityInputs inputs, UpdateRouteContract route, DeploymentCapabilityStage lastStage)
+    private static HelperProtocolCapabilityStatus EvaluateCore(ReleaseCapabilityInputs inputs, UpdateRouteContract? route, DeploymentCapabilityStage lastStage)
     {
         ArgumentNullException.ThrowIfNull(inputs);
-        if (!DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Contains(route)) return HelperProtocolCapabilityStatus.Mismatch;
+        if (route is { } named && !DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Contains(named)) return HelperProtocolCapabilityStatus.Mismatch;
 
         // Manifest: present, strictly parsed, and listing every binding-set leaf exactly once at the install root.
         if (inputs.ManifestBytes is null) return HelperProtocolCapabilityStatus.Absent;
@@ -95,7 +113,8 @@ internal static partial class ReleaseManifestPolicy
         if (inputs.CapabilityBytes is not { } capability || capability.Length != statement.Bytes ||
             !DeploymentCapabilityPolicy.HashEquals(DeploymentCapabilityPolicy.Sha256Hex(capability), statement.Sha256) ||
             !DeploymentCapabilityPolicy.TryParseCapability(capability, out string protocol, out IReadOnlyList<UpdateRouteContract> operations) ||
-            !string.Equals(protocol, ReviewedUpdateWireCodec.ProtocolVersion, StringComparison.Ordinal) || !operations.Contains(route))
+            !string.Equals(protocol, ReviewedUpdateWireCodec.ProtocolVersion, StringComparison.Ordinal) ||
+            (route is { } listed && !operations.Contains(listed)))
             return HelperProtocolCapabilityStatus.Mismatch;
         if (lastStage == DeploymentCapabilityStage.Statement) return HelperProtocolCapabilityStatus.Supported;
 

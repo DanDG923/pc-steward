@@ -19,7 +19,7 @@ public sealed class DeploymentCapabilityBoundaryTests
          "ReleaseManifestPolicy", "ReleaseCapabilityInputs", "ReleaseManifest", "ReleaseManifestFile", "ReleaseSigningPins"];
     private static readonly string[] BindingReferencingFiles =
         ["HeldHelperBinding.cs", "IHelperProtocolCapability.cs", "OwnerOnlyDeploymentCapabilityReader.cs", "ReviewedHelperProbeTransport.cs",
-         "ReviewedHelperProtocol2Transport.cs"];
+         "ReviewedHelperProtocol2Transport.cs", "SelfUpdateDesktopTransport.cs"];
     private static readonly string[] ReaderSources =
         ["OwnerOnlyDeploymentCapabilityReader.cs", "HeldHelperBinding.cs", "DeploymentFileAccess.cs"];
 
@@ -102,6 +102,14 @@ public sealed class DeploymentCapabilityBoundaryTests
             else if (path.EndsWith(Path.Combine("PCSteward.Execution", "ChocolateyPackageUpdateComposition.cs"), StringComparison.Ordinal))
                 Assert.AreEqual(1, constructions, "the package composition constructs the Desktop-role reader once");
             else if (path.EndsWith(Path.Combine("PCSteward.Execution", "HelperDeploymentCapabilityCheck.cs"), StringComparison.Ordinal)) { }
+            // ADR-032 revision 2 §6 and §8: the desktop's self-update launch holds the installed release, and the reopened desktop
+            // checks it; each constructs the parameterless (Desktop-role) reader once.
+            else if (path.EndsWith(Path.Combine("PCSteward.Execution", "SelfUpdateDesktopTransport.cs"), StringComparison.Ordinal) ||
+                     path.EndsWith(Path.Combine("PCSteward.Execution", "SelfUpdateDesktopFiles.cs"), StringComparison.Ordinal))
+            {
+                Assert.AreEqual(1, constructions, $"{path} constructs the Desktop-role reader once");
+                Assert.AreEqual(1, Regex.Count(File.ReadAllText(path), @"new\s+OwnerOnlyDeploymentCapabilityReader\(\)"), "only the parameterless reader");
+            }
             else Assert.AreEqual(0, constructions, $"{path} constructs the reader (no other production update caller)");
         }
     }
@@ -164,6 +172,23 @@ public sealed class DeploymentCapabilityBoundaryTests
         int probeKeepAlive = probe.IndexOf("GC.KeepAlive(bindings);", StringComparison.Ordinal);
         Assert.IsTrue(probeRelease > 0 && probeRun > probeRelease && probeKeepAlive > probeRun, "release registered before the session; reference outlives it");
         Assert.IsTrue(Regex.IsMatch(probe, @"finally\s*\{\s*owned\.SealTransport\(\);\s*\}"), "the probe session seals the transport in a finally block");
+
+        // ADR-032 revision 2 §6: the desktop's self-update launch keeps the same lifetime for the installed release's binding set.
+        string self = File.ReadAllText(Path.Combine(execution, "SelfUpdateDesktopTransport.cs"));
+        Assert.AreEqual(2, Regex.Count(self, @"\.Dispose\(\)"), "the self-update launch's only two release points");
+        Assert.IsTrue(Regex.IsMatch(self, @"private static void ReleaseWithoutHelper\(HeldHelperBinding binding\) => binding\.Dispose\(\);"));
+        Assert.IsTrue(Regex.IsMatch(self,
+            @"private static void ReleaseAfterOwnership\(Task ownedCompletion, HeldHelperBinding binding\) =>\s+_ = ownedCompletion\.ContinueWith\(static \(_, state\) => \(\(HeldHelperBinding\)state!\)\.Dispose\(\)"));
+        Assert.AreEqual(1, Regex.Count(self, @"ReleaseAfterOwnership\(owned\.OwnedCompletion, binding\);"));
+        int selfOwnership = self.IndexOf("owned = new(helper);", StringComparison.Ordinal);
+        Assert.IsTrue(selfOwnership > 0);
+        Assert.AreEqual(2, Regex.Count(self, @"ReleaseWithoutHelper\(binding\);"), "a failed check before the prompt, and no helper");
+        foreach (Match call in Regex.Matches(self, @"ReleaseWithoutHelper\(binding\);"))
+            Assert.IsTrue(call.Index < selfOwnership, "ReleaseWithoutHelper is called only before the helper is owned");
+        int selfRelease = self.IndexOf("ReleaseAfterOwnership(owned.OwnedCompletion, binding);", StringComparison.Ordinal);
+        int selfRun = self.IndexOf("await ReviewedHelperExchangeSession.RunAsync(", StringComparison.Ordinal);
+        int selfKeepAlive = self.IndexOf("GC.KeepAlive(binding);", StringComparison.Ordinal);
+        Assert.IsTrue(selfRelease > 0 && selfRun > selfRelease && selfKeepAlive > selfRun, "release registered before the exchange; reference outlives it");
     }
 
     /// <summary>

@@ -178,6 +178,9 @@ internal static partial class ReleaseCheckPolicy
             string.Equals(record.BackupPin, pins[1], StringComparison.Ordinal);
     }
 
+    /// <summary>An MSI ProductVersion as the release tag carries it: <c>major.minor.patch</c>.</summary>
+    internal static bool IsMsiVersion(string? value) => value is not null && MsiVersionPattern().IsMatch(value);
+
     private static bool TryUpperHex(JsonElement element, out string value) =>
         DeploymentCapabilityPolicy.TryString(element, 64, out value) && value.Length == 64 &&
         value.All(static character => character is (>= '0' and <= '9') or (>= 'A' and <= 'F'));
