@@ -115,3 +115,9 @@ Validation follows the phased plan in [Task 73](../review/TASK_73_UI_UX_OVERHAUL
   - Ready is one list card under a selection bar with one primary button at a time ("Review N updates" for the chosen apps, otherwise "Review all N updates"). Needs review rows give the versions and reason in words and a "Review match" button that only opens details.
   - Review: the stepper comes before the title. "What will change" shows every protected fact on the page (package ID, architecture, channel, source, provider, versions, publisher, scope, confidence); the full fact list and evidence are in an expander. Risks are "Before you update" rows. The confirm bar keeps Cancel first and focused and the shield only when administrator approval is required.
   - Verify: outcome rows in one list card per outcome group, restart guidance, a "Tidy up" row with the unchanged "Delete downloaded files" button, "View in Activity" and "Done".
+- **UI polish Phase 4: Installed apps, Activity, Decisions, Settings, Data & reset and About.** No behaviour changes.
+  - Installed apps: filter tabs, one toolbar, column headings and one list card. A neutral status such as "No update source" is plain text with one calm footnote, not a chip on every row. Every inventory record keeps its own row (owner decision, 2026-11-11); only Updates merges same-app records.
+  - Activity: one expandable row per record, with the outcome in words in its heading and the facts and sanitized details inside.
+  - Decisions: grouped list cards with unchanged reversal; the empty page explains each kind of decision.
+  - Settings: Windows Settings-style sections (Update checks, Scan scope, Schedule, Privacy & data). Decisions and About are reached from the navigation pane only; Data & reset opens from Privacy & data. Copy diagnostic moved to About (same sanitized bundle).
+  - Page headers have no eyebrow, so descriptions line up with their titles.

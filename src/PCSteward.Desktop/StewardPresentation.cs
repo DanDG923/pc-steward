@@ -55,12 +55,23 @@ public sealed class ApplicationListItem
         Row = row;
         Name = row.Name;
         Publisher = string.Equals(row.Publisher, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown publisher" : row.Publisher;
-        Version = string.Equals(row.Version, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown version" : row.Version;
-        ScopeAndProvider = $"{StewardPresentation.Scope(row.Scope)} · {StewardPresentation.Provider(row.Provider)}";
+        bool versionKnown = !string.IsNullOrWhiteSpace(row.Version) && !string.Equals(row.Version, "Unknown", StringComparison.OrdinalIgnoreCase);
+        Version = versionKnown ? row.Version : "Unknown version";
+        // UI polish phase 4 (approved target T-Installed): the Version column shows a dash for an unknown version; the accessible
+        // summary still says "Unknown version" in words.
+        VersionText = versionKnown ? row.Version : "—";
+        ScopeLabel = StewardPresentation.Scope(row.Scope);
+        ScopeAndProvider = $"{ScopeLabel} · {StewardPresentation.Provider(row.Provider)}";
+        PublisherAndProvider = $"{Publisher} · {StewardPresentation.Provider(row.Provider)}";
         StewardStatus status = StewardStatus.From(row.Status);
         StatusLabel = status.Label;
         StatusGlyph = status.Glyph;
         (StatusForeground, StatusBackground) = StewardVisuals.ToneBrushes(status.Tone);
+        // A neutral status ("No update source", "Pinned", "Source not checked" and so on) is a fact, not a warning, so it is plain
+        // secondary text; only statuses that ask for a look (an update, a review, a source problem, current) get a tinted chip.
+        bool calm = status.Tone == "neutral";
+        ChipVisibility = calm ? Visibility.Collapsed : Visibility.Visible;
+        PlainStatusVisibility = calm ? Visibility.Visible : Visibility.Collapsed;
         Initials = StewardPresentation.Initials(row.Name);
         AccessibleSummary = $"{Name}, {Publisher}, version {Version}, {StatusLabel}, {ScopeAndProvider}";
     }
@@ -70,6 +81,15 @@ public sealed class ApplicationListItem
     public string Publisher { get; }
     public string Version { get; }
     public string ScopeAndProvider { get; }
+    /// <summary>The version shown in the Version column ("—" when unknown).</summary>
+    public string VersionText { get; }
+    /// <summary>Who the app is installed for ("All users" or "Current user").</summary>
+    public string ScopeLabel { get; }
+    /// <summary>The row's second line: publisher and where Windows reported the app.</summary>
+    public string PublisherAndProvider { get; }
+    /// <summary>Visible for statuses that ask for a look; neutral statuses show <see cref="PlainStatusVisibility"/> text instead.</summary>
+    public Visibility ChipVisibility { get; }
+    public Visibility PlainStatusVisibility { get; }
     public string StatusLabel { get; }
     public string StatusGlyph { get; }
     public Brush StatusForeground { get; }
@@ -130,8 +150,8 @@ internal static class StewardVisuals
         if (!string.IsNullOrWhiteSpace(eyebrow)) copy.Children.Add(new TextBlock { Text = eyebrow, Style = Style("StewardEyebrowStyle") });
         copy.Children.Add(PageTitle(title));
         // UI polish Phase 1 (approved targets): the description is Body text in the secondary colour, directly under the title
-        // and on the same left edge, as in Windows Settings.
-        copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardBodyStyle") });
+        // and on the same left edge, as in Windows Settings. UI polish phase 4: a page may have no description (About).
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardBodyStyle") });
         grid.Children.Add(copy);
         if (action is not null)
         {
@@ -529,11 +549,19 @@ internal static class StewardVisuals
         return expander;
     }
 
+    /// <summary>
+    /// UI polish phase 4 (approved target T-Decisions): a calm empty state — a 56 epx round neutral icon well, a Subtitle heading,
+    /// one sentence and an optional action, centred in a card.
+    /// </summary>
     public static Border EmptyState(string glyph, string title, string message, Button? action = null)
     {
         StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 30, Foreground = Brush("StewardBrandBrush"), HorizontalAlignment = HorizontalAlignment.Center });
+        Border well = StatusWell(glyph, "neutral");
+        well.HorizontalAlignment = HorizontalAlignment.Center;
+        content.Children.Add(well);
         TextBlock heading = SectionHeading(title);
+        heading.Style = Style("StewardSubtitleStyle");
+        heading.Margin = new Thickness(0, StewardSpacing.XSmall, 0, 0);
         heading.TextAlignment = TextAlignment.Center;
         heading.HorizontalAlignment = HorizontalAlignment.Center;
         content.Children.Add(heading);
@@ -639,6 +667,94 @@ internal static class StewardVisuals
         Border result = new() { BorderBrush = Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, 10, 0, 10), Child = row };
         AutomationProperties.SetName(result, $"{title}. {detail}. {time.Text}");
         return result;
+    }
+
+    /// <summary>
+    /// UI polish phase 4 (approved targets T-Installed and T-Activity): one saved-filter tab — the label, its count in a quieter
+    /// colour and, when selected, Body Strong text over a short accent bar, as in the Windows SelectorBar. The bar is not the only
+    /// signal: the selected tab's text is bold and the page sets its "Selected" item status. The caller names the button.
+    /// </summary>
+    public static Button FilterTab(string label, int count, bool selected)
+    {
+        StackPanel text = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.XSmall };
+        text.Children.Add(new TextBlock { Text = label, Style = Style(selected ? "StewardBodyStrongStyle" : "StewardBodyStyle"), TextWrapping = TextWrapping.NoWrap });
+        text.Children.Add(new TextBlock { Text = count.ToString("N0", System.Globalization.CultureInfo.CurrentCulture), Style = Style("StewardBodyStyle"), Foreground = Brush("StewardTertiaryTextBrush"), TextWrapping = TextWrapping.NoWrap });
+        Grid content = new() { RowSpacing = 6 };
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(3) });
+        content.Children.Add(text);
+        Border indicator = new()
+        {
+            Width = 16,
+            Height = 3,
+            CornerRadius = new CornerRadius(1.5),
+            Background = Brush("StewardBrandBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Visibility = selected ? Visibility.Visible : Visibility.Collapsed
+        };
+        Grid.SetRow(indicator, 1);
+        content.Children.Add(indicator);
+        return new Button
+        {
+            Content = content,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(StewardSpacing.XSmall, StewardSpacing.Small, StewardSpacing.XSmall, 0)
+        };
+    }
+
+    /// <summary>A button's content: a small icon and its label, side by side (for example the Copy diagnostic and Filters buttons).</summary>
+    public static StackPanel IconLabel(string glyph, string label)
+    {
+        StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
+        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        return content;
+    }
+
+    /// <summary>A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.</summary>
+    public static Border FilterBar(IEnumerable<Button> tabs, string accessibleName)
+    {
+        ArgumentNullException.ThrowIfNull(tabs);
+        StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Large, VerticalSpacing = StewardSpacing.XSmall };
+        foreach (Button tab in tabs) row.Children.Add(tab);
+        AutomationProperties.SetName(row, accessibleName);
+        return new Border { BorderBrush = Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
+    }
+
+    /// <summary>
+    /// UI polish phase 4 (approved targets): a page's quiet footnote — a small icon and one Caption line in the secondary colour,
+    /// such as "No update source isn't a safety warning".
+    /// </summary>
+    public static Grid FootNote(string glyph, string text)
+    {
+        Grid line = IconLine(glyph, text, styleKey: "StewardCaptionStyle");
+        foreach (TextBlock copy in line.Children.OfType<TextBlock>()) copy.Foreground = Brush("StewardSecondaryTextBrush");
+        return line;
+    }
+
+    /// <summary>
+    /// UI polish phase 4 (approved target T-Activity): a list-card row — a tinted icon well, a title and one-line description, and
+    /// optional trailing content (a time, a button). The caller names it; a Grid has no automation peer of its own.
+    /// </summary>
+    public static Grid ListRow(FrameworkElement leading, string title, string? description, FrameworkElement? trailing = null)
+    {
+        Grid row = new() { ColumnSpacing = StewardSpacing.Large, MinHeight = 40 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        leading.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(leading);
+        StackPanel copy = RowCopy(title, description);
+        Grid.SetColumn(copy, 1);
+        row.Children.Add(copy);
+        if (trailing is not null)
+        {
+            trailing.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(trailing, 2);
+            row.Children.Add(trailing);
+        }
+        return row;
     }
 }
 

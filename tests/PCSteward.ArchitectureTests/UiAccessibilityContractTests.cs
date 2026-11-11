@@ -166,7 +166,7 @@ public sealed partial class UiAccessibilityContractTests
 
         // Ctrl+F targets: the Installed apps search box and the Activity filters; the target is reset for every page.
         StringAssert.Contains(Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions"), "pageSearchTarget = search;");
-        StringAssert.Contains(Between(source, "private StackPanel BuildActivityPage()", "private static Border ActivityEntryRow("), "pageSearchTarget = filter;");
+        StringAssert.Contains(Between(source, "private StackPanel BuildActivityPage()", "private static FrameworkElement ActivityEntryRow("), "pageSearchTarget = filter;");
         StringAssert.Contains(Between(source, "private void ShowCurrentPage(bool preserveViewState)", "private void RestoreScrollOffset("), "pageSearchTarget = null;");
 
         // Access keys on the primary commands; the review's confirm button has none and no accelerator.

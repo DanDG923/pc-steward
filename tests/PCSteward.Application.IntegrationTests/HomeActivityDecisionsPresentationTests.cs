@@ -27,6 +27,7 @@ public sealed class HomeActivityDecisionsPresentationTests
     private static readonly string[] PinnedIgnoredLabels = ["Pinned", "Ignored", "Version skipped"];
     private static readonly string[] InstanceFactLabels = ["Found by", "Identity", "Version", "Scope", "Architecture"];
     private static readonly int[] ActivityCounts = [5, 2, 2, 2];
+    private static readonly string[] ExplainerTitles = ["Pin", "Skip this version", "Ignore updates for this app", "Confirm package"];
     private static readonly string[] DayHeadings = ["Today", "Yesterday", "30 Oct 2026", "28 Oct 2026"];
 
     [TestMethod]
@@ -568,6 +569,35 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreNotEqual(pin.RemoveAccessibleName, sourcePin.RemoveAccessibleName, "the two pin kinds of one app are told apart");
         Assert.AreEqual("Pins (2)", DecisionsPresenter.GroupHeading(DecisionKind.Pin, 2));
         Assert.IsTrue(view.All(row => row.Glyph.Length == 1));
+    }
+
+    [TestMethod]
+    [Description("UI polish phase 4 (approved targets T-Installed, T-Activity, T-Decisions): calm page copy, the list count, headings with the outcome in words and the decision explainers.")]
+    public void PhaseFourPagesStateFactsCalmlyAndInWords()
+    {
+        Assert.AreEqual("3 apps", InstalledAppsFilters.CountText(3, 3));
+        Assert.AreEqual("1 of 3 apps", InstalledAppsFilters.CountText(1, 3));
+        StringAssert.StartsWith(InstalledAppsFilters.NoUpdateSourceNote, "No update source isn't a safety warning.");
+
+        InventoryRow[] rows = [Row("widget", "Current", "1.0")];
+        ScanRun[] scans = [new(Guid.NewGuid(), Now.AddHours(-3), Now.AddHours(-3).AddSeconds(42), "Completed", Guid.NewGuid())];
+        StableDecision[] decisions = [new(Guid.NewGuid(), "widget", "PinCurrentVersion", "1.0", Now.AddDays(-4), null)];
+        IReadOnlyList<ActivityEntry> entries = ActivityPresenter.Entries([], scans, decisions, [], rows, Culture, Utc);
+        ActivityEntry scan = entries.Single(entry => entry.Kind == ActivityKind.Scan);
+        Assert.AreEqual($"{scan.Title}: Completed", scan.Heading, "the outcome is in the heading, not only in the icon's colour");
+        ActivityEntry decision = entries.Single(entry => entry.Kind == ActivityKind.Decision);
+        Assert.AreEqual(decision.Title, decision.Heading, "a decision's title already says what it is");
+
+        CollectionAssert.AreEqual(ExplainerTitles,
+            DecisionsPresenter.Explainers.Select(explainer => explainer.Title).ToArray());
+        DecisionRow[] glyphs = [.. DecisionsPresenter.Build(
+            [new(Guid.NewGuid(), "widget", "PinCurrentVersion", "1.0", Now, null), new(Guid.NewGuid(), "widget", UserDecisionService.SkipVersionKind, "2.0", Now, null),
+             new(Guid.NewGuid(), "widget", "Ignore", "Indefinitely", Now, null)],
+            [new(Guid.NewGuid(), "widget", "winget", "Contoso.Widget", Now, null)], rows, Culture, Utc)];
+        CollectionAssert.AreEquivalent(glyphs.Select(row => row.Glyph).ToArray(), DecisionsPresenter.Explainers.Select(explainer => explainer.Glyph).ToArray(),
+            "each explainer uses the same icon as the decision rows of its kind");
+        StringAssert.Contains(DecisionsPresenter.PageDescription, "reversible");
+        StringAssert.Contains(DecisionsPresenter.RemoveNote, "Nothing is updated");
     }
 
     private static ActivityEntry Single(IEnumerable<ActivityEntry> entries, ActivityKind kind, string outcome) =>

@@ -33,6 +33,9 @@ public sealed record DecisionRow(
     string RemoveLabel,
     string RemoveAccessibleName);
 
+/// <summary>One "What each decision does" entry on the Decisions page: a glyph, the decision's name and what it does.</summary>
+public sealed record DecisionExplainer(string Glyph, string Title, string Description);
+
 /// <summary>
 /// FR-POL-01–05 (Task 73 Phase 3, ADR-030 foundation 7): pins, ignores (indefinitely or until a date) and confirmed package identities
 /// in one view, each with its reason and its existing reversal. Presentation only: building this list changes nothing.
@@ -106,6 +109,31 @@ public static class DecisionsPresenter
         DecisionKind.Other => $"Other saved decisions ({count})",
         _ => $"Confirmed package identities ({count})"
     };
+
+    /// <summary>
+    /// UI polish phase 4 (approved target T-Decisions): the page description. Every decision is reversible and none starts an update.
+    /// </summary>
+    public const string PageDescription = "Pins, ignores, skipped versions and confirmed packages. Each one is reversible, and none starts an update.";
+
+    /// <summary>The empty state's heading and sentence (approved target T-Decisions).</summary>
+    public const string EmptyTitle = "No decisions yet";
+
+    public const string EmptyMessage = "When you pin an app, ignore its updates or skip a version, it's listed here so you can undo it at any time.";
+
+    /// <summary>The footnote under the list when decisions exist.</summary>
+    public const string RemoveNote = "Removing a decision applies the normal review rules again at the next source check. Nothing is updated when you do.";
+
+    /// <summary>
+    /// "What each decision does" (approved target T-Decisions): one explainer per kind people can choose, with the same glyphs the
+    /// decision rows use. Presentation only.
+    /// </summary>
+    public static IReadOnlyList<DecisionExplainer> Explainers { get; } =
+    [
+        new("\uE718", "Pin", "Keep an app on its current version. No updates are offered until you unpin it."),
+        new("\uE893", "Skip this version", "Hide one specific version. The next newer version is offered as normal."),
+        new("\uE74F", "Ignore updates for this app", "Stop offering updates for an app, for good or until a date you choose."),
+        new("\uE71B", "Confirm package", "Tell PC Steward which package an app is when its match needs your review."),
+    ];
 
     private static string? Reason(string? reason) => string.IsNullOrWhiteSpace(reason)
         ? null

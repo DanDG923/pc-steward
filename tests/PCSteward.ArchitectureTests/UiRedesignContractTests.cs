@@ -23,7 +23,9 @@ public sealed class UiRedesignContractTests
         "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: select to review\")",
         "$\"Why {needsReview.Name} needs review: {needsReview.ReasonText}\""
     ];
-    private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Decisions", "InstalledApps", "Settings", "UpdateJob"];
+    // UI polish phase 4 (approved target T-Settings) deliberately removes Settings' "Open Decisions" card: Decisions is a main
+    // navigation destination (pinned above) and Home's "At a glance" Decisions row opens it through its presenter target.
+    private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "InstalledApps", "Settings", "UpdateJob"];
 
     /// <summary>
     /// Task 73 Phase 1 (ADR-030, FR-UI-01/02, AC-UX-01/02). Deliberately replaces the Task 35 pin of six literal
@@ -148,7 +150,7 @@ public sealed class UiRedesignContractTests
     public void DesktopCopyTellsOneElevationStory()
     {
         string source = DesktopSource("MainWindow.cs");
-        string about = Between(source, "private static StackPanel BuildAboutPage()", DesktopWindowSource.EndOf("MainWindow.About.cs"));
+        string about = Between(source, "private StackPanel BuildAboutPage()", DesktopWindowSource.EndOf("MainWindow.About.cs"));
         StringAssert.Contains(about, "PageCopy(ElevationStory.Summary)");
         StringAssert.Contains(about, "PageCopy(ElevationStory.HelperRequirement)");
         string consent = Between(source, "private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)", "private async Task ChangeConnectorAsync");
@@ -686,10 +688,13 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(apps, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
         StringAssert.Contains(apps, "ItemTemplate = (DataTemplate)");
         StringAssert.Contains(apps, "MaxHeight = 620", "the virtualized list keeps a bounded height inside the page host");
-        StringAssert.Contains(apps, "StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.Unmanaged)).Meaning");
+        // UI polish phase 4 (approved target T-Installed): "No update source" is plain text on each row, explained once by a calm
+        // footnote that says it is not a safety warning (replacing the info bar on that filter).
+        StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE946\", InstalledAppsFilters.NoUpdateSourceNote)");
         string filters = ApplicationSource("InstalledAppsPresentation.cs");
         StringAssert.Contains(filters, "rows.Count(row => Matches(filter, row.Status))");
         StringAssert.Contains(filters, "!Statuses.TryGetValue(filter, out string[]? keys) ||", "All matches every status");
+        StringAssert.Contains(filters, "No update source isn't a safety warning.");
 
         string detail = Between(source, "private StackPanel BuildProductDetailPage()", "private async Task ShowDetailsAsync");
         foreach (string shared in new[] { "PromptAndPinCurrentVersionAsync(row)", "PromptAndIgnoreProductAsync(row)", "PromptAndConfirmPackageIdentityAsync(row, detail)",
@@ -722,7 +727,8 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(activity, "ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows)");
         StringAssert.Contains(activity, "ActivityPresenter.Build(entries, activityFilter, DateTimeOffset.UtcNow)");
         StringAssert.Contains(activity, "foreach (ActivityDay day in page.Days)");
-        StringAssert.Contains(activity, "Header = \"Details\"");
+        // UI polish phase 4 (approved target T-Activity): each record's facts and details are behind its expandable row.
+        StringAssert.Contains(Between(source, "private static FrameworkElement ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection("), "Expander expander = new() { Header = header, Content = details");
         StringAssert.Contains(activity, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
         int days = activity.IndexOf("foreach (ActivityDay day in page.Days)", StringComparison.Ordinal);
         int reviewed = activity.IndexOf("AddReviewedUpdateOutcomesSection(panel);", StringComparison.Ordinal);
@@ -814,8 +820,9 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(home.Contains("activityFilter = ActivityFilter.", StringComparison.Ordinal), "every Activity filter Home opens comes from the presenter");
         // Names sit on elements with an automation peer (a Button or HyperlinkButton), never on a Grid or Border.
         Assert.IsFalse(home.Contains("AutomationProperties.SetName(card,", StringComparison.Ordinal) || home.Contains("AutomationProperties.SetName(copy,", StringComparison.Ordinal), "a Grid has no automation peer");
-        string row = Between(source, "private static Border ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection(");
+        string row = Between(source, "private static FrameworkElement ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection(");
         StringAssert.Contains(row, "AutomationProperties.SetName(title, entry.AccessibleName);");
+        StringAssert.Contains(row, "AutomationProperties.SetName(expander, entry.AccessibleName);");
         Assert.IsFalse(row.Contains("AutomationProperties.SetName(row,", StringComparison.Ordinal), "a Border has no automation peer");
 
         string homePresenter = ApplicationSource("HomePresentation.cs");
@@ -900,7 +907,7 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string settings = Between(source, "private StackPanel BuildSettingsPage()", DesktopWindowSource.EndOf("MainWindow.Settings.cs"));
-        string scheduleCard = Between(settings, "ScheduleCardPresentation plan = SettingsPresenter.Schedule(", "StackPanel decisions = new()");
+        string scheduleCard = Between(settings, "ScheduleCardPresentation plan = SettingsPresenter.Schedule(", "// Privacy & data (FR-DAT-01/03)");
         // Exactly one Save button in Settings, on the Schedule card; every other setting saves immediately.
         Assert.IsFalse(settings.Contains("Content = \"Save", StringComparison.Ordinal), "no other Save button");
         Assert.AreEqual(1, Count(settings, "SettingsPresenter.SaveScheduleLabel"), "exactly one Save button in Settings");
@@ -953,6 +960,11 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(copy, "package.SetText(SanitizedDiagnosticBundle.Create(updateHistory));");
         StringAssert.Contains(copy, "StewardVisuals.SetLiveText(confirmation, SettingsPresenter.DiagnosticCopied(updateHistory.Count), announce: true);");
         AssertFlushedAfterSetContent(copy);
+        // UI polish phase 4 (approved target T-About): the Copy diagnostic button moved to About and still uses this one method.
+        string about = Between(source, "private StackPanel BuildAboutPage()", DesktopWindowSource.EndOf("MainWindow.About.cs"));
+        StringAssert.Contains(about, "SettingsPresenter.DiagnosticCopy(activityHistoryUnavailable)");
+        StringAssert.Contains(about, "copyDiagnostic.Click += (_, _) => CopyDiagnostic(copied);");
+        Assert.AreEqual(1, Count(source, "CopyDiagnostic(copied)"), "one Copy diagnostic button");
         StringAssert.Contains(settings, "NavigateTo(ShellPage.Privacy)");
     }
 
@@ -997,6 +1009,35 @@ public sealed class UiRedesignContractTests
         int end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
         Assert.IsTrue(start >= 0 && end > start, $"Could not find section from {startMarker} to {endMarker}.");
         return source[start..end];
+    }
+
+    [TestMethod]
+    [Description("UI polish phase 4 (approved targets T-Installed, T-Settings, T-Data, T-About): page descriptions line up with their titles, 'No update source' is calm plain text, and states that are choices are not warnings.")]
+    public void PhaseFourPagesKeepChoicesCalmAndDescriptionsAligned()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string presentation = DesktopSource("StewardPresentation.cs");
+        string template = DesktopSource(Path.Combine("Resources", "DataTemplates.xaml"));
+        // No eyebrow line above a phase 4 page's title, so each description starts in line with its title.
+        foreach ((string file, string title) in new[] { ("MainWindow.Settings.cs", "Settings"), ("MainWindow.DataAndReset.cs", "Data & reset"), ("MainWindow.Activity.cs", "Activity"), ("MainWindow.Decisions.cs", "Decisions"), ("MainWindow.InstalledApps.cs", "Installed apps"), ("MainWindow.About.cs", "About") })
+        {
+            string call = DesktopSource(file).Split('\n').Single(line => line.Contains($"PageHeader(\"{title}\"", StringComparison.Ordinal));
+            Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(call, "PageHeader\\(\"[^\"]*\", [^,]+, \""), $"{title} has no eyebrow: {call.Trim()}");
+        }
+        string header = Between(presentation, "public static Grid PageHeader(", "public static TextBlock SectionHeading(");
+        StringAssert.Contains(header, "if (!string.IsNullOrWhiteSpace(description))", "an empty description adds no blank line");
+        // Installed apps: a neutral status (such as No update source) is plain text; only other tones get a chip.
+        StringAssert.Contains(template, "Visibility=\"{Binding PlainStatusVisibility}\"");
+        StringAssert.Contains(template, "Visibility=\"{Binding ChipVisibility}\"");
+        StringAssert.Contains(presentation, "public Visibility PlainStatusVisibility");
+        string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
+        Assert.IsFalse(apps.Contains("InformationBanner(", StringComparison.Ordinal), "when the inventory was read is a fact, not a banner");
+        StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE81C\", viewModel.FreshnessLabel)");
+        // Settings: exports keep their warning in words, without an attention banner.
+        string settings = Between(source, "private StackPanel BuildSettingsPage()", "private static Button WithHelpText(");
+        Assert.IsFalse(settings.Contains("\"attention\"", StringComparison.Ordinal), "a setting that is a choice is never shown as a warning");
+        StringAssert.Contains(settings, "SettingsPresenter.ExportWarning");
+        StringAssert.Contains(settings, "NavigateTo(ShellPage.Privacy)");
     }
 
     private static int Count(string source, string value)

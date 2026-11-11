@@ -53,6 +53,17 @@ public static class InstalledAppsFilters
     public static bool Matches(InstalledAppsFilter filter, string? status) =>
         !Statuses.TryGetValue(filter, out string[]? keys) || keys.Contains(status, StringComparer.Ordinal);
 
+    /// <summary>
+    /// UI polish phase 4 (approved target T-Installed): the page's footnote whenever an app has no update source. It says, calmly,
+    /// that "No update source" is not a warning, so no row needs a warning badge.
+    /// </summary>
+    public const string NoUpdateSourceNote = "No update source isn't a safety warning. It means PC Steward hasn't matched the app to a package source you've turned on.";
+
+    /// <summary>The count beside the search box: "437 apps", or "12 of 437 apps" when a search or filter narrows the list.</summary>
+    public static string CountText(int shown, int total) => shown == total
+        ? DisplayFormat.Plural(total, "app")
+        : $"{shown.ToString("N0", CultureInfo.CurrentCulture)} of {DisplayFormat.Plural(total, "app")}";
+
     /// <summary>The five saved filters in order, each with its count over every saved row.</summary>
     public static IReadOnlyList<InstalledAppsFilterOption> Options(IReadOnlyCollection<InventoryRow> rows)
     {

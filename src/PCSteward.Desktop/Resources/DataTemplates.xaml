@@ -1,17 +1,22 @@
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- UI polish phase 4 (approved target T-Installed): one row per record, in the columns Name, Version, Installed for and Update
+         source, with a chevron because the row opens the app's details. Neutral statuses ("No update source", "Pinned", ...) are
+         plain secondary text; statuses that ask for a look use the tinted chip. -->
     <DataTemplate x:Key="StewardApplicationRowTemplate">
         <Grid
-            MinHeight="64"
+            MinHeight="56"
             Padding="12,8"
-            ColumnSpacing="12"
+            ColumnSpacing="16"
             AutomationProperties.Name="{Binding AccessibleSummary}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="40" />
-                <ColumnDefinition Width="2*" />
-                <ColumnDefinition Width="0.85*" />
-                <ColumnDefinition Width="1.15*" />
+                <ColumnDefinition Width="32" />
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="1.4*" />
+                <ColumnDefinition Width="16" />
             </Grid.ColumnDefinitions>
             <Border
                 Width="32"
@@ -27,38 +32,49 @@
                     Foreground="{ThemeResource StewardTextBrush}"
                     Text="{Binding Initials}" />
             </Border>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                 <TextBlock
-                    FontWeight="SemiBold"
                     Foreground="{ThemeResource StewardTextBrush}"
                     MaxLines="1"
                     Text="{Binding Name}"
                     TextTrimming="CharacterEllipsis" />
                 <TextBlock
                     Style="{StaticResource StewardCaptionStyle}"
+                    Foreground="{ThemeResource StewardSecondaryTextBrush}"
                     MaxLines="1"
-                    Text="{Binding Publisher}"
+                    Text="{Binding PublisherAndProvider}"
                     TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
-                <TextBlock
-                    Foreground="{ThemeResource StewardTextBrush}"
-                    MaxLines="1"
-                    Text="{Binding Version}"
-                    TextTrimming="CharacterEllipsis" />
-                <TextBlock
-                    Style="{StaticResource StewardCaptionStyle}"
-                    MaxLines="1"
-                    Text="{Binding ScopeAndProvider}"
-                    TextTrimming="CharacterEllipsis" />
-            </StackPanel>
+            <TextBlock
+                Grid.Column="2"
+                VerticalAlignment="Center"
+                Foreground="{ThemeResource StewardTextBrush}"
+                MaxLines="1"
+                Text="{Binding VersionText}"
+                TextTrimming="CharacterEllipsis" />
+            <TextBlock
+                Grid.Column="3"
+                VerticalAlignment="Center"
+                Foreground="{ThemeResource StewardSecondaryTextBrush}"
+                MaxLines="1"
+                Text="{Binding ScopeLabel}"
+                TextTrimming="CharacterEllipsis" />
+            <TextBlock
+                Grid.Column="4"
+                VerticalAlignment="Center"
+                Foreground="{ThemeResource StewardSecondaryTextBrush}"
+                MaxLines="1"
+                Text="{Binding StatusLabel}"
+                TextTrimming="CharacterEllipsis"
+                Visibility="{Binding PlainStatusVisibility}" />
             <!-- The same status chip as StewardVisuals.Badge: glyph, label and tone brushes from StatusVocabulary. -->
             <Border
-                Grid.Column="3"
+                Grid.Column="4"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 Background="{Binding StatusBackground}"
-                Style="{StaticResource StewardStatusChipStyle}">
+                Style="{StaticResource StewardStatusChipStyle}"
+                Visibility="{Binding ChipVisibility}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon
                         FontSize="12"
@@ -72,6 +88,12 @@
                         TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
+            <FontIcon
+                Grid.Column="5"
+                VerticalAlignment="Center"
+                FontSize="12"
+                Foreground="{ThemeResource StewardSecondaryTextBrush}"
+                Glyph="&#xE76C;" />
         </Grid>
     </DataTemplate>
 </ResourceDictionary>

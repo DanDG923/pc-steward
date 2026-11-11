@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Dispatching;
 using System.Globalization;
+using System.Reflection;
 using PCSteward.Application;
 using PCSteward.Storage;
 using PCSteward.Scheduling.Windows;
@@ -19,25 +20,72 @@ namespace PCSteward.Desktop;
 
 public sealed partial class MainWindow
 {
-    private static StackPanel BuildAboutPage()
+    /// <summary>
+    /// UI polish phase 4 (approved target T-About): an identity card (logo, name, preview build and version, Copy diagnostic), the
+    /// preview-build warning, and "How PC Steward works" as expandable rows with the same words as before (one elevation story,
+    /// audit P-H5). Copy diagnostic (FR-HIS-05) moved here from Settings; it copies the same sanitized bundle.
+    /// </summary>
+    private StackPanel BuildAboutPage()
     {
         StackPanel panel = CreatePagePanel();
-        panel.Children.Add(StewardVisuals.PageHeader("About", "PC Steward lists the apps on this Windows 11 PC and helps you review and apply their updates. Everything stays on this PC."));
-        panel.Children.Add(StewardVisuals.InformationBanner("Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates."));
-        StackPanel scope = new() { Spacing = 8 };
-        scope.Children.Add(SectionHeading("Updates and administrator permission"));
-        scope.Children.Add(PageCopy(ElevationStory.Summary));
-        scope.Children.Add(PageCopy(ElevationStory.HelperRequirement));
-        panel.Children.Add(Card(scope));
-        StackPanel data = new() { Spacing = 8 };
-        data.Children.Add(SectionHeading("Data and removal"));
-        data.Children.Add(PageCopy("Inventory, settings, decisions, history, source evidence, downloads and logs are stored locally under your PC Steward data root. Removing the extracted package removes its binaries but retains that data by default. Use Factory reset PC Steward to remove app-owned local data and the current-user scheduled check before removal."));
-        panel.Children.Add(Card(data));
-        panel.Children.Add(StewardVisuals.InformationBanner("Preview build", "This build is for private testing and is not a public release. Install PC Steward only from the private release channel you were given, and check its published checksum.", "attention"));
-        StackPanel support = new() { Spacing = 8 };
-        support.Children.Add(SectionHeading("Support and rollback"));
-        support.Children.Add(PageCopy("If replacing PC Steward with a newer build fails, stop, copy the diagnostic from Settings › Privacy & exports, and use the rollback package from the same private release channel. Don't download PC Steward from mirrors or other download sites."));
-        panel.Children.Add(Card(support));
+        panel.Children.Add(StewardVisuals.PageHeader("About", string.Empty));
+
+        Grid identity = new() { ColumnSpacing = StewardSpacing.Section, RowSpacing = StewardSpacing.Medium };
+        identity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        identity.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        identity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Image logo = new() { Width = 48, Height = 48, Source = new BitmapImage(new Uri("ms-appx:///Assets/logo-mark-64.png")), VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAccessibilityView(logo, AccessibilityView.Raw);
+        identity.Children.Add(logo);
+        StackPanel name = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        TextBlock product = new() { Text = AppIdentity.DisplayName, Style = AppStyle("StewardSubtitleStyle") };
+        AutomationProperties.SetHeadingLevel(product, AutomationHeadingLevel.Level2);
+        name.Children.Add(product);
+        name.Children.Add(new TextBlock { Text = $"Preview build {ProductVersion()} · Lists the apps on this PC and helps you review and apply their updates. Everything stays on this PC.", Style = AppStyle("StewardCaptionStyle"), Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), IsTextSelectionEnabled = true });
+        Grid.SetColumn(name, 1);
+        identity.Children.Add(name);
+        // FR-HIS-05: Copy diagnostic copies the existing sanitized bundle; the confirmation (a polite live region) says what was copied.
+        DiagnosticCopyPresentation diagnostic = SettingsPresenter.DiagnosticCopy(activityHistoryUnavailable);
+        Button copyDiagnostic = new() { IsEnabled = diagnostic.IsEnabled, VerticalAlignment = VerticalAlignment.Center };
+        copyDiagnostic.Content = StewardVisuals.IconLabel("\uE8C8", diagnostic.Label);
+        AutomationProperties.SetName(copyDiagnostic, diagnostic.AccessibleName);
+        ToolTipService.SetToolTip(copyDiagnostic, diagnostic.Description);
+        Grid.SetColumn(copyDiagnostic, 2);
+        identity.Children.Add(copyDiagnostic);
+        TextBlock copied = new() { Text = diagnostic.UnavailableReason ?? string.Empty, Style = AppStyle("StewardCaptionStyle") };
+        AutomationProperties.SetLiveSetting(copied, AutomationLiveSetting.Polite);
+        copyDiagnostic.Click += (_, _) => CopyDiagnostic(copied);
+        StackPanel identityCard = new() { Spacing = StewardSpacing.Small };
+        identityCard.Children.Add(identity);
+        identityCard.Children.Add(new TextBlock { Text = diagnostic.Description, Style = AppStyle("StewardCaptionStyle") });
+        identityCard.Children.Add(copied);
+        panel.Children.Add(Card(identityCard));
+
+        panel.Children.Add(StewardVisuals.InformationBanner("Preview build", "For private testing only. Install it only from your private release channel and check its published checksum.", "attention"));
+
+        StackPanel works = new() { Spacing = StewardSpacing.XSmall };
+        works.Children.Add(SectionHeading("How PC Steward works"));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE72E", "Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates.",
+            PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved.")));
+        StackPanel elevation = new() { Spacing = StewardSpacing.Small };
+        elevation.Children.Add(PageCopy(ElevationStory.Summary));
+        elevation.Children.Add(PageCopy(ElevationStory.HelperRequirement));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uEA18", "Updates and administrator permission", "Checking never asks for permission. Windows asks once for each machine-wide app you approve.", elevation));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE74E", "Data and removal", "Everything is kept locally. Factory reset removes PC Steward's data and its scheduled check.",
+            PageCopy("Inventory, settings, decisions, history, source evidence, downloads and logs are stored locally under your PC Steward data root. Removing the extracted package removes its binaries but retains that data by default. Use Factory reset PC Steward to remove app-owned local data and the current-user scheduled check before removal.")));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE777", "Support and rollback", "If a newer build fails, copy the diagnostic and use the rollback package from the same channel.",
+            PageCopy("If replacing PC Steward with a newer build fails, stop, select Copy diagnostic above, and use the rollback package from the same private release channel. Don't download PC Steward from mirrors or other download sites.")));
+        panel.Children.Add(works);
+        panel.Children.Add(StewardVisuals.FootNote("\uE8A5", "Open source under the MIT licence."));
         return panel;
+    }
+
+    /// <summary>This build's version without its source revision suffix (for example "0.1.0-private-beta").</summary>
+    private static string ProductVersion()
+    {
+        string? version = typeof(MainWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (string.IsNullOrWhiteSpace(version)) return typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+        int metadata = version.IndexOf('+', StringComparison.Ordinal);
+        return metadata < 0 ? version : version[..metadata];
     }
 }
