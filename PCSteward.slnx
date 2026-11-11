@@ -13,6 +13,7 @@
     <Project Path="src/PCSteward.Desktop/PCSteward.Desktop.csproj" />
     <Project Path="src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" />
     <Project Path="src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" />
+    <Project Path="src/PCSteward.SelfUpdate/PCSteward.SelfUpdate.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PCSteward.ProcessFixture/PCSteward.ProcessFixture.csproj" />

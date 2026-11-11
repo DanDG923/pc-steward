@@ -23,6 +23,34 @@ public sealed class ReferenceBoundaryTests
     }
 
     [TestMethod]
+    public void SelfUpdateIsReferencedByNoHostThatRunsUnattendedOrElevated()
+    {
+        // ADR-032 / TM-25: the scheduled host and the elevated helper never gain PC Steward's own update capability.
+        string root = FindRepositoryRoot();
+        foreach (string project in new[] { "PCSteward.ScheduledHost", "PCSteward.ElevatedHelper", "PCSteward.Execution", "PCSteward.Application", "PCSteward.Domain" })
+        {
+            string projectPath = Path.Combine(root, "src", project, project + ".csproj");
+            IEnumerable<string?> references = XDocument.Load(projectPath).Descendants("ProjectReference").Select(element => (string?)element.Attribute("Include"));
+            Assert.IsFalse(references.Any(reference => reference?.Contains("SelfUpdate", StringComparison.Ordinal) == true), project);
+        }
+
+        string selfUpdate = Path.Combine(root, "src", "PCSteward.SelfUpdate");
+        Assert.IsFalse(XDocument.Load(Path.Combine(selfUpdate, "PCSteward.SelfUpdate.csproj")).Descendants("ProjectReference").Any());
+        foreach (string file in Directory.GetFiles(selfUpdate, "*.cs", SearchOption.AllDirectories).Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+        {
+            string source = File.ReadAllText(file);
+            foreach (string forbidden in new[] { "Process", "Registry", "File.", "Directory.", "Environment.", "PowerShell", "cmd.exe" })
+            {
+                Assert.IsFalse(source.Contains(forbidden, StringComparison.Ordinal), Path.GetFileName(file) + ": " + forbidden);
+            }
+            if (!string.Equals(Path.GetFileName(file), "GitHubReleaseClient.cs", StringComparison.Ordinal))
+            {
+                Assert.IsFalse(source.Contains("Http", StringComparison.Ordinal), Path.GetFileName(file) + " must not use the network");
+            }
+        }
+    }
+
+    [TestMethod]
     public void ElevatedHelperDoesNotReferenceForbiddenCapabilities()
     {
         string projectPath = Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ElevatedHelper", "PCSteward.ElevatedHelper.csproj");

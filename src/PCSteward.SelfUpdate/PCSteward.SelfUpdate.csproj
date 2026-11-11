@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ADR-032: PC Steward's own update check. The trust rules (manifest, signature, verifier, versions) are pure functions
+       over bytes; GitHubReleaseClient is the only file that touches the network, and it only reads public release data from
+       compiled addresses. No file, process or registry access lives here, and the scheduled host must never reference this
+       project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
+  </ItemGroup>
+</Project>
