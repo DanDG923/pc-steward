@@ -133,16 +133,17 @@ public static class PCStewardMsiReader
 '@
     }
     $msi = $built[0].FullName
-    function Get-MsiRows([string]$Query, [int]$Columns) { , [PCStewardMsiReader]::Query($msi, $Query, $Columns) }
+    # Rows are written to the pipeline one string[] each; every caller collects them with @() so one row stays one row.
+    function Get-MsiRows([string]$Query, [int]$Columns) { foreach ($row in [PCStewardMsiReader]::Query($msi, $Query, $Columns)) { , $row } }
     function Test-MsiTable([string]$Table) { [PCStewardMsiReader]::HasTable($msi, $Table) }
     try {
         foreach ($table in @('ServiceInstall', 'ServiceControl', 'MsiServiceConfig', 'MsiServiceConfigFailureActions', 'Binary')) {
-            if ((Test-MsiTable $table) -and (Get-MsiRows "SELECT * FROM ``$table``" 1).Count -gt 0) { throw "The MSI must not contain $table rows (ADR-034 §1)." }
+            if ((Test-MsiTable $table) -and @(Get-MsiRows "SELECT * FROM ``$table``" 1).Count -gt 0) { throw "The MSI must not contain $table rows (ADR-034 §1)." }
         }
         # No custom action may run code. The only one allowed is type 19 (show an error and stop, no source), which WiX may
         # author for MajorUpgrade's downgrade refusal.
         if (Test-MsiTable 'CustomAction') {
-            foreach ($action in Get-MsiRows 'SELECT `Action`, `Type`, `Source` FROM `CustomAction`' 3) {
+            foreach ($action in @(Get-MsiRows 'SELECT `Action`, `Type`, `Source` FROM `CustomAction`' 3)) {
                 if ($action[1] -cne '19' -or $action[2] -ne '') { throw "The MSI must not contain custom actions that run code (ADR-034 §1); found $($action[0]) of type $($action[1])." }
             }
         }
@@ -159,7 +160,7 @@ public static class PCStewardMsiReader
         if ($locks.Count -ne 1 -or $locks[0][1] -cne 'CreateFolder' -or $locks[0][0] -cne 'INSTALLFOLDER' -or $locks[0][2] -cne $script:FolderSddl) {
             throw "The MSI must set exactly the protected install-folder DACL; found: $(($locks | ForEach-Object { $_ -join '|' }) -join '; ')"
         }
-        if ((Test-MsiTable 'LockPermissions') -and (Get-MsiRows 'SELECT * FROM `LockPermissions`' 1).Count -gt 0) { throw 'The MSI must not use the LockPermissions table.' }
+        if ((Test-MsiTable 'LockPermissions') -and @(Get-MsiRows 'SELECT * FROM `LockPermissions`' 1).Count -gt 0) { throw 'The MSI must not use the LockPermissions table.' }
     }
     catch {
         Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
