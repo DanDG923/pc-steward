@@ -22,7 +22,7 @@ public sealed partial class MainWindow
     /// <summary>The Data &amp; reset subpage under Settings (Task 73 Phase 4; SPEC §17.3).</summary>
     private StackPanel BuildPrivacyPage()
     {
-        StackPanel panel = CreatePagePanel(1000);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Data & reset", "What PC Steward stores on this PC, how much space it uses, and separate controls to remove it. Exports are in Settings › Privacy & exports.", "Settings"));
         AddDataAndResetSection(panel);
         return panel;

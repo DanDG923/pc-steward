@@ -21,7 +21,7 @@ public sealed partial class MainWindow
 {
     private StackPanel BuildRepositoryAppsPage()
     {
-        StackPanel panel = CreatePagePanel(960);
+        StackPanel panel = CreatePagePanel();
         IReadOnlyList<InventoryRow> managedRows = viewModel.RepositoryManagedRows;
         int upToDate = managedRows.Count(row => row.Status == "Current");
         int updatesAvailable = managedRows.Count(row => row.Status == "VerifiedUpdate");

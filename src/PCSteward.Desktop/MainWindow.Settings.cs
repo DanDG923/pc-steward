@@ -28,7 +28,7 @@ public sealed partial class MainWindow
     /// </summary>
     private StackPanel BuildSettingsPage()
     {
-        StackPanel panel = CreatePagePanel(1000);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Settings", "Choose what PC Steward looks at, when it checks, and what it keeps on this PC.", "Preferences"));
         panel.Children.Add(PageCopy(SettingsPresenter.SaveModelText));
 

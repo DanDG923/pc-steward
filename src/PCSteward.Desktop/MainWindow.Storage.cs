@@ -21,7 +21,7 @@ public sealed partial class MainWindow
 {
     private StackPanel BuildStoragePage()
     {
-        StackPanel panel = CreatePagePanel(1000);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Storage", "Space used by PC Steward's own records and downloaded update files.", "PC Steward data"));
         panel.Children.Add(StewardVisuals.InformationBanner("Only PC Steward's own files", "This page never covers Windows temporary files, other apps' caches, your documents, drivers, firmware or installed apps."));
         StackPanel summary = new() { Spacing = StewardSpacing.Small };

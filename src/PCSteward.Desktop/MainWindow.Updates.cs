@@ -27,7 +27,7 @@ public sealed partial class MainWindow
     /// </summary>
     private StackPanel BuildUpdatesPage()
     {
-        StackPanel panel = CreatePagePanel(960);
+        StackPanel panel = CreatePagePanel();
         UpdatesPagePresentation page = UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, activeDecisions, selectedReadyKeys, DateTimeOffset.UtcNow);
         selectedReadyKeys.RemoveWhere(key => !page.IsSelected(key));
         Button refresh = StewardVisuals.ActionButton(viewModel.IsCheckingUpdates ? "Checking package sources…" : "Refresh package sources");

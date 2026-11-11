@@ -246,6 +246,7 @@ public sealed partial class MainWindow
         if (navigationView is not null) { windowRoot.Children.Remove(navigationView); navigationView = null; pageHost = null; renderedPage = null; }
         foreach (UIElement bare in windowRoot.Children.Where(child => Grid.GetRow((FrameworkElement)child) == 1).ToArray()) windowRoot.Children.Remove(bare);
         ScrollViewer host = new() { Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        StewardVisuals.KeepPageColumnFitted(host);
         Grid.SetRow(host, 1);
         windowRoot.Children.Add(host);
         SyncNavigationChrome();
@@ -307,7 +308,8 @@ public sealed partial class MainWindow
             Background = StewardVisuals.Brush("StewardBrandSubtleBrush"),
             BorderBrush = StewardVisuals.Brush("StewardBorderBrush"),
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(StewardSpacing.XLarge, StewardSpacing.Small, StewardSpacing.XLarge, StewardSpacing.Small),
+            // UI polish Phase 1: the band's text starts on the page column's left edge.
+            Padding = new Thickness(StewardSpacing.PagePadding.Left, StewardSpacing.Small, StewardSpacing.PagePadding.Right, StewardSpacing.Small),
             Visibility = HasActiveOperation ? Visibility.Visible : Visibility.Collapsed,
             Child = operation
         };
@@ -318,6 +320,7 @@ public sealed partial class MainWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
+        StewardVisuals.KeepPageColumnFitted(pageHost);
         Grid.SetRow(pageHost, 1);
         shell.Children.Add(pageHost);
 
@@ -383,6 +386,7 @@ public sealed partial class MainWindow
         Control? initialFocus = sameView ? null : pageInitialFocus;
         renderedPage = navigation.Current;
         pageHost.Content = page;
+        StewardVisuals.FitPageColumn(pageHost);
         if (!sameView) pageHost.ChangeView(null, 0, null, true);
         void Restore(object sender, RoutedEventArgs args)
         {

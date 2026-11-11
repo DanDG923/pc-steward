@@ -21,7 +21,7 @@ public sealed partial class MainWindow
 {
     private StackPanel BuildScanPage()
     {
-        StackPanel panel = CreatePagePanel(900);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Inventory scan", viewModel.IsScanning || scanCancellation is not null ? "PC Steward is reading the apps installed on this PC. Your last completed scan stays available until this one finishes." : viewModel.LastScanAt is null ? "Start a private, read-only scan. Nothing is installed, removed or changed, and no administrator permission is requested." : "Check what the scan covers before replacing your last completed scan.", "Read only"));
         // Status text, not a heading: the operation band's live region announces state changes.
         scanPageStatusText = new TextBlock { Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}", Style = AppStyle("StewardSubtitleStyle") };

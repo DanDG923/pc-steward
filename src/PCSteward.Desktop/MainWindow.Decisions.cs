@@ -22,7 +22,7 @@ public sealed partial class MainWindow
     /// <summary>FR-POL-01–05 (ADR-030 foundation 7): pins, ignores and confirmed package identities in one reversible view.</summary>
     private StackPanel BuildDecisionsPage()
     {
-        StackPanel panel = CreatePagePanel(900);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("Decisions", "Pins, ignores and package identities you confirmed. Each one is reversible, and none of them starts an update."));
         AddDecisionsSection(panel);
         return panel;

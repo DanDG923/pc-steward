@@ -894,7 +894,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(cadenceHandler, "SettingsPresenter.ScheduleControlAvailability(cadence.SelectedIndex, busy: false)");
         foreach (string save in new[] { "SaveScheduleAsync", "ApplyScheduleAsync", "Render()" })
             Assert.IsFalse(cadenceHandler.Contains(save, StringComparison.Ordinal), $"the cadence handler never saves or re-renders: {save}");
-        StringAssert.Contains(settings, "CreatePagePanel(1000)");
+        StringAssert.Contains(settings, "CreatePagePanel()"); // UI polish Phase 1: one left-aligned page column for every page.
         // Fail closed (fix 3): no cadence or weekday selection shows a message and saves nothing; the weekday is set by index.
         StringAssert.Contains(scheduleCard, "SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time)");
         StringAssert.Contains(scheduleCard, "if (requested is null) { scheduleSummary.Text = SettingsPresenter.ScheduleNotChosen; return; }");

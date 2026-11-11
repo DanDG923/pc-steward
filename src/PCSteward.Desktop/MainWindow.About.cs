@@ -21,7 +21,7 @@ public sealed partial class MainWindow
 {
     private static StackPanel BuildAboutPage()
     {
-        StackPanel panel = CreatePagePanel(820);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("About", "PC Steward lists the apps on this Windows 11 PC and helps you review and apply their updates. Everything stays on this PC."));
         panel.Children.Add(StewardVisuals.InformationBanner("Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates."));
         StackPanel scope = new() { Spacing = 8 };

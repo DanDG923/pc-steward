@@ -27,7 +27,7 @@ public sealed partial class MainWindow
     /// </summary>
     private StackPanel BuildUpdateJobPage()
     {
-        StackPanel panel = CreatePagePanel(820);
+        StackPanel panel = CreatePagePanel();
         jobProgressStateText = null;
         if (updateJob is not { } job)
         {

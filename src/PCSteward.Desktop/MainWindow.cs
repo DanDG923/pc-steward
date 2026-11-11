@@ -266,15 +266,27 @@ public sealed partial class MainWindow : Window
 
     private void RenderStartupStateLoadFailure()
     {
-        StackPanel panel = CreatePagePanel(760);
+        StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageTitle("PC Steward couldn't open its data"));
         panel.Children.Add(PageCopy("Another PC Steward task is still using its data, or a reset is still being finished. Nothing was scanned or changed. Close PC Steward and try again when the other task has finished."));
         ShowBarePage(panel);
     }
 
-    private static StackPanel CreatePagePanel(double maxWidth = 1040)
+    /// <summary>
+    /// UI polish Phase 1 (approved targets; plan root cause 2): every page is one left-aligned column beside the navigation, like
+    /// Windows Settings — at most <see cref="StewardSpacing.PageMaxWidth"/> wide plus its padding, and never centred in the window.
+    /// The host gives the column its width (<see cref="StewardVisuals.FitPageColumn"/>).
+    /// </summary>
+    private static StackPanel CreatePagePanel()
     {
-        StackPanel panel = new() { Spacing = StewardSpacing.Large, Padding = new Thickness(StewardSpacing.XLarge), MaxWidth = maxWidth };
+        Thickness padding = StewardSpacing.PagePadding;
+        StackPanel panel = new()
+        {
+            Spacing = StewardSpacing.Section,
+            Padding = padding,
+            MaxWidth = StewardSpacing.PageMaxWidth + padding.Left + padding.Right,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
         panel.Resources[typeof(TextBlock)] = AppStyle("StewardBodyStyle");
         panel.Resources[typeof(Button)] = AppStyle("StewardButtonStyle");
         panel.Resources[typeof(TextBox)] = AppStyle("StewardInputStyle");

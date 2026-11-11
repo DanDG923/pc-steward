@@ -28,7 +28,7 @@ public sealed partial class MainWindow
     {
         if (detailRow is null)
         {
-            StackPanel missing = CreatePagePanel(760);
+            StackPanel missing = CreatePagePanel();
             missing.Children.Add(StewardVisuals.PageTitle("App details"));
             Button leave = StewardVisuals.ActionButton("Open Installed apps");
             leave.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
@@ -42,7 +42,7 @@ public sealed partial class MainWindow
         // One status vocabulary (StatusVocabulary); cached evidence stays visibly distinct in text (FR-UI-05).
         string status = cachedCurrent ? $"{StatusVocabulary.For(row.Status).Label} · cached evidence" : StatusVocabulary.For(row.Status).Label;
 
-        StackPanel panel = CreatePagePanel(1000);
+        StackPanel panel = CreatePagePanel();
         Grid heading = new() { ColumnSpacing = 16 };
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
