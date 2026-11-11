@@ -104,10 +104,12 @@ function Get-InstalledProducts {
     if (!(Test-Path -LiteralPath $key)) { return @() }
     $installer = New-Object -ComObject WindowsInstaller.Installer
     @((Get-Item -LiteralPath $key).Property | Where-Object { $_ } | ForEach-Object {
-        $code = ConvertFrom-PackedProductCode $_
-        if ($null -eq $code) { throw "Not a packed product code under the machine UpgradeCode key: $_" }
+        $packed = [string]$_
+        $code = ConvertFrom-PackedProductCode $packed
+        if ($null -eq $code) { throw "Not a packed product code under the machine UpgradeCode key: $packed" }
+        # ProductInfo asks the merged view, which refuses a product also registered for the user; the machine record answers then.
         $version = try { [string]$installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @($code, 'VersionString')) }
-        catch { [string](Get-ItemProperty -LiteralPath ('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\' + $_ + '\InstallProperties') -Name DisplayVersion -ErrorAction Stop).DisplayVersion }
+        catch { [string](Get-ItemProperty -LiteralPath ('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\' + $packed + '\InstallProperties') -Name DisplayVersion -ErrorAction Stop).DisplayVersion }
         [pscustomobject]@{ ProductCode = $code; Version = $version }
     })
 }
