@@ -42,7 +42,18 @@ internal static class SelfUpdateFinishCheck
         string image = Path.Combine(privateFolder, SelfUpdateHelperProtocol.ImageFolder);
         int? extracted = host.RunMsiexecAsync(["/a", msiCopy, "/qn", "TARGETDIR=" + image, "/l*v", Path.Combine(privateFolder, SelfUpdateHelperProtocol.ExtractLogName)],
             privateFolder, TimeSpan.FromMinutes(10), CancellationToken.None).GetAwaiter().GetResult();
-        if (extracted != 0) return Fail("extract " + extracted);
+        if (extracted != 0)
+        {
+            // The CI log is the only place the run's files can be read from outside it, so the extract log's outcome lines go there.
+            string log = Path.Combine(privateFolder, SelfUpdateHelperProtocol.ExtractLogName);
+            if (File.Exists(log))
+                foreach (string line in File.ReadLines(log).Where(line => !line.Contains("Note: 1:", StringComparison.Ordinal) &&
+                             (line.Contains("Return value 3", StringComparison.Ordinal) || line.Contains("Error", StringComparison.OrdinalIgnoreCase) ||
+                              line.Contains("policy", StringComparison.OrdinalIgnoreCase) || line.Contains("Product: ", StringComparison.Ordinal) ||
+                              line.Contains("MainEngineThread", StringComparison.Ordinal))).Take(40))
+                    Console.Error.WriteLine("extract.log: " + (line.Length > 300 ? line[..300] : line));
+            return Fail("extract " + extracted);
+        }
         if (host.ReadImage(image, msiName) is not { } extractedImage) return Fail("image-layout");
         byte[] manifest = host.ReadFile(Path.Combine(extractedImage.InstallFolder, ReleaseManifestPolicy.FileName), ReleaseManifestPolicy.MaximumManifestBytes)
             ?? throw new InvalidOperationException("No release manifest in the image.");
