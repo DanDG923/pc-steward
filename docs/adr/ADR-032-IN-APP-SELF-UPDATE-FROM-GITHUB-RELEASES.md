@@ -224,7 +224,7 @@ Existing `TM-03`, `TM-04`, `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 
 ## Owner decisions
 
-1. **Publishing.** Publish signed releases as GitHub releases of the public repository, and turn on immutable releases (repository Settings, General, Releases)? Recommended: yes. Without published releases there is nothing for the app to fetch.
+1. **Publishing.** Publish signed releases as GitHub releases of the public repository, and turn on immutable releases (repository Settings, General, Releases)? Recommended: yes. Without published releases there is nothing for the app to fetch. **Owner, 2026-11-11: "Yes, publish releases"** (with immutable releases).
 2. **Where the CI anchor is checked.** The desktop checks GitHub's public API, and the offline helper re-checks the content on its own copies (option A, recommended), or the elevated helper also asks GitHub itself (option B)?
 3. **When to check.** Only when the owner presses Check for updates (recommended), or also a notify-only check during the scheduled scan?
 
