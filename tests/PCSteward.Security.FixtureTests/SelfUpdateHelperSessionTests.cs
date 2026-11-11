@@ -22,9 +22,10 @@ public sealed class SelfUpdateHelperSessionTests
     private static readonly string[] SessionOrder =
     [
         "ProfileFolder", "CreateProtectedFolder", "RemoveOlderWorkFolders", "CopyInput:zip", "CopyInput:msi", "ConfirmAsync", "CarriesCompiledPin", "ReadMsiTables",
-        "RunMsiexecAsync:/a", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
+        "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
         "WriteNewFile:expected-install.json", "StartFinish",
     ];
+    private const string ProductCode = "{11111111-1111-1111-1111-111111111111}";
     private static readonly string[] InstallOnly = ["/i"];
     private static readonly string[] InstallThenRemove = ["/i", "/x"];
     private static readonly SelfUpdateSessionBudgets Budgets = new(TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1),
@@ -93,11 +94,13 @@ public sealed class SelfUpdateHelperSessionTests
             Assert.IsTrue(SelfUpdateHelperProtocol.TryReadResponse(SelfUpdateHelperProtocol.WriteResponse(refused with { Reason = reason }), out SelfUpdateResponse? each) &&
                 each!.Reason == reason, reason.ToString());
 
-        SelfUpdateJobFile job = new(Job, "0.1.2", 4242, ReleaseCheckFixture.Commit, new string('E', 64), new string('F', 64), 4321);
+        SelfUpdateJobFile job = new(Job, "0.1.2", 4242, ReleaseCheckFixture.Commit, new string('E', 64), new string('F', 64), 4321, ProductCode);
         Assert.IsTrue(SelfUpdateHelperProtocol.TryReadJob(SelfUpdateHelperProtocol.WriteJob(job), out SelfUpdateJobFile? jobRead));
         Assert.AreEqual(job, jobRead);
         Assert.ThrowsExactly<ArgumentException>(() => SelfUpdateHelperProtocol.WriteJob(job with { MsiSha256 = "..\\x" }));
         Assert.ThrowsExactly<ArgumentException>(() => SelfUpdateHelperProtocol.WriteJob(job with { DesktopProcessId = 0 }));
+        Assert.ThrowsExactly<ArgumentException>(() => SelfUpdateHelperProtocol.WriteJob(job with { ProductCode = "{11111111-1111-1111-1111-11111111111a}" }));
+        Assert.ThrowsExactly<ArgumentException>(() => SelfUpdateHelperProtocol.WriteJob(job with { ProductCode = "..\\x" }));
 
         SelfUpdateResultFile result = new(Job, SelfUpdateFinishOutcome.RestartNeeded, 3010, "0.1.2", new string('A', 64), 1_700_000_000, "restart-needed");
         Assert.IsTrue(SelfUpdateHelperProtocol.TryReadResult(SelfUpdateHelperProtocol.WriteResult(result), out SelfUpdateResultFile? resultRead));
@@ -163,6 +166,7 @@ public sealed class SelfUpdateHelperSessionTests
         Assert.IsTrue(SelfUpdateHelperProtocol.TryReadJob(host.Written["job.json"], out SelfUpdateJobFile? job));
         Assert.AreEqual(4321, job!.DesktopProcessId);
         Assert.AreEqual(host.Request.MsiSha256, job.MsiSha256);
+        Assert.AreEqual(ProductCode, job.ProductCode, "the finish copy removes only the product code read from the protected MSI copy");
         Assert.IsTrue(SelfUpdateInstallPolicy.TryReadExpected(host.Written["expected-install.json"], out SelfUpdateExpectedInstall? expected));
         Assert.AreEqual(5, expected!.Files.Count);
         Assert.AreEqual(Path.Combine(host.Profile, "AppData", "Local", "PCSteward", "Downloads", "SelfUpdate", host.Request.MsiSha256 + ".msi"), host.MsiSource);
@@ -193,6 +197,9 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.TablesReadable = false, SelfUpdateSessionRefusal.MsiUnreadable),
             (host => host.TablesSha = new string('0', 64), SelfUpdateSessionRefusal.MsiTablesDiffer),
             (host => host.ForbiddenTable = true, SelfUpdateSessionRefusal.MsiStructureRefused),
+            (host => host.NoProductCode = true, SelfUpdateSessionRefusal.MsiStructureRefused),
+            (host => host.PerUserBefore = true, SelfUpdateSessionRefusal.PerUserRegistration),
+            (host => host.PerUserAfterExtract = true, SelfUpdateSessionRefusal.PerUserRegistration),
             (host => host.ExtractExit = 1603, SelfUpdateSessionRefusal.ExtractFailed),
             (host => host.ExtractExit = null, SelfUpdateSessionRefusal.ExtractFailed),
             (host => host.ImageReadable = false, SelfUpdateSessionRefusal.ImageLayoutRefused),
@@ -293,7 +300,7 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.TreeDiffers = true, "installed-tree-differs"),
             (host => host.Protected = false, "installed-dacl-differs"),
             (host => host.Pinned = false, "installed-executables-not-pinned"),
-            (host => host.Products = [new("{11111111-1111-1111-1111-111111111111}", "0.1.2"), new("{22222222-2222-2222-2222-222222222222}", "0.1.1")], "product-registration-differs"),
+            (host => host.Products = [new(ProductCode, "0.1.2"), new("{22222222-2222-2222-2222-222222222222}", "0.1.1")], "product-registration-differs"),
         })
         {
             FinishHost host = new();
@@ -302,8 +309,24 @@ public sealed class SelfUpdateHelperSessionTests
             Assert.AreEqual(SelfUpdateFinishOutcome.MismatchUninstalled, host.Result().Outcome, detail);
             Assert.AreEqual(detail, host.Result().Detail);
             CollectionAssert.AreEqual(InstallThenRemove, host.Msiexec.Select(arguments => arguments[0]).ToArray(), detail);
-            Assert.AreEqual("{11111111-1111-1111-1111-111111111111}", host.Msiexec[1][1], detail);
+            Assert.AreEqual(ProductCode, host.Msiexec[1][1], detail);
         }
+
+        // Security review R1: no msiexec at all while the owner's registry registers the product, and no uninstall after one appears.
+        FinishHost perUser = new() { PerUserBefore = true };
+        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, perUser, CancellationToken.None);
+        Assert.AreEqual((SelfUpdateFinishOutcome.RefusedBeforeInstall, "per-user-registration"), (perUser.Result().Outcome, perUser.Result().Detail));
+        Assert.IsEmpty(perUser.Msiexec);
+        FinishHost appeared = new() { PerUserAfter = true };
+        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, appeared, CancellationToken.None);
+        Assert.AreEqual((SelfUpdateFinishOutcome.MismatchUninstallFailed, "per-user-registration; uninstall-refused"), (appeared.Result().Outcome, appeared.Result().Detail));
+        CollectionAssert.AreEqual(InstallOnly, appeared.Msiexec.Select(arguments => arguments[0]).ToArray());
+
+        // Security review R2: a machine product that is not this MSI's own is never removed.
+        FinishHost other = new() { Products = [new("{22222222-2222-2222-2222-222222222222}", "0.1.2")] };
+        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, other, CancellationToken.None);
+        Assert.AreEqual((SelfUpdateFinishOutcome.MismatchUninstallFailed, "product-registration-differs; no-product-to-remove"), (other.Result().Outcome, other.Result().Detail));
+        CollectionAssert.AreEqual(InstallOnly, other.Msiexec.Select(arguments => arguments[0]).ToArray());
 
         FinishHost stuck = new() { TreeDiffers = true, UninstallExit = 1603 };
         await SelfUpdateFinish.RunAsync(Leaf, elevated: true, stuck, CancellationToken.None);
@@ -424,6 +447,9 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool TablesReadable { get; set; } = true;
         internal string TablesSha { get; set; } = new('C', 64);
         internal bool ForbiddenTable { get; set; }
+        internal bool NoProductCode { get; set; }
+        internal bool PerUserBefore { get; set; }
+        internal bool PerUserAfterExtract { get; set; }
         internal int? ExtractExit { get; set; } = 0;
         internal Action? OnExtract { get; set; }
         internal bool ImageReadable { get; set; } = true;
@@ -491,6 +517,7 @@ public sealed class SelfUpdateHelperSessionTests
             Calls.Add("ReadMsiTables");
             Dictionary<string, MsiTable> tables = new(StringComparer.Ordinal);
             if (ForbiddenTable) tables["ServiceInstall"] = new("ServiceInstall", ["ServiceInstall"], [["svc"]]);
+            tables["Property"] = new("Property", ["Property", "Value"], NoProductCode ? [["ProductName", "PC Steward"]] : [["ProductName", "PC Steward"], ["ProductCode", ProductCode]]);
             return TablesReadable ? new([], TablesSha, tables) : null;
         }
 
@@ -505,6 +532,13 @@ public sealed class SelfUpdateHelperSessionTests
                 catch (OperationCanceledException) { }
             }
             return ExtractExit;
+        }
+
+        public bool HasPerUserRegistration(string productCode)
+        {
+            Calls.Add("HasPerUserRegistration");
+            Assert.AreEqual(ProductCode, productCode);
+            return Calls.Contains("RunMsiexecAsync:/a") ? PerUserAfterExtract : PerUserBefore;
         }
 
         public SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf)
@@ -558,7 +592,7 @@ public sealed class SelfUpdateHelperSessionTests
                 new(ReleaseManifestPolicy.FileName, 10, new string('A', 64)),
                 new("PCSteward.Desktop.exe", 20, new string('B', 64)),
             ]);
-            JobBytes = SelfUpdateHelperProtocol.WriteJob(new(Job, "0.1.2", 4242, ReleaseCheckFixture.Commit, new string('E', 64), new string('F', 64), 4321));
+            JobBytes = SelfUpdateHelperProtocol.WriteJob(new(Job, "0.1.2", 4242, ReleaseCheckFixture.Commit, new string('E', 64), new string('F', 64), 4321, ProductCode));
         }
 
         internal string Path { get; set; }
@@ -573,7 +607,9 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool TreeDiffers { get; set; }
         internal bool Protected { get; set; } = true;
         internal bool Pinned { get; set; } = true;
-        internal IReadOnlyList<SelfUpdateRelatedProduct> Products { get; set; } = [new("{11111111-1111-1111-1111-111111111111}", "0.1.2")];
+        internal IReadOnlyList<SelfUpdateRelatedProduct> Products { get; set; } = [new(ProductCode, "0.1.2")];
+        internal bool PerUserBefore { get; set; }
+        internal bool PerUserAfter { get; set; }
         internal List<IReadOnlyList<string>> Msiexec { get; } = [];
         internal Dictionary<string, byte[]> Written { get; } = new(StringComparer.Ordinal);
         internal int TreeReads { get; private set; }
@@ -624,6 +660,12 @@ public sealed class SelfUpdateHelperSessionTests
         public bool BothCarrySameReleasePin(string first, string second) => Pinned;
 
         public IReadOnlyList<SelfUpdateRelatedProduct>? RelatedProducts() => Products;
+
+        public bool HasPerUserRegistration(string productCode)
+        {
+            Assert.AreEqual(ProductCode, productCode);
+            return Msiexec.Count == 0 ? PerUserBefore : PerUserAfter;
+        }
 
         public long BootTimeUnixSeconds() => 1_700_000_000;
 

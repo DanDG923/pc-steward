@@ -14,33 +14,35 @@ internal enum MsiStructureVerdict
 /// <summary>
 /// FR-UPD-15, TM-20; ADR-032 revision 2 §6 step 4: a rule about what an MSI may contain that does not depend on the release
 /// check file, applied by the elevated helper before <c>msiexec</c> touches the package (even the administrative extract). The
-/// PC Steward MSI (ADR-034 §1) runs no code of its own, so a package is refused when it has any row in a table that runs code,
-/// installs or controls a service, chains or embeds another installer or UI, registers self-registering or ODBC components, or
-/// changes environment variables; and when its <c>CustomAction</c> table holds anything other than error-message actions
-/// (type 19, which only shows text and stops the install: WiX's refused-downgrade message). Pure: it judges tables already
-/// read by <see cref="MsiTableDigest.Read"/>.
+/// PC Steward MSI (ADR-034 §1) runs no code of its own and writes nothing but its files, its folder's permissions and one
+/// Start menu shortcut. Security review R5: the rule is an allow-list. A package is refused when any table outside
+/// <see cref="AllowedTables"/> has a row (so registry, COM, services, self-registration, file moves and removals, environment
+/// changes, embedded installers or UI and any table Windows Installer adds later are all refused), and when its
+/// <c>CustomAction</c> table holds anything other than error-message actions (type 19, which only shows text and stops the
+/// install: WiX's refused-downgrade message). Pure: it judges tables already read by <see cref="MsiTableDigest.Read"/>.
 /// </summary>
 internal static class MsiStructurePolicy
 {
     /// <summary>Windows Installer custom action type 19: display an error message and end the installation. It runs no code.</summary>
     internal const int ErrorMessageCustomActionType = 19;
 
-    internal static readonly IReadOnlyList<string> ForbiddenTables =
+    /// <summary>The tables the PC Steward MSI is built with (<c>packaging/msi/Package.wxs</c>); no other table may hold a row.</summary>
+    internal static readonly IReadOnlyList<string> AllowedTables =
     [
-        "Binary", "ServiceInstall", "ServiceControl", "MsiServiceConfig", "MsiServiceConfigFailureActions", "MsiEmbeddedChainer",
-        "MsiEmbeddedUI", "SelfReg", "ODBCDriver", "ODBCTranslator", "ODBCDataSource", "ODBCSourceAttribute", "ODBCAttribute",
-        "Environment",
+        "_Validation", "AdminExecuteSequence", "AdminUISequence", "AdvtExecuteSequence", "AppSearch", "Component", "CreateFolder",
+        "CustomAction", "Directory", "DrLocator", "Feature", "FeatureComponents", "File", "Icon", "InstallExecuteSequence",
+        "InstallUISequence", "LaunchCondition", "Media", "MsiFileHash", "MsiLockPermissionsEx", "Property", "Shortcut", "Upgrade",
     ];
 
     internal static MsiStructureVerdict Check(IReadOnlyDictionary<string, MsiTable> tables, out string detail)
     {
         ArgumentNullException.ThrowIfNull(tables);
         detail = "";
-        foreach (string forbidden in ForbiddenTables)
+        foreach (MsiTable table in tables.Values.OrderBy(table => table.Name, StringComparer.Ordinal))
         {
-            if (tables.TryGetValue(forbidden, out MsiTable? table) && table.Rows.Count > 0)
+            if (table.Rows.Count > 0 && !AllowedTables.Contains(table.Name, StringComparer.Ordinal))
             {
-                detail = forbidden;
+                detail = table.Name;
                 return MsiStructureVerdict.ForbiddenTable;
             }
         }

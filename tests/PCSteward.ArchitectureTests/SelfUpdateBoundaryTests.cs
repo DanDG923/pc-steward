@@ -122,7 +122,8 @@ public sealed class SelfUpdateBoundaryTests
         foreach (string check in new[]
                  {
                      "self-update-finish-uninstalls-an-install-unlike-the-expected-tree", "self-update-desktop-reads-the-uninstalled-job-as-failed",
-                     "self-update-finish-refuses-outside-the-work-folder", "self-update-finish-installs-and-verifies-the-upgrade",
+                     "self-update-finish-refuses-outside-the-work-folder", "self-update-finish-refuses-a-per-user-registration",
+                     "self-update-finish-installs-and-verifies-the-upgrade",
                      "self-update-desktop-reads-the-installed-job-as-updated", "self-update-uninstalls-cleanly",
                  })
             StringAssert.Contains(script, "Set-Check '" + check + "'");
@@ -133,6 +134,38 @@ public sealed class SelfUpdateBoundaryTests
         // The job is laid out through the production host and read back through the production desktop pieces.
         foreach (string call in new[] { "WindowsSelfUpdateHost.TryCreate()", "host.CreateProtectedFolder(work)", "host.CopyInput(msiPath", "host.ReadImage(", "SelfUpdateDesktopFiles.TryCreate()", "files.Evaluate(" })
             StringAssert.Contains(prepare, call);
+    }
+
+    /// <summary>
+    /// Self-updater security review R1/R2: the owner's own registry (HKCU), which any same-user program can write, never decides
+    /// what msiexec installs or removes. The helper and the release install script read installed products from the
+    /// administrator-only machine registration only, refuse to run msiexec while a per-user registration exists, and remove only
+    /// the MSI's own product code.
+    /// </summary>
+    [TestMethod]
+    public void TheOwnersRegistryNeverSteersMsiexec()
+    {
+        string root = CompiledIlScanner.FindRepositoryRoot();
+        string host = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Execution", "WindowsSelfUpdateHost.cs"));
+        Assert.IsFalse(host.Contains("MsiEnumRelatedProducts", StringComparison.Ordinal), "the merged machine-plus-user product list");
+        Assert.IsFalse(Regex.IsMatch(host, @"MsiGetProductInfo\b|MsiGetProductInfoW"), "the merged product information");
+        StringAssert.Contains(host, "Registry.LocalMachine.OpenSubKey(MsiProductRegistration.MachineUpgradeCodeKey, writable: false)");
+        StringAssert.Contains(host, "NativeMethods.MsiGetProductInfoEx(productCode, null, NativeMethods.MsiInstallContextMachine, \"VersionString\"");
+        Assert.AreEqual(1, Regex.Count(host, @"Registry\.CurrentUser"), "HKCU is only checked for registrations");
+
+        string session = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Execution", "SelfUpdateSession.cs"));
+        int extract = session.IndexOf("[\"/a\", msiPath", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, extract);
+        Assert.IsLessThan(extract, session.IndexOf("Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);", StringComparison.Ordinal));
+        string finish = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Execution", "SelfUpdateFinish.cs"));
+        Assert.IsLessThan(finish.IndexOf("[\"/i\", msiPath", StringComparison.Ordinal), finish.IndexOf("if (host.HasPerUserRegistration(job.ProductCode))", StringComparison.Ordinal));
+        StringAssert.Contains(finish, "[\"/x\", job.ProductCode,");
+
+        string install = File.ReadAllText(Path.Combine(root, "scripts", "Install-PCStewardRelease.ps1"));
+        Assert.IsFalse(install.Contains("'RelatedProducts'", StringComparison.Ordinal), "the merged machine-plus-user product list");
+        Assert.IsLessThan(install.IndexOf("Invoke-Msiexec @('/i'", StringComparison.Ordinal), install.IndexOf("if (Test-PerUserRegistration $productCode) { throw", StringComparison.Ordinal));
+        StringAssert.Contains(install, "$null = Invoke-Msiexec @('/x', $productCode) 'msiexec-uninstall.log'");
+        Assert.IsFalse(Regex.IsMatch(install, @"Invoke-Msiexec @\('/x', \$product\."), "never another product's code");
     }
 
     /// <summary>

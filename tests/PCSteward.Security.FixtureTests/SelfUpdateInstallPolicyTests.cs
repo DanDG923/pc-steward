@@ -199,14 +199,53 @@ public sealed class SelfUpdateInstallPolicyTests
             Assert.AreEqual(action[0], detail);
         }
 
-        foreach (string forbidden in MsiStructurePolicy.ForbiddenTables)
+        // Security review R5: an allow-list. Every table outside it is refused once it has a row, including ones that run no code
+        // but make privileged changes (registry, COM, file moves and removals, permissions on other objects).
+        foreach (string forbidden in new[]
+        {
+            "Binary", "ServiceInstall", "ServiceControl", "MsiServiceConfig", "MsiEmbeddedChainer", "MsiEmbeddedUI", "SelfReg", "ODBCDriver",
+            "Environment", "Registry", "RemoveRegistry", "Class", "ProgId", "Verb", "Extension", "TypeLib", "AppId", "MoveFile", "DuplicateFile",
+            "RemoveFile", "LockPermissions", "IniFile", "Font", "PublishComponent", "IsolatedComponent", "MsiAssembly", "SomeFutureTable",
+        })
         {
             Dictionary<string, MsiTable> withRow = new(tables) { [forbidden] = Table(forbidden, ["Key"], ["x"]) };
             Assert.AreEqual(MsiStructureVerdict.ForbiddenTable, MsiStructurePolicy.Check(withRow, out string detail), forbidden);
             Assert.AreEqual(forbidden, detail);
         }
+        foreach (string allowed in MsiStructurePolicy.AllowedTables.Where(name => name != "CustomAction"))
+        {
+            Dictionary<string, MsiTable> withRow = new(tables) { [allowed] = Table(allowed, ["Key"], ["x"]) };
+            Assert.AreEqual(MsiStructureVerdict.Allowed, MsiStructurePolicy.Check(withRow, out _), allowed);
+        }
         Dictionary<string, MsiTable> noType = new(tables) { ["CustomAction"] = Table("CustomAction", ["Action", "Source"], ["x", null]) };
         Assert.AreEqual(MsiStructureVerdict.UnreadableTable, MsiStructurePolicy.Check(noType, out _));
+    }
+
+    [TestMethod]
+    public void WindowsInstallerRegistrationKeysUseThePackedProductCode()
+    {
+        // Packed form: each of the first three groups reversed, then the last eight bytes with their two digits swapped.
+        Assert.AreEqual("03371DA25DABEB644A900218B46276C3", MsiProductRegistration.Pack(MsiProductRegistration.UpgradeCode));
+        Assert.AreEqual(MsiProductRegistration.UpgradeCode, MsiProductRegistration.Unpack("03371DA25DABEB644A900218B46276C3"));
+        Assert.AreEqual(@"SOFTWARE\Classes\Installer\UpgradeCodes\03371DA25DABEB644A900218B46276C3", MsiProductRegistration.MachineUpgradeCodeKey);
+        const string product = "{0123ABCD-4567-89EF-0123-456789ABCDEF}";
+        Assert.AreEqual(product, MsiProductRegistration.Unpack(MsiProductRegistration.Pack(product)));
+        Assert.AreEqual(
+            @"Software\Microsoft\Installer\Products\DCBA32107654FE981032547698BADCFE|" +
+            @"Software\Microsoft\Installer\Features\DCBA32107654FE981032547698BADCFE|" +
+            @"Software\Microsoft\Installer\UpgradeCodes\03371DA25DABEB644A900218B46276C3",
+            string.Join('|', MsiProductRegistration.PerUserKeys(product)));
+        foreach (string bad in new[] { "", "0123ABCD-4567-89EF-0123-456789ABCDEF", "{0123abcd-4567-89ef-0123-456789abcdef}", "{0123ABCD-4567-89EF-0123-456789ABCDE}" })
+            Assert.ThrowsExactly<ArgumentException>(() => MsiProductRegistration.Pack(bad), bad);
+        Assert.IsNull(MsiProductRegistration.Unpack("03371da25dabeb644a900218b46276c3"));
+        Assert.IsNull(MsiProductRegistration.Unpack("..\\03371DA25DABEB644A900218B46276C3"));
+
+        static MsiTable Properties(params string?[][] rows) => new("Property", ["Property", "Value"], [.. rows.Select(row => (IReadOnlyList<string?>)row)]);
+        Dictionary<string, MsiTable> tables = new(StringComparer.Ordinal) { ["Property"] = Properties(["ProductName", "PC Steward"], ["ProductCode", product]) };
+        Assert.AreEqual(product, MsiProductRegistration.ProductCode(tables));
+        Assert.IsNull(MsiProductRegistration.ProductCode(new Dictionary<string, MsiTable>(StringComparer.Ordinal)));
+        Assert.IsNull(MsiProductRegistration.ProductCode(new Dictionary<string, MsiTable>(StringComparer.Ordinal) { ["Property"] = Properties(["ProductCode", "{0123abcd-4567-89ef-0123-456789abcdef}"]) }));
+        Assert.IsNull(MsiProductRegistration.ProductCode(new Dictionary<string, MsiTable>(StringComparer.Ordinal) { ["Property"] = Properties(["ProductCode", product], ["ProductCode", product]) }));
     }
 
     private static string Sha(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));

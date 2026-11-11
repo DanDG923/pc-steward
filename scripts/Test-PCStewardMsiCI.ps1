@@ -15,7 +15,8 @@ param([switch]$StandardUser, [ValidateSet('Build', 'Check', 'SelfUpdateDecide')]
 #      digest, an MSI whose tables differ from the CI reference and an MSI whose files differ (uninstalling it), and installs
 #      and verifies the real signed MSI;
 #   6. the self-update finish copy (ADR-032 revision 2 §7–§8), run as the real helper copy from a protected work folder that
-#      the production Windows host laid out: it refuses to run from anywhere but that folder's bin, uninstalls an upgrade
+#      the production Windows host laid out: it refuses to run from anywhere but that folder's bin or while the account's own
+#      registry registers the product (security review R1), uninstalls an upgrade
 #      whose files differ from the expected tree, installs and verifies one that matches, and the reopened desktop's read of
 #      each job (as a standard user) reports Failed and Updated.
 # The key is created in the runner account's CurrentUser\My, never added to a trust store, and deleted at the end.
@@ -324,9 +325,12 @@ try {
     #    runtime names removed from its environment as the desktop's guard ensures for the session that starts it.
     $installCheck = Join-Path $work 'installcheck\PCSteward.InstallCheck.exe'
     function New-SelfUpdateJob([string]$Mode) {
-        $code = Invoke-Msi @('/i', ('"' + $msis['0.1.1'].Path + '"')) "self-update-$Mode-from-0.1.1.log"
-        $products = @(Get-InstalledProducts)
-        if (($code -ne 0) -or ($products.Count -ne 1) -or ($products[0].Version -ne '0.1.1')) { throw "0.1.1 did not install before the $Mode self-update job (exit $code)." }
+        $products = @(Get-InstalledProducts); $code = 0
+        if ($products.Count -eq 0) {
+            $code = Invoke-Msi @('/i', ('"' + $msis['0.1.1'].Path + '"')) "self-update-$Mode-from-0.1.1.log"
+            $products = @(Get-InstalledProducts)
+        }
+        if (($code -ne 0) -or ($products.Count -ne 1) -or ($products[0].Version -ne '0.1.1')) { throw "0.1.1 is not the one install before the $Mode self-update job (exit $code)." }
         $prepared = @(& $installCheck --self-update-prepare $msis['0.1.2'].Path $Mode)
         if ($LASTEXITCODE -ne 0) { throw "The $Mode self-update job was not prepared: $($prepared -join ' ')" }
         $leaf = ([string]$prepared[-1]).Trim()
@@ -375,6 +379,20 @@ try {
     $refused = @(Invoke-FinishCopy (Join-Path $installRoot 'PCSteward.ElevatedHelper.exe') $leaf 'self-update-wrong-path')[-1]
     $products = @(Get-InstalledProducts)
     Set-Check 'self-update-finish-refuses-outside-the-work-folder' (($refused.ExitCode -eq 20) -and ($null -eq $refused.Result) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($refused.ExitCode)"
+    # Security review R1: what a same-user program can write, the owner's own Windows Installer registration of the product
+    # (HKCU), stops the finish copy before msiexec runs; 0.1.1 stays installed. The job then has a result, so a new one follows.
+    $productCode = [string](Get-Content -LiteralPath (Join-Path $programFiles "$leaf\job.json") -Raw | ConvertFrom-Json).productCode
+    if ($productCode -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "The job names no product code: $productCode" }
+    $tail = $Matches[4] + $Matches[5]
+    $packed = (-join @($Matches[1], $Matches[2], $Matches[3] | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
+    $perUserKey = "HKCU:\Software\Microsoft\Installer\Products\$packed"
+    $null = New-Item -Path $perUserKey -Force
+    New-ItemProperty -LiteralPath $perUserKey -Name 'ProductName' -Value 'PC Steward' -PropertyType String -Force | Out-Null
+    try { $perUser = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-per-user')[-1] }
+    finally { Remove-Item -LiteralPath $perUserKey -Recurse -Force }
+    $products = @(Get-InstalledProducts)
+    Set-Check 'self-update-finish-refuses-a-per-user-registration' (($perUser.ExitCode -eq 0) -and ($perUser.Result.outcome -ceq 'refused-before-install') -and ($perUser.Result.detail -ceq 'per-user-registration') -and ($null -eq $perUser.Result.exitCode) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($perUser.ExitCode); $($perUser.Result.outcome) $($perUser.Result.detail)"
+    $leaf = New-SelfUpdateJob 'match'
     $finish = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-match')[-1]
     $products = @(Get-InstalledProducts)
     $installedVersion = if (Test-Path -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json')) { (Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion } else { '' }

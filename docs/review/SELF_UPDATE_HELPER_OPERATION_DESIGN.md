@@ -56,7 +56,7 @@ Budgets: the existing 11-minute execution budget covers steps 3–13 (GitHub 30 
    - `CheckInstalled` returns Matches;
    - the install folder and every file carry the ADR-034 protected DACL;
    - the installed executables carry the same compiled pin;
-   - exactly one related product (by UpgradeCode) is installed, at the to-version.
+   - the machine registration (never the owner's own `HKCU` one) lists exactly one PC Steward product, the MSI's own ProductCode, at the to-version, and no per-user registration of it has appeared. Only that ProductCode is ever uninstalled.
 
    On any difference it runs `msiexec /x <ProductCode> /qn /norestart` and records why.
 6. **Exit 3010 or 1641:** it records `restart-needed` and the boot time (UTC, from `GetTickCount64`), then skips step 5.
@@ -102,6 +102,14 @@ The [security review](ADR_032_SELF_UPDATER_SECURITY_REVIEW.md) found two Medium 
 - `msiexec` and the finish copy get a compiled environment;
 - the helper accepts only a newer release (`version-not-newer`);
 - a finish copy refuses a job that already has a result.
+
+The owner's independent review (preliminary, same document, section 3) led to three more changes:
+
+- installed products come from the machine registration only;
+- `msiexec` never runs while the owner's registry registers PC Steward (`per-user-registration`);
+- the structure rule is an allow-list.
+
+It also added a branch guard in the release workflow, and recorded two limits for the owner.
 
 ## Tests already in part 1
 

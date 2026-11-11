@@ -75,7 +75,43 @@ Threat model: the product's own, as in the ADR-034 review. The attacker is any p
 - **I3.** The finish copy installs only once no process runs an image from the install root. A same-user program can therefore delay it until it records `pc-steward-did-not-close`. Starting a second install at the same time makes Windows Installer refuse one of them (`install-failed`). Both outcomes are recorded and shown, and nothing unchecked is installed.
 - **I4.** `publish-release.yml` needs `contents: write` to create the draft. It runs only by hand, with `actions: read` as its only other permission. It reads the run id from the environment and requires digits only. It checks the run, the artefact digest and the record before creating anything. It uses only `gh` and `jq` on the hosted runner. Publishing remains the owner's step in the browser, after attaching the YubiKey-signed MSI.
 
-## 3. What holds
+## 3. Independent review (preliminary)
+
+The owner had a second model review the updater against the same threat model. It saw the pushed release check (#55), the release install script and ADR-032, but not the helper files, which were not pushed yet. Its findings, numbered R1–R7 here, and what was done:
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| R1 | High (untested) | Windows Installer consults the caller's own registrations under `HKCU\Software\Microsoft\Installer`. A same-user program that registers PC Steward's ProductCode there, with a transform, could make the elevated `msiexec` apply it | **Narrowed** here; residual race below |
+| R2 | Medium | The installed-product list (`RelatedProducts`) merges in those same per-user registrations, and the fail-closed uninstall removed every product in it | **Fixed** here |
+| R3 | Medium | Against this threat model, "signed by the owner's key" and "a genuine CI run" are not independent; a tag named like a release branch also reported that name as `head_branch` | **Narrowed** here; the rest is recorded in ADR-032 §2 |
+| R4 | Low | A same-user program can force `msiexec`'s restart-needed result, which moves the final check to the desktop | Accepted: see below |
+| R5 | Low | The structure rule was a deny-list | **Fixed** here: an allow-list |
+| R6 | Info | The tables digest does not cover the summary stream, the cabinet's bytes or sub-storages | No change: the cabinet's files are compared after unpacking and after install |
+| R7 | Info | The helper's GitHub client: machine roots only, online revocation | Already as recommended (no proxy, no redirects, no decompression, `name` filter) |
+
+**R1 and R2, fixed and narrowed.**
+
+- `MsiProductRegistration` holds the packed-GUID rule and the keys.
+- The helper reads installed products only from the administrator-only `HKLM\SOFTWARE\Classes\Installer\UpgradeCodes` key, with each version asked in the machine context (`MsiGetProductInfoEx`, `MSIINSTALLCONTEXT_MACHINE`).
+- It refuses to run `msiexec` while the current user's `Products` or `Features` key for the MSI's ProductCode, or the `UpgradeCodes` key for PC Steward's UpgradeCode, exists, or cannot be read:
+  - the session checks before and after the administrative extract (new code `per-user-registration`);
+  - the finish copy checks before the install and before any uninstall, and treats a registration that appeared during the install as a difference.
+- The finish copy removes only the ProductCode the session read from the protected MSI copy (now in `job.json`), and only when the machine registration lists it.
+- `Install-PCStewardRelease.ps1` follows the same rules, so the 0.1.1 install is covered too.
+- A new step in section 6 of the MSI CI job writes the registration and expects the finish copy to refuse with 0.1.1 still installed (`self-update-finish-refuses-a-per-user-registration`).
+
+*Residual:* the check and `msiexec` are two steps. A program that writes the registration in between still reaches `msiexec`. Whether Windows Installer would then apply a per-user transform to this elevated per-machine install has not been tested. Two things would close the race:
+
+- the machine policy that makes Windows Installer ignore per-user registrations (`DisableUserInstalls`);
+- running `msiexec` under an account whose registry the owner cannot write.
+
+Both change the owner's PC beyond PC Steward, so they are the owner's decision.
+
+**R3, narrowed.** `release-payload.yml` now fails first unless it runs on the branch `phase/4-beta` or `main`. ADR-032 §2 states the limit, and lists signing or approval on a second device under "Reconsider when". Rulesets on the release branches and tags are a GitHub setting the owner can add.
+
+**R4, accepted.** The MSI the finish copy installs has passed every check before `msiexec` (pin, tables, the unpacked image against the CI build), and the R1 checks run before the install. A forced restart therefore delays the verdict but cannot turn it into a wrong install. After the restart, the desktop decides against the helper's protected `expected-install.json`, and every later helper launch still checks the installed helper's pin first.
+
+## 4. What holds
 
 These properties were checked and need no change:
 
@@ -85,9 +121,14 @@ These properties were checked and need no change:
 - **The launch is the reviewed one.** The desktop side reuses the protocol-2 launch checks: fixed paths, launch trust before and after the prompt, the runtime-environment guard, a restricted per-launch pipe, and peer checks by PID, path, session, SID, signer and the held helper image. The binding set is released only after the helper's exit has been observed.
 - **No account.** All GitHub requests are anonymous, to compiled addresses. The desktop follows redirects only to GitHub hosts. The helper follows none.
 
-## 4. Evidence
+## 5. Evidence
 
 - **Fixture tests:** `SelfUpdateHelperSessionTests` now covers the two `version-not-newer` refusals and the finish copy's refusal of a job with a result, and `SelfUpdateInstallPolicyTests` covers `IsNewerVersion`.
+- **Independent review fixes:**
+  - `SelfUpdateHelperSessionTests` covers a per-user registration before and after the extract, a package without a ProductCode, the finish copy's refusal before `msiexec`, a registration that appears during the install (no uninstall), and a machine product that is not the MSI's own (never removed).
+  - `SelfUpdateInstallPolicyTests` covers the packed-GUID rule and the structure allow-list (27 refused tables, every allowed one).
+  - The architecture test `TheOwnersRegistryNeverSteersMsiexec` keeps the merged product list out of the helper and the install script.
+  - `ThePayloadIsBuiltOnDemandFromACommitWithBothPins` requires the branch guard before checkout.
 - **Windows CI (section 6 of the MSI job):** the real finish copy, through the production host and its compiled environment, uninstalls a mismatching install and installs and verifies a matching one. The installed helper refuses to act as a finish copy. The desktop's read reports Failed and Updated as a standard user.
 
 Some of the fixes are Windows-only paths in `WindowsSelfUpdateHost` that CI reaches only partly:

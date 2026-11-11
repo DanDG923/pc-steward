@@ -19,9 +19,6 @@ namespace PCSteward.Execution;
 /// </summary>
 internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, ISelfUpdateFinishHost
 {
-    /// <summary>PC Steward's fixed MSI UpgradeCode (ADR-034, <c>packaging/msi/Package.wxs</c>).</summary>
-    internal const string UpgradeCode = "{2AD17330-BAD5-46BE-A409-20814B26673C}";
-
     private const string ProfileListKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\";
     private const string SystemDriveToken = @"%SystemDrive%\";
     private const int MaximumTreeEntries = 8192;
@@ -508,29 +505,59 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         }
     }
 
+    /// <summary>
+    /// Security review R2: the products registered for the whole machine under PC Steward's UpgradeCode, read from the
+    /// administrator-only <c>HKLM</c> list with each version asked in the machine context only. The owner's own registrations,
+    /// which a same-user program can write, are never part of the answer (Windows Installer's related-products call would merge them in).
+    /// </summary>
     public IReadOnlyList<SelfUpdateRelatedProduct>? RelatedProducts()
     {
         if (!OperatingSystem.IsWindows()) return null;
         try
         {
+            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(MsiProductRegistration.MachineUpgradeCodeKey, writable: false);
+            if (key is null) return [];
+            string[] names = key.GetValueNames();
+            if (names.Length > 64) return null;
             List<SelfUpdateRelatedProduct> products = [];
-            for (uint index = 0; index < 64; index++)
+            foreach (string name in names.Where(name => name.Length != 0))
             {
-                char[] code = new char[39];
-                uint status = NativeMethods.MsiEnumRelatedProducts(UpgradeCode, 0, index, code);
-                if (status == NativeMethods.ErrorNoMoreItems) return products;
-                if (status != 0) return null;
-                string productCode = new string(code).TrimEnd('\0');
+                if (MsiProductRegistration.Unpack(name) is not { } productCode) return null;
                 char[] version = new char[64];
                 uint length = (uint)version.Length;
-                if (NativeMethods.MsiGetProductInfo(productCode, "VersionString", version, ref length) != 0 || length >= version.Length) return null;
+                if (NativeMethods.MsiGetProductInfoEx(productCode, null, NativeMethods.MsiInstallContextMachine, "VersionString", version, ref length) != 0 ||
+                    length >= version.Length)
+                    return null;
                 products.Add(new(productCode, new string(version, 0, (int)length)));
             }
-            return null;
+            return products;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Security review R1: true when the current user's registry holds any Windows Installer registration for the product or for
+    /// PC Steward's UpgradeCode, or when that cannot be read (fail closed). Windows Installer would consult such a registration,
+    /// which a same-user program can write, when it installs, unpacks or removes the product.
+    /// </summary>
+    public bool HasPerUserRegistration(string productCode)
+    {
+        if (!OperatingSystem.IsWindows() || !MsiProductRegistration.IsProductCode(productCode)) return true;
+        try
+        {
+            foreach (string path in MsiProductRegistration.PerUserKeys(productCode))
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(path, writable: false);
+                if (key is not null) return true;
+            }
+            return false;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return true;
         }
     }
 
@@ -709,7 +736,6 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         internal const uint ProcessQueryLimitedInformation = 0x1000;
         internal const uint CreateNoWindow = 0x08000000;
         internal const uint CreateUnicodeEnvironment = 0x00000400;
-        internal const uint ErrorNoMoreItems = 259;
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct FileAttributeTagInfo
@@ -824,10 +850,10 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, [Out] char[] name, ref uint size);
 
-        [DllImport("msi.dll", EntryPoint = "MsiEnumRelatedProductsW", CharSet = CharSet.Unicode)]
-        internal static extern uint MsiEnumRelatedProducts(string upgradeCode, uint reserved, uint index, [Out] char[] productCode);
+        /// <summary>MSIINSTALLCONTEXT_MACHINE.</summary>
+        internal const int MsiInstallContextMachine = 4;
 
-        [DllImport("msi.dll", EntryPoint = "MsiGetProductInfoW", CharSet = CharSet.Unicode)]
-        internal static extern uint MsiGetProductInfo(string product, string property, [Out] char[] value, ref uint length);
+        [DllImport("msi.dll", EntryPoint = "MsiGetProductInfoExW", CharSet = CharSet.Unicode)]
+        internal static extern uint MsiGetProductInfoEx(string product, string? userSid, int context, string property, [Out] char[] value, ref uint length);
     }
 }

@@ -13,6 +13,7 @@ internal enum SelfUpdateSessionRefusal
 {
     InstallNotIntact,
     VersionNotNewer,
+    PerUserRegistration,
     ProfileUnavailable,
     InputUnreadable,
     InputChanged,
@@ -61,7 +62,8 @@ internal enum SelfUpdateFinishOutcome
 internal sealed record SelfUpdateResponse(string Nonce, bool Ready, string? WorkFolder, string? ToVersion, string? ManifestSha256, SelfUpdateSessionRefusal? Reason);
 
 /// <summary>The job file the session writes for the finish copy: the approved request without its nonce, and the desktop PID.</summary>
-internal sealed record SelfUpdateJobFile(Guid JobId, string ToVersion, long RunId, string SourceCommit, string CheckZipSha256, string MsiSha256, int DesktopProcessId);
+internal sealed record SelfUpdateJobFile(Guid JobId, string ToVersion, long RunId, string SourceCommit, string CheckZipSha256, string MsiSha256, int DesktopProcessId,
+    string ProductCode);
 
 /// <summary>The finish copy's result: what happened, msiexec's exit code if it ran, and the boot time when a restart is needed.</summary>
 internal sealed record SelfUpdateResultFile(Guid JobId, SelfUpdateFinishOutcome Outcome, int? ExitCode, string ToVersion, string ManifestSha256,
@@ -95,7 +97,7 @@ internal static partial class SelfUpdateHelperProtocol
 
     private static readonly string[] Codes =
     [
-        "install-not-intact", "version-not-newer", "profile-unavailable", "input-unreadable", "input-changed", "work-folder-unavailable", "check-file-refused",
+        "install-not-intact", "version-not-newer", "per-user-registration", "profile-unavailable", "input-unreadable", "input-changed", "work-folder-unavailable", "check-file-refused",
         "record-not-approved", "run-not-genuine", "artifact-gone", "artifact-mismatch", "could-not-confirm", "msi-not-pinned", "msi-unreadable",
         "msi-structure-refused", "msi-tables-differ", "extract-failed", "image-layout-refused", "content-differs", "executables-not-pinned",
         "helper-copy-failed", "job-files-failed", "finish-not-started", "timed-out", "internal-fault",
@@ -106,7 +108,7 @@ internal static partial class SelfUpdateHelperProtocol
 
     private static readonly HashSet<string> ReadyKeys = ["nonce", "outcome", "workFolder", "toVersion", "manifestSha256"];
     private static readonly HashSet<string> RefusedKeys = ["nonce", "outcome", "reason"];
-    private static readonly HashSet<string> JobKeys = ["schema", "jobId", "toVersion", "runId", "sourceCommit", "checkZipSha256", "msiSha256", "desktopPid"];
+    private static readonly HashSet<string> JobKeys = ["schema", "jobId", "toVersion", "runId", "sourceCommit", "checkZipSha256", "msiSha256", "desktopPid", "productCode"];
     private static readonly HashSet<string> ResultKeys = ["schema", "jobId", "outcome", "exitCode", "toVersion", "manifestSha256", "bootTime", "detail"];
 
     internal static string Code(SelfUpdateSessionRefusal reason) =>
@@ -229,12 +231,12 @@ internal static partial class SelfUpdateHelperProtocol
         ArgumentNullException.ThrowIfNull(job);
         // The request rules apply to the job values; the nonce stays with the launch.
         if (!SelfUpdateInstallPolicy.TryReadRequest(SelfUpdateInstallPolicy.WriteRequest(new(new string('0', 64), job.JobId, job.ToVersion, job.RunId,
-                job.SourceCommit, job.CheckZipSha256, job.MsiSha256)), out _) || job.DesktopProcessId <= 0)
+                job.SourceCommit, job.CheckZipSha256, job.MsiSha256)), out _) || job.DesktopProcessId <= 0 || !MsiProductRegistration.IsProductCode(job.ProductCode))
             throw new ArgumentException("The job file values are not well-formed.", nameof(job));
         string json = "{\"schema\":" + Quote(JobSchema) + ",\"jobId\":" + Quote(Id(job.JobId)) + ",\"toVersion\":" + Quote(job.ToVersion) +
             ",\"runId\":" + job.RunId.ToString(CultureInfo.InvariantCulture) + ",\"sourceCommit\":" + Quote(job.SourceCommit) +
             ",\"checkZipSha256\":" + Quote(job.CheckZipSha256) + ",\"msiSha256\":" + Quote(job.MsiSha256) +
-            ",\"desktopPid\":" + job.DesktopProcessId.ToString(CultureInfo.InvariantCulture) + "}";
+            ",\"desktopPid\":" + job.DesktopProcessId.ToString(CultureInfo.InvariantCulture) + ",\"productCode\":" + Quote(job.ProductCode) + "}";
         return Encoding.ASCII.GetBytes(json);
     }
 
@@ -255,9 +257,10 @@ internal static partial class SelfUpdateHelperProtocol
                     !DeploymentCapabilityPolicy.TryString(fields["sourceCommit"], 40, out string commit) ||
                     !DeploymentCapabilityPolicy.TryString(fields["checkZipSha256"], 64, out string zip) ||
                     !DeploymentCapabilityPolicy.TryString(fields["msiSha256"], 64, out string msi) ||
-                    fields["desktopPid"].ValueKind != JsonValueKind.Number || !fields["desktopPid"].TryGetInt32(out int pid))
+                    fields["desktopPid"].ValueKind != JsonValueKind.Number || !fields["desktopPid"].TryGetInt32(out int pid) ||
+                    !DeploymentCapabilityPolicy.TryString(fields["productCode"], 38, out string productCode))
                     return false;
-                SelfUpdateJobFile candidate = new(jobId, version, runId, commit, zip, msi, pid);
+                SelfUpdateJobFile candidate = new(jobId, version, runId, commit, zip, msi, pid, productCode);
                 if (!bytes.SequenceEqual(WriteJob(candidate))) return false;
                 job = candidate;
                 return true;

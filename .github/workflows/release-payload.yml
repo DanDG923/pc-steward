@@ -18,6 +18,16 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
+      # ADR-032 self-updater security review R3: a release run is a run on a release branch. GitHub reports a tag's name as
+      # the run's head_branch, so a run started on a tag named like a branch would otherwise look like a branch run to
+      # ReleaseRunEvidence; this step fails it instead, and the app accepts only a successful run.
+      - name: Refuse anything but a release branch
+        shell: pwsh
+        env:
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if ($env:REF_TYPE -cne 'branch' -or $env:REF -cnotin @('refs/heads/phase/4-beta', 'refs/heads/main')) { throw "Release payloads are built from phase/4-beta or main only, not $($env:REF_TYPE) $($env:REF)." }
       # Actions pinned to full commits (tag at pinning time in the comment): a moved tag cannot change the payload.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

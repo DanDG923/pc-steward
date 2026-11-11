@@ -92,6 +92,9 @@ public sealed class ReleaseKeyScriptBoundaryTests
         Assert.IsFalse(Regex.IsMatch(workflow, @"^\s*(push|pull_request|schedule|workflow_run):", RegexOptions.Multiline));
         StringAssert.Contains(workflow, "permissions:\n  contents: read\n");
         StringAssert.Contains(workflow, "persist-credentials: false");
+        // Self-updater security review R3: a run on a tag (whose name GitHub reports as head_branch) or another branch fails first.
+        StringAssert.Contains(workflow, "if ($env:REF_TYPE -cne 'branch' -or $env:REF -cnotin @('refs/heads/phase/4-beta', 'refs/heads/main')) { throw");
+        Assert.IsLessThan(workflow.IndexOf("uses: actions/checkout@", StringComparison.Ordinal), workflow.IndexOf("Refuse anything but a release branch", StringComparison.Ordinal));
         StringAssert.Contains(workflow, "run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1 -ReleasePayload");
         StringAssert.Contains(workflow, "name: pc-steward-release-payload");
         // Every action is pinned to a full commit, so a moved tag cannot change what builds the payload.

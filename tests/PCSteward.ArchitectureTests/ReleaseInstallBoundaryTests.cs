@@ -49,7 +49,7 @@ public sealed class ReleaseInstallBoundaryTests
         int committed = install.IndexOf("if ($code -in @(0, 1641, 3010) -or $changed) { $installed = $true }", StringComparison.Ordinal);
         Assert.IsGreaterThan(0, committed);
         Before(install, "if ($code -in @(0, 1641, 3010) -or $changed) { $installed = $true }", install.IndexOf("if ($code -ne 0) { throw \"msiexec failed", StringComparison.Ordinal));
-        StringAssert.Contains(install, "Invoke-Msiexec @('/x', $product.ProductCode) 'msiexec-uninstall.log'");
+        StringAssert.Contains(install, "$null = Invoke-Msiexec @('/x', $productCode) 'msiexec-uninstall.log'");
 
         Assert.IsFalse(Regex.IsMatch(install, @"Set-AuthenticodeSignature|Cert:\\|X509Store|Invoke-(RestMethod|WebRequest)|Net\.WebClient|HttpClient", RegexOptions.IgnoreCase), "the install step signs, trusts and downloads nothing");
     }

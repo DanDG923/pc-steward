@@ -38,8 +38,17 @@ internal interface ISelfUpdateFinishHost
 
     bool BothCarrySameReleasePin(string first, string second);
 
-    /// <summary>Every product installed under PC Steward's UpgradeCode, or null when Windows Installer cannot be asked.</summary>
+    /// <summary>
+    /// Every product installed for the whole machine under PC Steward's UpgradeCode, from the administrator-only registration
+    /// only (security review R2), or null when it cannot be read.
+    /// </summary>
     IReadOnlyList<SelfUpdateRelatedProduct>? RelatedProducts();
+
+    /// <summary>
+    /// True when the current user's registry holds any Windows Installer registration for <paramref name="productCode"/> or
+    /// PC Steward's UpgradeCode, or when it cannot be read (security review R1).
+    /// </summary>
+    bool HasPerUserRegistration(string productCode);
 
     /// <summary>The current boot time, as Unix seconds (UTC).</summary>
     long BootTimeUnixSeconds();
@@ -56,9 +65,11 @@ internal interface ISelfUpdateFinishHost
 /// <c>job.json</c> and <c>expected-install.json</c> parse and name the same job, and the job has no <c>result.json</c> yet;</item>
 /// <item>it waits at most <see cref="CloseWait"/> for PC Steward to close;</item>
 /// <item>it hashes the MSI copy again and runs <c>msiexec /i</c> (at most <see cref="InstallLimit"/>);</item>
-/// <item>on exit 0 it checks the installed tree, its DACLs, the executables' pin and that exactly one related product is
-/// installed, at the new version, and uninstalls it on any difference; 3010 and 1641 record a needed restart with the boot
-/// time; any other code is a failed (rolled back) install;</item>
+/// <item>it refuses while the owner's own registry registers the product or PC Steward's UpgradeCode (security review R1);</item>
+/// <item>on exit 0 it checks the installed tree, its DACLs, the executables' pin, that no per-user registration appeared and
+/// that the machine registration lists exactly one PC Steward product, this MSI's own, at the new version; on any difference
+/// it uninstalls that product only (security review R2); 3010 and 1641 record a needed restart with the boot time; any other
+/// code is a failed (rolled back) install;</item>
 /// <item>it writes <c>result.json</c> and launches nothing.</item>
 /// </list>
 /// </summary>
@@ -138,6 +149,10 @@ internal static class SelfUpdateFinish
         if (!string.Equals(host.HashFile(msiPath, SelfUpdateSession.MaximumMsiBytes), job.MsiSha256, StringComparison.Ordinal))
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "msi-changed");
 
+        // Security review R1: no msiexec while the owner's own registry registers this product or PC Steward's UpgradeCode.
+        if (host.HasPerUserRegistration(job.ProductCode))
+            return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "per-user-registration");
+
         // Step 4: the install. Windows Installer rolls a failed major upgrade back to the old version.
         int? exit = await host.RunMsiexecAsync(["/i", msiPath, "/qn", "/norestart", "/l*v", Path.Combine(workFolder, "install.log")],
             workFolder, InstallLimit, cancellationToken).ConfigureAwait(false);
@@ -146,26 +161,31 @@ internal static class SelfUpdateFinish
             return Result(job, expected, SelfUpdateFinishOutcome.RestartNeeded, exit, "restart-needed") with { BootTimeUnixSeconds = host.BootTimeUnixSeconds() };
         if (exit != 0) return Result(job, expected, SelfUpdateFinishOutcome.InstallFailed, exit, "install-failed");
 
-        // Step 5: exactly the expected tree, protected, pinned, and one product at the new version.
-        string? difference = Difference(expected, host, out SelfUpdateRelatedProduct? product);
+        // Step 5: exactly the expected tree, protected, pinned, and one machine product: this MSI's, at the new version.
+        string? difference = Difference(job, expected, host, out bool installed);
         if (difference is null) return Result(job, expected, SelfUpdateFinishOutcome.Installed, exit, "installed");
-        if (product is null) return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; no-product-to-remove");
-        int? removed = await host.RunMsiexecAsync(["/x", product.ProductCode, "/qn", "/norestart", "/l*v", Path.Combine(workFolder, "uninstall.log")],
+        // Security review R2: only this MSI's own product is ever removed, and only when the machine registration lists it.
+        if (!installed) return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; no-product-to-remove");
+        if (host.HasPerUserRegistration(job.ProductCode))
+            return Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; uninstall-refused");
+        int? removed = await host.RunMsiexecAsync(["/x", job.ProductCode, "/qn", "/norestart", "/l*v", Path.Combine(workFolder, "uninstall.log")],
             workFolder, UninstallLimit, cancellationToken).ConfigureAwait(false);
         return removed is 0 or 3010 or 1641
             ? Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstalled, exit, difference)
             : Result(job, expected, SelfUpdateFinishOutcome.MismatchUninstallFailed, exit, difference + "; uninstall-failed");
     }
 
-    /// <summary>Null when the install matches; otherwise a fixed code. <paramref name="product"/> is the one new product found, if any.</summary>
-    private static string? Difference(SelfUpdateExpectedInstall expected, ISelfUpdateFinishHost host, out SelfUpdateRelatedProduct? product)
+    /// <summary>
+    /// Null when the install matches; otherwise a fixed code. <paramref name="installed"/> says whether the machine registration
+    /// lists this MSI's own product, the only one the finish copy may remove.
+    /// </summary>
+    private static string? Difference(SelfUpdateJobFile job, SelfUpdateExpectedInstall expected, ISelfUpdateFinishHost host, out bool installed)
     {
-        product = null;
         IReadOnlyList<SelfUpdateRelatedProduct>? related = host.RelatedProducts();
-        SelfUpdateRelatedProduct[] atVersion = related is null ? [] :
-            [.. related.Where(entry => string.Equals(entry.Version, expected.ToVersion, StringComparison.Ordinal))];
-        if (atVersion.Length == 1) product = atVersion[0];
-        if (related is null || related.Count != 1 || atVersion.Length != 1) return "product-registration-differs";
+        installed = related is not null && related.Any(entry => string.Equals(entry.ProductCode, job.ProductCode, StringComparison.OrdinalIgnoreCase));
+        if (related is null || related.Count != 1 || !installed || !string.Equals(related[0].Version, expected.ToVersion, StringComparison.Ordinal))
+            return "product-registration-differs";
+        if (host.HasPerUserRegistration(job.ProductCode)) return "per-user-registration";
         IReadOnlyList<SelfUpdateTreeFile>? tree = host.ReadInstalledTree();
         if (tree is null) return "installed-tree-unreadable";
         SelfUpdateTreeVerdict verdict = SelfUpdateInstallPolicy.CheckInstalled(expected, tree);

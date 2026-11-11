@@ -5,7 +5,8 @@
 - `src/PCSteward.Execution/WindowsSelfUpdateHost.cs`: refused copies deleted and hard-linked files refused (M1); the compiled environment for `msiexec` and the finish copy (M2).
 - `src/PCSteward.Execution/SelfUpdateSession.cs` and `SelfUpdateInstallPolicy.IsNewerVersion`: only a newer release (L1); `src/PCSteward.Execution/SelfUpdateFinish.cs`: one run per job (L2).
 - `scripts/Test-PCStewardMsiCI.ps1` section 6 and `tests/PCSteward.InstallCheck/SelfUpdateFinishCheck.cs`: the real finish copy on a real install (mismatch uninstalled, match installed and verified, wrong path refused) and the desktop's read as a standard user.
-- Evidence: fixture `SelfUpdateHelperSessionTests`, `SelfUpdateInstallPolicyTests`; architecture `SelfUpdateBoundaryTests.TheMsiCiJobRunsTheRealFinishCopy`; the Windows MSI CI job.
+- Independent review R1/R2/R5: `src/PCSteward.Execution/MsiProductRegistration.cs`, the machine-only product list and `HasPerUserRegistration` in `WindowsSelfUpdateHost.cs`, the checks in `SelfUpdateSession.cs` and `SelfUpdateFinish.cs`, the same rules in `scripts/Install-PCStewardRelease.ps1`, the allow-list in `MsiStructurePolicy.cs`; R3: the branch guard in `.github/workflows/release-payload.yml` and ADR-032 §2.
+- Evidence: fixture `SelfUpdateHelperSessionTests`, `SelfUpdateInstallPolicyTests`; architecture `SelfUpdateBoundaryTests.TheMsiCiJobRunsTheRealFinishCopy`, `SelfUpdateBoundaryTests.TheOwnersRegistryNeverSteersMsiexec`, `ReleaseKeyScriptBoundaryTests.ThePayloadIsBuiltOnDemandFromACommitWithBothPins`; the Windows MSI CI job (`self-update-finish-refuses-a-per-user-registration`).
 - Not claimed: a full run through the screens, or the elevated session itself on a real install (the owner's first update).
 
 # Self-updater — ADR-032 revision 2 build step 4, part 3: the desktop side, the update screen and the publishing workflow

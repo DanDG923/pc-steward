@@ -59,6 +59,12 @@ internal interface ISelfUpdateSessionHost
     /// </summary>
     Task<int?> RunMsiexecAsync(IReadOnlyList<string> arguments, string workFolder, TimeSpan limit, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// True when the current user's registry holds any Windows Installer registration for <paramref name="productCode"/> or
+    /// PC Steward's UpgradeCode, or when it cannot be read (security review R1).
+    /// </summary>
+    bool HasPerUserRegistration(string productCode);
+
     /// <summary>The extracted image's install folder and files, or null when its layout breaks the §6 step 8 rule.</summary>
     SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf);
 
@@ -298,6 +304,10 @@ internal static class SelfUpdateSession
             MsiDatabaseSnapshot tables = host.ReadMsiTables(msiPath) ?? throw new RefusedException(SelfUpdateSessionRefusal.MsiUnreadable);
             Require(MsiStructurePolicy.Check(tables.Tables, out _) == MsiStructureVerdict.Allowed, SelfUpdateSessionRefusal.MsiStructureRefused);
             Require(string.Equals(tables.Sha256, record!.MsiTablesSha256, StringComparison.OrdinalIgnoreCase), SelfUpdateSessionRefusal.MsiTablesDiffer);
+            string productCode = MsiProductRegistration.ProductCode(tables.Tables) ?? throw new RefusedException(SelfUpdateSessionRefusal.MsiStructureRefused);
+            // Security review R1: Windows Installer would consult the owner's own registrations of this product, which a same-user
+            // program can write, so msiexec never runs while one exists.
+            Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);
             token.ThrowIfCancellationRequested();
 
             // Step 8: an administrative image (it unpacks files and runs no custom action of the package).
@@ -306,6 +316,7 @@ internal static class SelfUpdateSession
                 ["/a", msiPath, "/qn", "TARGETDIR=" + imageRoot, "/l*v", Path.Combine(workFolder, "extract.log")], workFolder, budgets.Extract, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             Require(extracted == 0, SelfUpdateSessionRefusal.ExtractFailed);
+            Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);
             SelfUpdateImage image = host.ReadImage(imageRoot, msiName) ?? throw new RefusedException(SelfUpdateSessionRefusal.ImageLayoutRefused);
 
             // Step 9: exactly the CI build plus its release manifest, both executables on the same compiled pin.
@@ -328,7 +339,7 @@ internal static class SelfUpdateSession
 
             // Step 11: the job and the expected installed tree, for the finish copy and the desktop after a restart.
             Require(host.WriteNewFile(Path.Combine(workFolder, SelfUpdateHelperProtocol.JobFileName), SelfUpdateHelperProtocol.WriteJob(new(request.JobId,
-                    request.ToVersion, request.RunId, request.SourceCommit, request.CheckZipSha256, request.MsiSha256, peer.DesktopProcessId))) &&
+                    request.ToVersion, request.RunId, request.SourceCommit, request.CheckZipSha256, request.MsiSha256, peer.DesktopProcessId, productCode))) &&
                 host.WriteNewFile(Path.Combine(workFolder, SelfUpdateInstallPolicy.ExpectedInstallFileName), SelfUpdateInstallPolicy.WriteExpected(expected!)),
                 SelfUpdateSessionRefusal.JobFilesFailed);
 

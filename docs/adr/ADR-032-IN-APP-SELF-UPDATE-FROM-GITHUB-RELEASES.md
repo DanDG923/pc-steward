@@ -69,6 +69,8 @@ PC Steward installs a release only when all three hold:
 
 A GitHub compromise without the key fails condition 1. A misused signing session without a matching CI build fails condition 3. Both together need the owner's GitHub account (or a reviewed commit that is itself malicious) **and** a misused signing session.
 
+**Limit (self-updater security review R3).** Against a program running as the owner, conditions 1 and 2 are not independent. Such a program can usually reach the owner's GitHub sign-in (stored Git credentials or the browser session), push a commit to a release branch and start `release-payload.yml`. During a signing session it can also change what the key signs (ADR-034 review H1). A patient program can therefore get a genuine run and a pinned signature for its own content, and the helper would install it as designed. The release workflow refuses any ref that is not `phase/4-beta` or `main`, so a tag named like a branch cannot pass for one. Branch and tag rules on GitHub (pull requests required, no force-push or deletion, no tags named like the release branches) make such a push visible in the history, but they do not stop a program that holds the owner's sign-in. Closing the gap needs signing or approval on another device. That is accepted for now and listed under "Reconsider when".
+
 ### 3. How the app learns which CI build is genuine (the anchor)
 
 - The `Release payload` workflow additionally uploads a second, small artefact, **`pc-steward-release-check`**, holding one file, `release-check.json`:
@@ -187,7 +189,7 @@ Proposed additions to `docs/architecture/THREAT_MODEL.md` once accepted:
 | ID | Threat | Controls in this design |
 |---|---|---|
 | TM-19 | **Compromised release**: an attacker with GitHub access publishes a release, swaps an asset or pushes and builds a commit | Release key signature (YubiKey or offline backup, pins compiled), content equal to the CI build, immutable releases. GitHub access alone fails the key check. |
-| TM-20 | **Misused signing session**: a program running as the owner while they sign gets the key to sign other files | CI anchor (section 3) confirmed by the elevated helper with GitHub itself, and the content rule (sections 6 and 7): the signed MSI must install exactly the CI build of the run it names. A check-file-independent MSI structure rule refuses custom actions, binaries, services and chainers before `msiexec`. |
+| TM-20 | **Misused signing session**: a program running as the owner while they sign gets the key to sign other files | CI anchor (section 3) confirmed by the elevated helper with GitHub itself, and the content rule (sections 6 and 7): the signed MSI must install exactly the CI build of the run it names. A check-file-independent MSI structure rule (an allow-list of the tables the PC Steward MSI uses, and error-message custom actions only) refuses everything else before `msiexec`. |
 | TM-21 | **Stolen or lost release key** | Hardware primary key, offline backup, both compiled in; the other key signs the replacement. No online revocation (accepted). |
 | TM-22 | **Downgrade, replay or freeze** | Version must rise; MSI refuses downgrade; "up to date" only after a fully checked release; freeze accepted (section 10). |
 | TM-23 | **Same-user substitution between check and install** | Helper copies inputs into an administrator-only folder by hash, confirms the check file with GitHub through a client the user cannot steer, re-checks pin, tables and content on the copies, installs only the copy, verifies again after install (or after the restart, against its own protected `expected-install.json`). |
@@ -246,3 +248,4 @@ Existing `TM-03`, `TM-04`, `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 - GitHub stops publishing artefact digests through its public API, or changes run metadata.
 - A release key is lost or suspected compromised.
 - The owner chooses a publicly trusted certificate (ADR-034).
+- The owner has a second device that could approve or sign releases away from the PC (closes the same-user limit in section 2).

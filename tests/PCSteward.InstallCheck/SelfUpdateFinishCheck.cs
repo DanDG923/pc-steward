@@ -35,6 +35,8 @@ internal static class SelfUpdateFinishCheck
         string msiName = SelfUpdateInstallPolicy.MsiFileName(msiSha);
         string msiCopy = Path.Combine(work, msiName);
         if (host.CopyInput(msiPath, msiCopy, SelfUpdateSession.MaximumMsiBytes, msiSha) != SelfUpdateCopyVerdict.Copied) return Fail("copy-msi");
+        if (host.ReadMsiTables(msiCopy) is not { } tables || MsiProductRegistration.ProductCode(tables.Tables) is not { } productCode) return Fail("product-code");
+        if (host.HasPerUserRegistration(productCode)) return Fail("per-user-registration");
         string image = Path.Combine(work, SelfUpdateHelperProtocol.ImageFolder);
         int? extracted = host.RunMsiexecAsync(["/a", msiCopy, "/qn", "TARGETDIR=" + image, "/l*v", Path.Combine(work, "extract.log")],
             work, TimeSpan.FromMinutes(10), CancellationToken.None).GetAwaiter().GetResult();
@@ -54,7 +56,7 @@ internal static class SelfUpdateFinishCheck
 
         using Process gone = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/c exit 0") { UseShellExecute = false, CreateNoWindow = true })!;
         gone.WaitForExit();
-        SelfUpdateJobFile job = new(jobId, toVersion, 4242, new string('a', 40), new string('B', 64), msiSha, gone.Id);
+        SelfUpdateJobFile job = new(jobId, toVersion, 4242, new string('a', 40), new string('B', 64), msiSha, gone.Id, productCode);
         if (!host.WriteNewFile(Path.Combine(work, SelfUpdateHelperProtocol.JobFileName), SelfUpdateHelperProtocol.WriteJob(job)) ||
             !host.WriteNewFile(Path.Combine(work, SelfUpdateInstallPolicy.ExpectedInstallFileName), SelfUpdateInstallPolicy.WriteExpected(expected)))
             return Fail("job-files");
