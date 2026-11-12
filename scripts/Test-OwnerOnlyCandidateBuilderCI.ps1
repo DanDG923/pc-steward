@@ -202,7 +202,7 @@ function Invoke-AsDisposableUser {
     finally {
         if ($process) { $process.Dispose() }
         foreach ($log in @($stdout, $stderr)) {
-            if ($log -and (Test-Path -LiteralPath $log)) { Get-Content -LiteralPath $log }
+            if ($log -and (Test-Path -LiteralPath $log)) { Get-Content -LiteralPath $log | Out-Host }
         }
         if ($account) {
             # Its grants go with it, so no orphaned entry is left on the SDK, the cache or the checkout.
