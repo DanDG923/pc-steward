@@ -389,6 +389,9 @@ public sealed partial class MainWindow
         renderedPage = navigation.Current;
         pageHost.Content = page;
         StewardVisuals.FitPageColumn(pageHost);
+        // Owner feedback on 0.1.1: a page whose main content is an empty state fills the window's height instead of leaving
+        // most of a maximised window blank under it.
+        if (page.Children.FirstOrDefault(StewardVisuals.IsEmptyState) is FrameworkElement empty) StewardVisuals.FillViewportHeight(page, empty);
         if (!sameView) pageHost.ChangeView(null, 0, null, true);
         void Restore(object sender, RoutedEventArgs args)
         {
