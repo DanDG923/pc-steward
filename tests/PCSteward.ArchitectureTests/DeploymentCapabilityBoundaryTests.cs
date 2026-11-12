@@ -101,6 +101,12 @@ public sealed class DeploymentCapabilityBoundaryTests
             // Chocolatey package Confirm addendum §5: so does the package route's composition.
             else if (path.EndsWith(Path.Combine("PCSteward.Execution", "ChocolateyPackageUpdateComposition.cs"), StringComparison.Ordinal))
                 Assert.AreEqual(1, constructions, "the package composition constructs the Desktop-role reader once");
+            // D4b stage 2c: the whole-PC WinGet route's composition constructs the parameterless reader once.
+            else if (path.EndsWith(Path.Combine("PCSteward.Execution", "WingetMachineUpdateComposition.cs"), StringComparison.Ordinal))
+            {
+                Assert.AreEqual(1, constructions, "the whole-PC WinGet composition constructs the Desktop-role reader once");
+                Assert.AreEqual(1, Regex.Count(File.ReadAllText(path), @"OwnerOnlyDeploymentCapabilityReader capability = new\(\);"), "only the parameterless reader");
+            }
             else if (path.EndsWith(Path.Combine("PCSteward.Execution", "HelperDeploymentCapabilityCheck.cs"), StringComparison.Ordinal)) { }
             // ADR-032 revision 2 §6 and §8: the desktop's self-update launch holds the installed release, and the reopened desktop
             // checks it; each constructs the parameterless (Desktop-role) reader once.
@@ -213,8 +219,18 @@ public sealed class DeploymentCapabilityBoundaryTests
                 Assert.AreEqual(1, Regex.Count(source, @"OwnerOnlyDeploymentCapabilityReader capability = new\(\);"), "one parameterless reader");
                 continue;
             }
+            // D4b stage 2c: the whole-PC WinGet route composes one protocol-2 transport over its own parameterless reader, and no
+            // route dispatcher (its one exchange is WingetMachineReviewedExchange, over the same reader).
+            if (path.EndsWith(Path.Combine("PCSteward.Execution", "WingetMachineUpdateComposition.cs"), StringComparison.Ordinal))
+            {
+                Assert.AreEqual(1, Regex.Count(source, @"WindowsReviewedHelperTransport transport = new\(capability\);"), "one protocol-2 transport over the reader");
+                Assert.AreEqual(1, Regex.Count(source, @"new WingetMachineReviewedExchange\(capability, transport\)"), "one exchange over the same reader");
+                Assert.AreEqual(1, Regex.Count(source, @"OwnerOnlyDeploymentCapabilityReader capability = new\(\);"), "one parameterless reader");
+                Assert.IsFalse(source.Contains("ChocolateyRuntimeLimitsRouteDispatcher", StringComparison.Ordinal), "no Chocolatey route dispatcher");
+                continue;
+            }
             Assert.IsFalse(Regex.IsMatch(source, @"new\s+WindowsReviewedHelperTransport\s*\(|WindowsReviewedHelperTransport\s+\w+\s*=\s*new\s*\("),
-                $"{path} composes the protocol-2 transport (only the two Chocolatey compositions may)");
+                $"{path} composes the protocol-2 transport (only the two Chocolatey compositions and the whole-PC WinGet composition may)");
             Assert.IsFalse(Regex.IsMatch(source, @"new\s+ChocolateyRuntimeLimitsRouteDispatcher\s*\(|ChocolateyRuntimeLimitsRouteDispatcher\s+\w+\s*=\s*new\s*\("),
                 $"{path} composes the route dispatcher (only the two Chocolatey compositions may)");
         }
