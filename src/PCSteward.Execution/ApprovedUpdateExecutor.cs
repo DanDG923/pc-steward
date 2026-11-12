@@ -28,8 +28,8 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
         UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteCoreAsync(job, null, currentEvidence, progress, cancellationToken);
 
     /// <summary>
-    /// Stage C4: a user-scope job runs only with its per-user reviewed operation. D4b stage 2c: a machine-scope job with a reviewed
-    /// operation runs only on the whole-PC protocol-2 route; without one it stays on protocol 1 until stage 3.
+    /// Stage C4: a user-scope job runs only with its per-user reviewed operation. Phase D stage D4b: a machine-scope job runs only with
+    /// its frozen whole-PC operation, on the protocol-2 helper; without one nothing starts (stage 3 retired protocol 1).
     /// </summary>
     public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, ReviewedUpdateOperation? reviewed, UpdateJobExecutionEvidence currentEvidence,
         UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteCoreAsync(job, reviewed, currentEvidence, progress, cancellationToken);
@@ -43,12 +43,12 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
         {
             return new(UpdateProviderAttemptStatus.ProductFailed, null, "standalone-package-machine-scope-disabled");
         }
-        // D4b stage 2c: a machine-scope job with a reviewed operation runs only on that operation's protocol-2 route; without one it
-        // stays on protocol 1 until stage 3 retires it (ADR-025 transition amendment).
+        // D4b stage 3: a machine-scope job runs only on its frozen operation's protocol-2 route. Protocol 1 is retired, so a job
+        // without one starts nothing (ADR-025 transition amendment, closed).
+        if (job.Selection.Scope == UpdateScope.Machine && reviewed is null)
+            return new(UpdateProviderAttemptStatus.ProductFailed, null, "reviewed-machine-route-unavailable");
         UpdateExecutionResult result = job.Selection.Scope == UpdateScope.Machine
-            ? reviewed is not null
-                ? await elevated!.RunReviewedAsync(job, reviewed, currentEvidence, cancellationToken, progress).ConfigureAwait(false)
-                : await elevated!.RunAsync(job, currentEvidence, cancellationToken, progress).ConfigureAwait(false)
+            ? await elevated!.RunReviewedAsync(job, reviewed!, currentEvidence, cancellationToken, progress).ConfigureAwait(false)
             : await nonElevated.RunAsync(job, reviewed, currentEvidence, cancellationToken, progress).ConfigureAwait(false);
         return new(Map(result.Status), result.ExitCode, result.SanitizedOutput, result.OwnedCompletion);
     }

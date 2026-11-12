@@ -27,14 +27,14 @@ public sealed class QualificationProbeResultFileTests
         string json = Encoding.UTF8.GetString(bytes);
         string expected =
             "{\"schema\":\"pc-steward-qualification-probe-result:2\",\"desktopOutcome\":\"ResponseAccepted\"," +
-            "\"capabilityStatus\":{\"Update/ChocolateyClientSelfUpdateV1\":\"Supported\",\"Update/ChocolateyMachineRuntimeLimitsV3\":\"Supported\"}," +
+            "\"capabilityStatus\":{\"Update/ChocolateyClientSelfUpdateV1\":\"Supported\",\"Update/ChocolateyMachineRuntimeLimitsV3\":\"Supported\",\"Update/WinGetMachineSilentV1\":\"Supported\"}," +
             "\"initialLaunchTrust\":true,\"finalLaunchTrust\":true,\"helperProcessCreated\":true,\"pipeConnected\":true,\"desktopPeerVerified\":true," +
             "\"helperFileIdEqual\":true,\"responseFrameReceived\":true,\"pipeEofObserved\":true,\"helperExitObserved\":true,\"bindingHeldUntilExit\":true," +
             "\"terminationFailed\":false,\"helperExitCode\":0," +
             "\"pins\":{\"ledgerSha256\":\"" + new string('A', 64) + "\",\"capabilityFileSha256\":\"" + new string('B', 64) + "\",\"desktopImageSha256\":\"" +
             new string('C', 64) + "\",\"helperImageSha256\":\"" + new string('9', 64) + "\",\"signerThumbprint\":\"" + new string('E', 40) +
             "\",\"signerNotAfterUtc\":\"2026-11-13T20:18:09.000Z\"}," +
-            "\"probe\":{\"tokenVerdict\":\"Accepted\",\"g1Status\":{\"Update/ChocolateyClientSelfUpdateV1\":\"Supported\",\"Update/ChocolateyMachineRuntimeLimitsV3\":\"Supported\"},\"observation\":\"Observed\"," +
+            "\"probe\":{\"tokenVerdict\":\"Accepted\",\"g1Status\":{\"Update/ChocolateyClientSelfUpdateV1\":\"Supported\",\"Update/ChocolateyMachineRuntimeLimitsV3\":\"Supported\",\"Update/WinGetMachineSilentV1\":\"Supported\"},\"observation\":\"Observed\"," +
             "\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\"," +
             "\"nodesEvaluated\":123456,\"ancestorsEvaluated\":12345,\"observedClientVersion\":\"2.7.5\",\"fingerprintPresent\":true," +
             "\"fingerprintLength\":64,\"diagnostic\":\"probe-observed\"}," +

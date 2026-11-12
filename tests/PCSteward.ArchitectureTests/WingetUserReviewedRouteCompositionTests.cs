@@ -37,12 +37,10 @@ public sealed class WingetUserReviewedRouteCompositionTests
             Assert.IsFalse(Regex.IsMatch(source, @"\bWingetUpdateExecutor\b"), path);
 
         string provider = Code(Read("src", "PCSteward.Provider.WinGet", "WingetInstalledInventoryProvider.cs"));
-        // The one job-based builder left is the machine executor's, and it refuses anything but machine scope.
-        Assert.AreEqual(1, Regex.Count(provider, @"static\s+IReadOnlyList<string>\s+BuildUpdateArguments\s*\(\s*ImmutableUpdateJob\b"));
-        Match machine = Regex.Match(provider, @"public sealed class WingetMachineUpdateExecutor\b(?<body>.*?)\n}", RegexOptions.Singleline);
-        Assert.IsTrue(machine.Success, "WingetMachineUpdateExecutor not found");
-        StringAssert.Contains(machine.Groups["body"].Value, "static IReadOnlyList<string> BuildUpdateArguments(ImmutableUpdateJob job)");
-        StringAssert.Contains(machine.Groups["body"].Value, "job.Selection.Scope != UpdateScope.Machine");
+        // D4b stage 3: the machine executor (protocol 1) is gone too, so no job-based argument builder is left; every WinGet update
+        // line is built from a reviewed operation.
+        Assert.AreEqual(0, Regex.Count(provider, @"static\s+IReadOnlyList<string>\s+BuildUpdateArguments\s*\(\s*ImmutableUpdateJob\b"));
+        Assert.IsFalse(Regex.IsMatch(provider, @"\bWingetMachineUpdateExecutor\b"), "the protocol-1 machine executor is retired");
 
         // The reviewed executor builds its arguments only from the reviewed operation, after the route admission check.
         Match reviewed = Regex.Match(provider, @"public sealed class WingetReviewedUserUpdateExecutor\b(?<body>.*?)\n}", RegexOptions.Singleline);

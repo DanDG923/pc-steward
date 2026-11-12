@@ -185,7 +185,6 @@ public sealed class QualificationProbeDesktopTransportTests
         Assert.AreEqual(new ReviewedHelperProbeBootstrap(4242, pipe, nonce), parsed);
         Assert.IsFalse(ReviewedHelperBootstrap.SelectsProtocol2(line), "the update dispatch never selects it");
         Assert.IsFalse(ReviewedHelperBootstrap.TryParse(line, out _));
-        Assert.IsFalse(HelperBootstrap.TryParse(line, out _));
         // Elements 2–9 are the update line's shape; the probe parser refuses them (the update launcher never emits --kind).
         Assert.IsFalse(ReviewedHelperProbeBootstrap.TryParse(line[2..], out _));
         Assert.AreEqual(2, ReviewedHelperProbeTransport.ProbeArguments(1, pipe, nonce).Count(argument => argument.StartsWith("--kind", StringComparison.Ordinal) ||

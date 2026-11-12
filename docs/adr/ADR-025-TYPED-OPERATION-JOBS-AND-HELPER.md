@@ -184,7 +184,7 @@ The owner decided that the existing runtime-limits disclosure is sufficient. No 
 
 ## Proposed amendment (2026-11-12) — protocol-1 transition for machine-scope WinGet (stage C4, Task 54 R2)
 
-**Status: Accepted (owner, 2026-11-12 20:07Z): "Accept the wording".** Accepted text as written below; previously Proposed. Source: [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md) finding R2 and the owner's 2026-11-12 decision "Fix R1 now; amend ADR-025 for R2". Stage record: [C4](../review/C4_REVIEWED_WINGET_USER_MODE.md).
+**Status: Accepted (owner, 2026-11-12 20:07Z): "Accept the wording"; closed by Phase D stage D4b, stage 3 (see the closure note after item 6).** Accepted text as written below; previously Proposed. Source: [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md) finding R2 and the owner's 2026-11-12 decision "Fix R1 now; amend ADR-025 for R2". Stage record: [C4](../review/C4_REVIEWED_WINGET_USER_MODE.md).
 
 1. **Exception.** "Privilege and protocol boundary" says a new helper never also accepts protocol 1. As a time-limited exception, the protocol-2 helper keeps protocol 1 for one purpose only: a machine-scope WinGet `UpdatePackage` from the `winget` or `msstore` source. Nothing else may use protocol 1, and no new operation, source, provider or argument is added to it.
 2. **Already narrowed (stage C4).** The protocol-1 request validator refuses Chocolatey (`request-authority-not-allowlisted`); the helper's protocol-1 executor has no Chocolatey arm; the desktop's `ElevatedUpdateRunner` denies any non-WinGet job before a helper launch. Per-user WinGet updates no longer use the legacy job route at all (R1).
@@ -192,3 +192,17 @@ The owner decided that the existing runtime-limits disclosure is sufficient. No 
 4. **End condition.** The exception ends when the Phase D stage D4b reviewed machine-scope WinGet route ships. The D4b change removes the protocol-1 executor, validator and transport path, makes the helper refuse protocol 1 without starting a provider, and adds a regression test that proves the refusal.
 5. **If D4b is paused or cancelled,** the owner reconsiders this exception; it does not become permanent by default.
 6. **No other authority.** Accepting this text authorizes no deployment, host test, release or publishing step.
+
+**Closed (2026-11-12, Phase D stage D4b, stage 3).** The end condition in item 4 is met by the change that admits the reviewed whole-PC WinGet route ([design note](../review/PHASE_D4B_MACHINE_WINGET_UPDATE_DESIGN.md) §8 and §10):
+
+- A machine-scope WinGet update now runs only through its frozen `WinGetMachineSilentV1` operation on protocol 2. The helper's protocol-1 path is removed: `RunProtocol1Async`, the protocol-1 request validator, request and response codec, transport and pipe locator, the job-based `WingetMachineUpdateExecutor`, and `ElevatedUpdateRunner`'s mode-less entry. A machine-scope job without its reviewed operation starts nothing.
+- `ElevatedHelperEntryPoint.RunAsync` ends every line that is not the self-update, probe or `--protocol 2` line with exit code 20, a well-formed protocol-1 line included, before the helper connects to anything or reads a request. Regression tests: fixture `ElevatedHelperSecurityTests.AWellFormedProtocolOneLineIsRefusedBeforeTheHelperConnectsOrReadsAnything` and architecture `HelperEndpointBoundaryTests.ProtocolOneIsRetiredAndNoHelperPathReachesAProviderExecutorOutsideTheEndpoint`.
+- The disclosed gap in item 3 no longer exists, and "Privilege and protocol boundary" holds without exception: the helper accepts protocol 2 only. The ADR-022 capability statement keeps `helper-protocol:2` and lists three operations (`ChocolateyClientSelfUpdateV1`, `ChocolateyMachineRuntimeLimitsV3`, `WinGetMachineSilentV1`), so the qualification probe now holds and evaluates G1 for all three.
+
+### Owner acceptance S2 — WinGet user settings read while elevated (2026-11-12)
+
+**Status: Accepted (owner, 2026-11-12 20:09Z, "Accept all three as recommended", D4b design note §9 Q2).** Recorded next to M1 above, as the owner asked.
+
+Elevated WinGet reads the owner's own WinGet `settings.json`. A program already running as the owner could edit it to change how the elevated run behaves (for example skip dependencies, prefer another installer or turn on an experimental feature). PC Steward narrows this but does not close it: the command line pins `--scope machine`, `--architecture` and `--installer-type`; portable and zip installers are refused; the helper refuses the run unless the settings file (and its `.backup`, in both the packaged and unpackaged location) holds only allow-listed settings (design note §5 H7); and each WinGet process gets its own unfindable administrator-only temporary folder (S1). The remaining window, from the H7 check to WinGet reading the file, needs an attacker already running as the owner to win a timing race while the owner is answering the Windows prompt. It cannot be closed without WinGet ignoring user settings when elevated, which is not planned upstream.
+
+This acceptance applies only to the `WinGetMachineSilentV1` route, using only the Microsoft `winget` source. It does not cover another provider, route, source or user, and it does not approve a release, deployment, UAC prompt, host step or real update.

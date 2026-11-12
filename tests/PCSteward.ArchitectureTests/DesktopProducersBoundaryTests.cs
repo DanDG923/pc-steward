@@ -154,7 +154,9 @@ public sealed class DesktopProducersBoundaryTests
         Assert.IsTrue(gate.Success, "HasSupportedMode not found");
         string body = gate.Groups["body"].Value;
         StringAssert.Contains(body, "operation.RouteContract == UpdateRouteContract.WinGetUserExactV3");
-        Assert.IsTrue(Regex.Replace(body, @"\s+", " ").TrimEnd().EndsWith("|| ReviewedChocolateyRouteAdmission.Admits(operation)", StringComparison.Ordinal),
+        // D4b stage 3: the whole-PC WinGet shape term follows the Chocolatey activation term.
+        Assert.IsTrue(Regex.Replace(body, @"\s+", " ").TrimEnd().EndsWith(
+            "|| ReviewedChocolateyRouteAdmission.Admits(operation) || WingetMachineReviewedRoute.TryGetShape(operation, out _, out _, out _)", StringComparison.Ordinal),
             "the Chocolatey routes are admitted only through the activation term");
         Assert.AreEqual(1, Regex.Count(body, "Chocolatey"), "the gate itself names Chocolatey only in the activation term");
         Assert.AreEqual(1, Regex.Count(body, @"RouteContract\s*=="), "HasSupportedMode compares the route with exactly one contract itself");

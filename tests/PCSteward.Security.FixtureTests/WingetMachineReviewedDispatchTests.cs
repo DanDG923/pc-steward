@@ -6,9 +6,9 @@ using PCSteward.Provider.WinGet;
 namespace PCSteward.Security.FixtureTests;
 
 /// <summary>
-/// Phase D stage D4b, stage 2c (design §5.4; FR-UPD-15, FR-UPD-01/03, TM-03/04/07/13): an approved whole-PC WinGet job with a frozen
-/// <see cref="UpdateRouteContract.WinGetMachineSilentV1"/> operation runs only on the protocol-2 helper, never protocol 1, and the
-/// route is still off: the review gate refuses it, so nothing is launched. The observation mapping is pinned here for stage 3.
+/// Phase D stage D4b, stages 2c and 3 (design §5.4, §8; FR-UPD-15, FR-UPD-01/03, TM-03/04/07/13): an approved whole-PC WinGet job
+/// runs only through its frozen <see cref="UpdateRouteContract.WinGetMachineSilentV1"/> operation on the protocol-2 helper. Protocol 1
+/// is retired, so a job without that operation has no route. The observation mapping is pinned here.
 /// </summary>
 [TestClass]
 public sealed class WingetMachineReviewedDispatchTests
@@ -59,18 +59,17 @@ public sealed class WingetMachineReviewedDispatchTests
         Assert.AreEqual(UpdateExecutionStatus.HelperFailed, Map(Observation(ReviewedUpdateInvocation.Started, ReviewedUpdateProviderStatus.Refused, null)));
     }
 
-    // ---- Dispatch, still off ----
+    // ---- Dispatch on protocol 2 (admitted from stage 3) ----
 
     [TestMethod]
-    public async Task TheExchangeRefusesTheUnadmittedRouteBeforeAnyCapabilityReadOrLaunch()
+    public async Task TheExchangeRefusesAnotherRouteBeforeAnyCapabilityReadOrLaunch()
     {
-        ReviewedUpdateOperation operation = WingetMachineHelperRouteTests.Operation();
         CountingCapability capability = new();
-        CountingTransport transport = new();
+        ScriptedTransport transport = new(Protocol2InterpreterFixture.Started());
         int nonces = 0;
         WingetMachineReviewedExchange exchange = new(capability, transport, () => { nonces++; return new string('C', 64); });
 
-        ReviewedUpdateDispatchObservation observation = await exchange.RunAsync(operation, CancellationToken.None);
+        ReviewedUpdateDispatchObservation observation = await exchange.RunAsync(ReviewedHelperEndpointClientRunFaultTests.ClientOperation(), CancellationToken.None);
 
         Assert.AreEqual(ReviewedUpdateInvocation.NotStarted, observation.Invocation);
         Assert.AreEqual(ReviewedUpdateProviderStatus.Refused, observation.Status);
@@ -78,57 +77,101 @@ public sealed class WingetMachineReviewedDispatchTests
         Assert.AreEqual(0, capability.Calls, "the gate refuses first, before the deployment capability is read");
         Assert.AreEqual(0, transport.Calls);
         Assert.AreEqual(0, nonces);
-        Assert.AreEqual(ReviewedUpdateProviderStatus.Refused,
-            (await exchange.RunAsync(ReviewedHelperEndpointClientRunFaultTests.ClientOperation(), CancellationToken.None)).Status, "another route is refused");
-        Assert.AreEqual(0, transport.Calls);
     }
 
     [TestMethod]
-    public async Task AWholePcJobWithAReviewedOperationNeverReachesProtocolOne()
+    public async Task AnUnlistedCapabilityRefusesBeforeTheHelperIsLaunched()
     {
         (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = Frozen();
-        UpdateJobExecutionEvidence fresh = new(job.Selection, true, true);
-        ProtocolOneTransport protocolOne = new();
-        CountingTransport protocolTwo = new();
-        ElevatedUpdateRunner runner = new(protocolOne, reviewedExchange: new WingetMachineReviewedExchange(new CountingCapability(), protocolTwo));
+        CountingCapability capability = new(HelperProtocolCapabilityStatus.Absent);
+        ScriptedTransport transport = new(Protocol2InterpreterFixture.Started());
 
-        UpdateProviderAttempt attempt = await new ApprovedUpdateExecutor(new NonElevatedUpdateRunner(new UnusedUserExecutor()), runner).ExecuteAsync(job, operation, fresh, new UpdateItemProgress(job, null),
+        UpdateExecutionResult result = await Runner(capability, transport).RunReviewedAsync(job, operation, new(job.Selection, true, true), CancellationToken.None);
+
+        Assert.AreEqual(UpdateExecutionStatus.Denied, result.Status);
+        Assert.AreEqual(UpdateExecutionDenial.ReviewedModeUnavailable, result.Denial);
+        Assert.AreEqual(1, capability.Calls);
+        Assert.AreEqual(0, transport.Calls, "nothing is launched when the protected capability does not list the route");
+    }
+
+    [TestMethod]
+    public async Task AnApprovedWholePcJobRunsOneProtocolTwoExchangeAndAwaitsInventory()
+    {
+        (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = Frozen();
+        CountingCapability capability = new();
+        ScriptedTransport transport = new(Protocol2InterpreterFixture.Started());
+        UpdateItemProgress progress = new(job, null);
+
+        UpdateProviderAttempt attempt = await new ApprovedUpdateExecutor(new NonElevatedUpdateRunner(new UnusedUserExecutor()), Runner(capability, transport))
+            .ExecuteAsync(job, operation, new(job.Selection, true, true), progress, CancellationToken.None);
+
+        Assert.AreEqual(UpdateProviderAttemptStatus.AwaitingVerification, attempt.Status, attempt.SanitizedDiagnostic);
+        Assert.AreEqual(1, transport.Calls, "exactly one exchange");
+        Assert.AreSame(operation, transport.Operation, "the helper receives the frozen operation itself");
+        Assert.AreEqual(64, transport.Nonce!.Length);
+        Assert.AreEqual(1, capability.Calls);
+    }
+
+    [TestMethod]
+    public async Task WinGetsRestartCodeIsReportedAsARestart()
+    {
+        (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = Frozen();
+        ScriptedTransport transport = new(Protocol2InterpreterFixture.Started(WingetRestartExitCodes.RebootRequiredToFinish));
+
+        UpdateExecutionResult result = await Runner(new CountingCapability(), transport).RunReviewedAsync(job, operation, new(job.Selection, true, true),
             CancellationToken.None);
+
+        Assert.AreEqual(UpdateExecutionStatus.RestartReported, result.Status, result.SanitizedOutput);
+        Assert.AreEqual(WingetRestartExitCodes.RebootRequiredToFinish, result.ExitCode);
+    }
+
+    [TestMethod]
+    public async Task AnInterruptedExchangeNeverClaimsThatNothingRan()
+    {
+        (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = Frozen();
+        ScriptedTransport transport = new(null);
+
+        UpdateExecutionResult result = await Runner(new CountingCapability(), transport).RunReviewedAsync(job, operation, new(job.Selection, true, true),
+            CancellationToken.None);
+
+        Assert.AreEqual(UpdateExecutionStatus.HelperFailed, result.Status);
+        StringAssert.Contains(result.SanitizedOutput, "invocation-unknown");
+        Assert.IsNotNull(result.OwnedCompletion);
+        Assert.IsFalse(result.OwnedCompletion.IsCompleted, "the owned work stays unresolved");
+    }
+
+    [TestMethod]
+    public async Task AWholePcJobWithoutAReviewedOperationIsRefusedAndNothingIsLaunched()
+    {
+        (ImmutableUpdateJob job, _) = Frozen();
+        ScriptedTransport transport = new(Protocol2InterpreterFixture.Started());
+
+        UpdateProviderAttempt attempt = await new ApprovedUpdateExecutor(new NonElevatedUpdateRunner(new UnusedUserExecutor()),
+            Runner(new CountingCapability(), transport)).ExecuteAsync(job, new(job.Selection, true, true), CancellationToken.None);
 
         Assert.AreEqual(UpdateProviderAttemptStatus.ProductFailed, attempt.Status);
         StringAssert.Contains(attempt.SanitizedDiagnostic, "reviewed-machine-route-unavailable");
-        Assert.AreEqual(0, protocolOne.Calls, "never a fallback to protocol 1");
-        Assert.AreEqual(0, protocolTwo.Calls, "the route is still off");
-
-        // Without a reviewed operation the job stays on protocol 1 until stage 3 retires it.
-        _ = await new ApprovedUpdateExecutor(new NonElevatedUpdateRunner(new UnusedUserExecutor()), runner).ExecuteAsync(job, fresh, CancellationToken.None);
-        Assert.AreEqual(1, protocolOne.Calls);
+        Assert.AreEqual(0, transport.Calls, "protocol 1 is retired: a mode-less machine job has no route");
     }
 
     [TestMethod]
-    public async Task TheRunnerRefusesAMissingExchangeAForeignOperationOrChangedEvidence()
+    public async Task TheRunnerRefusesAForeignOperationOrChangedEvidence()
     {
         (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = Frozen();
-        UpdateJobExecutionEvidence fresh = new(job.Selection, true, true);
-        ProtocolOneTransport protocolOne = new();
-
-        UpdateExecutionResult uncomposed = await new ElevatedUpdateRunner(protocolOne).RunReviewedAsync(job, operation, fresh, CancellationToken.None);
-        Assert.AreEqual(UpdateExecutionStatus.Denied, uncomposed.Status);
-        Assert.AreEqual(UpdateExecutionDenial.ReviewedModeUnavailable, uncomposed.Denial);
-
-        ElevatedUpdateRunner runner = new(protocolOne, reviewedExchange: new WingetMachineReviewedExchange(new CountingCapability(), new CountingTransport()));
+        ScriptedTransport transport = new(Protocol2InterpreterFixture.Started());
+        ElevatedUpdateRunner runner = Runner(new CountingCapability(), transport);
         ImmutableUpdateJob other = Frozen("25.02").Job;
+
         UpdateExecutionResult foreign = await runner.RunReviewedAsync(other, operation, new(other.Selection, true, true), CancellationToken.None);
         Assert.AreEqual(UpdateExecutionDenial.ReviewedModeUnavailable, foreign.Denial);
 
-        UpdateJobExecutionEvidence changed = new(other.Selection, true, true);
-        UpdateExecutionResult mismatch = await runner.RunReviewedAsync(job, operation, changed, CancellationToken.None);
+        UpdateExecutionResult mismatch = await runner.RunReviewedAsync(job, operation, new(other.Selection, true, true), CancellationToken.None);
         Assert.AreEqual(UpdateExecutionDenial.CurrentEvidenceMismatch, mismatch.Denial);
-        Assert.AreEqual(0, protocolOne.Calls);
+        Assert.AreEqual(0, transport.Calls);
     }
 
     /// <summary>The whole-PC operation frozen from its approved job, as <see cref="WingetMachineHelperRouteTests.Operation"/> builds it.</summary>
-    private static (ImmutableUpdateJob Job, ReviewedUpdateOperation Operation) Frozen(string candidate = "25.01")
+    internal static (ImmutableUpdateJob Job, ReviewedUpdateOperation Operation) Frozen(string candidate = "25.01")
     {
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("arp:hklm64:7zip", UpdateProvider.WinGet,
             UpdateSource.WinGet, "7zip.7zip", "24.09", candidate, UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable,
@@ -145,32 +188,45 @@ public sealed class WingetMachineReviewedDispatchTests
         bool uncertain = false) =>
         new(invocation, status, exitCode, "fixture", Task.CompletedTask, true, true, true, false, uncertain);
 
-    private sealed class CountingCapability : IHelperProtocolCapability
+    private static ElevatedUpdateRunner Runner(IHelperProtocolCapability capability, IReviewedHelperTransport transport) =>
+        new(new WingetMachineReviewedExchange(capability, transport));
+
+    private sealed class CountingCapability(HelperProtocolCapabilityStatus status = HelperProtocolCapabilityStatus.Supported) : IHelperProtocolCapability
     {
         internal int Calls { get; private set; }
 
         public HelperProtocolCapabilityResult Evaluate(UpdateRouteContract route)
         {
             Calls++;
-            return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Supported);
+            return HelperProtocolCapabilityResult.For(status);
         }
 
         public HelperProtocolCapabilityResult TryHold(UpdateRouteContract route, out HeldHelperBinding? binding)
         {
             Calls++;
             binding = null;
-            return HelperProtocolCapabilityResult.For(HelperProtocolCapabilityStatus.Supported);
+            return HelperProtocolCapabilityResult.For(status);
         }
     }
 
-    private sealed class CountingTransport : IReviewedHelperTransport
+    /// <summary>Answers with a WinGet machine reply for the frozen operation and the nonce it was given; null facts throw instead.</summary>
+    private sealed class ScriptedTransport(UpdateWireFacts? facts) : IReviewedHelperTransport
     {
         internal int Calls { get; private set; }
+        internal ReviewedUpdateOperation? Operation { get; private set; }
+        internal string? Nonce { get; private set; }
 
         public Task<ReviewedHelperExchange> ExchangeAsync(ReviewedUpdateOperation operation, string nonce, CancellationToken cancellationToken)
         {
             Calls++;
-            throw new AssertFailedException("the protocol-2 helper must not be launched while the route is off");
+            Operation = operation;
+            Nonce = nonce;
+            if (facts is null) throw new IOException("synthetic interrupted exchange");
+            Assert.IsTrue(WingetMachineReviewedRoute.TryGetShape(operation, out WinGetMachineEvidence? evidence, out _, out _));
+            byte[] frame = ReviewedUpdateWireCodec.CreateWinGetMachineResponse(operation.JobId, operation.Digest, nonce, facts,
+                Protocol2InterpreterFixture.Matched(operation.Selection.InstalledVersion, operation.Selection.CandidateVersion, evidence!.RegistrationDigest), "ok");
+            return Task.FromResult(new ReviewedHelperExchange(ReviewedHelperTransportOutcome.ResponseFrameReceived, frame,
+                Protocol2InterpreterFixture.SettledDesktop));
         }
     }
 
@@ -178,16 +234,5 @@ public sealed class WingetMachineReviewedDispatchTests
     {
         public Task<WingetProcessResult> ExecuteAsync(ReviewedUpdateOperation operation, UpdateItemProgress? progress, CancellationToken cancellationToken) =>
             throw new AssertFailedException("a whole-PC job never runs without elevation");
-    }
-
-    private sealed class ProtocolOneTransport : IElevatedHelperTransport
-    {
-        internal int Calls { get; private set; }
-
-        public Task<ElevatedHelperResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
-        {
-            Calls++;
-            return Task.FromResult(new ElevatedHelperResult(ElevatedHelperOutcome.Completed, 1, "fixture"));
-        }
     }
 }

@@ -33,7 +33,7 @@ public sealed class ElevatedRuntimeEnvironmentBoundaryTests
                 StringAssert.Contains(between, "ElevatedRuntimeEnvironmentGuard.PermitsElevatedLaunch()", $"{path}: unguarded runas launch");
             }
         }
-        Assert.AreEqual(4, launches, "the protocol-1, protocol-2, probe and self-update launchers");
+        Assert.AreEqual(3, launches, "the protocol-2, probe and self-update launchers (D4b stage 3 retired the protocol-1 launcher)");
     }
 
     [TestMethod]

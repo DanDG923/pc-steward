@@ -378,12 +378,12 @@ public sealed class ReviewedHelperProtocol2TransportTests
     }
 
     [TestMethod]
-    public void ProtocolTwoPipeLocatorIsAcceptedByThePipeFactoryButNotByTheProtocolOneHelperBootstrap()
+    public void OnlyTheProtocolTwoPipeLocatorIsAcceptedByThePipeFactory()
     {
         string name = WindowsReviewedHelperTransport.CreatePipeName();
         Assert.IsTrue(WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(name));
         Assert.IsTrue(RestrictedNamedPipe.IsAcceptedLocator(name), "the restricted pipe factory accepts the protocol-2 locator");
-        Assert.IsTrue(RestrictedNamedPipe.IsAcceptedLocator($"pcsteward-elevated-{Guid.NewGuid():N}"), "protocol 1 is unchanged");
+        Assert.IsFalse(RestrictedNamedPipe.IsAcceptedLocator($"pcsteward-elevated-{Guid.NewGuid():N}"), "D4b stage 3: the retired protocol-1 locator");
         foreach (string bad in new[] { "pcsteward-reviewed-", name.ToUpperInvariant(), name + "0", "pcsteward-other-" + new string('a', 32), "" })
             Assert.IsFalse(RestrictedNamedPipe.IsAcceptedLocator(bad), bad);
         // N4b review L4: a "$" anchor would accept a trailing newline; the protocol-2 pattern is anchored with \z.
@@ -392,9 +392,6 @@ public sealed class ReviewedHelperProtocol2TransportTests
             Assert.IsFalse(WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(bad), bad);
             Assert.IsFalse(RestrictedNamedPipe.IsAcceptedLocator(bad), bad);
         }
-        // The endpoint is deferred: the protocol-1 helper bootstrap accepts neither the protocol-2 locator nor --protocol 2.
-        foreach (string protocol in new[] { ElevatedHelperProtocol.Version, ReviewedUpdateWireCodec.ProtocolVersion })
-            Assert.IsFalse(HelperBootstrap.TryParse(["--protocol", protocol, "--desktop-pid", "42", "--pipe", name, "--nonce", Nonce], out _), protocol);
     }
 
     [TestMethod]

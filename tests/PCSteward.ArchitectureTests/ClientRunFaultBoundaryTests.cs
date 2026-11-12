@@ -154,7 +154,7 @@ public sealed class ClientRunFaultBoundaryTests
         string policy = Single(sources, "DeploymentCapabilityPolicy.cs");
         StringAssert.Contains(Regex.Replace(policy, @"\s+", " "),
             "internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist = " +
-            "[UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1];");
+            "[UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1, UpdateRouteContract.WinGetMachineSilentV1];");
         Assert.AreEqual(1, Count(policy, "CapabilityOperationAllowlist ="), "a single allow-list definition");
         Assert.AreEqual(1, Count(policy, "ChocolateyClientSelfUpdateV1"), "the capability policy names the client route only in the allow-list");
         string dispatcher = Single(sources, "ChocolateyRuntimeLimitsRouteDispatcher.cs");

@@ -316,7 +316,7 @@ function ConvertFrom-OwnerOnlyDeploymentCapability {
     $protocol = $lines[1].Substring(16)
     if ($protocol.Length -eq 0) { throw $malformed }
     # Task 50 activation (ADR-031 owner decision 7): mirrors DeploymentCapabilityPolicy.CapabilityOperationAllowlist.
-    $allowed = @('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3')
+    $allowed = @('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3', 'Update/WinGetMachineSilentV1')
     $operations = [Collections.Generic.List[string]]::new(); $previous = $null
     for ($index = 2; $index -lt $lines.Length; $index++) {
         if (!$lines[$index].StartsWith('operation:', [StringComparison]::Ordinal)) { throw $malformed }

@@ -6,8 +6,8 @@ namespace PCSteward.Application;
 /// Phase D stage D4b (design note <c>docs/review/PHASE_D4B_MACHINE_WINGET_UPDATE_DESIGN.md</c> §4 and §5.1; FR-UPD-15, FR-UPD-01/03,
 /// TM-03/04/07/13): the reviewed route of a WinGet update of an app installed for every user on this PC, run by the elevated helper on
 /// <see cref="UpdateRouteContract.WinGetMachineSilentV1"/>. <see cref="TryGetShape"/> is the one shape check every layer uses (the fixed
-/// command lines, the helper's A1 and the desktop's reply reader); <see cref="Admits"/> adds the review gate, which does not admit the
-/// route until stage 3. Nothing here is native qualification, consent or a dispatch permit.
+/// command lines, the helper's A1 and the desktop's reply reader); <see cref="Admits"/> adds the review gate, which admits the route
+/// from stage 3. Nothing here is native qualification, consent or a dispatch permit.
 /// </summary>
 public static class WingetMachineReviewedRoute
 {
@@ -46,7 +46,7 @@ public static class WingetMachineReviewedRoute
         return true;
     }
 
-    /// <summary>The route shape and the review gate (<see cref="ReviewedUpdateReview.HasSupportedMode"/>), which admits it only from stage 3.</summary>
+    /// <summary>The route shape and the review gate (<see cref="ReviewedUpdateReview.HasSupportedMode"/>), which admits it from stage 3.</summary>
     public static bool Admits(ReviewedUpdateOperation? operation) =>
         TryGetShape(operation, out _, out _, out _) && ReviewedUpdateReview.HasSupportedMode(operation!);
 

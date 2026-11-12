@@ -98,15 +98,6 @@ public sealed class HelperEndpointBoundaryTests
             Native + "IChocolateyPeer.TryReadIdentity", Native + "IChocolateyHelperItem.RequesterCannotModify"]),
     ];
 
-    /// <summary>Protocol-2 types the protocol-1 path must never reference (compiled IL).</summary>
-    private static readonly string[] ProtocolTwoTypes =
-    [
-        Bootstrap, Endpoint, Codec, CapabilityCheck, "PCSteward.Execution.WindowsReviewedHelperTransport",
-        "PCSteward.Execution.IReviewedHelperCapabilityCheck", ProbeBootstrap, ProbeEndpoint, "PCSteward.Execution.QualificationProbeWireCodec",
-        SelfUpdateBootstrap, "PCSteward.Execution.SelfUpdateSession", "PCSteward.Execution.SelfUpdateFinish", "PCSteward.Execution.WindowsSelfUpdateHost",
-        "PCSteward.Execution.ISelfUpdateInstallCheck",
-    ];
-
     [TestMethod]
     public void TheOnlyCreateResponseCallSiteInSrcIsTheEndpoint()
     {
@@ -323,20 +314,20 @@ public sealed class HelperEndpointBoundaryTests
         string transport = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
         string bootstrap = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "ReviewedHelperBootstrap.cs"));
         string protocol = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "ElevatedHelperProtocol.cs"));
-        // Protocol 1 is unchanged: its bootstrap accepts only "--protocol 1" and its own locator, and refuses with code 20.
-        Assert.IsFalse(transport.Contains("ReviewedHelperEndpoint", StringComparison.Ordinal), "the protocol-1 file never names the endpoint");
-        Assert.IsFalse(transport.Contains("PCSteward.Provider.Chocolatey.Native", StringComparison.Ordinal), "the protocol-1 file never names the native port");
-        StringAssert.Contains(transport, "fields[\"--protocol\"] != ElevatedHelperProtocol.Version");
-        StringAssert.Contains(transport, "!WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(fields[\"--pipe\"])");
-        StringAssert.Contains(protocol, "internal const string Version = \"1\";");
-        Assert.IsTrue(Regex.IsMatch(transport, @"bootstrap is null \|\|\s*!IsElevated\(\)\)\s*\{\s*return 20;"), "a refused protocol-1 bootstrap exits with code 20");
-        Assert.IsTrue(Regex.IsMatch(transport, @"SelectsProtocol2\(arguments\)\s*\?\s*RunReviewedAsync\(arguments\)\s*:\s*RunProtocol1Async\(arguments\)"),
-            "--protocol 2 is dispatched to the reviewed bootstrap");
-        // Protocol 2 accepts only its own locator; the shared pipe factory accepts each protocol's locator.
+        // D4b stage 3 (design note §8): protocol 1 is retired. Every line that is not self-update, probe or protocol 2 is refused with
+        // exit code 20 before anything is connected or read, and the protocol-1 request, validator and locator are gone.
+        Assert.IsFalse(transport.Contains("ReviewedHelperEndpoint", StringComparison.Ordinal), "the shared transport file never names the endpoint");
+        Assert.IsFalse(transport.Contains("PCSteward.Provider.Chocolatey.Native", StringComparison.Ordinal), "the shared transport file never names the native port");
+        Assert.IsTrue(Regex.IsMatch(transport, @"SelectsProtocol2\(arguments\)\s*\?\s*RunReviewedAsync\(arguments\)\s*:\s*Task\.FromResult\(Protocol1RefusedExitCode\);"),
+            "--protocol 2 is dispatched to the reviewed bootstrap and every other line is refused");
+        StringAssert.Contains(transport, "internal const int Protocol1RefusedExitCode = 20;");
+        foreach (string retired in new[] { "RunProtocol1Async", "OneShotHelperRequestValidator", "HelperBootstrap.TryParse", "WingetMachineUpdateExecutor",
+            "WindowsElevatedHelperTransport", "ElevatedHelperProtocol.Version" })
+            Assert.IsFalse(transport.Contains(retired, StringComparison.Ordinal), $"protocol 1 is retired ({retired})");
+        Assert.IsFalse(protocol.Contains("Version", StringComparison.Ordinal), "no protocol-1 version remains");
+        // Protocol 2 accepts only its own locator, and so does the shared pipe factory.
         StringAssert.Contains(bootstrap, "WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(fields[\"--pipe\"])");
-        Assert.IsFalse(bootstrap.Contains("WindowsElevatedHelperTransport.PipeNamePattern", StringComparison.Ordinal), "protocol 2 never accepts the protocol-1 locator");
-        StringAssert.Contains(transport,
-            "WindowsElevatedHelperTransport.PipeNamePattern().IsMatch(pipeName) || WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(pipeName)");
+        StringAssert.Contains(transport, "internal static bool IsAcceptedLocator(string pipeName) =>\n        WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(pipeName);");
         StringAssert.Contains(bootstrap, "TokenImpersonationLevel.Identification");
         foreach (string path in Sources(Path.Combine(src, "PCSteward.ElevatedHelper")))
             Assert.IsFalse(File.ReadAllText(path).Contains("ReviewedHelperEndpoint", StringComparison.Ordinal), path);
@@ -446,39 +437,39 @@ public sealed class HelperEndpointBoundaryTests
     }
 
     [TestMethod]
-    public void TheProtocolOnePathReferencesNoProtocolTwoType()
+    public void ProtocolOneIsRetiredAndNoHelperPathReachesAProviderExecutorOutsideTheEndpoint()
     {
+        // D4b stage 3 (design note §8): the protocol-1 types are gone, and nothing in src calls a protected machine-update executor
+        // (the protocol-1 provider seam); the helper reaches a provider only through the protocol-2 endpoint's own routed work.
         List<string> assemblies = RequireBuilt();
-        string execution = assemblies.Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Execution");
-        string[] protocolOneTypes =
+        string[] retired =
         [
-            "PCSteward.Execution.HelperBootstrap", "PCSteward.Execution.ElevatedHelperProtocol", "PCSteward.Execution.OneShotHelperRequestValidator",
-            "PCSteward.Execution.WindowsElevatedHelperTransport", "PCSteward.Execution.ElevatedHelperResult",
-        ];
-        // The entry point's protocol-2 members are the dispatch rule and the protocol-2 composition root; every other entry-point
-        // method (the dispatcher, the protocol-1 provider composition and the protocol-1 run) is protocol 1.
-        string[] protocolTwoEntryMembers =
-        [
-            EntryPoint + ".RunReviewedAsync", EntryPoint + ".SelectsProtocol2",
-            // Probe spec rev 4 §2: the probe dispatch rule and the probe composition root are protocol-2 members too.
-            EntryPoint + ".RunProbeAsync", EntryPoint + ".SelectsProbe",
-            // ADR-032 r2 §6–§7: the self-update session and finish-copy dispatch rules and composition roots.
-            EntryPoint + ".RunSelfUpdateAsync", EntryPoint + ".SelectsSelfUpdate",
-            EntryPoint + ".RunSelfUpdateFinishAsync", EntryPoint + ".SelectsSelfUpdateFinish",
+            "PCSteward.Execution.HelperBootstrap", "PCSteward.Execution.OneShotHelperRequestValidator", "PCSteward.Execution.WindowsElevatedHelperTransport",
+            "PCSteward.Execution.ElevatedHelperResult", "PCSteward.Execution.ElevatedHelperOutcome", "PCSteward.Execution.IElevatedHelperTransport",
+            "PCSteward.Execution.ElevatedHelperLauncher", "PCSteward.Provider.WinGet.WingetMachineUpdateExecutor",
         ];
         List<string> violations = [];
         int scanned = 0;
-        foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(execution))
-        {
-            bool protocolOne = protocolOneTypes.Any(type => reference.Caller == type || reference.Caller.StartsWith(type + "+", StringComparison.Ordinal)) ||
-                (reference.Caller.StartsWith(EntryPoint, StringComparison.Ordinal) && !protocolTwoEntryMembers.Contains(reference.LogicalCaller));
-            if (!protocolOne) continue;
-            scanned++;
-            if (reference.TargetType.StartsWith(Native, StringComparison.Ordinal) || ProtocolTwoTypes.Contains(reference.TargetType))
-                violations.Add($"{reference.LogicalCaller} references {reference.TargetType}.{reference.TargetMember}");
-        }
-        Assert.IsTrue(scanned > 50, $"the protocol-1 scan is not vacuous ({scanned})");
+        foreach (string path in assemblies)
+            foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
+            {
+                scanned++;
+                if (retired.Any(type => reference.TargetType == type || reference.Caller == type || reference.Caller.StartsWith(type + "+", StringComparison.Ordinal)))
+                    violations.Add($"{reference.LogicalCaller} -> {reference.TargetType}.{reference.TargetMember}");
+                if (reference.TargetMember == "ExecuteProtectedAsync" || reference.TargetMember.EndsWith(".ExecuteProtectedAsync", StringComparison.Ordinal))
+                    violations.Add($"{reference.LogicalCaller} calls {reference.TargetType}.{reference.TargetMember}");
+            }
+        Assert.IsTrue(scanned > 1000, $"the scan is not vacuous ({scanned})");
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
+
+        string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
+        foreach (string path in Sources(src))
+        {
+            string source = File.ReadAllText(path);
+            foreach (string name in new[] { "class WindowsElevatedHelperTransport", "class OneShotHelperRequestValidator", "record HelperBootstrap(",
+                "class WingetMachineUpdateExecutor", "interface IElevatedHelperTransport", "RunProtocol1Async", "RunNoOpEvidenceAsync" })
+                Assert.IsFalse(source.Contains(name, StringComparison.Ordinal), $"{path} still has {name}");
+        }
     }
 
     [TestMethod]

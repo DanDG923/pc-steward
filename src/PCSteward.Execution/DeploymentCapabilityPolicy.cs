@@ -86,7 +86,7 @@ internal static class DeploymentCapabilityPolicy
     /// route admits nothing by itself: the review gate, fresh evidence, the dispatcher and the helper's own checks still apply.
     /// </summary>
     internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist =
-        [UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1];
+        [UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1, UpdateRouteContract.WinGetMachineSilentV1];
 
     /// <summary>
     /// Compiled closed binding set (A.3, A2-L4): the desktop apphost and its main assembly, the helper's Native AOT image

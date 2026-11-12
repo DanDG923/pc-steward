@@ -9,10 +9,10 @@ namespace PCSteward.Security.FixtureTests;
 
 /// <summary>
 /// Phase D stage D4b design §5.1 (FR-UPD-15, FR-UPD-01/03, TM-03/04/07/13): the machine WinGet route on the protocol-2 helper,
-/// still off. The reply has its own shape (<see cref="ReviewedHelperReplyShape.WinGetMachine"/>): the same 20 properties as the
+/// admitted from stage 3. The reply has its own shape (<see cref="ReviewedHelperReplyShape.WinGetMachine"/>): the same 20 properties as the
 /// package reply, with S12 checking the version fields against the reviewed version grammar. The route's profile digest is the
 /// reviewed HKLM registration digest. The stage machine runs this route only through the fake item and the injected capability seam.
-/// The real A3 allow-list still refuses it.
+/// The real A3 allow-list lists it from stage 3.
 /// </summary>
 [TestClass]
 public sealed class WingetMachineHelperRouteTests
@@ -42,7 +42,7 @@ public sealed class WingetMachineHelperRouteTests
     // ---- Shape and route gate ----
 
     [TestMethod]
-    public void TheRouteHasItsShapeButIsNotAdmitted()
+    public void TheRouteHasItsShapeAndIsAdmittedFromStage3()
     {
         ReviewedUpdateOperation operation = Operation();
         Assert.IsTrue(WingetMachineReviewedRoute.TryGetShape(operation, out WinGetMachineEvidence? evidence, out string architecture,
@@ -50,10 +50,10 @@ public sealed class WingetMachineHelperRouteTests
         Assert.AreEqual(Registration, evidence!.RegistrationDigest);
         Assert.AreEqual("x64", architecture);
         Assert.AreEqual("msi", installerType);
-        Assert.IsFalse(WingetMachineReviewedRoute.Admits(operation), "the review gate admits the route only from stage 3");
-        Assert.IsFalse(ReviewedUpdateReview.HasSupportedMode(operation));
-        CollectionAssert.DoesNotContain(DeploymentCapabilityPolicy.CapabilityOperationAllowlist.ToArray(), UpdateRouteContract.WinGetMachineSilentV1,
-            "A3 refuses the route until stage 3");
+        Assert.IsTrue(WingetMachineReviewedRoute.Admits(operation), "D4b stage 3: the review gate admits the route");
+        Assert.IsTrue(ReviewedUpdateReview.HasSupportedMode(operation));
+        CollectionAssert.Contains(DeploymentCapabilityPolicy.CapabilityOperationAllowlist.ToArray(), UpdateRouteContract.WinGetMachineSilentV1,
+            "A3 lists the route from stage 3");
         Assert.IsFalse(WingetMachineReviewedRoute.TryGetShape(null, out _, out _, out _));
         Assert.IsFalse(WingetMachineReviewedRoute.TryGetShape(F.Operation(), out _, out _, out _));
         Assert.IsFalse(WingetMachineReviewedRoute.TryGetShape(ReviewedHelperEndpointClientRunFaultTests.ClientOperation(), out _, out _, out _));

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Execution;
@@ -36,59 +35,34 @@ public sealed class Task49MilestoneTests
     }
 
     [TestMethod]
-    public async Task MachineFinalTrustFailureHasNoElevationOrLaunchAndDenialHasNoRequestSentMilestone()
+    public async Task PreCancelledMachineRouteDoesNotLaunchOrPublishElevation()
     {
-        HelperLaunchPaths paths = new("C:\\Program Files\\PC Steward\\PCSteward.Desktop.exe", "C:\\Program Files\\PC Steward\\PCSteward.ElevatedHelper.exe");
-        int validations = 0;
-        int launches = 0;
-        ImmutableUpdateJob job = Job(UpdateScope.Machine);
+        // D4b stage 3: the whole-PC route is the protocol-2 exchange; a pre-cancelled run never reaches it or publishes elevation.
+        (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = WingetMachineReviewedDispatchTests.Frozen();
         UpdateProgressMailbox mailbox = Prepared(job);
-        Process? Launcher(string helperPath, string pipeName, string nonce, out ElevatedHelperResult? failure)
-        {
-            launches++;
-            Assert.AreEqual(2, validations);
-            Assert.AreEqual(3, mailbox.Counters.Attempts, "Elevation is observed after final trust and immediately before launch.");
-            failure = new(ElevatedHelperOutcome.UserDenied, null, "synthetic denial");
-            return null;
-        }
-        WindowsElevatedHelperTransport rejected = new(() => paths,
-            _ => ++validations == 1 ? new(true, string.Empty) : new(false, "synthetic-final-trust-failure"), Launcher);
-        ElevatedHelperResult failure = await rejected.ExecuteAsync(job, new UpdateItemProgress(job, mailbox), CancellationToken.None);
-        Assert.AreEqual(ElevatedHelperOutcome.Failed, failure.Outcome);
-        Assert.AreEqual(0, launches);
+        CountingExchange exchange = new();
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        UpdateExecutionResult result = await new ElevatedUpdateRunner(exchange).RunReviewedAsync(job, operation, new(job.Selection, true, true),
+            cancellation.Token, new UpdateItemProgress(job, mailbox));
+        Assert.AreEqual(UpdateExecutionStatus.Cancelled, result.Status);
+        Assert.AreEqual(0, exchange.Calls);
         Assert.AreEqual(2, mailbox.Counters.Attempts);
-
-        validations = 0;
-        WindowsElevatedHelperTransport denied = new(() => paths, _ => { validations++; return new(true, string.Empty); }, Launcher);
-        ElevatedHelperResult denial = await denied.ExecuteAsync(job, new UpdateItemProgress(job, mailbox), CancellationToken.None);
-        Assert.AreEqual(ElevatedHelperOutcome.UserDenied, denial.Outcome);
-        Assert.AreEqual(1, launches);
-        Assert.AreEqual(3, mailbox.Counters.Attempts, "Denial must never publish request sent or provider started.");
-        Assert.IsTrue(mailbox.TryTake(out UpdateProgressFrame? frame));
-        Assert.AreEqual(UpdateProgressPhase.ElevationRequested, frame!.Phase);
     }
 
     [TestMethod]
-    public async Task PreCancelledMachineRouteDoesNotLaunchOrPublishElevation()
+    public async Task MachineElevationIsPublishedOnlyWhenTheExchangeStartsAndANotStartedReplyHasNoHandOff()
     {
-        ImmutableUpdateJob job = Job(UpdateScope.Machine);
+        (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = WingetMachineReviewedDispatchTests.Frozen();
         UpdateProgressMailbox mailbox = Prepared(job);
-        int launches = 0;
-        Process? Launcher(string helperPath, string pipeName, string nonce, out ElevatedHelperResult? failure)
-        {
-            launches++;
-            failure = null;
-            return null;
-        }
-        WindowsElevatedHelperTransport transport = new(
-            () => new("C:\\Program Files\\PC Steward\\PCSteward.Desktop.exe", "C:\\Program Files\\PC Steward\\PCSteward.ElevatedHelper.exe"),
-            _ => new(true, string.Empty), Launcher);
-        using CancellationTokenSource cancellation = new();
-        cancellation.Cancel();
-        ElevatedHelperResult result = await transport.ExecuteAsync(job, new UpdateItemProgress(job, mailbox), cancellation.Token);
-        Assert.AreEqual(ElevatedHelperOutcome.Cancelled, result.Outcome);
-        Assert.AreEqual(0, launches);
-        Assert.AreEqual(2, mailbox.Counters.Attempts);
+        CountingExchange exchange = new();
+        UpdateExecutionResult result = await new ElevatedUpdateRunner(exchange).RunReviewedAsync(job, operation, new(job.Selection, true, true),
+            CancellationToken.None, new UpdateItemProgress(job, mailbox));
+        Assert.AreEqual(UpdateExecutionStatus.ElevationDenied, result.Status);
+        Assert.AreEqual(1, exchange.Calls);
+        Assert.AreEqual(3, mailbox.Counters.Attempts, "Denial must never publish request sent or provider started.");
+        Assert.IsTrue(mailbox.TryTake(out UpdateProgressFrame? frame));
+        Assert.AreEqual(UpdateProgressPhase.ElevationRequested, frame!.Phase);
     }
 
     private static UpdateProgressMailbox Prepared(ImmutableUpdateJob job)
@@ -118,6 +92,16 @@ public sealed class Task49MilestoneTests
             // Synthetic process observation exercises plumbing, not a real provider capability.
             progress?.ProcessStarted();
             return Task.FromResult(new WingetProcessResult(0, "fixture", string.Empty, false));
+        }
+    }
+    private sealed class CountingExchange : IWingetMachineReviewedExchange
+    {
+        internal int Calls { get; private set; }
+
+        public Task<ReviewedUpdateDispatchObservation> RunAsync(ReviewedUpdateOperation operation, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(ReviewedUpdateDispatchObservation.NotStarted(ReviewedUpdateProviderStatus.ElevationDenied, "synthetic denial"));
         }
     }
 }

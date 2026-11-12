@@ -14,7 +14,7 @@ namespace PCSteward.Security.FixtureTests;
 [TestClass]
 public sealed class QualificationProbeHelperEndpointTests
 {
-    /// <summary>The compiled allow-list tokens in ordinal order (two since the Task 50 activation, ADR-031 owner decision 7).</summary>
+    /// <summary>The compiled allow-list tokens in ordinal order (three since D4b stage 3: the two Task 50 tokens, ADR-031 owner decision 7, and the whole-PC WinGet token).</summary>
     private static readonly string[] Tokens =
         [.. DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Select(DeploymentCapabilityPolicy.OperationToken).Order(StringComparer.Ordinal)];
 
@@ -42,7 +42,7 @@ public sealed class QualificationProbeHelperEndpointTests
         Assert.AreEqual(QualificationProbeWireCodec.ObservedDiagnostic, facts.Diagnostic);
         CollectionAssert.AreEqual(Tokens.Select(token => new QualificationProbeCapabilityEntry(token, QualificationProbeCapabilityStatus.Supported)).ToArray(),
             facts.G1Status.ToArray());
-        Assert.HasCount(2, Tokens, "Task 50 activation: the client self-update and runtime-limit tokens");
+        Assert.HasCount(3, Tokens, "Task 50 activation: the client self-update and runtime-limit tokens; D4b stage 3: the whole-PC WinGet token");
         // A2 with the host SID; A3 with the item's requester check as the protection principal and the held peer image.
         Assert.IsTrue(string.Equals(F.Sid, harness.Port.ExpectedSid, StringComparison.Ordinal), "A2 uses the host SID");
         Assert.AreEqual(Tokens.Length, harness.Capability.Calls, "one A3 evaluation per allow-list token");
