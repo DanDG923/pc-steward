@@ -201,7 +201,7 @@ public sealed class UpdateProgressIntegrationTests
         Executor executor = new(Started);
         SequentialUpdateBatchCoordinator coordinator = new(executor, new Inventory(), new History(), new Detector());
         ReviewedUpdateExecutionWorkflow workflow = new((_, _) => Task.FromResult(new UpdateSelectionPreparation(selectionFixture.Selection, "fresh")),
-            new UpdateJobApprovalService(store), coordinator, new Detector());
+            new UpdateJobApprovalService(store), coordinator, new Detector(), requestingUserSid: () => "S-1-5-21-11-22-33-1001");
         UpdateReviewPreparation review = await workflow.BeginReviewAsync(selectionFixture.Selection.StableProductKey, CancellationToken.None);
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None, Mailbox(Job())));

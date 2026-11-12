@@ -529,14 +529,18 @@ public static partial class ElevatedHelperEntryPoint
         SelectsProbe(arguments) ? RunProbeAsync(arguments) :
         SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : RunProtocol1Async(arguments);
 
+    /// <summary>
+    /// ADR-025 transition amendment (stage C4, Task 54 R2): the protocol-1 path runs machine-scope WinGet updates only. The request
+    /// validator already refuses every other provider (<c>request-authority-not-allowlisted</c>, exit code 24); this switch keeps no
+    /// Chocolatey executor. When Phase D stage D4b ships, this path is removed and the helper refuses protocol 1 outright.
+    /// </summary>
     private static Task<int> RunProtocol1Async(string[] arguments) =>
         RunAsync(
             arguments,
             static (job, cancellationToken) => job.Selection.Provider switch
             {
                 UpdateProvider.WinGet => ((IProtectedMachineUpdateExecutor)new WingetMachineUpdateExecutor()).ExecuteProtectedAsync(job, cancellationToken),
-                UpdateProvider.Chocolatey => ((IProtectedMachineUpdateExecutor)new ChocolateyMachineUpdateExecutor()).ExecuteProtectedAsync(job, cancellationToken),
-                _ => throw new InvalidOperationException("Unsupported update provider.")
+                _ => throw new InvalidOperationException("Protocol 1 runs machine-scope WinGet updates only.")
             });
 
     internal static Task<int> RunNoOpEvidenceAsync(string[] arguments) =>

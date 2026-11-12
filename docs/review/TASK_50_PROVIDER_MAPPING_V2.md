@@ -13,7 +13,7 @@ The independent review of HEAD `857c29a` and revision-1 SHA256 `EE935BA20F8081C1
 | F3 | Facts-only correlated response; invocation is `NotStarted`, `Started` or `Unknown`. Separate upgrade exit/I/O/EOF observations from aggregate settlement, including preflight work. No helper claim-state or verified-success verdict. See truth table below. |
 | F4 | Introduce explicit `Observed(architecture)` / `ProviderScriptSelected`, schema 3 and new route IDs together before eligibility. Do not reinterpret schema-2 Neutral. Existing schema-2 rows remain passive data. |
 | F5 | Observe effective `ChecksumFiles=true` and append fixed `--require-checksums`, alongside ignore-remembered and fail-on-not-installed. Packages lacking required checksums may fail after claim; this is not verified update success. |
-| F6 | Positive user WinGet qualification initially requires a current-user MSIX native instance with observed X86/X64/Arm64 equal to the applicable installer architecture. Neutral and registry-view-only EXE/MSI architecture remain unavailable. Explicitly disclose this lost coverage. |
+| F6 | Positive user WinGet qualification initially requires a current-user MSIX native instance with observed X86/X64/Arm64 equal to the applicable installer architecture. Neutral and registry-view-only EXE/MSI architecture remain unavailable. Explicitly disclose this lost coverage. **Amended 2026-11-12 (stage C4, owner decision):** see [the per-user silent route amendment](#amendment-2026-11-12--stage-c4-per-user-silent-route). |
 | F7 | Retain CLI execution. Resolve CLI and actual COM implementation to consistent App Installer package identity/version at review and dispatch, or refuse. Projection package version is not implementation identity. COM execution belongs to its owning adoption tasks. |
 | F8 | Independently establish effective elevated native cache/TEMP/TMP after refresh. Observe protected compatible locations or refuse. Do not create a new persistent directory or assume a launch override survives native refresh. |
 | F9 | Document concrete numeric observer caps before implementation, with fail-closed coverage. Native/archive/XML bounds must precede allocation/decompression. Current native observation is still unimplemented. |
@@ -109,3 +109,15 @@ Revision2 supersedes revision1's "only --silent appended" mapping with:
 `upgrade --id <validated ID> --version <validated target> --source winget --exact --scope user --architecture <x86|x64|arm64> --disable-interactivity --silent --installer-type msix`
 
 No other argument is representable. The legacy builder/active protocol1 route remains unchanged. This isolated formatter can be implemented and fixtured independently; production adoption requires the updated full mapping review and unresolved native profile conditions. The latest consultation's inference that direct versioned launch necessarily shares unpackaged defaultState is not established by Runtime.cpp's branches. Direct launch/package context, state association and MSIX installed resolver completeness remain open; no host probe is authorized.
+
+## Amendment (2026-11-12) — stage C4 per-user silent route
+
+Owner decision (2026-11-12, stage C4, Task 54 R1): **"Silent for all per-user apps".** The owner chose coverage of every per-user WinGet app over the F6 MSIX-only qualification. This adds a route; it does not change the revision-2 mapping above.
+
+- **New route** `WinGetUserSilentV1` (schema 3): WinGet provider, `winget` or `msstore` source, User scope, `Selected(Silent)` bound at review, Observed architecture X86/X64/Arm64/Neutral, any channel label.
+- **Mapping:** `upgrade --id <validated ID> --version <validated target> --source <winget|msstore> --exact --scope user --architecture <x86|x64|arm64|neutral> --disable-interactivity --silent`. No channel or installer-type argument is ever added. Compared with the removed legacy builder, only `--silent` is new.
+- **Producer and consumer:** `WingetReviewedUpdateArguments.Build` now has its production caller, `WingetReviewedUserUpdateExecutor`, run by `NonElevatedUpdateRunner` only for an admitted reviewed operation bound to the approved job. The legacy builder is removed, so "The legacy builder/active protocol1 route remains unchanged" above no longer holds for user scope.
+- **What F6 coverage is lost, stated plainly:** "Observed" is the architecture the desktop's WinGet inventory reported, not a native current-user MSIX observation. The F6 native qualification and the F7 CLI/COM implementation-identity binding are not done for this route. Registry-view EXE/MSI and Neutral apps are covered, as the owner chose.
+- **`WinGetUserExactV3` is unchanged** (still `winget` source only, MSIX, no production caller).
+
+Record: [stage C4](C4_REVIEWED_WINGET_USER_MODE.md).

@@ -1,3 +1,11 @@
+# Stage C4 — reviewed per-user WinGet mode (Task 54 R1) and protocol-1 transition (R2)
+
+`FR-UPD-15`, `FR-UPD-01/03`, `AC-UPD-03`, `TM-03/04/13`; [record](../review/C4_REVIEWED_WINGET_USER_MODE.md); [ADR-025 accepted amendment](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-12--protocol-1-transition-for-machine-scope-winget-stage-c4-task-54-r2); [Task 50 mapping amendment](../review/TASK_50_PROVIDER_MAPPING_V2.md#amendment-2026-11-12--stage-c4-per-user-silent-route).
+
+- Change: `ReviewedUpdateOperation` (`WinGetUserSilentV1`, `BindsJob`), `UpdateInstallerModeCapabilities`, `UpdateJobReview.InstallerMode`, new `WingetUserReviewedRoute`, `ReviewedUpdateReview.HasSupportedMode`, `ReviewedUpdateExecutionWorkflow`, `UpdateBatchItem.Reviewed`, `ApprovedUpdateExecutor`, `NonElevatedUpdateRunner`, `WingetReviewedUserUpdateExecutor` (legacy `WingetUpdateExecutor` removed), `WingetReviewedUpdateArguments`, `App.xaml.cs`; protocol 1 narrowed in `ElevatedHelperProtocol`, `WindowsElevatedHelperTransport` and `ElevatedUpdateRunner`.
+- Evidence: application `WingetUserReviewedRouteTests`; architecture `WingetUserReviewedRouteCompositionTests`, `ChocolateyRouteActivationBoundaryTests`; fixtures `UpdateRunnerSecurityTests`, `ElevatedHelperSecurityTests.ProtocolOneRefusesChocolateyRequests`.
+- Not claimed: F6/F7 native qualification for the route; host proof that installers honour `--silent`; a mode on machine scope (protocol 1 until D4b).
+
 # Tasks 53 and 54 — Phase C evidence and review gate (stage C3)
 
 `FR-UPD-01–15`, `AC-UPD-01–11`, `FR-HIS-01–06`, `NFR-PERF-01–10`, `NFR-REL-01–05`, `NFR-MNT-01/05`; [Task 53 report](../review/TASK_53_PHASE_C_EVIDENCE_READINESS.md), [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md).

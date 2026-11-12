@@ -78,6 +78,13 @@ public interface IApprovedUpdateExecutor
     Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken);
     Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence,
         UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteAsync(job, currentEvidence, cancellationToken);
+
+    /// <summary>
+    /// Stage C4 (Task 54 R1): runs <paramref name="job"/> with the per-user reviewed operation frozen from it (null for machine scope,
+    /// which has no reviewed mode yet). The production executor refuses a user-scope job without an admitted operation bound to it.
+    /// </summary>
+    Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, ReviewedUpdateOperation? reviewed, UpdateJobExecutionEvidence currentEvidence,
+        UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteAsync(job, currentEvidence, progress, cancellationToken);
 }
 
 /// <summary>
@@ -131,7 +138,8 @@ public sealed record UpdateBatchItem(
     UpdateJobExecutionEvidence CurrentEvidence,
     bool RunningApplicationWarningAcknowledged = false,
     UpdateProgressMailbox? Progress = null,
-    IReadOnlyCollection<string>? AcknowledgedRunningProcesses = null)
+    IReadOnlyCollection<string>? AcknowledgedRunningProcesses = null,
+    ReviewedUpdateOperation? Reviewed = null)
 {
     /// <summary>True when <paramref name="running"/> is covered by this item's acknowledgement.</summary>
     public bool Acknowledges(RunningApplicationDetection running) =>
@@ -200,6 +208,8 @@ public sealed class SequentialUpdateBatchCoordinator(
         if (items.Select(item => item.Job.Id).Distinct().Count() != items.Count) throw new ArgumentException("A batch cannot contain the same job twice.", nameof(items));
         if (items.Any(item => item.Progress is not null && !item.Progress.Matches(item.Job)))
             throw new ArgumentException("Progress must match the immutable job and correlation.", nameof(items));
+        if (items.Any(item => item.Reviewed is not null && !item.Reviewed.BindsJob(item.Job)))
+            throw new ArgumentException("A reviewed operation must be frozen from its own approved job.", nameof(items));
         List<UpdateHistoryEntry> recorded = [];
         bool batchFaulted = false;
         bool recovered = false;
@@ -268,7 +278,7 @@ public sealed class SequentialUpdateBatchCoordinator(
                     try
                     {
                         cancellation.Token.ThrowIfCancellationRequested();
-                        attempt = await executor.ExecuteAsync(item.Job, item.CurrentEvidence, progress, cancellation.Token).ConfigureAwait(false);
+                        attempt = await executor.ExecuteAsync(item.Job, item.Reviewed, item.CurrentEvidence, progress, cancellation.Token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (cancellation.Token.IsCancellationRequested)
                     {

@@ -11,6 +11,7 @@ using PCSteward.Provider.WinGet;
 using PCSteward.Provider.Chocolatey;
 using PCSteward.Storage;
 using PCSteward.Scheduling.Windows;
+using System.Security.Principal;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace PCSteward.Desktop;
@@ -116,13 +117,15 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             database,
             UpdateExecutionCapabilities.UserAndMachine);
         DownloadedArtifactCache downloads = new(database);
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor()), new ElevatedUpdateRunner());
+        // Stage C4 (Task 54 R1, FR-UPD-15): per-user WinGet updates run only through the reviewed executor, from the reviewed
+        // operation whose Silent mode was bound at review; machine scope stays on protocol 1 (ADR-025 transition amendment).
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor()), new ElevatedUpdateRunner());
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications,
             events: new BoundedUpdateExecutionEventSink());
         // Task 73 Phase 6 review M2: a batch review shares one fresh inventory observation; each app is still re-prepared alone before it starts.
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications,
-            prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync);
+            prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync, requestingUserSid: CurrentUserSid);
         // Chocolatey Confirm design §3 item 1: the single production composition of the Chocolatey client self-update's reviewed
         // dispatch pipeline. It runs under the common current-user gate and the durable store; nothing is observed or started until
         // the owner opens the review, and Confirm stays refused while owner admission is not compiled in.
@@ -152,6 +155,13 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             ActivateWindow(new StartupFailureWindow(exception));
         }
         finally { session.Dispose(); }
+    }
+
+    /// <summary>Stage C4: the current Windows account's SID, frozen into a per-user reviewed operation (data only).</summary>
+    private static string? CurrentUserSid()
+    {
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        return identity.User?.Value;
     }
 
     private static FactoryResetResult AcknowledgeOnboarding(string stateDirectory, SqliteDatabase database)

@@ -291,11 +291,14 @@ internal static partial class ElevatedHelperProtocol
         }
     }
 
+    /// <summary>
+    /// ADR-025 transition amendment (stage C4, Task 54 R2): protocol 1 carries machine-scope WinGet updates only, until Phase D
+    /// stage D4b ships the reviewed machine route and protocol 1 is removed. Chocolatey updates use protocol 2 only.
+    /// </summary>
     private static bool IsAllowedProviderSource(UpdateProvider provider, UpdateSource source) =>
         (provider, source) is
             (UpdateProvider.WinGet, UpdateSource.WinGet) or
-            (UpdateProvider.WinGet, UpdateSource.MicrosoftStore) or
-            (UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity);
+            (UpdateProvider.WinGet, UpdateSource.MicrosoftStore);
 
     private static bool TryString(
         Dictionary<string, JsonElement> fields,

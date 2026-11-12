@@ -22,12 +22,16 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
     }
 
     public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) =>
-        ExecuteCoreAsync(job, currentEvidence, null, cancellationToken);
+        ExecuteCoreAsync(job, null, currentEvidence, null, cancellationToken);
 
     public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence,
-        UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteCoreAsync(job, currentEvidence, progress, cancellationToken);
+        UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteCoreAsync(job, null, currentEvidence, progress, cancellationToken);
 
-    private async Task<UpdateProviderAttempt> ExecuteCoreAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence,
+    /// <summary>Stage C4: a user-scope job runs only with its per-user reviewed operation; machine scope ignores it (protocol 1).</summary>
+    public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, ReviewedUpdateOperation? reviewed, UpdateJobExecutionEvidence currentEvidence,
+        UpdateItemProgress progress, CancellationToken cancellationToken) => ExecuteCoreAsync(job, reviewed, currentEvidence, progress, cancellationToken);
+
+    private async Task<UpdateProviderAttempt> ExecuteCoreAsync(ImmutableUpdateJob job, ReviewedUpdateOperation? reviewed, UpdateJobExecutionEvidence currentEvidence,
         UpdateItemProgress? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
@@ -38,7 +42,7 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
         }
         UpdateExecutionResult result = job.Selection.Scope == UpdateScope.Machine
             ? await elevated!.RunAsync(job, currentEvidence, cancellationToken, progress).ConfigureAwait(false)
-            : await nonElevated.RunAsync(job, currentEvidence, cancellationToken, progress).ConfigureAwait(false);
+            : await nonElevated.RunAsync(job, reviewed, currentEvidence, cancellationToken, progress).ConfigureAwait(false);
         return new(Map(result.Status), result.ExitCode, result.SanitizedOutput, result.OwnedCompletion);
     }
 

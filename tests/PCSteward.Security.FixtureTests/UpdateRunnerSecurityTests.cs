@@ -15,9 +15,10 @@ public sealed class UpdateRunnerSecurityTests
     public async Task CompiledUpgradeExecutorsSelectOwnedUpdateHandlingInsteadOfInventoryHandling(UpdateScope scope)
     {
         UpgradeOnlyProcess process = new();
-        IWingetUpdateExecutor executor = scope == UpdateScope.User
-            ? new WingetUpdateExecutor(process) : new WingetMachineUpdateExecutor(process);
-        WingetProcessResult result = await executor.ExecuteAsync(ApprovedJob(scope), CancellationToken.None);
+        ImmutableUpdateJob job = ApprovedJob(scope);
+        WingetProcessResult result = scope == UpdateScope.User
+            ? await new WingetReviewedUserUpdateExecutor(process).ExecuteAsync(Reviewed(job), null, CancellationToken.None)
+            : await new WingetMachineUpdateExecutor(process).ExecuteAsync(job, CancellationToken.None);
         Assert.AreEqual(1, process.UpgradeCalls);
         Assert.AreEqual(0, result.ExitCode);
         Assert.AreEqual("upgrade", process.Arguments[0]);
@@ -35,14 +36,14 @@ public sealed class UpdateRunnerSecurityTests
         WingetProcessResult raw = new(0, "partial token=secret", string.Empty, false,
             Cancelled: cancelled, OutputIncomplete: incomplete, OwnedCompletion: owned.Task, ExecutionUncertain: uncertain);
         ImmutableUpdateJob job = ApprovedJob();
-        NonElevatedUpdateRunner runner = new(new WingetUpdateExecutor(new RecordingProcess(raw)));
-        UpdateExecutionResult result = await runner.RunAsync(job, FreshEvidence(job), CancellationToken.None);
+        NonElevatedUpdateRunner runner = new(new WingetReviewedUserUpdateExecutor(new RecordingProcess(raw)));
+        UpdateExecutionResult result = await runner.RunAsync(job, Reviewed(job), FreshEvidence(job), CancellationToken.None);
         Assert.AreEqual(expected, result.Status);
         Assert.AreSame(owned.Task, result.OwnedCompletion);
         Assert.IsFalse(result.SanitizedOutput.Contains("secret", StringComparison.Ordinal));
         IApprovedUpdateExecutor executor = new ApprovedUpdateExecutor(runner);
         Assert.IsNotNull(executor.ExecutionLifetime);
-        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, FreshEvidence(job), CancellationToken.None);
+        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, Reviewed(job), FreshEvidence(job), new UpdateItemProgress(job, null), CancellationToken.None);
         Assert.AreSame(owned.Task, attempt.OwnedCompletion);
         Assert.AreEqual(cancelled ? UpdateProviderAttemptStatus.Cancelled : UpdateProviderAttemptStatus.VerificationRequired, attempt.Status);
         owned.SetResult();
@@ -53,11 +54,11 @@ public sealed class UpdateRunnerSecurityTests
     public async Task AlreadyCancelledUserUpdateNeverInvokesTheProvider()
     {
         RecordingProcess process = new(new(0, string.Empty, string.Empty, false));
-        NonElevatedUpdateRunner runner = new(new WingetUpdateExecutor(process));
+        NonElevatedUpdateRunner runner = new(new WingetReviewedUserUpdateExecutor(process));
         ImmutableUpdateJob job = ApprovedJob();
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
-        UpdateExecutionResult result = await runner.RunAsync(job, FreshEvidence(job), cancellation.Token);
+        UpdateExecutionResult result = await runner.RunAsync(job, Reviewed(job), FreshEvidence(job), cancellation.Token);
         Assert.AreEqual(UpdateExecutionStatus.Cancelled, result.Status);
         Assert.HasCount(0, process.Arguments);
     }
@@ -65,17 +66,19 @@ public sealed class UpdateRunnerSecurityTests
     private static readonly string[] ExpectedArguments =
     [
         "upgrade", "--id", "Contoso.Widget", "--version", "1.1.0", "--source", "winget",
-        "--exact", "--scope", "user", "--architecture", "x64", "--disable-interactivity"
+        "--exact", "--scope", "user", "--architecture", "x64", "--disable-interactivity", "--silent"
     ];
 
     [TestMethod]
+    [TestCategory("FR-UPD-15")]
+    [Description("Stage C4 (Task 54 R1): the confirmed user job runs only the reviewed Silent mapping built from its reviewed operation.")]
     public async Task ConfirmedUserJobBuildsOnlyTheAllowlistedProviderOperation()
     {
         RecordingProcess process = new(new WingetProcessResult(0, "updated", string.Empty, false));
         ImmutableUpdateJob job = ApprovedJob();
-        NonElevatedUpdateRunner runner = new(new WingetUpdateExecutor(process));
+        NonElevatedUpdateRunner runner = new(new WingetReviewedUserUpdateExecutor(process));
 
-        UpdateExecutionResult result = await runner.RunAsync(job, FreshEvidence(job), CancellationToken.None);
+        UpdateExecutionResult result = await runner.RunAsync(job, Reviewed(job), FreshEvidence(job), CancellationToken.None);
 
         Assert.AreEqual(UpdateExecutionStatus.AwaitingVerification, result.Status);
         Assert.AreEqual(0, result.ExitCode);
@@ -84,16 +87,56 @@ public sealed class UpdateRunnerSecurityTests
     }
 
     [TestMethod]
+    [TestCategory("FR-UPD-15")]
+    [Description("Stage C4 (Task 54 R1): a user job without a reviewed operation bound to it, or with one frozen from another job, never starts.")]
+    public async Task UserJobWithoutItsReviewedOperationNeverReachesTheProvider()
+    {
+        RecordingProcess process = new(new WingetProcessResult(0, string.Empty, string.Empty, false));
+        NonElevatedUpdateRunner runner = new(new WingetReviewedUserUpdateExecutor(process));
+        ImmutableUpdateJob job = ApprovedJob();
+        ImmutableUpdateJob other = ApprovedJob();
+
+        UpdateExecutionResult missing = await runner.RunAsync(job, null, FreshEvidence(job), CancellationToken.None);
+        UpdateExecutionResult foreign = await runner.RunAsync(job, Reviewed(other), FreshEvidence(job), CancellationToken.None);
+        UpdateProviderAttempt viaExecutor = await new ApprovedUpdateExecutor(runner).ExecuteAsync(job, FreshEvidence(job), CancellationToken.None);
+
+        foreach (UpdateExecutionResult denied in new[] { missing, foreign })
+        {
+            Assert.AreEqual(UpdateExecutionStatus.Denied, denied.Status);
+            Assert.AreEqual(UpdateExecutionDenial.ReviewedModeUnavailable, denied.Denial);
+            Assert.AreEqual("reviewed-installer-mode-unavailable", denied.SanitizedOutput);
+        }
+        Assert.AreEqual(UpdateProviderAttemptStatus.ProductFailed, viaExecutor.Status, "the mode-less executor overload cannot run a user job");
+        Assert.HasCount(0, process.Arguments);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-15")]
+    public async Task ReviewedUserExecutorRefusesAnOperationOutsideThePerUserRoute()
+    {
+        RecordingProcess process = new(new WingetProcessResult(0, string.Empty, string.Empty, false));
+        DateTimeOffset at = DateTimeOffset.UtcNow;
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), Selection()).Confirm(at);
+        ReviewedUpdateOperation msixRoute = new(job, Sid, "winget:contoso.widget", "user:winget", "inventory:fixture", at,
+            UpdateRouteContract.WinGetUserExactV3, ReviewedInstallerMode.Selected(InstallerMode.Silent));
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => new WingetReviewedUserUpdateExecutor(process).ExecuteAsync(msixRoute, null, CancellationToken.None));
+        UpdateExecutionResult result = await new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor(process)).RunAsync(job, msixRoute, FreshEvidence(job), CancellationToken.None);
+        Assert.AreEqual(UpdateExecutionDenial.ReviewedModeUnavailable, result.Denial);
+        Assert.HasCount(0, process.Arguments);
+    }
+
+    [TestMethod]
     public async Task CurrentEvidenceMismatchAndMachineScopeNeverReachTheNonElevatedProcess()
     {
         RecordingProcess process = new(new WingetProcessResult(0, string.Empty, string.Empty, false));
-        NonElevatedUpdateRunner runner = new(new WingetUpdateExecutor(process));
+        NonElevatedUpdateRunner runner = new(new WingetReviewedUserUpdateExecutor(process));
         ImmutableUpdateJob userJob = ApprovedJob();
         UpdateJobExecutionEvidence changedVersion = new(Selection(candidate: "1.2.0"), true, true);
 
-        UpdateExecutionResult mismatch = await runner.RunAsync(userJob, changedVersion, CancellationToken.None);
+        UpdateExecutionResult mismatch = await runner.RunAsync(userJob, Reviewed(userJob), changedVersion, CancellationToken.None);
         ImmutableUpdateJob machineJob = ApprovedJob(UpdateScope.Machine);
-        UpdateExecutionResult elevation = await runner.RunAsync(machineJob, FreshEvidence(machineJob), CancellationToken.None);
+        UpdateExecutionResult elevation = await runner.RunAsync(machineJob, null, FreshEvidence(machineJob), CancellationToken.None);
 
         Assert.AreEqual(UpdateExecutionStatus.Denied, mismatch.Status);
         Assert.AreEqual(UpdateExecutionDenial.CurrentEvidenceMismatch, mismatch.Denial);
@@ -105,7 +148,7 @@ public sealed class UpdateRunnerSecurityTests
     public async Task StandaloneExecutorRejectsMachineScopeWithoutElevatedTransport()
     {
         RecordingProcess process = new(new WingetProcessResult(0, string.Empty, string.Empty, false));
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor(process)));
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor(process)));
         ImmutableUpdateJob machineJob = ApprovedJob(UpdateScope.Machine);
 
         UpdateProviderAttempt result = await executor.ExecuteAsync(machineJob, FreshEvidence(machineJob), CancellationToken.None);
@@ -122,11 +165,11 @@ public sealed class UpdateRunnerSecurityTests
         UpdateExecutionResult timeout = await RunWithAsync(new WingetProcessResult(-1, string.Empty, "late", true));
         UpdateExecutionResult overflow = await RunWithAsync(new WingetProcessResult(-1, new string('x', 5000), string.Empty, false, true));
         ImmutableUpdateJob productJob = ApprovedJob();
-        UpdateExecutionResult productFailure = await new NonElevatedUpdateRunner(new FailingExecutor()).RunAsync(productJob, FreshEvidence(productJob), CancellationToken.None);
+        UpdateExecutionResult productFailure = await new NonElevatedUpdateRunner(new FailingExecutor()).RunAsync(productJob, Reviewed(productJob), FreshEvidence(productJob), CancellationToken.None);
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
         ImmutableUpdateJob cancelledJob = ApprovedJob();
-        UpdateExecutionResult cancelled = await new NonElevatedUpdateRunner(new CancellingExecutor()).RunAsync(cancelledJob, FreshEvidence(cancelledJob), cancellation.Token);
+        UpdateExecutionResult cancelled = await new NonElevatedUpdateRunner(new CancellingExecutor()).RunAsync(cancelledJob, Reviewed(cancelledJob), FreshEvidence(cancelledJob), cancellation.Token);
 
         Assert.AreEqual(UpdateExecutionStatus.ProviderFailed, failed.Status);
         Assert.AreEqual(UpdateExecutionStatus.TimedOut, timeout.Status);
@@ -179,11 +222,11 @@ public sealed class UpdateRunnerSecurityTests
     [TestCategory("FR-UPD-09")]
     public async Task ApprovedExecutorCarriesATypedRestartAsRestartReported()
     {
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor(
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor(
             new RecordingProcess(new WingetProcessResult(WingetRestartExitCodes.RebootRequiredToFinish, string.Empty, string.Empty, false)))));
         ImmutableUpdateJob job = ApprovedJob();
 
-        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, FreshEvidence(job), CancellationToken.None);
+        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, Reviewed(job), FreshEvidence(job), new UpdateItemProgress(job, null), CancellationToken.None);
 
         Assert.AreEqual(UpdateProviderAttemptStatus.RestartReported, attempt.Status);
         Assert.AreEqual(WingetRestartExitCodes.RebootRequiredToFinish, attempt.ExitCode);
@@ -202,7 +245,7 @@ public sealed class UpdateRunnerSecurityTests
         Assert.IsFalse(parameterTypes.Any(type => typeof(IDictionary<string, string>).IsAssignableFrom(type)));
         Assert.IsFalse(typeof(IWingetProcess).IsPublic);
         Assert.IsFalse(typeof(IWingetProcess).GetMethod(nameof(IWingetProcess.RunAsync))!.GetParameters().Any(parameter => parameter.ParameterType == typeof(string)));
-        Assert.IsTrue(typeof(WingetUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
+        Assert.IsTrue(typeof(WingetReviewedUserUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
         Assert.IsTrue(typeof(WingetMachineUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
     }
 
@@ -225,12 +268,19 @@ public sealed class UpdateRunnerSecurityTests
     private static async Task<UpdateExecutionResult> RunWithAsync(WingetProcessResult processResult)
     {
         ImmutableUpdateJob job = ApprovedJob();
-        return await new NonElevatedUpdateRunner(new WingetUpdateExecutor(new RecordingProcess(processResult)))
-            .RunAsync(job, FreshEvidence(job), CancellationToken.None);
+        return await new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor(new RecordingProcess(processResult)))
+            .RunAsync(job, Reviewed(job), FreshEvidence(job), CancellationToken.None);
     }
+
+    private const string Sid = "S-1-5-21-11-22-33-1001";
 
     private static ImmutableUpdateJob ApprovedJob(UpdateScope scope = UpdateScope.User) =>
         new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), Selection(scope)).Confirm(DateTimeOffset.UtcNow);
+
+    /// <summary>Stage C4: the per-user reviewed operation frozen from <paramref name="job"/> with the Silent mode bound at review.</summary>
+    private static ReviewedUpdateOperation Reviewed(ImmutableUpdateJob job) =>
+        WingetUserReviewedRoute.Freeze(job, ReviewedInstallerMode.Selected(InstallerMode.Silent), Sid, "inventory:fixture", job.ApprovedAt)
+        ?? throw new InvalidOperationException("The fixture job must freeze on the per-user route.");
 
     private static UpdateJobExecutionEvidence FreshEvidence(ImmutableUpdateJob job) => new(job.Selection, true, true);
 
@@ -271,15 +321,15 @@ public sealed class UpdateRunnerSecurityTests
         }
     }
 
-    private sealed class CancellingExecutor : IWingetUpdateExecutor
+    private sealed class CancellingExecutor : IWingetReviewedUserUpdateExecutor
     {
-        public Task<WingetProcessResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
+        public Task<WingetProcessResult> ExecuteAsync(ReviewedUpdateOperation operation, UpdateItemProgress? progress, CancellationToken cancellationToken) =>
             Task.FromCanceled<WingetProcessResult>(cancellationToken);
     }
 
-    private sealed class FailingExecutor : IWingetUpdateExecutor
+    private sealed class FailingExecutor : IWingetReviewedUserUpdateExecutor
     {
-        public Task<WingetProcessResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
+        public Task<WingetProcessResult> ExecuteAsync(ReviewedUpdateOperation operation, UpdateItemProgress? progress, CancellationToken cancellationToken) =>
             throw new System.ComponentModel.Win32Exception("Could not start C:\\Users\\Alice\\winget.exe");
     }
 }

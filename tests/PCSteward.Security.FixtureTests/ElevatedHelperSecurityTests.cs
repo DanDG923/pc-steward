@@ -96,10 +96,14 @@ public sealed class ElevatedHelperSecurityTests
             "chocolatey:chocolatey-community:git", UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity,
             "git", "2.45.1", "2.46.0", UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Stable,
             "chocolatey-fixed-community-v1")).Confirm(DateTimeOffset.UtcNow);
-        UpdateExecutionResult choco = await new ElevatedUpdateRunner(new RecordingTransport(
-            new ElevatedHelperResult(ElevatedHelperOutcome.ProviderFailed, unchecked((int)0x8A150109), "output")))
+        RecordingTransport chocolateyTransport = new(
+            new ElevatedHelperResult(ElevatedHelperOutcome.ProviderFailed, unchecked((int)0x8A150109), "output"));
+        UpdateExecutionResult choco = await new ElevatedUpdateRunner(chocolateyTransport)
             .RunAsync(chocolatey, new UpdateJobExecutionEvidence(chocolatey.Selection, true, true), CancellationToken.None);
-        Assert.AreEqual(UpdateExecutionStatus.ProviderFailed, choco.Status);
+        // ADR-025 transition amendment (stage C4, Task 54 R2): protocol 1 carries machine-scope WinGet only; Chocolatey never reaches it.
+        Assert.AreEqual(UpdateExecutionStatus.Denied, choco.Status);
+        Assert.AreEqual(UpdateExecutionDenial.UnsupportedProvider, choco.Denial);
+        Assert.HasCount(0, chocolateyTransport.Jobs);
         Assert.IsFalse(choco.SanitizedOutput.Contains("restart", StringComparison.Ordinal));
     }
 
@@ -164,7 +168,9 @@ public sealed class ElevatedHelperSecurityTests
     }
 
     [TestMethod]
-    public void ProtocolAcceptsOnlyTheExactChocolateyCommunityProviderSourcePair()
+    [TestCategory("FR-UPD-15")]
+    [Description("ADR-025 transition amendment (stage C4, Task 54 R2): protocol 1 carries machine-scope WinGet updates only; a Chocolatey request is refused.")]
+    public void ProtocolOneRefusesChocolateyRequests()
     {
         string nonce = ElevatedHelperProtocol.CreateNonce();
         DateTimeOffset issuedAt = DateTimeOffset.UtcNow;
@@ -175,9 +181,9 @@ public sealed class ElevatedHelperSecurityTests
 
         byte[] request = ElevatedHelperProtocol.CreateRequest(chocolatey, nonce, issuedAt);
 
-        Assert.IsTrue(ElevatedHelperProtocol.TryReadRequest(request, nonce, issuedAt, out ImmutableUpdateJob? restored, out string rejection), rejection);
-        Assert.AreEqual(UpdateProvider.Chocolatey, restored!.Selection.Provider);
-        Assert.AreEqual(UpdateSource.ChocolateyCommunity, restored.Selection.Source);
+        Assert.IsFalse(ElevatedHelperProtocol.TryReadRequest(request, nonce, issuedAt, out ImmutableUpdateJob? restored, out string rejection));
+        Assert.AreEqual("request-authority-not-allowlisted", rejection);
+        Assert.IsNull(restored);
     }
 
     [TestMethod]

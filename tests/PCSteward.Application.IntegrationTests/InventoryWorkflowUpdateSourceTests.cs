@@ -301,7 +301,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
             inventory.PrepareApprovedUpdateSelectionAsync,
             new UpdateJobApprovalService(database.Store),
             new SequentialUpdateBatchCoordinator(executor, inventory, database.Store, running),
-            running);
+            running, requestingUserSid: () => "S-1-5-21-11-22-33-1001");
 
         UpdateReviewPreparation review = await workflow.BeginReviewAsync(stableKey, CancellationToken.None);
         ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(
@@ -333,7 +333,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         UpdateSelectionPreparation preparation = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
         RecordingExecutor executor = new();
         PackageDerivedRunningApplicationDetector running = new(() => []);
-        ReviewedUpdateExecutionWorkflow reviewed = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store), new SequentialUpdateBatchCoordinator(executor, new NeverReachedInventory(), new InMemoryHistory(), running), running);
+        ReviewedUpdateExecutionWorkflow reviewed = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store), new SequentialUpdateBatchCoordinator(executor, new NeverReachedInventory(), new InMemoryHistory(), running), running, requestingUserSid: () => "S-1-5-21-11-22-33-1001");
         UpdateReviewPreparation review = await reviewed.BeginReviewAsync(product.StableKey, CancellationToken.None);
 
         Assert.IsNull(preparation.Selection);
@@ -454,7 +454,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.IsTrue((await inventory.CreateManualMappingAsync(stableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);
         RecordingExecutor executor = new();
         PackageDerivedRunningApplicationDetector running = new(() => []);
-        ReviewedUpdateExecutionWorkflow workflow = new(inventory.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store), new SequentialUpdateBatchCoordinator(executor, new NeverReachedInventory(), new InMemoryHistory(), running), running);
+        ReviewedUpdateExecutionWorkflow workflow = new(inventory.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store), new SequentialUpdateBatchCoordinator(executor, new NeverReachedInventory(), new InMemoryHistory(), running), running, requestingUserSid: () => "S-1-5-21-11-22-33-1001");
 
         UpdateReviewPreparation review = await workflow.BeginReviewAsync(stableKey, CancellationToken.None);
         ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(review.Review!, false, CancellationToken.None);
@@ -507,7 +507,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
         PackageDerivedRunningApplicationDetector running = new(() => []);
         ReviewedUpdateExecutionWorkflow workflow = new(inventory.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database.Store),
             new SequentialUpdateBatchCoordinator(new RecordingExecutor(), new NeverReachedInventory(), new InMemoryHistory(), running), running,
-            prepareSelections: inventory.PrepareApprovedUpdateSelectionsAsync);
+            prepareSelections: inventory.PrepareApprovedUpdateSelectionsAsync, requestingUserSid: () => "S-1-5-21-11-22-33-1001");
         UpdateBatchReviewPreparation review = await workflow.BeginBatchReviewAsync([widgetKey, gadgetKey], CancellationToken.None);
         Assert.HasCount(2, review.Items);
         Assert.AreEqual(scansBefore + 3, provider.Scans, "the composed batch review also scans once");
