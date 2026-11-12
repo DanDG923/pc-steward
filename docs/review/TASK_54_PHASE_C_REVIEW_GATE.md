@@ -22,3 +22,12 @@ Codex code review of `6261fb0` (2026-11-12): two P1 findings, both on the Task 5
 | R2 (P1) | ADR-025 protocol isolation is not met. `ElevatedHelperEntryPoint.RunAsync` sends every line that is not self-update, probe or `--protocol 2` to `RunProtocol1Async`, which keeps the WinGet and Chocolatey machine executors. The desktop still uses protocol 1 for machine-scope WinGet (`ElevatedUpdateRunner`). The cited tests prove protocol 2 never falls back to protocol 1, not that the new helper refuses protocol 1. | `src/PCSteward.Execution/WindowsElevatedHelperTransport.cs`, ADR-025 "Privilege and protocol boundary". | The protocol-rejection case is now "Not met" (§5); gap R2 in §9. Removing protocol 1 today would stop machine-scope WinGet updates, so this needs an owner choice. |
 
 Both are product gaps that predate this PR; neither is caused by it. The report was corrected to state them, and the owner was asked how to close them.
+
+## Owner decision (2026-11-12)
+
+The owner chose to fix R1 now and to amend ADR-025 for R2:
+
+- **R1:** a new stage routes desktop WinGet user-scope updates through the reviewed operation pipeline, so the Silent mode is bound at review and re-checked before launch.
+- **R2:** a written ADR-025 transition amendment lets the protocol-2 helper keep protocol 1 for machine-scope WinGet updates only until the Phase D D4b reviewed machine route ships. Protocol 1 is then removed, with a regression test that the helper refuses it. The amendment's wording still needs the owner's acceptance.
+
+Phase C closes when R1 is fixed and the amendment is accepted.
