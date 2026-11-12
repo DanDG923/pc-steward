@@ -27,6 +27,10 @@ public sealed record ReviewedUpdateExecutionResult(bool Started, string Message,
 /// per-user reviewed operation the runner requires. <paramref name="requestingUserSid"/> reads the current Windows account's SID for
 /// that operation; without it no per-user update starts. A machine-scope WinGet review binds no mode: it runs on protocol 1 under the
 /// ADR-025 transition amendment until Phase D stage D4b. Chocolatey updates are not reviewed here; they have their own reviewed route.
+/// D4b stage 2b: when <paramref name="machineInstallerEvidence"/> is composed, a machine-scope WinGet review instead binds Silent, the
+/// one HKLM registration's digest from the fresh inventory and the installer evidence of its own <c>winget download</c>
+/// (<see cref="WingetMachineReviewedRoute"/>); Confirm checks the registration again and freezes the whole-PC reviewed operation,
+/// which the review gate refuses until stage 3, so nothing is started. Production does not compose it before stage 3.
 /// </summary>
 public sealed class ReviewedUpdateExecutionWorkflow(
     Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepareSelection,
@@ -35,7 +39,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     IRunningApplicationDetector runningApplications,
     Func<DateTimeOffset>? utcNow = null,
     Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = null,
-    Func<string?>? requestingUserSid = null)
+    Func<string?>? requestingUserSid = null,
+    IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = null)
 {
     /// <summary>Stage C4 (ADR-025 transition amendment): Chocolatey is never reviewed or run on this route or on protocol 1.</summary>
     public const string ChocolateyNotOnThisRouteMessage = "Chocolatey updates use their own review, so this update can't be started from here.";
@@ -72,6 +77,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
 
     private readonly Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = prepareSelections;
     private readonly Func<string?>? requestingUserSid = requestingUserSid;
+    private readonly IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = machineInstallerEvidence;
 
     public async Task<UpdateReviewPreparation> BeginReviewAsync(string stableProductKey, CancellationToken cancellationToken)
     {
@@ -85,7 +91,26 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         if (preparation.Selection is null) return new(null, preparation.Message, RunningApplicationDetection.NotDetected);
         if (!TryBindReviewMode(preparation.Selection, out ReviewedInstallerMode? mode, out string refusal))
             return new(null, refusal, RunningApplicationDetection.NotDetected);
-        UpdateJobReview review = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode);
+        UpdateJobReview review;
+        if (UsesMachineRoute(preparation.Selection))
+        {
+            // D4b stage 2b: the registration from this fresh inventory, then the installer evidence from the review's own download.
+            if (preparation.Observation is not { } observation ||
+                WingetMachineReviewedRoute.RegistrationDigest(preparation.Selection, observation) is not { } registration)
+                return new(null, WingetMachineReviewedRoute.RegistrationNotFoundMessage, RunningApplicationDetection.NotDetected);
+            WingetMachineInstallerCheck check = await machineInstallerEvidence!.CheckAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
+            if (check.Evidence is not { } installer || !TryMachineEvidenceId(installer, registration, out string evidenceId))
+                return new(null, check.Message, RunningApplicationDetection.NotDetected);
+            review = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode)
+            {
+                EvidenceId = evidenceId,
+                EvidenceObservedAt = observation.ObservedAt,
+            };
+        }
+        else
+        {
+            review = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode);
+        }
         RunningApplicationDetection running = await runningApplications.DetectAsync(review.Selection, cancellationToken).ConfigureAwait(false);
         return new(review, preparation.Message, running,
             new UpdateProgressMailbox(review.JobId, review.CorrelationId, review.Selection.Scope));
@@ -93,22 +118,53 @@ public sealed class ReviewedUpdateExecutionWorkflow(
 
     /// <summary>
     /// Stage C4: the installer mode a review of <paramref name="selection"/> binds. A WinGet user-scope selection binds its reviewed
-    /// mode or is refused; a WinGet machine-scope selection binds none (protocol-1 transition); Chocolatey is refused here.
+    /// mode or is refused; a WinGet machine-scope selection binds none (protocol-1 transition) unless the whole-PC route's installer
+    /// evidence is composed (D4b stage 2b), when it binds that route's mode or is refused; Chocolatey is refused here.
     /// </summary>
-    private static bool TryBindReviewMode(UpdateJobSelection selection, out ReviewedInstallerMode? mode, out string refusal)
+    private bool TryBindReviewMode(UpdateJobSelection selection, out ReviewedInstallerMode? mode, out string refusal)
     {
         mode = null;
         refusal = string.Empty;
         if (selection.Provider != UpdateProvider.WinGet) { refusal = ChocolateyNotOnThisRouteMessage; return false; }
-        if (selection.Scope == UpdateScope.Machine) return true;
+        if (selection.Scope == UpdateScope.Machine)
+        {
+            if (machineInstallerEvidence is null) return true;
+            mode = WingetMachineReviewedRoute.BindMode(selection);
+            if (mode is null) refusal = WingetMachineReviewedRoute.NotOnThisRouteMessage;
+            return mode is not null;
+        }
         mode = WingetUserReviewedRoute.BindMode(selection);
         if (mode is null) refusal = WingetUserReviewedRoute.NoReviewedModeMessage;
         return mode is not null;
     }
 
-    /// <summary>Stage C4: the mode bound at review still applies to the fresh re-preparation (both null for machine scope).</summary>
-    private static bool ReviewedModeStillApplies(UpdateJobReview review, UpdateJobSelection fresh) =>
+    /// <summary>D4b stage 2b: a WinGet machine-scope selection reviewed on the whole-PC route (only when its evidence is composed).</summary>
+    private bool UsesMachineRoute(UpdateJobSelection selection) =>
+        machineInstallerEvidence is not null && selection.Provider == UpdateProvider.WinGet && selection.Scope == UpdateScope.Machine;
+
+    private static bool TryMachineEvidenceId(WingetMachineInstallerEvidence installer, string registration, out string evidenceId)
+    {
+        evidenceId = string.Empty;
+        try
+        {
+            evidenceId = new WinGetMachineEvidence(installer.InstallerType, registration, installer.ManifestDigest, installer.InstallerSha256).ToIdentity();
+            return ReviewedUpdateOperation.TryGetWinGetMachineEvidence(evidenceId, out _);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Stage C4: the mode bound at review still applies to the fresh re-preparation (both null for machine scope on protocol 1).</summary>
+    private bool ReviewedModeStillApplies(UpdateJobReview review, UpdateJobSelection fresh) =>
         TryBindReviewMode(fresh, out ReviewedInstallerMode? mode, out _) && mode == review.InstallerMode;
+
+    /// <summary>D4b stage 2b: the fresh inventory's registration digest equals the one in the review's <c>wgm1</c> evidence.</summary>
+    private static bool RegistrationStillApplies(UpdateJobReview review, UpdateSelectionPreparation preparation) =>
+        preparation.Selection is { } fresh && WingetMachineReviewedRoute.RegistrationDigest(fresh, preparation.Observation) is { } digest &&
+        ReviewedUpdateOperation.TryGetWinGetMachineEvidence(review.EvidenceId, out WinGetMachineEvidence? evidence) && evidence is not null &&
+        string.Equals(digest, evidence.RegistrationDigest, StringComparison.Ordinal);
 
     private string? ReadRequestingUserSid()
     {
@@ -147,8 +203,12 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             // Stage C4 (Task 54 R1): the installer mode bound at review is checked again against the fresh evidence, before approval.
             if (!ReviewedModeStillApplies(review, preparation.Selection))
                 return new(false, review.Selection.Provider == UpdateProvider.WinGet ? WingetUserReviewedRoute.ModeChangedMessage : ChocolateyNotOnThisRouteMessage, null);
+            bool machineRoute = UsesMachineRoute(review.Selection);
+            // D4b stage 2b: the whole-PC registration bound at review must still be the one in the fresh inventory.
+            if (machineRoute && !RegistrationStillApplies(review, preparation))
+                return new(false, WingetMachineReviewedRoute.RegistrationChangedMessage, null);
             string? requester = null;
-            if (review.Selection.Scope == UpdateScope.User && string.IsNullOrWhiteSpace(requester = ReadRequestingUserSid()))
+            if ((review.Selection.Scope == UpdateScope.User || machineRoute) && string.IsNullOrWhiteSpace(requester = ReadRequestingUserSid()))
                 return new(false, WingetUserReviewedRoute.RequesterUnavailableMessage, null);
 
             running = await runningApplications.DetectAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
@@ -175,6 +235,14 @@ public sealed class ReviewedUpdateExecutionWorkflow(
                     observation is null ? $"review:{review.CorrelationId:D}" : $"inventory:{observation.CorrelationId:D}",
                     observation?.ObservedAt ?? job.ApprovedAt);
                 if (reviewedOperation is null) return new(false, WingetUserReviewedRoute.NoReviewedModeMessage, null);
+            }
+            else if (machineRoute)
+            {
+                // D4b stage 2b: freeze the approved job with the reviewed mode and wgm1 evidence. The review gate refuses the route
+                // until stage 3, so this refuses and nothing starts; a saved approval alone starts nothing and is never replayed.
+                reviewedOperation = WingetMachineReviewedRoute.Freeze(job, review.InstallerMode, requester, review.EvidenceId,
+                    review.EvidenceObservedAt);
+                if (reviewedOperation is null) return new(false, WingetMachineReviewedRoute.NotOnThisRouteMessage, null);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

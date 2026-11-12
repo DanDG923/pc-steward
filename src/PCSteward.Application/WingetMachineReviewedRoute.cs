@@ -49,4 +49,115 @@ public static class WingetMachineReviewedRoute
     /// <summary>The route shape and the review gate (<see cref="ReviewedUpdateReview.HasSupportedMode"/>), which admits it only from stage 3.</summary>
     public static bool Admits(ReviewedUpdateOperation? operation) =>
         TryGetShape(operation, out _, out _, out _) && ReviewedUpdateReview.HasSupportedMode(operation!);
+
+    /// <summary>Shown when a whole-PC selection is outside the route (source, channel or architecture). Nothing was approved or started.</summary>
+    public const string NotOnThisRouteMessage =
+        "PC Steward has no reviewed way to update this app for every user on this PC, so it can't be updated here. Nothing was started.";
+
+    /// <summary>Shown when the app's one whole-PC registration could not be found in fresh inventory. Nothing was approved or started.</summary>
+    public const string RegistrationNotFoundMessage =
+        "PC Steward couldn't find exactly one whole-PC registration for this app, so it can't be updated here. Nothing was started.";
+
+    /// <summary>Shown when the whole-PC registration changed between the review and Confirm. Nothing was approved or started.</summary>
+    public const string RegistrationChangedMessage =
+        "This app's whole-PC registration changed after you reviewed the update. Review it again; no update was started.";
+
+    /// <summary>
+    /// D4b stage 2b: the installer mode a review of a whole-PC WinGet <paramref name="selection"/> binds: <c>Selected(Silent)</c> when
+    /// the selection has the route's shape (WinGet, the <c>winget</c> source, machine scope, not Preview, an x86, x64 or arm64
+    /// architecture); null otherwise. Binding a mode admits nothing: the review gate still decides.
+    /// </summary>
+    public static ReviewedInstallerMode? BindMode(UpdateJobSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return TryGetSelectionArchitecture(selection, out _) ? ReviewedInstallerMode.Selected(InstallerMode.Silent) : null;
+    }
+
+    /// <summary>WinGet's architecture text for a selection with the route's shape (see <see cref="BindMode"/>).</summary>
+    public static bool TryGetSelectionArchitecture(UpdateJobSelection selection, out string architecture)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        architecture = string.Empty;
+        if (selection.Provider != UpdateProvider.WinGet || selection.Source != UpdateSource.WinGet || selection.Scope != UpdateScope.Machine ||
+            selection.Channel == UpdateChannel.Preview) return false;
+        string? text = selection.Architecture switch
+        {
+            UpdateArchitecture.X86 => "x86",
+            UpdateArchitecture.X64 => "x64",
+            UpdateArchitecture.Arm64 => "arm64",
+            _ => null,
+        };
+        if (text is null) return false;
+        architecture = text;
+        return true;
+    }
+
+    /// <summary>
+    /// D4b design §5 H6 at review: the registration digest of the one HKLM uninstall registration of <paramref name="selection"/>'s
+    /// product in <paramref name="observation"/> (fresh inventory): exactly one product with the selection's key, and exactly one of its
+    /// instances read from the Windows uninstall registry for the machine with the selection's architecture (x86 is the 32-bit view,
+    /// x64 the 64-bit view). The digest binds that view, the key name and the version the registry showed; the helper finds the
+    /// registration again by it. Null when there is no such single registration or a field is out of bounds.
+    /// </summary>
+    public static string? RegistrationDigest(UpdateJobSelection selection, LiveInventoryObservation? observation)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        if (observation is null || !TryGetSelectionArchitecture(selection, out string architecture)) return null;
+        WinGetMachineRegistrationView? view = architecture switch
+        {
+            "x86" => WinGetMachineRegistrationView.Machine32,
+            "x64" => WinGetMachineRegistrationView.Machine64,
+            _ => null,
+        };
+        if (view is null) return null;
+        CanonicalProduct[] products = [.. observation.Products.Where(product => string.Equals(product.StableKey, selection.StableProductKey, StringComparison.Ordinal))];
+        if (products.Length != 1) return null;
+        InstallationInstance[] registrations = [.. observation.Instances.Where(instance => instance.ProductId == products[0].Id &&
+            string.Equals(instance.Provider, "registry", StringComparison.Ordinal) &&
+            string.Equals(instance.Scope, "Machine", StringComparison.Ordinal) &&
+            string.Equals(instance.Architecture, architecture, StringComparison.Ordinal))];
+        return registrations.Length == 1
+            ? WinGetMachineRegistration.Digest(view.Value, registrations[0].ProviderIdentity, registrations[0].Version)
+            : null;
+    }
+
+    /// <summary>
+    /// D4b stage 2b: freezes the approved <paramref name="job"/> with the review's mode and <c>wgm1</c> evidence into the whole-PC
+    /// reviewed operation, or null when the review bound no mode or evidence, the mode no longer applies, the requester is unknown,
+    /// any value is outside its bounded format, or the review gate does not admit the route (until stage 3, always).
+    /// </summary>
+    public static ReviewedUpdateOperation? Freeze(ImmutableUpdateJob job, ReviewedInstallerMode? reviewedMode, string? requestingUserSid,
+        string? evidenceId, DateTimeOffset? evidenceObservedAt)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (reviewedMode is null || BindMode(job.Selection) != reviewedMode || string.IsNullOrWhiteSpace(requestingUserSid) ||
+            evidenceId is null || evidenceObservedAt is not { } observedAt ||
+            !ReviewedUpdateOperation.TryGetWinGetMachineEvidence(evidenceId, out _)) return null;
+        try
+        {
+            ReviewedUpdateOperation operation = new(job, requestingUserSid, job.Selection.StableProductKey, InstallationContextId, evidenceId,
+                observedAt, UpdateRouteContract.WinGetMachineSilentV1, reviewedMode);
+            return Admits(operation) && operation.BindsJob(job) ? operation : null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>
+/// D4b stage 2b (design §7): the installer evidence a whole-PC review reads from its own <c>winget download</c> of the reviewed
+/// update: the installer type WinGet chose, the exported manifest's digest and the installer's SHA-256 (64 uppercase hex each).
+/// Comparison data only; the helper downloads and checks again before it runs anything.
+/// </summary>
+public sealed record WingetMachineInstallerEvidence(WinGetMachineInstallerType InstallerType, string ManifestDigest, string InstallerSha256);
+
+/// <summary>The outcome of a review-time check: evidence, or the owner-facing reason the update is not offered (never both).</summary>
+public sealed record WingetMachineInstallerCheck(WingetMachineInstallerEvidence? Evidence, string Message);
+
+/// <summary>D4b stage 2b: reads a whole-PC update's installer evidence at review, without elevation. Must not throw for what it finds.</summary>
+public interface IWingetMachineInstallerEvidenceSource
+{
+    Task<WingetMachineInstallerCheck> CheckAsync(UpdateJobSelection selection, CancellationToken cancellationToken);
 }
