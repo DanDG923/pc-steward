@@ -10,8 +10,9 @@ namespace PCSteward.Security.FixtureTests;
 
 /// <summary>
 /// FR-UPD-15, TM-03/04/07/13; Task 50 qualification probe spec rev 4 §4 (slice S2): the closed probe response codec. Since the
-/// Task 50 activation (ADR-031 owner decision 7) the compiled allow-list holds two tokens, so the compiled goldens are the
-/// two-token frames and the one-token goldens run over a one-token fixture contract. Goldens
+/// Task 50 activation (ADR-031 owner decision 7) the compiled allow-list held two tokens, and since D4b stage 3 it holds three (the
+/// whole-PC WinGet token is added), so the compiled goldens are the three-token frames and the one- and two-token goldens run over
+/// fixture contracts. Goldens
 /// (§4.4: one minimal frame per Q13 row, the passing frame on the one- and two-token allow-list, the largest valid frame, a
 /// Refused frame per <c>failedCheck</c> and per <c>failedAccess</c> value), round-trips, one negative test per Q rule, property
 /// mutations, the wire-name pins (§4.4 L6), the allow-list bound (§4.3 L8) and the unchanged update frames.
@@ -22,8 +23,9 @@ public sealed class QualificationProbeWireCodecTests
     private const string Nonce = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
     private const string Token = "Update/ChocolateyMachineRuntimeLimitsV3";
     private const string ClientToken = "Update/ChocolateyClientSelfUpdateV1";
+    private const string WinGetToken = "Update/WinGetMachineSilentV1";
     private const string Prefix = "{\"protocolVersion\":\"2\",\"kind\":\"qualify-chocolatey-helper\",\"nonce\":\"" + Nonce + "\",";
-    private const string G1Supported = "\"g1Status\":{\"" + ClientToken + "\":\"Supported\",\"" + Token + "\":\"Supported\"},";
+    private const string G1Supported = "\"g1Status\":{\"" + ClientToken + "\":\"Supported\",\"" + Token + "\":\"Supported\",\"" + WinGetToken + "\":\"Supported\"},";
     private const string G1SupportedOneToken = "\"g1Status\":{\"" + Token + "\":\"Supported\"},";
     private static readonly JsonWriterOptions RawWriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -63,7 +65,7 @@ public sealed class QualificationProbeWireCodecTests
         Assert.AreEqual(520, frame.Length, "spec §4.3 passing frame, one-token allow-list");
         Assert.IsTrue(QualificationProbeWireCodec.TryReadProbeResponse(frame, Nonce, one, out QualificationProbeFacts? read));
         Assert.AreEqual(facts, read);
-        // Q4: the one-token frame is not readable over the compiled two-token contract.
+        // Q4: the one-token frame is not readable over the compiled three-token contract.
         Assert.IsFalse(QualificationProbeWireCodec.TryReadProbeResponse(frame, Nonce, out _));
     }
 
@@ -83,18 +85,23 @@ public sealed class QualificationProbeWireCodecTests
         Assert.AreEqual(570, frame.Length, "spec §4.3 passing frame, two-token allow-list");
         Assert.IsTrue(QualificationProbeWireCodec.TryReadProbeResponse(frame, Nonce, two, out QualificationProbeFacts? read));
         Assert.AreEqual(facts, read);
-        // Task 50 activation: the compiled contract is this two-token contract, so the compiled frame is the same golden.
-        CollectionAssert.AreEqual(QualificationProbeContract.Compiled.G1Keys.ToArray(), two.G1Keys.ToArray());
-        CollectionAssert.AreEqual(frame, QualificationProbeWireCodec.CreateProbeResponse(Nonce, Passing()));
-        AssertRoundTrip(frame, facts);
+        // D4b stage 3: the compiled contract adds the whole-PC WinGet token, so the compiled passing frame is 43 B longer (613 B).
+        Assert.IsFalse(QualificationProbeWireCodec.TryReadProbeResponse(frame, Nonce, out _), "Q4: the two-token frame is not readable over the compiled contract");
+        CollectionAssert.AreEqual(new[] { ClientToken, Token, WinGetToken }, QualificationProbeContract.Compiled.G1Keys.ToArray());
+        byte[] compiled = QualificationProbeWireCodec.CreateProbeResponse(Nonce, Passing());
+        string compiledExpected = expected.Replace("\"" + Token + "\":\"Supported\"}", "\"" + Token + "\":\"Supported\",\"" + WinGetToken + "\":\"Supported\"}",
+            StringComparison.Ordinal);
+        Assert.AreEqual(compiledExpected, Encoding.UTF8.GetString(compiled));
+        Assert.AreEqual(613, compiled.Length, "the passing frame on the compiled three-token allow-list");
+        AssertRoundTrip(compiled, Passing());
     }
 
     [TestMethod]
-    [DataRow("token", "\"tokenVerdict\":\"NoLinkedToken\",\"g1Status\":{\"" + ClientToken + "\":\"NotEvaluated\",\"" + Token + "\":\"NotEvaluated\"},\"observation\":\"NotRun\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-token-refused\"}", 572)]
-    [DataRow("capability", "\"tokenVerdict\":\"Accepted\",\"g1Status\":{\"" + ClientToken + "\":\"Absent\",\"" + Token + "\":\"Absent\"},\"observation\":\"NotRun\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-capability-refused\"}", 560)]
-    [DataRow("observed", "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"Observed\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":1,\"ancestorsEvaluated\":1,\"observedClientVersion\":\"2.7.5\",\"fingerprintPresent\":true,\"fingerprintLength\":64,\"diagnostic\":\"probe-observed\"}", 561)]
-    [DataRow("refused", "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"Refused\",\"failedStep\":1,\"failedCheck\":\"StepRule\",\"failedAccess\":\"Other\",\"refusalReason\":\"MachineInputsUnsupported\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-observation-refused\"}", 590)]
-    [DataRow("timedOut", "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"TimedOut\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-observation-timed-out\"}", 571)]
+    [DataRow("token", "\"tokenVerdict\":\"NoLinkedToken\",\"g1Status\":{\"" + ClientToken + "\":\"NotEvaluated\",\"" + Token + "\":\"NotEvaluated\",\"" + WinGetToken + "\":\"NotEvaluated\"},\"observation\":\"NotRun\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-token-refused\"}", 618)]
+    [DataRow("capability", "\"tokenVerdict\":\"Accepted\",\"g1Status\":{\"" + ClientToken + "\":\"Absent\",\"" + Token + "\":\"Absent\",\"" + WinGetToken + "\":\"Absent\"},\"observation\":\"NotRun\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-capability-refused\"}", 600)]
+    [DataRow("observed", "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"Observed\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":1,\"ancestorsEvaluated\":1,\"observedClientVersion\":\"2.7.5\",\"fingerprintPresent\":true,\"fingerprintLength\":64,\"diagnostic\":\"probe-observed\"}", 604)]
+    [DataRow("refused", "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"Refused\",\"failedStep\":1,\"failedCheck\":\"StepRule\",\"failedAccess\":\"Other\",\"refusalReason\":\"MachineInputsUnsupported\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-observation-refused\"}", 633)]
+    [DataRow("timedOut", "\"tokenVerdict\":\"Accepted\"," + G1Supported + "\"observation\":\"TimedOut\",\"failedStep\":null,\"failedCheck\":\"None\",\"failedAccess\":\"None\",\"refusalReason\":\"None\",\"refusalDetail\":\"None\",\"nodesEvaluated\":0,\"ancestorsEvaluated\":0,\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-observation-timed-out\"}", 614)]
     public void MinimalFrameGoldenPerDiagnosticRow(string row, string tail, int length)
     {
         QualificationProbeFacts facts = row switch
@@ -126,7 +133,7 @@ public sealed class QualificationProbeWireCodecTests
     {
         // InstalledMismatch needs an older listed release (Q10); with today's one-entry list it cannot occur (checked below).
         QualificationProbeContract contract = version is null ? QualificationProbeContract.Compiled
-            : QualificationProbeContract.CreateForTests([ClientToken, Token], ["2.7.4", "2.7.5"]);
+            : QualificationProbeContract.CreateForTests([ClientToken, Token, WinGetToken], ["2.7.4", "2.7.5"]);
         QualificationProbeFacts facts = Refused(step, Enum.Parse<QualificationProbeFailedCheck>(check), Enum.Parse<QualificationProbeFailedAccess>(access),
             Enum.Parse<QualificationProbeRefusalReason>(reason), Enum.Parse<QualificationProbeRefusalDetail>(detail), 17, 3) with { ObservedClientVersion = version };
         byte[] frame = QualificationProbeWireCodec.CreateProbeResponse(Nonce, facts, contract);
@@ -154,12 +161,12 @@ public sealed class QualificationProbeWireCodecTests
             "\"refusalDetail\":\"UnlistedReleaseLeftover\",\"nodesEvaluated\":1048576,\"ancestorsEvaluated\":65536," +
             "\"observedClientVersion\":null,\"fingerprintPresent\":false,\"fingerprintLength\":0,\"diagnostic\":\"probe-observation-refused\"}";
         Assert.AreEqual(expected, Encoding.UTF8.GetString(largest));
-        Assert.AreEqual(626, largest.Length, "576 B on the pre-activation one-token contract, plus the client token's 50 B");
+        Assert.AreEqual(669, largest.Length, "576 B on the pre-activation one-token contract, plus the client token's 50 B and the whole-PC WinGet token's 43 B (D4b stage 3)");
         Assert.IsLessThanOrEqualTo(QualificationProbeWireCodec.MaximumFrameBytes, largest.Length);
 
-        // Over a two-release fixture contract exactly one more row is valid: InstalledMismatch at step 8 with the older release
+        // Over a two-release fixture contract (the compiled tokens) exactly one more row is valid: InstalledMismatch at step 8 with the older release
         // (Q8: InstalledMismatch ⇒ step 8 and InstalledVersion; Q10: an older listed release; Q15: access Other).
-        QualificationProbeContract two = QualificationProbeContract.CreateForTests([ClientToken, Token], ["2.7.4", "2.7.5"]);
+        QualificationProbeContract two = QualificationProbeContract.CreateForTests([ClientToken, Token, WinGetToken], ["2.7.4", "2.7.5"]);
         (int validTwo, byte[] largestTwo) = ValidCombinations(two);
         Assert.AreEqual(45, validTwo, "the 44 compiled rows plus the one InstalledMismatch row");
         CollectionAssert.AreEqual(largest, largestTwo, "the InstalledMismatch row is not the largest frame");
@@ -280,7 +287,7 @@ public sealed class QualificationProbeWireCodecTests
     [DataRow("Q16", "timedOutWithDetail")]
     public void EachQRuleViolationIsReportedThrowsOnCreateAndIsRejectedOnRead(string rule, string mutation)
     {
-        QualificationProbeContract two = QualificationProbeContract.CreateForTests([ClientToken, Token], ["2.7.4", "2.7.5"]);
+        QualificationProbeContract two = QualificationProbeContract.CreateForTests([ClientToken, Token, WinGetToken], ["2.7.4", "2.7.5"]);
         QualificationProbeContract contract = mutation is "mismatchNewestVersion" or "mismatchAtStep7" ? two : QualificationProbeContract.Compiled;
         QualificationProbeFacts refused = Refused(1, QualificationProbeFailedCheck.StepRule, QualificationProbeFailedAccess.Granted,
             QualificationProbeRefusalReason.MachineInputsUnsupported, QualificationProbeRefusalDetail.None);
@@ -365,7 +372,7 @@ public sealed class QualificationProbeWireCodecTests
     [TestMethod]
     public void EveryValidBaseFactHasNoViolationAndTheRawEncoderMatchesTheCodec()
     {
-        QualificationProbeContract two = QualificationProbeContract.CreateForTests([ClientToken, Token], ["2.7.4", "2.7.5"]);
+        QualificationProbeContract two = QualificationProbeContract.CreateForTests([ClientToken, Token, WinGetToken], ["2.7.4", "2.7.5"]);
         foreach (QualificationProbeFacts facts in new[] { Passing(), TokenRefused(), CapabilityRefused(QualificationProbeCapabilityStatus.Unreadable), TimedOut() })
         {
             Assert.AreEqual(0, QualificationProbeWireCodec.RuleViolations(Nonce, facts, QualificationProbeContract.Compiled).Count);
@@ -480,12 +487,13 @@ public sealed class QualificationProbeWireCodecTests
     public void Q4G1KeysAreExactlyTheCompiledTokensOnceEach()
     {
         string frame = Encoding.UTF8.GetString(QualificationProbeWireCodec.CreateProbeResponse(Nonce, Passing()));
-        string g1 = "{\"" + ClientToken + "\":\"Supported\",\"" + Token + "\":\"Supported\"}";
+        string g1 = "{\"" + ClientToken + "\":\"Supported\",\"" + Token + "\":\"Supported\",\"" + WinGetToken + "\":\"Supported\"}";
         foreach (string replacement in new[]
         {
             "{}", "{\"" + Token + "\":\"Supported\",\"" + Token + "\":\"Supported\"}", "{\"" + ClientToken.ToLowerInvariant() + "\":\"Supported\",\"" + Token + "\":\"Supported\"}",
             "{\"" + Token + "\":\"Supported\"}", "{\"" + ClientToken + "\":\"Supported\"}", "{\"" + Token + "\":\"Supported\",\"" + ClientToken + "\":\"Supported\"}",
             "{\"" + ClientToken + "\":\"Supported\",\"" + Token + "\":\"Supported\",\"" + Token + "\":\"Supported\"}",
+            "{\"" + ClientToken + "\":\"Supported\",\"" + Token + "\":\"Supported\"}", "{\"" + ClientToken + "\":\"Supported\",\"" + WinGetToken + "\":\"Supported\",\"" + Token + "\":\"Supported\"}",
             "{\"Update/ChocolateyMachineRegistrationV3\":\"Supported\"}", "{\"" + Token + " \":\"Supported\"}", "[\"Supported\"]", "\"Supported\"", "null",
         })
             Assert.IsFalse(Read(frame.Replace(g1, replacement, StringComparison.Ordinal)), replacement);
@@ -669,10 +677,11 @@ public sealed class QualificationProbeWireCodecTests
         Assert.AreEqual(64, QualificationProbeContract.MaximumG1KeyBytes);
         CollectionAssert.AreEqual(allowList.Select(DeploymentCapabilityPolicy.OperationToken).Order(StringComparer.Ordinal).ToArray(),
             QualificationProbeContract.Compiled.G1Keys.ToArray(), "Q4 keys are the compiled tokens in ordinal order");
-        // Task 50 activation: two tokens, of 35 (client) and 39 (package) bytes.
-        Assert.AreEqual(2, allowList.Count);
+        // Task 50 activation: two tokens, of 35 (client) and 39 (package) bytes; D4b stage 3 adds the whole-PC WinGet token (28 bytes).
+        Assert.AreEqual(3, allowList.Count);
         Assert.AreEqual(39, Encoding.UTF8.GetByteCount(Token));
         Assert.AreEqual(35, Encoding.UTF8.GetByteCount(ClientToken));
+        Assert.AreEqual(28, Encoding.UTF8.GetByteCount(DeploymentCapabilityPolicy.OperationToken(UpdateRouteContract.WinGetMachineSilentV1)));
 
         string[] nine = [.. Enumerable.Range(1, 9).Select(index => "Update/Route" + index)];
         Assert.ThrowsExactly<ArgumentException>(() => QualificationProbeContract.CreateForTests(nine, ["2.7.5"]));

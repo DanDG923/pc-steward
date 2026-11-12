@@ -244,7 +244,9 @@ public sealed class ReferenceBoundaryTests
         string project = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Desktop", "PCSteward.Desktop.csproj"));
 
         StringAssert.Contains(source, "UpdateExecutionCapabilities.UserAndMachine");
-        StringAssert.Contains(source, "new ElevatedUpdateRunner()");
+        // D4b stage 3: the elevated runner comes only from the whole-PC composition (protocol 2); protocol 1 is retired.
+        StringAssert.Contains(source, "WingetMachineUpdateComposition.CreateElevatedRunner()");
+        Assert.IsFalse(source.Contains("new ElevatedUpdateRunner(", StringComparison.Ordinal), "the desktop never builds the runner itself");
         Assert.IsFalse(project.Contains("PCSteward.ElevatedHelper", StringComparison.Ordinal));
     }
 

@@ -86,7 +86,7 @@ public sealed class QualificationProbeHelperBootstrapTests
     // ---- H6: mutual refusal ----
 
     [TestMethod]
-    public void AllThreeExistingParsersRefuseEveryProbeLine()
+    public void TheExistingUpdateParsersRefuseEveryProbeLine()
     {
         foreach (string[] line in TenArgumentLines())
         {
@@ -94,7 +94,6 @@ public sealed class QualificationProbeHelperBootstrapTests
             Assert.IsFalse(ReviewedHelperBootstrap.TryParse(line, out _), "protocol-2 TryParse: " + text);
             Assert.IsFalse(ReviewedHelperBootstrap.SelectsProtocol2(line), "SelectsProtocol2: " + text);
             Assert.IsFalse(ElevatedHelperEntryPoint.SelectsProtocol2(line), "entry SelectsProtocol2: " + text);
-            Assert.IsFalse(HelperBootstrap.TryParse(line, out _), "protocol-1 TryParse: " + text);
         }
     }
 
@@ -123,7 +122,7 @@ public sealed class QualificationProbeHelperBootstrapTests
             Assert.IsFalse(ReviewedHelperProbeBootstrap.SelectsProbe(line));
         }
         string[] protocol1 = ["--protocol", "1", "--desktop-pid", "4242", "--pipe", "pcsteward-elevated-0123456789abcdef0123456789abcdef", "--nonce", F.Nonce];
-        Assert.IsTrue(HelperBootstrap.TryParse(protocol1, out _));
+        Assert.IsFalse(ElevatedHelperEntryPoint.SelectsProtocol2(protocol1), "protocol 1 is retired and refused (exit 20)");
         Assert.IsFalse(ReviewedHelperProbeBootstrap.TryParse(protocol1, out _));
         Assert.IsFalse(ReviewedHelperProbeBootstrap.SelectsProbe(protocol1));
     }

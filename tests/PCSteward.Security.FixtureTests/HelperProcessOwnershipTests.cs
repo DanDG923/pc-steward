@@ -13,16 +13,14 @@ public sealed class HelperProcessOwnershipTests
     public async Task HelperOwnershipReachesTheApplicationAdmissionBoundary()
     {
         TaskCompletionSource exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        ElevatedUpdateRunner runner = new(new OwnedTransport(exit.Task));
-        UpdateJobSelection selection = new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet,
-            "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "mapping-v1");
-        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), selection).Confirm(DateTimeOffset.UtcNow);
-        UpdateJobExecutionEvidence evidence = new(selection, true, true);
-        UpdateExecutionResult result = await runner.RunAsync(job, evidence, CancellationToken.None);
+        ElevatedUpdateRunner runner = new(new OwnedExchange(exit.Task));
+        (ImmutableUpdateJob job, ReviewedUpdateOperation operation) = WingetMachineReviewedDispatchTests.Frozen();
+        UpdateJobExecutionEvidence evidence = new(job.Selection, true, true);
+        UpdateExecutionResult result = await runner.RunReviewedAsync(job, operation, evidence, CancellationToken.None);
         Assert.AreEqual(UpdateExecutionStatus.TimedOut, result.Status);
         Assert.AreSame(exit.Task, result.OwnedCompletion);
         IApprovedUpdateExecutor executor = new ApprovedUpdateExecutor(new NonElevatedUpdateRunner(new NeverUserExecutor()), runner);
-        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, evidence, CancellationToken.None);
+        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, operation, evidence, new UpdateItemProgress(job, null), CancellationToken.None);
         Assert.AreSame(exit.Task, attempt.OwnedCompletion);
         Assert.IsNotNull(executor.ExecutionLifetime);
         exit.SetResult();
@@ -77,11 +75,11 @@ public sealed class HelperProcessOwnershipTests
         _ = failure.Exception;
     }
 
-    private sealed class OwnedTransport(Task completion) : IElevatedHelperTransport
+    private sealed class OwnedExchange(Task completion) : IWingetMachineReviewedExchange
     {
-        public Task<ElevatedHelperResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
-            Task.FromResult(new ElevatedHelperResult(ElevatedHelperOutcome.TimedOut, null,
-                "helper-exit-unconfirmed", completion));
+        public Task<ReviewedUpdateDispatchObservation> RunAsync(ReviewedUpdateOperation operation, CancellationToken cancellationToken) =>
+            Task.FromResult(new ReviewedUpdateDispatchObservation(ReviewedUpdateInvocation.Started, ReviewedUpdateProviderStatus.TimedOut, null,
+                "helper-exit-unconfirmed", completion, false, false, false, false, false));
     }
     private sealed class NeverUserExecutor : IWingetReviewedUserUpdateExecutor
     {

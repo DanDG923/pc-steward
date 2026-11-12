@@ -92,7 +92,7 @@ public sealed class ReviewedHelperBootstrapTests
     }
 
     [TestMethod]
-    public void ProtocolTwoIsDispatchedAndProtocolOneIsUnchanged()
+    public void ProtocolTwoIsDispatchedAndProtocolOneIsNot()
     {
         Assert.IsTrue(ElevatedHelperEntryPoint.SelectsProtocol2(Arguments()));
         Assert.IsTrue(ElevatedHelperEntryPoint.SelectsProtocol2(["--pipe", Pipe, "--protocol", "2", "--nonce", F.Nonce, "--desktop-pid", "1"]));
@@ -102,10 +102,7 @@ public sealed class ReviewedHelperBootstrapTests
         Assert.IsFalse(ElevatedHelperEntryPoint.SelectsProtocol2(["--protocol", "2"]));
         Assert.IsFalse(ElevatedHelperEntryPoint.SelectsProtocol2(null!));
 
-        // Protocol 1's own bootstrap still refuses protocol 2 and accepts only its own locator.
-        Assert.IsFalse(HelperBootstrap.TryParse(Arguments(), out _));
-        Assert.IsFalse(HelperBootstrap.TryParse(Arguments(protocol: "1"), out _), "protocol 1 never accepts the protocol-2 locator");
-        Assert.IsTrue(HelperBootstrap.TryParse(Arguments(protocol: "1", pipe: "pcsteward-elevated-0123456789abcdef0123456789abcdef"), out _));
+        // D4b stage 3: protocol 1 is retired; its former line is parsed by nothing and the entry point refuses it (exit 20).
         Assert.IsFalse(ReviewedHelperBootstrap.TryParse(Arguments(protocol: "1", pipe: "pcsteward-elevated-0123456789abcdef0123456789abcdef"), out _));
     }
 

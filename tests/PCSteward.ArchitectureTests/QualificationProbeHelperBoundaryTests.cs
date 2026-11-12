@@ -259,16 +259,15 @@ public sealed class QualificationProbeHelperBoundaryTests
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Execution");
         string transport = File.ReadAllText(Path.Combine(src, "WindowsElevatedHelperTransport.cs"));
         Assert.IsTrue(Regex.IsMatch(transport,
-            @"SelectsProbe\(arguments\)\s*\?\s*RunProbeAsync\(arguments\)\s*:\s*SelectsProtocol2\(arguments\)\s*\?\s*RunReviewedAsync\(arguments\)\s*:\s*RunProtocol1Async\(arguments\);"),
-            "§2 order: the probe first, then protocol 2, then protocol 1");
+            @"SelectsProbe\(arguments\)\s*\?\s*RunProbeAsync\(arguments\)\s*:\s*SelectsProtocol2\(arguments\)\s*\?\s*RunReviewedAsync\(arguments\)\s*:\s*Task\.FromResult\(Protocol1RefusedExitCode\);"),
+            "§2 order: the probe first, then protocol 2; D4b stage 3 refuses every other line (protocol 1 is retired)");
         string bootstrap = File.ReadAllText(Path.Combine(src, "ReviewedHelperProbeBootstrap.cs"));
         StringAssert.Contains(bootstrap, "arguments is { Length: ArgumentCount } && string.Equals(arguments[0], KindKey, StringComparison.Ordinal);");
         StringAssert.Contains(bootstrap, "private const int ArgumentCount = 10;");
         StringAssert.Contains(bootstrap, "WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(arguments[7])");
         StringAssert.Contains(bootstrap, "TokenImpersonationLevel.Identification");
-        // The existing parsers still require exactly eight arguments first.
+        // The protocol-2 parser still requires exactly eight arguments first.
         StringAssert.Contains(File.ReadAllText(Path.Combine(src, "ReviewedHelperBootstrap.cs")), "if (arguments is null || arguments.Length != 8) return false;");
-        StringAssert.Contains(transport, "if (arguments is null || arguments.Length != 8)");
     }
 
     [TestMethod]

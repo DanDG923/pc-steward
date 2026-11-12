@@ -49,19 +49,24 @@ public sealed class WingetUserReviewedRouteTests
     }
 
     [TestMethod]
-    public async Task MachineScopeWinGetBindsNoModeAndRunsWithoutAReviewedOperation()
+    public async Task MachineScopeWinGetWithoutTheWholePcEvidenceSourceIsRefusedBeforeReview()
     {
+        // D4b stage 3: protocol 1 is retired, so a whole-PC update runs only on its reviewed route, which needs the installer
+        // evidence source; a workflow composed without it refuses at review and never approves or starts anything.
         UpdateJobSelection selection = Selection(UpdateScope.Machine);
         RecordingStore store = new();
         ReviewedRecordingExecutor executor = new();
         ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, store, executor);
 
         UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
-        Assert.IsNull(preparation.Review!.InstallerMode, "machine scope has no reviewed mode until Phase D stage D4b");
-        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None);
+        Assert.IsNull(preparation.Review);
+        Assert.AreEqual(WingetMachineReviewedRoute.NotOnThisRouteMessage, preparation.Message);
 
-        Assert.IsTrue(result.Started, result.Message);
-        Assert.IsNull(executor.Reviewed.Single());
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), selection),
+            false, CancellationToken.None);
+        Assert.IsFalse(result.Started);
+        Assert.HasCount(0, store.Jobs);
+        Assert.HasCount(0, executor.Reviewed);
     }
 
     [TestMethod]

@@ -21,7 +21,7 @@ public sealed class QualificationProbeHostToolingTests
     private const string ScriptName = "Task50-QualificationProbe.ps1";
     private static readonly string[] VerdictKeys = ["E1", "A3", "E2", "E3", "E5", "OVERALL"];
     private static readonly string[] Deletes = ["[IO.File]::Delete($resultFile)", "[IO.Directory]::Delete($resultFolder, $false)"];
-    private static readonly string[] CompiledTokens = ["Update/ChocolateyClientSelfUpdateV1", "Update/ChocolateyMachineRuntimeLimitsV3"];
+    private static readonly string[] CompiledTokens = ["Update/ChocolateyClientSelfUpdateV1", "Update/ChocolateyMachineRuntimeLimitsV3", "Update/WinGetMachineSilentV1"];
     private static readonly string[] Launch = ["Start-Process -FilePath $desktop -ArgumentList '--qualify-chocolatey-helper' -Wait -PassThru"];
     private static readonly string[] Inconclusive =
         ["ElevationDeclined", "GateBusy", "GateUnavailable", "GateRecoveryRequired", "GateResetPending", "ConflictingProcess", "DesktopNotLimited", "HelperNotStarted"];
@@ -183,7 +183,8 @@ public sealed class QualificationProbeHostToolingTests
             ["elevation-declined"] = new(QualificationProbeDesktopOutcome.ElevationDeclined, DesktopProbeFixture.G1(QualificationProbeCapabilityStatus.Supported),
                 trust, DesktopProbeFixture.Pins(), null),
             ["capability-not-held"] = new(QualificationProbeDesktopOutcome.CapabilityNotHeld,
-                [new("Update/ChocolateyClientSelfUpdateV1", QualificationProbeCapabilityStatus.Absent), new("Update/ChocolateyMachineRuntimeLimitsV3", QualificationProbeCapabilityStatus.Supported)],
+                [new("Update/ChocolateyClientSelfUpdateV1", QualificationProbeCapabilityStatus.Absent), new("Update/ChocolateyMachineRuntimeLimitsV3", QualificationProbeCapabilityStatus.Supported),
+                    new("Update/WinGetMachineSilentV1", QualificationProbeCapabilityStatus.Supported)],
                 trust, null, null),
             ["pins-differ"] = DesktopProbeFixture.Accepted() with { Pins = DesktopProbeFixture.Pins('F') },
             ["exit-code-1"] = DesktopProbeFixture.Accepted() with { Transport = DesktopProbeFixture.AllFacts(1) },
@@ -304,11 +305,11 @@ public sealed class QualificationProbeHostToolingTests
         // spec §8 E3: the inconclusive outcomes; every other non-accepted outcome is a FAIL.
         CollectionAssert.AreEquivalent(Inconclusive, Strings(contract.GetProperty("InconclusiveOutcomes")));
         Assert.AreEqual(DeploymentCapabilityPolicy.LedgerSchema, contract.GetProperty("LedgerSchema").GetString());
-        // Review L6: C1 requires the activation build's checked-in two-token capability statement.
+        // Review L6: C1 requires the checked-in capability statement (three tokens since D4b stage 3).
         byte[] statement = File.ReadAllBytes(Path.Combine(root, "src", "PCSteward.ElevatedHelper", DeploymentCapabilityPolicy.CapabilityFileName));
         CollectionAssert.AreEqual(DeploymentCapabilityPolicy.CanonicalCapabilityBytes(), statement);
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(statement)), contract.GetProperty("CapabilityStatementSha256").GetString());
-        Assert.AreEqual("50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B", contract.GetProperty("CapabilityStatementSha256").GetString());
+        Assert.AreEqual("70703B81FB88B81F4F33C31B0E115AA67DFAD22380F5299680660CDF455EEA95", contract.GetProperty("CapabilityStatementSha256").GetString());
         Assert.AreEqual(65536, contract.GetProperty("MaximumBuildRecordBytes").GetInt32());
         string builder = File.ReadAllText(Path.Combine(root, "scripts", "New-OwnerOnlyCandidate.ps1"));
         StringAssert.Contains(builder, "$script:CandidateSchema = '" + contract.GetProperty("BuildRecordSchema").GetString() + "'");

@@ -10,15 +10,12 @@ public sealed class UpdateRunnerSecurityTests
 {
     [TestMethod]
     [TestCategory("FR-UPD-14")]
-    [DataRow(UpdateScope.User)]
-    [DataRow(UpdateScope.Machine)]
-    public async Task CompiledUpgradeExecutorsSelectOwnedUpdateHandlingInsteadOfInventoryHandling(UpdateScope scope)
+    public async Task CompiledUpgradeExecutorSelectsOwnedUpdateHandlingInsteadOfInventoryHandling()
     {
+        // D4b stage 3: the job-based machine executor is retired; whole-PC updates run in the helper's reviewed WinGet stage.
         UpgradeOnlyProcess process = new();
-        ImmutableUpdateJob job = ApprovedJob(scope);
-        WingetProcessResult result = scope == UpdateScope.User
-            ? await new WingetReviewedUserUpdateExecutor(process).ExecuteAsync(Reviewed(job), null, CancellationToken.None)
-            : await new WingetMachineUpdateExecutor(process).ExecuteAsync(job, CancellationToken.None);
+        ImmutableUpdateJob job = ApprovedJob(UpdateScope.User);
+        WingetProcessResult result = await new WingetReviewedUserUpdateExecutor(process).ExecuteAsync(Reviewed(job), null, CancellationToken.None);
         Assert.AreEqual(1, process.UpgradeCalls);
         Assert.AreEqual(0, result.ExitCode);
         Assert.AreEqual("upgrade", process.Arguments[0]);
@@ -246,7 +243,6 @@ public sealed class UpdateRunnerSecurityTests
         Assert.IsFalse(typeof(IWingetProcess).IsPublic);
         Assert.IsFalse(typeof(IWingetProcess).GetMethod(nameof(IWingetProcess.RunAsync))!.GetParameters().Any(parameter => parameter.ParameterType == typeof(string)));
         Assert.IsTrue(typeof(WingetReviewedUserUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
-        Assert.IsTrue(typeof(WingetMachineUpdateExecutor).GetConstructors().All(constructor => constructor.GetParameters().Length == 0));
     }
 
     [TestMethod]

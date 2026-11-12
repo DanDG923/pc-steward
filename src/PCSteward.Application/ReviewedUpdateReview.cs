@@ -36,7 +36,9 @@ public sealed class ReviewedUpdateReview
     /// <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/> and
     /// <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> (<see cref="ReviewedChocolateyRouteAdmission"/>). Admission
     /// is shape only: it never qualifies a candidate, and the fresh evidence, the deployment capability, the dispatcher and the
-    /// elevated helper's own checks still decide whether anything runs.
+    /// elevated helper's own checks still decide whether anything runs. Phase D stage D4b, stage 3 (design note §10): the last term
+    /// admits the whole-PC WinGet route (<see cref="UpdateRouteContract.WinGetMachineSilentV1"/>) by its exact shape
+    /// (<see cref="WingetMachineReviewedRoute.TryGetShape"/>), in the same change that retires helper protocol 1.
     /// </summary>
     internal static bool HasSupportedMode(ReviewedUpdateOperation operation) =>
         operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserExactV3 &&
@@ -45,7 +47,8 @@ public sealed class ReviewedUpdateReview
         operation.Selection.Architecture.Value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64 &&
         UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode ||
         HasWinGetUserSilentMode(operation) ||
-        ReviewedChocolateyRouteAdmission.Admits(operation);
+        ReviewedChocolateyRouteAdmission.Admits(operation) ||
+        WingetMachineReviewedRoute.TryGetShape(operation, out _, out _, out _);
 
     /// <summary>
     /// Stage C4 (Task 54 R1, owner decision 2026-11-12): the per-user WinGet route <see cref="UpdateRouteContract.WinGetUserSilentV1"/>

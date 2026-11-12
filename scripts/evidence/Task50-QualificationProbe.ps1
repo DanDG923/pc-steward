@@ -53,7 +53,7 @@ function Get-ProbeContract {
             'ConflictingProcess', 'LaunchTrustFailed', 'CapabilityNotHeld', 'ElevationDeclined', 'HelperNotStarted', 'HelperNotConnected',
             'PeerNotVerified', 'NoValidResponse', 'ResponseRejected')
         # The compiled capability allow-list of the activation build, in ordinal order.
-        Tokens = [string[]]@('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3')
+        Tokens = [string[]]@('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3', 'Update/WinGetMachineSilentV1')
         Statuses = [string[]]@('Supported', 'Absent', 'Incomplete', 'Unreadable', 'Mismatch', 'NotEvaluated')
         Verdicts = [string[]]@('Accepted', 'FactsMalformed', 'PeerNotLimited', 'PeerSidMismatch', 'EvaluationSidMismatch', 'AuthenticationIdMismatch',
             'EvaluationNotLimited', 'EvaluationNotMediumIntegrity', 'EvaluationRestricted', 'EvaluationAppContainer', 'EvaluationAdministratorsEnabled',
@@ -79,7 +79,7 @@ function Get-ProbeContract {
         ProbeCommit = '2172f955a751ccc464b27075053c835790bc412f'
         LedgerSchema = 'pc-steward-owner-only-protected-test-v6'
         # The activation build's checked-in two-token capability statement (149 B).
-        CapabilityStatementSha256 = '50F169DDE7EDF6C8A2FC1A2FCC763BD04B43ED61E102C806947689EBB573654B'
+        CapabilityStatementSha256 = '70703B81FB88B81F4F33C31B0E115AA67DFAD22380F5299680660CDF455EEA95'
         # The build record is a small JSON file; a larger one is refused before it is read.
         MaximumBuildRecordBytes = 65536
     }

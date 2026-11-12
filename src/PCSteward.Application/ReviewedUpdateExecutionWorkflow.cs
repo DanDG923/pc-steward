@@ -25,12 +25,11 @@ public sealed record ReviewedUpdateExecutionResult(bool Started, string Message,
 /// Stage C4 (Task 54 R1, FR-UPD-15): a per-user WinGet review binds its installer mode (<see cref="WingetUserReviewedRoute.BindMode"/>);
 /// the mode is checked again against the fresh re-preparation before approval, and the approved job is frozen with it into the
 /// per-user reviewed operation the runner requires. <paramref name="requestingUserSid"/> reads the current Windows account's SID for
-/// that operation; without it no per-user update starts. A machine-scope WinGet review binds no mode: it runs on protocol 1 under the
-/// ADR-025 transition amendment until Phase D stage D4b. Chocolatey updates are not reviewed here; they have their own reviewed route.
-/// D4b stage 2b: when <paramref name="machineInstallerEvidence"/> is composed, a machine-scope WinGet review instead binds Silent, the
-/// one HKLM registration's digest from the fresh inventory and the installer evidence of its own <c>winget download</c>
-/// (<see cref="WingetMachineReviewedRoute"/>); Confirm checks the registration again and freezes the whole-PC reviewed operation,
-/// which the review gate refuses until stage 3, so nothing is started. Production does not compose it before stage 3.
+/// that operation; without it no per-user update starts. Chocolatey updates are not reviewed here; they have their own reviewed route.
+/// Phase D stage D4b: a machine-scope WinGet review binds Silent, the one HKLM registration's digest from the fresh inventory and the
+/// installer evidence of its own <c>winget download</c> (<paramref name="machineInstallerEvidence"/>, <see cref="WingetMachineReviewedRoute"/>);
+/// Confirm checks the registration again and freezes the whole-PC reviewed operation the elevated runner requires. Without the evidence
+/// source a machine-scope WinGet update is not offered: stage 3 retired helper protocol 1 (ADR-025 transition amendment, closed).
 /// </summary>
 public sealed class ReviewedUpdateExecutionWorkflow(
     Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepareSelection,
@@ -128,8 +127,9 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         if (selection.Provider != UpdateProvider.WinGet) { refusal = ChocolateyNotOnThisRouteMessage; return false; }
         if (selection.Scope == UpdateScope.Machine)
         {
-            if (machineInstallerEvidence is null) return true;
-            mode = WingetMachineReviewedRoute.BindMode(selection);
+            // D4b stage 3: protocol 1 is retired, so a machine-scope WinGet update runs only on the whole-PC route, and only when its
+            // review evidence source is composed.
+            mode = machineInstallerEvidence is null ? null : WingetMachineReviewedRoute.BindMode(selection);
             if (mode is null) refusal = WingetMachineReviewedRoute.NotOnThisRouteMessage;
             return mode is not null;
         }
@@ -138,9 +138,9 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         return mode is not null;
     }
 
-    /// <summary>D4b stage 2b: a WinGet machine-scope selection reviewed on the whole-PC route (only when its evidence is composed).</summary>
-    private bool UsesMachineRoute(UpdateJobSelection selection) =>
-        machineInstallerEvidence is not null && selection.Provider == UpdateProvider.WinGet && selection.Scope == UpdateScope.Machine;
+    /// <summary>D4b: a WinGet machine-scope selection, which is reviewed only on the whole-PC route (stage 3 retired protocol 1).</summary>
+    private static bool UsesMachineRoute(UpdateJobSelection selection) =>
+        selection.Provider == UpdateProvider.WinGet && selection.Scope == UpdateScope.Machine;
 
     private static bool TryMachineEvidenceId(WingetMachineInstallerEvidence installer, string registration, out string evidenceId)
     {
@@ -156,7 +156,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
     }
 
-    /// <summary>Stage C4: the mode bound at review still applies to the fresh re-preparation (both null for machine scope on protocol 1).</summary>
+    /// <summary>Stage C4: the mode bound at review still applies to the fresh re-preparation.</summary>
     private bool ReviewedModeStillApplies(UpdateJobReview review, UpdateJobSelection fresh) =>
         TryBindReviewMode(fresh, out ReviewedInstallerMode? mode, out _) && mode == review.InstallerMode;
 
@@ -238,8 +238,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             }
             else if (machineRoute)
             {
-                // D4b stage 2b: freeze the approved job with the reviewed mode and wgm1 evidence. The review gate refuses the route
-                // until stage 3, so this refuses and nothing starts; a saved approval alone starts nothing and is never replayed.
+                // D4b: freeze the approved job with the reviewed mode and wgm1 evidence; the runner runs nothing machine-scope without
+                // it (stage 3). A saved approval alone starts nothing and is never replayed.
                 reviewedOperation = WingetMachineReviewedRoute.Freeze(job, review.InstallerMode, requester, review.EvidenceId,
                     review.EvidenceObservedAt);
                 if (reviewedOperation is null) return new(false, WingetMachineReviewedRoute.NotOnThisRouteMessage, null);

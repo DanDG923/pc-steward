@@ -40,7 +40,9 @@ public sealed class ChocolateyRouteActivationBoundaryTests
             "operation.Selection.Architecture.Value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64 && " +
             "UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode || " +
             "HasWinGetUserSilentMode(operation) || " +
-            "ReviewedChocolateyRouteAdmission.Admits(operation)", Regex.Replace(gate.Groups["body"].Value, @"\s+", " ").Trim());
+            "ReviewedChocolateyRouteAdmission.Admits(operation) || " +
+            // Phase D stage D4b, stage 3: the whole-PC WinGet route, admitted by its exact shape.
+            "WingetMachineReviewedRoute.TryGetShape(operation, out _, out _, out _)", Regex.Replace(gate.Groups["body"].Value, @"\s+", " ").Trim());
         // Stage C4 (Task 54 R1): the per-user WinGet term, as reviewed.
         Match winget = Regex.Match(review, @"private static bool HasWinGetUserSilentMode\(ReviewedUpdateOperation operation\) =>(?<body>[^;]*);");
         Assert.IsTrue(winget.Success, "HasWinGetUserSilentMode not found");
@@ -96,24 +98,24 @@ public sealed class ChocolateyRouteActivationBoundaryTests
     }
 
     [TestMethod]
-    public void TheCapabilityAllowListStatementAndScriptsAdmitExactlyTheTwoChocolateyRoutes()
+    public void TheCapabilityAllowListStatementAndScriptsAdmitExactlyTheTwoChocolateyRoutesAndTheWholePcWinGetRoute()
     {
         string root = CompiledIlScanner.FindRepositoryRoot();
         string policy = Code(Read(root, "src", "PCSteward.Execution", "DeploymentCapabilityPolicy.cs"));
         StringAssert.Contains(Regex.Replace(policy, @"\s+", " "),
             "internal static readonly IReadOnlyList<UpdateRouteContract> CapabilityOperationAllowlist = " +
-            "[UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1];");
+            "[UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1, UpdateRouteContract.WinGetMachineSilentV1];");
         Assert.AreEqual(1, Regex.Count(policy, @"CapabilityOperationAllowlist\s*="), "a single allow-list definition");
 
         // The checked-in statement is the canonical bytes (ordinal token order), LF only.
         byte[] statement = File.ReadAllBytes(Path.Combine(root, "src", "PCSteward.ElevatedHelper", "PCSteward.DeploymentCapability.txt"));
         Assert.AreEqual("pc-steward-deployment-capability:1\nhelper-protocol:2\noperation:Update/ChocolateyClientSelfUpdateV1\n" +
-            "operation:Update/ChocolateyMachineRuntimeLimitsV3\n", Encoding.ASCII.GetString(statement));
-        Assert.AreEqual(149, statement.Length);
+            "operation:Update/ChocolateyMachineRuntimeLimitsV3\noperation:Update/WinGetMachineSilentV1\n", Encoding.ASCII.GetString(statement));
+        Assert.AreEqual(188, statement.Length);
 
         // The deployment scripts' parser accepts exactly the same two tokens.
         string integrity = Read(root, "scripts", "OwnerOnlyPayloadIntegrity.ps1");
-        Assert.AreEqual(1, Regex.Count(integrity, Regex.Escape("$allowed = @('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3')")));
+        Assert.AreEqual(1, Regex.Count(integrity, Regex.Escape("$allowed = @('Update/ChocolateyClientSelfUpdateV1', 'Update/ChocolateyMachineRuntimeLimitsV3', 'Update/WinGetMachineSilentV1')")));
         Assert.AreEqual(1, Regex.Count(integrity, @"\$allowed\s*="), "one script token list");
     }
 

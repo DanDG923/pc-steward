@@ -245,13 +245,13 @@ public sealed class InventoryWorkflowUpdateSourceTests
                 "Contoso Widget",
                 "Contoso",
                 "1.0.0",
-                "Machine",
+                "User",
                 "x64",
                 "Stable",
                 "Application",
                 "fixture"));
         CanonicalProduct product = new(productId, stableKey, "Contoso Widget");
-        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "User", "x64", "Contoso", Channel: "Stable");
         InstallationInstance updated = installed with { Id = Guid.NewGuid(), Version = "1.1.0" };
         ProviderScanResult before = new([product], [installed], [], []);
         ProviderScanResult after = new([product], [updated], [], []);
@@ -263,7 +263,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
             [],
             CancellationToken.None);
         await EnableTrustedSourcesAsync(database);
-        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable");
         RecordingStructuredCatalogQuery structuredQuery = new(new(
             "winget",
             CatalogIsPredefined: true,
@@ -445,10 +445,10 @@ public sealed class InventoryWorkflowUpdateSourceTests
         await using TestDatabase database = await TestDatabase.CreateAsync();
         Guid productId = Guid.NewGuid();
         CanonicalProduct product = new(productId, "ignored", "Contoso Widget");
-        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
-        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "Machine", "x64", "Stable", "Application", "fixture"));
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "ContosoRegistryKey", "1.0.0", "User", "x64", "Contoso", Channel: "Stable");
+        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoRegistryKey", "Contoso Widget", "Contoso", "1.0.0", "User", "x64", "Stable", "Application", "fixture"));
         await EnableTrustedSourcesAsync(database);
-        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "Machine", "x64", "Stable");
+        SourcePackageRecord package = new("winget", "Contoso.Widget", "Contoso Widget", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable");
         using InventoryWorkflow inventory = new(database.Store, database.Store, database.Store, [new SequenceProvider(new ProviderScanResult([product], [installed], [], []), new ProviderScanResult([], [], [], []))], decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))], structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.Widget", "1.0.0", "1.1.0")));
         await inventory.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
         Assert.IsTrue((await inventory.CreateManualMappingAsync(stableKey, "winget", "Contoso.Widget", true, "reviewed", CancellationToken.None)).IsValid);

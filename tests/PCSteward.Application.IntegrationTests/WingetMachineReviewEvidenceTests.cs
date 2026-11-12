@@ -9,7 +9,7 @@ namespace PCSteward.Application.IntegrationTests;
 /// FR-UPD-15, FR-UPD-01/03, TM-03/04/13. Phase D stage D4b, stage 2b (design §5 H6 and §7; owner answers Q1 and Q3, 2026-11-12):
 /// a whole-PC WinGet review binds Silent, the one HKLM registration's digest from fresh inventory and the installer evidence of the
 /// review's own <c>winget download</c>; Confirm checks the registration again and freezes the whole-PC operation, which the review
-/// gate still refuses, so nothing reaches an executor. The installer evidence source checks the source, downloads into a fresh folder
+/// gate admits from stage 3, so the approved job reaches the executor only with that operation. The installer evidence source checks the source, downloads into a fresh folder
 /// under PC Steward's download cache, reads it strictly and deletes it.
 /// </summary>
 [TestClass]
@@ -62,15 +62,18 @@ public sealed class WingetMachineReviewEvidenceTests
     }
 
     [TestMethod]
-    public void FreezeBuildsTheRouteShapeButTheReviewGateRefusesItUntilStageThree()
+    public void FreezeBuildsTheAdmittedWholePcOperation()
     {
         ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), Selection(), Silent).Confirm(ObservedAt);
         string evidence = EvidenceId();
         ReviewedUpdateOperation shaped = new(job, Sid, job.Selection.StableProductKey, WingetMachineReviewedRoute.InstallationContextId,
             evidence, ObservedAt, UpdateRouteContract.WinGetMachineSilentV1, Silent);
         Assert.IsTrue(WingetMachineReviewedRoute.TryGetShape(shaped, out _, out _, out _));
-        Assert.IsFalse(WingetMachineReviewedRoute.Admits(shaped));
-        Assert.IsNull(WingetMachineReviewedRoute.Freeze(job, Silent, Sid, evidence, ObservedAt), "not admitted before stage 3");
+        Assert.IsTrue(WingetMachineReviewedRoute.Admits(shaped), "D4b stage 3: the review gate admits the route");
+        ReviewedUpdateOperation frozen = WingetMachineReviewedRoute.Freeze(job, Silent, Sid, evidence, ObservedAt)!;
+        Assert.IsNotNull(frozen);
+        Assert.AreEqual(shaped.Digest, frozen.Digest);
+        Assert.IsTrue(frozen.BindsJob(job));
         Assert.IsNull(WingetMachineReviewedRoute.Freeze(job, null, Sid, evidence, ObservedAt));
         Assert.IsNull(WingetMachineReviewedRoute.Freeze(job, Silent, null, evidence, ObservedAt));
         Assert.IsNull(WingetMachineReviewedRoute.Freeze(job, Silent, Sid, null, ObservedAt));
@@ -79,7 +82,7 @@ public sealed class WingetMachineReviewEvidenceTests
     }
 
     [TestMethod]
-    public async Task AWholePcReviewBindsTheEvidenceAndConfirmStartsNothingWhileTheRouteIsOff()
+    public async Task AWholePcReviewBindsTheEvidenceAndConfirmRunsTheFrozenOperation()
     {
         FakeEvidence evidence = new(new(new(WinGetMachineInstallerType.Msi, ManifestDigest, InstallerSha), "checked"));
         Harness harness = new(evidence);
@@ -93,9 +96,17 @@ public sealed class WingetMachineReviewEvidenceTests
         Assert.AreEqual(1, evidence.Calls);
 
         ReviewedUpdateExecutionResult result = await harness.Workflow.ConfirmAndRunAsync(review, false, CancellationToken.None);
-        Assert.IsFalse(result.Started);
-        Assert.AreEqual(WingetMachineReviewedRoute.NotOnThisRouteMessage, result.Message);
-        Assert.HasCount(0, harness.Executor.Calls, "nothing reaches an executor, and never protocol 1");
+        Assert.IsTrue(result.Started, result.Message);
+        ImmutableUpdateJob job = harness.Store.Jobs.Single();
+        Assert.AreSame(job, harness.Executor.Calls.Single());
+        ReviewedUpdateOperation reviewed = harness.Executor.Reviewed.Single()!;
+        Assert.IsNotNull(reviewed, "the whole-PC job runs only with its frozen operation (protocol 1 is retired)");
+        Assert.AreEqual(UpdateRouteContract.WinGetMachineSilentV1, reviewed.RouteContract);
+        Assert.AreEqual(Silent, reviewed.Mode);
+        Assert.AreEqual(Sid, reviewed.RequestingUserSid);
+        Assert.AreEqual(EvidenceId(), reviewed.EvidenceId);
+        Assert.IsTrue(reviewed.BindsJob(job));
+        Assert.IsTrue(WingetMachineReviewedRoute.Admits(reviewed));
     }
 
     [TestMethod]
@@ -309,10 +320,12 @@ public sealed class WingetMachineReviewEvidenceTests
     private sealed class RecordingExecutor : IApprovedUpdateExecutor
     {
         public List<ImmutableUpdateJob> Calls { get; } = [];
+        public List<ReviewedUpdateOperation?> Reviewed { get; } = [];
 
         public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken)
         {
             Calls.Add(job);
+            Reviewed.Add(null);
             return Task.FromResult(new UpdateProviderAttempt(UpdateProviderAttemptStatus.AwaitingVerification, 0, "provider-completed"));
         }
 
@@ -320,6 +333,7 @@ public sealed class WingetMachineReviewEvidenceTests
             UpdateItemProgress progress, CancellationToken cancellationToken)
         {
             Calls.Add(job);
+            Reviewed.Add(reviewed);
             return Task.FromResult(new UpdateProviderAttempt(UpdateProviderAttemptStatus.AwaitingVerification, 0, "provider-completed"));
         }
     }

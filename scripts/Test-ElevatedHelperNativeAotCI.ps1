@@ -8,9 +8,10 @@ param()
 #   - DOTNET_GCName (a GC DLL the CoreCLR runtime would load) and DOTNET_EnableEventPipe/DOTNET_EventPipeOutputPath (a file
 #     the CoreCLR runtime would write) must have no effect on the native image, which must reach its own environment
 #     check and exit 20;
-#   - with no settings the same well-formed protocol-1 arguments must get past that check and the argument and elevation
+#   - with no settings the same well-formed protocol-2 arguments must get past that check and the argument and elevation
 #     checks (hosted runners are elevated) and stop at the next one, exit 21 (no desktop beside the helper), so 20 above is
-#     the environment check and nothing else; no pipe is ever opened;
+#     the environment check and nothing else; no pipe is ever opened. Protocol 1 is retired (D4b stage 3) and any protocol-1
+#     line also ends with 20, so it cannot tell the two refusals apart;
 #   - the framework-dependent control shows what the same settings do to today's helper.
 # Writes only into one fixed new folder, artifacts\helper-native-aot under this checkout, and deletes nothing: an existing
 # folder there stops the run (remove it by hand). Changes no repository file, certificate store, install or deployment. The
@@ -25,8 +26,8 @@ $aotOut = Join-Path $OutputRoot 'aot'
 $fdOut = Join-Path $OutputRoot 'framework-dependent'
 $refusedExitCode = 20
 $noDesktopExitCode = 21
-# Well-formed protocol-1 bootstrap arguments naming nothing that exists (pid 4 is the System process).
-$helperArguments = @('--protocol', '1', '--desktop-pid', '4', '--pipe', ('pcsteward-elevated-' + ('0' * 32)), '--nonce', ('0' * 64))
+# Well-formed protocol-2 bootstrap arguments naming nothing that exists (pid 4 is the System process).
+$helperArguments = @('--protocol', '2', '--desktop-pid', '4', '--pipe', ('pcsteward-reviewed-' + ('0' * 32)), '--nonce', ('0' * 64))
 
 function Invoke-Publish([string]$Name, [string[]]$Arguments) {
     $log = Join-Path $OutputRoot "$Name.log"

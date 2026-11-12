@@ -118,14 +118,19 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             UpdateExecutionCapabilities.UserAndMachine);
         DownloadedArtifactCache downloads = new(database);
         // Stage C4 (Task 54 R1, FR-UPD-15): per-user WinGet updates run only through the reviewed executor, from the reviewed
-        // operation whose Silent mode was bound at review; machine scope stays on protocol 1 (ADR-025 transition amendment).
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor()), new ElevatedUpdateRunner());
+        // operation whose Silent mode was bound at review. Phase D stage D4b, stage 3: whole-PC WinGet updates run only from their
+        // frozen WinGetMachineSilentV1 operation on the protocol-2 helper (protocol 1 is retired).
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor()),
+            WingetMachineUpdateComposition.CreateElevatedRunner());
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications,
             events: new BoundedUpdateExecutionEventSink());
         // Task 73 Phase 6 review M2: a batch review shares one fresh inventory observation; each app is still re-prepared alone before it starts.
         ReviewedUpdateExecutionWorkflow updates = new(workflow.PrepareApprovedUpdateSelectionAsync, new UpdateJobApprovalService(database), coordinator, runningApplications,
-            prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync, requestingUserSid: CurrentUserSid);
+            prepareSelections: workflow.PrepareApprovedUpdateSelectionsAsync, requestingUserSid: CurrentUserSid,
+            // D4b: a whole-PC review reads its installer evidence from its own non-elevated winget download, into a review folder
+            // that storage creates and deletes under the download cache.
+            machineInstallerEvidence: new WingetMachineInstallerEvidenceSource(new ReviewDownloadFolders(downloads.CacheRoot)));
         // Chocolatey Confirm design §3 item 1: the single production composition of the Chocolatey client self-update's reviewed
         // dispatch pipeline. It runs under the common current-user gate and the durable store; nothing is observed or started until
         // the owner opens the review, and Confirm stays refused while owner admission is not compiled in.
