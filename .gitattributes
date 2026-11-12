@@ -2,3 +2,5 @@
 src/PCSteward.ElevatedHelper/PCSteward.DeploymentCapability.txt -text
 scripts/evidence/Task50-HostEvidence.ps1 -text
 scripts/evidence/Task50-QualificationProbe.ps1 -text
+# Codex security scan finding 1: the release toolchain pin file is hashed byte for byte by the release build and the signer.
+scripts/release-toolchain-pins.json -text
