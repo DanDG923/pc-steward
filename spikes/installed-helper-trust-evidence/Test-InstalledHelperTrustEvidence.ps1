@@ -162,8 +162,8 @@ try {
     & dotnet build (Join-Path $scriptRoot 'helper\PCSteward.ProductionTrustHelper.csproj') --configuration Release
     if ($LASTEXITCODE -ne 0) { throw 'The helper evidence fixture build failed.' }
 
-    $desktopOutput = Join-Path $scriptRoot 'desktop\bin\Release\net10.0-windows10.0.22000.0'
-    $helperOutput = Join-Path $scriptRoot 'helper\bin\Release\net10.0-windows10.0.22000.0'
+    $desktopOutput = Join-Path $scriptRoot 'desktop\bin\Release\net10.0-windows10.0.26100.0'
+    $helperOutput = Join-Path $scriptRoot 'helper\bin\Release\net10.0-windows10.0.26100.0'
     Copy-Item -Path (Join-Path $desktopOutput '*') -Destination $desktopStage -Recurse -Force
     Copy-Item -Path (Join-Path $helperOutput '*') -Destination $helperStage -Recurse -Force
     Move-Item -LiteralPath (Join-Path $desktopStage 'PCSteward.ProductionTrustDesktop.exe') -Destination (Join-Path $desktopStage 'PCSteward.Desktop.exe')
