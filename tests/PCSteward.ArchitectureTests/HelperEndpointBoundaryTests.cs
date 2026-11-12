@@ -327,7 +327,8 @@ public sealed class HelperEndpointBoundaryTests
         Assert.IsFalse(protocol.Contains("Version", StringComparison.Ordinal), "no protocol-1 version remains");
         // Protocol 2 accepts only its own locator, and so does the shared pipe factory.
         StringAssert.Contains(bootstrap, "WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(fields[\"--pipe\"])");
-        StringAssert.Contains(transport, "internal static bool IsAcceptedLocator(string pipeName) =>\n        WindowsReviewedHelperTransport.PipeNamePattern().IsMatch(pipeName);");
+        Assert.IsTrue(Regex.IsMatch(transport, @"internal static bool IsAcceptedLocator\(string pipeName\) =>\s*WindowsReviewedHelperTransport\.PipeNamePattern\(\)\.IsMatch\(pipeName\);"),
+            "the pipe factory accepts only the protocol-2 locator");
         StringAssert.Contains(bootstrap, "TokenImpersonationLevel.Identification");
         foreach (string path in Sources(Path.Combine(src, "PCSteward.ElevatedHelper")))
             Assert.IsFalse(File.ReadAllText(path).Contains("ReviewedHelperEndpoint", StringComparison.Ordinal), path);
