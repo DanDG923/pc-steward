@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
@@ -16,12 +17,15 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// the requester's WinGet settings on the allow-list (H7) and the one HKLM registration whose digest equals the reviewed one (H6).
 /// The fingerprint is that registration digest;</item>
 /// <item><b>C</b>: <c>winget source export --name winget</c> through the launcher with a fresh protected <c>TEMP</c>, which must be
-/// exactly the trusted default source (H5). Stage 2 adds the H7b manifest check here;</item>
+/// exactly the trusted default source (H5). Then H7b: <c>winget download</c> of the reviewed installer into a second fresh protected
+/// folder, whose exported manifest (<see cref="WingetExportedManifest"/>) and installer must equal the reviewed manifest digest and
+/// installer SHA-256, with machine scope, no dependencies and no agreements;</item>
 /// <item><b>D</b>: stage B again, which must find the same client and the same registration;</item>
 /// <item><b>Launch</b>: the fixed <c>upgrade</c> line (§4) with its own fresh protected <c>TEMP</c> (§6 S1) and the fixed environment.</item>
 /// </list>
 /// Refusals use the existing closed reasons: a registration that is gone or changed is <c>InstalledMismatch</c>; a source query that
-/// fails or shows anything but the trusted source is <c>PreflightQueryFailed</c>; everything else is <c>MachineInputsUnsupported</c>.
+/// fails or shows anything but the trusted source, and an H7b download that fails or does not match, is <c>PreflightQueryFailed</c>;
+/// everything else is <c>MachineInputsUnsupported</c>.
 /// Version fields carry the frozen operation's reviewed text, checked by the reply's own grammar (§5.1). Nothing here admits the
 /// route: the helper's A3 capability check refuses it until stage 3.
 /// </summary>
@@ -33,6 +37,9 @@ internal sealed class WingetMachineHelperWork : IDisposable
 
     /// <summary>The upgrade's own budget, capped by what is left of the endpoint's (which is shorter today).</summary>
     internal static readonly TimeSpan UpgradeBudget = TimeSpan.FromMinutes(15);
+
+    /// <summary>The H7b download's own budget, capped by what is left of the endpoint's.</summary>
+    internal static readonly TimeSpan DownloadBudget = TimeSpan.FromMinutes(10);
 
     private readonly Lock gate = new();
     private ReviewedUpdateOperation? operation;
@@ -70,26 +77,38 @@ internal sealed class WingetMachineHelperWork : IDisposable
             : Bind(client!, runtime, view, key!);
     }
 
-    /// <summary>Stage C: the source export (H5) through the launcher; Matched carries the frozen candidate.</summary>
+    /// <summary>
+    /// Stage C: the source export (H5), then H7b: a <c>download</c> of the reviewed installer into its own fresh protected folder, whose
+    /// exported manifest and installer must match the review exactly (§5.1). Matched carries the frozen candidate.
+    /// </summary>
     internal async Task<ChocolateyCandidateValues> QueryCandidateAsync(TimeSpan remaining, CancellationToken cancellationToken)
     {
         (ReviewedUpdateOperation reviewed, WinGetMachineEvidence bound, string client) = RequireBinding();
         if (cancellationToken.IsCancellationRequested) return new ChocolateyCandidateValues.Undetermined(true, false, LaunchesSettled, false);
         if (remaining <= TimeSpan.Zero) return new ChocolateyCandidateValues.Undetermined(false, true, LaunchesSettled, false);
-        NativeProcessObservation observation = await LaunchAsync(client, WingetCliSourceGuard.Arguments, SourceQueryBudget, remaining,
-            cancellationToken).ConfigureAwait(false);
-        if (observation.Cancelled || observation.TimedOut)
-            return new ChocolateyCandidateValues.Undetermined(observation.Cancelled, observation.TimedOut,
-                observation.AggregateSettled && LaunchesSettled, observation.OutputLimitExceeded);
-        if (!observation.AggregateSettled || observation.Invocation == NativeInvocation.Unknown || observation.TerminationFailed)
-            return new ChocolateyCandidateValues.Undetermined(false, false, false, observation.OutputLimitExceeded);
-        bool expected = observation.Invocation == NativeInvocation.Started && observation.DirectExitObserved && observation.ExitCode == 0 &&
-            observation.OwnedIoCompleted && observation.PipeEofObserved && !observation.OutputLimitExceeded &&
-            string.IsNullOrWhiteSpace(observation.StandardError) && WingetCliSourceGuard.MatchesExport(observation.StandardOutput);
-        return expected
+        long started = Stopwatch.GetTimestamp();
+        (NativeProcessObservation source, _) = await LaunchAsync(client, static _ => WingetCliSourceGuard.Arguments, SourceQueryBudget,
+            remaining, null, cancellationToken).ConfigureAwait(false);
+        if (Unfinished(source) is { } sourceUnfinished) return sourceUnfinished;
+        if (!Completed(source) || !string.IsNullOrWhiteSpace(source.StandardError) || !WingetCliSourceGuard.MatchesExport(source.StandardOutput))
+            return PreflightRefused(bound, source.OutputLimitExceeded);
+
+        // H7b: the same reviewed installer, downloaded again by the elevated helper and read before its folder is deleted.
+        TimeSpan left = remaining - Stopwatch.GetElapsedTime(started);
+        if (cancellationToken.IsCancellationRequested) return new ChocolateyCandidateValues.Undetermined(true, false, LaunchesSettled, false);
+        if (left <= TimeSpan.Zero) return new ChocolateyCandidateValues.Undetermined(false, true, LaunchesSettled, false);
+        (ReviewedUpdateSelection selection, string architecture, string installerType) = WingetMachineReviewedArguments.Admit(reviewed);
+        WingetManifestExpectation expectation = new(selection.PackageId, selection.CandidateVersion, architecture, installerType);
+        (NativeProcessObservation download, (WingetManifestRefusal Refusal, WingetManifestFacts? Facts)? read) = await LaunchAsync(client,
+            folder => WingetMachineReviewedArguments.BuildDownload(reviewed, folder.Downloads), DownloadBudget, left,
+            folder => WingetDownloadFolder.ReadAsync(folder.Downloads, expectation, cancellationToken), cancellationToken).ConfigureAwait(false);
+        if (Unfinished(download) is { } downloadUnfinished) return downloadUnfinished;
+        if (cancellationToken.IsCancellationRequested) return new ChocolateyCandidateValues.Undetermined(true, false, LaunchesSettled, false);
+        bool matches = Completed(download) && read is { Refusal: WingetManifestRefusal.None, Facts: { } facts } &&
+            FixedEquals(facts.ManifestDigest, bound.ManifestDigest) && FixedEquals(facts.InstallerSha256, bound.InstallerSha256);
+        return matches
             ? ChocolateyCandidateValues.Matched.ForWinGetMachine(reviewed.Selection.CandidateVersion)
-            : new ChocolateyCandidateValues.Refused(ChocolateyCandidateRefusal.PreflightQueryFailed, null, null, bound.RegistrationDigest,
-                observation.OutputLimitExceeded);
+            : PreflightRefused(bound, download.OutputLimitExceeded);
     }
 
     /// <summary>Stage D: stage B again; the client and the registration must be the ones stage B bound.</summary>
@@ -110,8 +129,12 @@ internal sealed class WingetMachineHelperWork : IDisposable
     internal Task<NativeProcessObservation> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken)
     {
         (ReviewedUpdateOperation reviewed, _, string client) = RequireBinding();
-        return LaunchAsync(client, WingetMachineReviewedArguments.BuildUpgrade(reviewed), UpgradeBudget, remaining, cancellationToken);
+        return UpgradeCoreAsync(client, WingetMachineReviewedArguments.BuildUpgrade(reviewed), remaining, cancellationToken);
     }
+
+    private async Task<NativeProcessObservation> UpgradeCoreAsync(string client, IReadOnlyList<string> arguments, TimeSpan remaining,
+        CancellationToken cancellationToken) =>
+        (await LaunchAsync(client, _ => arguments, UpgradeBudget, remaining, null, cancellationToken).ConfigureAwait(false)).Observation;
 
     /// <summary>Nothing to release: each launch's folder is deleted once that launch settled, and kept (administrator-only) otherwise.</summary>
     public void Dispose()
@@ -119,24 +142,27 @@ internal sealed class WingetMachineHelperWork : IDisposable
     }
 
     /// <summary>
-    /// One launch with a fresh protected folder as <c>TEMP</c>, deleted once the launch settled. A launch that is not known settled keeps
-    /// its folder (administrator-only, unfindable) and marks the work unsettled; a launch that throws is recorded unsettled first.
+    /// One launch with a fresh protected folder as <c>TEMP</c>, deleted once the launch settled. A settled launch's folder is first given
+    /// to <paramref name="inspect"/> (H7b reads the download there). A launch that is not known settled keeps its folder
+    /// (administrator-only, unfindable), is not inspected, and marks the work unsettled; a launch that throws is recorded unsettled first.
     /// </summary>
-    private async Task<NativeProcessObservation> LaunchAsync(string client, IReadOnlyList<string> arguments, TimeSpan budget, TimeSpan remaining,
+    private async Task<(NativeProcessObservation Observation, (WingetManifestRefusal Refusal, WingetManifestFacts? Facts)? Inspected)> LaunchAsync(
+        string client, Func<HelperProtectedRunFolder, IReadOnlyList<string>> arguments, TimeSpan budget, TimeSpan remaining,
+        Func<HelperProtectedRunFolder, Task<(WingetManifestRefusal Refusal, WingetManifestFacts? Facts)>>? inspect,
         CancellationToken cancellationToken)
     {
         HelperProtectedRunFolder? folder = HelperProtectedRunFolder.TryCreate();
-        if (folder is null) return NotStarted();
+        if (folder is null) return (NotStarted(), null);
         NativeLaunchSpec spec;
         try
         {
-            spec = NativeLaunchSpec.ForWingetMachine(client, arguments, HelperWingetEnvironment.Create(folder.Path, runtimeFolder), folder.Path);
+            spec = NativeLaunchSpec.ForWingetMachine(client, arguments(folder), HelperWingetEnvironment.Create(folder.Path, runtimeFolder), folder.Path);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or PlatformNotSupportedException)
         {
             // Nothing was created: the client changed, or the folder or environment failed its checks.
             folder.Dispose();
-            return NotStarted();
+            return (NotStarted(), null);
         }
         NativeProcessObservation observation;
         try
@@ -152,13 +178,36 @@ internal sealed class WingetMachineHelperWork : IDisposable
         if (!settled)
         {
             lock (gate) unsettledLaunch = true;
+            return (observation, null);
         }
-        else
+        try
+        {
+            return (observation, inspect is null || !Completed(observation) ? null : await inspect(folder).ConfigureAwait(false));
+        }
+        finally
         {
             folder.Dispose();
         }
-        return observation;
     }
+
+    /// <summary>The stage-C value for a launch that was cancelled, timed out or did not settle; null for a launch that finished.</summary>
+    private ChocolateyCandidateValues.Undetermined? Unfinished(NativeProcessObservation observation)
+    {
+        if (observation.Cancelled || observation.TimedOut)
+            return new ChocolateyCandidateValues.Undetermined(observation.Cancelled, observation.TimedOut,
+                observation.AggregateSettled && LaunchesSettled, observation.OutputLimitExceeded);
+        if (!observation.AggregateSettled || observation.Invocation == NativeInvocation.Unknown || observation.TerminationFailed)
+            return new ChocolateyCandidateValues.Undetermined(false, false, false, observation.OutputLimitExceeded);
+        return null;
+    }
+
+    /// <summary>A launch that started, exited 0 on its own and whose output was read completely and within its limit.</summary>
+    private static bool Completed(NativeProcessObservation observation) =>
+        observation.Invocation == NativeInvocation.Started && observation.DirectExitObserved && observation.ExitCode == 0 &&
+        observation.OwnedIoCompleted && observation.PipeEofObserved && !observation.OutputLimitExceeded;
+
+    private static ChocolateyCandidateValues.Refused PreflightRefused(WinGetMachineEvidence bound, bool outputLimitExceeded) =>
+        new(ChocolateyCandidateRefusal.PreflightQueryFailed, null, null, bound.RegistrationDigest, outputLimitExceeded);
 
     /// <summary>H4, H7 and H6 in that order; null when all pass, else the stage value to return.</summary>
     private ChocolateyStageValues? ObserveMachine(CancellationToken cancellationToken, out string? client, out string? runtime,

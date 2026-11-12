@@ -90,19 +90,35 @@ The route uses the existing protocol-2 stage machine unchanged (A0 to A3, stages
   | Stage | Machine WinGet route |
   |---|---|
   | B (static) | H2, then H4 (trusted `winget.exe` and its C++ runtime folder), H7 (settings) and H6 (the one registration, in either view, whose digest equals the reviewed one). Reports the frozen installed text and the registration digest. |
-  | C | `winget source export --name winget` through the owned launcher with its own protected `TEMP`. It must be exactly the trusted source (H5). Reports the frozen candidate text. Stage 2 adds H7b here. |
+  | C | `winget source export --name winget` through the owned launcher with its own protected `TEMP`. It must be exactly the trusted source (H5). Reports the frozen candidate text. Then H7b (§5.2). |
   | D | Stage B again. It must find the same client path, the same registry view and the same key name. |
   | Launch | The fixed §4 `upgrade` line, its own protected `TEMP`, and the fixed environment below. |
 
 - **Refusals** use the existing closed reasons:
   - a registration that is gone or changed: `InstalledMismatch`;
-  - a source query that fails or shows anything but the trusted source: `PreflightQueryFailed`;
+  - a source query that fails or shows anything but the trusted source, or an H7b download that fails or does not match (§5.2): `PreflightQueryFailed`;
   - everything else: `MachineInputsUnsupported`.
 - **Environment.** The WinGet process never inherits the helper's environment. It gets a fixed block whose values all come from system and known-folder APIs, never from environment values:
   - the Windows and program folders, and the requester's profile folders (resolved the way WinGet resolves them);
   - `TEMP` and `TMP` set to the run folder;
   - a `PATH` of system folders plus the App Installer C++ runtime framework folder (`Microsoft.VCLibs.140.00.UWPDesktop`, same architecture, under `WindowsApps`, no reparse point). The `winget.exe` that the helper starts by path loads the C++ runtime from that framework, because it has no package identity to supply it. Stage 4 confirms this on the owner's PC.
 - **Run folders.** Each launch creates a fresh S1 folder. It is deleted once that launch is known to have settled. A launch that is not known to have settled keeps its folder (administrator-only and unfindable), and the work is reported unsettled.
+
+### 5.2 The exported manifest and the H7b re-check (build note, stage 2a)
+
+- **What `winget download` leaves.** WinGet 1.29.380 writes the installer and a merged manifest for that one installer (`YamlWriter::OutputYamlFile`) into `--download-directory`. The manifest has the root keys `PackageIdentifier`, `PackageVersion`, optional `Channel` and `Moniker`, the default-locale fields (including `Agreements` when declared), `Localization`, `Installers` (one item), `ManifestVersion` and `ManifestType: merged`. Installer fields appear only inside the item: `Architecture` (lowercase), `InstallerType`, `NestedInstallerType`, `InstallerSha256` (lowercase hex), `Scope` (lowercase, omitted when the manifest does not declare it), and `Dependencies` inside the item. The emitter is libyaml's block emitter: UTF-8 without a byte-order mark, indentless sequences, long values folded onto lines indented further than their key, and CRLF line ends from the text-mode file stream.
+- **The reader** (`WingetExportedManifest`) recognises that layout and refuses anything else. It does not implement YAML:
+  - at most 1 MiB, strict UTF-8, no byte-order mark, one line-end style throughout, a final line end, and no tab or other control character;
+  - fail closed first: any line anywhere whose first key-like word is `Dependencies`, `PackageDependencies`, `WindowsFeatures`, `WindowsLibraries`, `ExternalDependencies`, `Agreements`, `Agreement`, `AgreementLabel` or `AgreementUrl` refuses the manifest (Q3), even inside a long description, so a false match can only refuse;
+  - column-0 lines are unique root keys; an installer field at the root (`Scope`, `Architecture`, `InstallerType`, `InstallerSha256`, `NestedInstallerType`, `NestedInstallerFiles`, `InstallerUrl`) refuses;
+  - `PackageIdentifier` (case-insensitive, as WinGet matches IDs), `PackageVersion` (exact), `ManifestVersion` and `ManifestType: merged` are single-line values, and `Installers` holds exactly one item;
+  - the item's fields are its first line and the lines indented by exactly two spaces, each at most once; `Architecture`, `InstallerType` and `InstallerSha256` (64 hex digits) are required single-line values and must be the reviewed ones; `Scope` must be present and exactly `machine` (Q1); `NestedInstallerType` or `NestedInstallerFiles` refuses (the route has no nested installer types);
+  - values are plain, or quoted with nothing to unescape.
+- **The manifest digest** is the SHA-256 of the file's exact bytes. The review and the helper run the same WinGet against the same source for the same user, so the same manifest gives the same bytes; any difference is drift and refuses.
+- **The download folder** (`WingetDownloadFolder`) must hold exactly two plain files and nothing else: one `.yaml` manifest and one installer. No directory, reparse point or extra file is accepted. The installer's streamed SHA-256 must equal the manifest's `InstallerSha256`. When there is exactly one manifest it is read first, so its own refusal is the one reported (WinGet also downloads declared dependencies into a `Dependencies` sub-folder, which would otherwise read as an unexpected folder).
+- **Installer type.** The helper passes the reviewed type, which must match exactly. The review lets WinGet choose and records the manifest's type, which must be one of the route's six; any other type (portable, zip, MSIX, Store) refuses. This replaces the COM `GetApplicableInstaller` reading in §4 with the same WinGet selection, read from the file whose digest is bound.
+- **H7b in the helper**, inside stage C after the source export passes: `winget download` with the fixed §4 line into the `d` sub-folder of its own fresh S1 run folder (a second folder, separate from the source query's and the upgrade's), with its own 10-minute budget capped by what is left of the endpoint's. Only after the download settled and exited 0 does the helper read the folder, then it deletes it. The manifest digest and the installer SHA-256 must equal the reviewed `wgm1` evidence (compared in fixed time). A download that fails, a folder that does not read, or any mismatch is `PreflightQueryFailed`; cancellation and time-out stay `Undetermined`.
+- **Budget (residual, for stage 3).** The endpoint's whole execution budget is 11 minutes today, and the installer is now downloaded twice inside it (H7b, then the upgrade). A large installer on a slow link can time out before the upgrade starts. That fails safe (nothing ran). Stage 3 revisits the budget before the route is admitted.
 
 ## 6. Elevated WinGet and the owner's profile (security)
 
