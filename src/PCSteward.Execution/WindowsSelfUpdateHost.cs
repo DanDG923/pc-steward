@@ -614,15 +614,19 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
     }
 
     /// <summary>
-    /// Mythos review S1, owner's choice "only during PC Steward updates": sets the 64-bit machine policy <c>DisableUserInstalls</c>
-    /// to the DWORD 1 and returns a scope that puts the owner's own state back when disposed. The owner's state is first written
-    /// next to it (<see cref="MsiProductRegistration.RestoreMarkerValue"/>), so a run that stopped before restoring is undone by
-    /// the next one; while such a marker exists it is kept as the owner's state. Null, with nothing changed, when the existing
-    /// value is not a DWORD or a marker is unreadable, or when the key cannot be written.
+    /// Mythos review S1, owner's choice "only during PC Steward updates": takes the machine-wide policy lock
+    /// (<see cref="MsiProductRegistration.PolicyLockFileName"/>), sets the 64-bit machine policy <c>DisableUserInstalls</c> to
+    /// the DWORD 1 and returns a scope that puts the owner's own state back and then releases the lock when disposed. The
+    /// owner's state is first written next to it (<see cref="MsiProductRegistration.RestoreMarkerValue"/>), so a run that
+    /// stopped before restoring is undone later; while such a marker exists it is kept as the owner's state. Null, with
+    /// nothing changed, when another run holds the lock, the existing value is not a DWORD, a marker is unreadable, or the key
+    /// cannot be written.
     /// </summary>
     public IDisposable? IgnoreUserInstalls()
     {
         if (!OperatingSystem.IsWindows()) return null;
+        FileStream? policyLock = TakePolicyLock();
+        if (policyLock is null) return null;
         try
         {
             using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
@@ -632,61 +636,116 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
             {
                 if (policy.GetValueKind(MsiProductRegistration.RestoreMarkerValue) != RegistryValueKind.String ||
                     !MsiProductRegistration.TryReadRestoreMarker(policy.GetValue(MsiProductRegistration.RestoreMarkerValue), out _))
+                {
+                    policyLock.Dispose();
                     return null;
+                }
             }
             else
             {
                 int? previous = null;
                 if (names.Contains(MsiProductRegistration.DisableUserInstallsValue, StringComparer.OrdinalIgnoreCase))
                 {
-                    if (policy.GetValueKind(MsiProductRegistration.DisableUserInstallsValue) != RegistryValueKind.DWord) return null;
+                    if (policy.GetValueKind(MsiProductRegistration.DisableUserInstallsValue) != RegistryValueKind.DWord)
+                    {
+                        policyLock.Dispose();
+                        return null;
+                    }
                     previous = (int)policy.GetValue(MsiProductRegistration.DisableUserInstallsValue)!;
                 }
                 policy.SetValue(MsiProductRegistration.RestoreMarkerValue, MsiProductRegistration.RestoreMarker(previous), RegistryValueKind.String);
             }
             policy.SetValue(MsiProductRegistration.DisableUserInstallsValue, 1, RegistryValueKind.DWord);
             policy.Flush();
-            return new UserInstallsPolicyScope();
+            return new UserInstallsPolicyScope(policyLock, restore: true);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            RestoreUserInstallsPolicy();
+            _ = RestoreUserInstallsPolicy();
+            policyLock.Dispose();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Codex review of the scoped policy: takes the machine-wide policy lock for the session's administrative unpack, which
+    /// fails (error 1934) while <c>DisableUserInstalls</c> is 1. Holding the lock, a restore marker can only be one a stopped
+    /// run left behind, so the owner's state is put back first. Null when another run holds the lock or the owner's state
+    /// could not be put back; the scope only releases the lock.
+    /// </summary>
+    public IDisposable? HoldUserInstallsPolicy()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        FileStream? policyLock = TakePolicyLock();
+        if (policyLock is null) return null;
+        if (RestoreUserInstallsPolicy()) return new UserInstallsPolicyScope(policyLock, restore: false);
+        policyLock.Dispose();
+        return null;
+    }
+
+    /// <summary>
+    /// The machine-wide policy lock: the file directly in <c>%ProgramFiles%</c> (only administrators can create it), opened
+    /// with no sharing and deleted when the handle closes, so a stopped process never leaves it held. Null when another run
+    /// holds it or it cannot be opened.
+    /// </summary>
+    private FileStream? TakePolicyLock()
+    {
+        try
+        {
+            return new FileStream(Path.Combine(ProgramFiles, MsiProductRegistration.PolicyLockFileName), FileMode.OpenOrCreate,
+                FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
             return null;
         }
     }
 
     /// <summary>
     /// Puts back the owner's own <c>DisableUserInstalls</c> state recorded by <see cref="IgnoreUserInstalls"/> and removes the
-    /// marker. Without a readable marker nothing is changed: the policy then stays as it is, which is the safe state.
+    /// marker. Only called while holding the policy lock. True when no marker remains; without a readable marker nothing is
+    /// changed and the policy stays as it is, which is the safe state.
     /// </summary>
-    private static void RestoreUserInstallsPolicy()
+    private static bool RestoreUserInstallsPolicy()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows()) return false;
         try
         {
             using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
             using RegistryKey? policy = machine.OpenSubKey(MsiProductRegistration.MachinePolicyKey, writable: true);
-            if (policy is null || policy.GetValueKind(MsiProductRegistration.RestoreMarkerValue) != RegistryValueKind.String ||
+            if (policy is null || !policy.GetValueNames().Contains(MsiProductRegistration.RestoreMarkerValue, StringComparer.OrdinalIgnoreCase))
+                return true;
+            if (policy.GetValueKind(MsiProductRegistration.RestoreMarkerValue) != RegistryValueKind.String ||
                 !MsiProductRegistration.TryReadRestoreMarker(policy.GetValue(MsiProductRegistration.RestoreMarkerValue), out int? previous))
-                return;
+                return false;
             if (previous is { } number) policy.SetValue(MsiProductRegistration.DisableUserInstallsValue, number, RegistryValueKind.DWord);
             else policy.DeleteValue(MsiProductRegistration.DisableUserInstallsValue, throwOnMissingValue: false);
             policy.DeleteValue(MsiProductRegistration.RestoreMarkerValue, throwOnMissingValue: false);
             policy.Flush();
+            return true;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // The policy stays on, the safe state; the next run restores it from the marker.
+            // The policy stays on, the safe state; a later run restores it from the marker.
+            return false;
         }
     }
 
-    private sealed class UserInstallsPolicyScope : IDisposable
+    private sealed class UserInstallsPolicyScope(FileStream policyLock, bool restore) : IDisposable
     {
         private int disposed;
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref disposed, 1) == 0) RestoreUserInstallsPolicy();
+            if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+            try
+            {
+                if (restore) _ = RestoreUserInstallsPolicy();
+            }
+            finally
+            {
+                policyLock.Dispose();
+            }
         }
     }
 

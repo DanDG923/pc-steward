@@ -39,6 +39,14 @@ internal static partial class MsiProductRegistration
     /// </summary>
     internal const string RestoreMarkerValue = "PCStewardRestoreDisableUserInstalls";
 
+    /// <summary>
+    /// The machine-wide lock that every PC Steward change of <see cref="DisableUserInstallsValue"/> holds from before it sets
+    /// the policy until it has put the owner's state back (Codex review of the scoped policy): a file of this name directly in
+    /// <c>%ProgramFiles%</c>, where only administrators can create files, opened with no sharing and deleted on close. The
+    /// helper and <c>Install-PCStewardRelease.ps1</c> use the same name, so two runs never restore each other's policy.
+    /// </summary>
+    internal const string PolicyLockFileName = "PCSteward-installer-policy.lock";
+
     /// <summary>The marker text for the owner's own state: <c>absent</c>, or <c>dword:</c> and the number.</summary>
     internal static string RestoreMarker(int? previous) =>
         previous is { } number ? "dword:" + number.ToString(System.Globalization.CultureInfo.InvariantCulture) : "absent";

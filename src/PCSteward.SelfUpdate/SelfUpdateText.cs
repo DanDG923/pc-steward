@@ -75,6 +75,7 @@ public static class SelfUpdateText
     {
         "install-not-intact" => "PC Steward's own installation did not pass its check, so it cannot update itself. Reinstall it from its release page.",
         "version-not-newer" => "This release is not newer than the PC Steward you have, so nothing was installed.",
+        "installer-policy-busy" => "Another PC Steward install was running, or PC Steward could not put back a Windows Installer setting it changed during an earlier update, so nothing was installed. Try again in a few minutes.",
         "per-user-registration" => "Windows lists a PC Steward installation for your account alone, which PC Steward never makes, so nothing was installed. Another program may have added it.",
         "user-installs-allowed" => "PC Steward could not turn on Windows Installer's protection against installs for your account alone for the length of the update, so nothing was installed. Your Windows settings were left as they were. Try again later.",
         "profile-unavailable" or "input-unreadable" or "input-changed" => "The downloaded files could not be read as they were checked. Download the update again.",

@@ -23,7 +23,7 @@ public sealed class SelfUpdateHelperSessionTests
     private static readonly string[] SessionOrder =
     [
         "ProfileFolder", "CreateProtectedFolder", "CreatePrivateFolder", "CopyInput:zip", "CopyInput:msi", "ConfirmAsync", "RemoveOlderWorkFolders", "CarriesCompiledPin", "ReadMsiTables",
-        "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
+        "HasPerUserRegistration", "HoldUserInstallsPolicy", "RunMsiexecAsync:/a", "ReleaseUserInstallsPolicy", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
         "WriteNewFile:expected-install.json", "StartFinish",
     ];
     private const string ProductCode = "{11111111-1111-1111-1111-111111111111}";
@@ -217,6 +217,7 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.NoProductCode = true, SelfUpdateSessionRefusal.MsiStructureRefused),
             (host => host.PerUserBefore = true, SelfUpdateSessionRefusal.PerUserRegistration),
             (host => host.PerUserAfterExtract = true, SelfUpdateSessionRefusal.PerUserRegistration),
+            (host => host.PolicyBusy = true, SelfUpdateSessionRefusal.InstallerPolicyBusy),
             (host => host.ExtractExit = 1603, SelfUpdateSessionRefusal.ExtractFailed),
             (host => host.ExtractExit = null, SelfUpdateSessionRefusal.ExtractFailed),
             (host => host.ImageReadable = false, SelfUpdateSessionRefusal.ImageLayoutRefused),
@@ -240,6 +241,9 @@ public sealed class SelfUpdateHelperSessionTests
             // Mythos review S3: once a job file may exist, a stop before the finish copy started closes the job with a result.
             if (expected is SelfUpdateSessionRefusal.JobFilesFailed or SelfUpdateSessionRefusal.FinishNotStarted) host.AssertJobClosed(expected.ToString());
             else Assert.IsFalse(host.Written.ContainsKey(SelfUpdateHelperProtocol.ResultFileName), expected.ToString());
+            // Codex review of the scoped policy: the unpack's policy lock is always released, and msiexec never runs without it.
+            Assert.AreEqual(host.Calls.Count(call => call == "HoldUserInstallsPolicy") - (host.PolicyBusy ? 1 : 0), host.Calls.Count(call => call == "ReleaseUserInstallsPolicy"), expected.ToString());
+            Assert.AreEqual(host.Calls.Contains("RunMsiexecAsync:/a"), host.Calls.Contains("ReleaseUserInstallsPolicy"), expected.ToString());
             // Mythos review S4: earlier jobs' folders are removed only after GitHub confirmed this request.
             Assert.AreEqual(host.Calls.Contains("CarriesCompiledPin"), host.Calls.Contains("RemoveOlderWorkFolders"), expected.ToString());
         }
@@ -537,6 +541,7 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool NoProductCode { get; set; }
         internal bool PerUserBefore { get; set; }
         internal bool PerUserAfterExtract { get; set; }
+        internal bool PolicyBusy { get; set; }
         internal int? ExtractExit { get; set; } = 0;
         internal Action? OnExtract { get; set; }
         internal bool ImageReadable { get; set; } = true;
@@ -648,6 +653,11 @@ public sealed class SelfUpdateHelperSessionTests
             return Calls.Contains("RunMsiexecAsync:/a") ? PerUserAfterExtract : PerUserBefore;
         }
 
+        public IDisposable? HoldUserInstallsPolicy()
+        {
+            Calls.Add("HoldUserInstallsPolicy");
+            return PolicyBusy ? null : new PolicyScope(() => Calls.Add("ReleaseUserInstallsPolicy"));
+        }
 
         public SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf)
         {

@@ -106,7 +106,7 @@ The [security review](ADR_032_SELF_UPDATER_SECURITY_REVIEW.md) found two Medium 
 The owner's independent review (preliminary, same document, section 3) led to three more changes:
 
 - installed products come from the machine registration only;
-- `msiexec` never runs while the owner's registry registers PC Steward (`per-user-registration`), and, after the helper code review (S1), the finish copy's install and uninstall run only while the `DisableUserInstalls` machine policy is set; the finish copy sets it just before and restores the owner's previous value afterwards (`user-installs-allowed` if it cannot be set). The session's `/a` unpack runs without it, because `/a` fails with error 1934 under the policy;
+- `msiexec` never runs while the owner's registry registers PC Steward (`per-user-registration`), and, after the helper code review (S1), the finish copy's install and uninstall run only while the `DisableUserInstalls` machine policy is set; the finish copy sets it just before and restores the owner's previous value afterwards (`user-installs-allowed` if it cannot be set). The session's `/a` unpack runs without it, because `/a` fails with error 1934 under the policy; it holds the same machine-wide lock (`installer-policy-busy` when another run holds it) and first puts back a policy a stopped run left set;
 - the structure rule is an allow-list.
 
 It also added a branch guard in the release workflow, and recorded two limits for the owner.

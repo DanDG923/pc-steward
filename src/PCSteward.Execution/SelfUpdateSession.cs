@@ -73,6 +73,12 @@ internal interface ISelfUpdateSessionHost
     /// </summary>
     bool HasPerUserRegistration(string productCode);
 
+    /// <summary>
+    /// Takes the machine-wide <c>DisableUserInstalls</c> policy lock for the administrative unpack and, holding it, puts back
+    /// the owner's own state a stopped PC Steward run left set (Codex review of the scoped policy). Null when another run
+    /// holds the lock or the owner's state could not be put back.
+    /// </summary>
+    IDisposable? HoldUserInstallsPolicy();
 
     /// <summary>The extracted image's install folder and files, or null when its layout breaks the §6 step 8 rule.</summary>
     SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf);
@@ -321,20 +327,22 @@ internal static class SelfUpdateSession
             Require(MsiStructurePolicy.Check(tables.Tables, out _) == MsiStructureVerdict.Allowed, SelfUpdateSessionRefusal.MsiStructureRefused);
             Require(string.Equals(tables.Sha256, record!.MsiTablesSha256, StringComparison.OrdinalIgnoreCase), SelfUpdateSessionRefusal.MsiTablesDiffer);
             string productCode = tables.ProductCode ?? throw new RefusedException(SelfUpdateSessionRefusal.MsiStructureRefused);
-            // Mythos review S1 (confirmed on Windows CI): without the DisableUserInstalls machine policy, a per-user registration
-            // written in the moment before msiexec reads it makes an elevated install apply the owner's transform. So msiexec runs
-            // only while the policy is set. Security review R1: the check for an existing registration stays as defence in depth.
             // Security review R1: Windows Installer would consult the owner's own registrations of this product, which a same-user
             // program can write, so msiexec never runs while one exists. Mythos review S1: the DisableUserInstalls policy, which
             // closes the timing gap for the install itself, makes Windows Installer refuse an administrative image (error 1934),
-            // so it is set only around the finish copy's install and uninstall.
+            // so it is set only around the finish copy's install and uninstall. The unpack holds the same machine-wide lock as
+            // those, so no PC Steward run sets the policy while it runs, and first puts back a policy a stopped run left set.
             Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);
             token.ThrowIfCancellationRequested();
 
             // Step 8: an administrative image (it unpacks files and runs no custom action of the package).
             string imageRoot = Path.Combine(privateFolder, SelfUpdateHelperProtocol.ImageFolder);
-            int? extracted = await host.RunMsiexecAsync(["/a", msiPath, "/qn", "TARGETDIR=" + imageRoot, "/l*v",
-                Path.Combine(privateFolder, SelfUpdateHelperProtocol.ExtractLogName)], privateFolder, budgets.Extract, token).ConfigureAwait(false);
+            int? extracted;
+            using (IDisposable policyLock = host.HoldUserInstallsPolicy() ?? throw new RefusedException(SelfUpdateSessionRefusal.InstallerPolicyBusy))
+            {
+                extracted = await host.RunMsiexecAsync(["/a", msiPath, "/qn", "TARGETDIR=" + imageRoot, "/l*v",
+                    Path.Combine(privateFolder, SelfUpdateHelperProtocol.ExtractLogName)], privateFolder, budgets.Extract, token).ConfigureAwait(false);
+            }
             token.ThrowIfCancellationRequested();
             Require(extracted == 0, SelfUpdateSessionRefusal.ExtractFailed);
             Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);

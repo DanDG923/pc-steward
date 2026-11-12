@@ -142,6 +142,13 @@ function Test-UserInstallsIgnored {
 # owner's own state next to it (PCStewardRestoreDisableUserInstalls: "absent" or "dword:<n>"; a marker left by a run that
 # stopped is kept as the owner's state), then sets the DWORD 1; Restore-UserInstallsPolicy puts that state back. The same rules
 # as WindowsSelfUpdateHost.IgnoreUserInstalls in PCSteward.Execution.
+# The machine-wide lock every PC Steward change of the policy holds until the owner's state is back (the same file as
+# MsiProductRegistration.PolicyLockFileName): only administrators can create files directly in Program Files, and the file is
+# opened with no sharing and deleted on close, so two runs never restore each other's policy and a stopped run never keeps it.
+function Open-UserInstallsPolicyLock {
+    try { return [IO.FileStream]::new((Join-Path $programFiles 'PCSteward-installer-policy.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose) }
+    catch { throw 'Another PC Steward install or update is running, so msiexec was not run. Try again in a few minutes.' }
+}
 function Enable-UserInstallsIgnored {
     $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
     try {
@@ -209,6 +216,7 @@ function Invoke-Msiexec([string[]]$Arguments, [string]$LogLeaf) {
 
 $installed = $false
 $policySet = $false
+$policyLock = $null
 try {
     # 1. The artefact, from the digest in the paste.
     $zip = Copy-IntoProtected $ArtefactZip 'artefact.zip' 1GB $ArtefactSha256
@@ -265,6 +273,7 @@ try {
     }
     elseif (Test-Path -LiteralPath $stateRoot) { throw 'The owner-only test deployment is installed; run with -RemoveOwnerOnlyTestDeployment.' }
     $phase = 'msiexec'
+    $policyLock = Open-UserInstallsPolicyLock
     $policySet = $true
     Enable-UserInstallsIgnored
     if (!(Test-UserInstallsIgnored)) { throw "Windows Installer's DisableUserInstalls machine policy could not be set, so msiexec was not run. Without it another program running as you could change what this elevated install does." }
@@ -344,5 +353,6 @@ catch {
 }
 finally {
     # The owner's own DisableUserInstalls state is put back once msiexec is done (and after any fail-closed uninstall).
-    if ($policySet) { Restore-UserInstallsPolicy }
+    try { if ($policySet) { Restore-UserInstallsPolicy } }
+    finally { if ($null -ne $policyLock) { $policyLock.Dispose() } }
 }

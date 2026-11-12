@@ -57,8 +57,9 @@ internal interface ISelfUpdateFinishHost
     bool UserInstallsIgnored();
 
     /// <summary>
-    /// Sets <c>DisableUserInstalls</c> to 1 and returns the scope that puts the owner's own state back when disposed (owner's
-    /// choice: only during PC Steward updates); null, with nothing changed, when it cannot be set.
+    /// Takes the machine-wide policy lock, sets <c>DisableUserInstalls</c> to 1 and returns the scope that puts the owner's own
+    /// state back and releases the lock when disposed (owner's choice: only during PC Steward updates); null, with nothing
+    /// changed, when another run holds the lock or the policy cannot be set.
     /// </summary>
     IDisposable? IgnoreUserInstalls();
 

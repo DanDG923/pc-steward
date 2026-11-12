@@ -167,6 +167,13 @@ public sealed class SelfUpdateBoundaryTests
         // policy is set, which the finish copy sets for its own run and then restores (owner's choice). Windows Installer refuses
         // an administrative image under that policy (error 1934), so the session's unpack runs without it.
         Assert.IsFalse(session.Contains("IgnoreUserInstalls", StringComparison.Ordinal));
+        // Codex review of the scoped policy: the unpack holds the same machine-wide lock (and first puts back a policy a stopped
+        // run left set), and every policy change in the host and the install script holds it until the owner's state is back.
+        int hold = session.IndexOf("using (IDisposable policyLock = host.HoldUserInstallsPolicy() ?? throw new RefusedException(SelfUpdateSessionRefusal.InstallerPolicyBusy))", StringComparison.Ordinal);
+        Assert.IsTrue(hold > 0 && hold < extract, "the unpack runs under the policy lock");
+        StringAssert.Contains(host, "Path.Combine(ProgramFiles, MsiProductRegistration.PolicyLockFileName), FileMode.OpenOrCreate,");
+        StringAssert.Contains(host, "FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);");
+        Assert.AreEqual(2, Regex.Count(host, @"FileStream\? policyLock = TakePolicyLock\(\);"), "IgnoreUserInstalls and HoldUserInstallsPolicy both take the lock");
         StringAssert.Contains(host, "RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)");
         StringAssert.Contains(host, "policy.SetValue(MsiProductRegistration.RestoreMarkerValue, MsiProductRegistration.RestoreMarker(previous), RegistryValueKind.String);");
         StringAssert.Contains(host, "MsiProductRegistration.IgnoresUserInstalls(policy.GetValue(MsiProductRegistration.DisableUserInstallsValue))");
@@ -186,7 +193,12 @@ public sealed class SelfUpdateBoundaryTests
         int installPolicy = install.IndexOf("if (!(Test-UserInstallsIgnored)) { throw", StringComparison.Ordinal);
         Assert.IsTrue(installPolicy > 0 && installPolicy < install.IndexOf("Invoke-Msiexec @('/i'", StringComparison.Ordinal), "the install script checks the policy before msiexec");
         Assert.IsTrue(install.IndexOf("    $policySet = $true", StringComparison.Ordinal) is > 0 and var enable && enable < installPolicy, "it sets the policy first");
-        StringAssert.Contains(install, "if ($policySet) { Restore-UserInstallsPolicy }");
+        StringAssert.Contains(install, "try { if ($policySet) { Restore-UserInstallsPolicy } }");
+        StringAssert.Contains(install, "finally { if ($null -ne $policyLock) { $policyLock.Dispose() } }");
+        StringAssert.Contains(install, "(Join-Path $programFiles 'PCSteward-installer-policy.lock')");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "src", "PCSteward.Execution", "MsiProductRegistration.cs")),
+            "internal const string PolicyLockFileName = \"PCSteward-installer-policy.lock\";", "the same lock file in both");
+        Assert.IsTrue(install.IndexOf("    $policyLock = Open-UserInstallsPolicyLock", StringComparison.Ordinal) is > 0 and var locked && locked < install.IndexOf("    $policySet = $true", StringComparison.Ordinal), "it takes the lock before setting the policy");
         StringAssert.Contains(install, "$perUser = (Test-PerUserRegistration $productCode) -or !(Test-UserInstallsIgnored)");
         Assert.IsFalse(Regex.IsMatch(install, @"Invoke-Msiexec @\('/x', \$product\."), "never another product's code");
     }
