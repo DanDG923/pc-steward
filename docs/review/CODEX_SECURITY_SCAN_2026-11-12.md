@@ -63,5 +63,5 @@ The release record (`release-payload.json`) gains `toolchain.pinsSha256` and `to
 `New-PCStewardRelease.ps1` refuses to sign unless they equal the pin file of its own clean clone at the payload commit.
 Updating the SDK or any package now means updating the pin file in the same pull request (CI prints it).
 
-**Residual (needs owner acceptance):** the GitHub-hosted runner image and the GitHub Actions service are still trusted; there
-is no second, independent build to compare with.
+**Residual, accepted by the owner on 2026-11-12:** the GitHub-hosted runner image and the GitHub Actions service are still
+trusted; there is no second, independent build to compare with. Exploiting it needs GitHub itself compromised.
