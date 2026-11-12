@@ -138,6 +138,58 @@ public sealed class UpdateRunnerSecurityTests
     }
 
     [TestMethod]
+    [TestCategory("FR-UPD-09")]
+    [TestCategory("AC-UPD-07")]
+    [Description("Task 51: only WinGet's documented restart exit codes are restart evidence. Restart text with exit 0 is not; a raw installer 3010 is not a WinGet exit code; restart-before-install applied nothing.")]
+    [DataRow(0, "Restart your PC to finish installation.", UpdateExecutionStatus.AwaitingVerification, "")]
+    [DataRow(unchecked((int)0x8A150109), "", UpdateExecutionStatus.RestartReported, "provider-reported-restart-required-to-finish")]
+    [DataRow(unchecked((int)0x8A15010B), "", UpdateExecutionStatus.RestartReported, "provider-reported-restart-initiated")]
+    [DataRow(unchecked((int)0x8A15010A), "", UpdateExecutionStatus.ProviderFailed, "restart-required-before-install; update-not-applied")]
+    [DataRow(3010, "Restart required", UpdateExecutionStatus.ProviderFailed, "")]
+    [DataRow(1641, "", UpdateExecutionStatus.ProviderFailed, "")]
+    [DataRow(1, "reboot required", UpdateExecutionStatus.ProviderFailed, "")]
+    public async Task OnlyTypedWingetRestartExitCodesAreRestartEvidence(int exitCode, string output, UpdateExecutionStatus expected, string prefix)
+    {
+        UpdateExecutionResult result = await RunWithAsync(new WingetProcessResult(exitCode, output, string.Empty, false));
+
+        Assert.AreEqual(expected, result.Status);
+        Assert.AreEqual(exitCode, result.ExitCode, "the exit code is recorded as observed (AC-UPD-11)");
+        if (prefix.Length == 0) Assert.IsFalse(result.SanitizedOutput.StartsWith("provider-reported", StringComparison.Ordinal) || result.SanitizedOutput.StartsWith("restart-required", StringComparison.Ordinal));
+        else StringAssert.StartsWith(result.SanitizedOutput, prefix);
+        Assert.AreEqual(prefix, WingetRestartExitCodes.DiagnosticPrefix(exitCode));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-09")]
+    public void WingetRestartExitCodesMatchTheDocumentedHresults()
+    {
+        Assert.AreEqual("8A150109", WingetRestartExitCodes.RebootRequiredToFinish.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.AreEqual("8A15010A", WingetRestartExitCodes.RebootRequiredForInstall.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.AreEqual("8A15010B", WingetRestartExitCodes.RebootInitiated.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.AreEqual(WingetRestartSignal.RestartRequiredToFinish, WingetRestartExitCodes.Classify(WingetRestartExitCodes.RebootRequiredToFinish));
+        Assert.AreEqual(WingetRestartSignal.RestartInitiated, WingetRestartExitCodes.Classify(WingetRestartExitCodes.RebootInitiated));
+        Assert.AreEqual(WingetRestartSignal.RestartRequiredBeforeInstall, WingetRestartExitCodes.Classify(WingetRestartExitCodes.RebootRequiredForInstall));
+        Assert.AreEqual(WingetRestartSignal.None, WingetRestartExitCodes.Classify(0));
+        Assert.AreEqual(WingetRestartSignal.None, WingetRestartExitCodes.Classify(3010));
+        Assert.IsFalse(WingetRestartExitCodes.ReportsFinishedPendingRestart(WingetRestartExitCodes.RebootRequiredForInstall), "nothing was applied");
+        Assert.AreEqual(UpdateOutcomePresenter.RestartBeforeInstallDiagnostic, WingetRestartExitCodes.DiagnosticPrefix(WingetRestartExitCodes.RebootRequiredForInstall));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-09")]
+    public async Task ApprovedExecutorCarriesATypedRestartAsRestartReported()
+    {
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor(
+            new RecordingProcess(new WingetProcessResult(WingetRestartExitCodes.RebootRequiredToFinish, string.Empty, string.Empty, false)))));
+        ImmutableUpdateJob job = ApprovedJob();
+
+        UpdateProviderAttempt attempt = await executor.ExecuteAsync(job, FreshEvidence(job), CancellationToken.None);
+
+        Assert.AreEqual(UpdateProviderAttemptStatus.RestartReported, attempt.Status);
+        Assert.AreEqual(WingetRestartExitCodes.RebootRequiredToFinish, attempt.ExitCode);
+    }
+
+    [TestMethod]
     public void RunnerSurfaceCannotAcceptCommandsPathsArgumentsWorkingDirectoriesOrEnvironment()
     {
         Type[] parameterTypes = typeof(NonElevatedUpdateRunner).GetMethod(nameof(NonElevatedUpdateRunner.RunAsync))!

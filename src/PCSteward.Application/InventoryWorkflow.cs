@@ -275,6 +275,9 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     /// Performs a controlled full scan and requires two independent authorities: exact source/ID/version
     /// from bounded WinGet export JSON, and exact version/scope/architecture from the reviewed structured
     /// registry or MSIX product. Display-table inventory is never post-update success authority.
+    /// <see cref="PostUpdateInventoryResult.RestartPending"/> is always false here by design (Task 51): machine-wide restart indicators
+    /// are not bound to this job, so the restart evidence comes only from the provider's typed result
+    /// (<see cref="UpdateProviderAttemptStatus.RestartReported"/>), which the batch coordinator records as Restart required.
     /// </summary>
     public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
     {

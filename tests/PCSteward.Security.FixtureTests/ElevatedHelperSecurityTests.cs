@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Security.Principal;
 using System.Text;
+using PCSteward.Application;
 using PCSteward.Domain;
 using PCSteward.Execution;
 using PCSteward.Provider.WinGet;
@@ -70,6 +71,36 @@ public sealed class ElevatedHelperSecurityTests
             Assert.AreEqual(status, result.Status, outcome.ToString());
             Assert.AreNotEqual("Success", result.Status.ToString());
         }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-09")]
+    [Description("Task 51: a machine-scope WinGet job carries WinGet's typed restart exit code through the helper; Chocolatey keeps its route contract (a restart code is a failure).")]
+    public async Task HelperRestartExitCodeIsRestartReportedOnlyForWinget()
+    {
+        ImmutableUpdateJob winget = ApprovedJob(UpdateScope.Machine);
+        UpdateExecutionResult restart = await new ElevatedUpdateRunner(new RecordingTransport(
+            new ElevatedHelperResult(ElevatedHelperOutcome.ProviderFailed, unchecked((int)0x8A150109), "output")))
+            .RunAsync(winget, FreshEvidence(winget), CancellationToken.None);
+        Assert.AreEqual(UpdateExecutionStatus.RestartReported, restart.Status);
+        StringAssert.StartsWith(restart.SanitizedOutput, "provider-reported-restart-required-to-finish; ");
+
+        ImmutableUpdateJob before = ApprovedJob(UpdateScope.Machine);
+        UpdateExecutionResult beforeInstall = await new ElevatedUpdateRunner(new RecordingTransport(
+            new ElevatedHelperResult(ElevatedHelperOutcome.ProviderFailed, unchecked((int)0x8A15010A), string.Empty)))
+            .RunAsync(before, FreshEvidence(before), CancellationToken.None);
+        Assert.AreEqual(UpdateExecutionStatus.ProviderFailed, beforeInstall.Status);
+        StringAssert.StartsWith(beforeInstall.SanitizedOutput, UpdateOutcomePresenter.RestartBeforeInstallDiagnostic);
+
+        ImmutableUpdateJob chocolatey = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(
+            "chocolatey:chocolatey-community:git", UpdateProvider.Chocolatey, UpdateSource.ChocolateyCommunity,
+            "git", "2.45.1", "2.46.0", UpdateScope.Machine, UpdateArchitecture.Neutral, UpdateChannel.Stable,
+            "chocolatey-fixed-community-v1")).Confirm(DateTimeOffset.UtcNow);
+        UpdateExecutionResult choco = await new ElevatedUpdateRunner(new RecordingTransport(
+            new ElevatedHelperResult(ElevatedHelperOutcome.ProviderFailed, unchecked((int)0x8A150109), "output")))
+            .RunAsync(chocolatey, new UpdateJobExecutionEvidence(chocolatey.Selection, true, true), CancellationToken.None);
+        Assert.AreEqual(UpdateExecutionStatus.ProviderFailed, choco.Status);
+        Assert.IsFalse(choco.SanitizedOutput.Contains("restart", StringComparison.Ordinal));
     }
 
     [TestMethod]

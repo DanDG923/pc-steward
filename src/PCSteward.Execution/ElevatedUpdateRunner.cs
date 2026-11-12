@@ -1,5 +1,6 @@
 using PCSteward.Application;
 using PCSteward.Domain;
+using PCSteward.Provider.WinGet;
 
 namespace PCSteward.Execution;
 
@@ -98,10 +99,17 @@ public sealed class ElevatedUpdateRunner
             helperResult = new ElevatedHelperResult(ElevatedHelperOutcome.Cancelled, null, "operation-cancelled");
         }
 
+        // Task 51: only a WinGet job's documented restart exit codes are restart evidence. Chocolatey keeps its own route contract,
+        // under which a restart exit code is a failure (protocol-2 fact extension §9 O4).
+        bool wingetExit = job.Selection.Provider == UpdateProvider.WinGet &&
+            helperResult.Outcome is (ElevatedHelperOutcome.Completed or ElevatedHelperOutcome.ProviderFailed) &&
+            helperResult.ExitCode is { } exitCode && exitCode != 0;
         (UpdateExecutionStatus status, string fallback) = helperResult.Outcome switch
         {
             ElevatedHelperOutcome.Completed when helperResult.ExitCode == 0 =>
                 (UpdateExecutionStatus.AwaitingVerification, "helper-completed-awaiting-verification"),
+            _ when wingetExit && WingetRestartExitCodes.ReportsFinishedPendingRestart(helperResult.ExitCode!.Value) =>
+                (UpdateExecutionStatus.RestartReported, "provider-reported-restart"),
             ElevatedHelperOutcome.Completed or ElevatedHelperOutcome.ProviderFailed =>
                 (UpdateExecutionStatus.ProviderFailed, "provider-failed"),
             ElevatedHelperOutcome.UserDenied =>
@@ -119,6 +127,8 @@ public sealed class ElevatedUpdateRunner
         string diagnostic = string.IsNullOrWhiteSpace(helperResult.SanitizedOutput)
             ? fallback
             : helperResult.SanitizedOutput;
+        if (wingetExit && WingetRestartExitCodes.DiagnosticPrefix(helperResult.ExitCode!.Value) is { Length: > 0 } restartPrefix)
+            diagnostic = $"{restartPrefix}; {diagnostic}";
         return Complete(job, startedAt, helperResult.ExitCode, status, UpdateExecutionDenial.None, diagnostic, helperResult.OwnedCompletion);
     }
 
@@ -135,7 +145,7 @@ public sealed class ElevatedUpdateRunner
         string sanitized = NonElevatedUpdateRunner.Sanitize(diagnostic);
         UpdateExecutionEventSeverity severity = status switch
         {
-            UpdateExecutionStatus.AwaitingVerification => UpdateExecutionEventSeverity.Information,
+            UpdateExecutionStatus.AwaitingVerification or UpdateExecutionStatus.RestartReported => UpdateExecutionEventSeverity.Information,
             UpdateExecutionStatus.ElevationDenied or UpdateExecutionStatus.Cancelled or UpdateExecutionStatus.Denied => UpdateExecutionEventSeverity.Warning,
             _ => UpdateExecutionEventSeverity.Error
         };

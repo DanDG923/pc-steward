@@ -531,6 +531,12 @@ public static class UpdateOutcomePresenter
     /// </summary>
     public const string AdmissionRefusedDiagnostic = "not-started-update-execution-busy-or-owned-work-unresolved";
 
+    /// <summary>
+    /// Task 51: the diagnostic prefix a provider records (as <see cref="UpdateHistoryStatus.InstallerFailed"/>) when its typed exit code
+    /// says the installer needs a restart <b>before</b> it can install. The update was not applied, so it stays Failed, never Restart required.
+    /// </summary>
+    public const string RestartBeforeInstallDiagnostic = "restart-required-before-install; update-not-applied";
+
     private const string AdmissionRefusedSummary = "Not started — another update is still running or its work isn't finished, so nothing was changed.";
 
     /// <summary>
@@ -571,6 +577,8 @@ public static class UpdateOutcomePresenter
                 "Not started — nothing was changed.", TryAgain, technical),
             UpdateHistoryStatus.SourceFailed => Failed("The package source couldn't provide the update.", technical),
             UpdateHistoryStatus.DownloadFailed => Failed("The update couldn't be downloaded.", technical),
+            UpdateHistoryStatus.InstallerFailed when diagnostic?.StartsWith(RestartBeforeInstallDiagnostic, StringComparison.Ordinal) == true => Failed(
+                "The installer needs Windows to restart before it can install this update, so nothing was updated. Restart when it suits you, then review the update again.", technical),
             UpdateHistoryStatus.InstallerFailed => Failed(exitCode is { } code ? $"The installer reported an error (exit code {code})." : "The installer reported an error.", technical),
             // A timeout ends the attempt before any verification runs. The recorded status stays TimedOut (FR-HIS-03); the display
             // is "Result not verified": nothing shows the installer finished, it may have partly applied, and nothing checked it.
