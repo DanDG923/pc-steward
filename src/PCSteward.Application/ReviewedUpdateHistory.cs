@@ -203,6 +203,7 @@ public static class ReviewedUpdateHistoryPresentation
             UpdateRouteContract.ChocolateyMachineProvisionalV3 => EarlierChocolateyRouteText,
         UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ChocolateyClientUpdatePresentation.HistoryRouteText,
         UpdateRouteContract.WinGetUserSilentV1 => "WinGet silent update for your account (user scope).",
+        UpdateRouteContract.WinGetMachineSilentV1 => "WinGet silent update for every user on this PC, through PC Steward's administrator helper.",
         _ => UnknownRouteText,
     };
 

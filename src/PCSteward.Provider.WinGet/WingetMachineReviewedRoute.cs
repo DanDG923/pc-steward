@@ -1,0 +1,125 @@
+using System.Collections.ObjectModel;
+using System.Text;
+using System.Text.Json;
+using PCSteward.Domain;
+
+namespace PCSteward.Provider.WinGet;
+
+/// <summary>
+/// Phase D stage D4b design §4 (owner answers 2026-11-12): the fixed command lines of the machine WinGet route, built only from a
+/// <see cref="UpdateRouteContract.WinGetMachineSilentV1"/> operation and its <c>wgm1</c> evidence. Formatting only: the elevated
+/// helper still checks the trusted client, source, settings, registration and manifest before it runs anything. Never adds
+/// <c>--force</c>, <c>--ignore-security-hash</c>, <c>--accept-package-agreements</c>, <c>--include-unknown</c>, <c>--location</c>,
+/// <c>--override</c>, <c>--custom</c>, <c>--allow-reboot</c> or <c>--skip-dependencies</c>.
+/// </summary>
+internal static class WingetMachineReviewedArguments
+{
+    /// <summary>
+    /// <c>upgrade --id &lt;ID&gt; --version &lt;V&gt; --source winget --exact --scope machine --architecture &lt;a&gt;
+    /// --installer-type &lt;t&gt; --disable-interactivity --silent</c>.
+    /// </summary>
+    internal static ReadOnlyCollection<string> BuildUpgrade(ReviewedUpdateOperation operation)
+    {
+        (ReviewedUpdateSelection selection, string architecture, string installerType) = Admit(operation);
+        return Array.AsReadOnly(new[]
+        {
+            "upgrade", "--id", selection.PackageId, "--version", selection.CandidateVersion, "--source", "winget", "--exact",
+            "--scope", "machine", "--architecture", architecture, "--installer-type", installerType, "--disable-interactivity", "--silent"
+        });
+    }
+
+    /// <summary>
+    /// D4b design §5 H7b / §7: <c>download</c> of the same reviewed installer into <paramref name="downloadDirectory"/> (a fresh
+    /// administrator-only folder the helper created), so its exported manifest can be compared with the review.
+    /// </summary>
+    internal static ReadOnlyCollection<string> BuildDownload(ReviewedUpdateOperation operation, string downloadDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(downloadDirectory);
+        if (!Path.IsPathFullyQualified(downloadDirectory))
+            throw new ArgumentException("The download folder must be a fully qualified path.", nameof(downloadDirectory));
+        (ReviewedUpdateSelection selection, string architecture, string installerType) = Admit(operation);
+        return Array.AsReadOnly(new[]
+        {
+            "download", "--id", selection.PackageId, "--version", selection.CandidateVersion, "--source", "winget", "--exact",
+            "--scope", "machine", "--architecture", architecture, "--installer-type", installerType, "--download-directory",
+            downloadDirectory, "--disable-interactivity"
+        });
+    }
+
+    /// <summary>The shape every machine command line requires; throws for anything else.</summary>
+    internal static (ReviewedUpdateSelection Selection, string Architecture, string InstallerType) Admit(ReviewedUpdateOperation operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ReviewedUpdateSelection selection = operation.Selection;
+        if (!operation.HasCurrentSchema || operation.RouteContract != UpdateRouteContract.WinGetMachineSilentV1 ||
+            selection.Provider != UpdateProvider.WinGet || selection.Source != UpdateSource.WinGet || selection.Scope != UpdateScope.Machine ||
+            selection.Channel == UpdateChannel.Preview || operation.Mode != ReviewedInstallerMode.Selected(InstallerMode.Silent) ||
+            selection.Architecture.Binding != ReviewedArchitectureBinding.Observed ||
+            !ReviewedUpdateOperation.TryGetWinGetMachineEvidence(operation.EvidenceId, out WinGetMachineEvidence? evidence) || evidence is null)
+            throw new ArgumentException("The reviewed binding is unavailable for the machine WinGet mapping.", nameof(operation));
+        string architecture = selection.Architecture.Value switch
+        {
+            UpdateArchitecture.X86 => "x86",
+            UpdateArchitecture.X64 => "x64",
+            UpdateArchitecture.Arm64 => "arm64",
+            _ => throw new ArgumentException("The machine mapping requires an observed x86, x64 or arm64 architecture.", nameof(operation)),
+        };
+        return (selection, architecture, WinGetMachineEvidence.InstallerTypeText(evidence.InstallerType));
+    }
+}
+
+/// <summary>
+/// D4b design §5 H7 and §6 S2 (owner accepted the residual race 2026-11-12): WinGet reads the owner's own <c>settings.json</c> even
+/// when it runs elevated. The helper refuses the run unless every setting present is on a small allow-list that cannot change what
+/// is installed, from where, or how: <c>$schema</c>, <c>visual</c>, <c>telemetry</c>, <c>logging</c>, <c>output</c>,
+/// <c>interactivity</c> (the command line disables it anyway) and <c>source.autoUpdateIntervalInMinutes</c>. A missing file is
+/// the default settings and passes. The file is read bounded; comments and trailing commas are accepted because WinGet accepts
+/// them. Anything unreadable, oversized, malformed or outside the list refuses.
+/// </summary>
+internal static class WingetUserSettingsPolicy
+{
+    /// <summary>Settings files larger than this are refused.</summary>
+    internal const int MaximumBytes = 64 * 1024;
+
+    private static readonly string[] AllowedTopLevel = ["$schema", "visual", "telemetry", "logging", "output", "interactivity", "source"];
+    private static readonly string[] AllowedSource = ["autoUpdateIntervalInMinutes"];
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    /// <summary>True when the bytes hold only allow-listed settings. An empty file (WinGet treats it as defaults) passes.</summary>
+    internal static bool Allows(ReadOnlySpan<byte> content)
+    {
+        if (content.Length > MaximumBytes) return false;
+        ReadOnlySpan<byte> bom = [0xEF, 0xBB, 0xBF];
+        if (content.StartsWith(bom)) content = content[bom.Length..];
+        try
+        {
+            string text = StrictUtf8.GetString(content);
+            if (string.IsNullOrWhiteSpace(text)) return true;
+            using JsonDocument document = JsonDocument.Parse(text, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip, MaxDepth = 8
+            });
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            foreach (JsonProperty property in document.RootElement.EnumerateObject())
+            {
+                if (!seen.Add(property.Name) || !AllowedTopLevel.Contains(property.Name, StringComparer.Ordinal)) return false;
+                if (property.Name == "source" && !SourceAllowed(property.Value)) return false;
+            }
+            return true;
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException or DecoderFallbackException)
+        {
+            return false;
+        }
+    }
+
+    private static bool SourceAllowed(JsonElement source)
+    {
+        if (source.ValueKind != JsonValueKind.Object) return false;
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (JsonProperty property in source.EnumerateObject())
+            if (!seen.Add(property.Name) || !AllowedSource.Contains(property.Name, StringComparer.Ordinal)) return false;
+        return true;
+    }
+}

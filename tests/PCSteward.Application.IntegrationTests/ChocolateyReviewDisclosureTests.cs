@@ -189,8 +189,9 @@ public sealed class ChocolateyReviewDisclosureTests
                      UpdateRouteContract.ChocolateyMachineRegistrationV2 })
             Assert.AreEqual("Earlier Chocolatey machine route (historical record).", ReviewedUpdateHistoryPresentation.Route(older));
         // L3: anything else, including an undefined value, is an unknown route, never an earlier Chocolatey route (6 became
-        // ChocolateyClientSelfUpdateV1 under ADR-031 and 7 became WinGetUserSilentV1 in stage C4, so the first undefined value is now 8).
-        foreach (UpdateRouteContract undefined in new[] { (UpdateRouteContract)(-1), (UpdateRouteContract)8, (UpdateRouteContract)99 })
+        // ChocolateyClientSelfUpdateV1 under ADR-031, 7 became WinGetUserSilentV1 in stage C4 and 8 became WinGetMachineSilentV1 in stage D4b,
+        // so the first undefined value is now 9).
+        foreach (UpdateRouteContract undefined in new[] { (UpdateRouteContract)(-1), (UpdateRouteContract)9, (UpdateRouteContract)99 })
             Assert.AreEqual("Unknown route", ReviewedUpdateHistoryPresentation.Route(undefined));
         foreach (UpdateRouteContract defined in Enum.GetValues<UpdateRouteContract>())
             Assert.AreNotEqual("Unknown route", ReviewedUpdateHistoryPresentation.Route(defined), defined.ToString());
