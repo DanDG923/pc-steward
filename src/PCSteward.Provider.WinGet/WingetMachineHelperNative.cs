@@ -130,34 +130,51 @@ internal static class HelperMachineRegistration
 }
 
 /// <summary>
-/// D4b design §5 H7: the WinGet <c>settings.json</c> (and its <c>.backup</c>, which WinGet reads when the main file does not parse)
-/// of the requesting user, found from the administrator-protected profile list rather than any environment value, and checked with
-/// <see cref="WingetUserSettingsPolicy"/>. A reparse point anywhere on the folder chain under the profile refuses.
+/// D4b design §5 H7 and the §3 build note: the WinGet <c>settings.json</c> (and its <c>.backup</c>, which WinGet reads when the main
+/// file does not parse) of the requesting user, checked with <see cref="WingetUserSettingsPolicy"/> in both places WinGet may read:
+/// <list type="bullet">
+/// <item>the unpackaged location <c>&lt;LocalAppData known folder&gt;\Microsoft\WinGet\Settings\defaultState</c>, which is what the
+/// helper's <c>winget.exe</c> uses, because it is started by path and so has no package identity. The known folder is resolved the
+/// way WinGet resolves it (same user, same API), never from an environment value;</item>
+/// <item>the packaged <c>LocalState</c> of App Installer, under the profile folder from the administrator-protected profile list.</item>
+/// </list>
+/// A missing folder is WinGet's defaults. A reparse point anywhere on either folder chain refuses.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class HelperWingetSettings
 {
     private const string ProfileListPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
+    private static readonly string[] UnpackagedChain = ["Microsoft", "WinGet", "Settings", "defaultState"];
 
     internal static bool Allows(string requesterSid)
     {
         try
         {
             if (ProfileFolder(requesterSid) is not { } profile) return false;
-            string localState = Path.Combine(profile, "AppData", "Local", "Packages", HelperTrustedWinget.AppInstallerFamily, "LocalState");
-            string current = profile;
-            foreach (string part in new[] { "AppData", "Local", "Packages", HelperTrustedWinget.AppInstallerFamily, "LocalState" })
-            {
-                current = Path.Combine(current, part);
-                if (!Directory.Exists(current)) return true; // No settings folder: WinGet uses its defaults.
-                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) return false;
-            }
-            return FileAllows(Path.Combine(localState, "settings.json")) && FileAllows(Path.Combine(localState, "settings.json.backup"));
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify);
+            if (string.IsNullOrWhiteSpace(localAppData) || !Path.IsPathFullyQualified(localAppData)) return false;
+            return FolderAllows(localAppData, UnpackagedChain) &&
+                FolderAllows(profile, ["AppData", "Local", "Packages", HelperTrustedWinget.AppInstallerFamily, "LocalState"]);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
         {
             return false;
         }
+    }
+
+    /// <summary>Walks <paramref name="chain"/> below <paramref name="root"/>; a missing folder passes (defaults), a reparse point refuses.</summary>
+    private static bool FolderAllows(string root, string[] chain)
+    {
+        string current = Path.GetFullPath(root);
+        if (!Directory.Exists(current)) return true;
+        if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) return false;
+        foreach (string part in chain)
+        {
+            current = Path.Combine(current, part);
+            if (!Directory.Exists(current)) return !File.Exists(current);
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) return false;
+        }
+        return FileAllows(Path.Combine(current, "settings.json")) && FileAllows(Path.Combine(current, "settings.json.backup"));
     }
 
     private static bool FileAllows(string path)
