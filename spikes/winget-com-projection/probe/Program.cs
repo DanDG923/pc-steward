@@ -34,6 +34,11 @@ internal static partial class Program
         Log("projection", typeof(PackageManager).Assembly.GetName().Version?.ToString() ?? "unknown");
         Log("processBits", (IntPtr.Size * 8).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+        if (mode == "inproc")
+        {
+            ProbeInProcessFactory();
+        }
+
         try
         {
             Stopwatch timer = Stopwatch.StartNew();
@@ -138,6 +143,47 @@ internal static partial class Program
             Log("queryMessage", exception.Message.ReplaceLineEndings(" "));
         }
     }
+
+    // Separates "the runtime DLL will not load" from "its factory refuses" before the projection hides both behind one
+    // activation error: load the renamed InProcCom runtime beside the exe and ask its DllGetActivationFactory directly.
+    private static unsafe void ProbeInProcessFactory()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Microsoft.Management.Deployment.dll");
+        IntPtr module = LoadLibraryExW(path, IntPtr.Zero, LoadWithAlteredSearchPath);
+        if (module == IntPtr.Zero)
+        {
+            Log("inprocDllLoad", "failed win32=" + Marshal.GetLastPInvokeError().ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return;
+        }
+        Log("inprocDllLoad", "ok");
+        IntPtr export = NativeLibrary.GetExport(module, "DllGetActivationFactory");
+        const string className = "Microsoft.Management.Deployment.PackageManager";
+        int hr = WindowsCreateString(className, (uint)className.Length, out IntPtr name);
+        if (hr != 0)
+        {
+            Log("inprocFactory", "WindowsCreateString hr=0x" + hr.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+            return;
+        }
+        IntPtr factory = IntPtr.Zero;
+        hr = ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)export)(name, &factory);
+        Log("inprocFactory", "hr=0x" + hr.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+        if (factory != IntPtr.Zero)
+        {
+            Marshal.Release(factory);
+        }
+        _ = WindowsDeleteString(name);
+    }
+
+    private const uint LoadWithAlteredSearchPath = 0x8;
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial IntPtr LoadLibraryExW(string path, IntPtr file, uint flags);
+
+    [LibraryImport("combase.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int WindowsCreateString(string source, uint length, out IntPtr value);
+
+    [LibraryImport("combase.dll")]
+    private static partial int WindowsDeleteString(IntPtr value);
 
     private static PackageManager CreateOutOfProcess()
     {

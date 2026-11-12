@@ -106,6 +106,19 @@ function Invoke-ProbeStage {
         }
     }
 
+    # The runner account is an administrator with UAC off. runas /trustlevel:0x20000 starts the same account with a basic
+    # (non-administrator) token, which keeps its profile and its App Installer registration: the closest match on a runner
+    # to the owner's desktop, which runs unelevated in a profile where App Installer is registered.
+    foreach ($probe in $built) {
+        $file = Join-Path $evidence "run-$($probe.Name)-inproc-basictoken.txt"
+        $command = '"' + $probe.Exe + '" inproc --query --out "' + $file + '"'
+        & runas.exe /trustlevel:0x20000 $command | Out-Host
+        $deadline = [DateTime]::UtcNow.AddMinutes(6)
+        while (!(Test-Path -LiteralPath $file) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+        Start-Sleep -Seconds 2
+        $runs["$($probe.Name)/inproc/basictoken"] = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file } else { @('no output from runas /trustlevel') }
+    }
+
     # The desktop runs with a standard user's token, so the activation routes are repeated as a disposable standard user.
     $user = $null
     try {

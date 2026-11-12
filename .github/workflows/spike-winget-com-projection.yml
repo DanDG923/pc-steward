@@ -55,6 +55,7 @@ jobs:
           retention-days: 30
 
   solution:
+    if: ${{ !contains(github.event.head_commit.message, '[probe-only]') }}
     runs-on: windows-latest
     timeout-minutes: 90
     strategy:
