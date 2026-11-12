@@ -91,6 +91,22 @@ internal sealed class LaunchJob : IDisposable
         return RunCoreAsync(spec, deadline, cancellationToken);
     }
 
+    /// <summary>
+    /// D4b design §5.1: the machine WinGet route's launcher entry, over a spec from <see cref="NativeLaunchSpec.ForWingetMachine"/>.
+    /// The deadline is min(<paramref name="budget"/>, <paramref name="remaining"/>); an already-cancelled token or nothing left
+    /// creates no process and reports a settled <see cref="NativeInvocation.NotStarted"/> with the matching flag. Called only by
+    /// <see cref="WingetMachineHelperWork"/> (architecture test).
+    /// </summary>
+    internal static Task<NativeProcessObservation> RunWingetMachineAsync(NativeLaunchSpec spec, TimeSpan budget, TimeSpan remaining,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        if (cancellationToken.IsCancellationRequested) return Task.FromResult(NotStarted(cancelled: true));
+        TimeSpan deadline = remaining < budget ? remaining : budget;
+        if (deadline <= TimeSpan.Zero) return Task.FromResult(NotStarted(cancelled: false, timedOut: true));
+        return RunCoreAsync(spec, deadline, cancellationToken);
+    }
+
     /// <summary>min(the command's existing budget, <paramref name="remaining"/>); never longer than the budget (§4 M5).</summary>
     internal static TimeSpan CapDeadline(ChocolateyCompiledCommand command, TimeSpan remaining)
     {

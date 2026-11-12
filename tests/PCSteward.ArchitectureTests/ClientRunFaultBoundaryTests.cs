@@ -91,7 +91,7 @@ public sealed class ClientRunFaultBoundaryTests
         }
         // The codec's package entries keep their reviewed signatures and the package shape.
         string codec = Single(sources, CodecFile);
-        StringAssert.Contains(codec, "string diagnostic) => CreateResponseCore(jobId, digest, nonce, facts, reviewed, null, diagnostic);");
+        StringAssert.Contains(codec, "string diagnostic) => CreateResponseCore(jobId, digest, nonce, facts, reviewed, null, diagnostic, ReviewedHelperReplyShape.Package);");
         StringAssert.Contains(codec, "TryReadResponse(frame, expectedJob, expectedDigest, expectedNonce, ReviewedHelperReplyShape.Package, out response);");
     }
 

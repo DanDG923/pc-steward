@@ -7,8 +7,10 @@ namespace PCSteward.ArchitectureTests;
 /// checked on <b>compiled</b> IL of every built <c>src</c> assembly, so aliases, Unicode-escaped identifiers or generated
 /// sources cannot hide a call. Callers are resolved to their source method (async state machines and lambdas map back):
 /// <list type="bullet">
-/// <item><c>LaunchJob.RunCoreAsync</c>: only <c>LaunchJob.RunAsync</c>;</item>
+/// <item><c>LaunchJob.RunCoreAsync</c>: only <c>LaunchJob.RunAsync</c> and, for the machine WinGet route (D4b design §5.1),
+/// <c>LaunchJob.RunWingetMachineAsync</c>;</item>
 /// <item><c>NativeLaunchSpec.FromBinding</c>: only <c>LaunchJob.RunAsync</c>;</item>
+/// <item><c>NativeLaunchSpec.ForWingetMachine</c> and <c>LaunchJob.RunWingetMachineAsync</c>: only the machine WinGet work's launch;</item>
 /// <item><c>LaunchJob.RunAsync</c>: only the three <c>ChocolateyClientQueries</c> methods, each of which calls it;</item>
 /// <item>the test-only spec factory, fault entry and watchdog entry (ADR-031 R5): no <c>src</c> caller outside their own type.</item>
 /// </list>
@@ -31,8 +33,11 @@ public sealed class NativeLauncherCompiledReferenceTests
     /// <summary>(target type, member) → the exact set of source-level callers allowed in <c>src</c>.</summary>
     private static readonly (string Type, string Member, string[] Callers)[] Pinned =
     [
-        (LaunchJob, "RunCoreAsync", [LaunchJob + ".RunAsync"]),
+        (LaunchJob, "RunCoreAsync", [LaunchJob + ".RunAsync", LaunchJob + ".RunWingetMachineAsync"]),
         (Spec, "FromBinding", [LaunchJob + ".RunAsync"]),
+        // D4b design §5.1: the machine WinGet route launches only through its own work, with its own spec factory and entry.
+        (Spec, "ForWingetMachine", [Native + "WingetMachineHelperWork.LaunchAsync"]),
+        (LaunchJob, "RunWingetMachineAsync", [Native + "WingetMachineHelperWork.LaunchAsync"]),
         // ADR-031 design §7.1: plus the client self-update's list and upgrade through the client binding.
         (LaunchJob, "RunAsync", [Queries + ".ListExactAsync", Queries + ".OutdatedAsync", Queries + ".UpgradeAsync", Queries + ".ListClientAsync",
             Queries + ".UpgradeClientAsync"]),

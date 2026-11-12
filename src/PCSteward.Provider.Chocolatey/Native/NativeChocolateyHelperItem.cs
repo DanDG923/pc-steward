@@ -61,8 +61,8 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
     internal static NativeChocolateyHelperItem Create(RequesterToken token)
     {
         ArgumentNullException.ThrowIfNull(token);
-        return new NativeChocolateyHelperItem(new NativeWork(token, ProductionObserve, ancestryBase: null, stageCForTests: null,
-            ChocolateyReleaseList.Listed));
+        return new NativeChocolateyHelperItem(new RoutedWork(new NativeWork(token, ProductionObserve, ancestryBase: null, stageCForTests: null,
+            ChocolateyReleaseList.Listed)));
     }
 
     /// <summary>
@@ -539,6 +539,56 @@ internal sealed class NativeChocolateyHelperItem : IChocolateyHelperItem
         };
 
         private static ChocolateyStageValues.Refused Unsupported() => new(ChocolateyStageRefusal.MachineInputsUnsupported, null, null);
+    }
+
+    /// <summary>
+    /// D4b design §5.1: the production work selects its route at stage B. An operation on
+    /// <see cref="UpdateRouteContract.WinGetMachineSilentV1"/> runs the machine WinGet work for stages B, C, D and the launch; every
+    /// other operation runs the Chocolatey work exactly as before. The G1 check (before stage B) always uses the Chocolatey work's
+    /// requester token. The item's ordering rules are unchanged, so stage B runs once and chooses once.
+    /// </summary>
+    private sealed class RoutedWork(NativeWork chocolatey) : IWork
+    {
+        private WingetMachineHelperWork? winget;
+
+        public bool LaunchesSettled => chocolatey.LaunchesSettled && (Volatile.Read(ref winget)?.LaunchesSettled ?? true);
+
+        public bool RequesterCannotModify(string root, IReadOnlyList<string> files) => chocolatey.RequesterCannotModify(root, files);
+
+        public ChocolateyStageValues ObserveProfile(ReviewedUpdateOperation operation, string expectedFingerprint, TimeSpan remaining,
+            CancellationToken cancellationToken)
+        {
+            if (operation.RouteContract != UpdateRouteContract.WinGetMachineSilentV1)
+                return chocolatey.ObserveProfile(operation, expectedFingerprint, remaining, cancellationToken);
+            if (!OperatingSystem.IsWindows()) return new ChocolateyStageValues.Refused(ChocolateyStageRefusal.MachineInputsUnsupported, null, null);
+            WingetMachineHelperWork work = new();
+            Volatile.Write(ref winget, work);
+            return work.Observe(operation, expectedFingerprint, remaining, cancellationToken);
+        }
+
+        public Task<ChocolateyCandidateValues> QueryCandidateAsync(TimeSpan remaining, CancellationToken cancellationToken) =>
+            Volatile.Read(ref winget) is { } work && OperatingSystem.IsWindows()
+                ? work.QueryCandidateAsync(remaining, cancellationToken)
+                : chocolatey.QueryCandidateAsync(remaining, cancellationToken);
+
+        public ChocolateyStageValues RevalidateBeforeLaunch(TimeSpan remaining, CancellationToken cancellationToken) =>
+            Volatile.Read(ref winget) is { } work && OperatingSystem.IsWindows()
+                ? work.Revalidate(remaining, cancellationToken)
+                : chocolatey.RevalidateBeforeLaunch(remaining, cancellationToken);
+
+        public Task<NativeProcessObservation> UpgradeAsync(TimeSpan remaining, CancellationToken cancellationToken) =>
+            Volatile.Read(ref winget) is { } work && OperatingSystem.IsWindows()
+                ? work.UpgradeAsync(remaining, cancellationToken)
+                : chocolatey.UpgradeAsync(remaining, cancellationToken);
+
+        public (ChocolateyClientWatchdogFault WatchdogFault, bool ReleaseIncomplete) RunState =>
+            Volatile.Read(ref winget) is null ? chocolatey.RunState : (ChocolateyClientWatchdogFault.None, false);
+
+        public void Dispose()
+        {
+            try { Volatile.Read(ref winget)?.Dispose(); }
+            finally { chocolatey.Dispose(); }
+        }
     }
 
     /// <summary>Test seam work: every stage is a scripted value; the item's ordering and disposal rules are unchanged.</summary>

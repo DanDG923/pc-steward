@@ -78,6 +78,32 @@ ADR-025 requires the helper to "independently resolve the same installed instanc
 
 The desktop still performs its own checks first (live review, fresh source consent, the 30-minute review window, claim before the prompt) and its own post-update check. Neither side trusts the other's word for success.
 
+### 5.1 How the route runs on the protocol-2 helper (build note, stage 1b)
+
+The route uses the existing protocol-2 stage machine unchanged (A0 to A3, stages B, C and D, one launch). It does not add a second helper entry point. The single helper item picks the WinGet work when stage B sees the route. The A2 and A3 gates, the one-use launch permission, settlement and disposal stay with the item for both routes.
+
+- **Shape (H2).** `WingetMachineReviewedRoute.TryGetShape` (Application) is the one shape check. The fixed command lines, the helper's A1 and the desktop's reply reader all call it. `Admits` adds the review gate, which stays closed until stage 3. A3 also refuses the route: it is not on the capability allow-list, and the desktop dispatcher requires that capability.
+- **Profile digest.** The route's profile fingerprint is the reviewed HKLM registration digest from the `wgm1` evidence. Stage B receives it as the expected value, and the reply's `observedProfileFingerprint` must equal it.
+- **Reply shape.** The route has its own reply shape, `WinGetMachine`. It has the same 20 properties and bytes as the package reply. Only predicate S12 differs: the version fields are checked with the reviewed version grammar (`UpdateJobSelection.IsVersionText`: already trimmed, at most 128 characters, the allow-listed characters) instead of Chocolatey's normalized grammar. The helper writes it with `CreateWinGetMachineResponse`, and the desktop reads and re-checks it with the shape chosen by the frozen route. A frame valid in one shape is never accepted for a different route.
+- **Stages.**
+
+  | Stage | Machine WinGet route |
+  |---|---|
+  | B (static) | H2, then H4 (trusted `winget.exe` and its C++ runtime folder), H7 (settings) and H6 (the one registration, in either view, whose digest equals the reviewed one). Reports the frozen installed text and the registration digest. |
+  | C | `winget source export --name winget` through the owned launcher with its own protected `TEMP`. It must be exactly the trusted source (H5). Reports the frozen candidate text. Stage 2 adds H7b here. |
+  | D | Stage B again. It must find the same client path, the same registry view and the same key name. |
+  | Launch | The fixed §4 `upgrade` line, its own protected `TEMP`, and the fixed environment below. |
+
+- **Refusals** use the existing closed reasons:
+  - a registration that is gone or changed: `InstalledMismatch`;
+  - a source query that fails or shows anything but the trusted source: `PreflightQueryFailed`;
+  - everything else: `MachineInputsUnsupported`.
+- **Environment.** The WinGet process never inherits the helper's environment. It gets a fixed block whose values all come from system and known-folder APIs, never from environment values:
+  - the Windows and program folders, and the requester's profile folders (resolved the way WinGet resolves them);
+  - `TEMP` and `TMP` set to the run folder;
+  - a `PATH` of system folders plus the App Installer C++ runtime framework folder (`Microsoft.VCLibs.140.00.UWPDesktop`, same architecture, under `WindowsApps`, no reparse point). The `winget.exe` that the helper starts by path loads the C++ runtime from that framework, because it has no package identity to supply it. Stage 4 confirms this on the owner's PC.
+- **Run folders.** Each launch creates a fresh S1 folder. It is deleted once that launch is known to have settled. A launch that is not known to have settled keeps its folder (administrator-only and unfindable), and the work is reported unsettled.
+
 ## 6. Elevated WinGet and the owner's profile (security)
 
 Owner's stance (2026-11-12): findings that need an already compromised machine are low priority, but anything that turns a user-level foothold into administrator matters. These two do, and **both exist today on protocol 1 with no mitigation**, and in any `winget upgrade` run from an administrator prompt.

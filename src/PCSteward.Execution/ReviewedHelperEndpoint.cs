@@ -137,10 +137,14 @@ internal static class ReviewedHelperEndpoint
             frame = IsClientRoute(request.Operation)
                 ? ReviewedUpdateWireCodec.CreateClientResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
                     decision.Reviewed, decision.RunFault, decision.Diagnostic)
-                : decision.RunFault == ReviewedClientRunFaultWire.None
-                    ? ReviewedUpdateWireCodec.CreateResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
-                        decision.Reviewed, decision.Diagnostic)
-                    : throw new InvalidOperationException("A run fault exists only for the client self-update route.");
+                : decision.RunFault != ReviewedClientRunFaultWire.None
+                    ? throw new InvalidOperationException("A run fault exists only for the client self-update route.")
+                    : IsWinGetMachineRoute(request.Operation)
+                        // D4b design §5.1: the machine WinGet route's reply checks its version fields with the reviewed grammar.
+                        ? ReviewedUpdateWireCodec.CreateWinGetMachineResponse(request.Operation.JobId, request.Digest, bootstrapNonce,
+                            decision.Facts, decision.Reviewed, decision.Diagnostic)
+                        : ReviewedUpdateWireCodec.CreateResponse(request.Operation.JobId, request.Digest, bootstrapNonce, decision.Facts,
+                            decision.Reviewed, decision.Diagnostic);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -224,6 +228,10 @@ internal static class ReviewedHelperEndpoint
     private static bool IsClientRoute(ReviewedUpdateOperation operation) =>
         operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1;
 
+    /// <summary>D4b design §5.1: the machine WinGet route has its own reply shape.</summary>
+    private static bool IsWinGetMachineRoute(ReviewedUpdateOperation operation) =>
+        operation.RouteContract == UpdateRouteContract.WinGetMachineSilentV1;
+
     /// <summary>
     /// ADR-031 design §8.1: the item's plain run state as the closed wire value, row by row (explicit mapping by name, no
     /// numeric cast). An undefined value is a failed watch with an incomplete release (fail closed: the strongest warning).
@@ -270,7 +278,8 @@ internal static class ReviewedHelperEndpoint
             if (ApprovalLapsed(clock.GetUtcNow())) return NotAdmitted("a1-request-not-fresh");
             // ADR-031 design §7.1 A1: route-discriminated shape; the client arm never accepts a mixed route/guard/provenance.
             if (!ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out string digest, out ReviewedHelperReplyShape shape) ||
-                (shape == ReviewedHelperReplyShape.ClientSelfUpdate) != IsClientRoute(operation) || !HasExactRouteShape(shape))
+                (shape == ReviewedHelperReplyShape.ClientSelfUpdate) != IsClientRoute(operation) ||
+                (shape == ReviewedHelperReplyShape.WinGetMachine) != IsWinGetMachineRoute(operation) || !HasExactRouteShape(shape))
                 return NotAdmitted("a1-route-not-admitted");
             if (!TryReadPeer(out string peerImage, out string peerSid) ||
                 !string.Equals(peerSid, operation.RequestingUserSid, StringComparison.Ordinal))
@@ -486,6 +495,8 @@ internal static class ReviewedHelperEndpoint
         private bool HasExactRouteShape(ReviewedHelperReplyShape shape)
         {
             if (shape == ReviewedHelperReplyShape.ClientSelfUpdate) return ReviewedUpdateProtocol2Interpreter.TryGetClientProfileDigest(operation, out _);
+            // D4b design §5.1: the machine WinGet route's shape is the one its fixed command lines use.
+            if (shape == ReviewedHelperReplyShape.WinGetMachine) return WingetMachineReviewedRoute.TryGetShape(operation, out _, out _, out _);
             try { return ChocolateyReviewedUpdateArguments.Build(operation).Count > 0; }
             catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
         }

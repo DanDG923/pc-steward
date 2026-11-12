@@ -12,5 +12,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PCSteward.Application.IntegrationTests" />
     <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
+    <!-- D4b design §5.1: the single native helper item runs the machine WinGet route through these helper checks. -->
+    <InternalsVisibleTo Include="PCSteward.Provider.Chocolatey" />
   </ItemGroup>
 </Project>

@@ -46,21 +46,67 @@ internal static class HelperTrustedWinget
         return null;
     }
 
-    private static List<string> InstalledFolders()
+    /// <summary>The fixed family of the C++ runtime framework App Installer depends on (D4b design §5.1).</summary>
+    internal const string RuntimeFamily = "Microsoft.VCLibs.140.00.UWPDesktop_8wekyb3d8bbwe";
+
+    /// <summary>
+    /// D4b design §5.1: <c>winget.exe</c> links the C++ runtime from the <see cref="RuntimeFamily"/> framework package, which the loader
+    /// adds to the search path only for a process with package identity. The helper's <c>winget.exe</c> has none, so its fixed
+    /// <c>PATH</c> names that framework's folder: found through the same package API, under the machine <c>WindowsApps</c> root, with
+    /// no reparse point, the architecture of <paramref name="wingetPath"/>'s package, and the runtime DLL present. Null when none
+    /// qualifies (then only an installed system-wide runtime can satisfy the loader, and otherwise WinGet does not start).
+    /// </summary>
+    internal static string? TryResolveRuntimeFolder(string wingetPath)
+    {
+        try
+        {
+            string? architecture = PackageArchitecture(Path.GetFileName(Path.GetDirectoryName(wingetPath)));
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolderOption.DoNotVerify);
+            if (architecture is null || string.IsNullOrWhiteSpace(programFiles) || !Path.IsPathFullyQualified(programFiles)) return null;
+            string root = Path.GetFullPath(Path.Combine(programFiles, "WindowsApps"));
+            if (IsReparseOrMissing(root, directory: true)) return null;
+            foreach (string folder in InstalledFolders(RuntimeFamily, "Microsoft.VCLibs.140.00.UWPDesktop_")
+                .OrderByDescending(static path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                string full = Path.GetFullPath(folder);
+                if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(PackageArchitecture(Path.GetFileName(full)), architecture, StringComparison.Ordinal) ||
+                    IsReparseOrMissing(full, directory: true) || IsReparseOrMissing(Path.Combine(full, "vcruntime140.dll"), directory: false)) continue;
+                return full;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Refused below.
+        }
+        return null;
+    }
+
+    /// <summary>The architecture field of a package folder name (<c>Name_Version_Architecture_ResourceId_PublisherId</c>).</summary>
+    internal static string? PackageArchitecture(string? folderName)
+    {
+        if (string.IsNullOrEmpty(folderName)) return null;
+        string[] parts = folderName.Split('_');
+        return parts.Length == 5 && parts[2] is "x64" or "x86" or "arm64" or "arm" or "neutral" ? parts[2] : null;
+    }
+
+    private static List<string> InstalledFolders() => InstalledFolders(AppInstallerFamily, "Microsoft.DesktopAppInstaller_");
+
+    private static List<string> InstalledFolders(string family, string fullNamePrefix)
     {
         List<string> folders = [];
         uint count = 0, bufferLength = 0;
-        int status = GetPackagesByPackageFamily(AppInstallerFamily, ref count, IntPtr.Zero, ref bufferLength, IntPtr.Zero);
+        int status = GetPackagesByPackageFamily(family, ref count, IntPtr.Zero, ref bufferLength, IntPtr.Zero);
         if (status != ErrorInsufficientBuffer || count is 0 or > MaximumPackages || bufferLength is 0 or > 64 * 1024) return folders;
         IntPtr names = Marshal.AllocHGlobal(IntPtr.Size * (int)count);
         IntPtr buffer = Marshal.AllocHGlobal((int)bufferLength * sizeof(char));
         try
         {
-            if (GetPackagesByPackageFamily(AppInstallerFamily, ref count, names, ref bufferLength, buffer) != 0) return folders;
+            if (GetPackagesByPackageFamily(family, ref count, names, ref bufferLength, buffer) != 0) return folders;
             for (int index = 0; index < (int)count; index++)
             {
                 string? fullName = Marshal.PtrToStringUni(Marshal.ReadIntPtr(names, index * IntPtr.Size));
-                if (string.IsNullOrEmpty(fullName) || !fullName.StartsWith("Microsoft.DesktopAppInstaller_", StringComparison.Ordinal) ||
+                if (string.IsNullOrEmpty(fullName) || !fullName.StartsWith(fullNamePrefix, StringComparison.Ordinal) ||
                     !fullName.EndsWith("__8wekyb3d8bbwe", StringComparison.Ordinal)) continue;
                 if (PackagePath(fullName) is { } path) folders.Add(path);
             }
@@ -129,6 +175,53 @@ internal static class HelperMachineRegistration
         {
             return null;
         }
+    }
+
+    /// <summary>The most uninstall keys read per view; more refuses (an unbounded walk is never run elevated).</summary>
+    internal const int MaximumKeysPerView = 4096;
+
+    /// <summary>
+    /// D4b design §5.1 H6: finds the one HKLM registration, in either view, whose digest equals <paramref name="registrationDigest"/>
+    /// from the reviewed <c>wgm1</c> evidence. The digest binds the view, the key name and <c>DisplayVersion</c>, so the review's exact
+    /// registration is found again without the request naming a registry path. False when there is no match, more than one, more
+    /// keys than <see cref="MaximumKeysPerView"/>, or any read fails.
+    /// </summary>
+    internal static bool TryFind(string registrationDigest, out WinGetMachineRegistrationView view, out string keyName, out string displayVersion)
+    {
+        view = default;
+        keyName = displayVersion = string.Empty;
+        if (!ReviewedUpdateOperation.IsUpperHex64(registrationDigest)) return false;
+        int matches = 0;
+        try
+        {
+            foreach (WinGetMachineRegistrationView candidateView in new[] { WinGetMachineRegistrationView.Machine64, WinGetMachineRegistrationView.Machine32 })
+            {
+                using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,
+                    candidateView == WinGetMachineRegistrationView.Machine32 ? RegistryView.Registry32 : RegistryView.Registry64);
+                using RegistryKey? uninstall = machine.OpenSubKey(UninstallPath, writable: false);
+                if (uninstall is null) continue;
+                string[] names = uninstall.GetSubKeyNames();
+                if (names.Length > MaximumKeysPerView) return false;
+                foreach (string name in names)
+                {
+                    if (TryDigest(candidateView, name, out string? version) is not { } digest || version is null ||
+                        !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                            System.Text.Encoding.ASCII.GetBytes(digest), System.Text.Encoding.ASCII.GetBytes(registrationDigest))) continue;
+                    matches++;
+                    view = candidateView;
+                    keyName = name;
+                    displayVersion = version;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException)
+        {
+            return false;
+        }
+        if (matches == 1) return true;
+        view = default;
+        keyName = displayVersion = string.Empty;
+        return false;
     }
 }
 
@@ -335,5 +428,62 @@ internal sealed class HelperProtectedRunFolder : IDisposable
             if (rule.IdentityReference is not SecurityIdentifier sid || !(sid.Equals(Administrators) || sid.Equals(LocalSystem))) return false;
         }
         return true;
+    }
+}
+
+/// <summary>
+/// D4b design §5.1: the complete environment of a helper WinGet process, never merged with the helper's own (which comes from the
+/// owner's registry). Every value comes from a system or known-folder API: the Windows and program folders, the requester's profile
+/// folders (the same user, resolved the way WinGet resolves them), <c>TEMP</c> and <c>TMP</c> set to the fresh protected run folder
+/// (§6 S1), and a fixed <c>PATH</c> of system folders plus, when found, the App Installer C++ runtime framework folder
+/// (<see cref="HelperTrustedWinget.TryResolveRuntimeFolder"/>). Throws for any value that is not a plain local path.
+/// </summary>
+[SupportedOSPlatform("windows")]
+internal static class HelperWingetEnvironment
+{
+    internal static IReadOnlyDictionary<string, string> Create(string runFolder, string? runtimeFolder)
+    {
+        string windows = Plain(Environment.GetFolderPath(Environment.SpecialFolder.Windows, Environment.SpecialFolderOption.DoNotVerify));
+        string system = Plain(Environment.SystemDirectory);
+        string programFiles = Plain(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolderOption.DoNotVerify));
+        string programFilesX86 = Plain(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolderOption.DoNotVerify));
+        string common = Plain(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles, Environment.SpecialFolderOption.DoNotVerify));
+        string commonX86 = Plain(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFilesX86, Environment.SpecialFolderOption.DoNotVerify));
+        string programData = Plain(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+        string profile = Plain(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile, Environment.SpecialFolderOption.DoNotVerify));
+        string roaming = Plain(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+        string local = Plain(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+        string run = Plain(runFolder);
+        List<string> path = [system, windows, Path.Combine(system, "Wbem"), Path.Combine(system, "WindowsPowerShell", "v1.0")];
+        if (runtimeFolder is not null) path.Add(Plain(runtimeFolder));
+        Dictionary<string, string> environment = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SystemRoot"] = windows, ["windir"] = windows, ["SystemDrive"] = Path.GetPathRoot(windows)!.TrimEnd('\\'),
+            ["ComSpec"] = Path.Combine(system, "cmd.exe"), ["PATH"] = string.Join(';', path), ["PATHEXT"] = ".COM;.EXE;.BAT;.CMD",
+            ["ProgramFiles"] = programFiles, ["ProgramW6432"] = programFiles, ["ProgramFiles(x86)"] = programFilesX86,
+            ["CommonProgramFiles"] = common, ["CommonProgramW6432"] = common, ["CommonProgramFiles(x86)"] = commonX86,
+            ["ProgramData"] = programData, ["ALLUSERSPROFILE"] = programData,
+            ["USERPROFILE"] = profile, ["APPDATA"] = roaming, ["LOCALAPPDATA"] = local,
+            ["TEMP"] = run, ["TMP"] = run, ["OS"] = "Windows_NT",
+            ["PROCESSOR_ARCHITECTURE"] = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture switch
+            {
+                System.Runtime.InteropServices.Architecture.Arm64 => "ARM64",
+                System.Runtime.InteropServices.Architecture.X86 => "x86",
+                _ => "AMD64",
+            },
+        };
+        return environment.AsReadOnly();
+    }
+
+    /// <summary>A drive-absolute, canonical path with no character that could split a list or expand a variable.</summary>
+    internal static string Plain(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Length is < 3 or > 4096 || !char.IsAsciiLetter(path[0]) || path[1] != ':' || path[2] != '\\' ||
+            path.Any(static character => char.IsControl(character) || ";\"%<>|?*/".Contains(character)) || path.AsSpan(2).Contains(':'))
+            throw new ArgumentException("The path is not a plain local path.", nameof(path));
+        string normalized = Path.GetFullPath(path).TrimEnd('\\');
+        if (!string.Equals(path.TrimEnd('\\'), normalized, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("The path must already be canonical.", nameof(path));
+        return normalized.Length == 2 ? normalized + '\\' : normalized;
     }
 }
