@@ -45,6 +45,7 @@ public sealed class ApprovedUpdateExecutor : IApprovedUpdateExecutor
     private static UpdateProviderAttemptStatus Map(UpdateExecutionStatus status) => status switch
     {
         UpdateExecutionStatus.AwaitingVerification => UpdateProviderAttemptStatus.AwaitingVerification,
+        UpdateExecutionStatus.RestartReported => UpdateProviderAttemptStatus.RestartReported,
         UpdateExecutionStatus.VerificationRequired => UpdateProviderAttemptStatus.VerificationRequired,
         UpdateExecutionStatus.Cancelled => UpdateProviderAttemptStatus.Cancelled,
         UpdateExecutionStatus.ElevationDenied => UpdateProviderAttemptStatus.ElevationDenied,

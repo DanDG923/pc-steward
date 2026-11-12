@@ -622,7 +622,7 @@ public sealed class UiRedesignContractTests
         int claim = batch.IndexOf("if (!review.TryClaimForRun()) throw new InvalidOperationException(", StringComparison.Ordinal);
         int firstRun = batch.IndexOf("await ConfirmAndRunAsync(jobReview,", StringComparison.Ordinal);
         Assert.IsTrue(claim >= 0 && firstRun > claim, "a frozen review is claimed once, before any app is re-prepared or approved");
-        StringAssert.Contains(batch, "cancellationToken, item.Preparation.Progress, review.ReviewedAt)");
+        StringAssert.Contains(batch, "cancellationToken, item.Preparation.Progress, review.ReviewedAt,");
 
         string inventory = ApplicationSource("InventoryWorkflow.cs");
         string shared = Between(inventory, "public async Task<IReadOnlyList<UpdateSelectionPreparation>> PrepareApprovedUpdateSelectionsAsync(", "private sealed record FreshSelectionEvidence(");

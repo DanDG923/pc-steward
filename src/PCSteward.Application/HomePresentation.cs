@@ -174,7 +174,10 @@ public sealed record HomePresentation(
     IReadOnlyList<HomeNotice> Notices,
     IReadOnlyList<HomeAttentionItem> Attention);
 
-/// <summary>Inputs for <see cref="HomePresenter.Build"/>; all are existing presentation state.</summary>
+/// <summary>
+/// Inputs for <see cref="HomePresenter.Build"/>; all are existing presentation state. <see cref="LastBootAt"/> (Task 51) is when Windows
+/// last started, if known: a restart-required update stays on Home until then.
+/// </summary>
 public sealed record HomeInputs(
     IReadOnlyList<InventoryRow> Rows,
     IReadOnlyDictionary<string, UpdateDetail> Details,
@@ -184,7 +187,8 @@ public sealed record HomeInputs(
     IReadOnlyCollection<UpdateJobRecord> Jobs,
     IReadOnlyList<ActivityEntry> Activity,
     DateTimeOffset? LastScanAt,
-    DateTimeOffset Now);
+    DateTimeOffset Now,
+    DateTimeOffset? LastBootAt = null);
 
 /// <summary>
 /// FR-UI-01/05/06 (ADR-030 concept A; UI polish phase 2, approved targets T-Home and T-Home-Ready): Home is one status card (an icon,
@@ -227,7 +231,7 @@ public static class HomePresenter
         Dictionary<string, string> installed = rows.GroupBy(row => row.StableProductKey, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First().Version, StringComparer.Ordinal);
         UpdateJobRecord[] latest = [.. UpdateJobHistory.LatestPerProduct(inputs.Jobs).Values.OrderByDescending(job => job.EndedAt)];
         UpdateJobRecord[] attention = latest.Where(job => UpdateJobHistory.NeedsAttention(job, installed.GetValueOrDefault(job.StableProductKey), inputs.LastScanAt)).ToArray();
-        UpdateJobRecord[] restart = latest.Where(job => UpdateJobHistory.RestartPending(job, installed.GetValueOrDefault(job.StableProductKey), inputs.LastScanAt)).ToArray();
+        UpdateJobRecord[] restart = latest.Where(job => UpdateJobHistory.RestartPending(job, installed.GetValueOrDefault(job.StableProductKey), inputs.LastScanAt, inputs.LastBootAt)).ToArray();
         int Count(string status) => rows.Count(row => row.Status == status);
         HomeCounts counts = new(rows.Count, ready, Count(nameof(UpdateIntelligenceStatus.ReviewRequired)), Count(nameof(UpdateIntelligenceStatus.FailedUnavailable)),
             Count(nameof(UpdateIntelligenceStatus.Current)), Count(nameof(UpdateIntelligenceStatus.Unmanaged)), Count(nameof(UpdateIntelligenceStatus.Pinned)),

@@ -1,3 +1,12 @@
+# Tasks 51 and 52 — Restart outcomes and the Update all audit
+
+`FR-UPD-05/06/08–11`, `AC-UPD-06–11`, `FR-UI-06`, `FR-HIS-01/03`; [record](../review/TASK_51_52_RESTART_OUTCOMES_AND_BATCH_AUDIT.md).
+
+- Task 51 (`FR-UPD-09`, `AC-UPD-07/08/11`): `src/PCSteward.Provider.WinGet/WingetRestartExitCodes.cs`; `NonElevatedUpdateRunner.ClassifyExit`, `ElevatedUpdateRunner` and `ApprovedUpdateExecutor` (`RestartReported`); `SequentialUpdateBatchCoordinator` records RestartRequired, never Success; `UpdateOutcomePresenter` (restart before install); `UpdateJobHistory.RestartPending` and `HomeInputs.LastBootAt` (`FR-UI-06`).
+- Task 52 (`FR-UPD-05/06/10/11`, `AC-UPD-09/10`): `RunningApplicationAcknowledgement` and `UpdateBatchItem.AcknowledgedRunningProcesses`; `ReviewedUpdateExecutionWorkflow.ConfirmAndRunAsync` (process-bound acknowledgement, honest cancellation before start, just-in-time approval on the workflow clock).
+- Evidence: fixture `UpdateRunnerSecurityTests.OnlyTypedWingetRestartExitCodesAreRestartEvidence`, `WingetRestartExitCodesMatchTheDocumentedHresults`, `ApprovedExecutorCarriesATypedRestartAsRestartReported`, `ElevatedHelperSecurityTests.HelperRestartExitCodeIsRestartReportedOnlyForWinget`; application `UpdateBatchWorkflowTests` (typed restart, restart before install, new running process, coordinator check, cancellation at three boundaries, exact ceiling and slow first installer) and `HomeActivityDecisionsPresentationTests` (restart pending until a boot).
+- Not claimed: real installer restart codes on Windows, a reboot, or the current-client MSI 3010 case (needs COM, Task 54B).
+
 # Self-updater — security review and the CI test of the install step
 
 `FR-UPD-04/15`, `TM-03/04/12/13/19/20/23/24/26/27`; [review](../review/ADR_032_SELF_UPDATER_SECURITY_REVIEW.md), [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md) sections 6–8.

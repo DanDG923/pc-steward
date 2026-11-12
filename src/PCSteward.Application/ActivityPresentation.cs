@@ -64,9 +64,25 @@ public static class UpdateJobHistory
         job.Outcome.Kind is UpdateOutcomeKind.Failed or UpdateOutcomeKind.InstalledNotVerified or UpdateOutcomeKind.ResultNotVerified
         && !Resolved(job, installedVersion, lastCompletedScanAt);
 
-    /// <summary>True when the recorded attempt reported a reliable restart-pending state that a later scan has not yet resolved.</summary>
-    public static bool RestartPending(UpdateJobRecord job, string? installedVersion, DateTimeOffset? lastCompletedScanAt = null) =>
-        job.Outcome.Kind == UpdateOutcomeKind.RestartRequired && !Resolved(job, installedVersion, lastCompletedScanAt);
+    /// <summary>
+    /// True when the recorded attempt reported a reliable restart-pending state that is still open (Task 51). The restart is done once
+    /// Windows has started since the attempt ended (<paramref name="lastBootAt"/>). Seeing the target version does not close it: an
+    /// installer often registers the new version before the restart that finishes it. A later inventory that shows the app moved on
+    /// (a different version from both the attempt's start and target, or the app absent) does close it.
+    /// </summary>
+    public static bool RestartPending(UpdateJobRecord job, string? installedVersion, DateTimeOffset? lastCompletedScanAt = null,
+        DateTimeOffset? lastBootAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (job.Outcome.Kind != UpdateOutcomeKind.RestartRequired) return false;
+        if (lastBootAt is { } boot && boot > job.EndedAt) return false;
+        if (!string.IsNullOrWhiteSpace(installedVersion) && IsTarget(job, installedVersion)) return true;
+        return !Resolved(job, installedVersion, lastCompletedScanAt);
+    }
+
+    private static bool IsTarget(UpdateJobRecord job, string installedVersion) =>
+        VersionComparison.Compare(new VersionComparisonRequest(installedVersion, job.TargetVersion, AllowPrereleaseCandidate: true)).Outcome == VersionComparisonOutcome.Equal ||
+        SameText(installedVersion, job.TargetVersion);
 
     /// <summary>
     /// FR-UI-06, FR-HIS-01 (Task 73 Phase 3; independent review M2): an attempt no longer needs attention when the latest completed
