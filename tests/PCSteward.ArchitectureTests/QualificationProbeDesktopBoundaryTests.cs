@@ -145,8 +145,10 @@ public sealed class QualificationProbeDesktopBoundaryTests
 
         // The only src file that adds process arguments next to the kind is the probe transport, through ProbeArguments.
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
-        string[] kindLiteral = [.. Sources(src).Where(path => Code(path).Contains("\"--kind\"", StringComparison.Ordinal)).Select(Path.GetFileName)!];
-        Assert.AreEqual(("ReviewedHelperProbeBootstrap.cs"), string.Join(", ", kindLiteral), "the kind key literal is declared once (the helper parser's constant)");
+        string[] kindLiteral = [.. Sources(src).Where(path => Code(path).Contains("\"--kind\"", StringComparison.Ordinal)).Select(Path.GetFileName).Order(StringComparer.Ordinal)!];
+        // ADR-032 revision 2 §6: the self-update session line also starts with the kind key, declared once in its own protocol
+        // file with its own kind value; SelfUpdateBoundaryTests and HelperEndpointBoundaryTests hold that line.
+        Assert.AreEqual(("ReviewedHelperProbeBootstrap.cs, SelfUpdateHelperProtocol.cs"), string.Join(", ", kindLiteral), "the kind key literal is declared once per helper parser");
         string[] kindUse = [.. Sources(src).Where(path => Regex.IsMatch(Code(path), @"\bReviewedHelperProbeBootstrap\.KindKey\b"))
             .Select(Path.GetFileName).Order(StringComparer.Ordinal)!];
         Assert.AreEqual(("ReviewedHelperProbeTransport.cs"), string.Join(", ", kindUse), "only the probe transport emits the kind key");

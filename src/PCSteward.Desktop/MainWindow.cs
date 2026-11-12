@@ -151,6 +151,8 @@ public sealed partial class MainWindow : Window
         BuildWindowChrome();
         if (!showPostResetOnboarding) startupStateLoadFailed = !LoadSavedInventory();
         Render();
+        // ADR-032 revision 2 §8: a recorded PC Steward update is decided once per launch.
+        if (!showPostResetOnboarding) selfUpdateStatusLoad = LoadSelfUpdateStatusAsync();
     }
 
     private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);
@@ -297,7 +299,9 @@ public sealed partial class MainWindow : Window
 
     private static Border Card(FrameworkElement child) => new() { Style = AppStyle("StewardCardStyle"), Child = child };
 
-    private bool HasActiveOperation => scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || executionPending || isClearing || downloads.IsCleaning || preparingReview || isSavingSchedule;
+    // The self-update counts from the owner's Install until PC Steward exits, because a ready session closes the app.
+    private bool HasActiveOperation => (selfUpdateStage is SelfUpdateStage.Installing or SelfUpdateStage.Closing) ||
+        scanCancellation is not null || viewModel.IsScanning || viewModel.IsCheckingUpdates || isExecuting || executionPending || isClearing || downloads.IsCleaning || preparingReview || isSavingSchedule;
 
     /// <summary>Leaving or cancelling the review clears it at once, so the next page is not built while it still counts as open.</summary>
     private void CancelPendingReview()

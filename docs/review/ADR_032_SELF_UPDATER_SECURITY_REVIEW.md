@@ -1,0 +1,179 @@
+# ADR-032 revision 2 — Security review of the in-app self-updater (2026-11-11)
+
+Requirements: `FR-UPD-04/15`, `TM-03/04/12/13/19/20/23/24/26/27`; [ADR-018](../adr/ADR-018-HELPER-IPC-AND-ELEVATION.md), [ADR-032](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md), [ADR-033](../adr/ADR-033-NATIVE-AOT-ELEVATED-HELPER.md), [ADR-034](../adr/ADR-034-SIGNED-PROTECTED-MSI-WITH-PINNED-RELEASE-KEY.md), [design](SELF_UPDATE_HELPER_OPERATION_DESIGN.md), [ADR-034 review](ADR_034_SIGNED_INSTALLER_SECURITY_REVIEW.md).
+
+ADR-032's build order asks for a security review of the whole updater once it is built, with fixes made before the 0.1.1 install or any update on the owner's PC. This is that review. It was done on the helper operation branch (parts 1–3 of build step 4, on top of #55), and its fixes are part of the same pull request.
+
+## 1. Scope and method
+
+Read in full:
+
+- **Publishing:** `.github/workflows/release-payload.yml` (the check artefact), `.github/workflows/publish-release.yml`, `scripts/New-PCStewardReleaseCheck.ps1`.
+- **Desktop check and download:** `PCSteward.SelfUpdate` (`GitHubReleaseClient`, `GitHubReleaseEvidence`, `ReleaseVersion`, `SelfUpdateText`), and in `PCSteward.Execution`: `ReleaseCheckPolicy`, `ReleaseRunEvidence`, `MsiTableDigest`, `ReleaseImageComparison`.
+- **Desktop launch and result:** `PcStewardSelfUpdate`, `SelfUpdateDesktop`, `SelfUpdateDesktopFiles`, `SelfUpdateDesktopTransport`, `MainWindow.SelfUpdate.cs`.
+- **Elevated session:** `SelfUpdateHelperBootstrap`, `SelfUpdateSession`, `SelfUpdateInstallPolicy`, `MsiStructurePolicy`, `HelperGitHubConfirmation`, `SelfUpdateHelperProtocol`, `SelfUpdateAclPolicy`, `WindowsSelfUpdateHost`, and the route-less release check in `OwnerOnlyDeploymentCapabilityReader` and `HelperDeploymentCapabilityCheck`.
+- **Finish copy:** `SelfUpdateFinish` and its Windows host.
+- **Tests:** the fixture and architecture tests named in the design, and section 6 of the Windows MSI CI job (the real finish copy on a real install).
+
+Threat model: the product's own, as in the ADR-034 review. The attacker is any program running as the owner's account without elevation. It can write the owner's profile, `HKCU` (including `HKCU\Environment`, which Windows copies into the environment of a process the owner elevates with `runas`), and the owner's temp folder. It can inject into the unelevated desktop, so it controls everything the desktop sends, including the request. It cannot approve a UAC prompt by itself, and it cannot write `%ProgramFiles%`, `HKLM` or the machine certificate stores. Administrator changes and a compromised GitHub account or YubiKey are outside the model. A release key misuse inside a tampered signing session is inside it: that is the case ADR-034 H1 and the CI anchor exist for.
+
+## 2. Findings
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| M1 | Medium | A refused input copy stayed in the work folder, which every user can read, and a hard-linked source was not refused | **Fixed** here |
+| M2 | Medium | `msiexec` and the finish copy inherited the elevated helper's environment, which the owner's `HKCU\Environment` feeds | **Fixed** here |
+| L1 | Low | The helper accepted a release that is not newer than the installed one, relying on Windows Installer's downgrade rule | **Fixed** here |
+| L2 | Low | The finish copy of an old job could be started again (with a UAC approval) and would run `msiexec` again | **Fixed** here |
+| I1 | Info | The helper's GitHub check fails closed when revocation cannot be checked online | No change: availability only |
+| I2 | Info | The desktop's job file and its download folder are writable by any same-user program | No change: they only steer what the owner sees, never what is installed |
+| I3 | Info | A same-user program can make the finish copy wait (keep a PC Steward process open) or fail (start a second install) | No change: denial of service only; every outcome is recorded and nothing unchecked is installed |
+| I4 | Info | `publish-release.yml` holds `contents: write` | No change: hand-started, inputs passed through the environment and checked before use, no third-party action |
+
+### M1 — refused copies stayed readable, and hard links were not refused (Medium)
+
+**What.** Step 5 of the session copies the two downloads from the owner's download folder into the new work folder, opening the source as the elevated helper. The open already refuses a reparse point, a second data stream and any path whose final name differs from the one asked for, so a junction or symbolic link anywhere on the path is never followed. Two gaps remained:
+
+- A hard link is not a reparse point and has the asked-for final path, so a link in the download folder to a file elsewhere was opened and copied.
+- When the copy's hash differed from the approved one, the copy was left in the work folder. The work folder grants read access to Authenticated Users, because the desktop must read `result.json` and `expected-install.json` without elevation.
+
+**Impact.** A same-user program that can create a hard link to a file the owner cannot read, but administrators can, could have the helper copy that file into a folder every user can read. Current Windows builds limit hard links to files the caller can write, which makes this hard to reach, but the helper should not depend on that.
+
+**Fixed here.**
+
+- `OpenPlainFile` (every file the host opens) also requires exactly one name (`FileStandardInfo.NumberOfLinks == 1`) and no pending delete.
+- `CopyInput` deletes its copy whenever the verdict is not `Copied`.
+
+### M2 — msiexec and the finish copy inherited a user-controlled environment (Medium)
+
+**What.** Windows builds the environment of a process started with `runas` from the owner's environment, including `HKCU\Environment`, which any same-user program can write. The helper itself is a Native AOT image and refuses .NET runtime control names (ADR-033 and the H1 guard). But `msiexec` was started with the inherited environment, and the finish copy was started by `CreateProcess` with no environment block, so it inherited the same one. That passed `TEMP`, `TMP`, `PATH`, `windir`, `SystemRoot` and the rest to `msiexec` running as administrator. User-set `windir` and `SystemRoot` values have been used for elevation attacks against other elevated programs before.
+
+**Impact.** No direct path to code execution was found: `msiexec` is started from a fixed System32 path, and the install itself runs in the Windows Installer service. But the elevated `msiexec` client, which performs the administrative extract, could use the user's `TEMP` for its temporary files. A same-user program could then race those files. The file-by-file comparison with the CI build would refuse a changed file, so the harm found was limited to denial of service. Even so, the helper should pass none of that environment on, as the Chocolatey runner already does (`ChocolateyCompiledEnvironment`).
+
+**Fixed here.** `WindowsSelfUpdateHost.CompiledEnvironment` builds the whole environment from the system directory and the machine's known folders. It never reads an environment value. The temporary folder is the protected work folder.
+
+- `RunMsiexecAsync` now takes the work folder, refuses one that is not a protected work folder, clears the environment and applies the compiled one.
+- `StartFinish` passes the same environment as an explicit block.
+- Section 6 of the Windows MSI CI job runs the administrative extract, the install and the uninstall through this host, so a variable Windows Installer needs and the compiled set lacks would fail CI.
+
+### L1 — no newer-version rule in the helper (Low)
+
+**What.** The helper checked that the record, the request and the MSI agree on the version, but not that the version is newer than the installed one. A same-user program controlling the desktop can ask for any genuine, signed release. Windows Installer refuses an older version (the MSI's `MajorUpgrade` downgrade rule, proven in CI). A same-version request was left to the package rules.
+
+**Fixed here.** Right after the installed-release check, the session reads the installed release manifest and refuses with the new code `version-not-newer` unless the requested version is greater (`SelfUpdateInstallPolicy.IsNewerVersion`, which ignores the installed version's suffix, such as `-private-beta`).
+
+### L2 — an old job's finish copy could run again (Low)
+
+**What.** The work folder of the newest earlier job is kept until the desktop has read its result. Its `bin` still holds a helper copy. Started again elevated with `--finish-self-update <leaf>`, which takes a UAC approval from the owner, it would wait for PC Steward to close and run `msiexec /i` on that job's MSI again. Windows Installer would refuse it as a downgrade or same-version install, and the new `result.json` could not be written. So no harm was found, but a finish copy has no reason to run twice.
+
+**Fixed here.** The finish copy refuses (exit 20, nothing run, nothing written) when its job already has a `result.json`.
+
+### I1–I4
+
+- **I1.** The helper's TLS check to `api.github.com` uses only the machine root stores and online revocation for the whole chain. A network that blocks the revocation servers makes the update refuse with "could not be confirmed with GitHub". That is the intended fail-closed behaviour.
+- **I2.** `%LocalAppData%\PCSteward\downloads\SelfUpdate` and its `job.json` belong to the owner's account. A same-user program can change what the About card and Home banner say, or delete a download. It cannot change what the helper installs: the helper re-derives everything from the request's hashes, the record and GitHub.
+- **I3.** The finish copy installs only once no process runs an image from the install root. A same-user program can therefore delay it until it records `pc-steward-did-not-close`. Starting a second install at the same time makes Windows Installer refuse one of them (`install-failed`). Both outcomes are recorded and shown, and nothing unchecked is installed.
+- **I4.** `publish-release.yml` needs `contents: write` to create the draft. It runs only by hand, with `actions: read` as its only other permission. It reads the run id from the environment and requires digits only. It checks the run, the artefact digest and the record before creating anything. It uses only `gh` and `jq` on the hosted runner. Publishing remains the owner's step in the browser, after attaching the YubiKey-signed MSI.
+
+## 3. Independent review (preliminary)
+
+The owner had a second model review the updater against the same threat model. It saw the pushed release check (#55), the release install script and ADR-032, but not the helper files, which were not pushed yet. Its findings, numbered R1–R7 here, and what was done:
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| R1 | High (untested) | Windows Installer consults the caller's own registrations under `HKCU\Software\Microsoft\Installer`. A same-user program that registers PC Steward's ProductCode there, with a transform, could make the elevated `msiexec` apply it | **Narrowed** here; residual race below |
+| R2 | Medium | The installed-product list (`RelatedProducts`) merges in those same per-user registrations, and the fail-closed uninstall removed every product in it | **Fixed** here |
+| R3 | Medium | Against this threat model, "signed by the owner's key" and "a genuine CI run" are not independent; a tag named like a release branch also reported that name as `head_branch` | **Narrowed** here; the rest is recorded in ADR-032 §2 |
+| R4 | Low | A same-user program can force `msiexec`'s restart-needed result, which moves the final check to the desktop | Accepted: see below |
+| R5 | Low | The structure rule was a deny-list | **Fixed** here: an allow-list |
+| R6 | Info | The tables digest does not cover the summary stream, the cabinet's bytes or sub-storages | No change: the cabinet's files are compared after unpacking and after install |
+| R7 | Info | The helper's GitHub client: machine roots only, online revocation | Already as recommended (no proxy, no redirects, no decompression, `name` filter) |
+
+**R1 and R2, fixed and narrowed.**
+
+- `MsiProductRegistration` holds the packed-GUID rule and the keys.
+- The helper reads installed products only from the administrator-only `HKLM\SOFTWARE\Classes\Installer\UpgradeCodes` key, with each version asked in the machine context (`MsiGetProductInfoEx`, `MSIINSTALLCONTEXT_MACHINE`).
+- It refuses to run `msiexec` while the current user's `Products` or `Features` key for the MSI's ProductCode, or the `UpgradeCodes` key for PC Steward's UpgradeCode, exists, or cannot be read:
+  - the session checks before and after the administrative extract (new code `per-user-registration`);
+  - the finish copy checks before the install and before any uninstall, and treats a registration that appeared during the install as a difference.
+- The finish copy removes only the ProductCode the session read from the protected MSI copy (now in `job.json`), and only when the machine registration lists it.
+- `Install-PCStewardRelease.ps1` follows the same rules, so the 0.1.1 install is covered too.
+- A new step in section 6 of the MSI CI job writes the registration and expects the finish copy to refuse with 0.1.1 still installed (`self-update-finish-refuses-a-per-user-registration`).
+
+*Residual:* the check and `msiexec` are two steps. A program that writes the registration in between still reaches `msiexec`. Whether Windows Installer would then apply a per-user transform to this elevated per-machine install has not been tested. Two things would close the race:
+
+- the machine policy that makes Windows Installer ignore per-user registrations (`DisableUserInstalls`);
+- running `msiexec` under an account whose registry the owner cannot write.
+
+Both change the owner's PC beyond PC Steward, so they are the owner's decision.
+
+**R3, narrowed.** `release-payload.yml` now fails first unless it runs on the branch `phase/4-beta` or `main`. ADR-032 §2 states the limit, and lists signing or approval on a second device under "Reconsider when". Rulesets on the release branches and tags are a GitHub setting the owner can add.
+
+**R4, accepted.** The MSI the finish copy installs has passed every check before `msiexec` (pin, tables, the unpacked image against the CI build), and the R1 checks run before the install. A forced restart therefore delays the verdict but cannot turn it into a wrong install. After the restart, the desktop decides against the helper's protected `expected-install.json`, and every later helper launch still checks the installed helper's pin first.
+
+## 4. Independent review of the helper code
+
+The same reviewer then read the admin-side code at `87b4991` in full (the session, the Windows host, the finish copy, the structure rule, the GitHub check, the registration rules, the ACL policy, the bootstrap, the job and result parsing, the install script and the release workflow). It found no way for a same-user program to make the helper install, run or expose anything but the CI build the release key signed. Its findings are numbered S1–S6 so they do not clash with the ones above:
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| S1 | High (confirmed on Windows CI) | The R1 check can be timed: the logs sat in a folder every user can read, so a program can tell when `msiexec` runs. It also missed the product the upgrade replaces and the owner's own `HKCU\Software\Classes\Installer` | **Fixed** here by setting the `DisableUserInstalls` machine policy around PC Steward's own install and uninstall (owner's choice, ADR-032 owner decision 4) |
+| S2 | Low | The input copies, image and logs were readable by every user while written, and a refused copy until it was removed | **Fixed** here |
+| S3 | Low | A session stopped after the job files were written left a job the finish copy could still install later | **Fixed** here |
+| S4 | Info | Earlier work folders were removed before the request was checked, so made-up requests could clear the last job's result | **Fixed** here |
+| S5 | Info | The structure allow-list is by table name; allowed tables can still place files anywhere | No change: the tables digest covers their contents once GitHub has confirmed the check file |
+| S6 | Info | The release-branch guard lives in the workflow it guards | No code change: rulesets on the release branches and on tags with those names are the owner's GitHub setting |
+
+**S1, narrowed.**
+
+- The check now covers the new product, every product the machine registration lists under PC Steward's UpgradeCode (the one the upgrade removes), and the UpgradeCode itself. It looks under both `HKCU\Software\Microsoft\Installer` and `HKCU\Software\Classes\Installer` (`MsiProductRegistration.PerUserKeys`). The helper, the finish copy and `Install-PCStewardRelease.ps1` use the same keys.
+- The logs no longer give the timing away (S2).
+- A new section 7 of the MSI CI job answers the open question on a real runner, as evidence only. As the runner's user it registers each PC Steward product per-user with a marker transform (`msiexec /ju … /t …`, which writes the same `HKCU` keys a same-user program could), then runs a plain elevated `msiexec /i` of the per-machine 0.1.2 package and looks for the marker in the logs. It does this once for the new product and once for the installed 0.1.1 product.
+  - If the transform is never applied, S1 closes and the check stays as defence in depth.
+  - If it is applied, the check cannot be made race-free and the fix is the machine policy or a separate account (section 3). That would affect every MSI the owner installs with a UAC prompt, not only PC Steward.
+- **Result (CI run on `d1e69ae`, 2026-11-11).** With the new 0.1.2 product registered for the runner's user with the marker transform, the elevated `msiexec /i` of 0.1.2 loaded that transform. Its server-side log shows `Property(S): PCSTEWARDPERUSERMARKER = new-product`. That install then failed (1603) and left 0.1.1 installed. The case for the installed 0.1.1 product could not be set up: `msiexec /ju` of a product already installed for the machine fails (1603), so no registration existed and the update installed normally. So **S1 is confirmed for the new product**: during the moment between the helper's check and `msiexec` reading the registration, a same-user program can make an elevated install apply its transform. A transform can add custom actions. This exposure applies to every elevated MSI install on the PC, not only PC Steward. The helper's check still stops a registration written beforehand.
+- **How it happens (CI run on `3cb0b1b`).** The elevated install's log says `Determined that existing product … is installed per-user`. Windows Installer then treats the whole install as per-user: it marks the owner's transform secure, applies it, and skips the per-machine 0.1.1 as a related product. In this run, PC Steward's own launch condition (an unowned PC Steward folder in Program Files) is the only thing that stopped the install. A transform can remove that condition.
+- **The machine policy closes it (same run).** The same registration was left in place, and `DisableUserInstalls` = 1 was set under `HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer` just before the elevated install. Windows Installer ignored the registration (`ProductState` -1, no transform) and upgraded 0.1.1 to 0.1.2 normally. That key is writable by administrators only, so a same-user program cannot turn the policy off. The choice between this policy, a separate account and accepting the race is the owner's.
+- **Fixed (owner's choice, 2026-11-11: "Require the Windows policy", then "Only during PC Steward updates").** The finish copy and `Install-PCStewardRelease.ps1` set the policy to DWORD 1 (64-bit registry view) just before `msiexec /i`, and refuse without running it (`user-installs-allowed`) if it cannot be set or does not read back as 1. Before any uninstall they check it again. Afterwards they put the owner's previous state back: the value is restored, or deleted if it was absent. That state is kept first in a marker value, `PCStewardRestoreDisableUserInstalls` (`absent` or `dword:<n>`), beside the policy, so a run that stops before restoring is put right by the next one; a marker in any other form makes the run refuse. Only administrators can write that key. The R1 check for an existing registration stays as defence in depth.
+- **One run at a time (Codex review of `2040aad`).** Two overlapping runs could each restore the policy while the other still needed it. Every PC Steward change of the policy, in the helper and in the install script, now holds a machine-wide lock from before it sets the policy until the owner's state is back: the file `PCSteward-installer-policy.lock` directly in `%ProgramFiles%` (only administrators can create files there), opened with no sharing and deleted when its handle closes, so a stopped process never keeps it. A run that finds it held refuses without running `msiexec` (`installer-policy-busy` in the helper).
+- **A stopped run is put right before the next unpack (same review).** The session's `/a` takes the same lock, and while holding it a restore marker can only be left over from a stopped run, so it puts the owner's state back first. Otherwise a leftover policy would make every later unpack fail with error 1934.
+- **The unpack runs without the policy.** CI run on `2884677` showed that an administrative install (`msiexec /a`) fails with error 1934 ("User installations are disabled via policy on the machine") while the policy is set. So the helper session's `/a` runs without it, after the R1 check. The `/a` image is then compared file by file with the CI payload, so a transform could change it only into a tree the session refuses. MSI CI section 7 case `admin-image` records whether `/a` applies a per-user transform at all. **Result (CI run on `2040aad`):** with the runner's user holding a per-user registration of 0.1.2 with the marker transform, the elevated `/a` logged that the product is installed per-user but also `Transforms are not secure` and an empty `TRANSFORMS` property, and the marker never appeared. So the administrative unpack does not apply the owner's transform, and the unpack is not exposed to S1.
+- **Windows CI** checks that the release install restores an owner's `0` after a failed run and leaves no value after a normal one (`release-install-restores-the-owners-policy`), and that the finish copy restores the state a stopped run left in the marker (`self-update-finish-restores-the-owners-policy`).
+
+**S2, fixed.** Each work folder now has a `private` folder created with SYSTEM and Administrators only. The input copies, the administrative image, every `msiexec` log and `msiexec`'s temporary folder go there. The finish copy refuses a job whose `private` folder does not carry that descriptor. Only `job.json`, `expected-install.json`, `result.json` and `bin` stay readable by users. The CI job checks, as a standard user, that the folder cannot be listed.
+
+**S3, fixed.** From the moment a job file may exist until the finish copy has started, a session that stops writes a `result.json` (`refused-before-install`, `session-stopped`). That covers a desktop disconnect, a spent budget, a failed write and a failed start. The finish copy never runs a job that already has a result.
+
+**S4, fixed.** Earlier work folders are removed only after the helper's own GitHub check has confirmed the request.
+
+## 5. What holds
+
+These properties were checked and need no change:
+
+- **No path from the desktop.** The request is one canonical JSON object of job values and the launch nonce. Both inputs are found by hash under the requesting user's profile, which is read from the administrator-only ProfileList key.
+- **Trust comes after the copy.** Everything is checked on the copies in the new administrator-only work folder, in this order: the compiled pins and the record, GitHub's own answer (from the helper, not the desktop), the MSI's pin, structure and table digest, and the unpacked image against the CI build file by file. Only then are the job files written and the finish copy started.
+- **Install and verify.** The finish copy runs from the work folder's `bin`, never from the install root it replaces. It re-hashes the MSI before installing it. After the install it checks the installed tree, its DACLs, both executables' pin and the product registration, and uninstalls the new product on any difference.
+- **The launch is the reviewed one.** The desktop side reuses the protocol-2 launch checks: fixed paths, launch trust before and after the prompt, the runtime-environment guard, a restricted per-launch pipe, and peer checks by PID, path, session, SID, signer and the held helper image. The binding set is released only after the helper's exit has been observed.
+- **No account.** All GitHub requests are anonymous, to compiled addresses. The desktop follows redirects only to GitHub hosts. The helper follows none.
+
+## 6. Evidence
+
+- **Fixture tests:** `SelfUpdateHelperSessionTests` now covers the two `version-not-newer` refusals and the finish copy's refusal of a job with a result, and `SelfUpdateInstallPolicyTests` covers `IsNewerVersion`.
+- **Independent review fixes:**
+  - `SelfUpdateHelperSessionTests` covers a per-user registration before and after the extract, a package without a ProductCode, the finish copy's refusal before `msiexec`, a registration that appears during the install (no uninstall), and a machine product that is not the MSI's own (never removed).
+  - `SelfUpdateInstallPolicyTests` covers the packed-GUID rule and the structure allow-list (27 refused tables, every allowed one).
+  - The architecture test `TheOwnersRegistryNeverSteersMsiexec` keeps the merged product list out of the helper and the install script.
+  - `ThePayloadIsBuiltOnDemandFromACommitWithBothPins` requires the branch guard before checkout.
+- **Helper code review fixes:**
+  - `SelfUpdateHelperSessionTests` requires the input copies, image and logs in the private folder, the job files beside it, a refusal when the private folder cannot be made or is not administrators-only, a closed job after a failed write, a failed start or a desktop disconnect after the job files, and old folders removed only after GitHub confirmed.
+  - `SelfUpdateInstallPolicyTests` covers the per-user keys for several products in both locations.
+  - The MSI CI job checks that a standard user cannot list the private folder, and records the section 7 experiment in its evidence file.
+- **Windows CI (section 6 of the MSI job):** the real finish copy, through the production host and its compiled environment, uninstalls a mismatching install and installs and verifies a matching one. The installed helper refuses to act as a finish copy. The desktop's read reports Failed and Updated as a standard user.
+
+Some of the fixes are Windows-only paths in `WindowsSelfUpdateHost` that CI reaches only partly:
+
+- The hard-link refusal runs on every file the host opens in section 6, but only on the accepting side: no test offers a hard link.
+- No test offers a refused copy, so the deletion of a refused copy is not run either.
+- Section 6 starts the finish copy from the script, so `StartFinish`'s environment block first runs in the owner's first real update.
+
+A Windows host test for the refused branches is a possible follow-up.

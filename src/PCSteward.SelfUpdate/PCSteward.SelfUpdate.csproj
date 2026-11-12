@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ADR-032 revision 2 §4–§5: PC Steward's own update check and download. GitHubReleaseClient is the only file that touches the
+    network; it reads public release and Actions data from compiled addresses and never sends a token. The checks are pure
+    functions over bytes, and the shared record parser lives in PCSteward.Execution so the elevated helper can re-check without
+    referencing this project. No file, process or registry access lives here (the desktop owns the download folder), and
+    neither the scheduled host nor the elevated helper may reference this project (architecture SelfUpdateBoundaryTests).
+  -->
+  <PropertyGroup><TargetFramework>net10.0-windows10.0.22000.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../PCSteward.Execution/PCSteward.Execution.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PCSteward.Security.FixtureTests" />
+  </ItemGroup>
+</Project>

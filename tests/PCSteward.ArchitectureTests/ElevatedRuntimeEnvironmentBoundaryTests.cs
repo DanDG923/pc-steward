@@ -13,7 +13,7 @@ namespace PCSteward.ArchitectureTests;
 public sealed class ElevatedRuntimeEnvironmentBoundaryTests
 {
     private const string GuardFile = "ElevatedRuntimeEnvironmentGuard.cs";
-    private static readonly string[] Users = ["ReviewedHelperProbeTransport.cs", "ReviewedHelperProtocol2Transport.cs", "WindowsElevatedHelperTransport.cs"];
+    private static readonly string[] Users = ["ReviewedHelperProbeTransport.cs", "ReviewedHelperProtocol2Transport.cs", "SelfUpdateDesktopTransport.cs", "WindowsElevatedHelperTransport.cs"];
 
     [TestMethod]
     public void EveryRunasLaunchIsGuardedBeforeProcessStart()
@@ -33,7 +33,7 @@ public sealed class ElevatedRuntimeEnvironmentBoundaryTests
                 StringAssert.Contains(between, "ElevatedRuntimeEnvironmentGuard.PermitsElevatedLaunch()", $"{path}: unguarded runas launch");
             }
         }
-        Assert.AreEqual(3, launches, "the protocol-1, protocol-2 and probe launchers");
+        Assert.AreEqual(4, launches, "the protocol-1, protocol-2, probe and self-update launchers");
     }
 
     [TestMethod]

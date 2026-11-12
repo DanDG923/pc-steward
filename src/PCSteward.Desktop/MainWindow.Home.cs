@@ -46,6 +46,8 @@ public sealed partial class MainWindow
         }
 
         // FR-UI-06: failed or unverified updates and pending restarts, as info bars above the page (approved target T-Home-Ready).
+        // ADR-032 revision 2 §8: PC Steward's own recorded update comes first.
+        if (SelfUpdateHomeBanner() is { } selfUpdateBanner) panel.Children.Add(selfUpdateBanner);
         foreach (HomeNotice notice in home.Notices) panel.Children.Add(HomeNoticeBar(notice));
         panel.Children.Add(StewardVisuals.PageTitle("Home"));
         panel.Children.Add(HomeStatusCard(home));

@@ -1,0 +1,81 @@
+name: Publish release
+
+# ADR-032 revision 2 §12 step 3 (FR-UPD-04/15, TM-19): turn one green "Release payload" run into a DRAFT GitHub release with
+# the run's check file attached, on demand only. It checks that the run is a successful, hand-started release-payload.yml run
+# of this repository on phase/4-beta or main, downloads that run's pc-steward-release-check artefact, and refuses unless the
+# zip's SHA-256 is the digest GitHub records for it and its record names this run and commit. The tag is v<msiVersion> at the
+# run's commit. It cannot sign anything: the owner attaches the YubiKey-signed PCSteward-<msiVersion>.msi to the draft in the
+# browser and publishes it, and immutable releases then stop the tag and assets changing. PC Steward trusts nothing written
+# here beyond what its own checks (ADR-032 §3–§6) confirm with GitHub and the release key.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The id of a green "Release payload" run (digits only)
+        required: true
+        type: string
+
+# contents: write creates the draft release; actions: read downloads the run's artefact. Nothing else.
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  draft-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the run and its check file, then create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || fail "The run id must be digits only."
+
+          run_json="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID")"
+          jq -e --arg repository "$REPOSITORY" --argjson id "$RUN_ID" '
+            .id == $id and .path == ".github/workflows/release-payload.yml" and .event == "workflow_dispatch" and
+            .status == "completed" and .conclusion == "success" and (.head_branch == "phase/4-beta" or .head_branch == "main") and
+            .repository.full_name == $repository and .head_repository.full_name == $repository' <<<"$run_json" >/dev/null ||
+            fail "Run $RUN_ID is not a successful hand-started Release payload run of this repository on phase/4-beta or main."
+          commit="$(jq -r '.head_sha' <<<"$run_json")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "The run's commit is not a full commit id."
+
+          artifacts_json="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?name=pc-steward-release-check")"
+          jq -e '.artifacts | length == 1' <<<"$artifacts_json" >/dev/null || fail "The run does not have exactly one pc-steward-release-check artefact."
+          jq -e '.artifacts[0].expired == false' <<<"$artifacts_json" >/dev/null || fail "The run's check artefact has expired (90 days). Build a new release payload."
+          artifact_id="$(jq -r '.artifacts[0].id' <<<"$artifacts_json")"
+          digest="$(jq -r '.artifacts[0].digest' <<<"$artifacts_json")"
+          [[ "$artifact_id" =~ ^[1-9][0-9]{0,19}$ ]] || fail "The artefact id is not a number."
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "GitHub does not report a SHA-256 digest for the check artefact."
+
+          work="$RUNNER_TEMP/publish-release"
+          mkdir -p "$work"
+          zip="$work/pc-steward-release-check.zip"
+          gh api "repos/$REPOSITORY/actions/artifacts/$artifact_id/zip" > "$zip"
+          actual="sha256:$(sha256sum "$zip" | cut -d' ' -f1)"
+          [[ "$actual" == "$digest" ]] || fail "The downloaded check file is not the one GitHub recorded ($actual, expected $digest)."
+
+          entries="$(unzip -Z1 "$zip")"
+          [[ "$entries" == "release-check.json" ]] || fail "The check file must hold exactly release-check.json."
+          record="$(unzip -p "$zip" release-check.json)"
+          jq -e --argjson id "$RUN_ID" --arg commit "$commit" --arg repository "$REPOSITORY" '
+            .runId == $id and .sourceCommit == $commit and (.repository | ascii_downcase) == ($repository | ascii_downcase)' <<<"$record" >/dev/null ||
+            fail "The check file does not name this run, commit and repository."
+          version="$(jq -r '.msiVersion' <<<"$record")"
+          [[ "$version" =~ ^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$ ]] || fail "The check file's MSI version is not major.minor.patch."
+          tag="v$version"
+          if gh api "repos/$REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then fail "Tag $tag already exists."; fi
+
+          notes="$work/notes.md"
+          {
+            echo "PC Steward $version, built by [Release payload run $RUN_ID](https://github.com/$REPOSITORY/actions/runs/$RUN_ID) from commit $commit."
+            echo
+            echo "Draft: attach the signed \`PCSteward-$version.msi\` before publishing. PC Steward installs it only if it is signed with one of its release keys and matches this build."
+          } > "$notes"
+          gh release create "$tag" "$zip" --repo "$REPOSITORY" --draft --target "$commit" --title "PC Steward $version" --notes-file "$notes"
+          echo "Draft release $tag created at $commit with the check file attached." >> "$GITHUB_STEP_SUMMARY"

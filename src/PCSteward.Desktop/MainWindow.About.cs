@@ -62,6 +62,7 @@ public sealed partial class MainWindow
         panel.Children.Add(Card(identityCard));
 
         panel.Children.Add(StewardVisuals.InformationBanner("Preview build", "For private testing only. Install it only from your private release channel and check its published checksum.", "attention"));
+        panel.Children.Add(BuildSelfUpdateCard());
 
         StackPanel works = new() { Spacing = StewardSpacing.XSmall };
         works.Children.Add(SectionHeading("How PC Steward works"));

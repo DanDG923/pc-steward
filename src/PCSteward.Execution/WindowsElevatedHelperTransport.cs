@@ -513,6 +513,8 @@ internal static class ProtectedLaunchLayout
 public static partial class ElevatedHelperEntryPoint
 {
     /// <summary>
+    /// ADR-032 revision 2 §6–§7: the finish line (<c>--finish-self-update &lt;leaf&gt;</c>) and the self-update session line
+    /// (<c>--kind pcsteward-self-update</c>) are selected first, by their exact shapes, so neither reaches another mode.
     /// Task 50 design rev 6 §5.1 and qualification probe spec rev 4 §2 (dispatch order is normative): a ten-argument line with
     /// <c>--kind</c> first goes to the probe bootstrap (<see cref="RunProbeAsync"/>), which never reads a request; otherwise
     /// <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every other command line takes the
@@ -522,6 +524,8 @@ public static partial class ElevatedHelperEntryPoint
     /// </summary>
     public static Task<int> RunAsync(string[] arguments) =>
         !ElevatedRuntimeEnvironmentGuard.ProcessEnvironmentIsClean() ? Task.FromResult(ElevatedRuntimeEnvironmentGuard.RefusedExitCode) :
+        SelectsSelfUpdateFinish(arguments) ? RunSelfUpdateFinishAsync(arguments) :
+        SelectsSelfUpdate(arguments) ? RunSelfUpdateAsync(arguments) :
         SelectsProbe(arguments) ? RunProbeAsync(arguments) :
         SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : RunProtocol1Async(arguments);
 

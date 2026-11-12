@@ -113,6 +113,30 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
         binding = null;
         // A route the compiled allowlist can never contain needs no file I/O.
         if (!DeploymentCapabilityPolicy.CapabilityOperationAllowlist.Contains(route)) return Result(HelperProtocolCapabilityStatus.Mismatch);
+        return TryHoldFor(route, out binding);
+    }
+
+    /// <summary>
+    /// ADR-032 revision 2 §6 step 2: is this an intact MSI release install (<see cref="ReleaseManifestPolicy.EvaluateInstalledRelease"/>)?
+    /// The same reads, protection checks and holds as a route evaluation, released before return. An ADR-022 owner-only
+    /// install is <see cref="HelperProtocolCapabilityStatus.Absent"/>: PC Steward updates only its own MSI install.
+    /// </summary>
+    internal HelperProtocolCapabilityResult EvaluateInstalledRelease()
+    {
+        HelperProtocolCapabilityResult result = TryHoldInstalledRelease(out HeldHelperBinding? binding);
+        binding?.Dispose();
+        return result;
+    }
+
+    /// <summary>
+    /// <see cref="EvaluateInstalledRelease"/> keeping the binding set held for the caller (the desktop's self-update launch holds
+    /// it from the check until the helper has exited, as the reviewed transport does for a route).
+    /// </summary>
+    internal HelperProtocolCapabilityResult TryHoldInstalledRelease(out HeldHelperBinding? binding) => TryHoldFor(null, out binding);
+
+    private HelperProtocolCapabilityResult TryHoldFor(UpdateRouteContract? route, out HeldHelperBinding? binding)
+    {
+        binding = null;
         if (!OperatingSystem.IsWindows()) return Result(HelperProtocolCapabilityStatus.Unreadable);
         Dictionary<string, SafeFileHandle> held = new(StringComparer.Ordinal);
         try
@@ -133,7 +157,7 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
         }
     }
 
-    private HelperProtocolCapabilityStatus Read(UpdateRouteContract route, Dictionary<string, SafeFileHandle> held, out HeldHelperBinding? binding)
+    private HelperProtocolCapabilityStatus Read(UpdateRouteContract? route, Dictionary<string, SafeFileHandle> held, out HeldHelperBinding? binding)
     {
         binding = null;
         // Step 2: fixed layout.
@@ -157,7 +181,9 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
         string? ledgerSha256 = null;
         HelperProtocolCapabilityStatus status = releasePresent
             ? ReadRelease(route, installRoot, releaseManifestPath, held, paths, observed)
-            : ReadOwnerOnly(route, layout, installRoot, stateRoot, held, paths, observed, out ledgerSha256);
+            : route is { } ownerOnlyRoute
+                ? ReadOwnerOnly(ownerOnlyRoute, layout, installRoot, stateRoot, held, paths, observed, out ledgerSha256)
+                : HelperProtocolCapabilityStatus.Absent;
         if (status != HelperProtocolCapabilityStatus.Supported) return status;
 
         // Probe spec rev 4 §5.3 pin sources (review M-1, D9): values only, for the Desktop role, and never part of the status.
@@ -210,27 +236,34 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
     /// lists, then the §3 pinned signatures of both held executables (same compiled pin). Same bounds and handles as the
     /// owner-only path; nothing else is read.
     /// </summary>
-    private HelperProtocolCapabilityStatus ReadRelease(UpdateRouteContract route, string installRoot, string releaseManifestPath,
+    private HelperProtocolCapabilityStatus ReadRelease(UpdateRouteContract? route, string installRoot, string releaseManifestPath,
         Dictionary<string, SafeFileHandle> held, Dictionary<string, string> paths, Dictionary<string, DeploymentObservedFile> observed)
     {
         if (!protection(installRoot, [releaseManifestPath])) return HelperProtocolCapabilityStatus.Unreadable;
         byte[]? manifest = ReadWhole(releaseManifestPath, ReleaseManifestPolicy.MaximumManifestBytes);
         if (manifest is null) return HelperProtocolCapabilityStatus.Unreadable;
         ReleaseCapabilityInputs inputs = new(manifest, null, NoObservations, false);
-        if (!ReleaseManifestPolicy.PassesThrough(inputs, route, DeploymentCapabilityStage.Ledger, out HelperProtocolCapabilityStatus failure))
+        if (!PassesRelease(inputs, route, DeploymentCapabilityStage.Ledger, out HelperProtocolCapabilityStatus failure))
             return failure;
 
         HelperProtocolCapabilityStatus statement = ReadStatement(installRoot, held, out byte[]? capability);
         if (statement != HelperProtocolCapabilityStatus.Supported) return statement;
         inputs = inputs with { CapabilityBytes = capability };
-        if (!ReleaseManifestPolicy.PassesThrough(inputs, route, DeploymentCapabilityStage.Statement, out failure)) return failure;
+        if (!PassesRelease(inputs, route, DeploymentCapabilityStage.Statement, out failure)) return failure;
 
         HelperProtocolCapabilityStatus hashed = HoldBindingSet(installRoot, held, paths, observed);
         if (hashed != HelperProtocolCapabilityStatus.Supported) return hashed;
         bool samePin = executablesCarrySamePin(
             paths[InstalledHelperLaunchTrust.DesktopExecutableName], paths[InstalledHelperLaunchTrust.HelperExecutableName]);
-        return ReleaseManifestPolicy.Evaluate(inputs with { ObservedHashes = observed, ExecutablesCarrySamePin = samePin }, route).Status;
+        ReleaseCapabilityInputs complete = inputs with { ObservedHashes = observed, ExecutablesCarrySamePin = samePin };
+        return (route is { } named ? ReleaseManifestPolicy.Evaluate(complete, named) : ReleaseManifestPolicy.EvaluateInstalledRelease(complete)).Status;
     }
+
+    private static bool PassesRelease(ReleaseCapabilityInputs inputs, UpdateRouteContract? route, DeploymentCapabilityStage stage,
+        out HelperProtocolCapabilityStatus failure) =>
+        route is { } named
+            ? ReleaseManifestPolicy.PassesThrough(inputs, named, stage, out failure)
+            : ReleaseManifestPolicy.PassesThroughInstalledRelease(inputs, stage, out failure);
 
     /// <summary>
     /// Protection of the install root and every present binding-set leaf, then the capability statement read through its held

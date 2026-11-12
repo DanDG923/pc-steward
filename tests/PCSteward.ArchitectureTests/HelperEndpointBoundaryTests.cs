@@ -72,6 +72,7 @@ public sealed class HelperEndpointBoundaryTests
     private static readonly string[] PortInterfaces = [Native + "IChocolateyHelperQualificationPort", Native + "IChocolateyPeer", Native + "IChocolateyHelperItem"];
 
     private const string Bootstrap = "PCSteward.Execution.ReviewedHelperBootstrap";
+    private const string SelfUpdateBootstrap = "PCSteward.Execution.SelfUpdateHelperBootstrap";
     private const string EntryPoint = "PCSteward.Execution.ElevatedHelperEntryPoint";
     private const string Verifier = "PCSteward.Execution.WindowsPeerIdentityVerifier";
     private const string CapabilityCheck = "PCSteward.Execution.HelperDeploymentCapabilityCheck";
@@ -91,6 +92,10 @@ public sealed class HelperEndpointBoundaryTests
         (EntryPoint, [NativePort + "..ctor", NativeProbePort + "..ctor"]),
         // Probe spec rev 4 §3 P0 (review M2): the probe bootstrap opens the peer only through the probe port.
         (ProbeBootstrap, [Native + "IChocolateyProbePort.OpenPeer"]),
+        // ADR-032 revision 2 §6 step 1: the self-update session bootstrap applies the same peer checks and takes the requester
+        // token only for the install check's protection principal (its closure is reported under the bootstrap type).
+        (SelfUpdateBootstrap, [Native + "IChocolateyHelperQualificationPort.OpenPeer", Native + "IChocolateyHelperQualificationPort.BeginItem",
+            Native + "IChocolateyPeer.TryReadIdentity", Native + "IChocolateyHelperItem.RequesterCannotModify"]),
     ];
 
     /// <summary>Protocol-2 types the protocol-1 path must never reference (compiled IL).</summary>
@@ -98,6 +103,8 @@ public sealed class HelperEndpointBoundaryTests
     [
         Bootstrap, Endpoint, Codec, CapabilityCheck, "PCSteward.Execution.WindowsReviewedHelperTransport",
         "PCSteward.Execution.IReviewedHelperCapabilityCheck", ProbeBootstrap, ProbeEndpoint, "PCSteward.Execution.QualificationProbeWireCodec",
+        SelfUpdateBootstrap, "PCSteward.Execution.SelfUpdateSession", "PCSteward.Execution.SelfUpdateFinish", "PCSteward.Execution.WindowsSelfUpdateHost",
+        "PCSteward.Execution.ISelfUpdateInstallCheck",
     ];
 
     [TestMethod]
@@ -172,17 +179,17 @@ public sealed class HelperEndpointBoundaryTests
             CollectionAssert.Contains(called, Native + member);
         CollectionAssert.DoesNotContain(called, Native + "IChocolateyHelperQualificationPort.OpenPeer", "OpenPeer belongs to the N4b bootstrap");
 
-        // The composition root constructs the port only in RunReviewedAsync.
+        // The composition root constructs the port only in RunReviewedAsync and the self-update session root (ADR-032 r2 §6).
         string[] constructing = [.. CompiledIlScanner.References(execution).Where(reference => reference.TargetType == NativePort)
             .Select(reference => reference.LogicalCaller + " -> " + reference.TargetMember).Distinct()];
-        CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync -> .ctor" }, constructing);
+        CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync -> .ctor", EntryPoint + ".RunSelfUpdateAsync -> .ctor" }, constructing);
 
         // Source: exactly the endpoint and the protocol-2 bootstrap name the Native namespace.
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Execution");
         string[] naming = [.. Sources(src).Where(path => File.ReadAllText(path).Contains("PCSteward.Provider.Chocolatey.Native", StringComparison.Ordinal))
             .Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)];
-        Assert.AreEqual("ReviewedHelperBootstrap.cs, ReviewedHelperEndpoint.cs, ReviewedHelperProbeBootstrap.cs, ReviewedHelperProbeEndpoint.cs",
-            string.Join(", ", naming));
+        Assert.AreEqual("ReviewedHelperBootstrap.cs, ReviewedHelperEndpoint.cs, ReviewedHelperProbeBootstrap.cs, ReviewedHelperProbeEndpoint.cs, " +
+            "SelfUpdateHelperBootstrap.cs", string.Join(", ", naming));
     }
 
     private static bool IsPermitted(CompiledIlScanner.IlReference reference)
@@ -306,7 +313,9 @@ public sealed class HelperEndpointBoundaryTests
         CollectionAssert.AreEquivalent(new[] { Bootstrap + ".RunAsync" }, endpointCallers.ToArray());
         CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync" }, bootstrapCallers.ToArray());
         // Probe spec rev 4 §3 A3: the probe composition root constructs the same Helper-role check.
-        CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync", EntryPoint + ".RunProbeAsync" }, checkConstructors.ToArray());
+        // ADR-032 r2 §6 step 2: the self-update session root constructs it for the route-less release-install check.
+        CollectionAssert.AreEquivalent(new[] { EntryPoint + ".RunReviewedAsync", EntryPoint + ".RunProbeAsync", EntryPoint + ".RunSelfUpdateAsync" },
+            checkConstructors.ToArray());
 
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
         string transport = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "WindowsElevatedHelperTransport.cs"));
@@ -353,12 +362,14 @@ public sealed class HelperEndpointBoundaryTests
             // the fixture-layout overload is reached only by that constructor's chain.
             (CapabilityCheck, ".ctor", "()", EntryPoint + ".RunReviewedAsync", null),
             (CapabilityCheck, ".ctor", "()", EntryPoint + ".RunProbeAsync", null),
+            (CapabilityCheck, ".ctor", "()", EntryPoint + ".RunSelfUpdateAsync", null),
             (CapabilityCheck, ".ctor", LayoutFactory, CapabilityCheck + "..ctor", "()"),
             // The fixed helper layout is bound only by the production constructor.
             (Reader, "ResolveHelperLayout", "()", CapabilityCheck + "..ctor", "()"),
-            // The Helper-role reader (the role and protection-principal constructor) is constructed only by G1's Evaluate; the
-            // reader's other constructors only chain into it and have no other src caller.
-            (Reader, ".ctor", ReaderRole, CapabilityCheck + ".Evaluate", null),
+            // The Helper-role reader (the role and protection-principal constructor) is constructed only by G1's shared
+            // EvaluateFor (the route check and the self-update release-install check); the reader's other constructors only
+            // chain into it and have no other src caller.
+            (Reader, ".ctor", ReaderRole, CapabilityCheck + ".EvaluateFor", null),
             (Reader, ".ctor", ReaderRole, Reader + "..ctor", ReaderTwo),
             (Reader, ".ctor", ReaderTwo, Reader + "..ctor", "()"),
             (Reader, ".ctor", ReaderPin, Reader + "..ctor", ReaderRole),
@@ -370,6 +381,10 @@ public sealed class HelperEndpointBoundaryTests
             (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyClientUpdateComposition.CreateSession", "()"),
             // Chocolatey package Confirm addendum §5: and the package route's production composition, in the same shape.
             (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyPackageUpdateComposition.CreateSession", "()"),
+            // ADR-032 revision 2 §6 and §8: the desktop's self-update launch (production constructor) and the reopened desktop's
+            // check of its own install each construct the Desktop-role production reader.
+            (Reader, ".ctor", "()", "PCSteward.Execution.SelfUpdateDesktopTransport..ctor", "()"),
+            (Reader, ".ctor", "()", "PCSteward.Execution.SelfUpdateDesktopFiles.Evaluate", null),
             // The host facts are constructed only from the running process; the record's copy constructor only by its clone.
             (Host, ".ctor", HostFacts, Host + ".TryResolve", null),
             (Host, ".ctor", "(" + Host + ")", Host + ".Clone", "()"),
@@ -443,6 +458,9 @@ public sealed class HelperEndpointBoundaryTests
             EntryPoint + ".RunReviewedAsync", EntryPoint + ".SelectsProtocol2",
             // Probe spec rev 4 §2: the probe dispatch rule and the probe composition root are protocol-2 members too.
             EntryPoint + ".RunProbeAsync", EntryPoint + ".SelectsProbe",
+            // ADR-032 r2 §6–§7: the self-update session and finish-copy dispatch rules and composition roots.
+            EntryPoint + ".RunSelfUpdateAsync", EntryPoint + ".SelectsSelfUpdate",
+            EntryPoint + ".RunSelfUpdateFinishAsync", EntryPoint + ".SelectsSelfUpdateFinish",
         ];
         List<string> violations = [];
         int scanned = 0;

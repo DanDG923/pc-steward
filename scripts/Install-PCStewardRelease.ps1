@@ -24,10 +24,12 @@ param(
 #      its release-payload.json must name that run, commit and both pins; the candidate payload must match its manifest;
 #   2. the MSI is copied into the protected folder; the copy must carry a release pin, and its tables must give the digest
 #      the CI build published in msi-reference.json (PCStewardMsiTables.ps1), so it runs no code and installs only there;
-#   3. msiexec runs on that copy only, with fixed arguments;
+#   3. msiexec runs on that copy only, with fixed arguments, and never while the owner's own registry (HKCU, which any
+#      same-user program can write) registers the product or PC Steward's UpgradeCode;
 #   4. the installed tree must be exactly the CI payload (each executable equal to the CI one apart from its signature,
 #      which must carry a release pin) plus a release manifest that lists it, under the protected folder DACL.
-# On any difference after msiexec, the product is uninstalled and the run fails. Writes nothing outside WorkRoot, the
+# On any difference after msiexec, the MSI's own product (and no other) is uninstalled and the run fails. Installed products
+# are read from the machine's registration only (ADR-032 self-updater security review R1/R2). Writes nothing outside WorkRoot, the
 # install folder Windows Installer manages, and (with -RemoveOwnerOnlyTestDeployment) what the reviewed removal script removes.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -80,11 +82,131 @@ function Copy-IntoProtected([string]$Source, [string]$Leaf, [long]$MaximumBytes,
     if ((Get-Sha256Hex ([IO.File]::ReadAllBytes($target))) -cne $hash) { throw "The protected copy of $Leaf differs." }
     [pscustomobject]@{ Path = $target; Sha256 = $hash; Bytes = [long]$bytes.Length }
 }
+# Windows Installer keys a product under its packed GUID: each of the first three groups reversed, then each of the last
+# eight bytes with its two digits swapped (the same rule as MsiProductRegistration in PCSteward.Execution).
+function ConvertTo-PackedGuid([string]$Guid) {
+    if ($Guid -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "Not an uppercase braced GUID: $Guid" }
+    $groups = @($Matches[1], $Matches[2], $Matches[3]); $tail = $Matches[4] + $Matches[5]
+    (-join @($groups | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
+}
+function ConvertFrom-PackedGuid([string]$Packed) {
+    if ($Packed -cnotmatch '\A[0-9A-F]{32}\z') { throw "Not a packed GUID: $Packed" }
+    $head = @(@(0, 8), @(8, 4), @(12, 4) | ForEach-Object { $part = $Packed.Substring($_[0], $_[1]); -join $part[($part.Length - 1)..0] })
+    $tail = -join @(0..7 | ForEach-Object { $Packed[17 + 2 * $_]; $Packed[16 + 2 * $_] })
+    '{' + $head[0] + '-' + $head[1] + '-' + $head[2] + '-' + $tail.Substring(0, 4) + '-' + $tail.Substring(4) + '}'
+}
+# The products installed for the whole machine under PC Steward's UpgradeCode, from the administrator-only registration in
+# HKLM. Never RelatedProducts, which merges in the owner's own registrations (HKCU) that any same-user program can write.
 function Get-RelatedProducts {
-    $installer = New-Object -ComObject WindowsInstaller.Installer
-    @($installer.GetType().InvokeMember('RelatedProducts', 'GetProperty', $null, $installer, @($upgradeCode)) | ForEach-Object {
-        [pscustomobject]@{ ProductCode = [string]$_; Version = [string]$installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @([string]$_, 'VersionString')) }
+    $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Classes\Installer\UpgradeCodes\' + (ConvertTo-PackedGuid $upgradeCode), $false)
+    if ($null -eq $key) { return @() }
+    try { $names = @($key.GetValueNames() | Where-Object { $_ }) } finally { $key.Dispose() }
+    @($names | ForEach-Object {
+        $properties = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\' + $_ + '\InstallProperties', $false)
+        if ($null -eq $properties) { throw "The machine registration of product $_ has no install properties." }
+        try { $version = [string]$properties.GetValue('DisplayVersion') } finally { $properties.Dispose() }
+        [pscustomobject]@{ ProductCode = (ConvertFrom-PackedGuid $_); Version = $version }
     })
+}
+# True when the owner's own registry registers this product, any product the machine registration lists under PC Steward's
+# UpgradeCode (an upgrade acts on that one too), or the UpgradeCode itself, below either Software\Microsoft\Installer or the
+# owner's own Software\Classes\Installer (Mythos review S1). Windows Installer would consult such a registration (and any
+# transforms it names) when installing or removing the product. A key that cannot be read throws. The same keys as
+# MsiProductRegistration.PerUserKeys in PCSteward.Execution.
+function Test-PerUserRegistration([string]$ProductCode) {
+    $products = @(@($ProductCode) + @(Get-RelatedProducts | ForEach-Object { $_.ProductCode }) | Select-Object -Unique | ForEach-Object { ConvertTo-PackedGuid $_ })
+    foreach ($root in @('Software\Microsoft\Installer\', 'Software\Classes\Installer\')) {
+        $paths = @($products | ForEach-Object { "${root}Products\$_"; "${root}Features\$_" }) + @("${root}UpgradeCodes\" + (ConvertTo-PackedGuid $upgradeCode))
+        foreach ($path in $paths) {
+            $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path, $false)
+            if ($null -ne $key) { $key.Dispose(); return $true }
+        }
+    }
+    $false
+}
+# True only when the administrator-only Windows Installer machine policy DisableUserInstalls is the DWORD 1 (64-bit view), so
+# Windows Installer ignores every per-user registration. Without it, a registration written by any program running as the owner
+# in the moment before msiexec reads it makes the elevated install apply that program's transform (Mythos review S1, confirmed
+# on Windows CI). The same rule as WindowsSelfUpdateHost.UserInstallsIgnored in PCSteward.Execution.
+function Test-UserInstallsIgnored {
+    $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $policy = $machine.OpenSubKey('SOFTWARE\Policies\Microsoft\Windows\Installer', $false)
+        if ($null -eq $policy) { return $false }
+        try { ($policy.GetValueNames() -contains 'DisableUserInstalls') -and ($policy.GetValueKind('DisableUserInstalls') -eq [Microsoft.Win32.RegistryValueKind]::DWord) -and ([int]$policy.GetValue('DisableUserInstalls') -eq 1) }
+        finally { $policy.Dispose() }
+    }
+    finally { $machine.Dispose() }
+}
+# The owner's choice: the policy is set only around this script's own msiexec runs. Enable-UserInstallsIgnored first writes the
+# owner's own state next to it (PCStewardRestoreDisableUserInstalls: "absent" or "dword:<n>"; a marker left by a run that
+# stopped is kept as the owner's state), then sets the DWORD 1; Restore-UserInstallsPolicy puts that state back. The same rules
+# as WindowsSelfUpdateHost.IgnoreUserInstalls in PCSteward.Execution.
+# The machine-wide lock every PC Steward change of the policy holds until the owner's state is back (the same file as
+# MsiProductRegistration.PolicyLockFileName): only administrators can create files directly in Program Files, and the file is
+# opened with no sharing and deleted on close, so two runs never restore each other's policy and a stopped run never keeps it.
+function Open-UserInstallsPolicyLock {
+    try { return [IO.FileStream]::new((Join-Path $programFiles 'PCSteward-installer-policy.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose) }
+    catch { throw 'Another PC Steward install or update is running, so msiexec was not run. Try again in a few minutes.' }
+}
+function Enable-UserInstallsIgnored {
+    $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $policy = $machine.CreateSubKey('SOFTWARE\Policies\Microsoft\Windows\Installer', $true)
+        try {
+            $names = @($policy.GetValueNames())
+            if ($names -contains 'PCStewardRestoreDisableUserInstalls') {
+                if ($policy.GetValueKind('PCStewardRestoreDisableUserInstalls') -ne [Microsoft.Win32.RegistryValueKind]::String -or [string]$policy.GetValue('PCStewardRestoreDisableUserInstalls') -cnotmatch '\A(absent|dword:-?(0|[1-9][0-9]*))\z') { throw 'The saved DisableUserInstalls state is unreadable.' }
+            }
+            else {
+                $previous = 'absent'
+                if ($names -contains 'DisableUserInstalls') {
+                    if ($policy.GetValueKind('DisableUserInstalls') -ne [Microsoft.Win32.RegistryValueKind]::DWord) { throw 'DisableUserInstalls is not a DWORD, so it was left as it is.' }
+                    $previous = 'dword:' + ([int]$policy.GetValue('DisableUserInstalls')).ToString([Globalization.CultureInfo]::InvariantCulture)
+                }
+                $policy.SetValue('PCStewardRestoreDisableUserInstalls', $previous, [Microsoft.Win32.RegistryValueKind]::String)
+            }
+            $policy.SetValue('DisableUserInstalls', 1, [Microsoft.Win32.RegistryValueKind]::DWord)
+            $policy.Flush()
+        }
+        finally { $policy.Dispose() }
+    }
+    finally { $machine.Dispose() }
+}
+function Restore-UserInstallsPolicy {
+    $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $policy = $machine.OpenSubKey('SOFTWARE\Policies\Microsoft\Windows\Installer', $true)
+        if ($null -eq $policy) { return }
+        try {
+            if (@($policy.GetValueNames()) -notcontains 'PCStewardRestoreDisableUserInstalls') { return }
+            $saved = [string]$policy.GetValue('PCStewardRestoreDisableUserInstalls')
+            if ($saved -ceq 'absent') { $policy.DeleteValue('DisableUserInstalls', $false) }
+            elseif ($saved -cmatch '\Adword:(-?(0|[1-9][0-9]*))\z') { $policy.SetValue('DisableUserInstalls', [int]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture), [Microsoft.Win32.RegistryValueKind]::DWord) }
+            else { return }
+            $policy.DeleteValue('PCStewardRestoreDisableUserInstalls', $false)
+            $policy.Flush()
+        }
+        finally { $policy.Dispose() }
+    }
+    finally { $machine.Dispose() }
+}
+# The ProductCode property of the protected MSI copy (read-only database).
+function Get-MsiProductCode([string]$Path) {
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($Path, 0))
+    try {
+        $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductCode'"))
+        try {
+            $null = $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+            $values = [Collections.Generic.List[string]]::new()
+            while ($null -ne ($row = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null))) { $values.Add([string]$row.GetType().InvokeMember('StringData', 'GetProperty', $null, $row, @(1))) }
+        }
+        finally { $null = $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null); $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) }
+    }
+    finally { $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
+    if ($values.Count -ne 1 -or $values[0] -cnotmatch '\A\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}\z') { throw 'The MSI does not have exactly one well-formed ProductCode.' }
+    $values[0]
 }
 function Invoke-Msiexec([string[]]$Arguments, [string]$LogLeaf) {
     $msiexec = Join-Path ([Environment]::SystemDirectory) 'msiexec.exe'
@@ -93,6 +215,8 @@ function Invoke-Msiexec([string[]]$Arguments, [string]$LogLeaf) {
 }
 
 $installed = $false
+$policySet = $false
+$policyLock = $null
 try {
     # 1. The artefact, from the digest in the paste.
     $zip = Copy-IntoProtected $ArtefactZip 'artefact.zip' 1GB $ArtefactSha256
@@ -136,6 +260,8 @@ try {
     if ($tables.Sha256 -cne [string]$reference.tablesSha256) { throw "The MSI's tables ($($tables.Sha256)) differ from the CI build's ($($reference.tablesSha256)); see msi-tables.txt." }
     if ((Get-Sha256Hex ([IO.File]::ReadAllBytes($msi.Path))) -cne $msi.Sha256) { throw 'The protected MSI copy changed.' }
     $result.tablesSha256 = $tables.Sha256
+    $productCode = Get-MsiProductCode $msi.Path
+    $result.productCode = $productCode
 
     # 3. Remove the owner-only test deployment (first install only), then install the protected copy.
     $phase = 'preinstall'
@@ -147,6 +273,11 @@ try {
     }
     elseif (Test-Path -LiteralPath $stateRoot) { throw 'The owner-only test deployment is installed; run with -RemoveOwnerOnlyTestDeployment.' }
     $phase = 'msiexec'
+    $policyLock = Open-UserInstallsPolicyLock
+    $policySet = $true
+    Enable-UserInstallsIgnored
+    if (!(Test-UserInstallsIgnored)) { throw "Windows Installer's DisableUserInstalls machine policy could not be set, so msiexec was not run. Without it another program running as you could change what this elevated install does." }
+    if (Test-PerUserRegistration $productCode) { throw "Your account's own registry registers PC Steward with Windows Installer, which PC Steward never does, so msiexec was not run. Another program may have added it." }
     $before = @(Get-RelatedProducts)
     $code = Invoke-Msiexec @('/i', ('"' + $msi.Path + '"')) 'msiexec-install.log'
     $products = @(Get-RelatedProducts)
@@ -157,8 +288,9 @@ try {
     if ($code -in @(0, 1641, 3010) -or $changed) { $installed = $true }
     if ($code -in @(1641, 3010)) { throw "msiexec committed the install but needs a restart (exit code $code), so the installed files cannot be verified now (see msiexec-install.log)." }
     if ($code -ne 0) { throw "msiexec failed with exit code $code (see msiexec-install.log)." }
-    if ($products.Count -ne 1 -or $products[0].Version -cne $msiVersion) { throw "Expected one installed PC Steward $msiVersion, found: $(($products | ForEach-Object { $_.Version }) -join ', ')." }
-    $result.productCode = $products[0].ProductCode; $result.replacedVersions = @($before | ForEach-Object { $_.Version })
+    if ($products.Count -ne 1 -or $products[0].ProductCode -ne $productCode -or $products[0].Version -cne $msiVersion) { throw "Expected this MSI's product ($productCode) at $msiVersion as the only PC Steward installed for the machine, found: $(($products | ForEach-Object { $_.ProductCode + ' ' + $_.Version }) -join ', ')." }
+    if (Test-PerUserRegistration $productCode) { throw "A per-user registration of PC Steward appeared during the install." }
+    $result.replacedVersions = @($before | ForEach-Object { $_.Version })
 
     # 4. The installed tree is the CI payload, signed with a release key, plus a release manifest that lists it.
     $phase = 'verify'
@@ -205,10 +337,22 @@ try {
 catch {
     $failure = "$phase`: $($_.Exception.Message)"
     if ($installed) {
-        # Fail closed: an install that does not verify is removed.
-        foreach ($product in @(Get-RelatedProducts)) { $null = Invoke-Msiexec @('/x', $product.ProductCode) 'msiexec-uninstall.log' }
-        $failure += ' The installed product was uninstalled.'
-        if (@(Get-RelatedProducts).Count -ne 0 -or (Test-Path -LiteralPath $installRoot)) { $failure += ' WARNING: the uninstall did not complete; do not run PC Steward.' }
+        # Fail closed: an install that does not verify is removed. Only this MSI's own product, only when the machine
+        # registration lists it, and never through a per-user registration (security review R1/R2).
+        $machine = @(); $perUser = $true
+        try { $machine = @(Get-RelatedProducts | Where-Object { $_.ProductCode -eq $productCode }); $perUser = (Test-PerUserRegistration $productCode) -or !(Test-UserInstallsIgnored) } catch { $failure += " Reading the registration failed: $($_.Exception.Message)" }
+        if ($perUser) { $failure += ' WARNING: the install was NOT uninstalled, because a per-user registration of PC Steward exists or the DisableUserInstalls policy is no longer set; do not run PC Steward.' }
+        elseif ($machine.Count -eq 0) { $failure += " WARNING: this MSI's product is not registered for the machine, so nothing was uninstalled; do not run PC Steward." }
+        else {
+            $null = Invoke-Msiexec @('/x', $productCode) 'msiexec-uninstall.log'
+            $failure += ' The installed product was uninstalled.'
+            if (@(Get-RelatedProducts | Where-Object { $_.ProductCode -eq $productCode }).Count -ne 0 -or (Test-Path -LiteralPath $installRoot)) { $failure += ' WARNING: the uninstall did not complete; do not run PC Steward.' }
+        }
     }
     throw $failure
+}
+finally {
+    # The owner's own DisableUserInstalls state is put back once msiexec is done (and after any fail-closed uninstall).
+    try { if ($policySet) { Restore-UserInstallsPolicy } }
+    finally { if ($null -ne $policyLock) { $policyLock.Dispose() } }
 }

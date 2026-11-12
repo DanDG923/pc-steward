@@ -11,5 +11,7 @@
     <InternalsVisibleTo Include="PCSteward.ProductionTrustHelper" />
     <!-- ADR-034 §5: the CI MSI job's install check (never shipped). -->
     <InternalsVisibleTo Include="PCSteward.InstallCheck" />
+    <!-- ADR-032 revision 2 §3: the update check parses release-check.json with ReleaseCheckPolicy. -->
+    <InternalsVisibleTo Include="PCSteward.SelfUpdate" />
   </ItemGroup>
 </Project>

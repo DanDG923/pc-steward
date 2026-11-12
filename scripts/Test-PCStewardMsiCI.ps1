@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$StandardUser, [ValidateSet('Build', 'Check')][string]$Step, [string]$WorkRoot)
+param([switch]$StandardUser, [ValidateSet('Build', 'Check', 'SelfUpdateDecide')][string]$Step, [string]$WorkRoot)
 
 # ADR-034 §5 Windows CI evidence (FR-UPD-04/15, FR-DAT-12, TM-04/13): build the MSI exactly as a release would be built, but
 # signed with a throwaway self-signed key whose pin is written into this job's own checkout only (never committed, never in a
@@ -13,7 +13,14 @@ param([switch]$StandardUser, [ValidateSet('Build', 'Check')][string]$Step, [stri
 #      version is refused, and uninstall removes the program files and leaves per-user data alone;
 #   5. the elevated release install step (Invoke-PCStewardReleaseInstall.ps1, security review H1) refuses a wrong artefact
 #      digest, an MSI whose tables differ from the CI reference and an MSI whose files differ (uninstalling it), and installs
-#      and verifies the real signed MSI.
+#      and verifies the real signed MSI;
+#   6. the self-update finish copy (ADR-032 revision 2 §7–§8), run as the real helper copy from a protected work folder that
+#      the production Windows host laid out: it refuses to run from anywhere but that folder's bin or while the account's own
+#      registry registers the product (security review R1), uninstalls an upgrade
+#      whose files differ from the expected tree, installs and verifies one that matches, and the reopened desktop's read of
+#      each job (as a standard user) reports Failed and Updated;
+#   7. (evidence only, Mythos review S1) whether an elevated install of the per-machine package applies a transform that a
+#      per-user registration of the new or the installed PC Steward product names.
 # The key is created in the runner account's CurrentUser\My, never added to a trust store, and deleted at the end.
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -27,6 +34,12 @@ if ($StandardUser) {
     if ($Step -eq 'Check') {
         $check = Join-Path $WorkRoot 'installcheck\PCSteward.InstallCheck.exe'
         & $check
+        exit $LASTEXITCODE
+    }
+    if ($Step -eq 'SelfUpdateDecide') {
+        # ADR-032 revision 2 §8: the reopened desktop's read of the job the elevated part of this script prepared.
+        $leaf = ([IO.File]::ReadAllText((Join-Path $WorkRoot 'self-update-leaf.txt'))).Trim()
+        & (Join-Path $WorkRoot 'installcheck\PCSteward.InstallCheck.exe') --self-update-decide $leaf '0.1.1'
         exit $LASTEXITCODE
     }
     # Step Build: the candidate builder refuses an elevated token. Same per-user environment as Test-OwnerOnlyCandidateBuilderCI.ps1.
@@ -58,6 +71,23 @@ $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::Progra
 $installRoot = Join-Path $programFiles 'PC Steward'
 $stateRoot = Join-Path $programFiles 'PC Steward OwnerOnlyTest State'
 $upgradeCode = '{2AD17330-BAD5-46BE-A409-20814B26673C}'
+# Windows Installer's machine policy key. Its DisableUserInstalls value (DWORD 1) makes Windows Installer ignore per-user
+# registrations. The release install and the self-update finish copy set it around their own msiexec runs and then put the
+# owner's state back, which they keep in PCStewardRestoreDisableUserInstalls meanwhile (Mythos review S1, owner's choice).
+$installerPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
+function Set-UserInstallsPolicy([bool]$Ignored) {
+    if (!(Test-Path -LiteralPath $installerPolicy)) { $null = New-Item -Path $installerPolicy }
+    if ($Ignored) { New-ItemProperty -LiteralPath $installerPolicy -Name 'DisableUserInstalls' -Value 1 -PropertyType DWord -Force | Out-Null }
+    else { Remove-ItemProperty -LiteralPath $installerPolicy -Name 'DisableUserInstalls' -ErrorAction SilentlyContinue }
+}
+# The policy as the owner would see it: 'absent' or 'dword:<n>', plus ' marker' while a restore marker is left.
+function Get-UserInstallsPolicyState {
+    $item = Get-Item -LiteralPath $installerPolicy -ErrorAction SilentlyContinue
+    $names = if ($item) { @($item.Property) } else { @() }
+    $state = if ($names -contains 'DisableUserInstalls') { 'dword:' + [string]$item.GetValue('DisableUserInstalls') } else { 'absent' }
+    if ($names -contains 'PCStewardRestoreDisableUserInstalls') { $state += ' marker' }
+    $state
+}
 $pinsFile = Join-Path $repository 'src\PCSteward.Execution\ReleaseSigningPins.cs'
 $evidence = [ordered]@{ schema = 'pc-steward-msi-ci-evidence:1'; checks = [ordered]@{} }
 $failures = [Collections.Generic.List[string]]::new()
@@ -74,10 +104,30 @@ function Invoke-Msi([string[]]$Arguments, [string]$LogName) {
     $process = Start-Process -FilePath (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') -ArgumentList (@($Arguments) + @('/qn', '/norestart', '/l*v', ('"' + (Join-Path $logs $LogName) + '"'))) -Wait -PassThru
     $process.ExitCode
 }
+function ConvertTo-PackedProductCode([string]$Guid) {
+    if ($Guid -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "Not an uppercase braced GUID: $Guid" }
+    $tail = $Matches[4] + $Matches[5]
+    (-join @($Matches[1], $Matches[2], $Matches[3] | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
+}
+function ConvertFrom-PackedProductCode([string]$Packed) {
+    if ($Packed -cnotmatch '\A[0-9A-F]{32}\z') { return $null }
+    $hex = (-join @($Packed.Substring(0, 8), $Packed.Substring(8, 4), $Packed.Substring(12, 4) | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $Packed[16 + 2 * $_ + 1]; $Packed[16 + 2 * $_] }))
+    '{' + $hex.Substring(0, 8) + '-' + $hex.Substring(8, 4) + '-' + $hex.Substring(12, 4) + '-' + $hex.Substring(16, 4) + '-' + $hex.Substring(20) + '}'
+}
+# The products installed for the whole machine under PC Steward's UpgradeCode, from the administrator-only machine registration
+# (as the helper reads it, review R2), never the merged machine-plus-user list, which a per-user registration can join.
 function Get-InstalledProducts {
+    $key = 'HKLM:\SOFTWARE\Classes\Installer\UpgradeCodes\' + (ConvertTo-PackedProductCode $upgradeCode)
+    if (!(Test-Path -LiteralPath $key)) { return @() }
     $installer = New-Object -ComObject WindowsInstaller.Installer
-    @($installer.GetType().InvokeMember('RelatedProducts', 'GetProperty', $null, $installer, @($upgradeCode)) | ForEach-Object {
-        [pscustomobject]@{ ProductCode = [string]$_; Version = [string]$installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @([string]$_, 'VersionString')) }
+    @((Get-Item -LiteralPath $key).Property | Where-Object { $_ } | ForEach-Object {
+        $packed = [string]$_
+        $code = ConvertFrom-PackedProductCode $packed
+        if ($null -eq $code) { throw "Not a packed product code under the machine UpgradeCode key: $packed" }
+        # ProductInfo asks the merged view, which refuses a product also registered for the user; the machine record answers then.
+        $version = try { [string]$installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @($code, 'VersionString')) }
+        catch { [string](Get-ItemProperty -LiteralPath ('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\' + $packed + '\InstallProperties') -Name DisplayVersion -ErrorAction Stop).DisplayVersion }
+        [pscustomobject]@{ ProductCode = $code; Version = $version }
     })
 }
 function Invoke-AsStandardUser([string]$StepName, [string]$Name, [Security.SecureString]$Password) {
@@ -99,6 +149,7 @@ $account = $null
 $password = ConvertTo-SecureString ('Aa1!' + [Guid]::NewGuid().ToString('N')) -AsPlainText -Force
 $pinsOriginal = [IO.File]::ReadAllBytes($pinsFile)
 $marker = $null
+$selfUpdateLeaves = [Collections.Generic.List[string]]::new()
 $exitCode = 1
 try {
     if ((Test-Path -LiteralPath $installRoot) -or (Test-Path -LiteralPath $stateRoot)) { throw 'The runner already has a PC Steward folder in Program Files.' }
@@ -248,6 +299,24 @@ try {
     Write-Output ($tableDifferences | Select-Object -First 20)
     Set-Check 'signed-msi-tables-equal-the-unsigned-ci-reference' ($signedTables.Sha256 -ceq $reference.tablesSha256) "reference $($reference.tablesSha256); signed $($signedTables.Sha256); $($tableDifferences.Count) differing lines"
     Set-Check 'msi-tables-detect-a-different-package' ((Get-PCStewardMsiTables -Path $msis['0.1.3'].Path).Sha256 -cne $reference.tablesSha256)
+    # ADR-032 revision 2 §3: the release check record the release-payload workflow publishes, made from the same artefact
+    # layout. Both PowerShell editions must write the same bytes, and the record must carry the run, the pins, the tables
+    # digest, every candidate file and the two executables' PE checksums.
+    $checkOutputs = @{}
+    foreach ($edition in @(@{ Name = 'pwsh'; Path = (Get-Process -Id $PID).Path }, @{ Name = 'powershell'; Path = $windowsPowerShell })) {
+        $checkOutput = Join-Path $work ('release-check-' + $edition.Name)
+        $null = & $edition.Path -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'New-PCStewardReleaseCheck.ps1') -ReleasePayloadRoot $release -OutputRoot $checkOutput
+        if ($LASTEXITCODE -ne 0) { throw "New-PCStewardReleaseCheck.ps1 failed under $($edition.Name)." }
+        $checkOutputs[$edition.Name] = [IO.File]::ReadAllBytes((Join-Path $checkOutput 'release-check.json'))
+    }
+    Set-Check 'release-check-same-bytes-in-both-editions' ([Convert]::ToBase64String($checkOutputs['pwsh']) -ceq [Convert]::ToBase64String($checkOutputs['powershell']))
+    $releaseCheck = [Text.Encoding]::ASCII.GetString($checkOutputs['pwsh']) | ConvertFrom-Json
+    $candidateCount = @(Get-Content -LiteralPath (Join-Path $release 'candidate-manifest.json') -Raw | ConvertFrom-Json).Count
+    Set-Check 'release-check-carries-the-ci-build' ($releaseCheck.schema -ceq 'pc-steward-release-check:1' -and [string]$releaseCheck.runId -ceq [string]$runId -and $releaseCheck.sourceCommit -ceq $sourceCommit -and $releaseCheck.msiVersion -ceq '0.1.1' -and $releaseCheck.pins.primary -ceq $pin -and $releaseCheck.pins.backup -ceq $backupPin -and $releaseCheck.msiTablesSha256 -ceq $reference.tablesSha256 -and @($releaseCheck.files).Count -eq $candidateCount -and @($releaseCheck.executables).Count -eq 2) "files $(@($releaseCheck.files).Count) of $candidateCount"
+    # ADR-032 revision 2 §5–§6: the C# checks the desktop and the elevated helper run agree with the PowerShell ones above on
+    # this job's real signed MSI and signed executables (MsiTableDigest, ReleaseCheckPolicy, ReleaseImageComparison).
+    $parity = & (Join-Path $work 'installcheck\PCSteward.InstallCheck.exe') --release-check-parity $msis['0.1.1'].Path (Join-Path $work 'release-check-pwsh\release-check.json') $msis['0.1.1'].Payload
+    Set-Check 'release-check-csharp-matches-powershell' ($LASTEXITCODE -eq 0) "$parity"
     $artefactZip = Join-Path $work 'pc-steward-release-payload.zip'
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($release, $artefactZip)
@@ -269,6 +338,9 @@ try {
         [pscustomobject]@{ ExitCode = $process.ExitCode; Result = $outcome }
     }
     function Test-NothingInstalled { (@(Get-InstalledProducts).Count -eq 0) -and !(Test-Path -LiteralPath $installRoot) }
+    # Mythos review S1, owner's choice: the release install sets DisableUserInstalls only around its own msiexec runs and puts
+    # the owner's state back, here none for the successful install and the DWORD 0 for the one that fails and is uninstalled.
+    Set-UserInstallsPolicy $false
     $run = @(Invoke-ReleaseInstall $msis['0.1.1'].Path ('A' * 64) 'release-wrong-digest')[-1]
     Set-Check 'release-install-refuses-a-wrong-artefact-digest' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'inputs:*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
     $run = @(Invoke-ReleaseInstall $msis['0.1.3'].Path $artefactSha256 'release-other-tables')[-1]
@@ -281,13 +353,243 @@ try {
     $bytes = [IO.File]::ReadAllBytes($tamperedFile); $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 1; [IO.File]::WriteAllBytes($tamperedFile, $bytes)
     $tampered = Invoke-PCStewardReleaseSigning -PayloadRoot $tamperedPayload -Certificate $certificate -Pin $pin -ProductVersion '0.1.1' -MsiPath (Join-Path $work 'PCSteward-0.1.1-tampered.msi')
     Set-Check 'tampered-msi-has-the-reference-tables' ((Get-PCStewardMsiTables -Path $tampered.msiPath).Sha256 -ceq $reference.tablesSha256)
+    New-ItemProperty -LiteralPath $installerPolicy -Name 'DisableUserInstalls' -Value 0 -PropertyType DWord -Force | Out-Null
     $run = @(Invoke-ReleaseInstall $tampered.msiPath $artefactSha256 'release-tampered-file')[-1]
+    $policyAfterFailure = Get-UserInstallsPolicyState
+    Set-UserInstallsPolicy $false
     Set-Check 'release-install-uninstalls-files-unlike-ci' (($run.ExitCode -ne 0) -and ($run.Result.failure -like 'verify:*uninstalled*') -and (Test-NothingInstalled)) "$($run.Result.failure)"
     $run = @(Invoke-ReleaseInstall $msis['0.1.1'].Path $artefactSha256 'release-install')[-1]
+    $policyAfterInstall = Get-UserInstallsPolicyState
+    Set-Check 'release-install-restores-the-owners-policy' (($policyAfterFailure -ceq 'dword:0') -and ($policyAfterInstall -ceq 'absent')) "after the uninstalled run $policyAfterFailure; after the install $policyAfterInstall"
     $products = @(Get-InstalledProducts)
     Set-Check 'release-install-installs-and-verifies-the-ci-build' (($run.ExitCode -eq 0) -and ($run.Result.validation -ceq 'Pass') -and ($run.Result.tablesSha256 -ceq $reference.tablesSha256) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($run.ExitCode); $($run.Result.phase) $($run.Result.failure)"
     foreach ($product in $products) { $null = Invoke-Msi @('/x', $product.ProductCode) 'release-uninstall.log' }
     Set-Check 'release-install-uninstalls-cleanly' (Test-NothingInstalled)
+
+    # 6. The self-update finish copy (ADR-032 revision 2 §7–§8). The install check lays each job out through the production
+    #    Windows host as the elevated session leaves it (work folder, MSI copy, image, expected tree, job, helper copy); the
+    #    finish copy is then the real installed helper, copied into the work folder's bin and started there, with the .NET
+    #    runtime names removed from its environment as the desktop's guard ensures for the session that starts it.
+    $installCheck = Join-Path $work 'installcheck\PCSteward.InstallCheck.exe'
+    function New-SelfUpdateJob([string]$Mode) {
+        $products = @(Get-InstalledProducts); $code = 0
+        if ($products.Count -eq 0) {
+            $code = Invoke-Msi @('/i', ('"' + $msis['0.1.1'].Path + '"')) "self-update-$Mode-from-0.1.1.log"
+            $products = @(Get-InstalledProducts)
+        }
+        if (($code -ne 0) -or ($products.Count -ne 1) -or ($products[0].Version -ne '0.1.1')) { throw "0.1.1 is not the one install before the $Mode self-update job (exit $code)." }
+        $prepared = @(& $installCheck --self-update-prepare $msis['0.1.2'].Path $Mode)
+        if ($LASTEXITCODE -ne 0) { throw "The $Mode self-update job was not prepared: $($prepared -join ' ')" }
+        $leaf = ([string]$prepared[-1]).Trim()
+        if ($leaf -notmatch '^PC Steward Update [0-9a-f]{32}$') { throw "Unexpected work folder name '$leaf'." }
+        $selfUpdateLeaves.Add($leaf)
+        $leaf
+    }
+    function Invoke-FinishCopy([string]$Helper, [string]$Leaf, [string]$Name) {
+        $start = [Diagnostics.ProcessStartInfo]::new($Helper)
+        $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = [Environment]::SystemDirectory
+        $start.ArgumentList.Add('--finish-self-update'); $start.ArgumentList.Add($Leaf)
+        foreach ($key in @($start.Environment.Keys)) { if ($key -match '^(DOTNET_|COMPlus_|CORECLR_|COR_|APPDOMAIN_MANAGER_)') { $null = $start.Environment.Remove($key) } }
+        $process = [Diagnostics.Process]::Start($start)
+        try {
+            if (!$process.WaitForExit(2700000)) { $process.Kill($true); $process.WaitForExit(); throw "$Name exceeded forty-five minutes." }
+            $folder = Join-Path $programFiles $Leaf
+            foreach ($log in @('install.log', 'uninstall.log')) { if (Test-Path -LiteralPath (Join-Path $folder "private\$log")) { Copy-Item -LiteralPath (Join-Path $folder "private\$log") -Destination (Join-Path $logs "$Name-$log") } }
+            $resultPath = Join-Path $folder 'result.json'
+            $outcome = if (Test-Path -LiteralPath $resultPath) { Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json } else { $null }
+            Write-Output "$Name exit $($process.ExitCode): $($outcome | ConvertTo-Json -Compress)"
+            [pscustomobject]@{ ExitCode = $process.ExitCode; Result = $outcome }
+        }
+        finally { $process.Dispose() }
+    }
+    # $Label, not $Name: PowerShell names are case-insensitive and $name is the disposable account.
+    function Invoke-SelfUpdateDecide([string]$Leaf, [string]$Label) {
+        [IO.File]::WriteAllText((Join-Path $work 'self-update-leaf.txt'), $Leaf)
+        $decided = Invoke-AsStandardUser 'SelfUpdateDecide' $name $password
+        Write-Output "$Label exit $($decided.ExitCode): $($decided.Output.Trim())"
+        $line = @($decided.Output -split "`r?`n" | Where-Object { $_ -match '^\{' })[-1]
+        [pscustomobject]@{ ExitCode = $decided.ExitCode; Verdict = $(if ($line) { $line | ConvertFrom-Json } else { $null }) }
+    }
+    $selfUpdateHelper = { param([string]$Leaf) Join-Path $programFiles "$Leaf\bin\PCSteward.ElevatedHelper.exe" }
+
+    # A job whose expected tree differs from what the MSI installs: the finish copy installs 0.1.2, finds the difference,
+    # and uninstalls it, so nothing is left installed.
+    $leaf = New-SelfUpdateJob 'mismatch'
+    $finish = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-mismatch')[-1]
+    Set-Check 'self-update-finish-uninstalls-an-install-unlike-the-expected-tree' (($finish.ExitCode -eq 0) -and ($finish.Result.outcome -ceq 'mismatch-uninstalled') -and ($finish.Result.detail -ceq 'installed-tree-differs') -and ($finish.Result.exitCode -eq 0) -and (Test-NothingInstalled)) "exit $($finish.ExitCode); $($finish.Result.outcome) $($finish.Result.detail)"
+    $decide = @(Invoke-SelfUpdateDecide $leaf 'self-update-mismatch-decide')[-1]
+    Set-Check 'self-update-desktop-reads-the-uninstalled-job-as-failed' (($decide.ExitCode -eq 0) -and ($decide.Verdict.state -ceq 'Failed') -and ($decide.Verdict.code -ceq 'mismatch-uninstalled')) "exit $($decide.ExitCode); $($decide.Verdict.state) $($decide.Verdict.code)"
+
+    # A matching job. The installed helper itself, outside the work folder, is refused before it reads or writes anything;
+    # the copy in bin installs 0.1.2, verifies it, and the reopened desktop (now 0.1.2) reads the job as Updated.
+    $leaf = New-SelfUpdateJob 'match'
+    $refused = @(Invoke-FinishCopy (Join-Path $installRoot 'PCSteward.ElevatedHelper.exe') $leaf 'self-update-wrong-path')[-1]
+    $products = @(Get-InstalledProducts)
+    Set-Check 'self-update-finish-refuses-outside-the-work-folder' (($refused.ExitCode -eq 20) -and ($null -eq $refused.Result) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($refused.ExitCode)"
+    # Security review R1: what a same-user program can write, the owner's own Windows Installer registration of the product
+    # (HKCU), stops the finish copy before msiexec runs; 0.1.1 stays installed. The job then has a result, so a new one follows.
+    $productCode = [string](Get-Content -LiteralPath (Join-Path $programFiles "$leaf\job.json") -Raw | ConvertFrom-Json).productCode
+    if ($productCode -cnotmatch '\A\{([0-9A-F]{8})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{4})-([0-9A-F]{12})\}\z') { throw "The job names no product code: $productCode" }
+    $tail = $Matches[4] + $Matches[5]
+    $packed = (-join @($Matches[1], $Matches[2], $Matches[3] | ForEach-Object { -join $_[($_.Length - 1)..0] })) + (-join @(0..7 | ForEach-Object { $tail[2 * $_ + 1]; $tail[2 * $_] }))
+    $perUserKey = "HKCU:\Software\Microsoft\Installer\Products\$packed"
+    $null = New-Item -Path $perUserKey -Force
+    New-ItemProperty -LiteralPath $perUserKey -Name 'ProductName' -Value 'PC Steward' -PropertyType String -Force | Out-Null
+    try { $perUser = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-per-user')[-1] }
+    finally { Remove-Item -LiteralPath $perUserKey -Recurse -Force }
+    $products = @(Get-InstalledProducts)
+    Set-Check 'self-update-finish-refuses-a-per-user-registration' (($perUser.ExitCode -eq 0) -and ($perUser.Result.outcome -ceq 'refused-before-install') -and ($perUser.Result.detail -ceq 'per-user-registration') -and ($null -eq $perUser.Result.exitCode) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.1')) "exit $($perUser.ExitCode); $($perUser.Result.outcome) $($perUser.Result.detail)"
+    $leaf = New-SelfUpdateJob 'match'
+    # Mythos review S1, owner's choice: the finish copy sets DisableUserInstalls for its own run and puts the owner's state back.
+    # Here an earlier run is taken to have stopped with the policy still set, so the marker it left decides: the policy goes.
+    $policyBefore = Get-UserInstallsPolicyState
+    Set-UserInstallsPolicy $true
+    New-ItemProperty -LiteralPath $installerPolicy -Name 'PCStewardRestoreDisableUserInstalls' -Value 'absent' -PropertyType String -Force | Out-Null
+    $finish = @(Invoke-FinishCopy (& $selfUpdateHelper $leaf) $leaf 'self-update-match')[-1]
+    $policyAfter = Get-UserInstallsPolicyState
+    Set-Check 'self-update-finish-restores-the-owners-policy' (($policyBefore -ceq 'absent') -and ($policyAfter -ceq 'absent')) "before $policyBefore (then a stopped run's marker); after $policyAfter"
+    $products = @(Get-InstalledProducts)
+    $installedVersion = if (Test-Path -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json')) { (Get-Content -LiteralPath (Join-Path $installRoot 'PCSteward.ReleaseManifest.json') -Raw | ConvertFrom-Json).productVersion } else { '' }
+    Set-Check 'self-update-finish-installs-and-verifies-the-upgrade' (($finish.ExitCode -eq 0) -and ($finish.Result.outcome -ceq 'installed') -and ($finish.Result.exitCode -eq 0) -and ($products.Count -eq 1) -and ($products[0].Version -eq '0.1.2') -and ($installedVersion -eq '0.1.2')) "exit $($finish.ExitCode); $($finish.Result.outcome) $($finish.Result.detail); $(($products | ForEach-Object { $_.Version }) -join ',')"
+    $decide = @(Invoke-SelfUpdateDecide $leaf 'self-update-match-decide')[-1]
+    Set-Check 'self-update-private-folder-hidden-from-standard-users' (($decide.ExitCode -eq 0) -and ($decide.Verdict.privateHidden -ceq 'true')) "privateHidden $($decide.Verdict.privateHidden)"
+    Set-Check 'self-update-desktop-reads-the-installed-job-as-updated' (($decide.ExitCode -eq 0) -and ($decide.Verdict.state -ceq 'Updated') -and ($decide.Verdict.code -ceq 'installed') -and ($decide.Verdict.running -ceq '0.1.2')) "exit $($decide.ExitCode); $($decide.Verdict.state) $($decide.Verdict.code) running $($decide.Verdict.running)"
+    foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'self-update-uninstall.log' }
+    Set-Check 'self-update-uninstalls-cleanly' (Test-NothingInstalled)
+
+    # 7. Mythos review S1 experiment. Evidence only: its outcome never fails the job (a broken experiment is recorded, not
+    #    hidden). Does an elevated `msiexec /i` of the per-machine package apply a transform that the owner's own (per-user)
+    #    registration of a PC Steward product names? Any same-user program can write that registration; `msiexec /ju` writes
+    #    the same HKCU keys here. The transform only adds a property, so the verbose logs show whether it was applied. Case
+    #    'new-product' registers the 0.1.2 product the update installs; case 'installed-product' the installed 0.1.1 product
+    #    that the upgrade removes. The helper itself never runs msiexec while such a registration exists; this measures how
+    #    much a registration written in the moment between that check and msiexec reading it could do.
+    $experiment = [ordered]@{}
+    $evidence.perUserTransformExperiment = $experiment
+    $loggingPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
+    function Invoke-InstallerCom($Target, [string]$Member, [string]$Kind, [object[]]$Arguments) { $Target.GetType().InvokeMember($Member, $Kind, $null, $Target, $Arguments) }
+    function Get-MsiPropertyValue([string]$Msi, [string]$Property) {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = Invoke-InstallerCom $installer 'OpenDatabase' 'InvokeMethod' @($Msi, 0)
+        $view = Invoke-InstallerCom $database 'OpenView' 'InvokeMethod' @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$Property'")
+        try {
+            $null = Invoke-InstallerCom $view 'Execute' 'InvokeMethod' $null
+            $row = Invoke-InstallerCom $view 'Fetch' 'InvokeMethod' $null
+            if ($null -eq $row) { throw "No $Property in $Msi." }
+            [string](Invoke-InstallerCom $row 'StringData' 'GetProperty' @(1))
+        }
+        finally { $null = Invoke-InstallerCom $view 'Close' 'InvokeMethod' $null; $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view); $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
+    }
+    # A transform of $Msi that adds one public property, PCSTEWARDPERUSERMARKER=<case>, made from a scratch copy through msi.dll
+    # (the COM automation layer refuses PowerShell-wrapped database objects as arguments).
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PCStewardMarkerTransform
+{
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiOpenDatabaseW(string path, IntPtr persist, out IntPtr database);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiDatabaseOpenViewW(IntPtr database, string query, out IntPtr view);
+    [DllImport("msi.dll")] private static extern uint MsiViewExecute(IntPtr view, IntPtr record);
+    [DllImport("msi.dll")] private static extern uint MsiViewClose(IntPtr view);
+    [DllImport("msi.dll")] private static extern uint MsiDatabaseCommit(IntPtr database);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiDatabaseGenerateTransformW(IntPtr database, IntPtr reference, string transform, int reserved1, int reserved2);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern uint MsiCreateTransformSummaryInfoW(IntPtr database, IntPtr reference, string transform, int errorConditions, int validation);
+    [DllImport("msi.dll")] private static extern uint MsiCloseHandle(IntPtr handle);
+    private static void Check(uint status, string what) { if (status != 0) throw new InvalidOperationException(what + " failed with " + status + "."); }
+    public static void Create(string original, string scratch, string transform, string marker)
+    {
+        IntPtr changed, reference, view;
+        Check(MsiOpenDatabaseW(scratch, new IntPtr(1), out changed), "MsiOpenDatabase (transact)");
+        try
+        {
+            Check(MsiOpenDatabaseW(original, IntPtr.Zero, out reference), "MsiOpenDatabase (read-only)");
+            try
+            {
+                Check(MsiDatabaseOpenViewW(changed, "INSERT INTO `Property` (`Property`, `Value`) VALUES ('PCSTEWARDPERUSERMARKER', '" + marker + "')", out view), "MsiDatabaseOpenView");
+                try { Check(MsiViewExecute(view, IntPtr.Zero), "MsiViewExecute"); }
+                finally { MsiViewClose(view); MsiCloseHandle(view); }
+                Check(MsiDatabaseCommit(changed), "MsiDatabaseCommit");
+                Check(MsiDatabaseGenerateTransformW(changed, reference, transform, 0, 0), "MsiDatabaseGenerateTransform");
+                Check(MsiCreateTransformSummaryInfoW(changed, reference, transform, 0, 0), "MsiCreateTransformSummaryInfo");
+            }
+            finally { MsiCloseHandle(reference); }
+        }
+        finally { MsiCloseHandle(changed); }
+    }
+}
+'@
+    function New-MarkerTransform([string]$Msi, [string]$Case) {
+        $scratch = Join-Path $work "marker-$Case.msi"; $transform = Join-Path $work "marker-$Case.mst"
+        Copy-Item -LiteralPath $Msi -Destination $scratch
+        [PCStewardMarkerTransform]::Create($Msi, $scratch, $transform, $Case)
+        if (!(Test-Path -LiteralPath $transform -PathType Leaf)) { throw "No transform was written for $Case." }
+        $transform
+    }
+    $packedCodes = @((Get-MsiPropertyValue $msis['0.1.1'].Path 'ProductCode'), (Get-MsiPropertyValue $msis['0.1.2'].Path 'ProductCode') | ForEach-Object { ConvertTo-PackedProductCode $_ }) + @(ConvertTo-PackedProductCode $upgradeCode)
+    function Get-PerUserInstallerKeys { @(foreach ($root in @('HKCU:\Software\Microsoft\Installer', 'HKCU:\Software\Classes\Installer')) { foreach ($kind in @('Products', 'Features', 'UpgradeCodes')) { foreach ($packedCode in $packedCodes) { if (Test-Path -LiteralPath "$root\$kind\$packedCode") { "$root\$kind\$packedCode" } } } }) }
+    function Get-MachineRegisteredProducts {
+        $key = 'HKLM:\SOFTWARE\Classes\Installer\UpgradeCodes\' + (ConvertTo-PackedProductCode $upgradeCode)
+        if (Test-Path -LiteralPath $key) { @((Get-Item -LiteralPath $key).Property | Where-Object { $_ }) } else { @() }
+    }
+    # The per-user registration goes first (its HKCU keys and this user's UserData entries), so the uninstall below acts on the
+    # machine product only.
+    $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    function Clear-ExperimentState {
+        foreach ($key in @(Get-PerUserInstallerKeys)) { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($packedCode in $packedCodes) { Remove-Item -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$userSid\Products\$packedCode" -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'experiment-cleanup-uninstall.log' }
+    }
+    # What the elevated install's own log says about the outcome, the per-user registration and any transform (the CI logs
+    # are not otherwise readable from outside the run).
+    $installLogPattern = 'PCSTEWARDPERUSERMARKER|TRANSFORMS|marker-|Return value 3|Error \d+|error code|MainEngineThread is returning|ProductState|advertis|per-user|DisableUserInstalls|Product: PC Steward|Installation success or error status|Windows Installer (re)?installed'
+
+    try {
+        # Windows Installer's logging policy also logs the nested removal of the old product, wherever the marker might show.
+        # The first two cases measure Windows Installer as it ships, so DisableUserInstalls is off until the policy case.
+        Set-UserInstallsPolicy $false
+        if (!(Test-Path -LiteralPath $loggingPolicy)) { $null = New-Item -Path $loggingPolicy }
+        New-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -Value 'voicewarmupx' -PropertyType String -Force | Out-Null
+        # Case 'new-product-policy' repeats 'new-product' with the DisableUserInstalls machine policy set after the registration
+        # is written and before the elevated install: does the policy stop Windows Installer from using the owner's registration?
+        # Case 'admin-image' makes the same registration and then runs the session's administrative unpack (msiexec /a), which
+        # runs without the policy because Windows Installer refuses it under DisableUserInstalls (error 1934).
+        foreach ($case in @(@{ Name = 'new-product'; Advertise = '0.1.2' }, @{ Name = 'installed-product'; Advertise = '0.1.1' }, @{ Name = 'new-product-policy'; Advertise = '0.1.2'; Policy = $true }, @{ Name = 'admin-image'; Advertise = '0.1.2'; Admin = $true })) {
+            $record = [ordered]@{}
+            $experiment[$case.Name] = $record
+            try {
+                Clear-ExperimentState
+                $record.machineInstall011Exit = Invoke-Msi @('/i', ('"' + $msis['0.1.1'].Path + '"')) "experiment-$($case.Name)-install-0.1.1.log"
+                $transform = New-MarkerTransform $msis[$case.Advertise].Path $case.Name
+                $record.perUserAdvertiseExit = Invoke-Msi @('/ju', ('"' + $msis[$case.Advertise].Path + '"'), '/t', ('"' + $transform + '"')) "experiment-$($case.Name)-advertise.log"
+                $record.perUserKeysAfterAdvertise = @(Get-PerUserInstallerKeys)
+                # Only logs written from here on: the advertisement's own logs name the marker by design.
+                $since = Get-Date
+                if ($case.Policy) { New-ItemProperty -LiteralPath $loggingPolicy -Name 'DisableUserInstalls' -Value 1 -PropertyType DWord -Force | Out-Null; $record.disableUserInstalls = 1 }
+                $arguments = if ($case.Admin) { @('/a', ('"' + $msis['0.1.2'].Path + '"'), ('TARGETDIR="' + (Join-Path $work "experiment-admin-image") + '"')) } else { @('/i', ('"' + $msis['0.1.2'].Path + '"')) }
+                try { $record.elevatedInstall012Exit = Invoke-Msi $arguments "experiment-$($case.Name)-install-0.1.2.log" }
+                finally { Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'DisableUserInstalls' -ErrorAction SilentlyContinue }
+                $record.machineProductsAfter = @(Get-MachineRegisteredProducts)
+                $record.perUserKeysAfterInstall = @(Get-PerUserInstallerKeys)
+                $record.installLogLines = @(Select-String -LiteralPath (Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log") -Pattern $installLogPattern -ErrorAction SilentlyContinue | Where-Object { $_.Line -notmatch 'Note: 1:' } | Select-Object -First 40 | ForEach-Object { $line = $_.Line.Trim(); if ($line.Length -gt 300) { $line.Substring(0, 300) } else { $line } })
+                try { $record.installedVersions = @(Get-InstalledProducts | ForEach-Object { $_.Version }) } catch { $record.installedVersionsError = $_.Exception.Message }
+                $policyLogs = @(foreach ($folder in @($env:TEMP, (Join-Path $env:SystemRoot 'Temp'))) { Get-ChildItem -LiteralPath $folder -Filter 'MSI*.LOG' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $since } })
+                $searched = @((Join-Path $logs "experiment-$($case.Name)-install-0.1.2.log")) + @($policyLogs | ForEach-Object { $_.FullName })
+                $hits = @(Select-String -LiteralPath $searched -Pattern 'PCSTEWARDPERUSERMARKER' -SimpleMatch -ErrorAction SilentlyContinue)
+                $record.transformAppliedDuringElevatedInstall = $hits.Count -gt 0
+                $record.markerLines = @($hits | Select-Object -First 10 | ForEach-Object { "$([IO.Path]::GetFileName($_.Path)): $($_.Line.Trim())" })
+                $record.transformLines = @(Select-String -LiteralPath $searched -Pattern 'marker-.*\.mst|TRANSFORMS' -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { "$([IO.Path]::GetFileName($_.Path)): $($_.Line.Trim())" })
+                foreach ($log in $policyLogs) { Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $logs "experiment-$($case.Name)-policy-$($log.Name)") -ErrorAction SilentlyContinue }
+            }
+            catch { $record.error = $_.Exception.Message }
+            Write-Output ("EXPERIMENT {0}: {1}" -f $case.Name, ($record | ConvertTo-Json -Depth 4 -Compress))
+        }
+    }
+    catch { $experiment.error = $_.Exception.Message; Write-Output "EXPERIMENT error: $($_.Exception.Message)" }
+    finally {
+        Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'Logging' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $loggingPolicy -Name 'DisableUserInstalls' -ErrorAction SilentlyContinue
+        try { Clear-ExperimentState } catch { $experiment.cleanupError = $_.Exception.Message }
+    }
 
     $exitCode = if ($failures.Count -eq 0) { 0 } else { 1 }
 }
@@ -298,6 +600,8 @@ catch {
 }
 finally {
     foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'cleanup-uninstall.log' }
+    Set-UserInstallsPolicy $false
+    foreach ($leaf in $selfUpdateLeaves) { Remove-Item -LiteralPath (Join-Path $programFiles $leaf) -Recurse -Force -ErrorAction SilentlyContinue }
     if ($created) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $created.Thumbprint) -DeleteKey -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllBytes($pinsFile, $pinsOriginal)
     if ($account) { Remove-LocalUser -SID $account.SID }
@@ -307,5 +611,5 @@ finally {
     $evidence.result = if ($failures.Count -eq 0) { 'Pass' } else { 'Fail' }
     [IO.File]::WriteAllText((Join-Path $evidenceRoot 'msi-ci-evidence.json'), ($evidence | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 }
-if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal, uninstall, and the verified release install step.' }
+if ($exitCode -eq 0) { Write-Output 'PASS: signed MSI install, permissions, pinned trust, capability, failed-upgrade rollback, upgrade, downgrade refusal, uninstall, the verified release install step, and the self-update finish copy.' }
 exit $exitCode
