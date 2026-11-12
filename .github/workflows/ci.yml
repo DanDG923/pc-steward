@@ -25,6 +25,31 @@ jobs:
       # Security fixtures must compile/run without the hosted runner's admin token.
       - run: pwsh -NoProfile -File ./scripts/Test-CI.ps1
 
+  package-licence-map:
+    # Task 53A (NFR-MNT-01/05): publish the desktop payload and check that the licence/NOTICE map in
+    # New-PrivateBetaPackage.ps1 reconciles exactly to the packages in its dependency manifest, using each restored package's
+    # own nuspec, licence and NOTICE files. Uses the default NuGet cache, which the script reads. No signing or install.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/New-PrivateBetaPackage.ps1
+      - run: pwsh -NoProfile -File ./scripts/Test-PrivateBetaPackageEvidence.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: package-licence-map
+          path: artifacts/private-beta/reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
   desktop-launch-smoke:
     # UI polish phase 5 pre-flight, informational only (never gates): build the desktop app, start it on the hosted runner,
     # open every page from the navigation pane through UI Automation and check that the process survives each one (a
