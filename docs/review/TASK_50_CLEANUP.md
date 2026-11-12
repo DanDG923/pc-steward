@@ -1,4 +1,4 @@
-# Task 50 cleanup: work folders, worktrees, test certificates and one-off admin folders (revision 1)
+# Task 50 cleanup: work folders, worktrees, test certificates and one-off admin folders (revision 2)
 
 Requirements: `TM-03/04/13` (no leftover trust or elevated residue), ADR-022 (owner-only test deployment, now ended by the
 signed MSI of ADR-034). This closes the last open item of the [Task 50 handover](TASK_50_HANDOVER_2026-11-06.md) §5,
@@ -107,4 +107,23 @@ CI: removal from the CurrentUser Root store, because Windows asks for confirmati
 
 ## 5. Result
 
-Not run yet.
+**Done, 2026-11-12 13:05 UTC.** The owner ran the paste from #60 as merged, without changes. They used a `-NoProfile`
+window as described in §3 and typed `YES` after reading the plan.
+
+- **C1.** It removed `PCSteward-Task50B`, `-Task50C`, `-Task50D`, `-Task50E`, `PCSteward-UI5` and the three timestamped
+  UI folders, about 4.68 GB in all. It tidied the 0.1.1 and 0.1.2 release folders by removing worktrees `f6ca90f` and
+  `9322ca1` (13 MB each). It kept `release\PCSteward-0.1.1.msi` and `release\PCSteward-0.1.2.msi`. Nothing was skipped.
+- **C2.** `git worktree prune` exited 0, and Git now lists only the main worktree. The paste saved the stash as the two
+  patch files next to the clone (54,758 bytes together), then dropped it. 22 record folders under `.git\worktrees`
+  stayed. Prune had removed their `gitdir` files, but each one still holds a link, so the paste left them alone by
+  design (§3, step 3). Git no longer lists them, even as prunable, so they are inert. The owner can delete them by hand
+  at any time, and nothing depends on that.
+- **C3.** No test certificate was left, so no *Root Certificate Store* box appeared.
+- **C4.** The paste removed one owner-only execution folder, `PC Steward OwnerOnlyTest Execution <32 hex>` (101.1 MB),
+  after the one expected UAC prompt. The elevated step reported `C4 RESULT: DONE`.
+- **Check.** `CHECK work=0 releaseExtras=0 keptReleases=3 worktrees=1 staleWorktrees=0 oldStash=0 testCerts=0
+  adminFolders=0 skipped=0 stateRoot=False installed=True data=True`, then `CLEANUP RESULT: DONE`. This matches the
+  expected line in §3 exactly.
+
+This closes item 5 of the [Task 50 handover](TASK_50_HANDOVER_2026-11-06.md) §5. The *Left as accepted residue* items
+in §1 are unchanged, and G9-T5 stays optional.
