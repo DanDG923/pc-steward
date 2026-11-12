@@ -1,3 +1,13 @@
+# Tasks 53 and 54 — Phase C evidence and review gate (stage C3)
+
+`FR-UPD-01–15`, `AC-UPD-01–11`, `FR-HIS-01–06`, `NFR-PERF-01–10`, `NFR-REL-01–05`, `NFR-MNT-01/05`; [Task 53 report](../review/TASK_53_PHASE_C_EVIDENCE_READINESS.md), [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md).
+
+- Task 53: every mandatory updater criterion mapped to its CI test, CI run or host record (report §4–5); fixture benchmark on the hosted runner (§6); package pins by PR #8, each installed payload and the snapshot (§7.1); WS5 deferral (§8); open items O1–O4, known limit L1, unsupported U1–U3 (§9).
+- Change: `scripts/PCStewardThirdPartyNotices.ps1` (shared licence map and notices text); `scripts/New-OwnerOnlyCandidate.ps1` writes `THIRD-PARTY-NOTICES.txt` into the release payload, including the helper's Native AOT runtime packages; `scripts/New-PrivateBetaPackage.ps1` uses the shared script; CI `build-and-test` runs `scripts/Benchmark.ps1`.
+- Tests: new fixture `ThirdPartyNoticesTests` (PowerShell 7 and Windows PowerShell 5.1); `OwnerOnlyCandidateBuilderTests` (two dot-sources), `WindowsPlatformTargetTests` (map location); `owner-only-candidate-builder` CI checks the notices sections.
+- Task 54: independent review by Codex on PR #68 (owner-agreed reviewer for Phase C). Not cleared: R1 (`FR-UPD-15`: WinGet updates run on the legacy mode-less job; the reviewed Silent mapping has no production caller) and R2 (ADR-025: the protocol-2 helper still accepts protocol 1, used for machine-scope WinGet). Both confirmed and recorded in the Task 54 record and report §9.
+- Not claimed: any real update, baseline-PC measurement or WinGet COM 1.29 runtime on the owner's PC (O1–O4).
+
 # Task 54B — WinGet COM 1.29.380 (release 0.1.3)
 
 `NFR-MNT-01/03/05`, retained `FR-CAT-01–06`, `FR-SRC-01–05`; [record](../review/TASK_54B_WINGET_COM_1_29_ADOPTION.md); authority [ADR-003 amendment 1](../adr/ADR-003-AMENDMENT-1-WINGET-COM-PROJECTION.md) (Option A).
