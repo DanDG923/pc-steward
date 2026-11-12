@@ -1,6 +1,6 @@
 {
   "schema": "pc-steward-owner-build-toolchain-pins:1",
-  "sourceCommit": "d9a754b8da980a84eb4641cd58c98e27bdfd4444",
+  "sourceCommit": "e8c14845b2893b76a59e99345262d786ab44bd38",
   "sdkVersion": "10.0.403",
   "sdkZip": {
     "name": "dotnet-sdk-10.0.403-win-x64.zip",
@@ -112,9 +112,9 @@
     },
     {
       "id": "Microsoft.Windows.SDK.NET.Ref",
-      "version": "10.0.22000.57",
+      "version": "10.0.26100.57",
       "kind": "download",
-      "sha512": "pRafUNY3UCHUl9AJjh5aDI2lD1jFv/6Ya0eGkO8FSZjYrt5sQ2lWCWO1/1zOsmqBiflu/xP1PLV9MCrcN+89cQ==",
+      "sha512": "BG2X8tqoPJu7Lde8hlg/3bF9QwOW3VsxI7MGPEQM5+i4YG0WgNeesIeia2VTRkVEnoC9SdxpFGJtdGQHHIBwcA==",
       "projects": [
         "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
@@ -123,81 +123,90 @@
     },
     {
       "id": "Microsoft.WindowsAppSDK.AI",
-      "version": "1.8.37",
+      "version": "1.8.79",
       "kind": "library",
-      "sha512": "hHfuvxiPUTzOIazGfz4bu4hsfej6i8qQtjlWcS+gRpMNqUmiX89JdZVUtjHg4n6cA8afzLcPWkJUN0yivUO2fw==",
+      "sha512": "GkEzPuERPPSkMI9/pYxLtz7Kr/qessjjzerK5jdxtGIckS0h0CMLZN7V63Tbyh5WYYg8tXfw0iCfoYWUhOLw7A==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.Base",
-      "version": "1.8.250831001",
+      "version": "1.8.251216001",
       "kind": "library",
-      "sha512": "xhTh19d7OGfhE1AcVUsaQxs05XvfE8IlbGBHlgcJ42PF6R9J05ySwtX3VC1cDeUyX5F9Yt+hNArVew0amDqOjg==",
+      "sha512": "zzCRDsJNk6MlzZexe17+h+EDCtF5NfOaKodmkX6tsCB63ETlu4/Mp60fI20lsv+7G5ShF7BZlsvVBcevCbD6uw==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.DWrite",
-      "version": "1.8.25090401",
+      "version": "1.8.25122902",
       "kind": "library",
-      "sha512": "O3HX4bTuPJoESjOfYAGc1k8XRks/U+kJms4cIaOyni60rDZmm/rpWQecEf4vHzpXQRSGMom5ur50IqdAJJ3ORQ==",
+      "sha512": "5oKIKDYnc8ENNRCKb8D8jbNB0b2GLtq9rzVlnWUFpSvulW51zzsIdOZ8NW0H5WXI/cmJt4pquHOYyV3HVPaWUw==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.Foundation",
-      "version": "1.8.250906002",
+      "version": "1.8.260803002",
       "kind": "library",
-      "sha512": "ecpmrATo4TAYMyIYJF3oarZtOqLhqi3c+NCa0u4cvp3V/PBWSx1jze9JCl4EAS0qcNa2ogvnOTAbLw2eqXVBxQ==",
+      "sha512": "k42gfJvompU7ojvo0C/w8p+GgNlqe32vBkV35LtSWuhS8gY0XHDMrEchzqwV/mhzLHZhEl1XSGxNEJCtzOSJmw==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.InteractiveExperiences",
-      "version": "1.8.250906004",
+      "version": "1.8.260708001",
       "kind": "library",
-      "sha512": "rWG2wWtRGE+TFms2ApVpuVCDI4WqdMGCrl7ITqWfdmDNndt/DdcaDq5KeofSlfXrEvhjagJTuSPGvfBASKJrcw==",
+      "sha512": "+OF0UmXNF8U2qoGbm5kfjGvlgrwdLTJCqhwO7YD6Lp6/+Atjp7ZAHgivktSUCk8RC/q5piBpcdo2Mgy5DKIwrg==",
+      "projects": [
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.ML",
+      "version": "1.8.2223",
+      "kind": "library",
+      "sha512": "MuY8HCBXPsejr8RXt6QYbHwarlplfgC4tXxCN2c3hCBpPAVyRQp8CcQi7BwocK1Rbgc6CzngDt95uoDH/UYgzQ==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.Runtime",
-      "version": "1.8.250907003",
+      "version": "1.8.260921001",
       "kind": "library",
-      "sha512": "au7Nj2kuhyQXUjrhVUI1h7id/Rp8MXxb17ZI59Z3inaVPw698KFIe6A1INMXJwQhryRs02Oock7mdraXJDk3Ng==",
+      "sha512": "1wyTKgg/4hfbDyFduAOajqK8e9+wuCgA9IcqBBBtwpNaJCOjHPIu04kFkYkqemiuNAPShAyDiRUtNV+FMsdHMA==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.Widgets",
-      "version": "1.8.250904007",
+      "version": "1.8.251231004",
       "kind": "library",
-      "sha512": "sBr64fZdOTCZBP+8SCfCdTITMWKqf3uiMm//UTp+KYwRNQGhWhTy63cFUxsJYTOwTOcnWCVdmSK94osHLjWigQ==",
+      "sha512": "PzZZVN7gMty4Goaz4zjpvQOXYdQqAPD3AbRbUJIXJ8CmiHqHjPqJ52J3fR8vJnK5zrN6xBZa2KymbRyn8UTLPw==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK.WinUI",
-      "version": "1.8.250906003",
+      "version": "1.8.260803003",
       "kind": "library",
-      "sha512": "oer7PQjIJnuM7uUs1IOZ/Gy+m1o6Ub9+hOp2jUaBrfcCAcqmxOmz3sgY019I/gRGWae1twDd8shTNs5LItBivA==",
+      "sha512": "jTObrTdSDbgh8jwUrLqAtsvULsWodDJ5Hk+YdgmXkA7Z+Un2QbfHo8Wh5P29qJwmMqy3Jah8XILZiBbSwGP7lw==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     },
     {
       "id": "Microsoft.WindowsAppSDK",
-      "version": "1.8.250907003",
+      "version": "1.8.260921001",
       "kind": "library",
-      "sha512": "bjUj6Jb0sRpJGfXv9HLEfeO4kCXJ9RXRb50f90vrB6tQRCrtic5WKtOBZK1UO2h+emAyeeXV/ZEWubPZNfC+Uw==",
+      "sha512": "pOy3ft7eKO9eAFKXMbWr+5L9p8ZL2SWyCPjZv/WxW4xyNMqpSpGNlykIOlq9cBn5dBx7lRHcMlx+xCzHaygwtg==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
@@ -215,9 +224,9 @@
     },
     {
       "id": "Microsoft.WindowsPackageManager.ComInterop",
-      "version": "1.10.340",
+      "version": "1.29.380",
       "kind": "library",
-      "sha512": "DWNish+LVLCtEDb5ztYakK6K0qt/ybrND4IxzP4Q+u/usCSRkbIlDIJKEJ0PvVzaX1/Nl0ampZ1MwCET94PaSg==",
+      "sha512": "6gojErAE69LfwuWxOzk4CFuHlT0W0uaLzZcTAtcFIqlzvemwKD/d1ckCggpYor7Aay5ePzvku6Y8cGJBOQWbOQ==",
       "projects": [
         "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
@@ -226,9 +235,9 @@
     },
     {
       "id": "Microsoft.WindowsPackageManager.InProcCom",
-      "version": "1.10.340",
+      "version": "1.29.380",
       "kind": "library",
-      "sha512": "S94QgpXDWmsyIdI3w1mo3I0hfAgYcOldIRC95IBBTLYzdLAR+gc03wRdaURWRGg0hnvWgyLifzNi5dyeegZ2NA==",
+      "sha512": "X6vX5pyWZcF0UB+ruthgGYIbXs0ddv1Zd/Z12DECWJNkCcl30F0dNg0TL8ef5Ly2rmouOZBnq5T/Q59MwJnPSA==",
       "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
@@ -279,6 +288,15 @@
       "sha512": "w9dMB40gReMLzOxfCDuvjUhUTuSI9443Q2Hxrp8SW/vIGh6qP8TjkOTZ9p59mH50NpzQM7F3hhp8MAB2py9Now==",
       "projects": [
         "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+        "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
+      ]
+    },
+    {
+      "id": "System.Numerics.Tensors",
+      "version": "9.0.0",
+      "kind": "library",
+      "sha512": "razlju7UgILQ/Vb7BoW1RR/xIEBDc8Ynq0sRk74KpLBHay3QMZJfgK8ly4IEzlJlbFYlCOxpdPa7DNBUYaYtIw==",
+      "projects": [
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj"
       ]
     }
