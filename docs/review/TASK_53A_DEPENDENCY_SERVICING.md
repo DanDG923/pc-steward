@@ -70,9 +70,21 @@ All 10 jobs green.
 - **Desktop launch smoke** (informational; self-contained Windows App SDK on the runner): passed.
 - Helper Native AOT, toolchain pins (pinned to its historical commit), signing diagnostics and the Task 50 cleanup paste: unchanged and green.
 
+## Release 0.1.3 on the owner's PC (2026-11-12)
+
+0.1.3 carries this change and Task 54B (WinGet COM 1.29.380, [record](TASK_54B_WINGET_COM_1_29_ADOPTION.md)). Source `phase/4-beta` at `e20c70d85dd1d00e511aefe27bc997532b5023ff`.
+
+| Step | Result |
+|---|---|
+| Release payload run | [43247287593](https://github.com/DanDG923/pc-steward/actions/runs/43247287593), success. Payload artefact `sha256:95611afa17930aaeefb74ed7501ade69788dea88e49e1ef1110cb4f5c0b0f887`; check file `sha256:50e14f3ddc5e400f3b9d0c67a36154f80a5c7c623d2c23dafbd29e69f633aaa1`. |
+| Draft release | `publish-release.yml` run 43248201096 made draft `v0.1.3` at `e20c70d` with the check file. |
+| Owner's publish paste (18:58–18:59Z) | The first use of the one-paste publisher (`Publish-PCStewardRelease.ps1`). Read-only checks passed, including **Windows App Runtime 1.8 x64 8000.994.2142.0**, which meets the new minimum. Nine release scripts in a detached worktree at `e20c70d` matched their reviewed bytes. The fine-grained token was entered once and saved with DPAPI. The run and draft were checked, the payload signed with the YubiKey, and the release published. |
+| Published release | [v0.1.3](https://github.com/DanDG923/pc-steward/releases/tag/v0.1.3): immutable, tag at `e20c70d`, exactly two assets. Signed `PCSteward-0.1.3.msi` SHA-256 `7C8D1DC227218AAF224239A63A692554092C07A2B5A3AE9154370AD91CCF5C2B` (GitHub's digest matches), MSI tables `84D3D4C505464FA4C23EA07BC28B475304C164D42CDC82B3FD826E83E5F58527`. |
+| In-app update (about 19:02Z) | The owner updated from 0.1.2 through About > Check for updates > Install. The reopened desktop shows **Preview build 0.1.3-private-beta** and "Updated to 0.1.3. Every installed file was checked against the release build." This is the serviced build's first launch on the owner's PC, so the 1.8.260921001 bootstrap found the installed runtime. |
+
 ## Not claimed
 
-- A launch of the serviced build on the owner's PC or on a synthetic profile with the framework-dependent runtime. The 0.1.3 update through the in-app updater is that first launch, after the owner's separate approval of the publish paste.
-- Current runtime state on the owner's PC (see above).
+- Any screen beyond About after the update, a scan, or a WinGet query through COM 1.29.380 on the owner's PC.
+- A launch on a synthetic profile.
 - Task 48/49/50–52 live evidence belongs to the old payloads; it does not validate this one.
 - Task 54B (WinGet COM 1.29) is a separate, owner-gated change.
