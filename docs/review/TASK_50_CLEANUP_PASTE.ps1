@@ -21,6 +21,8 @@
 # Paste the lines it prints back to Claude. User names and paths are replaced with <USER>, <PROFILE> and <PC>.
 & {
 $ErrorActionPreference = 'Stop'
+# Load PowerShell's own modules only from Windows PowerShell's protected folder, never from a user-writable one.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 $up = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
 function San([string]$t) { if ($null -eq $t) { return '' }; $t.Replace($up, '<PROFILE>').Replace($env:USERNAME, '<USER>').Replace($env:COMPUTERNAME, '<PC>') }
 function Say([string]$t) { Write-Host (San $t) }
@@ -151,6 +153,8 @@ try {
         $resultFile = Join-Path ([IO.Path]::GetTempPath()) ('PCSteward-Cleanup-' + [Guid]::NewGuid().ToString('N') + '.txt')
         $elevated = @'
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
+$env:PATH = [IO.Path]::Combine($env:SystemRoot, 'System32')
 $log = [Collections.Generic.List[string]]::new()
 try {
     $pf = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)

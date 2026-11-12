@@ -131,8 +131,16 @@ Check (Has $o '  SKIP PCSteward-Task50C: it contains a link') 'run 1 plans to sk
 Check ((There (Join-Path $up 'PCSteward-Task50D')) -and (There $exec) -and (There (Join-Path $pd 'PCSteward-G9T1')) -and (There ('Cert:\CurrentUser\My\' + $test.Thumbprint))) 'run 1 changed nothing'
 Check (@(G @('stash', 'list')).Count -eq 1) 'run 1 kept the stash'
 
-# --- 5. Answer YES ---
+# --- 5. Answer YES, with a planted look-alike of a PowerShell module where module discovery looks first ---
+# Same-user code could plant such a module; the paste and its elevated step must load modules only from $PSHOME.
+$marker = Join-Path $env:PUBLIC 'pcsteward-ci-planted-module.txt'
+$planted = Join-Path $pf 'WindowsPowerShell\Modules\Microsoft.PowerShell.Management'
+if (Test-Path -LiteralPath $planted) { throw 'a Microsoft.PowerShell.Management module already exists outside PSHOME on this runner' }
+Put (Join-Path $planted '9.9.9\Microsoft.PowerShell.Management.psm1') ("[IO.File]::AppendAllText('" + $marker + "', 'loaded'); function Get-ChildItem { throw 'planted module' }")
+Put (Join-Path $planted '9.9.9\Microsoft.PowerShell.Management.psd1') "@{ ModuleVersion = '9.9.9'; RootModule = 'Microsoft.PowerShell.Management.psm1'; FunctionsToExport = @('Get-ChildItem'); GUID = 'eefcb906-b326-4e99-9f54-8b4bb6ef3c6d' }"
 $o = RunPaste 'YES'
+[IO.Directory]::Delete($planted, $true)
+Check (![IO.File]::Exists($marker)) 'run 2 never loaded the planted module (normal or elevated step)'
 foreach ($n in 'PCSteward-Task50B', 'PCSteward-Task50D', 'PCSteward-Task50E', 'PCSteward-UI5', 'PCSteward-UI6-20261111-135747') {
     Check (Has $o ('C1 removed ' + $n)) ('run 2 reports removing ' + $n)
     Check (!(There (Join-Path $up $n))) ('run 2 removed ' + $n)

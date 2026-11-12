@@ -62,7 +62,9 @@ PowerShell 5.1 window that the owner opens from the Start menu.
    `Invoke-PCStewardReleaseInstall.ps1`, it stops before changing anything if a .NET Framework startup override
    (`COMPLUS_*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`, `APPDOMAIN_MANAGER_*`) is set in the process, user or machine
    environment, or if a policy execution policy is enforced, so that same-user code cannot load into the elevated
-   PowerShell of step 6 (Codex security review of this PR).
+   PowerShell of step 6 (Codex security review of this PR). Both the paste and its elevated step first set
+   `PSModulePath` to `$PSHOME\Modules` only (as `Invoke-PCStewardReleaseInstallBootstrap.ps1` does), so a module planted in
+   a user-writable module folder cannot be auto-loaded; the elevated step also sets `PATH` to System32.
 2. **Plan.** It lists every folder, record, certificate and admin folder it would change, with sizes, and every one it
    will skip. It then waits for the owner to type `YES`; any other answer stops with nothing changed.
 3. **C1, user folder.** Removes the matching work folders and tidies the release folders. A folder holding a junction
@@ -93,7 +95,8 @@ record Git or Windows still refuses to delete is reported as harmless.
 The gating Windows CI job `task50-cleanup-paste` runs `scripts/Test-Task50CleanupPasteCI.ps1`. It parses the paste under
 Windows PowerShell 5.1, checks it is plain ASCII, builds the leftovers and look-alikes in the hosted runner's real
 profile, clone location, certificate stores, Program Files and ProgramData, and runs the paste four times: with `COR_ENABLE_PROFILING` set (stops before the plan, nothing changes), answer `no`
-(nothing changes), `YES` (every planned item goes, the junction folder, the incomplete release folder and all
+(nothing changes), `YES` with a look-alike `Microsoft.PowerShell.Management` module planted ahead of `$PSHOME` (it
+must never load; every planned item goes, the junction folder, the incomplete release folder and all
 look-alikes stay, the stash is saved with its tracked and untracked content, output carries no profile path or user
 name), and `YES` again after the skipped items are gone (`DONE`, no admin step). Three text changes are made to a
 temporary copy only: the elevated-window refusal is removed (the hosted runner is always elevated), `Read-Host` is
