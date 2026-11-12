@@ -23,10 +23,21 @@ internal interface IReviewedHelperTransport
     Task<ReviewedHelperExchange> ExchangeAsync(ReviewedUpdateOperation operation, string nonce, CancellationToken cancellationToken);
 }
 
-/// <summary>Reviewed fact extension rev 3 §6: connection 30 s, execution 11 min, exit 5 s. Unchanged from protocol 1.</summary>
-internal sealed record ReviewedHelperBudgets(TimeSpan Connection, TimeSpan Execution, TimeSpan Exit)
+/// <summary>Reviewed fact extension rev 3 §6: connection 30 s, execution 11 min (27 min for the whole-PC WinGet route, D4b §5.5), exit 5 s.</summary>
+internal sealed record ReviewedHelperBudgets(TimeSpan Connection, TimeSpan Execution, TimeSpan Exit, TimeSpan? WinGetMachineExecution = null)
 {
-    internal static ReviewedHelperBudgets Production { get; } = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(11), TimeSpan.FromSeconds(5));
+    /// <summary>
+    /// D4b design §5.5: the whole-PC WinGet route's execution budget, on both ends. It covers the helper's source query (1 min), the
+    /// H7b download (10 min) and the upgrade (15 min) at their own budgets, plus one minute for stages B and D, the launch and margins.
+    /// </summary>
+    internal static readonly TimeSpan WinGetMachineRouteExecution = TimeSpan.FromMinutes(27);
+
+    internal static ReviewedHelperBudgets Production { get; } = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(11), TimeSpan.FromSeconds(5),
+        WinGetMachineRouteExecution);
+
+    /// <summary>The whole-PC WinGet route waits for its own execution budget; every other route keeps <see cref="Execution"/>.</summary>
+    internal ReviewedHelperBudgets ForRoute(UpdateRouteContract route) =>
+        route == UpdateRouteContract.WinGetMachineSilentV1 && WinGetMachineExecution is { } winget ? this with { Execution = winget } : this;
 }
 
 /// <summary>The authenticated pipe for one launched helper. <see cref="VerifyPeer"/> must not throw.</summary>
@@ -286,7 +297,7 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
             WindowsReviewedHelperChannel channel = new(pipe, helper, paths, currentSession, currentSid, binding);
             ReviewedHelperExchange exchange = await ReviewedHelperExchangeSession.RunAsync(channel, owned, () => TryTerminate(helper),
                 () => ReviewedUpdateWireCodec.CreateRequest(operation.GetCanonicalBytes(), operation.Digest, nonce, DateTimeOffset.UtcNow),
-                budgets, cancellationToken).ConfigureAwait(false);
+                budgets.ForRoute(operation.RouteContract), cancellationToken).ConfigureAwait(false);
             // Strong reference until after seal (review-16 L2); release itself waits for the ownership task.
             GC.KeepAlive(binding);
             return exchange;

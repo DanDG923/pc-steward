@@ -27,10 +27,18 @@ internal interface IReviewedHelperCapabilityCheck
 /// <c>remaining + ExitMargin</c> still ends the whole run within <c>remaining + ExitMargin + ResponseMargin</c>.
 /// </summary>
 internal sealed record ReviewedHelperEndpointBudgets(TimeSpan FrameRead, TimeSpan Execution, TimeSpan ExitMargin, TimeSpan ResponseMargin,
-    TimeSpan LaunchFloor, TimeSpan ResponseWrite)
+    TimeSpan LaunchFloor, TimeSpan ResponseWrite, TimeSpan? WinGetMachineExecution = null)
 {
     internal static ReviewedHelperEndpointBudgets Production { get; } = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(11),
-        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(5));
+        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(5),
+        ReviewedHelperBudgets.WinGetMachineRouteExecution);
+
+    /// <summary>
+    /// D4b design §5.5: the whole-PC WinGet route downloads its installer in stage C (H7b) and then runs the upgrade, so it gets its own
+    /// execution budget (<see cref="ReviewedHelperBudgets.WinGetMachineRouteExecution"/>); every other route keeps <see cref="Execution"/>.
+    /// </summary>
+    internal ReviewedHelperEndpointBudgets ForRoute(UpdateRouteContract route) =>
+        route == UpdateRouteContract.WinGetMachineSilentV1 && WinGetMachineExecution is { } winget ? this with { Execution = winget } : this;
 }
 
 /// <summary>What the endpoint did with the pipe. Only <see cref="ResponseWritten"/> means one frame was written.</summary>
@@ -105,6 +113,7 @@ internal static class ReviewedHelperEndpoint
         // A0: an uncorrelatable request gets no response (fact extension rev 3 §6).
         CorrelatedRequest? request = await ReadAndCorrelateAsync(pipe, bootstrapNonce, budgets.FrameRead, cancellationToken).ConfigureAwait(false);
         if (request is null) return new(ReviewedHelperEndpointExit.NoResponse, "a0-request-not-correlated");
+        budgets = budgets.ForRoute(request.Operation.RouteContract);
 
         using CancellationTokenSource provider = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using CancellationTokenSource stopMonitor = new();
@@ -267,6 +276,7 @@ internal static class ReviewedHelperEndpoint
         private int capabilityAbandoned;
         private string profileDigest = string.Empty;
         private string? stageBInstalled, stageBFingerprint, stageCCandidate, stageDInstalled, stageDFingerprint;
+        private DateTimeOffset? stageCStartedAt;
 
         private string FrozenInstalled => operation.Selection.InstalledVersion;
 
@@ -342,6 +352,7 @@ internal static class ReviewedHelperEndpoint
         private async Task<Decision> StageCAsync(IChocolateyHelperItem current)
         {
             if (InterruptBefore("c") is { } interrupted) return interrupted;
+            stageCStartedAt = clock.GetUtcNow();
             TimeSpan remaining = Remaining();
             ChocolateyCandidateValues values;
             try { values = await current.QueryCandidateAsync(remaining, token).WaitAsync(remaining + budgets.ExitMargin, clock).ConfigureAwait(false); }
@@ -373,7 +384,11 @@ internal static class ReviewedHelperEndpoint
         {
             // Rechecks in order: cancellation, the 2-minute and 30-minute limits, then the budget (N4).
             if (token.IsCancellationRequested) return Undetermined(true, false, Settled(), false, "d-cancelled");
-            if (ApprovalLapsed(clock.GetUtcNow())) return Refused(ReviewedHelperRefusalReason.ApprovalExpired, null, null, null, "d-approval-expired");
+            // D4b design §5.5: the whole-PC WinGet route's stage C includes the H7b download, so its request must have been fresh when
+            // stage C began; the 30-minute review ceiling is still checked now. Every other route checks both now.
+            DateTimeOffset now = clock.GetUtcNow();
+            if (ApprovalLapsed(now, IsWinGetMachineRoute(operation) ? stageCStartedAt : null))
+                return Refused(ReviewedHelperRefusalReason.ApprovalExpired, null, null, null, "d-approval-expired");
             TimeSpan remaining = Remaining();
             if (remaining <= TimeSpan.Zero) return Undetermined(false, true, Settled(), false, "d-timed-out");
             ChocolateyStageValues values;
@@ -483,9 +498,16 @@ internal static class ReviewedHelperEndpoint
         private TimeSpan Remaining() =>
             budgets.Execution - clock.GetElapsedTime(connectedTimestamp) - budgets.ExitMargin - budgets.ResponseMargin;
 
-        private bool ApprovalLapsed(DateTimeOffset now) =>
-            issuedAt > now || now - issuedAt > RequestLifetime ||
-            operation.ReviewedAt > now || now - operation.ReviewedAt > ReviewCeiling;
+        /// <summary>
+        /// The request must be at most <see cref="RequestLifetime"/> old at <paramref name="requestCheckedAt"/> (default
+        /// <paramref name="now"/>) and never from the future; the review must be at most <see cref="ReviewCeiling"/> old now.
+        /// </summary>
+        private bool ApprovalLapsed(DateTimeOffset now, DateTimeOffset? requestCheckedAt = null)
+        {
+            DateTimeOffset requestAt = requestCheckedAt ?? now;
+            return issuedAt > now || issuedAt > requestAt || requestAt - issuedAt > RequestLifetime ||
+                operation.ReviewedAt > now || now - operation.ReviewedAt > ReviewCeiling;
+        }
 
         /// <summary>
         /// Exact route shape: the package route uses the same predicates as the fixed upgrade arguments (fact extension rev 3 §1);

@@ -27,7 +27,7 @@ namespace PCSteward.Provider.Chocolatey.Native;
 /// fails or shows anything but the trusted source, and an H7b download that fails or does not match, is <c>PreflightQueryFailed</c>;
 /// everything else is <c>MachineInputsUnsupported</c>.
 /// Version fields carry the frozen operation's reviewed text, checked by the reply's own grammar (§5.1). Nothing here admits the
-/// route: the helper's A3 capability check refuses it until stage 3.
+/// route: the review gate and the helper's A3 capability check admit it from stage 3.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class WingetMachineHelperWork : IDisposable
@@ -35,7 +35,7 @@ internal sealed class WingetMachineHelperWork : IDisposable
     /// <summary>The <c>source export</c> query's own budget, capped by what is left of the endpoint's.</summary>
     internal static readonly TimeSpan SourceQueryBudget = TimeSpan.FromSeconds(60);
 
-    /// <summary>The upgrade's own budget, capped by what is left of the endpoint's (which is shorter today).</summary>
+    /// <summary>The upgrade's own budget, capped by what is left of the endpoint's route budget (27 min, D4b design §5.5).</summary>
     internal static readonly TimeSpan UpgradeBudget = TimeSpan.FromMinutes(15);
 
     /// <summary>The H7b download's own budget, capped by what is left of the endpoint's.</summary>

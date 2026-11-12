@@ -242,6 +242,67 @@ public sealed class WingetMachineHelperRouteTests
     }
 
     [TestMethod]
+    public async Task ADownloadLongerThanTheRequestLifetimeStillReachesTheUpgrade()
+    {
+        // D4b design §5.5 (Codex, PR #77): stage C includes the H7b download (up to 10 minutes). The request must be fresh when stage
+        // C begins; it is not re-aged against the 2-minute limit after the download, and the route's own budget covers the upgrade.
+        EndpointHarness harness = WinGetHarness();
+        harness.Item.Query = (_, _) =>
+        {
+            harness.Clock.Advance(TimeSpan.FromMinutes(12));
+            return Task.FromResult<ChocolateyCandidateValues>(ChocolateyCandidateValues.Matched.ForWinGetMachine(Candidate));
+        };
+        EndpointRun run = await harness.ExchangeAsync(Operation());
+
+        Assert.AreEqual(ReviewedHelperEndpointExit.ResponseWritten, run.Result.Exit, run.Result.Diagnostic);
+        Assert.AreEqual(UpdateWireInvocation.Started, Read(run).Facts.Invocation, run.Result.Diagnostic);
+        Assert.AreEqual(1, harness.Item.UpgradeCalls, "a 12-minute download fits the route's 27-minute budget, past the 11-minute default");
+    }
+
+    [TestMethod]
+    [DataRow("request-stale-before-download")]
+    [DataRow("review-ceiling")]
+    public async Task TheWinGetRouteStillRefusesAStaleRequestOrReviewAtStageD(string limit)
+    {
+        EndpointHarness harness = WinGetHarness();
+        if (limit == "review-ceiling") harness.Clock.Advance(TimeSpan.FromMinutes(28));
+        else
+            harness.Item.Observe = (_, _, _, _) =>
+            {
+                harness.Clock.Advance(TimeSpan.FromMinutes(2) + TimeSpan.FromTicks(1));
+                return ChocolateyStageValues.Observed.ForWinGetMachine(Installed, Registration);
+            };
+        harness.Item.Query = (_, _) =>
+        {
+            harness.Clock.Advance(TimeSpan.FromMinutes(2) + TimeSpan.FromTicks(1));
+            return Task.FromResult<ChocolateyCandidateValues>(ChocolateyCandidateValues.Matched.ForWinGetMachine(Candidate));
+        };
+        EndpointRun run = await harness.ExchangeAsync(Operation());
+
+        Assert.AreEqual("d-approval-expired", run.Result.Diagnostic, limit);
+        Assert.AreEqual(ReviewedHelperRefusalReason.ApprovalExpired, Read(run).Reviewed.RefusalReason);
+        Assert.AreEqual(0, harness.Item.UpgradeCalls);
+    }
+
+    [TestMethod]
+    public void OnlyTheWholePcRouteGetsTheLongerExecutionBudgetOnBothEnds()
+    {
+        TimeSpan expected = TimeSpan.FromMinutes(27);
+        Assert.AreEqual(expected, ReviewedHelperBudgets.WinGetMachineRouteExecution);
+        Assert.IsGreaterThanOrEqualTo(TimeSpan.FromMinutes(1) + TimeSpan.FromMinutes(10) + TimeSpan.FromMinutes(15), expected,
+            "source query, H7b download and upgrade at their own budgets");
+        Assert.AreEqual(expected, ReviewedHelperEndpointBudgets.Production.ForRoute(UpdateRouteContract.WinGetMachineSilentV1).Execution);
+        Assert.AreEqual(expected, ReviewedHelperBudgets.Production.ForRoute(UpdateRouteContract.WinGetMachineSilentV1).Execution);
+        foreach (UpdateRouteContract route in new[] { UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3, UpdateRouteContract.ChocolateyClientSelfUpdateV1 })
+        {
+            Assert.AreEqual(TimeSpan.FromMinutes(11), ReviewedHelperEndpointBudgets.Production.ForRoute(route).Execution, route.ToString());
+            Assert.AreEqual(TimeSpan.FromMinutes(11), ReviewedHelperBudgets.Production.ForRoute(route).Execution, route.ToString());
+        }
+        ReviewedHelperEndpointBudgets fixture = ReviewedHelperEndpointBudgets.Production with { WinGetMachineExecution = null };
+        Assert.AreEqual(TimeSpan.FromMinutes(11), fixture.ForRoute(UpdateRouteContract.WinGetMachineSilentV1).Execution, "no route budget, no change");
+    }
+
+    [TestMethod]
     public async Task ARealAllowListMismatchIsRequestNotAdmittedInTheWinGetShape()
     {
         EndpointHarness harness = WinGetHarness();
