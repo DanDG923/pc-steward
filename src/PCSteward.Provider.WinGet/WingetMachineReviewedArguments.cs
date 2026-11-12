@@ -47,6 +47,26 @@ internal static class WingetMachineReviewedArguments
         });
     }
 
+    /// <summary>
+    /// D4b stage 2b, design §7: the review's own <c>download</c> of a whole-PC selection into <paramref name="downloadDirectory"/> (a
+    /// fresh folder the desktop created): the §4 line without <c>--installer-type</c>, so WinGet chooses the installer and the review
+    /// records the type it chose. Built only for a selection with the route's shape; throws for anything else.
+    /// </summary>
+    internal static ReadOnlyCollection<string> BuildReviewDownload(UpdateJobSelection selection, string downloadDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentException.ThrowIfNullOrWhiteSpace(downloadDirectory);
+        if (!Path.IsPathFullyQualified(downloadDirectory))
+            throw new ArgumentException("The download folder must be a fully qualified path.", nameof(downloadDirectory));
+        if (!WingetMachineReviewedRoute.TryGetSelectionArchitecture(selection, out string architecture))
+            throw new ArgumentException("The selection is outside the machine WinGet route.", nameof(selection));
+        return Array.AsReadOnly(new[]
+        {
+            "download", "--id", selection.PackageId, "--version", selection.CandidateVersion, "--source", "winget", "--exact",
+            "--scope", "machine", "--architecture", architecture, "--download-directory", downloadDirectory, "--disable-interactivity"
+        });
+    }
+
     /// <summary>The shape every machine command line requires (<see cref="WingetMachineReviewedRoute.TryGetShape"/>); throws for anything else.</summary>
     internal static (ReviewedUpdateSelection Selection, string Architecture, string InstallerType) Admit(ReviewedUpdateOperation operation)
     {

@@ -139,6 +139,15 @@ public sealed class UpdateJobReview
     public UpdateJobSelection Selection { get; }
     public UpdateJobReviewState State { get; }
 
+    /// <summary>
+    /// D4b stage 2b: the reviewed evidence identity a whole-PC WinGet review bound (<c>wgm1</c>), or null. Comparison data only: it
+    /// never grants consent, and the elevated helper checks every part again before it runs anything.
+    /// </summary>
+    public string? EvidenceId { get; init; }
+
+    /// <summary>D4b stage 2b: when the fresh inventory behind <see cref="EvidenceId"/> was observed, or null.</summary>
+    public DateTimeOffset? EvidenceObservedAt { get; init; }
+
     public ImmutableUpdateJob Confirm(DateTimeOffset approvedAt)
     {
         if (approvedAt == default) throw new ArgumentException("An approval timestamp is required.", nameof(approvedAt));
