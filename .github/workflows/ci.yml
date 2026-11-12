@@ -63,6 +63,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  task50-cleanup-paste:
+    # Task 50 cleanup (docs/review/TASK_50_CLEANUP.md): before it is handed over, the owner's cleanup paste must parse under
+    # Windows PowerShell 5.1 and do exactly what it says against this disposable runner's profile, clone location,
+    # CurrentUser certificate stores, Program Files and ProgramData: remove the planned leftovers, keep look-alikes, skip
+    # folders holding links, save the stash before dropping it, and change nothing unless the owner types YES. Gates.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-Task50CleanupPasteCI.ps1
+
   helper-native-aot-feasibility:
     # Security review H1 follow-up (owner decision: Native AOT helper before G9-T1). Informational until the ADR is
     # accepted: compile the elevated helper with Native AOT into a scratch folder, list trim/AOT warnings, and start the
