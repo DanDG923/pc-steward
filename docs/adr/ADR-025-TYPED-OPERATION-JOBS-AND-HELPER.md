@@ -184,7 +184,7 @@ The owner decided that the existing runtime-limits disclosure is sufficient. No 
 
 ## Proposed amendment (2026-11-12) — protocol-1 transition for machine-scope WinGet (stage C4, Task 54 R2)
 
-**Status: Proposed, awaiting the owner's acceptance of this wording.** Until accepted, this section changes nothing. Source: [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md) finding R2 and the owner's 2026-11-12 decision "Fix R1 now; amend ADR-025 for R2". Stage record: [C4](../review/C4_REVIEWED_WINGET_USER_MODE.md).
+**Status: Accepted (owner, 2026-11-12 20:07Z): "Accept the wording".** Accepted text as written below; previously Proposed. Source: [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md) finding R2 and the owner's 2026-11-12 decision "Fix R1 now; amend ADR-025 for R2". Stage record: [C4](../review/C4_REVIEWED_WINGET_USER_MODE.md).
 
 1. **Exception.** "Privilege and protocol boundary" says a new helper never also accepts protocol 1. As a time-limited exception, the protocol-2 helper keeps protocol 1 for one purpose only: a machine-scope WinGet `UpdatePackage` from the `winget` or `msstore` source. Nothing else may use protocol 1, and no new operation, source, provider or argument is added to it.
 2. **Already narrowed (stage C4).** The protocol-1 request validator refuses Chocolatey (`request-authority-not-allowlisted`); the helper's protocol-1 executor has no Chocolatey arm; the desktop's `ElevatedUpdateRunner` denies any non-WinGet job before a helper launch. Per-user WinGet updates no longer use the legacy job route at all (R1).

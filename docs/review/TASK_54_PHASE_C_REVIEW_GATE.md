@@ -32,4 +32,4 @@ The owner chose to fix R1 now and to amend ADR-025 for R2:
 
 Phase C closes when R1 is fixed and the amendment is accepted.
 
-**Stage C4 (2026-11-12).** R1 is fixed in code and R2's amendment is proposed: [C4 record](C4_REVIEWED_WINGET_USER_MODE.md). The owner chose Silent for every per-user WinGet app. Both still need the Codex re-review, and the amendment needs the owner's acceptance.
+**Stage C4 (2026-11-12).** R1 is fixed in code and R2's amendment is written: [C4 record](C4_REVIEWED_WINGET_USER_MODE.md). The owner chose Silent for every per-user WinGet app. The owner accepted the amendment wording on 2026-11-12; both still need the Codex re-review.

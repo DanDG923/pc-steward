@@ -14,7 +14,7 @@ Requirements: `FR-UPD-15`, `FR-UPD-01/03`, `AC-UPD-03`, `TM-03/04/13`. Authority
 - `WingetReviewedUserUpdateExecutor` builds its arguments only from `WingetReviewedUpdateArguments.Build(operation)`. The legacy mode-less `WingetUpdateExecutor` and its `BuildUpdateArguments(ImmutableUpdateJob)` are removed.
 - `App.xaml.cs` composes `new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor())` and passes `requestingUserSid: CurrentUserSid`.
 
-**R2 (transition, pending the owner's acceptance of the wording):** [ADR-025 proposed amendment](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-12--protocol-1-transition-for-machine-scope-winget-stage-c4-task-54-r2). This stage already narrows protocol 1 to machine-scope WinGet: the protocol-1 request validator refuses Chocolatey (`request-authority-not-allowlisted`), the helper's protocol-1 executor has no Chocolatey arm, and the desktop's `ElevatedUpdateRunner` denies any non-WinGet job (`UnsupportedProvider`) before a helper launch. Real Chocolatey updates are unaffected: they run on protocol 2 through their own reviewed dispatch.
+**R2 (transition; wording accepted by the owner on 2026-11-12):** [ADR-025 amendment](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md#proposed-amendment-2026-11-12--protocol-1-transition-for-machine-scope-winget-stage-c4-task-54-r2). This stage already narrows protocol 1 to machine-scope WinGet: the protocol-1 request validator refuses Chocolatey (`request-authority-not-allowlisted`), the helper's protocol-1 executor has no Chocolatey arm, and the desktop's `ElevatedUpdateRunner` denies any non-WinGet job (`UnsupportedProvider`) before a helper launch. Real Chocolatey updates are unaffected: they run on protocol 2 through their own reviewed dispatch.
 
 ## 2. The per-user mapping (Task 50 F6 amendment)
 
@@ -29,7 +29,7 @@ Compared with the removed legacy builder, the only argument added is `--silent`.
 - **Coverage over native qualification (owner's choice).** The owner chose Silent for every per-user WinGet app over the narrower MSIX-only `WinGetUserExactV3` route. "Observed" architecture here is the architecture the desktop's WinGet inventory reported for the installed app, not the F6 native current-user MSIX observation. F6's native qualification and F7's CLI/COM implementation-identity binding are not done for this route.
 - **`--silent` is a request, not proof.** Whether an installer honours it depends on the package manifest. Actual mode enforcement and installed-state outcomes through a real update still need host evidence (ADR-025 "Follow-up controls and tests"; Task 53 O1).
 - **The review screen does not show the mode in words.** The mode is bound and enforced, but the existing WinGet review dialog is unchanged.
-- **Machine scope** still runs on protocol 1 with no reviewed or bound mode and no `--silent` (`upgrade … --scope machine --architecture <a> --disable-interactivity`) until Phase D stage D4b ships the reviewed machine route, under the proposed ADR-025 amendment.
+- **Machine scope** still runs on protocol 1 with no reviewed or bound mode and no `--silent` (`upgrade … --scope machine --architecture <a> --disable-interactivity`) until Phase D stage D4b ships the reviewed machine route, under the accepted ADR-025 amendment.
 - **Not compiled in the cloud:** the WinUI Desktop project and the integration tests that need SQLite. Windows CI is the proof for those.
 
 ## 4. Evidence
