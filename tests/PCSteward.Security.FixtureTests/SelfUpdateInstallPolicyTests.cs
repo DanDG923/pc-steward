@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using PCSteward.Execution;
@@ -219,6 +220,25 @@ public sealed class SelfUpdateInstallPolicyTests
         }
         Dictionary<string, MsiTable> noType = new(tables) { ["CustomAction"] = Table("CustomAction", ["Action", "Source"], ["x", null]) };
         Assert.AreEqual(MsiStructureVerdict.UnreadableTable, MsiStructurePolicy.Check(noType, out _));
+    }
+
+    [TestMethod]
+    public void TheUserInstallsPolicyMarkerRecordsOnlyTheOwnersOwnState()
+    {
+        // Mythos review S1, owner's choice: the owner's own DisableUserInstalls state is kept next to the policy while PC Steward
+        // has set it, as "absent" or "dword:<n>", and nothing else is read back as a state.
+        Assert.IsTrue(MsiProductRegistration.IgnoresUserInstalls(1));
+        foreach (object? other in new object?[] { 0, 2, -1, "1", 1L, null })
+            Assert.IsFalse(MsiProductRegistration.IgnoresUserInstalls(other), Convert.ToString(other, CultureInfo.InvariantCulture));
+        foreach (int? state in new int?[] { null, 0, 1, 2, -5 })
+        {
+            Assert.IsTrue(MsiProductRegistration.TryReadRestoreMarker(MsiProductRegistration.RestoreMarker(state), out int? read), state?.ToString(CultureInfo.InvariantCulture));
+            Assert.AreEqual(state, read);
+        }
+        Assert.AreEqual("absent", MsiProductRegistration.RestoreMarker(null));
+        Assert.AreEqual("dword:0", MsiProductRegistration.RestoreMarker(0));
+        foreach (object? bad in new object?[] { null, "", "Absent", "dword:", "dword:+1", "dword:01", "dword: 1", "dword:1x", "qword:1", 1 })
+            Assert.IsFalse(MsiProductRegistration.TryReadRestoreMarker(bad, out _), Convert.ToString(bad, CultureInfo.InvariantCulture) ?? "null");
     }
 
     [TestMethod]

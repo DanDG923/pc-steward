@@ -138,6 +138,52 @@ function Test-UserInstallsIgnored {
     }
     finally { $machine.Dispose() }
 }
+# The owner's choice: the policy is set only around this script's own msiexec runs. Enable-UserInstallsIgnored first writes the
+# owner's own state next to it (PCStewardRestoreDisableUserInstalls: "absent" or "dword:<n>"; a marker left by a run that
+# stopped is kept as the owner's state), then sets the DWORD 1; Restore-UserInstallsPolicy puts that state back. The same rules
+# as WindowsSelfUpdateHost.IgnoreUserInstalls in PCSteward.Execution.
+function Enable-UserInstallsIgnored {
+    $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $policy = $machine.CreateSubKey('SOFTWARE\Policies\Microsoft\Windows\Installer', $true)
+        try {
+            $names = @($policy.GetValueNames())
+            if ($names -contains 'PCStewardRestoreDisableUserInstalls') {
+                if ($policy.GetValueKind('PCStewardRestoreDisableUserInstalls') -ne [Microsoft.Win32.RegistryValueKind]::String -or [string]$policy.GetValue('PCStewardRestoreDisableUserInstalls') -cnotmatch '\A(absent|dword:-?(0|[1-9][0-9]*))\z') { throw 'The saved DisableUserInstalls state is unreadable.' }
+            }
+            else {
+                $previous = 'absent'
+                if ($names -contains 'DisableUserInstalls') {
+                    if ($policy.GetValueKind('DisableUserInstalls') -ne [Microsoft.Win32.RegistryValueKind]::DWord) { throw 'DisableUserInstalls is not a DWORD, so it was left as it is.' }
+                    $previous = 'dword:' + ([int]$policy.GetValue('DisableUserInstalls')).ToString([Globalization.CultureInfo]::InvariantCulture)
+                }
+                $policy.SetValue('PCStewardRestoreDisableUserInstalls', $previous, [Microsoft.Win32.RegistryValueKind]::String)
+            }
+            $policy.SetValue('DisableUserInstalls', 1, [Microsoft.Win32.RegistryValueKind]::DWord)
+            $policy.Flush()
+        }
+        finally { $policy.Dispose() }
+    }
+    finally { $machine.Dispose() }
+}
+function Restore-UserInstallsPolicy {
+    $machine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $policy = $machine.OpenSubKey('SOFTWARE\Policies\Microsoft\Windows\Installer', $true)
+        if ($null -eq $policy) { return }
+        try {
+            if (@($policy.GetValueNames()) -notcontains 'PCStewardRestoreDisableUserInstalls') { return }
+            $saved = [string]$policy.GetValue('PCStewardRestoreDisableUserInstalls')
+            if ($saved -ceq 'absent') { $policy.DeleteValue('DisableUserInstalls', $false) }
+            elseif ($saved -cmatch '\Adword:(-?(0|[1-9][0-9]*))\z') { $policy.SetValue('DisableUserInstalls', [int]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture), [Microsoft.Win32.RegistryValueKind]::DWord) }
+            else { return }
+            $policy.DeleteValue('PCStewardRestoreDisableUserInstalls', $false)
+            $policy.Flush()
+        }
+        finally { $policy.Dispose() }
+    }
+    finally { $machine.Dispose() }
+}
 # The ProductCode property of the protected MSI copy (read-only database).
 function Get-MsiProductCode([string]$Path) {
     $installer = New-Object -ComObject WindowsInstaller.Installer
@@ -162,6 +208,7 @@ function Invoke-Msiexec([string[]]$Arguments, [string]$LogLeaf) {
 }
 
 $installed = $false
+$policySet = $false
 try {
     # 1. The artefact, from the digest in the paste.
     $zip = Copy-IntoProtected $ArtefactZip 'artefact.zip' 1GB $ArtefactSha256
@@ -218,7 +265,9 @@ try {
     }
     elseif (Test-Path -LiteralPath $stateRoot) { throw 'The owner-only test deployment is installed; run with -RemoveOwnerOnlyTestDeployment.' }
     $phase = 'msiexec'
-    if (!(Test-UserInstallsIgnored)) { throw "Windows Installer's DisableUserInstalls machine policy is not set, so msiexec was not run. Without it another program running as you could change what this elevated install does. Set HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer\DisableUserInstalls to the DWORD 1 as an administrator, then run this again." }
+    $policySet = $true
+    Enable-UserInstallsIgnored
+    if (!(Test-UserInstallsIgnored)) { throw "Windows Installer's DisableUserInstalls machine policy could not be set, so msiexec was not run. Without it another program running as you could change what this elevated install does." }
     if (Test-PerUserRegistration $productCode) { throw "Your account's own registry registers PC Steward with Windows Installer, which PC Steward never does, so msiexec was not run. Another program may have added it." }
     $before = @(Get-RelatedProducts)
     $code = Invoke-Msiexec @('/i', ('"' + $msi.Path + '"')) 'msiexec-install.log'
@@ -292,4 +341,8 @@ catch {
         }
     }
     throw $failure
+}
+finally {
+    # The owner's own DisableUserInstalls state is put back once msiexec is done (and after any fail-closed uninstall).
+    if ($policySet) { Restore-UserInstallsPolicy }
 }

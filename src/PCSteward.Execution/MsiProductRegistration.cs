@@ -22,7 +22,8 @@ internal static partial class MsiProductRegistration
     /// <summary>
     /// The Windows Installer machine policy key (below <c>HKLM</c>, administrators only) and its <c>DisableUserInstalls</c> value.
     /// Set to 1, Windows Installer ignores every per-user registration, so a same-user program can no longer steer an elevated
-    /// install through one (Mythos review S1, confirmed on Windows CI). The helper runs <c>msiexec</c> only while it is set.
+    /// install through one (Mythos review S1, confirmed on Windows CI). The helper runs <c>msiexec</c> only while it is set. By
+    /// the owner's choice it sets the value just before each <c>msiexec</c> and puts the owner's own state back straight after.
     /// </summary>
     internal const string MachinePolicyKey = @"SOFTWARE\Policies\Microsoft\Windows\Installer";
 
@@ -31,6 +32,30 @@ internal static partial class MsiProductRegistration
 
     /// <summary>True only for the DWORD 1 that tells Windows Installer to ignore per-user installs and registrations.</summary>
     internal static bool IgnoresUserInstalls(object? value) => value is int number && number == 1;
+
+    /// <summary>
+    /// The value, next to the policy, that holds the owner's own <c>DisableUserInstalls</c> state while PC Steward has set it, so
+    /// that state is put back even when a run stopped before restoring it. Windows Installer ignores it.
+    /// </summary>
+    internal const string RestoreMarkerValue = "PCStewardRestoreDisableUserInstalls";
+
+    /// <summary>The marker text for the owner's own state: <c>absent</c>, or <c>dword:</c> and the number.</summary>
+    internal static string RestoreMarker(int? previous) =>
+        previous is { } number ? "dword:" + number.ToString(System.Globalization.CultureInfo.InvariantCulture) : "absent";
+
+    /// <summary>Reads a marker written by <see cref="RestoreMarker"/>; false for anything else.</summary>
+    internal static bool TryReadRestoreMarker(object? value, out int? previous)
+    {
+        previous = null;
+        if (value is not string text) return false;
+        if (string.Equals(text, "absent", StringComparison.Ordinal)) return true;
+        if (!text.StartsWith("dword:", StringComparison.Ordinal) ||
+            !int.TryParse(text.AsSpan(6), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out int number) ||
+            !string.Equals(RestoreMarker(number), text, StringComparison.Ordinal))
+            return false;
+        previous = number;
+        return true;
+    }
 
     /// <summary>The per-machine product codes registered under PC Steward's UpgradeCode (value names, packed), below <c>HKLM</c>.</summary>
     internal static string MachineUpgradeCodeKey => @"SOFTWARE\Classes\Installer\UpgradeCodes\" + Pack(UpgradeCode);

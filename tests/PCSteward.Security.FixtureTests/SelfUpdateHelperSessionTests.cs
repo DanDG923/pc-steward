@@ -23,7 +23,7 @@ public sealed class SelfUpdateHelperSessionTests
     private static readonly string[] SessionOrder =
     [
         "ProfileFolder", "CreateProtectedFolder", "CreatePrivateFolder", "CopyInput:zip", "CopyInput:msi", "ConfirmAsync", "RemoveOlderWorkFolders", "CarriesCompiledPin", "ReadMsiTables",
-        "UserInstallsIgnored", "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
+        "HasPerUserRegistration", "RunMsiexecAsync:/a", "HasPerUserRegistration", "ReadImage", "BothCarrySameReleasePin", "CreateProtectedFolder", "CopyOwnImage", "WriteNewFile:job.json",
         "WriteNewFile:expected-install.json", "StartFinish",
     ];
     private const string ProductCode = "{11111111-1111-1111-1111-111111111111}";
@@ -215,7 +215,6 @@ public sealed class SelfUpdateHelperSessionTests
             (host => host.TablesSha = new string('0', 64), SelfUpdateSessionRefusal.MsiTablesDiffer),
             (host => host.ForbiddenTable = true, SelfUpdateSessionRefusal.MsiStructureRefused),
             (host => host.NoProductCode = true, SelfUpdateSessionRefusal.MsiStructureRefused),
-            (host => host.UserInstallsAllowed = true, SelfUpdateSessionRefusal.UserInstallsAllowed),
             (host => host.PerUserBefore = true, SelfUpdateSessionRefusal.PerUserRegistration),
             (host => host.PerUserAfterExtract = true, SelfUpdateSessionRefusal.PerUserRegistration),
             (host => host.ExtractExit = 1603, SelfUpdateSessionRefusal.ExtractFailed),
@@ -359,10 +358,18 @@ public sealed class SelfUpdateHelperSessionTests
         }
 
         // Mythos review S1: no msiexec at all unless the DisableUserInstalls machine policy is set, and no uninstall once it is gone.
-        FinishHost policyOff = new() { UserInstallsAllowedBefore = true };
-        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, policyOff, CancellationToken.None);
-        Assert.AreEqual((SelfUpdateFinishOutcome.RefusedBeforeInstall, "user-installs-allowed"), (policyOff.Result().Outcome, policyOff.Result().Detail));
-        Assert.IsEmpty(policyOff.Msiexec);
+        foreach (FinishHost policyOff in new[] { new FinishHost { UserInstallsAllowedBefore = true }, new FinishHost { PolicyCannotBeSet = true } })
+        {
+            await SelfUpdateFinish.RunAsync(Leaf, elevated: true, policyOff, CancellationToken.None);
+            Assert.AreEqual((SelfUpdateFinishOutcome.RefusedBeforeInstall, "user-installs-allowed"), (policyOff.Result().Outcome, policyOff.Result().Detail));
+            Assert.IsEmpty(policyOff.Msiexec);
+            Assert.AreEqual(policyOff.PolicyCannotBeSet ? 0 : 1, policyOff.PolicyRestores, "a policy that was set is put back");
+        }
+        // The owner's choice: the policy is set once for the finish copy's msiexec runs and put back when it ends.
+        FinishHost restored = new() { TreeDiffers = true };
+        await SelfUpdateFinish.RunAsync(Leaf, elevated: true, restored, CancellationToken.None);
+        Assert.AreEqual(SelfUpdateFinishOutcome.MismatchUninstalled, restored.Result().Outcome);
+        Assert.AreEqual((1, 1), (restored.PolicySets, restored.PolicyRestores));
         FinishHost policyGone = new() { UserInstallsAllowedAfter = true, TreeDiffers = true };
         await SelfUpdateFinish.RunAsync(Leaf, elevated: true, policyGone, CancellationToken.None);
         Assert.AreEqual((SelfUpdateFinishOutcome.MismatchUninstallFailed, "installed-tree-differs; uninstall-refused"), (policyGone.Result().Outcome, policyGone.Result().Detail));
@@ -456,6 +463,18 @@ public sealed class SelfUpdateHelperSessionTests
 
     private static string Sha(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
+    /// <summary>The fakes' policy scope: records the restore once.</summary>
+    private sealed class PolicyScope(Action restore) : IDisposable
+    {
+        private Action? pending = restore;
+
+        public void Dispose()
+        {
+            pending?.Invoke();
+            pending = null;
+        }
+    }
+
     private sealed class SessionHost : ISelfUpdateSessionHost, ISelfUpdateInstallCheck
     {
         private byte[] zip;
@@ -518,7 +537,6 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool NoProductCode { get; set; }
         internal bool PerUserBefore { get; set; }
         internal bool PerUserAfterExtract { get; set; }
-        internal bool UserInstallsAllowed { get; set; }
         internal int? ExtractExit { get; set; } = 0;
         internal Action? OnExtract { get; set; }
         internal bool ImageReadable { get; set; } = true;
@@ -630,11 +648,6 @@ public sealed class SelfUpdateHelperSessionTests
             return Calls.Contains("RunMsiexecAsync:/a") ? PerUserAfterExtract : PerUserBefore;
         }
 
-        public bool UserInstallsIgnored()
-        {
-            Calls.Add("UserInstallsIgnored");
-            return !UserInstallsAllowed;
-        }
 
         public SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf)
         {
@@ -709,6 +722,9 @@ public sealed class SelfUpdateHelperSessionTests
         internal bool PerUserAfter { get; set; }
         internal bool UserInstallsAllowedBefore { get; set; }
         internal bool UserInstallsAllowedAfter { get; set; }
+        internal bool PolicyCannotBeSet { get; set; }
+        internal int PolicySets { get; private set; }
+        internal int PolicyRestores { get; private set; }
         internal List<IReadOnlyList<string>> Msiexec { get; } = [];
         internal Dictionary<string, byte[]> Written { get; } = new(StringComparer.Ordinal);
         internal int TreeReads { get; private set; }
@@ -776,6 +792,12 @@ public sealed class SelfUpdateHelperSessionTests
         }
 
         public bool UserInstallsIgnored() => Msiexec.Count == 0 ? !UserInstallsAllowedBefore : !UserInstallsAllowedAfter;
+
+        public IDisposable? IgnoreUserInstalls()
+        {
+            PolicySets++;
+            return PolicyCannotBeSet ? null : new PolicyScope(() => PolicyRestores++);
+        }
 
         public long BootTimeUnixSeconds() => 1_700_000_000;
 

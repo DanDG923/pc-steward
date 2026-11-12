@@ -73,11 +73,6 @@ internal interface ISelfUpdateSessionHost
     /// </summary>
     bool HasPerUserRegistration(string productCode);
 
-    /// <summary>
-    /// True only when the administrator-only Windows Installer machine policy <c>DisableUserInstalls</c> is 1, so Windows
-    /// Installer ignores every per-user registration (Mythos review S1); false when it is anything else or cannot be read.
-    /// </summary>
-    bool UserInstallsIgnored();
 
     /// <summary>The extracted image's install folder and files, or null when its layout breaks the §6 step 8 rule.</summary>
     SelfUpdateImage? ReadImage(string imageRoot, string packageLeaf);
@@ -329,7 +324,10 @@ internal static class SelfUpdateSession
             // Mythos review S1 (confirmed on Windows CI): without the DisableUserInstalls machine policy, a per-user registration
             // written in the moment before msiexec reads it makes an elevated install apply the owner's transform. So msiexec runs
             // only while the policy is set. Security review R1: the check for an existing registration stays as defence in depth.
-            Require(host.UserInstallsIgnored(), SelfUpdateSessionRefusal.UserInstallsAllowed);
+            // Security review R1: Windows Installer would consult the owner's own registrations of this product, which a same-user
+            // program can write, so msiexec never runs while one exists. Mythos review S1: the DisableUserInstalls policy, which
+            // closes the timing gap for the install itself, makes Windows Installer refuse an administrative image (error 1934),
+            // so it is set only around the finish copy's install and uninstall.
             Require(!host.HasPerUserRegistration(productCode), SelfUpdateSessionRefusal.PerUserRegistration);
             token.ThrowIfCancellationRequested();
 

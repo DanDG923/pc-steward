@@ -613,6 +613,83 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         }
     }
 
+    /// <summary>
+    /// Mythos review S1, owner's choice "only during PC Steward updates": sets the 64-bit machine policy <c>DisableUserInstalls</c>
+    /// to the DWORD 1 and returns a scope that puts the owner's own state back when disposed. The owner's state is first written
+    /// next to it (<see cref="MsiProductRegistration.RestoreMarkerValue"/>), so a run that stopped before restoring is undone by
+    /// the next one; while such a marker exists it is kept as the owner's state. Null, with nothing changed, when the existing
+    /// value is not a DWORD or a marker is unreadable, or when the key cannot be written.
+    /// </summary>
+    public IDisposable? IgnoreUserInstalls()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using RegistryKey policy = machine.CreateSubKey(MsiProductRegistration.MachinePolicyKey, writable: true);
+            string[] names = policy.GetValueNames();
+            if (names.Contains(MsiProductRegistration.RestoreMarkerValue, StringComparer.OrdinalIgnoreCase))
+            {
+                if (policy.GetValueKind(MsiProductRegistration.RestoreMarkerValue) != RegistryValueKind.String ||
+                    !MsiProductRegistration.TryReadRestoreMarker(policy.GetValue(MsiProductRegistration.RestoreMarkerValue), out _))
+                    return null;
+            }
+            else
+            {
+                int? previous = null;
+                if (names.Contains(MsiProductRegistration.DisableUserInstallsValue, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (policy.GetValueKind(MsiProductRegistration.DisableUserInstallsValue) != RegistryValueKind.DWord) return null;
+                    previous = (int)policy.GetValue(MsiProductRegistration.DisableUserInstallsValue)!;
+                }
+                policy.SetValue(MsiProductRegistration.RestoreMarkerValue, MsiProductRegistration.RestoreMarker(previous), RegistryValueKind.String);
+            }
+            policy.SetValue(MsiProductRegistration.DisableUserInstallsValue, 1, RegistryValueKind.DWord);
+            policy.Flush();
+            return new UserInstallsPolicyScope();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            RestoreUserInstallsPolicy();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Puts back the owner's own <c>DisableUserInstalls</c> state recorded by <see cref="IgnoreUserInstalls"/> and removes the
+    /// marker. Without a readable marker nothing is changed: the policy then stays as it is, which is the safe state.
+    /// </summary>
+    private static void RestoreUserInstallsPolicy()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using RegistryKey? policy = machine.OpenSubKey(MsiProductRegistration.MachinePolicyKey, writable: true);
+            if (policy is null || policy.GetValueKind(MsiProductRegistration.RestoreMarkerValue) != RegistryValueKind.String ||
+                !MsiProductRegistration.TryReadRestoreMarker(policy.GetValue(MsiProductRegistration.RestoreMarkerValue), out int? previous))
+                return;
+            if (previous is { } number) policy.SetValue(MsiProductRegistration.DisableUserInstallsValue, number, RegistryValueKind.DWord);
+            else policy.DeleteValue(MsiProductRegistration.DisableUserInstallsValue, throwOnMissingValue: false);
+            policy.DeleteValue(MsiProductRegistration.RestoreMarkerValue, throwOnMissingValue: false);
+            policy.Flush();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // The policy stays on, the safe state; the next run restores it from the marker.
+        }
+    }
+
+    private sealed class UserInstallsPolicyScope : IDisposable
+    {
+        private int disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0) RestoreUserInstallsPolicy();
+        }
+    }
+
     public long BootTimeUnixSeconds() => DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (Environment.TickCount64 / 1000);
 
     // ---- Shared primitives ----

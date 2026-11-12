@@ -50,8 +50,17 @@ internal interface ISelfUpdateFinishHost
     /// <summary>As <see cref="ISelfUpdateSessionHost.HasPerUserRegistration"/> (security review R1, Mythos review S1).</summary>
     bool HasPerUserRegistration(string productCode);
 
-    /// <summary>As <see cref="ISelfUpdateSessionHost.UserInstallsIgnored"/> (Mythos review S1).</summary>
+    /// <summary>
+    /// True only when the administrator-only Windows Installer machine policy <c>DisableUserInstalls</c> is 1, so Windows
+    /// Installer ignores every per-user registration (Mythos review S1); false when it is anything else or cannot be read.
+    /// </summary>
     bool UserInstallsIgnored();
+
+    /// <summary>
+    /// Sets <c>DisableUserInstalls</c> to 1 and returns the scope that puts the owner's own state back when disposed (owner's
+    /// choice: only during PC Steward updates); null, with nothing changed, when it cannot be set.
+    /// </summary>
+    IDisposable? IgnoreUserInstalls();
 
     /// <summary>The current boot time, as Unix seconds (UTC).</summary>
     long BootTimeUnixSeconds();
@@ -156,8 +165,11 @@ internal static class SelfUpdateFinish
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "msi-changed");
 
         // Mythos review S1: no msiexec unless Windows Installer ignores per-user registrations (the DisableUserInstalls machine
-        // policy). Security review R1: nor while the owner's own registry registers this product or PC Steward's UpgradeCode.
-        if (!host.UserInstallsIgnored())
+        // policy). By the owner's choice the finish copy sets it for its own install, check and uninstall only, and the scope
+        // puts the owner's state back when the run ends. Security review R1: nor while the owner's own registry registers this
+        // product or PC Steward's UpgradeCode.
+        using IDisposable? policy = host.IgnoreUserInstalls();
+        if (policy is null || !host.UserInstallsIgnored())
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "user-installs-allowed");
         if (host.HasPerUserRegistration(job.ProductCode))
             return Result(job, expected, SelfUpdateFinishOutcome.RefusedBeforeInstall, null, "per-user-registration");
