@@ -310,8 +310,14 @@ public sealed class HomeActivityDecisionsPresentationTests
 
         UpdateJobRecord restart = Job(UpdateHistoryStatus.RestartRequired);
         Assert.IsTrue(UpdateJobHistory.RestartPending(restart, "1.0", Now));
-        Assert.IsFalse(UpdateJobHistory.RestartPending(restart, "2.0.0", Now), "a restart finished: the target is installed");
+        // Task 51: installers often register the target version before the restart that finishes them, so seeing it isn't enough.
+        Assert.IsTrue(UpdateJobHistory.RestartPending(restart, "2.0.0", Now), "the target is installed but Windows hasn't restarted");
+        Assert.IsTrue(UpdateJobHistory.RestartPending(restart, "2.0.0", Now, restart.EndedAt.AddMinutes(-5)), "the last restart was before the attempt");
+        Assert.IsFalse(UpdateJobHistory.RestartPending(restart, "2.0.0", Now, restart.EndedAt.AddMinutes(5)), "Windows restarted after the attempt");
+        Assert.IsFalse(UpdateJobHistory.RestartPending(restart, "1.0", Now, restart.EndedAt.AddSeconds(1)), "a restart closes it whatever the version");
+        Assert.IsFalse(UpdateJobHistory.RestartPending(restart, "2.1", Now), "moved on past the target");
         Assert.IsFalse(UpdateJobHistory.RestartPending(restart, null, Now));
+        Assert.IsFalse(UpdateJobHistory.RestartPending(failed, "1.0", Now), "only a restart-required outcome is a pending restart");
         Assert.IsFalse(UpdateJobHistory.NeedsAttention(Job(UpdateHistoryStatus.Success), "1.0", Now), "a verified attempt never needs attention");
 
         InventoryRow[] rows = [Row("same", "Current", "1.0"), Row("equal", "Current", "2.0.0.0"), Row("newer", "Current", "3.0"), Row("changed", "Current", "1.5")];
@@ -333,6 +339,19 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual(new HomeRowTarget(ShellPage.Activity, ActivityFilter: ActivityFilter.Problems), home.Rows.Single(row => row.Kind == HomeRowKind.RestartsAndChecks).Target);
         Assert.IsFalse(activity.Any(entry => entry.OutcomeLabel == "Verified"), "resolution never relabels an attempt as Verified");
         Assert.AreEqual(4, activity.Count(entry => entry.IsProblem), "Activity keeps every recorded outcome");
+
+        // Task 51: a restart-required update with its target already registered stays on Home until Windows has restarted.
+        InventoryRow[] waiting = [Row("waiting", "Current", "2.0")];
+        UpdateJobRecord[] restartJobs = [.. UpdateJobHistory.Group([History("waiting", UpdateHistoryStatus.RestartRequired, Now.AddHours(-1))])];
+        IReadOnlyList<ActivityEntry> restartActivity = ActivityPresenter.Entries(restartJobs, [], [], [], waiting, Culture, Utc);
+        HomePresentation notRestarted = HomePresenter.Build(new HomeInputs(waiting, new Dictionary<string, UpdateDetail>(), false, [], [], restartJobs,
+            restartActivity, Now.AddMinutes(-30), Now, Now.AddDays(-1)), Culture, Utc);
+        Assert.AreEqual(1, notRestarted.Counts.RestartRequired);
+        Assert.AreEqual(HomeNoticeKind.RestartRequired, notRestarted.Notices.Single().Kind);
+        HomePresentation restarted = HomePresenter.Build(new HomeInputs(waiting, new Dictionary<string, UpdateDetail>(), false, [], [], restartJobs,
+            restartActivity, Now.AddMinutes(-30), Now, Now.AddMinutes(-10)), Culture, Utc);
+        Assert.AreEqual(0, restarted.Counts.RestartRequired);
+        Assert.IsEmpty(restarted.Notices);
     }
 
     [TestMethod]

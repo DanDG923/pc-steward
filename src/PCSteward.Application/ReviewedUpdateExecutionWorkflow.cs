@@ -12,6 +12,9 @@ public sealed record ReviewedUpdateExecutionResult(bool Started, string Message,
 {
     /// <summary>True when nothing was approved or started because the review was past the 30-minute dispatch ceiling.</summary>
     public bool ReviewExpired { get; init; }
+
+    /// <summary>True when cancellation arrived before the provider could start, so nothing was started (Task 52).</summary>
+    public bool StoppedBeforeStart { get; init; }
 }
 
 /// <summary>
@@ -76,36 +79,57 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             new UpdateProgressMailbox(review.JobId, review.CorrelationId, review.Selection.Scope));
     }
 
+    /// <summary>The message for an item whose cancellation arrived before its provider could start (Task 52).</summary>
+    public const string StoppedBeforeStartMessage = "The update was stopped before it started, so nothing was changed.";
+
     /// <summary>
     /// Re-prepares fresh evidence and approves and runs <paramref name="review"/> only if it is unchanged. When <paramref name="reviewedAt"/>
     /// is given (a frozen batch review), the 30-minute dispatch ceiling is checked again after the re-preparation, immediately before
-    /// approval: a review that expired meanwhile is never approved or started (review L2).
+    /// approval: a review that expired meanwhile is never approved or started (review L2). When <paramref name="acknowledgedRunningProcesses"/>
+    /// is given, the acknowledgement covers only those processes: a process detected now that the owner wasn't warned about is a new
+    /// warning, and the item is not started (Task 52). Cancellation before approval starts nothing and says so.
     /// </summary>
     public async Task<ReviewedUpdateExecutionResult> ConfirmAndRunAsync(UpdateJobReview review, bool runningApplicationWarningAcknowledged, CancellationToken cancellationToken, UpdateProgressMailbox? progress = null,
-        DateTimeOffset? reviewedAt = null)
+        DateTimeOffset? reviewedAt = null, IReadOnlyCollection<string>? acknowledgedRunningProcesses = null)
     {
         ArgumentNullException.ThrowIfNull(review);
         if (progress is not null && !progress.Matches(review.JobId, review.CorrelationId, review.Selection.Scope))
             throw new ArgumentException("Progress must belong to this review.", nameof(progress));
-        UpdateSelectionPreparation preparation = await prepareSelection(review.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
-        if (preparation.Selection is null || !review.Selection.EqualsEvidence(preparation.Selection))
+        UpdateSelectionPreparation preparation;
+        RunningApplicationDetection running;
+        ImmutableUpdateJob job;
+        try
         {
-            return new(false, "The approved update evidence changed or is no longer fresh. No update was started.", null);
-        }
+            preparation = await prepareSelection(review.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
+            if (preparation.Selection is null || !review.Selection.EqualsEvidence(preparation.Selection))
+            {
+                return new(false, "The approved update evidence changed or is no longer fresh. No update was started.", null);
+            }
 
-        RunningApplicationDetection running = await runningApplications.DetectAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
-        if (running.AppearsToBeRunning && !runningApplicationWarningAcknowledged)
+            running = await runningApplications.DetectAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
+            if (!RunningApplicationAcknowledgement.Covers(runningApplicationWarningAcknowledged, acknowledgedRunningProcesses, running))
+            {
+                string changed = runningApplicationWarningAcknowledged
+                    ? $"It is now running as {string.Join(", ", running.ProcessNames)}, which wasn't part of the warning you confirmed. "
+                    : string.Empty;
+                return new(false, $"Package {preparation.Selection.PackageId} appears to be running. {changed}Review the target-specific warning and explicitly confirm before installing; PC Steward did not close it or start the provider. {running.CoverageDisclosure}", null);
+            }
+
+            // Review L2: re-preparation can take a while, so the dispatch ceiling is read again here, immediately before approval.
+            if (reviewedAt is { } reviewed && IsPastDispatchCeiling(reviewed, utcNow()))
+                return new(false, SingleReviewExpiredMessage, null) { ReviewExpired = true };
+
+            // ADR-025: the approval (and so any helper request built from it) is made just in time, when this item's turn comes.
+            job = await approvals.ConfirmAsync(review, utcNow(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return new(false, $"Package {preparation.Selection.PackageId} appears to be running. Review the target-specific warning and explicitly confirm before installing; PC Steward did not close it or start the provider. {running.CoverageDisclosure}", null);
+            // Task 52: nothing reached the provider. A saved approval alone starts nothing and is never replayed.
+            return new(false, StoppedBeforeStartMessage, null) { StoppedBeforeStart = true };
         }
-
-        // Review L2: re-preparation can take a while, so the dispatch ceiling is read again here, immediately before approval.
-        if (reviewedAt is { } reviewed && IsPastDispatchCeiling(reviewed, utcNow()))
-            return new(false, SingleReviewExpiredMessage, null) { ReviewExpired = true };
-
-        ImmutableUpdateJob job = await approvals.ConfirmAsync(review, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         UpdateBatchResult batch = await coordinator.RunAsync(
-            [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress)],
+            [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress,
+                acknowledgedRunningProcesses)],
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);
@@ -247,13 +271,21 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             ReviewedUpdateExecutionResult result;
             try
             {
-                result = await ConfirmAndRunAsync(jobReview, item.Preparation.RunningApplication.AppearsToBeRunning, cancellationToken, item.Preparation.Progress, review.ReviewedAt).ConfigureAwait(false);
+                RunningApplicationDetection warned = item.Preparation.RunningApplication;
+                result = await ConfirmAndRunAsync(jobReview, warned.AppearsToBeRunning, cancellationToken, item.Preparation.Progress, review.ReviewedAt,
+                    warned.AppearsToBeRunning ? warned.ProcessNames : []).ConfigureAwait(false);
             }
             catch (Exception)
             {
                 // Never Verified: it may or may not have run, and nothing checked it. Stop before the next app.
                 result = new(true, "The reviewed update did not produce a recorded outcome. Execution or verification may have been interrupted. No verified success was recorded.", null);
                 halt = UpdateBatchItemDisposition.StoppedAfterEarlierProblem;
+            }
+            if (result.StoppedBeforeStart)
+            {
+                results.Add(new(index, item.StableProductKey, jobReview.Selection, NotStartedResult(UpdateBatchItemDisposition.StoppedBeforeStart, single), UpdateBatchItemDisposition.StoppedBeforeStart));
+                Notify(notice, new(index, true, results[^1]));
+                continue;
             }
             if (result.ReviewExpired)
             {

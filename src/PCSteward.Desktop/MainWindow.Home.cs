@@ -20,6 +20,12 @@ namespace PCSteward.Desktop;
 public sealed partial class MainWindow
 {
     /// <summary>
+    /// Task 51: when Windows last started, from the system tick count (it starts again at zero on every restart). A restart-required
+    /// update stays on Home until Windows has restarted after it; this read is presentation only and never execution authority.
+    /// </summary>
+    private static DateTimeOffset LastBootAt() => DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    /// <summary>
     /// FR-UI-01/05/06 (ADR-030 concept A; UI polish phase 2, approved targets T-Home and T-Home-Ready): info bars for updates that need
     /// the owner, then one status card (an icon, one sentence, facts with icons, and the action that fits the state), an "At a glance"
     /// list of plain-English rows that open filtered pages, and a footer line. "Turn on update checks…" opens the existing source
@@ -31,7 +37,7 @@ public sealed partial class MainWindow
         IReadOnlyList<UpdateJobRecord> jobs = UpdateJobHistory.Group(updateHistory);
         IReadOnlyList<ActivityEntry> activity = ActivityPresenter.Entries(jobs, scanRuns, activeDecisions, manualMappings, viewModel.AllRows);
         HomePresentation home = HomePresenter.Build(new HomeInputs(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, viewModel.Sources,
-            activeDecisions, [.. jobs], activity, viewModel.LastScanAt, DateTimeOffset.UtcNow));
+            activeDecisions, [.. jobs], activity, viewModel.LastScanAt, DateTimeOffset.UtcNow, LastBootAt()));
         StackPanel panel = CreatePagePanel();
 
         if (!home.HasInventory)

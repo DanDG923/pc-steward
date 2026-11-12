@@ -19,6 +19,8 @@ public sealed class UpdateBatchWorkflowTests
     private static readonly string[] KeysABCD = ["a", "b", "c", "d"];
     private static readonly UpdateOutcomeKind[] MixedOutcomes = [UpdateOutcomeKind.Verified, UpdateOutcomeKind.Failed, UpdateOutcomeKind.NotStarted, UpdateOutcomeKind.InstalledNotVerified];
     private static readonly string[] NoticeOrder = ["0:start", "0:end", "1:start", "1:end", "2:end"];
+    private static readonly UpdateHistoryStatus[] RestartRestartRestartInconclusive = [UpdateHistoryStatus.RestartRequired, UpdateHistoryStatus.RestartRequired, UpdateHistoryStatus.RestartRequired, UpdateHistoryStatus.Inconclusive];
+    private static readonly UpdateOutcomeKind[] RestartRestartRestartNotVerified = [UpdateOutcomeKind.RestartRequired, UpdateOutcomeKind.RestartRequired, UpdateOutcomeKind.RestartRequired, UpdateOutcomeKind.InstalledNotVerified];
 
     [TestMethod]
     [TestCategory("FR-UPD-10")]
@@ -430,6 +432,158 @@ public sealed class UpdateBatchWorkflowTests
         Assert.AreEqual("PC Steward could not run the update", UpdateJobHistory.FailureClass(UpdateHistoryStatus.ProductFailed, "other"));
     }
 
+    [TestMethod]
+    [TestCategory("FR-UPD-09")]
+    [TestCategory("AC-UPD-07")]
+    [TestCategory("AC-UPD-08")]
+    [Description("Task 51: a typed provider restart reads as Restart required, with or without the target version detected, and never as Verified; a zero exit without the target stays not verified.")]
+    public async Task ATypedProviderRestartIsRecordedAsRestartRequiredNeverVerified()
+    {
+        Harness harness = new();
+        harness.Executor.Statuses["a"] = UpdateProviderAttemptStatus.RestartReported;
+        harness.Executor.Statuses["b"] = UpdateProviderAttemptStatus.RestartReported;
+        harness.Inventory.NotDetected.Add("b");
+        harness.Executor.Statuses["c"] = UpdateProviderAttemptStatus.RestartReported;
+        harness.Inventory.Failing.Add("c");
+        harness.Inventory.NotDetected.Add("d");
+        UpdateBatchReviewPreparation review = await harness.Workflow.BeginBatchReviewAsync(["a", "b", "c", "d"], CancellationToken.None);
+
+        UpdateBatchRunResult run = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, CancellationToken.None);
+
+        UpdateHistoryEntry[] finals = [.. run.Items.Select(item => item.Result.Batch!.FinalEntries.Single())];
+        CollectionAssert.AreEqual(RestartRestartRestartInconclusive, finals.Select(entry => entry.Status).ToArray());
+        StringAssert.StartsWith(finals[0].Diagnostic, "provider-reported-restart-required; target-version-detected-by-post-update-inventory");
+        StringAssert.StartsWith(finals[1].Diagnostic, "provider-reported-restart-required; target-version-not-yet-detected");
+        StringAssert.StartsWith(finals[2].Diagnostic, "provider-reported-restart-required; post-update-inventory-did-not-finish");
+        Assert.AreEqual(unchecked((int)0x8A150109), finals[0].ExitCode, "the provider's exit code is recorded (AC-UPD-11)");
+        UpdateJobCompletion completion = UpdateOutcomePresenter.ForBatch(run, key => key);
+        CollectionAssert.AreEqual(RestartRestartRestartNotVerified, completion.Items.Select(item => item.Outcome.Kind).ToArray());
+        Assert.IsTrue(completion.RestartRequired);
+        UpdateJobRecord restart = UpdateJobHistory.Group(harness.History.Entries).Single(job => job.StableProductKey == "a");
+        Assert.AreEqual(UpdateOutcomeKind.RestartRequired, restart.Outcome.Kind);
+        Assert.AreEqual("None — restart pending", UpdateJobHistory.FailureClass(restart.Final.Status));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-09")]
+    [TestCategory("AC-UPD-07")]
+    [Description("Task 51: a restart needed before install applied nothing: it is Failed with a restart explanation, never Restart required.")]
+    public void ARestartNeededBeforeInstallIsAFailureWithARestartExplanation()
+    {
+        UpdateOutcomePresentation before = UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed,
+            $"{UpdateOutcomePresenter.RestartBeforeInstallDiagnostic}; output", unchecked((int)0x8A15010A), "1.1.0");
+        Assert.AreEqual(UpdateOutcomeKind.Failed, before.Kind);
+        StringAssert.Contains(before.Summary, "needs Windows to restart before it can install");
+        StringAssert.Contains(before.Summary, "nothing was updated");
+        UpdateOutcomePresentation other = UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed, "restart text from output", 1, "1.1.0");
+        Assert.AreEqual("The installer reported an error (exit code 1).", other.Summary, "untyped text never changes the explanation");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-05")]
+    [TestCategory("FR-UPD-06")]
+    [Description("Task 52: an acknowledgement covers only the processes the owner was warned about; a new process at the item's turn is a new warning.")]
+    public async Task ANewRunningProcessAtTheItemsTurnNeedsANewAcknowledgement()
+    {
+        Harness harness = new();
+        harness.Running.Add("a");
+        harness.Running.Add("b");
+        harness.Detector.Processes["a"] = ["contoso-a"];
+        harness.Detector.Processes["b"] = ["contoso-b"];
+        UpdateBatchReviewPreparation review = await harness.Workflow.BeginBatchReviewAsync(["a", "b"], CancellationToken.None);
+        harness.Detector.Processes["a"] = ["CONTOSO-A"];
+        harness.Detector.Processes["b"] = ["contoso-b", "contoso-b-updater"];
+
+        UpdateBatchRunResult run = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, CancellationToken.None);
+
+        CollectionAssert.AreEqual(KeysA, harness.Executor.Keys.ToArray(), "the same warned process (any case) is covered; a new one is not");
+        Assert.IsFalse(run.Items[1].Result.Started);
+        StringAssert.Contains(run.Items[1].Result.Message, "contoso-b-updater");
+        StringAssert.Contains(run.Items[1].Result.Message, "wasn't part of the warning you confirmed");
+        Assert.HasCount(1, harness.Store.Jobs, "the item with a new warning is never approved");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-06")]
+    [Description("Task 52: the coordinator's last check before the provider applies the same binding as the item's own check.")]
+    public async Task TheCoordinatorsLastCheckAlsoNeedsTheWarnedProcesses()
+    {
+        History history = new();
+        RunningDetector detector = new() { Running = ["a"] };
+        detector.Processes["a"] = ["contoso-a", "contoso-a-helper"];
+        RecordingExecutor executor = new();
+        SequentialUpdateBatchCoordinator coordinator = new(executor, new Inventory(), history, detector);
+        ImmutableUpdateJob job = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), Selection("a", "1.1.0")).Confirm(Start);
+        UpdateJobExecutionEvidence evidence = new(job.Selection, true, true);
+
+        UpdateBatchResult refused = await coordinator.RunAsync([new UpdateBatchItem(job, evidence, true, null, ["contoso-a"])], CancellationToken.None);
+        Assert.IsNotNull(refused.AcknowledgementRequired);
+        Assert.IsEmpty(executor.Keys);
+
+        ImmutableUpdateJob second = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), Selection("a", "1.1.0")).Confirm(Start);
+        UpdateBatchResult covered = await coordinator.RunAsync([new UpdateBatchItem(second, new(second.Selection, true, true), true, null, ["contoso-a", "Contoso-A-Helper"])], CancellationToken.None);
+        Assert.IsNull(covered.AcknowledgementRequired);
+        CollectionAssert.AreEqual(KeysA, executor.Keys.ToArray());
+
+        Assert.IsTrue(RunningApplicationAcknowledgement.Covers(false, null, RunningApplicationDetection.NotDetected), "nothing running needs no acknowledgement");
+        Assert.IsFalse(RunningApplicationAcknowledgement.Covers(true, [], new RunningApplicationDetection(true, ["x"])), "an empty warned list covers nothing");
+        Assert.IsTrue(RunningApplicationAcknowledgement.Covers(true, null, new RunningApplicationDetection(true, ["x"])), "without a recorded list the earlier contract applies");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-11")]
+    [TestCategory("AC-UPD-10")]
+    [Description("Task 52: cancellation during the next item's re-preparation, its running-app check or between items starts and approves nothing for it, and never reads as a possible run.")]
+    [DataRow("prepare")]
+    [DataRow("detect")]
+    [DataRow("between")]
+    public async Task CancellationBeforeTheProviderStartsNothingAndSaysSo(string boundary)
+    {
+        Harness harness = new();
+        UpdateBatchReviewPreparation review = await harness.Workflow.BeginBatchReviewAsync(["a", "b"], CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+        switch (boundary)
+        {
+            case "prepare": harness.OnPrepare = (key, call) => { if (key == "b" && call == 2) cancellation.Cancel(); }; break;
+            case "detect": harness.Detector.OnDetect = key => { if (key == "b") cancellation.Cancel(); }; break;
+            default: harness.Executor.OnExecute = (key, _) => { if (key == "a") cancellation.Cancel(); }; break;
+        }
+
+        UpdateBatchRunResult run = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, cancellation.Token);
+
+        CollectionAssert.AreEqual(KeysA, harness.Executor.Keys.ToArray(), "b never reached the provider");
+        Assert.AreEqual(UpdateBatchItemDisposition.StoppedBeforeStart, run.Items[1].Disposition);
+        Assert.IsFalse(run.Items[1].Result.Started);
+        Assert.AreEqual(UpdateOutcomeKind.NotStarted, UpdateOutcomePresenter.ForBatch(run, key => key).Items[1].Outcome.Kind);
+        Assert.HasCount(1, harness.Store.Jobs, "b was never approved");
+        Assert.IsFalse(harness.History.Entries.Any(entry => entry.StableProductKey == "b"), "nothing about b was recorded as run");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-10")]
+    [Description("ADR-025 / Task 52: the 30-minute ceiling is inclusive; one tick over needs a fresh review. A four-minute first installer doesn't expire the next app, whose approval is made just in time.")]
+    public async Task TheDispatchCeilingIsExactAndASlowFirstInstallerDoesNotExpireTheNextApp()
+    {
+        Harness harness = new();
+        UpdateBatchReviewPreparation review = await harness.Workflow.BeginBatchReviewAsync(["a", "b", "c"], CancellationToken.None);
+        harness.Executor.OnExecute = (key, _) => harness.Now = key switch
+        {
+            "a" => Start + TimeSpan.FromMinutes(4),
+            "b" => Start + ReviewedUpdateExecutionWorkflow.MaximumBatchDispatchAge + TimeSpan.FromTicks(1),
+            _ => harness.Now
+        };
+        harness.OnPrepare = (key, call) => { if (key == "b" && call == 2) harness.Now = Start + ReviewedUpdateExecutionWorkflow.MaximumBatchDispatchAge; };
+
+        UpdateBatchRunResult run = await harness.Workflow.ConfirmAndRunBatchAsync(review, new UpdateBatchStop(), null, CancellationToken.None);
+
+        CollectionAssert.AreEqual(KeysAB, harness.Executor.Keys.ToArray(), "b dispatched at exactly 30 minutes; c was one tick over");
+        Assert.AreEqual(Start, harness.Store.Jobs[0].ApprovedAt);
+        Assert.AreEqual(Start + ReviewedUpdateExecutionWorkflow.MaximumBatchDispatchAge, harness.Store.Jobs[1].ApprovedAt,
+            "b was approved at its own turn, after a's four-minute installer; nothing was approved ahead of time");
+        Assert.AreEqual(UpdateBatchItemDisposition.ReviewExpired, run.Items[2].Disposition);
+        Assert.HasCount(2, harness.Store.Jobs, "the expired item is never approved or renewed");
+    }
+
     private static readonly string[] ProgressZeroToThree = ["0/3", "1/3", "2/3", "3/3"];
 
     private sealed class RecordingProgress : IProgress<UpdateBatchReviewProgress>
@@ -493,6 +647,7 @@ public sealed class UpdateBatchWorkflowTests
         {
             PrepareCalls[key] = PrepareCalls.GetValueOrDefault(key) + 1;
             OnPrepare?.Invoke(key, PrepareCalls[key]);
+            cancellationToken.ThrowIfCancellationRequested();
             if (Throwing.Contains(key)) throw new InvalidOperationException("unexpected");
             if (Unavailable.Contains(key)) return Task.FromResult(new UpdateSelectionPreparation(null, "The update evidence is no longer fresh."));
             return Task.FromResult(new UpdateSelectionPreparation(Selection(key, Candidates.GetValueOrDefault(key, "1.1.0")), "fresh"));
@@ -505,7 +660,12 @@ public sealed class UpdateBatchWorkflowTests
     private sealed class RecordingStore : IUpdateJobStore
     {
         public List<ImmutableUpdateJob> Jobs { get; } = [];
-        public Task SaveApprovedJobAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) { Jobs.Add(job); return Task.CompletedTask; }
+        public Task SaveApprovedJobAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Jobs.Add(job);
+            return Task.CompletedTask;
+        }
         public Task<ImmutableUpdateJob?> GetApprovedJobAsync(Guid jobId, CancellationToken cancellationToken) => Task.FromResult<ImmutableUpdateJob?>(Jobs.SingleOrDefault(job => job.Id == jobId));
     }
 
@@ -523,15 +683,24 @@ public sealed class UpdateBatchWorkflowTests
             Keys.Add(key);
             OnExecute?.Invoke(key, cancellationToken);
             UpdateProviderAttemptStatus status = Statuses.GetValueOrDefault(key, UpdateProviderAttemptStatus.AwaitingVerification);
-            return Task.FromResult(new UpdateProviderAttempt(status, status == UpdateProviderAttemptStatus.AwaitingVerification ? 0 : 1, "provider", Owned?.Invoke(key)));
+            int exit = status switch
+            {
+                UpdateProviderAttemptStatus.AwaitingVerification => 0,
+                UpdateProviderAttemptStatus.RestartReported => unchecked((int)0x8A150109),
+                _ => 1
+            };
+            return Task.FromResult(new UpdateProviderAttempt(status, exit, "provider", Owned?.Invoke(key)));
         }
     }
 
     private sealed class Inventory : IPostUpdateInventory
     {
         public HashSet<string> NotDetected { get; } = [];
+        public HashSet<string> Failing { get; } = [];
         public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
-            Task.FromResult(new PostUpdateInventoryResult(!NotDetected.Contains(job.Selection.StableProductKey), false));
+            Failing.Contains(job.Selection.StableProductKey)
+                ? throw new InvalidOperationException("inventory unavailable")
+                : Task.FromResult(new PostUpdateInventoryResult(!NotDetected.Contains(job.Selection.StableProductKey), false));
     }
 
     private sealed class History : IUpdateHistoryStore
@@ -546,7 +715,16 @@ public sealed class UpdateBatchWorkflowTests
     private sealed class RunningDetector : IRunningApplicationDetector
     {
         public HashSet<string> Running { get; set; } = [];
-        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) =>
-            Task.FromResult(Running.Contains(selection.StableProductKey) ? new RunningApplicationDetection(true, [selection.PackageId]) : RunningApplicationDetection.NotDetected);
+        /// <summary>Process names reported for a running key; by default the package ID.</summary>
+        public Dictionary<string, string[]> Processes { get; } = [];
+        public Action<string>? OnDetect { get; set; }
+        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
+        {
+            OnDetect?.Invoke(selection.StableProductKey);
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Running.Contains(selection.StableProductKey)
+                ? new RunningApplicationDetection(true, Processes.GetValueOrDefault(selection.StableProductKey) ?? [selection.PackageId])
+                : RunningApplicationDetection.NotDetected);
+        }
     }
 }

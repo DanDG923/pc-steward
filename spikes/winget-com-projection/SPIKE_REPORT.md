@@ -1,6 +1,6 @@
 # Task 54A — WinGet COM projection refresh spike
 
-**Status:** Evidence collected 2026-11-12. Spike only: no production source, package pin, effective ADR or packaging script changed. The recommendation is in the Proposed [ADR-003 amendment 1](../../docs/adr/ADR-003-AMENDMENT-1-WINGET-COM-PROJECTION.md); the owner accepts or rejects it.
+**Status:** Evidence collected 2026-11-12. Spike only: no production source, package pin, effective ADR or packaging script changed. The recommendation is in [ADR-003 amendment 1](../../docs/adr/ADR-003-AMENDMENT-1-WINGET-COM-PROJECTION.md), which the owner accepted (Option A) on 2026-11-12.
 
 **Requirement references:** `NFR-MNT-01; NFR-MNT-03; NFR-MNT-05; FR-CAT-01–06; FR-SRC-01–05` (retained meanings only).
 

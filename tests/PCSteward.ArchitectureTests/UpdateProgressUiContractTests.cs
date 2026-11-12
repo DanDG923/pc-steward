@@ -43,7 +43,9 @@ public sealed class UpdateProgressUiContractTests
         StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "running.CoverageDisclosure");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "sheet.CoverageDisclosure");
         // Task 73 Phase 6: each app's own review-bound mailbox is passed to its confirm-and-run and attached to the UI when its turn starts.
-        StringAssert.Contains(ApplicationSource("ReviewedUpdateExecutionWorkflow.cs"), "ConfirmAndRunAsync(jobReview, item.Preparation.RunningApplication.AppearsToBeRunning, cancellationToken, item.Preparation.Progress, review.ReviewedAt)");
+        // Task 52: the acknowledgement is bound to the processes named in the warning the owner confirmed.
+        StringAssert.Contains(ApplicationSource("ReviewedUpdateExecutionWorkflow.cs"), "RunningApplicationDetection warned = item.Preparation.RunningApplication;");
+        StringAssert.Contains(ApplicationSource("ReviewedUpdateExecutionWorkflow.cs"), "ConfirmAndRunAsync(jobReview, warned.AppearsToBeRunning, cancellationToken, item.Preparation.Progress, review.ReviewedAt,");
         StringAssert.Contains(source, "updateProgressMailbox = item.Progress;");
         StringAssert.Contains(source, "updateProgressPresentation = new(item.Review!.JobId, item.Review.CorrelationId, item.Review.Selection.Scope);");
         StringAssert.Contains(review, "dispatcher.TryEnqueue(() => OnBatchItemNotice(job, preparation, notice))");

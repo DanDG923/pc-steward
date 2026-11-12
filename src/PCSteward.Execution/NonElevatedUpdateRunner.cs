@@ -18,7 +18,10 @@ public enum UpdateExecutionStatus
     HelperFailed,
     ProviderFailed,
     AwaitingVerification,
-    VerificationRequired
+    VerificationRequired,
+
+    /// <summary>Task 51: the provider's typed exit code says the update finished and a restart is needed; it still awaits inventory.</summary>
+    RestartReported
 }
 
 public enum UpdateExecutionDenial
@@ -123,8 +126,8 @@ public sealed partial class NonElevatedUpdateRunner
                 return Complete(job, startedAt, providerResult.ExitCode, UpdateExecutionStatus.VerificationRequired, UpdateExecutionDenial.None,
                     $"provider-result-incomplete; verification-required; {output}", providerResult.OwnedCompletion);
 
-            UpdateExecutionStatus status = providerResult.ExitCode == 0 ? UpdateExecutionStatus.AwaitingVerification : UpdateExecutionStatus.ProviderFailed;
-            return Complete(job, startedAt, providerResult.ExitCode, status, UpdateExecutionDenial.None, output, providerResult.OwnedCompletion);
+            (UpdateExecutionStatus status, string diagnostic) = ClassifyExit(providerResult.ExitCode, output);
+            return Complete(job, startedAt, providerResult.ExitCode, status, UpdateExecutionDenial.None, diagnostic, providerResult.OwnedCompletion);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -134,6 +137,19 @@ public sealed partial class NonElevatedUpdateRunner
         {
             return Complete(job, startedAt, null, UpdateExecutionStatus.ProductFailed, UpdateExecutionDenial.None, exception.Message);
         }
+    }
+
+    /// <summary>
+    /// Task 51 (FR-UPD-09, AC-UPD-07): a WinGet exit code of 0 awaits verification; only WinGet's documented restart exit codes are
+    /// restart evidence, never output text. "Restart required before install" means nothing was applied, so it is a provider failure.
+    /// </summary>
+    internal static (UpdateExecutionStatus Status, string Diagnostic) ClassifyExit(int exitCode, string output)
+    {
+        if (exitCode == 0) return (UpdateExecutionStatus.AwaitingVerification, output);
+        string prefix = WingetRestartExitCodes.DiagnosticPrefix(exitCode);
+        string diagnostic = prefix.Length == 0 ? output : $"{prefix}; {output}";
+        return (WingetRestartExitCodes.ReportsFinishedPendingRestart(exitCode) ? UpdateExecutionStatus.RestartReported : UpdateExecutionStatus.ProviderFailed,
+            diagnostic);
     }
 
     private UpdateExecutionResult Complete(
@@ -149,7 +165,7 @@ public sealed partial class NonElevatedUpdateRunner
         string sanitized = Sanitize(diagnostic);
         UpdateExecutionEventSeverity severity = status switch
         {
-            UpdateExecutionStatus.AwaitingVerification => UpdateExecutionEventSeverity.Information,
+            UpdateExecutionStatus.AwaitingVerification or UpdateExecutionStatus.RestartReported => UpdateExecutionEventSeverity.Information,
             UpdateExecutionStatus.ProductFailed or UpdateExecutionStatus.HelperFailed or UpdateExecutionStatus.ProviderFailed or UpdateExecutionStatus.TimedOut or UpdateExecutionStatus.OutputLimitExceeded => UpdateExecutionEventSeverity.Error,
             _ => UpdateExecutionEventSeverity.Warning
         };

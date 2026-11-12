@@ -58,7 +58,14 @@ public enum UpdateProviderAttemptStatus
     ElevationDenied,
     TimedOut,
     ProductFailed,
-    VerificationRequired
+    VerificationRequired,
+
+    /// <summary>
+    /// Task 51 (FR-UPD-09): the provider's typed result (for WinGet, a documented restart exit code; never output text) says the update
+    /// finished and Windows must restart to complete it. Post-update inventory still runs; the item is recorded as Restart required,
+    /// never Success, whatever inventory finds.
+    /// </summary>
+    RestartReported
 }
 
 /// <summary>Structured provider evidence; no process authority or command data crosses this boundary.</summary>
@@ -104,16 +111,50 @@ public enum PostUpdateVerificationDetail
 /// </summary>
 public enum PostUpdateVerificationNote { None, ClientReviewedLeftover }
 
+/// <summary>
+/// FR-UPD-08: re-inventory after the provider finished. Inventory proves the target version; it never infers a restart. Machine-wide
+/// restart indicators are not bound to one job, so the batch takes restart evidence only from the provider's typed result
+/// (<see cref="UpdateProviderAttemptStatus.RestartReported"/>, Task 51). <see cref="PostUpdateInventoryResult.RestartPending"/> stays for
+/// verifiers that own reliable restart evidence of their own.
+/// </summary>
 public interface IPostUpdateInventory
 {
     Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// One approved item. <see cref="AcknowledgedRunningProcesses"/> (Task 52), when given, binds the running-app acknowledgement to the
+/// processes the owner was warned about: a later detection naming any other process is a new warning that needs a new acknowledgement.
+/// </summary>
 public sealed record UpdateBatchItem(
     ImmutableUpdateJob Job,
     UpdateJobExecutionEvidence CurrentEvidence,
     bool RunningApplicationWarningAcknowledged = false,
-    UpdateProgressMailbox? Progress = null);
+    UpdateProgressMailbox? Progress = null,
+    IReadOnlyCollection<string>? AcknowledgedRunningProcesses = null)
+{
+    /// <summary>True when <paramref name="running"/> is covered by this item's acknowledgement.</summary>
+    public bool Acknowledges(RunningApplicationDetection running) =>
+        RunningApplicationAcknowledgement.Covers(RunningApplicationWarningAcknowledged, AcknowledgedRunningProcesses, running);
+}
+
+/// <summary>
+/// Task 52 (FR-UPD-05/06, ADR-025 late warning): an acknowledgement covers a running-app detection only when it was given and every
+/// process now detected was among those the owner was warned about. Without a recorded process list only the acknowledgement itself is
+/// read (the earlier single-item contract).
+/// </summary>
+public static class RunningApplicationAcknowledgement
+{
+    public static bool Covers(bool acknowledged, IReadOnlyCollection<string>? acknowledgedProcesses, RunningApplicationDetection running)
+    {
+        ArgumentNullException.ThrowIfNull(running);
+        if (!running.AppearsToBeRunning) return true;
+        if (!acknowledged) return false;
+        if (acknowledgedProcesses is null) return true;
+        HashSet<string> warned = new(acknowledgedProcesses.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.OrdinalIgnoreCase);
+        return warned.Count != 0 && running.ProcessNames.All(name => warned.Contains(name));
+    }
+}
 public sealed record UpdateBatchResult(
     IReadOnlyCollection<UpdateHistoryEntry> Entries,
     RunningApplicationDetection? AcknowledgementRequired = null,
@@ -137,6 +178,9 @@ public sealed class SequentialUpdateBatchCoordinator(
     IUpdateExecutionEventSink? events = null)
 {
     private readonly IApprovedUpdateExecutor executor = executor ?? throw new ArgumentNullException(nameof(executor));
+    /// <summary>The fixed diagnostic prefix of an item recorded as Restart required from a typed provider restart result (Task 51).</summary>
+    public const string RestartReportedDiagnostic = "provider-reported-restart-required";
+
     private readonly IPostUpdateInventory inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
     private readonly IUpdateHistoryStore history = history ?? throw new ArgumentNullException(nameof(history));
     private readonly IRunningApplicationDetector runningApplications = runningApplications ?? throw new ArgumentNullException(nameof(runningApplications));
@@ -197,7 +241,7 @@ public sealed class SequentialUpdateBatchCoordinator(
                         {
                             await RecordAsync(Entry(item.Job, UpdateHistoryStatus.RunningApplicationWarning, null,
                                 "target-application-appears-to-be-running; no-close-action-requested"), recorded, cancellation.Token).ConfigureAwait(false);
-                            if (!item.RunningApplicationWarningAcknowledged)
+                            if (!item.Acknowledges(running))
                             {
                                 item.Progress?.Complete(null, UpdateProgressCompletion.AcknowledgementRequired);
                                 return new(recorded, running);
@@ -239,7 +283,8 @@ public sealed class SequentialUpdateBatchCoordinator(
                     ownedCompletion = attempt.OwnedCompletion ?? Task.CompletedTask;
                     UpdateHistoryStatus status;
                     string diagnostic;
-                    if (attempt.Status != UpdateProviderAttemptStatus.AwaitingVerification)
+                    bool restartReported = attempt.Status == UpdateProviderAttemptStatus.RestartReported;
+                    if (attempt.Status is not (UpdateProviderAttemptStatus.AwaitingVerification or UpdateProviderAttemptStatus.RestartReported))
                     {
                         status = attempt.Status == UpdateProviderAttemptStatus.Cancelled ? UpdateHistoryStatus.VerificationRequired : Map(attempt.Status);
                         diagnostic = attempt.Status == UpdateProviderAttemptStatus.Cancelled
@@ -258,25 +303,42 @@ public sealed class SequentialUpdateBatchCoordinator(
                         try
                         {
                             PostUpdateInventoryResult verification = await inventory.ReInventoryAsync(item.Job, cancellation.Token).ConfigureAwait(false);
-                            status = verification.ExpectedVersionDetected ? UpdateHistoryStatus.Success
-                                : verification.RestartPending ? UpdateHistoryStatus.RestartRequired : UpdateHistoryStatus.Inconclusive;
-                            diagnostic = status switch
+                            if (restartReported)
                             {
-                                UpdateHistoryStatus.Success => "target-version-verified-by-post-update-inventory",
-                                UpdateHistoryStatus.RestartRequired => "provider-reported-reliable-restart-pending-state",
-                                _ => "provider-succeeded-but-target-version-was-not-detected"
-                            };
+                                // Task 51, AC-UPD-07: a typed provider restart result is never Success, even with the version detected.
+                                status = UpdateHistoryStatus.RestartRequired;
+                                diagnostic = verification.ExpectedVersionDetected
+                                    ? $"{RestartReportedDiagnostic}; target-version-detected-by-post-update-inventory"
+                                    : $"{RestartReportedDiagnostic}; target-version-not-yet-detected";
+                            }
+                            else
+                            {
+                                status = verification.ExpectedVersionDetected ? UpdateHistoryStatus.Success
+                                    : verification.RestartPending ? UpdateHistoryStatus.RestartRequired : UpdateHistoryStatus.Inconclusive;
+                                diagnostic = status switch
+                                {
+                                    UpdateHistoryStatus.Success => "target-version-verified-by-post-update-inventory",
+                                    UpdateHistoryStatus.RestartRequired => "provider-reported-reliable-restart-pending-state",
+                                    _ => "provider-succeeded-but-target-version-was-not-detected"
+                                };
+                            }
                         }
                         catch (OperationCanceledException) when (cancellation.Token.IsCancellationRequested)
                         {
-                            status = UpdateHistoryStatus.VerificationRequired;
-                            diagnostic = "verification-interrupted-after-provider-completed";
+                            status = restartReported ? UpdateHistoryStatus.RestartRequired : UpdateHistoryStatus.VerificationRequired;
+                            diagnostic = restartReported
+                                ? $"{RestartReportedDiagnostic}; verification-interrupted-after-provider-completed"
+                                : "verification-interrupted-after-provider-completed";
                         }
                         catch (Exception)
                         {
-                            status = UpdateHistoryStatus.VerificationFailed;
-                            diagnostic = "post-update-inventory-verification-failed";
+                            status = restartReported ? UpdateHistoryStatus.RestartRequired : UpdateHistoryStatus.VerificationFailed;
+                            diagnostic = restartReported
+                                ? $"{RestartReportedDiagnostic}; post-update-inventory-did-not-finish"
+                                : "post-update-inventory-verification-failed";
                         }
+                        if (restartReported && !string.IsNullOrWhiteSpace(attempt.SanitizedDiagnostic))
+                            diagnostic = $"{diagnostic}; {attempt.SanitizedDiagnostic}";
                     }
                     // Close admissions atomically before choosing the recorded outcome; late producers cannot cancel a committed result.
                     item.Progress?.StopOffers();
