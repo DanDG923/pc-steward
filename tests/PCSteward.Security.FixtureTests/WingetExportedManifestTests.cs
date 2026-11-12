@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using PCSteward.Domain;
 using PCSteward.Provider.WinGet;
 
 namespace PCSteward.Security.FixtureTests;
@@ -167,6 +168,20 @@ public sealed class WingetExportedManifestTests
     }
 
     [TestMethod]
+    public void WithoutAReviewedTypeAnyRouteTypeIsAcceptedAndReported()
+    {
+        WingetManifestExpectation review = Expected with { InstallerType = null };
+        Assert.AreEqual(WingetManifestRefusal.None, WingetExportedManifest.Read(Bytes(Lines()), review, out WingetManifestFacts? facts));
+        Assert.AreEqual(WinGetMachineInstallerType.Msi, facts!.InstallerType);
+        Assert.AreEqual(WingetManifestRefusal.None,
+            WingetExportedManifest.Read(Bytes(WithInstallerLine("  InstallerType:", "  InstallerType: nullsoft")), review, out facts));
+        Assert.AreEqual(WinGetMachineInstallerType.Nullsoft, facts!.InstallerType);
+        foreach (string type in new[] { "portable", "zip", "msix", "msstore", "appx", "MSI" })
+            Assert.AreEqual(WingetManifestRefusal.InstallerMismatch,
+                Read(Bytes(WithInstallerLine("  InstallerType:", $"  InstallerType: {type}")), review), type);
+    }
+
+    [TestMethod]
     public void TheStructureMustBeExactlyOneMergedInstaller()
     {
         Assert.AreEqual(WingetManifestRefusal.Malformed, Read(Bytes(Lines(installer: [.. Installer, .. Installer]))), "two installers");
@@ -226,6 +241,14 @@ public sealed class WingetExportedManifestTests
             Assert.AreEqual(WingetManifestRefusal.None, refusal);
             Assert.AreEqual(Convert.ToHexString(SHA256.HashData(manifest)), facts!.ManifestDigest);
             Assert.AreEqual(sha.ToUpperInvariant(), facts.InstallerSha256);
+            Assert.AreEqual(WinGetMachineInstallerType.Msi, facts.InstallerType);
+
+            string dependencies = Fresh("dependencies");
+            File.WriteAllBytes(Path.Combine(dependencies, "7-Zip_25.01_Machine_X64_msi_en-US.yaml"),
+                Bytes(WithInstallerLine("  InstallModes:", "  Dependencies:\n    PackageDependencies:\n    - PackageIdentifier: Example.Runtime\n  InstallModes:")));
+            Directory.CreateDirectory(Path.Combine(dependencies, "Dependencies"));
+            Assert.AreEqual(WingetManifestRefusal.DependenciesDeclared,
+                (await WingetDownloadFolder.ReadAsync(dependencies, Expected, default)).Refusal);
 
             string extra = Fresh("extra");
             File.WriteAllBytes(Path.Combine(extra, "other.bin"), [1]);

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using PCSteward.Domain;
 
 namespace PCSteward.Provider.WinGet;
 
@@ -21,11 +22,18 @@ internal enum WingetManifestRefusal
     InstallerHashMismatch,
 }
 
-/// <summary>The facts read from an accepted manifest: the SHA-256 of its exact bytes and the installer SHA-256 it declares (uppercase hex).</summary>
-internal sealed record WingetManifestFacts(string ManifestDigest, string InstallerSha256);
+/// <summary>
+/// The facts read from an accepted manifest: the SHA-256 of its exact bytes, the installer SHA-256 it declares (uppercase hex) and its
+/// installer type (one of the route's types).
+/// </summary>
+internal sealed record WingetManifestFacts(string ManifestDigest, string InstallerSha256, WinGetMachineInstallerType InstallerType);
 
-/// <summary>The reviewed values an exported manifest must carry: the WinGet text forms of the identity and the selected installer.</summary>
-internal sealed record WingetManifestExpectation(string PackageId, string PackageVersion, string Architecture, string InstallerType);
+/// <summary>
+/// The values an exported manifest must carry: the WinGet text forms of the identity and the selected installer. A null
+/// <see cref="InstallerType"/> (the review, which lets WinGet choose) accepts any type the route supports; the helper passes the
+/// reviewed type, which must match exactly.
+/// </summary>
+internal sealed record WingetManifestExpectation(string PackageId, string PackageVersion, string Architecture, string? InstallerType);
 
 /// <summary>
 /// Phase D stage D4b design §7 and §5 H7b: a bounded, strict reader for the single-installer merged manifest that
@@ -115,11 +123,12 @@ internal static partial class WingetExportedManifest
             sha256.Length != 64 || !sha256.All(char.IsAsciiHexDigit))
             return WingetManifestRefusal.Malformed;
         if (!string.Equals(architecture, expected.Architecture, StringComparison.Ordinal) ||
-            !string.Equals(installerType, expected.InstallerType, StringComparison.Ordinal))
+            (expected.InstallerType is not null && !string.Equals(installerType, expected.InstallerType, StringComparison.Ordinal)) ||
+            !WinGetMachineEvidence.TryParseInstallerType(installerType, out WinGetMachineInstallerType parsedType))
             return WingetManifestRefusal.InstallerMismatch;
         if (!string.Equals(scope, "machine", StringComparison.Ordinal)) return WingetManifestRefusal.ScopeNotMachine;
 
-        facts = new(Convert.ToHexString(SHA256.HashData(bytes)), sha256.ToUpperInvariant());
+        facts = new(Convert.ToHexString(SHA256.HashData(bytes)), sha256.ToUpperInvariant(), parsedType);
         return WingetManifestRefusal.None;
     }
 
