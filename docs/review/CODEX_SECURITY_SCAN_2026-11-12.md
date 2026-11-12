@@ -16,7 +16,7 @@ copy and is not committed.
 | 7 | Low | Running ordinary CI executes mutable action tags | Real: `ci.yml` used `@v7`/`@v6` tags. | Every `uses:` in every workflow pinned to a full commit with a tag comment, enforced by an architecture test. |
 | 8 | Low | Loading hostile local state can exhaust memory and pin scans | Real for the registry reader (all values of every key read, no budget, no cancellation inside the loop, so a stuck read can hold the scan lease). | Registry reader reads only the four values it uses, with key-count and value-size budgets and cancellation checks. SQLite and cache paging left as a recorded Low residual (same-user only). |
 | 9 | Low | Clearing a junctioned category can enumerate an external tree | Real: `EnumerateOwnedObjects` lists the root before checking whether the root itself is a reparse point (later exact deletion still refuses). | The root is checked first; a reparse-point root is reported unsafe and not enumerated. |
-| 10 | Low | Using a pre-populated Chocolatey cache can race an elevated installer | Real (earlier review L1): `cacheLocation` and its ancestors are checked, its existing descendants are not. | The observer walks the `cacheLocation` tree with the HTTP-cache rule (bounded, every node unmodifiable by and not owned by the requester, no reparse points). |
+| 10 | Low | Using a pre-populated Chocolatey cache can race an elevated installer | Real (earlier review L1): `cacheLocation` and its ancestors are checked, its existing descendants are not. It needs a requester-writable or reparse subfolder already left inside the protected cache (the attacker cannot create one there), then a timed swap. | **Accepted for now, no change.** The fix (walk the cache with the step-4 HTTP-cache rule) is small in the observer, but every helper-role fixture builds its cache as the test user, which that rule refuses, so the fixtures need rework first. Revisit with the next Chocolatey route change. |
 
 ## Fix pull requests
 
@@ -25,8 +25,7 @@ copy and is not committed.
 | 7 | CI action pins | in this PR |
 | 1 | Release toolchain pins | in this PR |
 | 3, 6, 8, 9 | App hardening | in this PR |
-| 10 | Chocolatey cache walk | to decide |
-| 2, 4, 5 | Accepted | no change |
+| 2, 4, 5, 10 | Accepted | no change |
 
 The change to `New-PCStewardRelease.ps1` changes the hash the next owner release paste pins; the paste is regenerated per
 release as usual.
