@@ -41,7 +41,7 @@ public sealed class ReleaseToolchainPinTests
     public void ThePinFileBytesAreNeverConverted()
     {
         string attributes = File.ReadAllText(Path.Combine(Root, ".gitattributes"));
-        StringAssert.Matches(attributes, new Regex(@"(?m)^scripts/release-toolchain-pins\.json -text$"));
+        StringAssert.Matches(attributes, new Regex(@"(?m)^scripts/release-toolchain-pins\.json -text\r?$"));
     }
 
     [TestMethod]
