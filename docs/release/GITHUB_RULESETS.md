@@ -8,13 +8,13 @@ They are the owner's GitHub settings. No code reads them, and nothing in the rep
 
 | Ruleset | Targets | Rules | Why |
 |---|---|---|---|
-| Release branches | branches `phase/4-beta`, `main` | Restrict deletions, require a pull request (0 approvals), require the four CI checks, block force pushes | Code reaches a release branch only through a pull request whose Windows CI is green. Nothing, the token included, can push straight to it, rewrite it or delete it |
+| Release branches | branches `phase/4-beta`, `main` | Restrict deletions, require a pull request (0 approvals), require the three gating CI checks, block force pushes | Code reaches a release branch only through a pull request whose Windows CI is green. Nothing, the token included, can push straight to it, rewrite it or delete it |
 | Release tags | tags `v*` | Restrict updates, restrict deletions, block force pushes | A release tag cannot be moved or deleted once it exists. Creation stays allowed because publishing a release creates its tag |
 | No tags named like release branches | tags `phase/4-beta`, `main` | Restrict creations, restrict updates, restrict deletions | GitHub reports a tag's name as a run's `head_branch`, so a tag named like a release branch could look like a branch run (review finding R3). The payload workflow refuses such runs; this stops the tag existing at all |
 
 None of the rulesets has a bypass list. Rulesets apply to repository admins unless they are on that list, and a token acts as the owner, so a bypass for the owner would be a bypass for the token too.
 
-**Required checks.** The four jobs in `ci.yml` without `continue-on-error`: `build-and-test`, `owner-only-candidate-builder`, `msi-install-test` and `owner-only-signing-diagnostic`. The other four are diagnostics allowed to fail. If a required job is renamed in `ci.yml`, update the ruleset in the same change, or every merge waits for a check that never reports.
+**Required checks.** The three jobs in `ci.yml` without `continue-on-error`: `build-and-test`, `owner-only-candidate-builder` and `msi-install-test`. The other five are informational diagnostics allowed to fail. A job-level `continue-on-error` lets the workflow run pass, but the failed job's own check still fails, so requiring one of them would block merges for a failure that is meant not to gate. If a required job is renamed in `ci.yml`, update the ruleset in the same change, or every merge waits for a check that never reports.
 
 **Not required, on purpose.**
 
@@ -24,7 +24,7 @@ None of the rulesets has a bypass list. Rulesets apply to repository admins unle
 
 ## What still works
 
-- **Merging pull requests into `phase/4-beta`**, by the owner or by Claude acting for the owner, once the four checks have passed. A merge attempted while Windows CI is still queued is now refused by GitHub instead of going through.
+- **Merging pull requests into `phase/4-beta`**, by the owner or by Claude acting for the owner, once the three checks have passed. A merge attempted while Windows CI is still queued is now refused by GitHub instead of going through.
 - **`release-payload.yml` and `publish-release.yml`.** They only read the branch, and the draft release has no tag yet.
 - **`Publish-PCStewardRelease.ps1`.** It uploads the MSI, deletes a stale MSI from the draft, and publishes, which creates the new `v<version>` tag. It never moves or deletes a tag.
 - **Pushing other branches** (such as `claude/*` feature branches) and deleting them, as before.
@@ -48,7 +48,7 @@ Do this once, signed in as the repository owner. Each ruleset takes about two mi
 7. Under **Rules**, set:
    - **Restrict deletions**: on (it is on by default).
    - **Require a pull request before merging**: on. Leave **Required approvals** at `0` and the boxes under it off.
-   - **Require status checks to pass**: on. Leave **Require branches to be up to date before merging** off. Click **Add checks** and add each of `build-and-test`, `owner-only-candidate-builder`, `msi-install-test` and `owner-only-signing-diagnostic`. If the search shows a source, pick **GitHub Actions**.
+   - **Require status checks to pass**: on. Leave **Require branches to be up to date before merging** off. Click **Add checks** and add each of `build-and-test`, `owner-only-candidate-builder` and `msi-install-test`. Do not add the diagnostic jobs. If the search shows a source, pick **GitHub Actions**.
    - **Block force pushes**: on (it is on by default).
    - Leave every other rule off.
 8. **Create**.
@@ -71,7 +71,7 @@ Do this once, signed in as the repository owner. Each ruleset takes about two mi
 
 ### Check
 
-**Settings** → **Rules** → **Rulesets** lists the three rulesets, each **Active**. The next pull request into `phase/4-beta` shows "Merging is blocked" until its four checks pass, then merges normally.
+**Settings** → **Rules** → **Rulesets** lists the three rulesets, each **Active**. The next pull request into `phase/4-beta` shows "Merging is blocked" until its three checks pass, then merges normally.
 
 ### If something needs an emergency change
 
