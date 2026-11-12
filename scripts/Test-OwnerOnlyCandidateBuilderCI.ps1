@@ -141,17 +141,27 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
 if (!$env:RUNNER_TEMP) { throw 'RUNNER_TEMP is required.' }
 if ($ReleasePayload) { $null = Get-ReleasePins }
 
-# Administrators and SYSTEM only, nothing inherited (a runner drive root lets every user change what is created below it).
+# Administrators and SYSTEM only on the folder itself, nothing inherited from above (a runner drive root lets every user change
+# what is created below it); everything inside is owned by Administrators and only inherits from the folder.
 function Set-AdministratorsOnly([string]$Path) {
     & icacls.exe $Path /setowner '*S-1-5-32-544' /T /C /Q | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not take ownership of $Path." }
-    & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' /T /C /Q | Out-Null
+    & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' /Q | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not protect $Path." }
+    if (@(Get-ChildItem -LiteralPath $Path -Force).Count -gt 0) {
+        & icacls.exe (Join-Path $Path '*') /reset /T /C /Q | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not make everything in $Path inherit its protection." }
+    }
 }
 
+# An inheritable grant on the folder; everything inside inherits it (icacls propagates it to children that inherit).
 function Grant-DisposableUser([string]$Path, [string]$Sid, [string]$Rights) {
-    & icacls.exe $Path /grant "*$($Sid):(OI)(CI)$Rights" /T /C /Q | Out-Null
+    & icacls.exe $Path /grant "*$($Sid):(OI)(CI)$Rights" /Q | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not grant the CI user access to $Path." }
+}
+
+function Revoke-DisposableUser([string]$Path, [string]$Sid) {
+    if (Test-Path -LiteralPath $Path) { & icacls.exe $Path /remove:g "*$Sid" /Q | Out-Null }
 }
 
 # Runs this launcher again as a new disposable standard user: -StandardUser (build) or -RestoreOnly. GrantModify/GrantRead are
@@ -189,6 +199,8 @@ function Invoke-AsDisposableUser {
             if ($log -and (Test-Path -LiteralPath $log)) { Get-Content -LiteralPath $log }
         }
         if ($account) {
+            # Its grants go with it, so no orphaned entry is left on the SDK, the cache or the checkout.
+            foreach ($path in @($GrantModify) + @($GrantRead)) { Revoke-DisposableUser $path $account.SID.Value }
             # Nothing the account started (an MSBuild node, a compiler server) may outlive it or touch the cache later.
             Get-Process -IncludeUserName -ErrorAction SilentlyContinue | Where-Object { $_.UserName -and $_.UserName.EndsWith('\' + $name, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { try { $_.Kill($true) } catch { } }
             Remove-LocalUser -SID $account.SID
