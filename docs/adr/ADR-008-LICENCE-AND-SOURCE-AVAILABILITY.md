@@ -45,6 +45,10 @@ The product owner accepted engineering use of the payload-scoped MIT, Apache-2.0
 
 The owner's acceptance of [ADR-003 amendment 1](ADR-003-AMENDMENT-1-WINGET-COM-PROJECTION.md) (Option A, 2026-11-12) moves `Microsoft.WindowsPackageManager.ComInterop` and the directly shipped `Microsoft.WindowsPackageManager.InProcCom` runtime from 1.10.340 to 1.29.380, and names a fresh licence check as part of that change. Result: both 1.29.380 packages still declare SPDX `MIT` with the same copyright line and still carry `NOTICE.txt`, which ships verbatim in the generated notices as before. The notice file now lists the whole winget-cli component inventory (1,382 → 11,003 lines); every listed component licence is permissive (MIT, Apache-2.0, BSD, Zlib, BSL-1.0, HPND, curl, ISC, plus two scancode references for build-time metadata), with no copyleft component. The licence terms for this private beta are therefore unchanged and the acceptance above carries over to 1.29.380 on the same conditions. Details: [Task 54B record](../review/TASK_54B_WINGET_COM_1_29_ADOPTION.md) §4. Not legal advice.
 
+### Release payload notices — 2026-11-12 (Phase C close-out)
+
+The acceptance above is conditional on shipping the mapped licence and notice texts, but the release payload builder (`New-OwnerOnlyCandidate.ps1`) never wrote them: signed releases 0.1.0–0.1.3 carry no `THIRD-PARTY-NOTICES.txt` (gap found in Task 53A). From the next release the builder writes it into the payload before the manifest, using the same licence map as the private-beta package (now in `scripts/PCStewardThirdPartyNotices.ps1`). It also covers the .NET runtime that Native AOT compiles into the elevated helper (`Microsoft.NETCore.App.Runtime.NativeAOT.win-x64` and `runtime.win-x64.Microsoft.DotNet.ILCompiler`, both SPDX `MIT` with `THIRD-PARTY-NOTICES.TXT`), which the private-beta package never shipped. No licence term changes. Details: [Task 53 report](../review/TASK_53_PHASE_C_EVIDENCE_READINESS.md) §7.3. Not legal advice.
+
 ### Follow-up controls and tests
 
 Maintain third-party notices and machine-readable dependency/licence inventory.
