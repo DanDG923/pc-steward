@@ -139,6 +139,12 @@ function Get-PCStewardDraft([string]$Tag) {
     if ($release.draft -ne $true) { throw "Release $Tag is already published." }
     if ([string]$release.target_commitish -cne $Commit) { throw "Draft $Tag targets $($release.target_commitish), not $Commit." }
     if ([string]$release.name -cne "PC Steward $($Tag.Substring(1))") { throw "Draft $Tag is not named PC Steward $($Tag.Substring(1))." }
+    # GitHub ignores target_commitish once the tag exists, so a tag made or moved after the draft would be published as is.
+    # Before publishing, the tag must be absent (GitHub then makes it at the target) or a plain tag at the commit.
+    $tagRef = $null
+    try { $tagRef = Invoke-PCStewardGitHub GET "$api/git/ref/tags/$Tag" $null }
+    catch { if (!($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404)) { throw } }
+    if ($null -ne $tagRef -and ($tagRef.ref -cne "refs/tags/$Tag" -or $tagRef.object.type -cne 'commit' -or [string]$tagRef.object.sha -cne $Commit)) { throw "Tag $Tag already exists and does not point at $Commit. Nothing was published." }
     return $release
 }
 
@@ -224,6 +230,7 @@ try {
         Start-Sleep -Seconds 2
     }
     if ([string]$onDraft[0].digest -cne $msiDigest) { throw "GitHub's copy of $msiName is not the signed file. The release is still a draft." }
+    $draft = Get-PCStewardDraft $tag
     $null = Invoke-PCStewardGitHub PATCH "$api/releases/$($draft.id)" @{ draft = $false; make_latest = 'true' }
 
     $published = Invoke-PCStewardGitHub GET "$api/releases/tags/$tag"

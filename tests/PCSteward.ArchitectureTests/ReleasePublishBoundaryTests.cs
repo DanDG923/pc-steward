@@ -63,6 +63,11 @@ public sealed class ReleasePublishBoundaryTests
         Assert.IsGreaterThan(0, digestCheck);
         Assert.IsLessThan(publishCall, digestCheck, "the draft is published before GitHub's digest of the MSI is checked");
         Assert.AreEqual(1, Regex.Count(publish, "draft = \\$false"));
+        // The tag is checked (absent, or a plain tag at the commit) in the draft check run right before publishing: GitHub
+        // ignores the draft's target once the tag exists.
+        StringAssert.Contains(publish, "$tagRef.object.type -cne 'commit' -or [string]$tagRef.object.sha -cne $Commit");
+        Assert.IsLessThan(publishCall, publish.LastIndexOf("$draft = Get-PCStewardDraft $tag", StringComparison.Ordinal), "the draft and tag are not re-checked right before publishing");
+        Assert.IsGreaterThan(digestCheck, publish.LastIndexOf("$draft = Get-PCStewardDraft $tag", StringComparison.Ordinal));
         // Afterwards: exactly the check file and the MSI, both with the expected digests, immutable.
         StringAssert.Contains(publish, "$names.Count -ne 2");
         StringAssert.Contains(publish, "[string]$checkAsset[0].digest -cne [string]$checkArtifact[0].digest");
