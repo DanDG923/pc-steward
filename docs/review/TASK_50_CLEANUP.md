@@ -57,8 +57,12 @@ guard-contract label are in the production code. **Nothing in the stash still ma
 [`TASK_50_CLEANUP_PASTE.ps1`](TASK_50_CLEANUP_PASTE.ps1), run once in a new, normal (not administrator) Windows
 PowerShell 5.1 window that the owner opens from the Start menu.
 
-1. **Checks.** 64-bit Windows PowerShell 5.1, not elevated, not inside an app package (`GetCurrentPackageFullName` must
-   return 15700, as in the R2 tooling), Git and the clone present.
+1. **Checks.** 64-bit Windows PowerShell 5.1 from System32, not elevated, not inside an app package
+   (`GetCurrentPackageFullName` must return 15700, as in the R2 tooling), Git and the clone present. As in
+   `Invoke-PCStewardReleaseInstall.ps1`, it stops before changing anything if a .NET Framework startup override
+   (`COMPLUS_*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`, `APPDOMAIN_MANAGER_*`) is set in the process, user or machine
+   environment, or if a policy execution policy is enforced, so that same-user code cannot load into the elevated
+   PowerShell of step 6 (Codex security review of this PR).
 2. **Plan.** It lists every folder, record, certificate and admin folder it would change, with sizes, and every one it
    will skip. It then waits for the owner to type `YES`; any other answer stops with nothing changed.
 3. **C1, user folder.** Removes the matching work folders and tidies the release folders. A folder holding a junction
@@ -70,7 +74,7 @@ PowerShell 5.1 window that the owner opens from the Start menu.
 5. **C3, certificates.** Removes `CN=PC Steward Owner-Only Test *` from CurrentUser TrustedPublisher, My (with
    `-DeleteKey`) and Root, in that order. Skipped entirely if `PC Steward OwnerOnlyTest State` exists, which would mean
    an owner-only deployment is still installed.
-6. **C4, administrator folders.** Only if any exist: one elevated Windows PowerShell, which re-lists the same name
+6. **C4, administrator folders.** Only if any exist: one elevated Windows PowerShell (System32, started in System32), which re-lists the same name
    patterns itself, skips any folder holding a link, and removes nothing else.
 7. **Check (read-only).** One `CHECK` line, then `CLEANUP RESULT: DONE` or `SOMETHING WAS LEFT`.
 
@@ -88,7 +92,7 @@ record Git or Windows still refuses to delete is reported as harmless.
 
 The gating Windows CI job `task50-cleanup-paste` runs `scripts/Test-Task50CleanupPasteCI.ps1`. It parses the paste under
 Windows PowerShell 5.1, checks it is plain ASCII, builds the leftovers and look-alikes in the hosted runner's real
-profile, clone location, certificate stores, Program Files and ProgramData, and runs the paste three times: answer `no`
+profile, clone location, certificate stores, Program Files and ProgramData, and runs the paste four times: with `COR_ENABLE_PROFILING` set (stops before the plan, nothing changes), answer `no`
 (nothing changes), `YES` (every planned item goes, the junction folder, the incomplete release folder and all
 look-alikes stay, the stash is saved with its tracked and untracked content, output carries no profile path or user
 name), and `YES` again after the skipped items are gone (`DONE`, no admin step). Three text changes are made to a

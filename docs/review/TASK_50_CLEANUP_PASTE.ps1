@@ -36,12 +36,16 @@ function RemoveTree([string]$p) {
 }
 try {
     # --- Checks: the right window, Git and the clone ---
-    if ($PSVersionTable.PSEdition -ne 'Desktop' -or ![Environment]::Is64BitProcess) { throw 'use 64-bit Windows PowerShell 5.1 from the Start menu, not PowerShell 7' }
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or ![Environment]::Is64BitProcess -or !$PSHOME.TrimEnd('\').Equals((Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'), [StringComparison]::OrdinalIgnoreCase)) { throw 'use 64-bit Windows PowerShell 5.1 from the Start menu, not PowerShell 7' }
     if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'this window is elevated; open a normal (not administrator) Windows PowerShell window' }
     $pt = [Reflection.Emit.AssemblyBuilder]::DefineDynamicAssembly([Reflection.AssemblyName]::new('PCStewardCleanupPackage'), 'Run').DefineDynamicModule('P').DefineType('P', 'Public,Sealed,Abstract')
     $pt.DefinePInvokeMethod('GetCurrentPackageFullName', 'kernel32.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], [Type[]]@([uint32].MakeByRefType(), [IntPtr]), 'Winapi', 'Unicode').SetImplementationFlags('PreserveSig')
     $pkg = [int]$pt.CreateType().GetMethod('GetCurrentPackageFullName').Invoke($null, [object[]]@([uint32]0, [IntPtr]::Zero))
     if ($pkg -ne 15700) { throw ('this window belongs to an app package (' + $pkg + '); open Windows PowerShell from the Start menu') }
+    # Nothing may change how the elevated .NET Framework PowerShell starts (same rule as Invoke-PCStewardReleaseInstall.ps1).
+    $envNames = @([Environment]::GetEnvironmentVariables().Keys) + @([Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::User).Keys) + @([Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Machine).Keys)
+    if (@($envNames | Where-Object { $_ -match '^(COMPLUS_|COR_ENABLE_PROFILING$|COR_PROFILER|APPDOMAIN_MANAGER_)' }).Count) { throw 'a .NET Framework startup override (COMPLUS_, COR_PROFILER or APPDOMAIN_MANAGER_) is set in the environment; remove it first. Nothing changed.' }
+    foreach ($scope in @('MachinePolicy', 'UserPolicy')) { if ([string](Get-ExecutionPolicy -Scope $scope) -cne 'Undefined') { throw 'an enforced PowerShell execution policy is configured; this paste does not override it. Nothing changed.' } }
     $g = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'Git\cmd\git.exe'
     $rc = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)) 'Codex\PC Steward\pc-steward'
     if (!(Test-Path -LiteralPath $g -PathType Leaf) -or !(Test-Path -LiteralPath (Join-Path $rc 'PCSteward.slnx') -PathType Leaf)) { throw 'Git or the PC Steward clone was not found' }
@@ -169,7 +173,7 @@ finally { [IO.File]::WriteAllLines('@@RESULT@@', $log.ToArray()) }
         $elevated = $elevated.Replace('@@RESULT@@', $resultFile.Replace("'", "''"))
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevated))
         Say 'C4 approve the one UAC prompt (Windows PowerShell, Microsoft Windows).'
-        $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -Verb RunAs -WindowStyle Hidden -PassThru
+        $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -WorkingDirectory (Join-Path $env:SystemRoot 'System32') -Verb RunAs -WindowStyle Hidden -PassThru
         $null = $process.Handle
         if (!$process.WaitForExit(600000)) { throw 'the administrator step is still running after 10 minutes' }
         if (Test-Path -LiteralPath $resultFile) { Get-Content -LiteralPath $resultFile | ForEach-Object { Say $_ }; Remove-Item -LiteralPath $resultFile -Force }

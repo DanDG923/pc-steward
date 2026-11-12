@@ -115,7 +115,14 @@ function Has([string[]]$o, [string]$line) { @($o | Where-Object { $_ -ceq $line 
 function Starts([string[]]$o, [string]$prefix) { @($o | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) }).Count }
 function There([string]$p) { Test-Path -LiteralPath $p }
 
-# --- 4. Answer "no": nothing changes ---
+# --- 4a. A .NET Framework startup override in the environment stops the paste before anything changes ---
+$env:COR_ENABLE_PROFILING = '0'
+$o = RunPaste 'YES'
+Remove-Item -LiteralPath 'Env:\COR_ENABLE_PROFILING'
+Check ((Starts $o 'STOP: a .NET Framework startup override') -eq 1 -and !(Has $o 'PLAN (nothing has changed yet):')) 'run 0 refuses a CLR startup override before planning'
+Check ((There (Join-Path $up 'PCSteward-Task50D')) -and (There $exec) -and (@(G @('stash', 'list')).Count -eq 1)) 'run 0 changed nothing'
+
+# --- 4b. Answer "no": nothing changes ---
 $o = RunPaste 'no'
 Check (Has $o 'STOPPED: nothing changed.') 'run 1 stops on any answer but YES'
 Check (Has $o 'PLAN (nothing has changed yet):') 'run 1 prints the plan first'
