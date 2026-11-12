@@ -107,12 +107,18 @@ if ($StandardUser) {
     if ([string]$summary.sdkVersion -cne $toolchainPins.SdkVersion) { $failures.Add('pinned SDK') }
     # Task 50 S7 obligation 1 (probe spec section 9): a clean build of a commit that contains the probe is marked included.
     if ($summary.schema -cne 'pc-steward-owner-only-candidate-build-v2' -or $summary.probeMark -cne 'pc-steward-probe-build-mark:1' -or $summary.probeIncluded -ne $true -or $summary.probeMarkDetail -cne 'included' -or $summary.probeCommit -cne '2172f955a751ccc464b27075053c835790bc412f') { $failures.Add('probe build mark') }
+    # Phase C close-out (ADR-008): the payload carries the generated third-party notices, including the helper's runtime.
+    $noticesFile = Join-Path $candidate 'payload\THIRD-PARTY-NOTICES.txt'
+    $noticesText = if (Test-Path -LiteralPath $noticesFile -PathType Leaf) { [IO.File]::ReadAllText($noticesFile, [Text.UTF8Encoding]::new($false)) } else { '' }
+    foreach ($section in @('Package: Microsoft.WindowsAppSDK ', 'Package: Microsoft.WindowsPackageManager.InProcCom ', 'Package: Microsoft.NETCore.App.Runtime.NativeAOT.win-x64 ', 'Package: runtime.win-x64.Microsoft.DotNet.ILCompiler ')) {
+        if (!$noticesText.Contains($section)) { $failures.Add("third-party notices ($($section.Trim()))") }
+    }
     if ($failures.Count -gt 0) { throw "Candidate builder CI evidence failed: $($failures -join ', ')" }
 
     # Small JSON evidence only; the payload itself is not uploaded.
     $evidence = Join-Path $repository 'artifacts\candidate-builder-evidence'
     New-Item -ItemType Directory -Path $evidence -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $candidate 'candidate-manifest.json'), $summaryPath -Destination $evidence
+    Copy-Item -LiteralPath (Join-Path $candidate 'candidate-manifest.json'), $summaryPath, $noticesFile -Destination $evidence
     [IO.File]::WriteAllText((Join-Path $evidence 'candidate-revalidation.json'), ($validationOutput | Where-Object { $_ } | Select-Object -Last 1), [Text.UTF8Encoding]::new($false))
     if ($ReleasePayload) {
         $release = Join-Path $repository 'artifacts\release-payload'

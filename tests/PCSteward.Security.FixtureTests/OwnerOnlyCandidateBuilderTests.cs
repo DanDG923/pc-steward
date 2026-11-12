@@ -78,8 +78,10 @@ public sealed class OwnerOnlyCandidateBuilderTests
             Assert.AreEqual(1, invocations.GetProperty("windowspowershell").GetInt32(), "one Windows PowerShell 5.1 self-validation child");
             Assert.IsTrue(result.GetProperty("splattedDotnet").GetBoolean(), "build steps must run as & $Dotnet @Arguments");
             string[] dotSources = [.. result.GetProperty("dotSources").EnumerateArray().Select(item => item.GetString()!)];
-            Assert.AreEqual(1, dotSources.Length);
-            StringAssert.Contains(dotSources[0], "OwnerOnlyPayloadIntegrity.ps1");
+            // The installer's integrity script (validation) and the shared third-party notices script (build), nothing else.
+            Assert.AreEqual(2, dotSources.Length, string.Join("\n", dotSources));
+            Assert.AreEqual(1, dotSources.Count(item => item.Contains("'OwnerOnlyPayloadIntegrity.ps1'", StringComparison.Ordinal)), string.Join("\n", dotSources));
+            Assert.AreEqual(1, dotSources.Count(item => item.Contains("'PCStewardThirdPartyNotices.ps1'", StringComparison.Ordinal)), string.Join("\n", dotSources));
             Assert.AreEqual(StepNames.Length, result.GetProperty("buildStepArgumentArrays").GetInt32());
 
             AssertBuildSteps(result.GetProperty("steps"));

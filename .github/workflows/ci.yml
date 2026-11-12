@@ -24,6 +24,15 @@ jobs:
       - run: pwsh -NoProfile -File ./scripts/Build.ps1
       # Security fixtures must compile/run without the hosted runner's admin token.
       - run: pwsh -NoProfile -File ./scripts/Test-CI.ps1
+      # Task 53 (NFR-PERF-01/02, ADR-006): the fixture benchmark harness on the built tree. Hosted-runner fixture timings
+      # only; not the owner's PC, WinUI, real sources, idle or process-tree evidence. The summary lines are in the log.
+      - run: pwsh -NoProfile -File ./scripts/Benchmark.ps1 -OutputPath artifacts/benchmark/fixture-performance.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fixture-performance
+          path: artifacts/benchmark/fixture-performance.json
+          if-no-files-found: error
+          retention-days: 30
 
   package-licence-map:
     # Task 53A (NFR-MNT-01/05): publish the desktop payload and check that the licence/NOTICE map in
