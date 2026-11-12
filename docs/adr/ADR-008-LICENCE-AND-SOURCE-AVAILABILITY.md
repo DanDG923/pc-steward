@@ -41,6 +41,10 @@ No public-source claim; dependency licences must still be compatible with privat
 
 The product owner accepted engineering use of the payload-scoped MIT, Apache-2.0, WebView2 BSD-style, and Microsoft redistribution terms for this private beta, conditional on shipping the mapped licence and notice texts. This explicitly includes the directly shipped `Microsoft.WindowsPackageManager.InProcCom` 1.10.340 native runtime under MIT and its package `NOTICE.txt`. This is a release-engineering scope decision based on the generated package evidence; it is not legal advice, a legal opinion, or a change to the repository's private-source status. Any new dependency, package version, public distribution, or changed redistribution condition requires a fresh review.
 
+### Task 54B licence re-check — 2026-11-12
+
+The owner's acceptance of [ADR-003 amendment 1](ADR-003-AMENDMENT-1-WINGET-COM-PROJECTION.md) (Option A, 2026-11-12) moves `Microsoft.WindowsPackageManager.ComInterop` and the directly shipped `Microsoft.WindowsPackageManager.InProcCom` runtime from 1.10.340 to 1.29.380, and names a fresh licence check as part of that change. Result: both 1.29.380 packages still declare SPDX `MIT` with the same copyright line and still carry `NOTICE.txt`, which ships verbatim in the generated notices as before. The notice file now lists the whole winget-cli component inventory (1,382 → 11,003 lines); every listed component licence is permissive (MIT, Apache-2.0, BSD, Zlib, BSL-1.0, HPND, curl, ISC, plus two scancode references for build-time metadata), with no copyleft component. The licence terms for this private beta are therefore unchanged and the acceptance above carries over to 1.29.380 on the same conditions. Details: [Task 54B record](../review/TASK_54B_WINGET_COM_1_29_ADOPTION.md) §4. Not legal advice.
+
 ### Follow-up controls and tests
 
 Maintain third-party notices and machine-readable dependency/licence inventory.

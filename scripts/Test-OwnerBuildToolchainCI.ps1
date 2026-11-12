@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$SourceCommit = 'd9a754b8da980a84eb4641cd58c98e27bdfd4444')
+param([string]$SourceCommit = 'e8c14845b2893b76a59e99345262d786ab44bd38')
 
 # Task 50 CB3.7c Windows CI evidence (informational). On a disposable GitHub-hosted runner: make a clean worktree of the
 # owner's build commit, produce the toolchain pins (official SDK zip, restored NuGet packages), compare them with the pins

@@ -9,8 +9,8 @@
     <PackageVersion Include="MSTest.TestAdapter" Version="4.5.2" />
     <PackageVersion Include="MSTest.TestFramework" Version="4.5.2" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.WindowsPackageManager.ComInterop" Version="1.10.340" />
-    <PackageVersion Include="Microsoft.WindowsPackageManager.InProcCom" Version="1.10.340" />
+    <PackageVersion Include="Microsoft.WindowsPackageManager.ComInterop" Version="1.29.380" />
+    <PackageVersion Include="Microsoft.WindowsPackageManager.InProcCom" Version="1.29.380" />
     <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.14" />
   </ItemGroup>
 </Project>

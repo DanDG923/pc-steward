@@ -1,6 +1,6 @@
 # ADR-003 amendment 1 — WinGet COM projection refresh
 
-**Status:** Accepted, Option A (owner decision 2026-11-12 14:40 UTC). Effective when Task 54B lands; until then production stays on 1.10.340  
+**Status:** Accepted, Option A (owner decision 2026-11-12 14:40 UTC). Implemented by Task 54B (1.29.380; [record](../review/TASK_54B_WINGET_COM_1_29_ADOPTION.md))  
 **Date:** 2026-11-12  
 **Decision owners:** Product owner and implementation reviewer  
 **Amends:** [ADR-003](ADR-003-WINGET-INTEGRATION-ROUTE.md) (stays Provisional and unchanged by this file)  
@@ -49,7 +49,7 @@ Valid on API grounds alone (1.10.340 meets ADR-023/024 needs). Leaves the Visual
 1. Pin `Microsoft.WindowsPackageManager.ComInterop` and `Microsoft.WindowsPackageManager.InProcCom` to the same exact stable version: `1.29.380`, or a newer stable release published by then, which 54B re-checks against this report's surface, import and layout checks.
 2. Move every Windows-targeted project to `net10.0-windows10.0.26100.0` and set `SupportedOSPlatformVersion` and `TargetPlatformMinVersion` to `10.0.22000.0` in each. The supported minimum stays Windows 11 22000; this amendment does not change it.
 3. Keep every ADR-003 behaviour unchanged: COM is the only candidate-version authority; only the predefined `winget`/`msstore` catalogues; exact-ID filter with the two-result bound; 20-second query bound; any API, activation or catalogue failure gives no authority; the CLI stays the constrained execution and display adapter.
-4. Update the packaging evidence for the new layout: version strings, the output path, and ownership of `Microsoft.Management.Deployment.winmd` (ComInterop's copy from 1.28 on), with the architecture test and evidence check to match. Refresh the owner-build toolchain pins and the ADR-008 licence entry.
+4. Update the packaging evidence for the new layout: version strings, the output path, and ownership of `Microsoft.Management.Deployment.winmd` (ComInterop's copy from 1.28 on), with the architecture test and evidence check to match. Refresh the owner-build toolchain pins and the ADR-008 licence entry. *(54B implementation: the spike allowed either owner; 54B ships the InProcCom runtime copy explicitly and switches the ComInterop copy off, so InProcCom keeps all four runtime leaves. Record §3.)*
 5. Sequencing: run 54B before Task 53/54 (stage C3), next to the Windows App SDK servicing in stage C2, so the Phase C evidence report and independent review cover the projection change once instead of being repeated before Task 55.
 
 ## Consequences

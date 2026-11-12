@@ -21,7 +21,7 @@ public sealed class DeploymentCapabilityScriptTests
 {
     private const string Sid = DeploymentCapabilityPolicyTests.Sid;
     private const string InstallRoot = DeploymentCapabilityPolicyTests.InstallRoot;
-    private const string HelperTargetFramework = "net10.0-windows10.0.22000.0";
+    private const string HelperTargetFramework = "net10.0-windows10.0.26100.0";
 #if DEBUG
     private const string Configuration = "Debug";
 #else

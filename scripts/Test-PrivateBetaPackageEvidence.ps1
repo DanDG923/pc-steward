@@ -71,7 +71,7 @@ if ($inventory.Count -eq 0) { throw 'Dependency inventory is empty.' }
 $inventoryByKey = @{}
 $inventoryByPackage = @{}
 $shippedRuntimeKeys = @{}
-$expectedInProcComKey = 'Microsoft.WindowsPackageManager.InProcCom/1.10.340'
+$expectedInProcComKey = 'Microsoft.WindowsPackageManager.InProcCom/1.29.380'
 $expectedInProcComOwnership = @{
     'Microsoft.Management.Deployment.dll' = 'runtimes/win-x64/native/Microsoft.Management.Deployment.InProc.dll'
     'Microsoft.Management.Deployment.dll.manifest' = 'runtimes/win-x64/native/Microsoft.Management.Deployment.InProc.dll.manifest'

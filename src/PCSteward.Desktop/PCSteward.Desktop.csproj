@@ -1,11 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <MicrosoftManagementDeployment-Platform>x64</MicrosoftManagementDeployment-Platform>
     <MicrosoftManagementDeployment-FactoryLinkage>none</MicrosoftManagementDeployment-FactoryLinkage>
+    <!--
+      Task 54B (ADR-003 amendment 1): from 1.28 on, ComInterop's lib/uap10.0 winmd and the InProcCom runtime winmd have the
+      same API surface but different bytes. Ship the winmd that belongs to the shipped in-process runtime, from InProcCom,
+      beside the other three runtime leaves, and stop ComInterop copying its own; the packaging evidence owns all four leaves.
+    -->
+    <MicrosoftManagementDeployment-OutputWinMD>false</MicrosoftManagementDeployment-OutputWinMD>
     <ApplicationIcon>..\..\design\assets\ico\pc-steward.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
@@ -32,6 +40,7 @@
     <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\Microsoft.Management.Deployment.InProc.dll" Link="Microsoft.Management.Deployment.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\Microsoft.Management.Deployment.InProc.dll.manifest" Link="Microsoft.Management.Deployment.dll.manifest" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\WindowsPackageManager.dll" Link="WindowsPackageManager.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(PkgMicrosoft_WindowsPackageManager_InProcCom)\runtimes\win-x64\native\Microsoft.Management.Deployment.winmd" Link="Microsoft.Management.Deployment.winmd" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CopyScheduledHostRuntimeAfterBuild" AfterTargets="Build">
     <ItemGroup>

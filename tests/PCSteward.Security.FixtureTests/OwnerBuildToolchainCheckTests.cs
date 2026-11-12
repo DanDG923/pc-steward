@@ -92,7 +92,8 @@ public sealed class OwnerBuildToolchainCheckTests
         using System.Text.Json.JsonDocument pins = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
         System.Text.Json.JsonElement rootElement = pins.RootElement;
         Assert.AreEqual("pc-steward-owner-build-toolchain-pins:1", rootElement.GetProperty("schema").GetString());
-        Assert.AreEqual("d9a754b8da980a84eb4641cd58c98e27bdfd4444", rootElement.GetProperty("sourceCommit").GetString());
+        // Task 54B: the pins follow the WinGet COM 1.29.380 build commit (also the CI check's default commit).
+        Assert.AreEqual("e8c14845b2893b76a59e99345262d786ab44bd38", rootElement.GetProperty("sourceCommit").GetString());
         Assert.AreEqual("10.0.403", rootElement.GetProperty("sdkVersion").GetString());
         StringAssert.Matches(rootElement.GetProperty("sdkZip").GetProperty("sha512").GetString(), new Regex(@"\A[0-9a-f]{128}\z"));
         StringAssert.StartsWith(rootElement.GetProperty("sdkZip").GetProperty("url").GetString(), "https://builds.dotnet.microsoft.com/");

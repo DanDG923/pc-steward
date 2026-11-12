@@ -12,7 +12,7 @@ $reports = Join-Path $artifactRoot 'reports'
 # path written to the release evidence is normalized relative to its NuGet package.
 $nugetCache = Join-Path $env:USERPROFILE '.nuget\packages'
 $inProcComPackage = 'Microsoft.WindowsPackageManager.InProcCom'
-$inProcComVersion = '1.10.340'
+$inProcComVersion = '1.29.380'
 $inProcComRuntimeOwnership = @(
     [pscustomobject]@{ PayloadPath = 'Microsoft.Management.Deployment.dll'; PackagePath = 'runtimes/win-x64/native/Microsoft.Management.Deployment.InProc.dll' }
     [pscustomobject]@{ PayloadPath = 'Microsoft.Management.Deployment.dll.manifest'; PackagePath = 'runtimes/win-x64/native/Microsoft.Management.Deployment.InProc.dll.manifest' }
@@ -53,7 +53,7 @@ foreach ($runtimeLeaf in $inProcComRuntimeOwnership)
     $runtimeLeaf | Add-Member -NotePropertyName Sha256 -NotePropertyValue (Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash
     $runtimeLeaf | Add-Member -NotePropertyName Bytes -NotePropertyValue (Get-Item -LiteralPath $payloadPath).Length
 }
-$winuiOutput = Join-Path $root 'src\PCSteward.Desktop\bin\Release\net10.0-windows10.0.22000.0\win-x64'
+$winuiOutput = Join-Path $root 'src\PCSteward.Desktop\bin\Release\net10.0-windows10.0.26100.0\win-x64'
 foreach ($resourceLeaf in @('App.xbf', 'PCSteward.Desktop.pri'))
 {
     $resourcePath = Join-Path $winuiOutput $resourceLeaf
@@ -361,8 +361,8 @@ $licenseMap = [ordered]@{
     'Microsoft.WindowsAppSDK.ML/1.8.2223' = @{ Spdx = $null; DisplayName = 'Microsoft Windows App SDK License Terms'; MetadataFile = 'microsoft.windowsappsdk.ml.nuspec'; LicenseFiles = @('license.txt'); NoticeFiles = @('ThirdPartyNotices.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.WindowsAppSDK.Widgets/1.8.251231004' = @{ Spdx = $null; DisplayName = 'Microsoft Windows App SDK License Terms'; MetadataFile = 'microsoft.windowsappsdk.widgets.nuspec'; LicenseFiles = @('license.txt'); NoticeFiles = @(); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'Microsoft.WindowsAppSDK.WinUI/1.8.260803003' = @{ Spdx = $null; DisplayName = 'Microsoft Windows App SDK License Terms'; MetadataFile = 'microsoft.windowsappsdk.winui.nuspec'; LicenseFiles = @('license.txt'); NoticeFiles = @('NOTICE.txt', 'tools/NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
-    'Microsoft.WindowsPackageManager.ComInterop/1.10.340' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.windowspackagemanager.cominterop.nuspec'; LicenseFiles = @(); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
-    'Microsoft.WindowsPackageManager.InProcCom/1.10.340' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.windowspackagemanager.inproccom.nuspec'; LicenseFiles = @(); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
+    'Microsoft.WindowsPackageManager.ComInterop/1.29.380' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.windowspackagemanager.cominterop.nuspec'; LicenseFiles = @(); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
+    'Microsoft.WindowsPackageManager.InProcCom/1.29.380' = @{ Spdx = 'MIT'; DisplayName = 'MIT License'; MetadataFile = 'microsoft.windowspackagemanager.inproccom.nuspec'; LicenseFiles = @(); NoticeFiles = @('NOTICE.txt'); Copyright = '© Microsoft Corporation. All rights reserved.' }
     'SQLitePCLRaw.bundle_e_sqlite3/2.1.13' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.bundle_e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
     'SQLitePCLRaw.core/2.1.13' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.core.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }
     'SQLitePCLRaw.lib.e_sqlite3/2.1.14' = @{ Spdx = 'Apache-2.0'; DisplayName = 'Apache License 2.0'; MetadataFile = 'sqlitepclraw.lib.e_sqlite3.nuspec'; LicenseFiles = @(); NoticeFiles = @(); Copyright = 'Copyright 2014-2024 SourceGear, LLC' }

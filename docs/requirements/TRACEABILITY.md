@@ -1,3 +1,11 @@
+# Task 54B — WinGet COM 1.29.380 (release 0.1.3)
+
+`NFR-MNT-01/03/05`, retained `FR-CAT-01–06`, `FR-SRC-01–05`; [record](../review/TASK_54B_WINGET_COM_1_29_ADOPTION.md); authority [ADR-003 amendment 1](../adr/ADR-003-AMENDMENT-1-WINGET-COM-PROJECTION.md) (Option A).
+
+- Change: `Directory.Packages.props` (ComInterop/InProcCom 1.29.380), 13 Windows `*.csproj` (target framework 26100, explicit 10.0.22000.0 minimums), `PCSteward.Desktop.csproj` (InProcCom winmd shipped, ComInterop copy off), `scripts/New-PrivateBetaPackage.ps1` and `scripts/Test-PrivateBetaPackageEvidence.ps1` (version and path), ADR-008 licence re-check, owner-build toolchain pins.
+- Tests: new `WindowsPlatformTargetTests` (architecture); `DeploymentCapabilityScriptTests` helper output path.
+- Not claimed: runtime on Windows 11 22000; activation on the owner's PC; a closed MSI 3010 restart gap (needs COM execution, outside the amendment).
+
 # Task 53A — Windows App SDK 1.8 servicing (release 0.1.3)
 
 `NFR-MNT-01/05`, retained `NFR-REL-01–05`; [record](../review/TASK_53A_DEPENDENCY_SERVICING.md).
