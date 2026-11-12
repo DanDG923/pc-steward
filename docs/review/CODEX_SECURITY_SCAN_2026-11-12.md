@@ -46,6 +46,19 @@ run (so every pull request exercises the release path):
 4. has a second disposable user build with read-only access to the SDK and the cache, then checks that the build's restore
    records name exactly the checked set and the pinned SDK version.
 
+A repository `nuget.config` clears the package sources down to nuget.org and clears fallback package folders. The first CI
+run showed why: the hosted runner's machine-wide NuGet configuration added a second package folder to every release
+project's restore, which a package could have come from without passing through the checked cache.
+
+The pins hold 31 packages: the 30 the three projects use, plus one older `Microsoft.WindowsAppSDK.Foundation`
+(1.8.260505001) that NuGet downloads only while resolving the graph (pin kind `resolution`). It is checked like the others.
+Three of the pinned hashes were cross-checked against fresh downloads from nuget.org. CI run 43296391507 (head `a8d2f09`)
+passed both builder jobs with `TOOLCHAIN-PACKAGES used=30 pinned=31 problems=0` and `TOOLCHAIN-OK sdk=10.0.403`.
+
+The same run's `setup-dotnet` step installed SDK **10.0.404** under `latestPatch` for the other jobs, which shows the finding
+was real: before this change a release payload could be built with a newer SDK than the one reviewed. Release payloads now
+build only with the pinned 10.0.403.
+
 The release record (`release-payload.json`) gains `toolchain.pinsSha256` and `toolchain.sdkVersion`;
 `New-PCStewardRelease.ps1` refuses to sign unless they equal the pin file of its own clean clone at the payload commit.
 Updating the SDK or any package now means updating the pin file in the same pull request (CI prints it).
