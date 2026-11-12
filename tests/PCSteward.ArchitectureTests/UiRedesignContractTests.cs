@@ -676,6 +676,28 @@ public sealed class UiRedesignContractTests
     /// over every app and keeps the virtualized, bounded list; app details use the same confirmation dialogs as the lists for pin,
     /// ignore and every mapping action (no immediate decision writes), and show structured sections and the timeline as a list.
     /// </summary>
+    /// <summary>
+    /// Owner feedback on 0.1.1: on a maximised window an empty state (for example Updates with nothing to show) left most of the
+    /// height blank. Every empty-state card is centred both ways and the page host grows the first one on a page to the bottom of
+    /// the window through <c>MinHeight</c> only, so a short window still scrolls.
+    /// </summary>
+    [TestMethod]
+    [Description("Owner feedback on 0.1.1: an empty state fills the window's height.")]
+    public void AnEmptyStateFillsTheWindowHeight()
+    {
+        string presentation = DesktopSource("StewardPresentation.cs");
+        string empty = Between(presentation, "public static Border EmptyState(", "public static Border MetricCard(");
+        StringAssert.Contains(empty, "VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560");
+        StringAssert.Contains(empty, "EmptyStates.AddOrUpdate(empty, title);");
+        string fill = Between(presentation, "public static void FillViewportHeight(StackPanel page, FrameworkElement card)", "public static bool IsEmptyState(");
+        StringAssert.Contains(fill, "Math.Max(0, Math.Floor(host.ViewportHeight - top - below))");
+        StringAssert.Contains(fill, "card.MinHeight = wanted;", "only the minimum height grows, so a short window keeps the natural height and scrolls");
+        Assert.IsFalse(fill.Contains("card.Height =", StringComparison.Ordinal) || fill.Contains("MaxHeight", StringComparison.Ordinal), "the card is never capped");
+        StringAssert.Contains(fill, "host.SizeChanged -= Resized;", "the page stops listening to the shared page host when it is unloaded");
+        string shell = DesktopSource("MainWindow.Shell.cs");
+        StringAssert.Contains(shell, "if (page.Children.FirstOrDefault(StewardVisuals.IsEmptyState) is FrameworkElement empty) StewardVisuals.FillViewportHeight(page, empty);");
+    }
+
     [TestMethod]
     [Description("FR-UI-01; FR-POL-01–05; FR-HIS-02; audit P-L7/P-M1/P-L6: saved filters, shared decision dialogs, structured details.")]
     public void InstalledAppsUsesSavedFiltersAndDetailsUseTheSharedDecisionDialogs()

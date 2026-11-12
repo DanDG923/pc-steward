@@ -237,6 +237,46 @@ internal static class StewardVisuals
         page.SizeChanged += Resized;
     }
 
+    /// <summary>
+    /// Owner feedback on 0.1.1 (a maximised window still left most of the height empty under an empty state): grows
+    /// <paramref name="card"/> itself so it reaches the bottom of the page host's viewport, keeping whatever follows it on the page
+    /// (such as a footnote) in view. Only <see cref="FrameworkElement.MinHeight"/> changes, so on a short window the card keeps
+    /// its natural height and the page scrolls as before. It re-fits when the window or the content above the card changes size.
+    /// </summary>
+    public static void FillViewportHeight(StackPanel page, FrameworkElement card)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(card);
+        ScrollViewer? host = null;
+        void Fit()
+        {
+            if (host is null || host.ViewportHeight <= 0 || card.Visibility != Visibility.Visible || card.ActualHeight <= 0) return;
+            double top = card.TransformToVisual(page).TransformPoint(new global::Windows.Foundation.Point(0, 0)).Y;
+            double below = page.ActualHeight - top - card.ActualHeight;
+            double wanted = Math.Max(0, Math.Floor(host.ViewportHeight - top - below));
+            if (Math.Abs(wanted - card.MinHeight) >= 1) card.MinHeight = wanted;
+        }
+        void Resized(object sender, SizeChangedEventArgs args) => Fit();
+        page.Loaded += (_, _) =>
+        {
+            host = null;
+            for (DependencyObject? node = VisualTreeHelper.GetParent(page); node is not null && host is null; node = VisualTreeHelper.GetParent(node)) host = node as ScrollViewer;
+            if (host is not null) host.SizeChanged += Resized;
+            Fit();
+        };
+        page.Unloaded += (_, _) =>
+        {
+            if (host is not null) host.SizeChanged -= Resized;
+            host = null;
+        };
+        page.SizeChanged += Resized;
+    }
+
+    /// <summary>True for a card made by <see cref="EmptyState"/>; the page host grows the first one on a page to the window's bottom.</summary>
+    public static bool IsEmptyState(UIElement element) => element is Border border && EmptyStates.TryGetValue(border, out _);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Border, object> EmptyStates = new();
+
     /// <summary>AC-UX-01: a page title, exposed to assistive technology as a level-1 heading.</summary>
     public static TextBlock PageTitle(string text)
     {
@@ -610,7 +650,8 @@ internal static class StewardVisuals
     /// </summary>
     public static Border EmptyState(string glyph, string title, string message, Button? action = null)
     {
-        StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 560 };
+        // Centred both ways, so the message stays in the middle when the page host grows the card to the window's bottom.
+        StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560 };
         Border well = StatusWell(glyph, "neutral");
         well.HorizontalAlignment = HorizontalAlignment.Center;
         content.Children.Add(well);
@@ -624,6 +665,7 @@ internal static class StewardVisuals
         if (action is not null) { action.HorizontalAlignment = HorizontalAlignment.Center; content.Children.Add(action); }
         Border empty = new() { Style = Style("StewardCardStyle"), Padding = new Thickness(32), Child = content };
         AutomationProperties.SetName(empty, $"{title}. {message}");
+        EmptyStates.AddOrUpdate(empty, title);
         return empty;
     }
 
