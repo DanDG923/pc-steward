@@ -61,6 +61,40 @@ public sealed class RegistryInventoryProviderTests
         CollectionAssert.Contains(result.Warnings.ToArray(), "Machine64:blocked:unreadable");
     }
 
+    [TestMethod]
+    public void StopsAViewAtItsEntryBudgetAndKeepsReadingTheOtherViews()
+    {
+        // Codex security scan finding 8: owner-writable HKCU keys cannot make the scan read without bound.
+        FakeRegistry registry = new();
+        registry.Entries[RegistryViewKind.CurrentUser] = Enumerable.Range(0, RegistryInventoryProvider.MaximumEntriesPerView + 50).Select(index => Entry("user" + index, "Tool " + index, "1", "P"));
+        registry.Entries[RegistryViewKind.Machine64] = [Entry("machine", "Machine", "1", "P")];
+
+        RegistryInventoryResult result = new RegistryInventoryProvider(registry).ReadAll();
+
+        Assert.AreEqual(RegistryInventoryProvider.MaximumEntriesPerView + 1, result.Records.Count);
+        CollectionAssert.Contains(result.Warnings.ToArray(), "CurrentUser:entry-budget-exceeded");
+    }
+
+    [TestMethod]
+    public void CancellationStopsTheWalkBetweenEntries()
+    {
+        using CancellationTokenSource cancellation = new();
+        int produced = 0;
+        IEnumerable<RegistryUninstallEntry> Endless()
+        {
+            while (true)
+            {
+                if (++produced == 10) cancellation.Cancel();
+                yield return Entry("key" + produced, "Name", "1", "P");
+            }
+        }
+        FakeRegistry registry = new();
+        registry.Entries[RegistryViewKind.Machine64] = Endless();
+
+        Assert.ThrowsExactly<OperationCanceledException>(() => new RegistryInventoryProvider(registry).ReadAll(cancellation.Token));
+        Assert.AreEqual(10, produced);
+    }
+
     private static RegistryUninstallEntry Entry(string key, string? name, string? version, string? publisher) => new(key, new Dictionary<string, object?> { ["DisplayName"] = name, ["DisplayVersion"] = version, ["Publisher"] = publisher, ["InstallDate"] = "20260101" });
 
     private sealed class FakeRegistry : IUninstallRegistry

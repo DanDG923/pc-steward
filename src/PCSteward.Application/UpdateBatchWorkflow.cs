@@ -446,11 +446,13 @@ public static partial class SanitizedDiagnosticBundle
             {
                 entry.JobId,
                 entry.CorrelationId,
-                entry.StableProductKey,
+                // Codex security scan finding 6: history rows are owner-writable local state, so every copied string goes
+                // through the same redactor and a field bound, not only the diagnostic text.
+                StableProductKey = SanitizeField(entry.StableProductKey),
                 provider = entry.Provider.ToString(),
-                entry.PackageId,
-                entry.InstalledVersion,
-                entry.TargetVersion,
+                PackageId = SanitizeField(entry.PackageId),
+                InstalledVersion = SanitizeField(entry.InstalledVersion),
+                TargetVersion = SanitizeField(entry.TargetVersion),
                 entry.OccurredAt,
                 status = entry.Status.ToString(),
                 entry.ExitCode,
@@ -459,6 +461,12 @@ public static partial class SanitizedDiagnosticBundle
         };
         return JsonSerializer.Serialize(payload);
     }
+
+    /// <summary>The most UTF-16 units an identity or version field keeps in the diagnostic bundle.</summary>
+    public const int MaximumFieldLength = 256;
+
+    /// <summary>An identity or version field: the same redaction as <see cref="Sanitize"/>, bounded to <see cref="MaximumFieldLength"/>; null stays null.</summary>
+    public static string? SanitizeField(string? value) => value is null ? null : Truncate(Sanitize(value), MaximumFieldLength);
 
     public static string Sanitize(string? value)
     {

@@ -15,7 +15,7 @@ internal sealed class ScheduledRegistryInventoryProvider : ILocalInventoryProvid
     public TimeSpan Timeout => TimeSpan.FromSeconds(10);
     public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.Run(() =>
     {
-        RegistryInventoryResult result = provider.ReadAll(); List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
+        RegistryInventoryResult result = provider.ReadAll(cancellationToken); List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (RegistryInventoryRecord record in result.Records.Where(record => !string.IsNullOrWhiteSpace(record.DisplayName)))
         {
             cancellationToken.ThrowIfCancellationRequested(); Guid productId = StableGuid($"{record.Provider}|{record.KeyName}|{record.Scope}|{record.Architecture}");

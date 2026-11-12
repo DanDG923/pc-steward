@@ -152,16 +152,21 @@ public static class FactoryReset
         return VerifyOnboardingBootstrapCore(root);
     }
 
-    /// <summary>Only the explicit first-run acknowledgement can remove the durable reset authority.</summary>
-    public static FactoryResetResult AcknowledgeOnboarding(string? stateRoot = null)
+    /// <summary>
+    /// Only the explicit first-run acknowledgement can remove the durable reset authority. <paramref name="verifyFreshStore"/>
+    /// re-runs the semantic fresh-store check on the database at the path, under the data-operation mutex and immediately
+    /// before the marker goes (Codex security scan finding 3: the startup check alone left the database replaceable until
+    /// Continue). It must not throw; an exception is treated as a failed check.
+    /// </summary>
+    public static FactoryResetResult AcknowledgeOnboarding(string? stateRoot = null, Func<bool>? verifyFreshStore = null)
     {
         string root;
         try { root = ValidateRoot(stateRoot ?? GetStateRoot()); }
         catch (Exception exception) { return new(false, [new FactoryResetResidual("State root", "UnsafePath", exception.Message)]); }
-        return AcknowledgeOnboardingCore(root);
+        return AcknowledgeOnboardingCore(root, verifyFreshStore);
     }
 
-    private static FactoryResetResult AcknowledgeOnboardingCore(string root)
+    private static FactoryResetResult AcknowledgeOnboardingCore(string root, Func<bool>? verifyFreshStore = null)
     {
         using Mutex mutex = new(false, DataOperationMutexName);
         if (!TryAcquire(mutex)) return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward process still owns the data-operation lease.")]);
@@ -169,6 +174,9 @@ public static class FactoryReset
         {
             List<FactoryResetResidual> residuals = [];
             if (ReadMarkerState(root, residuals) is not FactoryResetMarkerState.OnboardingPending) return new(false, residuals);
+            if (verifyFreshStore is not null && !IsFreshStore(verifyFreshStore))
+                return new(false, [new FactoryResetResidual("Fresh store", "VerificationFailed", "Post-reset defaults or prior state could not be verified.")]);
+            // The root shape is checked after the semantic check, so a leaf the check created or a swap during it is seen.
             NativeResetControl.VerifyOnlyOnboardingRoot(root, residuals);
             if (residuals.Count != 0) return new(false, residuals);
             PathSafety.DeleteResult result = NativeResetControl.AcknowledgeAndDelete(root);
@@ -208,7 +216,13 @@ public static class FactoryReset
         finally { mutex.ReleaseMutex(); }
     }
     internal static Task<FactoryResetResult> CompletePendingForTestingAsync(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken) => CompletePendingCoreAsync(ValidateRoot(stateRoot, allowTestRoot: true), removeScheduledTask, cancellationToken);
-    internal static FactoryResetResult AcknowledgeOnboardingForTesting(string stateRoot) => AcknowledgeOnboardingCore(ValidateRoot(stateRoot, allowTestRoot: true));
+    internal static FactoryResetResult AcknowledgeOnboardingForTesting(string stateRoot, Func<bool>? verifyFreshStore = null) => AcknowledgeOnboardingCore(ValidateRoot(stateRoot, allowTestRoot: true), verifyFreshStore);
+
+    private static bool IsFreshStore(Func<bool> verifyFreshStore)
+    {
+        try { return verifyFreshStore(); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+    }
     internal static FactoryResetResult VerifyOnboardingBootstrapForTesting(string stateRoot) => VerifyOnboardingBootstrapCore(ValidateRoot(stateRoot, allowTestRoot: true));
 
     private static string ValidateRoot(string root, bool allowTestRoot = false)

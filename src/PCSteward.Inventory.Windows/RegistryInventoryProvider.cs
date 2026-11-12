@@ -16,29 +16,46 @@ public interface IUninstallRegistry
 public sealed class WindowsUninstallRegistry : IUninstallRegistry
 {
     private const string UninstallPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+
+    /// <summary>The only values inventory reads from an uninstall entry (Codex security scan finding 8: never every value).</summary>
+    internal static readonly string[] InventoryValueNames = ["DisplayName", "DisplayVersion", "Publisher", "InstallDate"];
+
+    /// <summary>
+    /// Lazy: one entry is opened and read per step, so the caller's budget and cancellation checks stop the walk between
+    /// entries instead of after the whole view has been read.
+    /// </summary>
     public IEnumerable<RegistryUninstallEntry> ReadUninstallEntries(RegistryViewKind view)
     {
-        List<RegistryUninstallEntry> entries = [];
         RegistryHive hive = view == RegistryViewKind.CurrentUser ? RegistryHive.CurrentUser : RegistryHive.LocalMachine;
         RegistryView registryView = view == RegistryViewKind.Machine32 ? RegistryView.Registry32 : RegistryView.Registry64;
         using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, registryView);
         using RegistryKey? uninstallKey = baseKey.OpenSubKey(UninstallPath, writable: false);
-        if (uninstallKey is null) return entries;
+        if (uninstallKey is null) yield break;
         foreach (string keyName in uninstallKey.GetSubKeyNames())
         {
-            try
-            {
-                using RegistryKey? entry = uninstallKey.OpenSubKey(keyName, writable: false);
-                if (entry is null) continue;
-                Dictionary<string, object?> values = entry.GetValueNames().ToDictionary(name => name, name => entry.GetValue(name), StringComparer.OrdinalIgnoreCase);
-                entries.Add(new RegistryUninstallEntry(keyName, values));
-            }
-            catch (Exception exception) when (exception is UnauthorizedAccessException or System.Security.SecurityException or IOException or ArgumentException)
-            {
-                entries.Add(new RegistryUninstallEntry(keyName, new Dictionary<string, object?>(), "unreadable"));
-            }
+            RegistryUninstallEntry? entry = ReadEntry(uninstallKey, keyName);
+            if (entry is not null) yield return entry;
         }
-        return entries;
+    }
+
+    private static RegistryUninstallEntry? ReadEntry(RegistryKey uninstallKey, string keyName)
+    {
+        try
+        {
+            using RegistryKey? entry = uninstallKey.OpenSubKey(keyName, writable: false);
+            if (entry is null) return null;
+            Dictionary<string, object?> values = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string name in InventoryValueNames)
+            {
+                object? value = entry.GetValue(name);
+                if (value is not null) values[name] = value;
+            }
+            return new RegistryUninstallEntry(keyName, values);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or System.Security.SecurityException or IOException or ArgumentException)
+        {
+            return new RegistryUninstallEntry(keyName, new Dictionary<string, object?>(), "unreadable");
+        }
     }
 }
 
@@ -48,7 +65,13 @@ public sealed class RegistryInventoryProvider
     private readonly IUninstallRegistry registry;
     public RegistryInventoryProvider(IUninstallRegistry registry) => this.registry = registry;
 
-    public RegistryInventoryResult ReadAll()
+    /// <summary>
+    /// The most uninstall entries read from one registry view (Codex security scan finding 8). A real PC has a few hundred;
+    /// past this the view is reported as over budget and the rest is not read.
+    /// </summary>
+    public const int MaximumEntriesPerView = 4096;
+
+    public RegistryInventoryResult ReadAll(CancellationToken cancellationToken = default)
     {
         List<RegistryInventoryRecord> records = [];
         List<string> warnings = [];
@@ -56,8 +79,15 @@ public sealed class RegistryInventoryProvider
         {
             try
             {
+                int read = 0;
                 foreach (RegistryUninstallEntry entry in registry.ReadUninstallEntries(view))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (++read > MaximumEntriesPerView)
+                    {
+                        warnings.Add($"{view}:entry-budget-exceeded");
+                        break;
+                    }
                     if (entry.ReadWarning is not null)
                     {
                         warnings.Add($"{view}:{Text(entry.KeyName)}:{entry.ReadWarning}");

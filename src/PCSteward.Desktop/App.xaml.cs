@@ -144,7 +144,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
             });
         // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database));
         ActivateWindow(window);
         }
         catch (Exception exception)
@@ -154,9 +154,10 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         finally { session.Dispose(); }
     }
 
-    private static FactoryResetResult AcknowledgeOnboarding(string stateDirectory)
+    private static FactoryResetResult AcknowledgeOnboarding(string stateDirectory, SqliteDatabase database)
     {
-        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory)); }
+        // Codex security scan finding 3: Continue re-checks that the store at the path is still the fresh one.
+        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult())); }
         catch (InvalidOperationException)
         {
             return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward operation still owns the data-operation gate.")]);

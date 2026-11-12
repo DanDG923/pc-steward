@@ -15,7 +15,7 @@ internal sealed class RegistryLocalInventoryProvider : ILocalInventoryProvider
     public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.Run(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
-        RegistryInventoryResult result = provider.ReadAll();
+        RegistryInventoryResult result = provider.ReadAll(cancellationToken);
         List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> rawRecords = [];
         foreach (RegistryInventoryRecord record in result.Records.Where(record => !string.IsNullOrWhiteSpace(record.DisplayName)))
         {
