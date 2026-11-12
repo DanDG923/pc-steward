@@ -82,7 +82,7 @@ try {
     foreach ($t in $tidy) { $mb = 0.0; foreach ($x in $t.Extras) { $mb += SizeMB $x.FullName }; $freed += $mb; Say ('  tidy ' + $t.Folder.Name + ': keep release\' + $t.Msi + ', remove ' + (($t.Extras | ForEach-Object { $_.Name }) -join ', ') + ' (' + $mb + ' MB)') }
     Say '  Git: forget the removed worktrees and clear stale worktree records in the clone'
     if ($dropStash) { Say '  Git: save the 2026-11-11 stash ("pre-sync local Task 50 edits") as two patch files next to the clone, then drop it' }
-    elseif ($stashes.Count) { Say ('  Git: leave the stash alone (' + $stashes.Count + ' entr(ies), not the expected one)') }
+    elseif ($stashes.Count) { Say ('  Git: leave the stash alone (' + $stashes.Count + ' entr(ies), first ' + $stashes[0].Substring(0, 8) + ', not the expected ' + $stashPin.Substring(0, 8) + ')') }
     if ($stateThere -and $certs.Count) { Say '  certificates: LEFT ALONE, because an owner-only test deployment still exists (Program Files\PC Steward OwnerOnlyTest State)' }
     else { foreach ($c in $certs) { Say ('  certificate: remove PC Steward Owner-Only Test ' + $c.Thumbprint.Substring(0, 8) + '... from CurrentUser\' + $c.Store) } }
     foreach ($a in $admin) { Say ('  administrator: remove ' + $a.Name + ' (' + (SizeMB $a.FullName) + ' MB)') }

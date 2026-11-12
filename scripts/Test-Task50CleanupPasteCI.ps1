@@ -80,7 +80,10 @@ $null = New-Item -ItemType Directory -Path (Join-Path $rc '.git\worktrees\41df12
 Put (Join-Path $rc 'tracked.txt') 'changed'
 Put (Join-Path $rc 'untracked-note.md') 'note'
 $null = G @('stash', 'push', '-u', '-q', '-m', 'pre-sync local Task 50 edits 2026-11-11')
-$pin = (G @('rev-parse', 'stash@{0}'))[0]
+$pin = @(G @('rev-parse', '--verify', 'refs/stash') | Where-Object { $_ -match '\A[0-9a-f]{40}\z' })
+$listed = @(G @('stash', 'list', '--format=%H'))
+Write-Host ('stash commit ' + ($pin -join ',') + '; stash list --format=%H gives ' + ($listed -join ','))
+if ($pin.Count -ne 1) { throw 'could not read the stash commit' }; $pin = $pin[0]
 # Certificates: an owner-only test signer in My (with its key) and TrustedPublisher, and a release-signing look-alike.
 $test = New-SelfSignedCertificate -Subject ('CN=PC Steward Owner-Only Test ' + [Guid]::NewGuid()) -CertStoreLocation 'Cert:\CurrentUser\My' -Type CodeSigningCert -KeyExportPolicy NonExportable
 $tp = [Security.Cryptography.X509Certificates.X509Store]::new('TrustedPublisher', 'CurrentUser'); $tp.Open('ReadWrite'); $tp.Add([Security.Cryptography.X509Certificates.X509Certificate2]::new($test.RawData)); $tp.Close()
