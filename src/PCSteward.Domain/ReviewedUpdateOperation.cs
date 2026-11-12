@@ -23,7 +23,95 @@ public enum UpdateRouteContract
     /// installers or a known channel. The frozen data is not native qualification: fresh evidence, the review gate and the
     /// non-elevated runner still decide whether anything runs.
     /// </summary>
-    WinGetUserSilentV1
+    WinGetUserSilentV1,
+    /// <summary>
+    /// Phase D stage D4b (design note PHASE_D4B_MACHINE_WINGET_UPDATE_DESIGN.md, owner answers 2026-11-12): a WinGet update of an app
+    /// installed for every user of the PC, from the <c>winget</c> source only, run by the protocol-2 helper with
+    /// <see cref="InstallerMode.Silent"/> bound at review, <c>--scope machine</c>, an observed x86, x64 or arm64 architecture and the
+    /// installer type carried in the evidence identity (<see cref="ReviewedUpdateOperation.TryGetWinGetMachineEvidence"/>). Not admitted
+    /// at the review gate until the stage that retires protocol 1. The frozen data is not native qualification: the helper checks the
+    /// trusted client, source, settings, machine registration and manifest itself before it runs anything.
+    /// </summary>
+    WinGetMachineSilentV1
+}
+
+/// <summary>
+/// D4b design §4: the installer types the machine WinGet route accepts. Portable, zip, MSIX and Store installers are never on it.
+/// Wire and evidence text is the lowercase name WinGet uses (<c>--installer-type</c>).
+/// </summary>
+public enum WinGetMachineInstallerType { Msi, Wix, Exe, Inno, Nullsoft, Burn }
+
+/// <summary>The two HKLM uninstall views a machine WinGet registration can live in (D4b design §5 H6).</summary>
+public enum WinGetMachineRegistrationView { Machine64, Machine32 }
+
+/// <summary>
+/// D4b design §5 H6: the comparison digest of one HKLM uninstall registration, computed the same way by the desktop at review and
+/// by the elevated helper before launch: SHA-256 over <c>wgm1-registration</c>, the view, the uninstall key name and its
+/// <c>DisplayVersion</c>, one per line, UTF-8, uppercase hex. Data only; it proves nothing about the app by itself.
+/// </summary>
+public static class WinGetMachineRegistration
+{
+    /// <summary>Uninstall key names and versions longer than this are refused (bounded data).</summary>
+    public const int MaximumFieldLength = 256;
+
+    /// <summary>The digest, or null when a field is empty, too long or holds a line break or NUL.</summary>
+    public static string? Digest(WinGetMachineRegistrationView view, string? keyName, string? displayVersion)
+    {
+        if (!Enum.IsDefined(view) || !IsField(keyName) || !IsField(displayVersion)) return null;
+        string text = string.Join('\n', "wgm1-registration", view.ToString(), keyName, displayVersion);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+    }
+
+    private static bool IsField(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= MaximumFieldLength && value.IndexOfAny(['\n', '\r', '\0']) < 0;
+}
+
+/// <summary>
+/// D4b design §4–§7: the parsed evidence identity of a machine WinGet review. Format check only: every digest is comparison data and
+/// never proves a registration, a manifest or consent. <see cref="RegistrationDigest"/> names the exact HKLM uninstall registration
+/// observed at review, <see cref="ManifestDigest"/> the exported manifest and <see cref="InstallerSha256"/> its single installer.
+/// </summary>
+public sealed record WinGetMachineEvidence(WinGetMachineInstallerType InstallerType, string RegistrationDigest, string ManifestDigest,
+    string InstallerSha256)
+{
+    /// <summary>The fixed prefix of the evidence identity.</summary>
+    public const string Prefix = "wgm1";
+
+    /// <summary>The lowercase installer-type text WinGet accepts for <c>--installer-type</c>.</summary>
+    public static string InstallerTypeText(WinGetMachineInstallerType type) => type switch
+    {
+        WinGetMachineInstallerType.Msi => "msi",
+        WinGetMachineInstallerType.Wix => "wix",
+        WinGetMachineInstallerType.Exe => "exe",
+        WinGetMachineInstallerType.Inno => "inno",
+        WinGetMachineInstallerType.Nullsoft => "nullsoft",
+        WinGetMachineInstallerType.Burn => "burn",
+        _ => throw new ArgumentOutOfRangeException(nameof(type)),
+    };
+
+    /// <summary>Parses the lowercase installer-type text; anything else (including portable, zip, msix, msstore) is refused.</summary>
+    public static bool TryParseInstallerType(string? text, out WinGetMachineInstallerType type)
+    {
+        foreach (WinGetMachineInstallerType candidate in Enum.GetValues<WinGetMachineInstallerType>())
+        {
+            if (string.Equals(text, InstallerTypeText(candidate), StringComparison.Ordinal))
+            {
+                type = candidate;
+                return true;
+            }
+        }
+        type = default;
+        return false;
+    }
+
+    /// <summary>The canonical identity text: <c>wgm1:&lt;type&gt;:&lt;registration&gt;:&lt;manifest&gt;:&lt;installer sha-256&gt;</c>.</summary>
+    public string ToIdentity()
+    {
+        if (!ReviewedUpdateOperation.IsUpperHex64(RegistrationDigest) || !ReviewedUpdateOperation.IsUpperHex64(ManifestDigest) ||
+            !ReviewedUpdateOperation.IsUpperHex64(InstallerSha256))
+            throw new ArgumentException("Machine WinGet evidence digests must be 64 uppercase hexadecimal digits.");
+        return string.Join(':', Prefix, InstallerTypeText(InstallerType), RegistrationDigest, ManifestDigest, InstallerSha256);
+    }
 }
 
 /// <summary>Frozen data semantics only. No member asserts that native candidate qualification succeeded.</summary>
@@ -80,6 +168,10 @@ public sealed partial class ReviewedUpdateOperation
             (encodingVersion != SchemaVersion || !HasClientSelfUpdateShape(job.Selection, mode, architecture)))
             throw new ArgumentException("A client self-update is limited to the current schema, the Chocolatey Community machine " +
                 "registration of the package ID chocolatey, and provider-script-controlled mode and architecture.", nameof(routeContract));
+        if (routeContract == UpdateRouteContract.WinGetMachineSilentV1 &&
+            (encodingVersion != SchemaVersion || !HasWinGetMachineSilentShape(job.Selection, mode, architecture)))
+            throw new ArgumentException("The machine WinGet route is limited to the current schema, a WinGet machine-scope update from the " +
+                "winget source outside a preview channel, the Silent mode and an observed x86, x64 or arm64 architecture.", nameof(routeContract));
         if (routeContract == UpdateRouteContract.WinGetUserSilentV1 &&
             (encodingVersion != SchemaVersion || !HasWinGetUserSilentShape(job.Selection, mode, architecture)))
             throw new ArgumentException("The per-user WinGet route is limited to the current schema, a WinGet user-scope update from the " +
@@ -100,6 +192,8 @@ public sealed partial class ReviewedUpdateOperation
         if (routeContract is UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 &&
             !TryGetProfileEvidenceDigest(EvidenceId, out _))
             throw new ArgumentException("Runtime-limit review evidence must be the exact Chocolatey profile v2 identity.", nameof(evidenceId));
+        if (routeContract == UpdateRouteContract.WinGetMachineSilentV1 && !TryGetWinGetMachineEvidence(EvidenceId, out _))
+            throw new ArgumentException("Machine WinGet review evidence must be the exact wgm1 identity.", nameof(evidenceId));
         EvidenceObservedAt = evidenceObservedAt.ToUniversalTime();
         RouteContract = routeContract;
         Mode = mode;
@@ -244,6 +338,31 @@ public sealed partial class ReviewedUpdateOperation
         return true;
     }
 
+    /// <summary>
+    /// D4b design §4: format check only for <see cref="UpdateRouteContract.WinGetMachineSilentV1"/> evidence, exactly
+    /// <c>wgm1:&lt;msi|wix|exe|inno|nullsoft|burn&gt;:&lt;64 hex&gt;:&lt;64 hex&gt;:&lt;64 hex&gt;</c> (uppercase hex). Comparison data only.
+    /// </summary>
+    public static bool TryGetWinGetMachineEvidence(string? evidenceId, out WinGetMachineEvidence? evidence)
+    {
+        evidence = null;
+        if (evidenceId is null || evidenceId.Length > 256) return false;
+        string[] fields = evidenceId.Split(':');
+        if (fields.Length != 5 || !string.Equals(fields[0], WinGetMachineEvidence.Prefix, StringComparison.Ordinal) ||
+            !WinGetMachineEvidence.TryParseInstallerType(fields[1], out WinGetMachineInstallerType type) ||
+            !IsUpperHex64(fields[2]) || !IsUpperHex64(fields[3]) || !IsUpperHex64(fields[4])) return false;
+        evidence = new(type, fields[2], fields[3], fields[4]);
+        return true;
+    }
+
+    /// <summary>Exactly 64 characters, each 0–9 or A–F.</summary>
+    public static bool IsUpperHex64(string? value)
+    {
+        if (value is null || value.Length != 64) return false;
+        foreach (char c in value)
+            if (c is not ((>= '0' and <= '9') or (>= 'A' and <= 'F'))) return false;
+        return true;
+    }
+
     /// <summary>The ADR-031 client self-update package ID; compared ordinally (the native registration's own spelling).</summary>
     public const string ChocolateyClientPackageId = "chocolatey";
 
@@ -273,6 +392,21 @@ public sealed partial class ReviewedUpdateOperation
         selection.Provider == UpdateProvider.WinGet && selection.Source is UpdateSource.WinGet or UpdateSource.MicrosoftStore &&
         selection.Scope == UpdateScope.User && mode == ReviewedInstallerMode.Selected(InstallerMode.Silent) &&
         (architecture is null || architecture.Binding == ReviewedArchitectureBinding.Observed);
+
+    /// <summary>
+    /// D4b shape only: WinGet, <c>winget</c> source, Machine scope, a channel other than Preview (inventory reports Unknown for the
+    /// default channel; the exact version pins the target), <c>Selected(Silent)</c> and an observed x86, x64 or
+    /// arm64 architecture. The installer type and digests are checked through the evidence identity.
+    /// </summary>
+    private static bool HasWinGetMachineSilentShape(UpdateJobSelection selection, ReviewedInstallerMode mode, ReviewedUpdateArchitecture? architecture)
+    {
+        UpdateArchitecture value = architecture?.Value ?? selection.Architecture;
+        return selection.Provider == UpdateProvider.WinGet && selection.Source == UpdateSource.WinGet &&
+            selection.Scope == UpdateScope.Machine && selection.Channel != UpdateChannel.Preview &&
+            mode == ReviewedInstallerMode.Selected(InstallerMode.Silent) &&
+            (architecture is null || architecture.Binding == ReviewedArchitectureBinding.Observed) &&
+            value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64;
+    }
 
     private static bool IsUserCacheIntentRoute(UpdateRouteContract route) =>
         route is UpdateRouteContract.ChocolateyMachineProvisionalV3 or UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3;
