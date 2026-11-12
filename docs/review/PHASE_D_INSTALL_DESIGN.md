@@ -1,6 +1,6 @@
 # Phase D catalogue installs: install design note (stage D1)
 
-Date: 2026-11-12. Status: **design. Owner questions open (§12). No code change.** Stage D1 of the Phase D plan the owner agreed on 2026-11-12 ("Close C, D design in parallel": user scope first, search ships early). It prepares Task 56 and the Search screen of Task 55.
+Date: 2026-11-12. Status: **design. Owner answers recorded 2026-11-12 (§12): Q1 and Q4 accepted, Q3 accepted for version 1, Q2 widened to a coverage goal. No code change.** Stage D1 of the Phase D plan the owner agreed on 2026-11-12 ("Close C, D design in parallel": user scope first, search ships early). It prepares Task 56 and the Search screen of Task 55.
 
 Requirements: `FR-CAT-01–06`, `FR-UPD-15`, `FR-SRC-02/07–10`, `FR-HIS-01–06`, `TM-02–04/07/13`. Builds on [ADR-023](../adr/ADR-023-CATALOGUE-INSTALL-OPERATIONS.md), [ADR-025](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md), the [Q1 and Q5 policies](../requirements/V2_PLANNING_DECISIONS.md), the [Phase D brief](../requirements/V2_PHASE_D.md) and the WinGet findings F6/F7 in [provider mapping revision 2](TASK_50_PROVIDER_MAPPING_V2.md). Base: `phase/4-beta` at `c045fe5`.
 
@@ -236,13 +236,22 @@ If D0 finds a COM version with a real no-upgrade option, §3.2 is worth revisiti
 - **D3:** every §4.4 fixture; argument-list goldens for each type and architecture with every forbidden option rejected even after a recomputed digest; settings-export refusals; agreements present at review, appearing after review; dependency block present, MSIX framework missing; exit-code mapping; result-check mismatches; restart outcome; crash after dispatch claim (Uncertain, never retried); Recent installs derivation.
 - **D4:** helper refuses each mismatch independently of the desktop; requesting-user hive versus elevated HKCU; second user profile blocks; different administrator account refuses; one item per helper request; no user-to-machine fallback.
 
-## 12. Owner questions (open)
+## 12. Owner questions and answers (2026-11-12)
 
-| # | Question | Recommendation |
-|---|---|---|
-| Q1 | How should installs run? | Through the `winget` command line with `--no-upgrade`; COM only for evidence (§3) |
-| Q2 | Which apps can the first, just-for-me route install? | MSIX and portable packages, with a portable update route built in the same stage (§7.1) |
-| Q3 | What about packages that ask you to accept an agreement? | Not offered in version 1; show-and-accept later (§5, option A) |
-| Q4 | What about packages that need other packages first? | Not offered in version 1, checked from the exact manifest via `winget download` (§6, option A) |
+| # | Question | Recommendation | Owner answer |
+|---|---|---|---|
+| Q1 | How should installs run? | Through the `winget` command line with `--no-upgrade`; COM only for evidence (§3) | **Accepted** |
+| Q2 | Which apps can the first, just-for-me route install? | MSIX and portable packages, with a portable update route built in the same stage (§7.1) | **Widened:** "I'd want it to be able to update anything winget & chocolatey can." Recorded as a coverage goal; see below |
+| Q3 | What about packages that ask you to accept an agreement? | Not offered in version 1; show-and-accept later (§5, option A) | **Accepted for now.** The owner asked about a single blanket disclaimer instead; see below |
+| Q4 | What about packages that need other packages first? | Not offered in version 1, checked from the exact manifest via `winget download` (§6, option A) | **Accepted** |
+
+**Q2: coverage goal.** The MSIX and portable limit applies only to the first user route (D3), which stays as designed. Reaching "anything WinGet and Chocolatey can" takes these further pieces, each with its own review:
+
+1. **Machine-scope installs (D4)**, as in §7.2. This covers most EXE and MSI packages in WinGet.
+2. **Machine-scope WinGet updates.** Today the only WinGet update route is user MSIX (`WinGetUserExactV3`). A machine update route uses the same helper and CLI machinery as D4 (`upgrade` in place of `install`), so it should be planned alongside D4. This goes beyond ADR-023 and Phase D, so it needs its own stage in the plan.
+3. **Vendor user-scope installers** (EXE/MSI/Inno/Nullsoft/WiX/Burn that declare user scope): a later user route, for installs and updates. PC Steward cannot enforce what these write or stop them asking for elevation, so the review must say so, and the result check (§8) must catch any write outside the user's profile and HKCU.
+4. **Chocolatey installs** are excluded by ADR-023 and the Phase D brief. Allowing them needs an ADR-023 amendment and the owner's explicit decision. Chocolatey package updates already have reviewed routes.
+
+**Q3: a blanket disclaimer.** One up-front statement ("installing through PC Steward means you accept each package's licence") would mean always passing `--accept-package-agreements`, accepting terms the owner never saw. ADR-023 forbids that: acceptance must be bound to the exact agreement and displayed terms, and "automatic acceptance options are absent". As a general observation (not legal advice), click-through acceptance is strongest when the terms are shown for the specific item and accepted with a specific action, and weakest as advance acceptance of unseen terms. The simple version that stays within ADR-023 is §5 option B with one click: when a package declares agreements, the review sheet shows them with their links, and the button reads **Accept and install**. That one press is the explicit acceptance, bound by digest. This is the planned follow-up to version 1.
 
 Later, at D4: the single-profile rule and the helper's MSIX gap (§7.2). At D6: the test packages for each route.
