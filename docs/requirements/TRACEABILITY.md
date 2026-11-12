@@ -18,6 +18,7 @@
 - `src/PCSteward.Execution/SelfUpdateDesktopFiles.cs` and `PcStewardSelfUpdate.cs`: the per-user folder, the first MSI check, the §8 reads, and the public façade the desktop uses.
 - `src/PCSteward.Desktop/MainWindow.SelfUpdate.cs`: the About card and the Home info bar; `src/PCSteward.SelfUpdate/SelfUpdateText.cs`: their sentences.
 - `.github/workflows/publish-release.yml`: the draft release from a checked run (TM-19: GitHub access alone cannot make the app install anything).
+- `scripts/Publish-PCStewardRelease.ps1`: the owner's one-paste sign, upload and publish at a pinned commit, with a repository-only token (ADR-032 §12, owner decision 2026-11-12); `ReleasePublishBoundaryTests`.
 - Evidence: fixture `SelfUpdateDesktopTests`; architecture `SelfUpdateBoundaryTests`, `DeploymentCapabilityBoundaryTests`, `ElevatedRuntimeEnvironmentBoundaryTests`, `HelperEndpointBoundaryTests`.
 - Not claimed: a full run through the screens (the owner's first update). The CI test of the install step is recorded above.
 

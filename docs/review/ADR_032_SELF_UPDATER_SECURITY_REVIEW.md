@@ -156,6 +156,16 @@ These properties were checked and need no change:
 - **The launch is the reviewed one.** The desktop side reuses the protocol-2 launch checks: fixed paths, launch trust before and after the prompt, the runtime-environment guard, a restricted per-launch pipe, and peer checks by PID, path, session, SID, signer and the held helper image. The binding set is released only after the helper's exit has been observed.
 - **No account.** All GitHub requests are anonymous, to compiled addresses. The desktop follows redirects only to GitHub hosts. The helper follows none.
 
+## 5a. Release publishing from the owner's PC (2026-11-12)
+
+The owner chose to publish releases with one paste instead of editing the draft in the browser (ADR-032 §12, owner decision 2026-11-12). `scripts/Publish-PCStewardRelease.ps1` adds one new secret to the owner's PC: a fine-grained GitHub token for this repository only, with Contents read and write and Actions read.
+
+- **What a stolen token can do.** Anything the owner's GitHub access to this repository's contents already allows: push a branch, edit a draft, publish a release. It cannot sign. PC Steward installs only an MSI signed with a compiled release key whose content equals a green CI build of the run named in the release (sections 3 to 7), so the token alone cannot ship an update (TM-19 unchanged). Pushing to `phase/4-beta` or `main` with it would still need the owner to sign that commit; branch and tag rulesets (S6) narrow this further and are still pending.
+- **What the script does with it.** The token is DPAPI-encrypted for the owner's Windows account, decrypted only to build a request header, and sent only to `https://api.github.com/repos/DanDG923/pc-steward/` and `https://uploads.github.com/repos/DanDG923/pc-steward/` (checked on every request; redirects are not followed with it). The artefact download's redirect to GitHub's storage is followed by hand without the token, and the bytes must equal GitHub's digest. Classic tokens are refused because they cannot be limited to one repository.
+- **What is released.** Only the commit the paste pins: the clone, the run, the draft's target and the published tag must all be that commit. Because GitHub ignores a draft's target once its tag exists, the tag is checked again just before publishing: it must be absent or a plain tag already at that commit (Codex review, PR #58). The draft is checked before the YubiKey is asked for anything, so a wrong draft costs no signature. The release is published only after GitHub's own SHA-256 of the uploaded MSI equals the signed file, and afterwards it must be immutable and hold exactly the check file and the MSI.
+- **Residual.** A program running as the owner can decrypt the token (as it could read the owner's browser session). The token expires (90 days recommended) and can be revoked on GitHub at any time; the script reports its expiry on every run.
+- **Tests.** `ReleasePublishBoundaryTests` pins the host check, the token handling, the commit checks, the check-before-sign order and the digest-before-publish order.
+
 ## 6. Evidence
 
 - **Fixture tests:** `SelfUpdateHelperSessionTests` now covers the two `version-not-newer` refusals and the finish copy's refusal of a job with a result, and `SelfUpdateInstallPolicyTests` covers `IsNewerVersion`.
