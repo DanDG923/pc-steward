@@ -30,7 +30,10 @@ public enum UpdateExecutionDenial
     IntegrityCheckFailed,
     CurrentEvidenceMismatch,
     UnsupportedProvider,
-    UnsupportedScope
+    UnsupportedScope,
+
+    /// <summary>Stage C4 (Task 54 R1): no admitted reviewed operation bound to this exact job, so no installer mode is bound.</summary>
+    ReviewedModeUnavailable
 }
 
 public sealed record UpdateExecutionResult(
@@ -48,16 +51,20 @@ public sealed record UpdateExecutionResult(
     string SanitizedOutput,
     Task? OwnedCompletion = null);
 
-/// <summary>Runs only a confirmed user-scope job. Exit zero remains awaiting verification, never Success.</summary>
+/// <summary>
+/// Runs only a confirmed user-scope job. Exit zero remains awaiting verification, never Success. Stage C4 (Task 54 R1, FR-UPD-15):
+/// the job runs only with the per-user reviewed operation frozen from it, whose mode was bound at review and re-checked before
+/// approval; the provider arguments come from that operation alone. A job without one is denied before anything starts.
+/// </summary>
 public sealed partial class NonElevatedUpdateRunner
 {
     private const int MaximumDiagnosticLength = 4096;
-    private readonly IWingetUpdateExecutor winget;
+    private readonly IWingetReviewedUserUpdateExecutor winget;
     private readonly IUpdateExecutionEventSink events;
     private readonly Func<DateTimeOffset> utcNow;
 
     public NonElevatedUpdateRunner(
-        IWingetUpdateExecutor winget,
+        IWingetReviewedUserUpdateExecutor winget,
         IUpdateExecutionEventSink? events = null,
         Func<DateTimeOffset>? utcNow = null)
     {
@@ -68,6 +75,7 @@ public sealed partial class NonElevatedUpdateRunner
 
     public async Task<UpdateExecutionResult> RunAsync(
         ImmutableUpdateJob job,
+        ReviewedUpdateOperation? reviewed,
         UpdateJobExecutionEvidence currentEvidence,
         CancellationToken cancellationToken,
         UpdateItemProgress? progress = null)
@@ -101,13 +109,19 @@ public sealed partial class NonElevatedUpdateRunner
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.UnsupportedScope, "unsupported-scope");
         }
 
+        // Stage C4: the reviewed mode is re-checked here, immediately before launch, against the exact approved job.
+        if (reviewed is null || !WingetUserReviewedRoute.Admits(reviewed) || !reviewed.BindsJob(job))
+        {
+            return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.ReviewedModeUnavailable, "reviewed-installer-mode-unavailable");
+        }
+
         if (cancellationToken.IsCancellationRequested)
             return Complete(job, startedAt, null, UpdateExecutionStatus.Cancelled, UpdateExecutionDenial.None, "operation-cancelled");
 
         Write(job, startedAt, UpdateExecutionEventSeverity.Information, "update.dispatch-requested", "Provider execution requested.");
         try
         {
-            WingetProcessResult providerResult = await winget.ExecuteAsync(job, progress, cancellationToken).ConfigureAwait(false);
+            WingetProcessResult providerResult = await winget.ExecuteAsync(reviewed, progress, cancellationToken).ConfigureAwait(false);
             string output = Sanitize(string.Join(' ', providerResult.StandardOutput, providerResult.StandardError));
             if (providerResult.OutputLimitExceeded)
             {

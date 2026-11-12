@@ -202,6 +202,7 @@ public static class ReviewedUpdateHistoryPresentation
         UpdateRouteContract.ChocolateyMachineRegistrationV2 or UpdateRouteContract.ChocolateyMachineRegistrationV3 or
             UpdateRouteContract.ChocolateyMachineProvisionalV3 => EarlierChocolateyRouteText,
         UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ChocolateyClientUpdatePresentation.HistoryRouteText,
+        UpdateRouteContract.WinGetUserSilentV1 => "WinGet silent update for your account (user scope).",
         _ => UnknownRouteText,
     };
 
