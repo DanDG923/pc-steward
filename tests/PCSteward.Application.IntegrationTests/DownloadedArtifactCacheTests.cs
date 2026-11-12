@@ -389,7 +389,10 @@ public sealed class DownloadedArtifactCacheTests
             Assert.IsTrue(rootSwapOccurred, "The fixture must replace the root after its handle is bound.");
             Assert.IsFalse(result.Succeeded);
             Assert.IsFalse(File.Exists(payload));
-            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath == "must-survive.txt"));
+            // Codex security scan finding 9: the swapped-in junction root is reported itself and never listed, so nothing
+            // below its target is named.
+            Assert.IsTrue(result.Residuals.Any(residual => residual.RelativePath.Length == 0), string.Join("; ", result.Residuals.Select(residual => residual.RelativePath + ":" + residual.Reason)));
+            Assert.IsFalse(result.Residuals.Any(residual => residual.RelativePath == "must-survive.txt"));
             Assert.AreEqual("outside", await File.ReadAllTextAsync(sentinel));
         }
         finally
