@@ -1,0 +1,202 @@
+{
+  "schema": "pc-steward-release-toolchain-pins:1",
+  "sdkVersion": "10.0.403",
+  "sdkZip": {
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.403/dotnet-sdk-10.0.403-win-x64.zip",
+    "sha512": "7a114c318fa7f1d9822991b534b2814d0e78386ceda816b371f5141acefe741d87ccb606ede06cadac8f9ac5070e32b708a67bbd1619ff5e5a7858a27874ef48",
+    "bytes": 300745255
+  },
+  "projects": [
+    "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
+    "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
+    "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj"
+  ],
+  "packages": [
+    {
+      "id": "Microsoft.AspNetCore.App.Runtime.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "1k8096BmENepiqExfgA3ndME94v7RqMqTqLrNMyN+FpqD7WD6jKL9tYrYWi4WKNCAgvRMFVlAidzA3s/FDmIQg=="
+    },
+    {
+      "id": "Microsoft.Data.Sqlite.Core",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "/DjPbRUdkJvNKWR5f+OmjxN3jT3WBlNc/TlwJXVkg0CBpKcoWZRrJZSGsdmMgR0g3nNQQ9e1CQdArX6jrhxifA=="
+    },
+    {
+      "id": "Microsoft.Data.Sqlite",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "K37udQU2dojYZuCUT9F8TlZTAxzE0XOkqUfgIM2+2Lj7yJnfoNhpLmxAp6eSL281R6ncc4uhIAvTxSpv1qjgVA=="
+    },
+    {
+      "id": "Microsoft.DotNet.ILCompiler",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "obn/HAYT8K4e5aBYP25r2hlbFTdS58QMsUcwFEnxDIwmRJSeFao0aFGdmVbtrU1QIzSshSBXmqB+4625w7c28A=="
+    },
+    {
+      "id": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "YgO/Gkx7Ebb/0FIjQoNRdqn2e1IuzCZaiT3KzPkIIbTvQ17QRGfYNGBCDwkcMOtx2JOzWn0Kwqnuh6SdbSfZqw=="
+    },
+    {
+      "id": "Microsoft.NETCore.App.Runtime.NativeAOT.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "932Q01OgC1k4vtlOWSqCT3+fHDken18kfcyV5sNSBMrKNGuXs9XBcK+GqFeUS65BgWRao4K8BhbaJYxJRythsA=="
+    },
+    {
+      "id": "Microsoft.NETCore.App.Runtime.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "mLWGagTP5n7nMfJQI2XpXRYgvPcnyYvAc8ZiDfum8ShM0UcrPDyfW4Lqo45UtlCHCucERUHQuMTI6ybVweCN9A=="
+    },
+    {
+      "id": "Microsoft.Web.WebView2",
+      "version": "1.0.3179.45",
+      "kind": "library",
+      "sha512": "AqvMjM6eGVbfvi4k/dTOYlqz4f8BOcm6mr7SZDOxnxZw9RNrpxwq+R8pjd5QeynZ3MZfCQ5d2bXrzsIZvk6A6Q=="
+    },
+    {
+      "id": "Microsoft.Windows.SDK.BuildTools.MSIX",
+      "version": "1.7.20250829.1",
+      "kind": "library",
+      "sha512": "OoKxwzDL1nbqM5rBpB5h05wXsvmKff31Or5KBxjJiKfiUP9rSeqhC8FqZBJQZHOW75Ffn559MuM+J5C3Ulwa0g=="
+    },
+    {
+      "id": "Microsoft.Windows.SDK.BuildTools",
+      "version": "10.0.26100.4654",
+      "kind": "library",
+      "sha512": "kXdAbJ9Vu1gFheVpgqdxFqbamlponIVeVEnnkIzuvLkcaGrQOoJwaZSRcrhwICgc1UZCoPUE4FWZKxHWTW4s3Q=="
+    },
+    {
+      "id": "Microsoft.Windows.SDK.NET.Ref",
+      "version": "10.0.26100.57",
+      "kind": "download",
+      "sha512": "BG2X8tqoPJu7Lde8hlg/3bF9QwOW3VsxI7MGPEQM5+i4YG0WgNeesIeia2VTRkVEnoC9SdxpFGJtdGQHHIBwcA=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.AI",
+      "version": "1.8.79",
+      "kind": "library",
+      "sha512": "GkEzPuERPPSkMI9/pYxLtz7Kr/qessjjzerK5jdxtGIckS0h0CMLZN7V63Tbyh5WYYg8tXfw0iCfoYWUhOLw7A=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Base",
+      "version": "1.8.251216001",
+      "kind": "library",
+      "sha512": "zzCRDsJNk6MlzZexe17+h+EDCtF5NfOaKodmkX6tsCB63ETlu4/Mp60fI20lsv+7G5ShF7BZlsvVBcevCbD6uw=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.DWrite",
+      "version": "1.8.25122902",
+      "kind": "library",
+      "sha512": "5oKIKDYnc8ENNRCKb8D8jbNB0b2GLtq9rzVlnWUFpSvulW51zzsIdOZ8NW0H5WXI/cmJt4pquHOYyV3HVPaWUw=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Foundation",
+      "version": "1.8.260505001",
+      "kind": "resolution",
+      "sha512": "HZRcocFQ3RNMFGED0nwfZaNyDW/TFiLaGtLjH1pCTqD7shMLc8MJMOMe5vGj4u57t8vBCtmoos5+uQ6VV7NNvg=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Foundation",
+      "version": "1.8.260803002",
+      "kind": "library",
+      "sha512": "k42gfJvompU7ojvo0C/w8p+GgNlqe32vBkV35LtSWuhS8gY0XHDMrEchzqwV/mhzLHZhEl1XSGxNEJCtzOSJmw=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.InteractiveExperiences",
+      "version": "1.8.260708001",
+      "kind": "library",
+      "sha512": "+OF0UmXNF8U2qoGbm5kfjGvlgrwdLTJCqhwO7YD6Lp6/+Atjp7ZAHgivktSUCk8RC/q5piBpcdo2Mgy5DKIwrg=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.ML",
+      "version": "1.8.2223",
+      "kind": "library",
+      "sha512": "MuY8HCBXPsejr8RXt6QYbHwarlplfgC4tXxCN2c3hCBpPAVyRQp8CcQi7BwocK1Rbgc6CzngDt95uoDH/UYgzQ=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Runtime",
+      "version": "1.8.260921001",
+      "kind": "library",
+      "sha512": "1wyTKgg/4hfbDyFduAOajqK8e9+wuCgA9IcqBBBtwpNaJCOjHPIu04kFkYkqemiuNAPShAyDiRUtNV+FMsdHMA=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.Widgets",
+      "version": "1.8.251231004",
+      "kind": "library",
+      "sha512": "PzZZVN7gMty4Goaz4zjpvQOXYdQqAPD3AbRbUJIXJ8CmiHqHjPqJ52J3fR8vJnK5zrN6xBZa2KymbRyn8UTLPw=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK.WinUI",
+      "version": "1.8.260803003",
+      "kind": "library",
+      "sha512": "jTObrTdSDbgh8jwUrLqAtsvULsWodDJ5Hk+YdgmXkA7Z+Un2QbfHo8Wh5P29qJwmMqy3Jah8XILZiBbSwGP7lw=="
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK",
+      "version": "1.8.260921001",
+      "kind": "library",
+      "sha512": "pOy3ft7eKO9eAFKXMbWr+5L9p8ZL2SWyCPjZv/WxW4xyNMqpSpGNlykIOlq9cBn5dBx7lRHcMlx+xCzHaygwtg=="
+    },
+    {
+      "id": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+      "version": "10.0.14",
+      "kind": "download",
+      "sha512": "Hxj4llZzFIss9eBt/EKnxessXLi3/wj6Cwrqp2ZL1j74Pmg8VM+IZd9B7bWGt8flKre7z6cJwoRY5YpwJqX44Q=="
+    },
+    {
+      "id": "Microsoft.WindowsPackageManager.ComInterop",
+      "version": "1.29.380",
+      "kind": "library",
+      "sha512": "6gojErAE69LfwuWxOzk4CFuHlT0W0uaLzZcTAtcFIqlzvemwKD/d1ckCggpYor7Aay5ePzvku6Y8cGJBOQWbOQ=="
+    },
+    {
+      "id": "Microsoft.WindowsPackageManager.InProcCom",
+      "version": "1.29.380",
+      "kind": "library",
+      "sha512": "X6vX5pyWZcF0UB+ruthgGYIbXs0ddv1Zd/Z12DECWJNkCcl30F0dNg0TL8ef5Ly2rmouOZBnq5T/Q59MwJnPSA=="
+    },
+    {
+      "id": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "version": "10.0.14",
+      "kind": "library",
+      "sha512": "ZiiQBsOdluailDf6kiMGIqF8fN4nllbQf/B39Mrkc+n2CMb2ZLc3g43GDo4T77aDV6gcmLYCNf2Idxc0AQdZmw=="
+    },
+    {
+      "id": "SQLitePCLRaw.bundle_e_sqlite3",
+      "version": "2.1.13",
+      "kind": "library",
+      "sha512": "sef6qu3HuKduXOg73LOvqqaM18WJ94HVwChWGMlsgFW/4W72tqpMhsPPdVkQCl1YHDrxfuYjfyZpFMZFChBdig=="
+    },
+    {
+      "id": "SQLitePCLRaw.core",
+      "version": "2.1.13",
+      "kind": "library",
+      "sha512": "DNjhn7CS7WDnBnrcIR+6iKLWZgIjMxj/1XnPM13IudFGk1Ijq41Am9fBTiayKu/zfIBSStbuuvyAerZ8jUPxdQ=="
+    },
+    {
+      "id": "SQLitePCLRaw.lib.e_sqlite3",
+      "version": "2.1.14",
+      "kind": "library",
+      "sha512": "6oIc2tLdN5JFjHgm6Csa/NbKMfy2U0yww0VN5lO7u5K0dPC8Eo5MwPjZKpF4QHLrhAFpy67CBx1LuXArlQgDJw=="
+    },
+    {
+      "id": "SQLitePCLRaw.provider.e_sqlite3",
+      "version": "2.1.13",
+      "kind": "library",
+      "sha512": "w9dMB40gReMLzOxfCDuvjUhUTuSI9443Q2Hxrp8SW/vIGh6qP8TjkOTZ9p59mH50NpzQM7F3hhp8MAB2py9Now=="
+    },
+    {
+      "id": "System.Numerics.Tensors",
+      "version": "9.0.0",
+      "kind": "library",
+      "sha512": "razlju7UgILQ/Vb7BoW1RR/xIEBDc8Ynq0sRk74KpLBHay3QMZJfgK8ly4IEzlJlbFYlCOxpdPa7DNBUYaYtIw=="
+    }
+  ]
+}

@@ -162,10 +162,24 @@ internal static class PathSafety
         return candidate;
     }
 
+    /// <summary>True when the path exists and is itself a reparse point; any read failure is left to the listing that follows.</summary>
+    private static bool IsReparsePoint(string path)
+    {
+        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     internal static string NormalizeRelativePath(string relativePath) => Path.GetRelativePath("x:\\", Path.Combine("x:\\", relativePath)).Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
 
     internal static IEnumerable<FileSystemObject> EnumerateOwnedObjects(string root)
     {
+        // Codex security scan finding 9: Windows follows a junction or mount point named as the root of a listing, so the
+        // root itself is checked before it is listed. A reparse-point root is reported once as unsafe and never entered.
+        if (IsReparsePoint(root))
+        {
+            yield return new FileSystemObject(string.Empty, 0, true, true, DateTime.MinValue);
+            yield break;
+        }
         Stack<(string FullPath, string RelativePath)> pending = new();
         pending.Push((root, string.Empty));
         while (pending.Count != 0)

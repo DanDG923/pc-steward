@@ -149,6 +149,23 @@ public sealed class SequentialUpdateBatchTests
     }
 
     [TestMethod]
+    public void DiagnosticBundleSanitizesAndBoundsEveryIdentityField()
+    {
+        // Codex security scan finding 6: identity and version fields come from owner-writable history rows.
+        string longValue = new('v', 5000);
+        UpdateHistoryEntry entry = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "key C:\\Users\\Alice\\private", UpdateProvider.WinGet,
+            "password=hunter2", "token=abc123", longValue, DateTimeOffset.UtcNow, UpdateHistoryStatus.SourceFailed, 1, "ok");
+
+        string bundle = SanitizedDiagnosticBundle.Create([entry]);
+
+        Assert.IsFalse(bundle.Contains("Alice", StringComparison.Ordinal), "a path in the product key is removed");
+        Assert.IsFalse(bundle.Contains("hunter2", StringComparison.Ordinal), "a password in the package id is removed");
+        Assert.IsFalse(bundle.Contains("abc123", StringComparison.Ordinal), "a token in a version is removed");
+        Assert.IsFalse(bundle.Contains(new string('v', SanitizedDiagnosticBundle.MaximumFieldLength + 1), StringComparison.Ordinal), "a long field is bounded");
+        StringAssert.Contains(bundle, new string('v', SanitizedDiagnosticBundle.MaximumFieldLength));
+    }
+
+    [TestMethod]
     public async Task CancellationAfterProviderCompletionRemainsVerificationRequired()
     {
         using CancellationTokenSource cancellation = new();

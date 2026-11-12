@@ -69,6 +69,42 @@ public sealed class FactoryResetTests
     }
 
     [TestMethod]
+    public async Task ContinueRechecksTheFreshStoreAndKeepsTheMarkerWhenItChanged()
+    {
+        // Codex security scan finding 3: a store replaced or filled after startup's check is refused at Continue.
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-continue-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None)).Succeeded);
+            SqliteDatabase database = new(Path.Combine(root, "pcsteward.db"));
+            await database.MigrateAsync(CancellationToken.None);
+            Assert.IsTrue(await database.IsFreshResetStoreAsync(CancellationToken.None));
+            await database.SaveScheduledCheckStatusAsync(new ScheduledCheckStatus(DateTimeOffset.UtcNow, "Completed", 0), CancellationToken.None);
+            SqliteConnection.ClearAllPools();
+
+            FactoryResetResult refused = FactoryReset.AcknowledgeOnboardingForTesting(root, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult());
+            Assert.IsFalse(refused.Succeeded);
+            Assert.IsTrue(refused.Residuals.Any(item => item.Category == "Fresh store" && item.Reason == "VerificationFailed"));
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root), "the reset authority stays");
+
+            FactoryResetResult thrown = FactoryReset.AcknowledgeOnboardingForTesting(root, () => throw new IOException("locked"));
+            Assert.IsFalse(thrown.Succeeded, "a failing check refuses");
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+
+            FactoryResetResult fresh = FactoryReset.AcknowledgeOnboardingForTesting(root, () => true);
+            Assert.IsTrue(fresh.Succeeded, string.Join("; ", fresh.Residuals.Select(item => item.Reason + ":" + item.Detail)));
+            Assert.IsFalse(FactoryReset.IsPending(root));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task MarkerLedResetDeletesOnlyTheFixedManifestAndIsIdempotent()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-" + Guid.NewGuid().ToString("N"));
@@ -105,6 +141,36 @@ public sealed class FactoryResetTests
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
             if (Directory.Exists(outside)) Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AJunctionedCategoryRootIsRefusedBeforeItsTargetIsListed()
+    {
+        // Codex security scan finding 9: a category root that is itself a junction is reported once and never entered.
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-junction-root-" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(Path.GetTempPath(), "pcsteward-reset-junction-target-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            Directory.CreateDirectory(Path.Combine(outside, "nested"));
+            await File.WriteAllTextAsync(Path.Combine(outside, "nested", "outside-sentinel.txt"), "outside");
+            await CreateJunctionAsync(Path.Combine(root, "downloads"), outside);
+            FactoryReset.ArmForTesting(root);
+
+            FactoryResetResult partial = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, CancellationToken.None);
+
+            Assert.IsFalse(partial.Succeeded);
+            Assert.IsTrue(partial.Residuals.Any(item => item.Category == "downloads" && item.Reason == "UnsafeReparsePoint" && item.Detail.Length == 0),
+                string.Join("; ", partial.Residuals.Select(item => item.Category + ":" + item.Reason + ":" + item.Detail)));
+            Assert.IsFalse(partial.Residuals.Any(item => item.Detail.Contains("nested", StringComparison.OrdinalIgnoreCase) || item.Detail.Contains("outside-sentinel", StringComparison.OrdinalIgnoreCase)),
+                "nothing below the junction target was listed");
+            Assert.AreEqual("outside", await File.ReadAllTextAsync(Path.Combine(outside, "nested", "outside-sentinel.txt")));
+        }
+        finally
+        {
+            CleanupFixtureRoot(root, Path.Combine(root, "downloads"));
+            CleanupFixtureRoot(outside);
         }
     }
 

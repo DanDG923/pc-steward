@@ -16,7 +16,8 @@ param(
 #   1. GitHub (read-only, no sign-in): the run is this repository's release-payload workflow, started by hand on
 #      phase/4-beta or main, finished green; its one pc-steward-release-payload artefact's SHA-256 digest equals the
 #      downloaded zip.
-#   2. The payload: release-payload.json names that run and commit; the candidate manifest re-validates from disk with the
+#   2. The payload: release-payload.json names that run and commit and the toolchain pin file of this commit (Codex security
+#      scan finding 1); the candidate manifest re-validates from disk with the
 #      builder's own validator; both compiled pins are the ones this script signs with.
 #   3. Signing: both executables with the release key (YubiKey: PIN and a touch each), then the release manifest, the MSI
 #      built with the pinned WiX SDK, and the MSI signature (one more touch). Every signature is checked with the §3 rules.
@@ -85,6 +86,16 @@ Expand-Archive -LiteralPath $zip -DestinationPath $staging
 $record = Get-Content -LiteralPath (Join-Path $staging 'release-payload.json') -Raw | ConvertFrom-Json
 if ($record.schema -cne 'pc-steward-release-payload:1' -or $record.repository -cne $repository -or [string]$record.runId -cne [string]$RunId -or $record.sourceCommit -cne [string]$run.head_sha) {
     throw 'release-payload.json does not name this run and commit.'
+}
+# Codex security scan finding 1: the payload was built with the toolchain pinned at this commit. The record must name the
+# exact bytes of scripts\release-toolchain-pins.json in this clean clone (the build checked every SDK and NuGet input against
+# that file before it built anything), and its SDK version.
+$toolchainPinsPath = Join-Path $repositoryRoot 'scripts\release-toolchain-pins.json'
+if (!(Test-Path -LiteralPath $toolchainPinsPath -PathType Leaf)) { throw 'This commit has no scripts\release-toolchain-pins.json; it cannot be signed.' }
+$toolchainPinsSha256 = Get-PCStewardFileSha256 $toolchainPinsPath
+$toolchainPins = [IO.File]::ReadAllText($toolchainPinsPath) | ConvertFrom-Json
+if (!$record.toolchain -or [string]$record.toolchain.pinsSha256 -cne $toolchainPinsSha256 -or [string]$record.toolchain.sdkVersion -cne [string]$toolchainPins.sdkVersion -or @($toolchainPins.packages).Count -lt 1) {
+    throw 'release-payload.json does not show a build checked against this commit''s pinned toolchain.'
 }
 $windowsPowerShell = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'WindowsPowerShell\v1.0\powershell.exe'
 $candidate = Join-Path $output 'candidate'

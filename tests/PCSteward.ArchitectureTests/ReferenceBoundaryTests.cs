@@ -230,7 +230,7 @@ public sealed class ReferenceBoundaryTests
             app.IndexOf("FactoryReset.GetMarkerState(stateDirectory)", StringComparison.Ordinal));
         Assert.IsLessThan(app.IndexOf("DataOperationLease.ReconcileBootstrap(", StringComparison.Ordinal), app.IndexOf("MigrateAsync(", StringComparison.Ordinal));
         Assert.IsLessThan(app.IndexOf("new(workflow, viewModel", StringComparison.Ordinal), app.IndexOf("DataOperationLease.ReconcileBootstrap(", StringComparison.Ordinal));
-        StringAssert.Contains(app, "DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory))");
+        StringAssert.Contains(app, "DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult()))");
         StringAssert.Contains(window, "DataOperationLease.RunSynchronous(() => FactoryReset.Arm())");
         Assert.IsFalse(window.Contains("try { FactoryReset.Arm();", StringComparison.Ordinal));
         StringAssert.Contains(window, "DataOperationLease.RunReadSynchronous(() =>");
