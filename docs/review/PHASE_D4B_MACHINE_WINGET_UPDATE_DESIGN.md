@@ -130,7 +130,17 @@ The route uses the existing protocol-2 stage machine unchanged (A0 to A3, stages
   4. The review holds `wgm1:<type>:<registration>:<manifest>:<installer>` and the inventory's observation time. This is comparison data, not a security boundary: a same-user program could change what the review read, but the helper's own download must match it exactly (H7b), and the helper only trusts what it downloads itself.
 - **Confirm.** After the existing fresh re-preparation and evidence comparison, the fresh inventory's registration digest must equal the reviewed one, and the requester's SID must be readable; both are checked before approval. After approval the job is frozen with the mode and evidence into a `WinGetMachineSilentV1` operation (`WingetMachineReviewedRoute.Freeze`). The review gate does not admit the route before stage 3, so Freeze refuses and nothing reaches an executor, and never protocol 1.
 - **Cost.** A batch review of whole-PC apps downloads each installer once at review, one after another. Stage 3 revisits this with the budget residual in §5.2.
-- **Stage 2c** routes a frozen whole-PC operation to the protocol-2 helper (dispatcher, fresh dispatch evidence and post-update check), still not admitted.
+- **Stage 2c** routes a frozen whole-PC operation to the protocol-2 helper, still not admitted (§5.4).
+
+### 5.4 Dispatch of the frozen operation (build note, stage 2c)
+
+The whole-PC route reuses the path every approved WinGet job already takes (the batch coordinator, `ApprovedUpdateExecutor` and `ElevatedUpdateRunner`), so the existing durable claim, fresh-evidence check, history and post-update inventory check apply unchanged. It does not use the Chocolatey `ReviewedUpdateDispatchWorkflow`.
+
+- **Routing.** `ApprovedUpdateExecutor` sends a machine-scope job that carries a reviewed operation only to `ElevatedUpdateRunner.RunReviewedAsync`. A machine-scope job without one stays on protocol 1 until stage 3 removes it. There is no fallback from one to the other.
+- **Runner checks.** The job's digest and the coordinator's fresh evidence are checked first, as on protocol 1. The operation must then be admitted by the review gate and bound to this exact job (`BindsJob`), and the runner must have been composed with the whole-PC exchange; anything else is denied before elevation is requested.
+- **One exchange.** `WingetMachineReviewedExchange` checks the gate, the route's reply shape (`WinGetMachine`) and the protected deployment capability (in that order, so nothing is read from disk for an operation the gate refuses), draws one fresh nonce, runs exactly one protocol-2 exchange, and returns `ReviewedUpdateProtocol2Interpreter`'s observation. The helper repeats every check itself (H1–H9).
+- **Result.** Work that may have started but did not settle is a helper failure whose owned work stays unresolved, never "nothing ran". A refusal before anything ran is a denial. An exit of 0 waits for the inventory check, which must find the exact registration at the candidate version before anything is called a success. WinGet's documented restart codes report a restart (Task 51); a restart needed before installing is a failure. Any other exit is a provider failure.
+- **Composition.** `WingetMachineUpdateComposition.CreateElevatedRunner` builds the runner over one parameterless (Desktop-role) capability reader shared by the exchange and the protocol-2 transport. The architecture tests pin it as the only other composition of that transport. Production does not call it until stage 3, which also wires the review evidence source (`ReviewDownloadFolders`) into the desktop.
 
 ## 6. Elevated WinGet and the owner's profile (security)
 
@@ -168,7 +178,7 @@ In the same change, after the new route is in: `ElevatedHelperEntryPoint.RunAsyn
 The route stays **unavailable** (not admitted at the review gate, and absent from the capability statement) until stages 1–3 are all merged. Stage 3 is the only change that admits it, and it does so in the same change that removes protocol 1, so no build ever offers the new route without the Q3 refusal and the helper-side checks, or keeps the legacy entry point beside it.
 
 1. **Route and helper, not admitted:** domain route value and evidence format; wire request and response variants; helper H1–H9 (no WinRT); desktop review text and interpreter; machine branch in C4's `ReviewedUpdateExecutionWorkflow`. Waits for C4's PR to merge.
-2. **Dependency and agreement evidence** (§7) at review and in the helper (H7b), still not admitted. *(Build note: split into 2a, the manifest reader and H7b (§5.2); 2b, the desktop review evidence and Confirm freeze (§5.3); and 2c, the protocol-2 dispatch of the frozen operation.)*
+2. **Dependency and agreement evidence** (§7) at review and in the helper (H7b), still not admitted. *(Build note: split into 2a, the manifest reader and H7b (§5.2); 2b, the desktop review evidence and Confirm freeze (§5.3); and 2c, the protocol-2 dispatch of the frozen operation (§5.4).)*
 3. **Admit the route and retire protocol 1** (§8) in one change, with the ADR-025 amendment closed, the S2 acceptance recorded, and STATUS/TRACEABILITY updated.
 4. **Host check on the owner's PC** after the next release: one real machine-scope update of a small app through the in-app updater build, one combined paste.
 

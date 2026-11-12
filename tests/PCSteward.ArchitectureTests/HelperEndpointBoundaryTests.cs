@@ -383,6 +383,8 @@ public sealed class HelperEndpointBoundaryTests
             (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyClientUpdateComposition.CreateSession", "()"),
             // Chocolatey package Confirm addendum §5: and the package route's production composition, in the same shape.
             (Reader, ".ctor", "()", "PCSteward.Execution.ChocolateyPackageUpdateComposition.CreateSession", "()"),
+            // D4b stage 2c: and the whole-PC WinGet route's production composition, shared by its exchange and protocol-2 transport.
+            (Reader, ".ctor", "()", "PCSteward.Execution.WingetMachineUpdateComposition.CreateElevatedRunner", "()"),
             // ADR-032 revision 2 §6 and §8: the desktop's self-update launch (production constructor) and the reopened desktop's
             // check of its own install each construct the Desktop-role production reader.
             (Reader, ".ctor", "()", "PCSteward.Execution.SelfUpdateDesktopTransport..ctor", "()"),
