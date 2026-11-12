@@ -66,6 +66,7 @@ ADR-025 requires the helper to "independently resolve the same installed instanc
 | H5 | Source: `winget source export --name winget` run elevated matches the fixed Microsoft source exactly | `WingetCliSourceGuard`, reused |
 | H6 | Installed registration: the reviewed uninstall key exists in HKLM (64- or 32-bit view as reviewed), is not a system component, and its `DisplayVersion` and `WinGetPackageIdentifier`/product code match the digest bound at review | Plain registry reads; no WinRT or COM |
 | H7 | Settings: WinGet's `settings.json` for this user, read bounded and strict. Refuse if any setting outside a small allow-list is present (visual, logging, telemetry, output, interactivity) | §6 |
+| H7b | Dependencies and agreements, again inside the helper: run `winget download --id <ID> --version <V> --source winget --exact --scope machine --architecture <a> --installer-type <t> --disable-interactivity --download-directory <fresh admin-only folder>` (with the §6 protected `TEMP`), read the exported manifest with the same bounded strict parser, and refuse unless its single installer entry matches the reviewed type, architecture and scope, its `Dependencies` block and agreements are empty, and its manifest digest and installer SHA-256 equal the values bound at review. Any drift is a refusal, never a re-review | Install design §6 pre-launch comparison, run by the helper instead of the desktop |
 | H8 | Run: the §4 command line with `TEMP` and `TMP` pointing at a fresh administrator-only folder (§6). Owned process tree, 15-minute deadline, bounded output | Existing owned-process handling |
 | H9 | Answer: a typed, bounded result (outcome, exit code, sanitized output, which check refused). No success Boolean | New closed response variant |
 
@@ -79,12 +80,14 @@ Owner's stance (2026-11-12): findings that need an already compromised machine a
 
 **S2. User settings read while elevated (medium).** A program running as the owner can edit `settings.json` to skip dependencies, change installer preferences, or turn on experimental features for the elevated run. Pinning `--scope`, `--architecture` and `--installer-type` on the command line removes most of the effect, and refusing portable and zip installers removes the install-root settings. Mitigation: H7 refuses the run unless the file holds only allow-listed settings. Residual: a program running as the owner could change the file in the moment between H7 and WinGet reading it. This is the same kind of narrow race the owner accepted for Chocolatey (ADR-025 M1), and it needs the attacker to win a timing race while the owner is approving the prompt.
 
+**S4. Source refresh between H7b and the run (low).** H7b and the upgrade read the `winget` source seconds apart in one helper request. If WinGet refreshed its source in between and the same ID and version now had a different manifest, the upgrade would use it. A changed manifest for an already published version is rare and still comes only from the Microsoft source with WinGet's hash check, and the desktop's post-update check refuses any result that is not the exact reviewed version. Not a user-foothold path: the source package is protected (§3).
+
 **S3. Installer behaviour (inherent).** A vendor installer running as administrator can do anything its vendor wrote. PC Steward only runs installers from the Microsoft `winget` source whose hash WinGet checked. Disclosed at review, as for every update.
 
 ## 7. Dependencies and licence agreements
 
 - **Agreements:** never pass `--accept-package-agreements`; WinGet then stops whenever the target declares one. The review also reads COM `GetCatalogPackageMetadata().Agreements` and shows the update as not actionable, with the reason, before any prompt. Same rule the owner accepted for installs (install design Q3).
-- **Dependencies:** WinGet installs declared dependencies elevated, and no COM version exposes them (install design §6, D0). Recommended for version 1, as the owner accepted for installs (Q4): at review, run `winget download` for the exact reviewed installer into an app-owned folder, read the exported manifest with a bounded strict parser, refuse if its `Dependencies` block is not empty, and bind the manifest digest and installer SHA-256 into the evidence. Cost: the installer is downloaded once more at review. Most updates have no dependencies; those that do (often a Visual C++ runtime) show "Not offered in this version: this update would also install other packages".
+- **Dependencies:** WinGet installs declared dependencies elevated, and no COM version exposes them (install design §6, D0). Recommended for version 1, as the owner accepted for installs (Q4): at review, run `winget download` for the exact reviewed installer into an app-owned folder, read the exported manifest with a bounded strict parser, refuse if its `Dependencies` block is not empty, and bind the manifest digest and installer SHA-256 into the evidence. The helper repeats the same check immediately before the run and refuses any drift (§5 H7b), so the review-time result is never the only evidence. Cost: the installer is downloaded once more at review and once more by the helper. Most updates have no dependencies; those that do (often a Visual C++ runtime) show "Not offered in this version: this update would also install other packages".
 
 ## 8. Retiring protocol 1
 
@@ -102,9 +105,11 @@ In the same change, after the new route is in: `ElevatedHelperEntryPoint.RunAsyn
 
 ## 10. Build stages (one PR each, Codex review before merge)
 
-1. **Route and helper:** domain route value and evidence format; wire request and response variants; helper H1–H9 (no WinRT); desktop admission, review text and interpreter; machine branch in C4's `ReviewedUpdateExecutionWorkflow`. Waits for C4's PR to merge.
-2. **Dependency and agreement evidence** (§7), if Q3 is "refuse".
-3. **Retire protocol 1** (§8), with the ADR-025 amendment closed and STATUS/TRACEABILITY updated.
+The route stays **unavailable** (not admitted at the review gate, and absent from the capability statement) until stages 1–3 are all merged. Stage 3 is the only change that admits it, and it does so in the same change that removes protocol 1, so no build ever offers the new route without the Q3 refusal and the helper-side checks, or keeps the legacy entry point beside it.
+
+1. **Route and helper, not admitted:** domain route value and evidence format; wire request and response variants; helper H1–H9 (no WinRT); desktop review text and interpreter; machine branch in C4's `ReviewedUpdateExecutionWorkflow`. Waits for C4's PR to merge.
+2. **Dependency and agreement evidence** (§7) at review and in the helper (H7b), still not admitted.
+3. **Admit the route and retire protocol 1** (§8) in one change, with the ADR-025 amendment closed, the S2 acceptance recorded, and STATUS/TRACEABILITY updated.
 4. **Host check on the owner's PC** after the next release: one real machine-scope update of a small app through the in-app updater build, one combined paste.
 
 ## 11. Tests the stages need
