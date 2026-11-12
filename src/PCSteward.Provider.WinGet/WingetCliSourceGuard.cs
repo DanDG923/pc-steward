@@ -13,7 +13,7 @@ internal sealed class WingetCliSourceGuard(IWingetProcess process)
     private const string SourceIdentity = "Microsoft.Winget.Source_8wekyb3d8bbwe";
     private static readonly TimeSpan MaximumQueryTime = TimeSpan.FromSeconds(20);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
-    private static readonly IReadOnlyList<string> Arguments = Array.AsReadOnly<string>(["source", "export", "--name", "winget", "--disable-interactivity"]);
+    internal static readonly IReadOnlyList<string> Arguments = Array.AsReadOnly<string>(["source", "export", "--name", "winget", "--disable-interactivity"]);
     private static readonly string[] Fields = ["Name", "Type", "Arg", "Data", "Identifier", "Explicit", "TrustLevel"];
     private readonly IWingetProcess process = process ?? throw new ArgumentNullException(nameof(process));
 
@@ -30,7 +30,8 @@ internal sealed class WingetCliSourceGuard(IWingetProcess process)
         return new(true, expected, result.OwnedCompletion);
     }
 
-    private static bool MatchesExport(string output)
+    /// <summary>The exact export of the trusted default <c>winget</c> source (also the machine helper's H5 check, D4b design §5.1).</summary>
+    internal static bool MatchesExport(string output)
     {
         if (string.IsNullOrEmpty(output) || output.Length > MaximumExportBytes) return false;
         try

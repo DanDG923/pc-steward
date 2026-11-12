@@ -217,6 +217,88 @@ public sealed class WingetMachineReviewedRouteTests
         Assert.AreEqual("winget.exe", Path.GetFileName(winget), ignoreCase: true);
     }
 
+    [TestMethod]
+    [DataRow("Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_x64__8wekyb3d8bbwe", "x64")]
+    [DataRow("Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_arm64__8wekyb3d8bbwe", "arm64")]
+    [DataRow("Microsoft.DesktopAppInstaller_1.29.380.0_x86__8wekyb3d8bbwe", "x86")]
+    [DataRow("Microsoft.DesktopAppInstaller_1.29.380.0_neutral_~_8wekyb3d8bbwe", "neutral")]
+    [DataRow("Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_X64__8wekyb3d8bbwe", null)]
+    [DataRow("Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_x64_8wekyb3d8bbwe", null)]
+    [DataRow("Microsoft.VCLibs_14.0_x64__8wekyb3d8bbwe_extra", null)]
+    [DataRow("", null)]
+    [DataRow(null, null)]
+    public void ThePackageArchitectureIsTheExactFolderNameField(string? folder, string? expected) =>
+        Assert.AreEqual(expected, HelperTrustedWinget.PackageArchitecture(folder), folder);
+
+    [TestMethod]
+    public void AMalformedRegistrationDigestFindsNothing()
+    {
+        foreach (string bad in new[] { "", new string('a', 64), new string('A', 63), new string('A', 65), new string('G', 64) })
+        {
+            Assert.IsFalse(HelperMachineRegistration.TryFind(bad, out _, out string key, out string version), bad);
+            Assert.AreEqual(string.Empty, key);
+            Assert.AreEqual(string.Empty, version);
+        }
+    }
+
+    [TestMethod]
+    public void AnUnknownRegistrationDigestFindsNothing()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Inconclusive("Windows-only; this row is Windows-CI evidence.");
+        string digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Guid.NewGuid().ToByteArray()));
+        Assert.IsFalse(HelperMachineRegistration.TryFind(digest, out WinGetMachineRegistrationView view, out string key, out string version));
+        Assert.AreEqual(default, view);
+        Assert.AreEqual(string.Empty, key);
+        Assert.AreEqual(string.Empty, version);
+    }
+
+    [TestMethod]
+    public void TheRuntimeFolderIsTheSameArchitectureFrameworkUnderWindowsApps()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Inconclusive("Windows-only; this row is Windows-CI evidence.");
+        string system = Environment.SystemDirectory;
+        Assert.IsNull(HelperTrustedWinget.TryResolveRuntimeFolder(Path.Combine(system, "winget.exe")), "not a package folder");
+        Assert.IsNull(HelperTrustedWinget.TryResolveRuntimeFolder(@"C:\x\Microsoft.DesktopAppInstaller_1.0.0.0_sparc__8wekyb3d8bbwe\winget.exe"));
+        string? winget = HelperTrustedWinget.TryResolve();
+        if (winget is null) Assert.Inconclusive("App Installer is not installed for this account (common on CI images).");
+        string? runtime = HelperTrustedWinget.TryResolveRuntimeFolder(winget);
+        if (runtime is null) Assert.Inconclusive("No same-architecture C++ runtime framework is installed here.");
+        string apps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps") + Path.DirectorySeparatorChar;
+        StringAssert.StartsWith(runtime, apps, StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(runtime, "Microsoft.VCLibs.140.00.UWPDesktop_", StringComparison.Ordinal);
+        Assert.AreEqual(HelperTrustedWinget.PackageArchitecture(Path.GetFileName(Path.GetDirectoryName(winget))),
+            HelperTrustedWinget.PackageArchitecture(Path.GetFileName(runtime)));
+        Assert.IsTrue(File.Exists(Path.Combine(runtime, "vcruntime140.dll")));
+    }
+
+    [TestMethod]
+    public void TheWinGetEnvironmentIsFixedAndTempIsTheRunFolder()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Inconclusive("Windows-only; this row is Windows-CI evidence.");
+        string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        string run = Path.Combine(windows, "Temp", "PCSteward-" + new string('0', 32));
+        string runtime = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps", "Runtime_1.0.0.0_x64__p");
+        IReadOnlyDictionary<string, string> environment = HelperWingetEnvironment.Create(run, runtime);
+        string[] expected =
+        [
+            "ALLUSERSPROFILE", "APPDATA", "ComSpec", "CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432", "LOCALAPPDATA",
+            "OS", "PATH", "PATHEXT", "PROCESSOR_ARCHITECTURE", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+            "SystemDrive", "SystemRoot", "TEMP", "TMP", "USERPROFILE", "windir",
+        ];
+        CollectionAssert.AreEquivalent(expected, environment.Keys.ToArray());
+        Assert.AreEqual(run, environment["TEMP"]);
+        Assert.AreEqual(run, environment["TMP"]);
+        string[] path = environment["PATH"].Split(';');
+        Assert.AreEqual(Environment.SystemDirectory.TrimEnd('\\'), path[0], ignoreCase: true);
+        Assert.AreEqual(runtime, path[^1]);
+        Assert.IsFalse(HelperWingetEnvironment.Create(run, null)["PATH"].Contains("WindowsApps", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(environment.Values.Any(static value => value.Contains('%', StringComparison.Ordinal)), "nothing left to expand");
+
+        foreach (string bad in new[] { "", "relative", @"\\server\share", @"C:\a;b", @"C:\a\..\b", @"C:\a%TEMP%", "C:/a", @"C:\a:b", "C:\\a\n" })
+            Assert.ThrowsExactly<ArgumentException>(() => HelperWingetEnvironment.Create(bad, null), bad);
+        Assert.ThrowsExactly<ArgumentException>(() => HelperWingetEnvironment.Create(run, @"C:\a;C:\evil"));
+    }
+
     private static bool IsElevated()
     {
         if (!OperatingSystem.IsWindows()) return false;

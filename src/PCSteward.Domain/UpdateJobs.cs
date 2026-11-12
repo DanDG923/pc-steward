@@ -71,6 +71,13 @@ public sealed partial class UpdateJobSelection
             Channel.ToString(),
             MappingEvidenceVersion);
 
+    /// <summary>
+    /// True when <paramref name="value"/> is exactly a version text this selection accepts (already trimmed, at most 128 characters,
+    /// the allowlisted grammar). The machine WinGet helper reply checks its version fields with this grammar (D4b design §5.1).
+    /// </summary>
+    public static bool IsVersionText(string? value) =>
+        value is { Length: > 0 and <= MaximumVersionLength } && string.Equals(value.Trim(), value, StringComparison.Ordinal) && Version().IsMatch(value);
+
     public bool EqualsEvidence(UpdateJobSelection other) =>
         other is not null &&
         string.Equals(CanonicalText, other.CanonicalText, StringComparison.Ordinal);

@@ -23,10 +23,12 @@ public sealed class NativeLauncherBoundaryTests
         string launchJob = sources.Keys.Single(path => IsNativeFile(path, LaunchJobFile));
         string spec = sources.Keys.Single(path => IsNativeFile(path, SpecFile));
 
-        // N3: the core is declared once and called once (by RunAsync); documentation lines are not code.
-        Assert.AreEqual(2, Count(Code(sources[launchJob]), @"\bRunCoreAsync\b"), "LaunchJob.cs may only declare the core and call it from RunAsync");
-        Assert.AreEqual(1, Count(Code(sources[launchJob]), @"return\s+RunCoreAsync\(spec,\s*deadline,\s*cancellationToken\);"),
-            "the one core call is RunAsync's");
+        // N3: the core is declared once and called by RunAsync and, for the machine WinGet route (D4b design §5.1), by
+        // RunWingetMachineAsync; documentation lines are not code.
+        Assert.AreEqual(3, Count(Code(sources[launchJob]), @"\bRunCoreAsync\b"),
+            "LaunchJob.cs may only declare the core and call it from RunAsync and RunWingetMachineAsync");
+        Assert.AreEqual(2, Count(Code(sources[launchJob]), @"return\s+RunCoreAsync\(spec,\s*deadline,\s*cancellationToken\);"),
+            "the two core calls are RunAsync's and RunWingetMachineAsync's");
         Assert.AreEqual(1, Count(sources[launchJob], @"\bRunCoreWithFaultForTestsAsync\b"), "LaunchJob.cs may only declare the fault entry");
         Assert.AreEqual(1, Count(sources[launchJob], @"\bRunCoreWithWatchdogForTestsAsync\b"), "LaunchJob.cs may only declare the watchdog entry");
         Assert.AreEqual(1, Count(sources[spec], @"\bForTests\b"), "NativeLaunchSpec.cs may only declare the test factory");

@@ -162,7 +162,7 @@ internal static class ReviewedUpdateProtocol2Interpreter
 
         if (!desktop.H ||
             !ReviewedUpdateWireCodec.TryReadResponse(responseFrame, operation.JobId, operation.Digest, requestNonce, shape, out FramedUpdateResponse? response) ||
-            response is null || ReviewedUpdateWireCodec.StructuralViolations(response.Facts, response.Reviewed).Count != 0 ||
+            response is null || ReviewedUpdateWireCodec.StructuralViolations(response.Facts, response.Reviewed, shape).Count != 0 ||
             (shape == ReviewedHelperReplyShape.ClientSelfUpdate) != response.ClientRunFault.HasValue ||
             (response.ClientRunFault is { } run && ReviewedUpdateWireCodec.ClientRunFaultViolations(response.Facts, response.Reviewed, run).Count != 0) ||
             OperationBoundViolations(operation.Selection.InstalledVersion, operation.Selection.CandidateVersion, profileDigest, response.Reviewed).Count != 0 ||
@@ -187,7 +187,7 @@ internal static class ReviewedUpdateProtocol2Interpreter
         // Review M1: the recorded helper check is defined for the package route only (RecordedHelperCandidateCheck.IsConsistentWith),
         // so a client self-update records NotObserved instead of a check the workflow would drop with a false inconsistency marker.
         // History-only either way; never authority.
-        return new(observation, operation.RouteContract == UpdateRouteContract.ChocolateyClientSelfUpdateV1
+        return new(observation, operation.RouteContract is UpdateRouteContract.ChocolateyClientSelfUpdateV1 or UpdateRouteContract.WinGetMachineSilentV1
             ? ReviewedHelperCandidateCheck.NotObserved
             : ReviewedHelperCandidateCheck.FromAcceptedFacts(response.Reviewed));
     }
@@ -278,8 +278,9 @@ internal static class ReviewedUpdateProtocol2Interpreter
 
     /// <summary>
     /// The route-discriminated form of <see cref="TryGetProfileDigest"/> (ADR-031 design §7.1, §8.2): the package route gives
-    /// the package reply shape, the exact client self-update shape (<see cref="TryGetClientProfileDigest"/>) the client shape.
-    /// Anything else is unsupported.
+    /// the package reply shape, the exact client self-update shape (<see cref="TryGetClientProfileDigest"/>) the client shape, and
+    /// the machine WinGet route's shape (<see cref="WingetMachineReviewedRoute.TryGetShape"/>, D4b design §5.1) the WinGet machine
+    /// shape with the reviewed registration digest. Anything else is unsupported. Shape only: nothing here admits a route.
     /// </summary>
     internal static bool TryGetRouteProfileDigest(ReviewedUpdateOperation operation, out string profileDigest, out ReviewedHelperReplyShape shape)
     {
@@ -287,7 +288,15 @@ internal static class ReviewedUpdateProtocol2Interpreter
         if (TryGetProfileDigest(operation, out profileDigest)) return true;
         shape = ReviewedHelperReplyShape.ClientSelfUpdate;
         if (TryGetClientProfileDigest(operation, out profileDigest)) return true;
+        // D4b design §5.1: the machine WinGet route's fingerprint is the reviewed HKLM registration digest from its wgm1 evidence.
+        shape = ReviewedHelperReplyShape.WinGetMachine;
+        if (WingetMachineReviewedRoute.TryGetShape(operation, out WinGetMachineEvidence? evidence, out _, out _) && evidence is not null)
+        {
+            profileDigest = evidence.RegistrationDigest;
+            return true;
+        }
         shape = ReviewedHelperReplyShape.Package;
+        profileDigest = string.Empty;
         return false;
     }
 

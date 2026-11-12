@@ -78,7 +78,17 @@ internal enum ReviewedClientRunFaultWire
 /// (the reviewed 20 properties, no <c>clientRunFault</c>); <see cref="ClientSelfUpdate"/> only for
 /// <c>ChocolateyClientSelfUpdateV1</c> (21 properties, <c>clientRunFault</c> at position 19).
 /// </summary>
-internal enum ReviewedHelperReplyShape { Package, ClientSelfUpdate }
+internal enum ReviewedHelperReplyShape
+{
+    Package,
+    ClientSelfUpdate,
+
+    /// <summary>
+    /// D4b design §5.1: the machine WinGet route's reply. The same 20 properties as <see cref="Package"/>; only S12 differs: its version
+    /// fields are reviewed version text (<see cref="PCSteward.Domain.UpdateJobSelection.IsVersionText"/>), not Chocolatey native versions.
+    /// </summary>
+    WinGetMachine
+}
 
 /// <summary>
 /// An accepted reply. <see cref="ClientRunFault"/> is non-null exactly for the <see cref="ReviewedHelperReplyShape.ClientSelfUpdate"/>
@@ -220,7 +230,14 @@ internal static class ReviewedUpdateWireCodec
 
     /// <summary>The reviewed 20-property reply of every route except the client self-update (no <c>clientRunFault</c>; bytes unchanged).</summary>
     internal static byte[] CreateResponse(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
-        string diagnostic) => CreateResponseCore(jobId, digest, nonce, facts, reviewed, null, diagnostic);
+        string diagnostic) => CreateResponseCore(jobId, digest, nonce, facts, reviewed, null, diagnostic, ReviewedHelperReplyShape.Package);
+
+    /// <summary>
+    /// D4b design §5.1: the machine WinGet route's 20-property reply. Throws (nothing may be written) unless S1–S13 hold with the
+    /// route's version grammar.
+    /// </summary>
+    internal static byte[] CreateWinGetMachineResponse(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
+        string diagnostic) => CreateResponseCore(jobId, digest, nonce, facts, reviewed, null, diagnostic, ReviewedHelperReplyShape.WinGetMachine);
 
     /// <summary>
     /// Design §8: the 21-property client self-update reply, <c>clientRunFault</c> at position 19. Throws (nothing may be
@@ -228,13 +245,14 @@ internal static class ReviewedUpdateWireCodec
     /// </summary>
     internal static byte[] CreateClientResponse(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
         ReviewedClientRunFaultWire clientRunFault, string diagnostic) =>
-        CreateResponseCore(jobId, digest, nonce, facts, reviewed, clientRunFault, diagnostic);
+        CreateResponseCore(jobId, digest, nonce, facts, reviewed, clientRunFault, diagnostic, ReviewedHelperReplyShape.ClientSelfUpdate);
 
     private static byte[] CreateResponseCore(Guid jobId, string digest, string nonce, UpdateWireFacts facts, ReviewedHelperFacts reviewed,
-        ReviewedClientRunFaultWire? clientRunFault, string diagnostic)
+        ReviewedClientRunFaultWire? clientRunFault, string diagnostic, ReviewedHelperReplyShape shape)
     {
         if (jobId == Guid.Empty || !IsHex(digest) || !IsHex(nonce) || facts is null || reviewed is null || diagnostic is null ||
-            StructuralViolations(facts, reviewed).Count != 0 ||
+            (clientRunFault is not null) != (shape == ReviewedHelperReplyShape.ClientSelfUpdate) ||
+            StructuralViolations(facts, reviewed, shape).Count != 0 ||
             (clientRunFault is { } fault && ClientRunFaultViolations(facts, reviewed, fault).Count != 0))
             throw new ArgumentException("Exact correlation, consistent native observations and structurally valid reviewed facts required.");
         string safeDiagnostic = AsciiDiagnostic(diagnostic);
@@ -310,9 +328,9 @@ internal static class ReviewedUpdateWireCodec
                     ClientRunFaultViolations(facts, reviewed, run).Count != 0) return false;
                 clientRunFault = run;
             }
-            if (StructuralViolations(facts, reviewed).Count != 0 ||
+            if (StructuralViolations(facts, reviewed, shape).Count != 0 ||
                 diagnostic.Length > MaximumDiagnosticBytes || diagnostic.Any(c => c is < ' ' or > '~') ||
-                !frame.SequenceEqual(CreateResponseCore(expectedJob, expectedDigest, expectedNonce, facts, reviewed, clientRunFault, diagnostic)))
+                !frame.SequenceEqual(CreateResponseCore(expectedJob, expectedDigest, expectedNonce, facts, reviewed, clientRunFault, diagnostic, shape)))
                 return false;
             response = new(facts, reviewed, diagnostic, clientRunFault);
             return true;
@@ -325,7 +343,14 @@ internal static class ReviewedUpdateWireCodec
     /// <see cref="UpdateWireFacts.IsConsistent"/>, then S1–S13 from the reviewed fact extension §3.2. Empty means valid.
     /// Over the three defined invocation values S3 and S4 are logically equivalent, so a violation reports both.
     /// </summary>
-    internal static IReadOnlyList<string> StructuralViolations(UpdateWireFacts facts, ReviewedHelperFacts reviewed)
+    internal static IReadOnlyList<string> StructuralViolations(UpdateWireFacts facts, ReviewedHelperFacts reviewed) =>
+        StructuralViolations(facts, reviewed, ReviewedHelperReplyShape.Package);
+
+    /// <summary>
+    /// As above for the reply <paramref name="shape"/>: S12 checks the version fields with the route's grammar (D4b design §5.1), and
+    /// every other predicate is the same for every shape.
+    /// </summary>
+    internal static IReadOnlyList<string> StructuralViolations(UpdateWireFacts facts, ReviewedHelperFacts reviewed, ReviewedHelperReplyShape shape)
     {
         ArgumentNullException.ThrowIfNull(facts);
         ArgumentNullException.ThrowIfNull(reviewed);
@@ -354,8 +379,9 @@ internal static class ReviewedUpdateWireCodec
         Require("S10", !refused || (!facts.Cancelled && !facts.TimedOut &&
             (!facts.OutputLimitExceeded || r == ReviewedHelperRefusalReason.PreflightQueryFailed)));
         Require("S11", !undetermined || facts.Cancelled || facts.TimedOut || !facts.AggregateSettlementConfirmed);
-        Require("S12", IsNullOrNormalizedVersion(reviewed.ObservedInstalledVersion) &&
-            IsNullOrNormalizedVersion(reviewed.ObservedCandidateVersion) &&
+        bool wingetText = shape == ReviewedHelperReplyShape.WinGetMachine;
+        Require("S12", Enum.IsDefined(shape) && IsNullOrVersion(reviewed.ObservedInstalledVersion, wingetText) &&
+            IsNullOrVersion(reviewed.ObservedCandidateVersion, wingetText) &&
             (reviewed.ObservedProfileFingerprint is null || IsHex(reviewed.ObservedProfileFingerprint)));
         Require("S13", !(matched && facts.Invocation == UpdateWireInvocation.NotStarted) || facts.AggregateSettlementConfirmed);
         return violations;
@@ -368,7 +394,8 @@ internal static class ReviewedUpdateWireCodec
     /// </summary>
     internal static bool IsNormalizedVersion(string? value) => ChocolateyVersionGrammar.IsNormalized(value, MaximumVersionLength);
 
-    private static bool IsNullOrNormalizedVersion(string? value) => value is null || IsNormalizedVersion(value);
+    private static bool IsNullOrVersion(string? value, bool reviewedText) =>
+        value is null || (reviewedText ? PCSteward.Domain.UpdateJobSelection.IsVersionText(value) : IsNormalizedVersion(value));
 
     private static bool TryExactEnum<TEnum>(string text, out TEnum value) where TEnum : struct, Enum =>
         Enum.TryParse(text, false, out value) && Enum.IsDefined(value) && string.Equals(value.ToString(), text, StringComparison.Ordinal);

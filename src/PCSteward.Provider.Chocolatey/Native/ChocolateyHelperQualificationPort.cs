@@ -104,10 +104,21 @@ internal abstract record ChocolateyStageValues
     internal sealed record Observed : ChocolateyStageValues
     {
         internal Observed(string installed, string fingerprint)
+            : this(installed, fingerprint, wingetMachine: false)
         {
-            Installed = RequireVersion(installed, nameof(installed));
+        }
+
+        private Observed(string installed, string fingerprint, bool wingetMachine)
+        {
+            // D4b design §5.1: the machine WinGet route's installed value is reviewed version text, not a Chocolatey native version.
+            Installed = wingetMachine
+                ? UpdateJobSelection.IsVersionText(installed) ? installed : throw new ArgumentException("Reviewed version text is required.", nameof(installed))
+                : RequireVersion(installed, nameof(installed));
             Fingerprint = RequireFingerprint(fingerprint, nameof(fingerprint));
         }
+
+        /// <summary>D4b design §5.1: stage B or D passed for the machine WinGet route (the frozen installed text and registration digest).</summary>
+        internal static Observed ForWinGetMachine(string installed, string fingerprint) => new(installed, fingerprint, wingetMachine: true);
 
         internal string Installed { get; }
 

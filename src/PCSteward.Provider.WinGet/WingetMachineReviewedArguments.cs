@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
+using PCSteward.Application;
 using PCSteward.Domain;
 
 namespace PCSteward.Provider.WinGet;
@@ -46,25 +47,13 @@ internal static class WingetMachineReviewedArguments
         });
     }
 
-    /// <summary>The shape every machine command line requires; throws for anything else.</summary>
+    /// <summary>The shape every machine command line requires (<see cref="WingetMachineReviewedRoute.TryGetShape"/>); throws for anything else.</summary>
     internal static (ReviewedUpdateSelection Selection, string Architecture, string InstallerType) Admit(ReviewedUpdateOperation operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        ReviewedUpdateSelection selection = operation.Selection;
-        if (!operation.HasCurrentSchema || operation.RouteContract != UpdateRouteContract.WinGetMachineSilentV1 ||
-            selection.Provider != UpdateProvider.WinGet || selection.Source != UpdateSource.WinGet || selection.Scope != UpdateScope.Machine ||
-            selection.Channel == UpdateChannel.Preview || operation.Mode != ReviewedInstallerMode.Selected(InstallerMode.Silent) ||
-            selection.Architecture.Binding != ReviewedArchitectureBinding.Observed ||
-            !ReviewedUpdateOperation.TryGetWinGetMachineEvidence(operation.EvidenceId, out WinGetMachineEvidence? evidence) || evidence is null)
+        if (!WingetMachineReviewedRoute.TryGetShape(operation, out _, out string architecture, out string installerType))
             throw new ArgumentException("The reviewed binding is unavailable for the machine WinGet mapping.", nameof(operation));
-        string architecture = selection.Architecture.Value switch
-        {
-            UpdateArchitecture.X86 => "x86",
-            UpdateArchitecture.X64 => "x64",
-            UpdateArchitecture.Arm64 => "arm64",
-            _ => throw new ArgumentException("The machine mapping requires an observed x86, x64 or arm64 architecture.", nameof(operation)),
-        };
-        return (selection, architecture, WinGetMachineEvidence.InstallerTypeText(evidence.InstallerType));
+        return (operation.Selection, architecture, installerType);
     }
 }
 

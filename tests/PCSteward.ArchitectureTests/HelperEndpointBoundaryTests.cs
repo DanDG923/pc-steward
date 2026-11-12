@@ -114,7 +114,7 @@ public sealed class HelperEndpointBoundaryTests
         HashSet<string> callers = [];
         foreach (string path in assemblies)
             foreach (CompiledIlScanner.IlReference reference in CompiledIlScanner.References(path))
-                if (reference.TargetType == Codec && reference.TargetMember is "CreateResponse" or "CreateClientResponse" or "CreateResponseCore")
+                if (reference.TargetType == Codec && reference.TargetMember is "CreateResponse" or "CreateClientResponse" or "CreateWinGetMachineResponse" or "CreateResponseCore")
                     callers.Add(reference.LogicalCaller + "->" + reference.TargetMember);
         // TryReadResponse re-encodes the frame it read to prove canonical form; the endpoint is the only producer of either
         // reply shape (ADR-031 design §8: the package entry and the client entry share one private core).
@@ -122,6 +122,8 @@ public sealed class HelperEndpointBoundaryTests
         {
             Codec + ".TryReadResponse->CreateResponseCore", Codec + ".CreateResponse->CreateResponseCore",
             Codec + ".CreateClientResponse->CreateResponseCore", Endpoint + ".RunAsync->CreateResponse", Endpoint + ".RunAsync->CreateClientResponse",
+            // D4b design §5.1: the machine WinGet route's reply (same 20 properties, its own version grammar).
+            Codec + ".CreateWinGetMachineResponse->CreateResponseCore", Endpoint + ".RunAsync->CreateWinGetMachineResponse",
         }, callers.ToArray(), string.Join(Environment.NewLine, callers));
 
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
@@ -129,7 +131,7 @@ public sealed class HelperEndpointBoundaryTests
         {
             string name = Path.GetFileName(path);
             if (name is "ReviewedUpdateWireCodec.cs" or "ReviewedHelperEndpoint.cs") continue;
-            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"ReviewedUpdateWireCodec\s*\.\s*CreateResponse\b"), $"{path} creates a protocol-2 response");
+            Assert.IsFalse(Regex.IsMatch(File.ReadAllText(path), @"ReviewedUpdateWireCodec\s*\.\s*Create(WinGetMachine)?Response\b"), $"{path} creates a protocol-2 response");
         }
     }
 
@@ -490,6 +492,7 @@ public sealed class HelperEndpointBoundaryTests
         Assert.AreEqual(1, Regex.Count(source, @"\.UpgradeAsync\("), "exactly one upgrade call site");
         Assert.AreEqual(1, Regex.Count(source, @"PipeMessageFraming\.WriteAsync\("), "exactly one response write");
         Assert.AreEqual(1, Regex.Count(source, @"ReviewedUpdateWireCodec\.CreateResponse\("), "the response is built only through the codec");
+        Assert.AreEqual(1, Regex.Count(source, @"ReviewedUpdateWireCodec\.CreateWinGetMachineResponse\("), "one machine WinGet reply site (D4b §5.1)");
     }
 
     private static bool IsProbeAllowListed(string fullName) =>

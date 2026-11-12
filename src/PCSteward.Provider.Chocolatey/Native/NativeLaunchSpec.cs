@@ -147,6 +147,33 @@ internal sealed class NativeLaunchSpec
             client, releaseCodeAfterResume: upgrade && package, releaseAllAfterResume: upgrade && clientUpdate);
     }
 
+    /// <summary>
+    /// D4b design §5.1: the machine WinGet route's factory; its only call site is <see cref="WingetMachineHelperWork"/> (architecture
+    /// test). The image must be the trusted App Installer <c>winget.exe</c> resolved again here, immediately before launch, and equal
+    /// to the one the item's stages bound; the first argument is one of the route's three fixed verbs; the environment is the
+    /// complete fixed block with <c>TEMP</c> and <c>TMP</c> naming <paramref name="runFolder"/>, which must still be a fresh
+    /// administrator-only folder and is the working directory. No other spec carries a binding, so the Chocolatey hooks never run.
+    /// </summary>
+    internal static NativeLaunchSpec ForWingetMachine(string boundWinget, IReadOnlyList<string> arguments, IReadOnlyDictionary<string, string> environment,
+        string runFolder)
+    {
+        ArgumentNullException.ThrowIfNull(boundWinget);
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(runFolder);
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The machine WinGet route runs only on Windows.");
+        string? trusted = PCSteward.Provider.WinGet.HelperTrustedWinget.TryResolve();
+        if (trusted is null || !string.Equals(trusted, boundWinget, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The trusted WinGet client changed or is unavailable.");
+        if (arguments.Count == 0 || arguments[0] is not ("upgrade" or "download" or "source"))
+            throw new ArgumentException("The command is not a machine WinGet route command.", nameof(arguments));
+        if (!environment.TryGetValue("TEMP", out string? temp) || !environment.TryGetValue("TMP", out string? tmp) ||
+            !string.Equals(temp, runFolder, StringComparison.Ordinal) || !string.Equals(tmp, runFolder, StringComparison.Ordinal) ||
+            !PCSteward.Provider.WinGet.HelperProtectedRunFolder.IsFreshProtected(runFolder, expectEmpty: false))
+            throw new ArgumentException("The run folder is not the protected TEMP of this launch.", nameof(runFolder));
+        return new NativeLaunchSpec(trusted, arguments, environment, runFolder);
+    }
+
     /// <summary>Test-only factory (rev-4 M1). Any <c>src</c> caller fails the architecture tests.</summary>
     internal static NativeLaunchSpec ForTests(string imagePath, IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string> environment, string workingDirectory) =>

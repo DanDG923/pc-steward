@@ -32,6 +32,14 @@ internal abstract record ChocolateyCandidateValues
     {
         internal Matched(string candidate) => Candidate = RequireVersion(candidate, nameof(candidate));
 
+        private Matched(string candidate, bool wingetMachine) =>
+            Candidate = wingetMachine && UpdateJobSelection.IsVersionText(candidate)
+                ? candidate
+                : throw new ArgumentException("Reviewed version text is required.", nameof(candidate));
+
+        /// <summary>D4b design §5.1: stage C passed for the machine WinGet route (the frozen candidate as reviewed version text).</summary>
+        internal static Matched ForWinGetMachine(string candidate) => new(candidate, wingetMachine: true);
+
         internal string Candidate { get; }
     }
 
