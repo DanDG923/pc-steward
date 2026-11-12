@@ -9,7 +9,7 @@ Phase C stage C2 (owner-agreed plan, 2026-11-12). Base: `phase/4-beta` at `92c73
 | Tasks 49–52 committed | Yes. 49 and 50 done; 51 and 52 merged in PR #63 (`92c735e`). |
 | Servicing plan accepted | Yes, 2026-10-30 ([proposal](V2_DEPENDENCY_SERVICING_PROPOSAL.md)). |
 | PR #8 reconciliation | Already on this branch: `eef3784` is an ancestor of `92c735e` and of the 0.1.2 release commit `9322ca1`. Installed releases already carry its versions. |
-| Owner approval of the exact package set | Asked in the stage thread (2026-11-12). This PR is built on the recommended answer and is not merged without it. |
+| Owner approval of the exact package set | **Approved 2026-11-12 14:42Z** in the stage thread: Windows App SDK 1.8.260921001, shipped as Microsoft built it, including the new ML and Tensors packages. |
 
 ## Package delta
 
@@ -31,7 +31,7 @@ Only `Directory.Packages.props` changes: `Microsoft.WindowsAppSDK` **1.8.2509070
 
 Unchanged: Microsoft.Web.WebView2 1.0.3179.45, WinGet ComInterop/InProcCom 1.10.340, Microsoft.Data.Sqlite 10.0.14, SQLitePCLRaw 2.1.13/2.1.14, MSTest 4.5.2, Microsoft.NET.Test.Sdk 18.11.0. No WinAppSDK 2.x and no WinGet projection change.
 
-**New packages.** The prompt expected none. 1.8.260921001 adds `Microsoft.WindowsAppSDK.ML` (Windows ML) to the metapackage. For `net8.0-windows` and later it ships two managed assemblies, `Microsoft.Windows.AI.MachineLearning.Projection.dll` (84,608 bytes) and `Microsoft.ML.OnnxRuntime.dll` (234,384 bytes), and depends on `System.Numerics.Tensors` 9.0.0, which is not part of the .NET 10 shared framework (`System.Numerics.Tensors.dll`, 410,936 bytes). Its build files only declare project capabilities; it adds no source file, auto-initializer or startup code. PC Steward references none of these types, so .NET never loads them. Native ML binaries live in the Windows App Runtime framework package, not in the payload. Shipping them or keeping them out is the owner's choice (stage thread).
+**New packages.** The prompt expected none. 1.8.260921001 adds `Microsoft.WindowsAppSDK.ML` (Windows ML) to the metapackage. For `net8.0-windows` and later it ships two managed assemblies, `Microsoft.Windows.AI.MachineLearning.Projection.dll` (84,608 bytes) and `Microsoft.ML.OnnxRuntime.dll` (234,384 bytes), and depends on `System.Numerics.Tensors` 9.0.0, which is not part of the .NET 10 shared framework (`System.Numerics.Tensors.dll`, 410,936 bytes). Its build files only declare project capabilities; it adds no source file, auto-initializer or startup code. PC Steward references none of these types, so .NET never loads them. Native ML binaries live in the Windows App Runtime framework package, not in the payload. The owner chose to ship them as Microsoft built them (2026-11-12), so the build stays standard and later servicing needs no extra exclusions.
 
 The component lib folders of AI, Foundation, InteractiveExperiences, Widgets and WinUI contain the same assembly names before and after.
 
