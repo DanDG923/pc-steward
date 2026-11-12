@@ -5,7 +5,7 @@
 - Task 53: every mandatory updater criterion mapped to its CI test, CI run or host record (report §4–5); fixture benchmark on the hosted runner (§6); package pins by PR #8, each installed payload and the snapshot (§7.1); WS5 deferral (§8); open items O1–O4, known limit L1, unsupported U1–U3 (§9).
 - Change: `scripts/PCStewardThirdPartyNotices.ps1` (shared licence map and notices text); `scripts/New-OwnerOnlyCandidate.ps1` writes `THIRD-PARTY-NOTICES.txt` into the release payload, including the helper's Native AOT runtime packages; `scripts/New-PrivateBetaPackage.ps1` uses the shared script; CI `build-and-test` runs `scripts/Benchmark.ps1`.
 - Tests: new fixture `ThirdPartyNoticesTests` (PowerShell 7 and Windows PowerShell 5.1); `OwnerOnlyCandidateBuilderTests` (two dot-sources), `WindowsPlatformTargetTests` (map location); `owner-only-candidate-builder` CI checks the notices sections.
-- Task 54: independent review by Codex on PR #68 (owner-agreed reviewer for Phase C); result in the Task 54 record.
+- Task 54: independent review by Codex on PR #68 (owner-agreed reviewer for Phase C). Not cleared: R1 (`FR-UPD-15`: WinGet updates run on the legacy mode-less job; the reviewed Silent mapping has no production caller) and R2 (ADR-025: the protocol-2 helper still accepts protocol 1, used for machine-scope WinGet). Both confirmed and recorded in the Task 54 record and report §9.
 - Not claimed: any real update, baseline-PC measurement or WinGet COM 1.29 runtime on the owner's PC (O1–O4).
 
 # Task 54B — WinGet COM 1.29.380 (release 0.1.3)

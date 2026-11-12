@@ -29,7 +29,7 @@ Phase C stage C3 (owner-agreed plan, 2026-11-12). Prompt: [53](../../prompts/53_
 | Task | Gap closed | Record |
 |---|---|---|
 | 49 | G1 truthful progress: review, queued/preparing, observable phases, verification and result are distinct; provider detail that cannot be observed is shown as indeterminate, never as a percentage. | [49](TASK_49_IMPLEMENTATION.md), [independent review](TASK_49_INDEPENDENT_REVIEW.md) |
-| 50 | G2 enforceable reviewed mode: typed, immutable mode in the reviewed operation, revalidated by runner and helper; protocol 2; Chocolatey route under its reviewed profile; Native AOT helper (ADR-033). | [handover](TASK_50_HANDOVER_2026-11-06.md), [G9-T1](TASK_50_G9_T1_RIPGREP_TEST.md) |
+| 50 | G2 enforceable reviewed mode: typed, immutable mode in the reviewed operation, revalidated by runner and helper; protocol 2; Chocolatey route under its reviewed profile; Native AOT helper (ADR-033). **Closed for the Chocolatey route only**: the WinGet routes are not composed onto it (R1), and the helper still accepts protocol 1 (R2). | [handover](TASK_50_HANDOVER_2026-11-06.md), [G9-T1](TASK_50_G9_T1_RIPGREP_TEST.md) |
 | 51 | G3 reliable restart: WinGet's typed restart exit codes reach history as Restart required, never Success. | [51/52](TASK_51_52_RESTART_OUTCOMES_AND_BATCH_AUDIT.md) |
 | 52 | G4 frozen Update all: audit of every prompt case; three gaps fixed. | [51/52](TASK_51_52_RESTART_OUTCOMES_AND_BATCH_AUDIT.md) |
 | 53A | Windows App SDK 1.8.260921001 servicing. | [53A](TASK_53A_DEPENDENCY_SERVICING.md) |
@@ -56,7 +56,7 @@ Evidence kinds: **CI** = an automated test that runs in Windows CI on the snapsh
 | FR-UPD-12: unattended rules | Later. Deferred by ADR-026 (§8). | Not in scope |
 | FR-UPD-13: direct vendor installers | Later. Not built. | Not in scope |
 | FR-UPD-14: truthful progress | `UpdateProgressTests`, `UpdateProgressIntegrationTests`, `UpdateProgressPresentationTests` (no percentages, terminal only after the durable record) | CI. Real WinUI frames on the current build: **Open (O3)**. |
-| FR-UPD-15: typed reviewed mode | `ReviewedInstallerMode` is closed data; WinGet user scope pins Silent (`ExactUserMappingPinsSilentModeAndMsixInstallerType`), Chocolatey records NotControllable (`ProviderScriptControlled`); `FinalizedDispatchKeepsTheReviewedModeAndVerifiedOutcome`, `ARecomputedUnionModeOrProviderChangeIsRefusedByEveryCommand`; protocol-2 interpreter tests. | CI; Host (Chocolatey route, old build). Interactive mode is not offered on any route (**U2**). |
+| FR-UPD-15: typed reviewed mode | Chocolatey route: `ReviewedInstallerMode` is closed data and the route records NotControllable (`ProviderScriptControlled`); `FinalizedDispatchKeepsTheReviewedModeAndVerifiedOutcome`, `ARecomputedUnionModeOrProviderChangeIsRefusedByEveryCommand`; protocol-2 interpreter tests. WinGet routes: **not enforced** (Task 54 finding, **R1**). The desktop's Updates page runs WinGet updates through `ReviewedUpdateExecutionWorkflow` → `ApprovedUpdateExecutor` with the legacy `ImmutableUpdateJob`, which has no mode field; user scope uses `WingetUpdateExecutor.BuildUpdateArguments` (no `--silent`), machine scope uses protocol 1. `WingetReviewedUpdateArguments.Build` (the Silent/MSIX mapping that `ExactUserMappingPinsSilentModeAndMsixInstallerType` tests) has no production caller. | Chocolatey: CI; Host (old build). WinGet: **Gap R1**. |
 
 ### History (`FR-HIS`)
 
@@ -98,7 +98,7 @@ See §6 for the numbers.
 |---|---|---|
 | F8 (source consent pair) regression | `AsymmetricTrustedSourceConsentLoadsFailClosed`, `ScheduledHostUsesTheUnifiedFailClosedTrustedSourceConsent`, `BothWinGetConnectorDisclosuresPersistAndFailClosedWhenRevoked` | Pass (CI) |
 | F10 (malformed WinGet output) regression | `ShortMalformedUpdateOutputCannotProduceALiveSnapshot` | Pass (CI) |
-| Old and new protocol rejection | `ExplicitFifteenFieldLegacyProtocol2ResponseIsRejected`, `ProtocolTwoIsDispatchedAndProtocolOneIsUnchanged`, `ProtocolTwoTransportAndDispatcherAreNotComposedAndNeverFallBackToProtocolOne`, `AMalformedProtocol2LineExitsWith…`, Task 49's 30 golden/schema cases | Pass (CI) |
+| Old and new protocol rejection | `ExplicitFifteenFieldLegacyProtocol2ResponseIsRejected`, `ProtocolTwoIsDispatchedAndProtocolOneIsUnchanged`, `ProtocolTwoTransportAndDispatcherAreNotComposedAndNeverFallBackToProtocolOne`, `AMalformedProtocol2LineExitsWith…`, Task 49's 30 golden/schema cases. These prove that protocol 2 never falls back to protocol 1 and that the protocol-1 bootstrap refuses protocol 2. They do not prove the reverse: the shipped helper still runs protocol 1 (`ElevatedHelperEntryPoint.RunAsync` → `RunProtocol1Async`, with the WinGet and Chocolatey machine executors), and the desktop still uses it for machine-scope WinGet updates (`ElevatedUpdateRunner`). ADR-025 requires each desktop/helper pair to accept exactly one protocol and a new helper never to accept protocol 1. | **Not met** (Task 54 finding, **R2**) |
 | Existing Chocolatey boundary | `ChocolateyCallerTrustRejectionHappensBeforeTheElevatedHelperCanLaunch`, the Chocolatey profile, release-list and postcheck suites; restart codes stay failures on the Chocolatey route (Task 51) | Pass (CI) |
 | History migration | `ClaimMigrationFromTenIsTransactionalAndPreservesTheOriginalDraft`, `GenerationMigrationFailurePreservesSchemaNineDataAndRollsBackTheColumn`, `MigrationCommitFaultRollsBackTheNewTableAndPreservesLegacyData`, `FutureSchemaIsRefusedBeforeMigrationMutation`. Phase C itself added no schema change (Tasks 51/52 used the existing `RestartRequired` status). | Pass (CI) |
 | Synthetic crash | `UpdateHistoryIsAppendOnlyRecoverable…` (interrupted `Running` rows), `QuotaAccountsForAndEvictsAnInactiveCrashOrphan`, the Task 49 fault-race fixtures | Pass (CI) |
@@ -149,17 +149,19 @@ Recorded as deferred ([ADR-026](../adr/ADR-026-WS5-AUTOMATION-AUTHORIZATION-DECI
 
 ## 9. Open items and unsupported capabilities
 
-Open items have no invented pass. None blocks the Task 54 source review; each needs its own owner step.
+Open items have no invented pass. R1 and R2 are gaps the Task 54 review found: Phase C cannot close until each is fixed or the owner accepts it. The other items need their own owner steps.
 
 | Id | Item | What would close it |
 |---|---|---|
+| R1 | WinGet updates from the desktop do not bind or enforce a reviewed installer mode (FR-UPD-15). They run on the legacy mode-less job; the reviewed Silent/MSIX mapping is built and tested but not composed. | Route WinGet user-scope updates through the reviewed operation pipeline (mode bound at review, re-checked before launch, `--silent` from the reviewed mapping), with a composition test that fails if the legacy builder is reachable. |
+| R2 | The protocol-2 helper still accepts protocol 1 and the desktop still uses it for machine-scope WinGet updates, against ADR-025 (one protocol per pair; a new helper never accepts protocol 1). | Either a protocol-2 machine-scope WinGet route and then a helper that refuses protocol 1 (with a regression test), or an owner-accepted ADR-025 amendment for a transition period. Removing protocol 1 now would stop machine-scope WinGet updates. |
 | O1 | No real update through the current release yet: a user-scope WinGet update without UAC (AC-UPD-03), a declined UAC on the host (AC-UPD-05), and a machine-scope update on 0.1.3. The last real update (G9-T1, Chocolatey ripgrep, 2026-11-11) ran on an older build. | An owner-approved real update on 0.1.3 or later. |
 | O2 | NFR-PERF-01–08 on the baseline PC, including process-tree CPU and memory, idle, and cold start. Only hosted-runner fixture timings exist (§6). | A measurement session on the owner's PC with its own plan and approval. |
 | O3 | Truthful progress in the real WinUI shell during a real update on the current build. | Observed during O1. |
 | O4 | WinGet COM 1.29.380 at runtime on the owner's PC (a scan on 0.1.3), and on a real Windows 11 22000 machine. | A scan in 0.1.3 (no admin needed). 22000 needs a test machine. |
 | L1 | Known limit: a current WinGet client exits 0 after an MSI 3010, so that case reads Verified or Installed, not verified, instead of Restart required. Typed evidence needs COM execution, which ADR-003 amendment 1 and ADR-033 exclude. | An owner decision (COM execution for user scope). |
-| U1 | Unsupported: machine-scope WinGet updates have no reviewed-mode route yet (`UpdateInstallerModeCapabilities` maps WinGet user scope only). | Phase D stage D4b. |
-| U2 | Unsupported: interactive installer mode is not offered on any route; WinGet user scope runs Silent, Chocolatey is NotControllable. | A later task, if wanted. |
+| U1 | Machine-scope WinGet updates have no reviewed-mode route yet (`UpdateInstallerModeCapabilities` maps WinGet user scope only); they run today on protocol 1 without a reviewed mode (see R2). | Phase D stage D4b, or the R2 fix. |
+| U2 | Unsupported: interactive installer mode is not offered on any route. Chocolatey is NotControllable; WinGet runs with `--disable-interactivity` but without a bound mode (R1). | A later task, if wanted. |
 | U3 | Unsupported: installs, uninstalls, unattended rules, direct vendor installers (`FR-UPD-12/13`, ADR-023/024 paused). | Phase D, owner-paused. |
 
 ## 10. Scope handed to Task 54
