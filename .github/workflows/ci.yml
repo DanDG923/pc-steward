@@ -16,8 +16,8 @@ jobs:
       # Restored test adapters must also be accessible to the standard test user.
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
       - run: pwsh -NoProfile -File ./scripts/Restore.ps1
@@ -34,15 +34,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/New-PrivateBetaPackage.ps1
       - run: pwsh -NoProfile -File ./scripts/Test-PrivateBetaPackageEvidence.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: package-licence-map
@@ -63,10 +63,10 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       # The owner's phase 5 redeploy paste must parse under Windows PowerShell 5.1 before it is handed over.
@@ -78,7 +78,7 @@ jobs:
           'PASTE-PARSE errors=' + @($e).Count
           exit @($e).Count
       - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DesktopLaunchSmokeCI.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: desktop-launch-smoke
@@ -98,7 +98,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-Task50CleanupPasteCI.ps1
@@ -116,14 +116,14 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/Test-ElevatedHelperNativeAotCI.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: helper-native-aot-feasibility
@@ -144,16 +144,16 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history: the check runs on a worktree of the owner's build commit.
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/Test-OwnerBuildToolchainCI.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: owner-build-toolchain-pins
@@ -171,17 +171,17 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history: the builder's probe-build mark (S7 obligation 1) checks the build commit's lineage.
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       # The builder refuses an elevated token; the launcher runs it as a disposable standard user.
       - run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: owner-only-candidate-manifest
@@ -202,16 +202,16 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history: the candidate builder's probe-build mark checks the build commit's lineage.
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/Test-PCStewardMsiCI.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: msi-install-evidence
@@ -234,17 +234,17 @@ jobs:
     env:
       NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history: the builder's probe-build mark checks the build commit's lineage.
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
       - run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1
       - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-OwnerOnlySigningDiagnosticCI.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: native-helper-signing-diagnostic
@@ -267,21 +267,21 @@ jobs:
       # Inside the pinned checkout, which the launcher makes writable for its disposable user.
       NUGET_PACKAGES: ${{ github.workspace }}\owner-candidate-source\artifacts\nuget-packages
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: febf1ac95c207aadf0f3efe742b854d81f903037
           path: owner-candidate-source
           persist-credentials: false
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: owner-candidate-source/global.json
       # The builder refuses an elevated token; the pinned checkout's own launcher runs it as a disposable standard user.
       - run: pwsh -NoProfile -File ./owner-candidate-source/scripts/Test-OwnerOnlyCandidateBuilderCI.ps1
       - run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-OwnerOnlySigningDiagnosticCI.ps1 -ExpectedSourceCommit febf1ac95c207aadf0f3efe742b854d81f903037
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: owner-only-signing-diagnostic
