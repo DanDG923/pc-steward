@@ -8,7 +8,7 @@ Phase C stage C3 (owner-agreed plan, 2026-11-12). Prompt: [53](../../prompts/53_
 
 | Item | Identity |
 |---|---|
-| Implementation snapshot reviewed | `phase/4-beta` at `1530e9d` plus this PR's code commits, ending at **`4e3f94a`**. The later commits in this PR change only `docs/`. |
+| Implementation snapshot reviewed | `phase/4-beta` at `1530e9d` plus this PR's code commits, ending at **`4e3f94a`**. The later commits in this PR change only `docs/` and fix a race in the benchmark harness's fixture cache (`tests/PCSteward.Performance`; no product code). |
 | Code change in this PR | Third-party notices in the release payload (§7.3) and a CI step that runs the fixture benchmark (§6). No product (`src/`) change. |
 | Dirty state | None. The CI runs below build a clean checkout of the commit. |
 | Windows CI on the snapshot | Run [43289637420](https://github.com/DanDG923/pc-steward/actions/runs/43289637420), head `4e3f94a`: all 10 jobs succeeded (`build-and-test`, `desktop-launch-smoke`, `msi-install-test`, `owner-only-candidate-builder`, `owner-only-signing-diagnostic`, `native-helper-signing-diagnostic`, `helper-native-aot-feasibility`, `owner-build-toolchain-check`, `package-licence-map`, `task50-cleanup-paste`). The run built the pull-request merge commit `a389940` (snapshot on `phase/4-beta`). Release build 0 warnings, SDK 10.0.404. Tests: Domain 192/192, Architecture 226/226, Application integration 1270/1270, Security fixtures 1788 passed + 1 skipped of 1789 (the skip is `WindowsCanonicalisesAShortNameTempPath`, inconclusive because 8.3 short names are disabled on the runner volume). Both `ThirdPartyNoticesTests` rows (PowerShell 7 and Windows PowerShell 5.1) ran and passed. |

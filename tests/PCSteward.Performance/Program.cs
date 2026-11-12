@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using PCSteward.Application;
@@ -9,6 +10,8 @@ internal static class Program
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    private static int Fail(string reason) { Console.Error.WriteLine("Benchmark failed: " + reason); return 1; }
+
     private static async Task<int> Main()
     {
         string? outputPath = GetOutputPath();
@@ -16,7 +19,7 @@ internal static class Program
         for (int run = 0; run < 30; run++)
         {
             Stopwatch timer = Stopwatch.StartNew(); await using BenchmarkStore store = new(); using InventoryScanOrchestrator orchestrator = new(store, [new FixtureProvider(300)]);
-            ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None); if (!result.Succeeded || store.Products.Count != 300) return 1;
+            ScanResult result = await orchestrator.ScanAsync(null, CancellationToken.None); if (!result.Succeeded || store.Products.Count != 300) return Fail("Phase 1 scan did not produce 300 products.");
             samples.Add(timer.Elapsed.TotalMilliseconds);
         }
         samples.Sort(); Console.WriteLine($"Phase 1 deterministic product workload: runs=30 records=300 medianMs={samples[14]:F2} p95Ms={samples[28]:F2}. This is not final-app UI, idle, or process-tree acceptance evidence; a VM is optional.");
@@ -24,7 +27,8 @@ internal static class Program
         for (int run = 0; run < 20; run++)
         {
             Stopwatch timer = Stopwatch.StartNew(); UpdateSourceRefreshService service = new(new SourceCache()); IReadOnlyCollection<SourceSnapshot> snapshots = await service.RefreshAsync([new FixtureSource("winget"), new FixtureSource("msstore")], true, CancellationToken.None);
-            if (snapshots.Count != 2 || snapshots.Any(snapshot => snapshot.State != SourceSnapshotState.Live)) return 1;
+            if (snapshots.Count != 2 || snapshots.Any(snapshot => snapshot.State != SourceSnapshotState.Live))
+                return Fail("Task 18 online check: " + string.Join("; ", snapshots.Select(snapshot => $"{snapshot.SourceId}={snapshot.State} [{string.Join(",", snapshot.Warnings)}]")));
             online.Add(timer.Elapsed.TotalMilliseconds);
         }
         online.Sort(); Console.WriteLine($"Task 18 fixture online-check workload: runs=20 sources=2 medianMs={online[9]:F2} p95Ms={online[18]:F2}. Fixture connectors only; no live WinGet or Store source was contacted.");
@@ -37,7 +41,7 @@ internal static class Program
             viewModel.LoadInventory(products, instances, DateTimeOffset.UtcNow);
             viewModel.SetFilters("Fixture 19", "All statuses", "All publishers", "All sources", "All scopes", "Publisher");
             timer.Stop();
-            if (viewModel.VisibleRows.Count == 0) return 1;
+            if (viewModel.VisibleRows.Count == 0) return Fail("Task 35 inventory view has no visible rows.");
             inventoryViews.Add(timer.Elapsed.TotalMilliseconds);
         }
         inventoryViews.Sort();
@@ -113,7 +117,8 @@ internal static class Program
     }
     private sealed class SourceCache : ISourceSnapshotStore
     {
-        private readonly Dictionary<string, SourceSnapshot> entries = [];
+        // Saved concurrently: the refresh service runs up to two connectors at once.
+        private readonly ConcurrentDictionary<string, SourceSnapshot> entries = new(StringComparer.Ordinal);
         public Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken) { entries[snapshot.SourceId] = snapshot; return Task.CompletedTask; }
         public Task<SourceSnapshot?> GetSourceSnapshotAsync(string sourceId, CancellationToken cancellationToken) => Task.FromResult(entries.GetValueOrDefault(sourceId));
     }
