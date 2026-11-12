@@ -145,7 +145,7 @@ public sealed class WingetMachineReviewEvidenceTests
         using TempRoot root = new();
         byte[] installer = "fixture installer"u8.ToArray();
         ScriptedProcess process = new(installer, Manifest(Sha(installer)));
-        WingetMachineInstallerCheck check = await new WingetMachineInstallerEvidenceSource(process, () => root.Path)
+        WingetMachineInstallerCheck check = await new WingetMachineInstallerEvidenceSource(process, root)
             .CheckAsync(Selection(), CancellationToken.None);
 
         Assert.IsNotNull(check.Evidence, check.Message);
@@ -163,6 +163,7 @@ public sealed class WingetMachineReviewEvidenceTests
         Assert.AreEqual(root.Path, Path.GetDirectoryName(folder));
         Assert.AreEqual(32, Path.GetFileName(folder).Length);
         Assert.IsFalse(Directory.Exists(folder), "the review folder is deleted");
+        CollectionAssert.AreEqual(new[] { folder }, root.Deleted, "deleted through storage, once");
     }
 
     [TestMethod]
@@ -173,7 +174,7 @@ public sealed class WingetMachineReviewEvidenceTests
         string sha = Sha(installer);
 
         async Task<WingetMachineInstallerCheck> Check(ScriptedProcess process) =>
-            await new WingetMachineInstallerEvidenceSource(process, () => root.Path).CheckAsync(Selection(), CancellationToken.None);
+            await new WingetMachineInstallerEvidenceSource(process, root).CheckAsync(Selection(), CancellationToken.None);
 
         Assert.AreEqual(WingetMachineInstallerEvidenceSource.DependenciesMessage,
             (await Check(new(installer, Manifest(sha, "  Dependencies:\n    PackageDependencies:\n    - PackageIdentifier: Example.Runtime\n")))).Message);
@@ -193,7 +194,7 @@ public sealed class WingetMachineReviewEvidenceTests
         Assert.HasCount(1, untrusted.Calls, "no download after an untrusted source");
 
         ScriptedProcess unused = new(installer, Manifest(sha));
-        WingetMachineInstallerCheck store = await new WingetMachineInstallerEvidenceSource(unused, () => root.Path)
+        WingetMachineInstallerCheck store = await new WingetMachineInstallerEvidenceSource(unused, root)
             .CheckAsync(Selection(source: UpdateSource.MicrosoftStore), CancellationToken.None);
         Assert.AreEqual(WingetMachineReviewedRoute.NotOnThisRouteMessage, store.Message);
         Assert.HasCount(0, unused.Calls);
@@ -282,9 +283,22 @@ public sealed class WingetMachineReviewEvidenceTests
         }
     }
 
-    private sealed class TempRoot : IDisposable
+    /// <summary>A plain temporary folder area standing in for storage's <c>ReviewDownloadFolders</c>, which has its own tests.</summary>
+    private sealed class TempRoot : IReviewDownloadFolders, IDisposable
     {
         internal string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pcs-d4b-review-" + Guid.NewGuid().ToString("N"));
+
+        internal List<string> Deleted { get; } = [];
+
+        public string? CreateFolder() =>
+            Directory.CreateDirectory(System.IO.Path.Combine(Path, Convert.ToHexString(RandomNumberGenerator.GetBytes(16)))).FullName;
+
+        public bool DeleteFolder(string folder)
+        {
+            Deleted.Add(folder);
+            Directory.Delete(folder, recursive: true);
+            return true;
+        }
 
         public void Dispose()
         {

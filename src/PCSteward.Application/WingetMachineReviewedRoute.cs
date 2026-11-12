@@ -161,3 +161,20 @@ public interface IWingetMachineInstallerEvidenceSource
 {
     Task<WingetMachineInstallerCheck> CheckAsync(UpdateJobSelection selection, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// D4b stage 2b: the folders a whole-PC review downloads its installer into, under PC Steward's own download cache. Creating and
+/// deleting them belongs to storage, whose cache deletion is canonical and handle-bound and refuses every reparse point from the
+/// volume down (AGENTS.md); a provider never deletes through a path itself.
+/// </summary>
+public interface IReviewDownloadFolders
+{
+    /// <summary>A new, empty folder under the review area of the download cache; null when that can't be done safely.</summary>
+    string? CreateFolder();
+
+    /// <summary>
+    /// Deletes a folder <see cref="CreateFolder"/> returned, and what is in it. False leaves what remains for Clear downloaded files;
+    /// any other path is refused.
+    /// </summary>
+    bool DeleteFolder(string folder);
+}

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using PCSteward.Application;
 using PCSteward.Domain;
 
@@ -8,7 +7,8 @@ namespace PCSteward.Provider.WinGet;
 /// D4b stage 2b (design §7; owner answers Q1 and Q3, 2026-11-12): the review-time installer evidence of a whole-PC WinGet update,
 /// read without elevation. It checks that the effective <c>winget</c> source is the trusted default, runs one
 /// <c>winget download</c> of the exact reviewed package and version (<see cref="WingetMachineReviewedArguments.BuildReviewDownload"/>)
-/// into a fresh folder under PC Steward's own download cache, reads that folder with <see cref="WingetDownloadFolder"/> and deletes it.
+/// into a fresh folder under PC Steward's own download cache, reads that folder with <see cref="WingetDownloadFolder"/> and has it
+/// deleted. Storage creates and deletes the folder (<see cref="IReviewDownloadFolders"/>): this class never deletes a path itself.
 /// Agreements stop the download itself (PC Steward never accepts them), and declared dependencies, an installer that does not say it
 /// installs for every user, and installer types outside the route are refused with the reason. The result is comparison data only:
 /// the elevated helper downloads and checks the same installer again before it runs anything (§5 H7b).
@@ -38,14 +38,14 @@ public sealed class WingetMachineInstallerEvidenceSource : IWingetMachineInstall
 
     private static readonly TimeSpan SourceBudget = TimeSpan.FromSeconds(30);
     private readonly IWingetProcess process;
-    private readonly Func<string> root;
+    private readonly IReviewDownloadFolders folders;
 
-    public WingetMachineInstallerEvidenceSource() : this(new WindowsWingetProcess(), DefaultRoot) { }
+    public WingetMachineInstallerEvidenceSource(IReviewDownloadFolders folders) : this(new WindowsWingetProcess(), folders) { }
 
-    internal WingetMachineInstallerEvidenceSource(IWingetProcess process, Func<string> root)
+    internal WingetMachineInstallerEvidenceSource(IWingetProcess process, IReviewDownloadFolders folders)
     {
         this.process = process ?? throw new ArgumentNullException(nameof(process));
-        this.root = root ?? throw new ArgumentNullException(nameof(root));
+        this.folders = folders ?? throw new ArgumentNullException(nameof(folders));
     }
 
     public async Task<WingetMachineInstallerCheck> CheckAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
@@ -59,7 +59,7 @@ public sealed class WingetMachineInstallerEvidenceSource : IWingetMachineInstall
         {
             WingetCliSourceObservation source = await new WingetCliSourceGuard(process).ObserveAsync(SourceBudget, cancellationToken).ConfigureAwait(false);
             if (!source.IsExpected) return new(null, NotCheckedMessage);
-            folder = CreateFolder();
+            folder = folders.CreateFolder();
             if (folder is null) return new(null, NotCheckedMessage);
             WingetProcessResult result = await process.RunObservedQueryAsync(WingetMachineReviewedArguments.BuildReviewDownload(selection, folder),
                 DownloadBudget, cancellationToken).ConfigureAwait(false);
@@ -82,7 +82,7 @@ public sealed class WingetMachineInstallerEvidenceSource : IWingetMachineInstall
         finally
         {
             // A download that did not settle may still be writing: its folder is left for Clear downloaded files.
-            if (folder is not null && settled) TryDelete(folder);
+            if (folder is not null && settled) _ = folders.DeleteFolder(folder);
         }
     }
 
@@ -94,36 +94,4 @@ public sealed class WingetMachineInstallerEvidenceSource : IWingetMachineInstall
         WingetManifestRefusal.InstallerMismatch or WingetManifestRefusal.NestedInstaller => InstallerTypeMessage,
         _ => NotCheckedMessage,
     };
-
-    /// <summary>
-    /// <c>%LOCALAPPDATA%\PCSteward\downloads\WinGetReview</c>, inside the download cache root, so Clear downloaded files removes
-    /// anything a review left behind.
-    /// </summary>
-    private static string DefaultRoot() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PCSteward", "downloads", "WinGetReview");
-
-    /// <summary>A new, empty folder with a random 128-bit name under the review root; null when the root is not a plain folder.</summary>
-    private string? CreateFolder()
-    {
-        string parent = root();
-        if (string.IsNullOrWhiteSpace(parent) || !Path.IsPathFullyQualified(parent)) return null;
-        Directory.CreateDirectory(parent);
-        if ((new DirectoryInfo(parent).Attributes & FileAttributes.ReparsePoint) != 0) return null;
-        string folder = Path.Combine(parent, Convert.ToHexString(RandomNumberGenerator.GetBytes(16)));
-        if (Directory.Exists(folder) || File.Exists(folder)) return null;
-        DirectoryInfo created = Directory.CreateDirectory(folder);
-        return (created.Attributes & FileAttributes.ReparsePoint) == 0 && !created.EnumerateFileSystemInfos().Any() ? folder : null;
-    }
-
-    private static void TryDelete(string folder)
-    {
-        try
-        {
-            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Left for Clear downloaded files; nothing reads it again.
-        }
-    }
 }
