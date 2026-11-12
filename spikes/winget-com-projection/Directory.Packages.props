@@ -1,0 +1,6 @@
+<Project>
+  <!-- Task 54A spike isolation: no central package management, so each probe build names its own versions. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    Task 54A spike isolation. This file stops MSBuild from importing the repository's Directory.Build.props, and the
+    Directory.Packages.props beside it switches central package management off, so the probe can name any WinGet COM
+    version without touching the production pins in the repository root. Nothing here is part of the product build.
+  -->
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <!-- Platform-compatibility findings are the point of the probe, so only CA1416 stops the build. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+</Project>
