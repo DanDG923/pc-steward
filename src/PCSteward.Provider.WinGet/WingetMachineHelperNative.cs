@@ -16,7 +16,7 @@ namespace PCSteward.Provider.WinGet;
 /// rules as the desktop's <see cref="MachineTrustedWinget"/>). PATH, aliases and the environment are never consulted.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal static partial class HelperTrustedWinget
+internal static class HelperTrustedWinget
 {
     internal const string AppInstallerFamily = "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe";
     private const int ErrorInsufficientBuffer = 122;
@@ -87,12 +87,15 @@ internal static partial class HelperTrustedWinget
         return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
     }
 
-    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
-    private static partial int GetPackagesByPackageFamily(string packageFamilyName, ref uint count, IntPtr packageFullNames,
+    // Plain DllImport like the other helper P/Invoke (no unsafe code in this project), loaded only from System32.
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int GetPackagesByPackageFamily(string packageFamilyName, ref uint count, IntPtr packageFullNames,
         ref uint bufferLength, IntPtr buffer);
 
-    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
-    private static partial int GetPackagePathByFullName(string packageFullName, ref uint pathLength, [Out] char[]? path);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int GetPackagePathByFullName(string packageFullName, ref uint pathLength, [Out] char[]? path);
 }
 
 /// <summary>
