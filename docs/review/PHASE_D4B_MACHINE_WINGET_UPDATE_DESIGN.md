@@ -1,6 +1,6 @@
 # Phase D stage D4b: reviewed machine-scope WinGet updates (design note)
 
-Date: 2026-11-12. Status: **design, awaiting the owner's answers to Q1–Q3 (§9). No code change.** Stage D4b of the Phase D plan, after the owner's 2026-11-12 choice "Updates only, Search waits". It closes Task 53 gap **U1** (machine-scope WinGet updates have no reviewed-mode route) and, when the route ships, lets the helper drop protocol 1 (Task 54 finding **R2**, under the ADR-025 transition amendment drafted in stage C4).
+Date: 2026-11-12. Status: **design. Owner accepted Q1–Q3 as recommended on 2026-11-12 (§9). No code change.** Stage D4b of the Phase D plan, after the owner's 2026-11-12 choice "Updates only, Search waits". It closes Task 53 gap **U1** (machine-scope WinGet updates have no reviewed-mode route) and, when the route ships, lets the helper drop protocol 1 (Task 54 finding **R2**, under the ADR-025 transition amendment drafted in stage C4).
 
 Requirements: `FR-UPD-01–15`, `AC-UPD-01–11`, `TM-03–04/07/13`. Builds on [ADR-025](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md) (Update row of the responsibility table; "a new helper never also accepts protocol 1"), [ADR-033](../adr/ADR-033-NATIVE-AOT-ELEVATED-HELPER.md), the [install design note](PHASE_D_INSTALL_DESIGN.md) §3 and §7.2, the [Task 54 record](TASK_54_PHASE_C_REVIEW_GATE.md) and stage C4's reviewed user route (`WinGetUserSilentV1`). Base: `phase/4-beta` at `6c96081`.
 
@@ -97,6 +97,8 @@ In the same change, after the new route is in: `ElevatedHelperEntryPoint.RunAsyn
 **Q2. Accept the remaining settings race (S2) with the S1 and H7 mitigations,** as you did for Chocolatey's M1? The alternative is to keep the machine route off until WinGet stops reading user settings while elevated, which is not planned upstream. *Recommendation: accept as written; it is recorded in ADR-025 next to M1.*
 
 **Q3. Refuse updates that declare dependencies (and agreements), as for installs?** The alternative lets WinGet install the declared dependencies, which are also from the Microsoft `winget` source and hash-checked, but were not reviewed. *Recommendation: refuse in version 1, as you accepted for installs.*
+
+**Owner answer (2026-11-12, 20:09 UTC).** In response to the prepared choice listing Q1–Q3 with the recommendations above, the owner chose **“Accept all three as recommended”**: Q1 strict `--scope machine`; Q2 the S2 settings race is accepted with the S1 and H7 mitigations, to be recorded in ADR-025 next to M1 when the route is built; Q3 version 1 refuses updates whose target declares dependencies or licence agreements. This accepts the design only. It does not admit the route or approve a release, a host step or a real update.
 
 ## 10. Build stages (one PR each, Codex review before merge)
 
