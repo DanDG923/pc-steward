@@ -93,12 +93,14 @@ public sealed partial class WindowsPlatformTargetTests
 
         string package = File.ReadAllText(Path.Combine(root, "scripts", "New-PrivateBetaPackage.ps1"));
         StringAssert.Contains(package, $"$inProcComVersion = '{version}'");
-        StringAssert.Contains(package, $"'{ComInterop}/{version}' = @{{");
-        StringAssert.Contains(package, $"'{InProcCom}/{version}' = @{{");
         StringAssert.Contains(package, $@"src\PCSteward.Desktop\bin\Release\{WindowsTargetFramework}\win-x64");
+        // The licence/notice map is shared by the private-beta package and the release candidate builder.
+        string notices = File.ReadAllText(Path.Combine(root, "scripts", "PCStewardThirdPartyNotices.ps1"));
+        StringAssert.Contains(notices, $"'{ComInterop}/{version}' = @{{");
+        StringAssert.Contains(notices, $"'{InProcCom}/{version}' = @{{");
         string evidence = File.ReadAllText(Path.Combine(root, "scripts", "Test-PrivateBetaPackageEvidence.ps1"));
         StringAssert.Contains(evidence, $"$expectedInProcComKey = '{InProcCom}/{version}'");
-        foreach (string text in new[] { package, evidence })
+        foreach (string text in new[] { package, notices, evidence })
             Assert.AreEqual(0, OtherWinGetComVersion().Matches(text).Count(match => match.Groups["v"].Value != version), "a stale WinGet COM version is left in the packaging scripts");
     }
 

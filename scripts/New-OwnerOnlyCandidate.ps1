@@ -25,6 +25,7 @@ $script:CandidateRuntime = 'win-x64'
 $script:ManifestLeaf = 'candidate-manifest.json'
 $script:SummaryLeaf = 'candidate-build.json'
 $script:CapabilityLeaf = 'PCSteward.DeploymentCapability.txt'
+$script:NoticesLeaf = 'THIRD-PARTY-NOTICES.txt'
 # Qualification probe spec section 9, S7 obligation 1 (FR-UPD-15, TM-03/04/07/13): the build record is marked "probe included"
 # only when the build commit contains the reviewed probe slices S2-S6. Rule pc-steward-probe-build-mark:1 (all must hold):
 # (1) the source tree was clean before and after the build, so the payload was built from the commit; (2) the build commit
@@ -458,6 +459,17 @@ try {
     foreach ($managedLeaf in @('PCSteward.ElevatedHelper.dll', 'PCSteward.ElevatedHelper.deps.json', 'PCSteward.ElevatedHelper.runtimeconfig.json')) {
         if (Test-Path -LiteralPath (Join-Path $payload $managedLeaf)) { throw "The candidate helper must be a native image, but the payload contains $managedLeaf." }
     }
+
+    # 4. Third-party notices (Phase C close-out, ADR-008, NFR-MNT-01/05): the licences and notices of every package whose
+    # files are in the payload and of the .NET runtime compiled into the Native AOT helper, generated from the restored
+    # packages' own nuspec, licence and notice files. An unmapped, missing or changed declaration stops the build.
+    . (Join-Path $PSScriptRoot 'PCStewardThirdPartyNotices.ps1')
+    $noticesPath = Join-Path $payload $script:NoticesLeaf
+    if (Test-Path -LiteralPath $noticesPath) { throw "The build output already contains $($script:NoticesLeaf)." }
+    $notices = New-PCStewardReleaseThirdPartyNotices -RepositoryRoot $repositoryRoot -PayloadRoot $payload
+    $noticesStream = [IO.File]::Open($noticesPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $noticesBytes = [Text.UTF8Encoding]::new($false).GetBytes([string]$notices.Text); $noticesStream.Write($noticesBytes, 0, $noticesBytes.Length) } finally { $noticesStream.Dispose() }
+    Write-Host "== third-party notices: $($notices.PackageCount) packages"
 
     $entries = Get-OwnerOnlyCandidateFileEntries -Root $payload
     $manifestPath = Join-Path $OutputRoot $script:ManifestLeaf
