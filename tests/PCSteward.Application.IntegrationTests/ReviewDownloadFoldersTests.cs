@@ -57,11 +57,11 @@ public sealed class ReviewDownloadFoldersTests
         if (!OperatingSystem.IsWindows()) Assert.Inconclusive("Junctions are Windows-only; this row is Windows-CI evidence.");
         using Fixture fixture = new();
         string parent = Path.Combine(fixture.Base, "junctioned-parent");
-        Junction(parent, fixture.OutsideFolder);
+        fixture.Junction(parent);
         Assert.ThrowsExactly<System.Security.SecurityException>(() => { _ = new ReviewDownloadFolders(Path.Combine(parent, "downloads")); });
 
         ReviewDownloadFolders folders = new(fixture.Cache);
-        Junction(Path.Combine(fixture.Cache, "WinGetReview"), fixture.OutsideFolder);
+        fixture.Junction(Path.Combine(fixture.Cache, "WinGetReview"));
         Assert.IsNull(folders.CreateFolder());
         Assert.IsEmpty(Directory.EnumerateDirectories(fixture.OutsideFolder), "nothing was created through the junction");
     }
@@ -74,24 +74,12 @@ public sealed class ReviewDownloadFoldersTests
         ReviewDownloadFolders folders = new(fixture.Cache);
         string folder = folders.CreateFolder()!;
         File.WriteAllText(Path.Combine(folder, "installer.msi"), "x");
-        Junction(Path.Combine(folder, "Dependencies"), fixture.OutsideFolder);
+        fixture.Junction(Path.Combine(folder, "Dependencies"));
 
         Assert.IsFalse(folders.DeleteFolder(folder), "left for Clear downloaded files");
 
         Assert.AreEqual("sentinel", File.ReadAllText(fixture.Sentinel));
         Assert.IsTrue(Directory.Exists(Path.Combine(folder, "Dependencies")));
-    }
-
-    private static void Junction(string link, string target)
-    {
-        using System.Diagnostics.Process process = new();
-        process.StartInfo = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /c mklink /J \"{link}\" \"{target}\"")
-        {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
-        };
-        process.Start();
-        process.WaitForExit();
-        Assert.AreEqual(0, process.ExitCode, process.StandardError.ReadToEnd());
     }
 
     private sealed class Fixture : IDisposable
@@ -109,7 +97,27 @@ public sealed class ReviewDownloadFoldersTests
         internal string Outside => Path.Combine(OutsideFolder, new string('B', 32));
         internal string Sentinel => Path.Combine(OutsideFolder, "sentinel.txt");
 
-        // A recursive delete removes a junction itself and never enters it.
-        public void Dispose() => Directory.Delete(Base, recursive: true);
+        private readonly List<string> links = [];
+
+        /// <summary>A junction at <paramref name="link"/> to the outside folder, removed by itself (never entered) on dispose.</summary>
+        internal void Junction(string link)
+        {
+            using System.Diagnostics.Process process = new();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /c mklink /J \"{link}\" \"{OutsideFolder}\"")
+            {
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
+            };
+            process.Start();
+            process.WaitForExit();
+            Assert.AreEqual(0, process.ExitCode, process.StandardError.ReadToEnd());
+            links.Add(link);
+        }
+
+        public void Dispose()
+        {
+            foreach (string link in links)
+                if (Directory.Exists(link)) Directory.Delete(link);
+            Directory.Delete(Base, recursive: true);
+        }
     }
 }
