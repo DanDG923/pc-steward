@@ -57,7 +57,7 @@ function ConvertFrom-PCStewardReleaseToolchainPins {
         if (!$package) { continue }
         $id = [string]$package.id; $packageVersion = [string]$package.version
         if ($id -cnotmatch '\A[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\z' -or $packageVersion -cnotmatch '\A\d+(\.\d+){1,3}(-[0-9A-Za-z.-]+)?\z') { throw "Malformed pinned package: $id $packageVersion" }
-        if (@('library', 'download') -cnotcontains [string]$package.kind) { throw "Pinned package $id has an unknown kind." }
+        if (@('library', 'download', 'resolution') -cnotcontains [string]$package.kind) { throw "Pinned package $id has an unknown kind." }
         if ([string]$package.sha512 -cnotmatch '\A[A-Za-z0-9+/]{86}==\z') { throw "Pinned package $id has no SHA-512." }
         $key = $id.ToLowerInvariant() + '/' + $packageVersion.ToLowerInvariant()
         if ($map.ContainsKey($key)) { throw "Package $key is pinned twice." }
@@ -113,7 +113,7 @@ function Get-PCStewardRestoredPackages {
     foreach ($assetsPath in $AssetsPaths) {
         $assets = [IO.File]::ReadAllText($assetsPath) | ConvertFrom-Json
         $folders = @($assets.packageFolders.PSObject.Properties | ForEach-Object { $_.Name.TrimEnd('\', '/') })
-        if ($folders.Count -ne 1 -or !$folders[0].Equals($root, [StringComparison]::OrdinalIgnoreCase)) { $problems.Add("$assetsPath restores from another or an extra package folder") }
+        if ($folders.Count -ne 1 -or !$folders[0].Equals($root, [StringComparison]::OrdinalIgnoreCase)) { $problems.Add("$assetsPath restores from another or an extra package folder: $($folders -join ' | ')") }
         foreach ($library in $assets.libraries.PSObject.Properties) {
             if ($library.Value.type -cne 'package') { continue }
             if (([string]$library.Value.path) -cne $library.Name.ToLowerInvariant()) { $problems.Add("library path differs: $($library.Name)") }
@@ -150,29 +150,51 @@ function Get-PCStewardToolchainTree([string]$Root) {
     [pscustomobject]@{ Files = $files; Reparse = $reparse }
 }
 
+# The packages in the cache: the used ones, plus any other id/version folder (kind "resolution": fetched by NuGet only to
+# walk the graph). Anything that is not a plain id\version folder is returned as unexpected.
+function Get-PCStewardCachedPackages {
+    param([Parameter(Mandatory)]$Used, [Parameter(Mandatory)][string]$PackagesRoot)
+    $packages = [Collections.Generic.SortedDictionary[string, object]]::new([StringComparer]::Ordinal)
+    $unexpected = [Collections.Generic.List[string]]::new()
+    foreach ($key in $Used.Keys) { $packages[$key] = $Used[$key] }
+    foreach ($item in [IO.DirectoryInfo]::new($PackagesRoot).EnumerateFileSystemInfos()) {
+        if (!($item.Attributes -band [IO.FileAttributes]::Directory) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $unexpected.Add($item.Name); continue }
+        foreach ($versionItem in $item.EnumerateFileSystemInfos()) {
+            $key = $item.Name.ToLowerInvariant() + '/' + $versionItem.Name.ToLowerInvariant()
+            if (!($versionItem.Attributes -band [IO.FileAttributes]::Directory) -or ($versionItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $unexpected.Add($key); continue }
+            if (!$packages.ContainsKey($key)) {
+                # The nuspec carries the id's own casing; the folder name is lower case.
+                $nuspec = [IO.Path]::Combine($versionItem.FullName, $item.Name.ToLowerInvariant() + '.nuspec')
+                $id = $item.Name
+                if (Test-Path -LiteralPath $nuspec -PathType Leaf) { try { $id = [string]([xml][IO.File]::ReadAllText($nuspec)).package.metadata.id } catch { $id = $item.Name } }
+                if (!$id -or !$id.Equals($item.Name, [StringComparison]::OrdinalIgnoreCase)) { $id = $item.Name }
+                $packages[$key] = [pscustomobject]@{ Id = $id; Version = $versionItem.Name; Kind = 'resolution' }
+            }
+        }
+    }
+    [pscustomobject]@{ Packages = $packages; Unexpected = $unexpected }
+}
+
 # Checks the package cache against the pins. Returns the list of problems (empty: every used package is pinned with the same
-# bytes, every pin is used, every extracted file equals its .nupkg entry, and the cache holds nothing else).
+# bytes, every pin is in the cache, every extracted file equals its .nupkg entry, and the cache holds nothing unpinned).
 function Test-PCStewardRestoredPackages {
     param([Parameter(Mandatory)]$Used, [Parameter(Mandatory)]$Pins, [Parameter(Mandatory)][string]$PackagesRoot)
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $problems = [Collections.Generic.List[string]]::new()
     $root = $PackagesRoot.TrimEnd('\', '/')
     foreach ($key in $Used.Keys) { if (!$Pins.Packages.ContainsKey($key)) { $problems.Add("unpinned package $key") } }
-    foreach ($key in $Pins.Packages.Keys) { if (!$Used.ContainsKey($key)) { $problems.Add("pinned package not used $key") } }
     if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $problems.Add('the package cache is a reparse point'); return $problems }
-    # Nothing in the cache but the used packages' own folders.
-    foreach ($item in [IO.DirectoryInfo]::new($root).EnumerateFileSystemInfos()) {
-        if (!($item.Attributes -band [IO.FileAttributes]::Directory) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $problems.Add("unexpected cache entry $($item.Name)"); continue }
-        foreach ($versionItem in $item.EnumerateFileSystemInfos()) {
-            $key = $item.Name.ToLowerInvariant() + '/' + $versionItem.Name.ToLowerInvariant()
-            if (!$Used.ContainsKey($key) -or !($versionItem.Attributes -band [IO.FileAttributes]::Directory)) { $problems.Add("unexpected cache entry $key") }
-        }
-    }
+    # Nothing in the cache but the used packages and the pinned ones NuGet fetched only to resolve the graph (an older
+    # version it then lifted), each in its own folder. Both are checked byte for byte below.
+    $present = Get-PCStewardCachedPackages -Used $Used -PackagesRoot $root
+    foreach ($bad in $present.Unexpected) { $problems.Add("unexpected cache entry $bad") }
+    foreach ($key in $present.Packages.Keys) { if (!$Pins.Packages.ContainsKey($key) -and !$Used.ContainsKey($key)) { $problems.Add("unpinned cache entry $key") } }
+    foreach ($key in $Pins.Packages.Keys) { if (!$present.Packages.ContainsKey($key)) { $problems.Add("pinned package not restored $key") } }
     # NuGet extracts every entry except the OPC parts (it keeps .signature.p7s) and writes the nuspec under the lower-case id.
     $opcSkip = '\A(\[Content_Types\]\.xml|_rels/.*|package/.*)\z'
-    foreach ($key in $Used.Keys) {
+    foreach ($key in $present.Packages.Keys) {
         if (!$Pins.Packages.ContainsKey($key)) { continue }
-        $u = $Used[$key]; $id = $u.Id.ToLowerInvariant(); $version = $u.Version.ToLowerInvariant()
+        $u = $present.Packages[$key]; $id = $u.Id.ToLowerInvariant(); $version = $u.Version.ToLowerInvariant()
         $folder = [IO.Path]::Combine($root, $id, $version)
         $nupkgName = "$id.$version.nupkg"; $nupkg = Join-Path $folder $nupkgName
         $pin = [string]$Pins.Packages[$key].sha512
@@ -206,8 +228,9 @@ function Test-PCStewardRestoredPackages {
 # The pin file a fresh restore would need (printed by CI when the committed pins differ, for review and commit).
 function ConvertTo-PCStewardReleaseToolchainPinsJson {
     param([Parameter(Mandatory)]$Pins, [Parameter(Mandatory)]$Used, [Parameter(Mandatory)][string]$PackagesRoot)
-    $packages = @(foreach ($key in $Used.Keys) {
-        $u = $Used[$key]; $id = $u.Id.ToLowerInvariant(); $version = $u.Version.ToLowerInvariant()
+    $present = Get-PCStewardCachedPackages -Used $Used -PackagesRoot $PackagesRoot.TrimEnd('\', '/')
+    $packages = @(foreach ($key in $present.Packages.Keys) {
+        $u = $present.Packages[$key]; $id = $u.Id.ToLowerInvariant(); $version = $u.Version.ToLowerInvariant()
         $nupkg = [IO.Path]::Combine($PackagesRoot, $id, $version, "$id.$version.nupkg")
         [ordered]@{ id = $u.Id; version = $u.Version; kind = $u.Kind; sha512 = $(if (Test-Path -LiteralPath $nupkg -PathType Leaf) { Get-PCStewardToolchainFileSha512Base64 $nupkg } else { 'missing' }) }
     })

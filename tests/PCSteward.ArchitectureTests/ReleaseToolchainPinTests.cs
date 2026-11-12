@@ -38,6 +38,14 @@ public sealed class ReleaseToolchainPinTests
     }
 
     [TestMethod]
+    public void RestoreUsesOnlyNuGetOrgAndNoFallbackPackageFolder()
+    {
+        string config = File.ReadAllText(Path.Combine(Root, "nuget.config"));
+        StringAssert.Matches(config, new Regex(@"<packageSources>\s*<clear />\s*<add key=""nuget\.org"" value=""https://api\.nuget\.org/v3/index\.json"" protocolVersion=""3"" />\s*</packageSources>"));
+        StringAssert.Matches(config, new Regex(@"<fallbackPackageFolders>\s*<clear />\s*</fallbackPackageFolders>"));
+    }
+
+    [TestMethod]
     public void ThePinFileBytesAreNeverConverted()
     {
         string attributes = File.ReadAllText(Path.Combine(Root, ".gitattributes"));
