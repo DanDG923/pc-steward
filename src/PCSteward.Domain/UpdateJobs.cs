@@ -103,10 +103,19 @@ public sealed partial class UpdateJobSelection
     private static partial Regex EvidenceVersion();
 }
 
-/// <summary>A displayed selection that cannot be executed until explicit confirmation creates an approved job.</summary>
+/// <summary>
+/// A displayed selection that cannot be executed until explicit confirmation creates an approved job. Stage C4 (FR-UPD-15):
+/// <see cref="InstallerMode"/> is the reviewed installer mode bound when the review was made (null when the selection's route has
+/// none, which today is machine scope only). It is review data, never execution authority; it is re-checked before launch.
+/// </summary>
 public sealed class UpdateJobReview
 {
     public UpdateJobReview(Guid jobId, Guid correlationId, UpdateJobSelection selection)
+        : this(jobId, correlationId, selection, null)
+    {
+    }
+
+    public UpdateJobReview(Guid jobId, Guid correlationId, UpdateJobSelection selection, ReviewedInstallerMode? installerMode)
     {
         if (jobId == Guid.Empty) throw new ArgumentException("A job ID is required.", nameof(jobId));
         if (correlationId == Guid.Empty) throw new ArgumentException("A correlation ID is required.", nameof(correlationId));
@@ -114,9 +123,11 @@ public sealed class UpdateJobReview
         CorrelationId = correlationId;
         Selection = selection ?? throw new ArgumentNullException(nameof(selection));
         State = UpdateJobReviewState.AwaitingConfirmation;
+        InstallerMode = installerMode;
     }
 
     public Guid JobId { get; }
+    public ReviewedInstallerMode? InstallerMode { get; }
     public Guid CorrelationId { get; }
     public UpdateJobSelection Selection { get; }
     public UpdateJobReviewState State { get; }

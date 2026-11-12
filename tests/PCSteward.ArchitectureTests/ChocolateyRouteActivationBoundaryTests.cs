@@ -35,10 +35,21 @@ public sealed class ChocolateyRouteActivationBoundaryTests
         Match gate = Regex.Match(review, @"internal static bool HasSupportedMode\(ReviewedUpdateOperation operation\) =>(?<body>[^;]*);");
         Assert.IsTrue(gate.Success, "HasSupportedMode not found");
         Assert.AreEqual("operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserExactV3 && " +
+            "operation.Selection.Source == UpdateSource.WinGet && " +
             "operation.Selection.Architecture.Binding == ReviewedArchitectureBinding.Observed && " +
             "operation.Selection.Architecture.Value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64 && " +
             "UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode || " +
+            "HasWinGetUserSilentMode(operation) || " +
             "ReviewedChocolateyRouteAdmission.Admits(operation)", Regex.Replace(gate.Groups["body"].Value, @"\s+", " ").Trim());
+        // Stage C4 (Task 54 R1): the per-user WinGet term, as reviewed.
+        Match winget = Regex.Match(review, @"private static bool HasWinGetUserSilentMode\(ReviewedUpdateOperation operation\) =>(?<body>[^;]*);");
+        Assert.IsTrue(winget.Success, "HasWinGetUserSilentMode not found");
+        Assert.AreEqual("operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserSilentV1 && " +
+            "operation.Selection.Provider == UpdateProvider.WinGet && operation.Selection.Scope == UpdateScope.User && " +
+            "operation.Selection.Architecture.Binding == ReviewedArchitectureBinding.Observed && " +
+            "operation.Mode == ReviewedInstallerMode.Selected(InstallerMode.Silent) && " +
+            "UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode",
+            Regex.Replace(winget.Groups["body"].Value, @"\s+", " ").Trim());
 
         // The two exact shapes, as reviewed (ADR-031 "client target refuses" stays for package jobs).
         string admission = Regex.Replace(Code(Read(root, "src", "PCSteward.Application", "ReviewedChocolateyRouteAdmission.cs")), @"\s+", " ");

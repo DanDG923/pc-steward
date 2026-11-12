@@ -83,9 +83,9 @@ public sealed class HelperProcessOwnershipTests
             Task.FromResult(new ElevatedHelperResult(ElevatedHelperOutcome.TimedOut, null,
                 "helper-exit-unconfirmed", completion));
     }
-    private sealed class NeverUserExecutor : IWingetUpdateExecutor
+    private sealed class NeverUserExecutor : IWingetReviewedUserUpdateExecutor
     {
-        public Task<WingetProcessResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
+        public Task<WingetProcessResult> ExecuteAsync(ReviewedUpdateOperation operation, UpdateItemProgress? progress, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Machine work cannot fall back to the user executor.");
     }
 }

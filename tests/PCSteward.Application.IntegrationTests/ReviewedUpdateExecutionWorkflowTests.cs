@@ -140,7 +140,7 @@ public sealed class ReviewedUpdateExecutionWorkflowTests
     {
         IRunningApplicationDetector running = detector ?? new RunningDetector(RunningApplicationDetection.NotDetected);
         SequentialUpdateBatchCoordinator coordinator = new(executor, new VerifiedInventory(), new InMemoryHistory(), running);
-        return new ReviewedUpdateExecutionWorkflow(prepare, new UpdateJobApprovalService(store), coordinator, running);
+        return new ReviewedUpdateExecutionWorkflow(prepare, new UpdateJobApprovalService(store), coordinator, running, requestingUserSid: () => "S-1-5-21-11-22-33-1001");
     }
 
     private static UpdateJobSelection Selection(string candidate = "1.1.0") => new("winget:contoso.widget", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Widget", "1.0.0", candidate, UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "source-match-v1");

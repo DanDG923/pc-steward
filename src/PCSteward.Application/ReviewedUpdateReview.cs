@@ -30,7 +30,8 @@ public sealed class ReviewedUpdateReview
 
     /// <summary>
     /// The compiled route admission (the single review-gate admission point). The first term is the reviewed WinGet rule
-    /// (<see cref="UpdateRouteContract.WinGetUserExactV3"/>), unchanged. The second term is the Task 50 activation (ADR-031
+    /// (<see cref="UpdateRouteContract.WinGetUserExactV3"/>), unchanged in meaning: stage C4 states its <c>winget</c> source
+    /// explicitly, because the compiled mode table now also gives <c>msstore</c> user scope a mode (for the C4 route only). The second term is the Task 50 activation (ADR-031
     /// owner decision 7, step C-A; gate inventory in <c>docs/review/TASK_50_ACTIVATION_CHANGE.md</c>): the exact shapes of
     /// <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/> and
     /// <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> (<see cref="ReviewedChocolateyRouteAdmission"/>). Admission
@@ -39,10 +40,24 @@ public sealed class ReviewedUpdateReview
     /// </summary>
     internal static bool HasSupportedMode(ReviewedUpdateOperation operation) =>
         operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserExactV3 &&
+        operation.Selection.Source == UpdateSource.WinGet &&
         operation.Selection.Architecture.Binding == ReviewedArchitectureBinding.Observed &&
         operation.Selection.Architecture.Value is UpdateArchitecture.X86 or UpdateArchitecture.X64 or UpdateArchitecture.Arm64 &&
         UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode ||
+        HasWinGetUserSilentMode(operation) ||
         ReviewedChocolateyRouteAdmission.Admits(operation);
+
+    /// <summary>
+    /// Stage C4 (Task 54 R1, owner decision 2026-11-12): the per-user WinGet route <see cref="UpdateRouteContract.WinGetUserSilentV1"/>
+    /// is admitted when its frozen mode is the compiled one for its selection (Silent, for WinGet user scope from <c>winget</c> or
+    /// <c>msstore</c>) and its architecture is observed. Shape only, like the other terms.
+    /// </summary>
+    private static bool HasWinGetUserSilentMode(ReviewedUpdateOperation operation) =>
+        operation.HasCurrentSchema && operation.RouteContract == UpdateRouteContract.WinGetUserSilentV1 &&
+        operation.Selection.Provider == UpdateProvider.WinGet && operation.Selection.Scope == UpdateScope.User &&
+        operation.Selection.Architecture.Binding == ReviewedArchitectureBinding.Observed &&
+        operation.Mode == ReviewedInstallerMode.Selected(InstallerMode.Silent) &&
+        UpdateInstallerModeCapabilities.Resolve(operation.Selection.Provider, operation.Selection.Source, operation.Selection.Scope) == operation.Mode;
 }
 
 /// <summary>Explicit process-local confirmation. It is not a persisted job or a dispatch permit.</summary>

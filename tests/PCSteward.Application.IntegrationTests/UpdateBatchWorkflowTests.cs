@@ -598,7 +598,7 @@ public sealed class UpdateBatchWorkflowTests
         {
             Workflow = new ReviewedUpdateExecutionWorkflow(Prepare, new UpdateJobApprovalService(Store),
                 new SequentialUpdateBatchCoordinator(Executor, Inventory, History, Detector), Detector, () => Now,
-                sharedPreparer ? PrepareShared : null)
+                sharedPreparer ? PrepareShared : null, () => "S-1-5-21-11-22-33-1001")
             {
                 OwnedWorkSettleLimit = settleLimit ?? TimeSpan.FromSeconds(30)
             };

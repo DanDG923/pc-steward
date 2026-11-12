@@ -73,7 +73,9 @@ public sealed class ElevatedUpdateRunner
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.CurrentEvidenceMismatch, "current-update-evidence-mismatch");
         }
 
-        if (job.Selection.Provider is not (UpdateProvider.WinGet or UpdateProvider.Chocolatey))
+        // ADR-025 transition amendment (stage C4, Task 54 R2): protocol 1 carries machine-scope WinGet updates only; Chocolatey
+        // updates run on their own reviewed protocol-2 route and never reach this runner's helper.
+        if (job.Selection.Provider != UpdateProvider.WinGet)
         {
             return Complete(job, startedAt, null, UpdateExecutionStatus.Denied, UpdateExecutionDenial.UnsupportedProvider, "unsupported-provider");
         }

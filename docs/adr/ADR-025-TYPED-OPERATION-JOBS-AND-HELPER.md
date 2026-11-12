@@ -181,3 +181,14 @@ The owner decided that the existing runtime-limits disclosure is sufficient. No 
 - Item 1's "`HasSupportedMode`, `CapabilityOperationAllowlist` and the dispatcher's `Supports` are unchanged" describes the probe slices S1–S6.
 - The activation build changes exactly those three points, under ADR-031 decision 7 ([activation change record](../review/TASK_50_ACTIVATION_CHANGE.md)).
 - The compiled allow-list now holds two tokens, so the probe holds and evaluates G1 for both. Item 5's rule holds as procedure under owner decision D4 = G-0: no Chocolatey review is confirmed until a recorded probe PASS on the activated deployment.
+
+## Proposed amendment (2026-11-12) — protocol-1 transition for machine-scope WinGet (stage C4, Task 54 R2)
+
+**Status: Proposed, awaiting the owner's acceptance of this wording.** Until accepted, this section changes nothing. Source: [Task 54 record](../review/TASK_54_PHASE_C_REVIEW_GATE.md) finding R2 and the owner's 2026-11-12 decision "Fix R1 now; amend ADR-025 for R2". Stage record: [C4](../review/C4_REVIEWED_WINGET_USER_MODE.md).
+
+1. **Exception.** "Privilege and protocol boundary" says a new helper never also accepts protocol 1. As a time-limited exception, the protocol-2 helper keeps protocol 1 for one purpose only: a machine-scope WinGet `UpdatePackage` from the `winget` or `msstore` source. Nothing else may use protocol 1, and no new operation, source, provider or argument is added to it.
+2. **Already narrowed (stage C4).** The protocol-1 request validator refuses Chocolatey (`request-authority-not-allowlisted`); the helper's protocol-1 executor has no Chocolatey arm; the desktop's `ElevatedUpdateRunner` denies any non-WinGet job before a helper launch. Per-user WinGet updates no longer use the legacy job route at all (R1).
+3. **Disclosed gap while it lasts.** A machine-scope WinGet update has no reviewed or bound installer mode and no `--silent`: the helper runs `upgrade --id <id> --version <v> --source <winget|msstore> --exact --scope machine --architecture <a> --disable-interactivity`, and the request carries no typed protocol-2 operation claim. This is not represented as the stronger new-protocol Update capability. ADR-018's controls are retained unchanged: protected one-shot helper, trusted same-signer launch, random pipe, endpoint identity, nonce, expiry, single request and teardown.
+4. **End condition.** The exception ends when the Phase D stage D4b reviewed machine-scope WinGet route ships. The D4b change removes the protocol-1 executor, validator and transport path, makes the helper refuse protocol 1 without starting a provider, and adds a regression test that proves the refusal.
+5. **If D4b is paused or cancelled,** the owner reconsiders this exception; it does not become permanent by default.
+6. **No other authority.** Accepting this text authorizes no deployment, host test, release or publishing step.

@@ -15,7 +15,15 @@ public enum UpdateRouteContract
     /// activation (ADR-031 decision 7), and the frozen versions are data: only the provider's compiled list and native checks
     /// decide whether a job could run.
     /// </summary>
-    ChocolateyClientSelfUpdateV1
+    ChocolateyClientSelfUpdateV1,
+    /// <summary>
+    /// Stage C4 (Task 54 R1, FR-UPD-15; owner decision 2026-11-12 "Silent for all per-user apps"): a desktop WinGet update of an app
+    /// installed for the current user, from the <c>winget</c> or <c>msstore</c> source, with <see cref="InstallerMode.Silent"/> bound
+    /// at review. It replaces the mode-less legacy user route; unlike <see cref="WinGetUserExactV3"/> it is not limited to MSIX
+    /// installers or a known channel. The frozen data is not native qualification: fresh evidence, the review gate and the
+    /// non-elevated runner still decide whether anything runs.
+    /// </summary>
+    WinGetUserSilentV1
 }
 
 /// <summary>Frozen data semantics only. No member asserts that native candidate qualification succeeded.</summary>
@@ -72,6 +80,10 @@ public sealed partial class ReviewedUpdateOperation
             (encodingVersion != SchemaVersion || !HasClientSelfUpdateShape(job.Selection, mode, architecture)))
             throw new ArgumentException("A client self-update is limited to the current schema, the Chocolatey Community machine " +
                 "registration of the package ID chocolatey, and provider-script-controlled mode and architecture.", nameof(routeContract));
+        if (routeContract == UpdateRouteContract.WinGetUserSilentV1 &&
+            (encodingVersion != SchemaVersion || !HasWinGetUserSilentShape(job.Selection, mode, architecture)))
+            throw new ArgumentException("The per-user WinGet route is limited to the current schema, a WinGet user-scope update from the " +
+                "winget or msstore source, the Silent mode and an observed architecture.", nameof(routeContract));
         if (evidenceObservedAt == default || evidenceObservedAt > job.ApprovedAt)
             throw new ArgumentException("Review evidence needs an observation time no later than review.", nameof(evidenceObservedAt));
         JobId = job.Id;
@@ -207,6 +219,16 @@ public sealed partial class ReviewedUpdateOperation
         other is not null && CryptographicOperations.FixedTimeEquals(GetCanonicalBytes(), other.GetCanonicalBytes());
 
     /// <summary>
+    /// Stage C4: true when this operation was frozen from exactly <paramref name="job"/>: the same job and correlation IDs, its
+    /// approval time, its digest (which must still be valid) and the same selection. Data comparison only; it grants nothing.
+    /// </summary>
+    public bool BindsJob(ImmutableUpdateJob? job) =>
+        job is not null && job.HasValidDigest && JobId == job.Id && CorrelationId == job.CorrelationId &&
+        ReviewedAt == job.ApprovedAt.ToUniversalTime() &&
+        CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(LegacyJobDigest), Encoding.ASCII.GetBytes(job.Digest)) &&
+        Selection.LegacyDigestData.EqualsEvidence(job.Selection);
+
+    /// <summary>
     /// Format check only (adapter gates §A.6): <c>choco-profile-v2:</c> followed by exactly 64 uppercase hex digits. The digest
     /// is comparison data; it never proves a native profile, qualification or consent.
     /// </summary>
@@ -243,6 +265,14 @@ public sealed partial class ReviewedUpdateOperation
         selection.Scope == UpdateScope.Machine && string.Equals(selection.PackageId, ChocolateyClientPackageId, StringComparison.Ordinal) &&
         mode == ReviewedInstallerMode.NotControllable(UncontrolledInstallerModeReason.ProviderScriptControlled) &&
         architecture?.Binding == ReviewedArchitectureBinding.ProviderScriptSelected;
+
+    /// <summary>
+    /// Stage C4 shape only: WinGet, <c>winget</c> or <c>msstore</c>, User scope, <c>Selected(Silent)</c> and an observed architecture.
+    /// </summary>
+    private static bool HasWinGetUserSilentShape(UpdateJobSelection selection, ReviewedInstallerMode mode, ReviewedUpdateArchitecture? architecture) =>
+        selection.Provider == UpdateProvider.WinGet && selection.Source is UpdateSource.WinGet or UpdateSource.MicrosoftStore &&
+        selection.Scope == UpdateScope.User && mode == ReviewedInstallerMode.Selected(InstallerMode.Silent) &&
+        (architecture is null || architecture.Binding == ReviewedArchitectureBinding.Observed);
 
     private static bool IsUserCacheIntentRoute(UpdateRouteContract route) =>
         route is UpdateRouteContract.ChocolateyMachineProvisionalV3 or UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3;

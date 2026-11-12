@@ -17,8 +17,8 @@ public sealed class Task49MilestoneTests
         ImmutableUpdateJob job = Job(UpdateScope.User);
         UpdateProgressMailbox mailbox = Prepared(job);
         FixtureProcess process = new();
-        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetUpdateExecutor(process)));
-        UpdateProviderAttempt result = await executor.ExecuteAsync(job, new(job.Selection, true, true), new UpdateItemProgress(job, mailbox), CancellationToken.None);
+        ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor(process)));
+        UpdateProviderAttempt result = await executor.ExecuteAsync(job, Reviewed(job), new(job.Selection, true, true), new UpdateItemProgress(job, mailbox), CancellationToken.None);
         Assert.AreEqual(UpdateProviderAttemptStatus.AwaitingVerification, result.Status);
         Assert.AreEqual(1, process.Starts);
         Assert.AreEqual(3, mailbox.Counters.Attempts);
@@ -28,7 +28,7 @@ public sealed class Task49MilestoneTests
 
         ImmutableUpdateJob rejected = Job(UpdateScope.User);
         UpdateProgressMailbox rejectedMailbox = Prepared(rejected);
-        UpdateProviderAttempt denial = await executor.ExecuteAsync(rejected,
+        UpdateProviderAttempt denial = await executor.ExecuteAsync(rejected, Reviewed(rejected),
             new(rejected.Selection, false, true), new UpdateItemProgress(rejected, rejectedMailbox), CancellationToken.None);
         Assert.AreEqual(UpdateProviderAttemptStatus.ProductFailed, denial.Status);
         Assert.AreEqual(1, process.Starts);
@@ -98,6 +98,11 @@ public sealed class Task49MilestoneTests
         mailbox.Offer(job.Id, job.CorrelationId, UpdateProgressPhase.Preparing);
         return mailbox;
     }
+    /// <summary>Stage C4: the per-user reviewed operation frozen from <paramref name="job"/>.</summary>
+    private static ReviewedUpdateOperation Reviewed(ImmutableUpdateJob job) =>
+        WingetUserReviewedRoute.Freeze(job, ReviewedInstallerMode.Selected(InstallerMode.Silent), "S-1-5-21-11-22-33-1001", "inventory:fixture", job.ApprovedAt)
+        ?? throw new InvalidOperationException("The fixture job must freeze on the per-user route.");
+
     private static ImmutableUpdateJob Job(UpdateScope scope) => new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(),
         new("winget:contoso.fixture", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Fixture", "1.0", "2.0",
             scope, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);

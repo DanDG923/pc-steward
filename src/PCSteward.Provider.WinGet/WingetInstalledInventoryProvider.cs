@@ -349,59 +349,33 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
 }
 
 /// <summary>Provider-owned construction for an exact, user-scope WinGet update operation.</summary>
-public sealed class WingetUpdateExecutor : IWingetUpdateExecutor
+/// <summary>
+/// Stage C4 (Task 54 R1; FR-UPD-15, FR-UPD-01/03, AC-UPD-03): the only non-elevated WinGet update executor. It runs a per-user
+/// reviewed operation on <see cref="UpdateRouteContract.WinGetUserSilentV1"/> and builds its arguments from that operation alone,
+/// through <see cref="WingetReviewedUpdateArguments.Build"/>; it never reads a mode-less job. The legacy mode-less user builder was
+/// removed, and an architecture test pins that the desktop composes this executor.
+/// </summary>
+public interface IWingetReviewedUserUpdateExecutor
+{
+    Task<WingetProcessResult> ExecuteAsync(ReviewedUpdateOperation operation, UpdateItemProgress? progress, CancellationToken cancellationToken);
+}
+
+/// <inheritdoc cref="IWingetReviewedUserUpdateExecutor"/>
+public sealed class WingetReviewedUserUpdateExecutor : IWingetReviewedUserUpdateExecutor
 {
     private static readonly TimeSpan UpdateTimeout = TimeSpan.FromMinutes(15);
     private readonly IWingetProcess process;
 
-    public WingetUpdateExecutor() : this(new WindowsWingetProcess()) { }
-    internal WingetUpdateExecutor(IWingetProcess process) => this.process = process ?? throw new ArgumentNullException(nameof(process));
+    public WingetReviewedUserUpdateExecutor() : this(new WindowsWingetProcess()) { }
+    internal WingetReviewedUserUpdateExecutor(IWingetProcess process) => this.process = process ?? throw new ArgumentNullException(nameof(process));
 
-    public Task<WingetProcessResult> ExecuteAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
-        ExecuteAsync(job, null, cancellationToken);
-
-    public Task<WingetProcessResult> ExecuteAsync(ImmutableUpdateJob job, UpdateItemProgress? progress, CancellationToken cancellationToken)
+    public Task<WingetProcessResult> ExecuteAsync(ReviewedUpdateOperation operation, UpdateItemProgress? progress, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(job);
-        if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
-        if (job.Selection.Scope != UpdateScope.User) throw new ArgumentException("The non-elevated provider accepts only user-scope jobs.", nameof(job));
-        return process.RunUpgradeAsync(BuildUpdateArguments(job), UpdateTimeout, progress, cancellationToken);
+        ArgumentNullException.ThrowIfNull(operation);
+        if (!WingetUserReviewedRoute.Admits(operation))
+            throw new ArgumentException("Only an admitted per-user reviewed WinGet operation can run without elevation.", nameof(operation));
+        return process.RunUpgradeAsync(WingetReviewedUpdateArguments.Build(operation), UpdateTimeout, progress, cancellationToken);
     }
-
-    public static IReadOnlyList<string> BuildUpdateArguments(ImmutableUpdateJob job)
-    {
-        ArgumentNullException.ThrowIfNull(job);
-        if (!job.HasValidDigest) throw new ArgumentException("The update job failed its integrity check.", nameof(job));
-        if (job.Selection.Provider != UpdateProvider.WinGet) throw new ArgumentException("Only WinGet jobs are supported.", nameof(job));
-        if (job.Selection.Scope != UpdateScope.User) throw new ArgumentException("Only user-scope operations may run without elevation.", nameof(job));
-        return
-        [
-            "upgrade",
-            "--id", job.Selection.PackageId,
-            "--version", job.Selection.CandidateVersion,
-            "--source", Source(job.Selection.Source),
-            "--exact",
-            "--scope", "user",
-            "--architecture", Architecture(job.Selection.Architecture),
-            "--disable-interactivity"
-        ];
-    }
-
-    private static string Source(UpdateSource source) => source switch
-    {
-        UpdateSource.WinGet => "winget",
-        UpdateSource.MicrosoftStore => "msstore",
-        _ => throw new ArgumentOutOfRangeException(nameof(source))
-    };
-
-    private static string Architecture(UpdateArchitecture architecture) => architecture switch
-    {
-        UpdateArchitecture.X64 => "x64",
-        UpdateArchitecture.X86 => "x86",
-        UpdateArchitecture.Arm64 => "arm64",
-        UpdateArchitecture.Neutral => "neutral",
-        _ => throw new ArgumentOutOfRangeException(nameof(architecture))
-    };
 }
 
 /// <summary>Provider-owned construction for an exact, machine-scope WinGet update operation.</summary>

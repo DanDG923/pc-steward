@@ -22,6 +22,11 @@ public sealed record ReviewedUpdateExecutionResult(bool Started, string Message,
 /// from fresh inventory evidence, and it obtains that evidence again immediately before execution.
 /// <paramref name="prepareSelections"/> (optional) prepares a frozen batch for review from one shared fresh inventory observation; without
 /// it each batch item is prepared through <paramref name="prepareSelection"/>. Dispatch always re-prepares each item on its own.
+/// Stage C4 (Task 54 R1, FR-UPD-15): a per-user WinGet review binds its installer mode (<see cref="WingetUserReviewedRoute.BindMode"/>);
+/// the mode is checked again against the fresh re-preparation before approval, and the approved job is frozen with it into the
+/// per-user reviewed operation the runner requires. <paramref name="requestingUserSid"/> reads the current Windows account's SID for
+/// that operation; without it no per-user update starts. A machine-scope WinGet review binds no mode: it runs on protocol 1 under the
+/// ADR-025 transition amendment until Phase D stage D4b. Chocolatey updates are not reviewed here; they have their own reviewed route.
 /// </summary>
 public sealed class ReviewedUpdateExecutionWorkflow(
     Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepareSelection,
@@ -29,8 +34,12 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     SequentialUpdateBatchCoordinator coordinator,
     IRunningApplicationDetector runningApplications,
     Func<DateTimeOffset>? utcNow = null,
-    Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = null)
+    Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = null,
+    Func<string?>? requestingUserSid = null)
 {
+    /// <summary>Stage C4 (ADR-025 transition amendment): Chocolatey is never reviewed or run on this route or on protocol 1.</summary>
+    public const string ChocolateyNotOnThisRouteMessage = "Chocolatey updates use their own review, so this update can't be started from here.";
+
     /// <summary>Why an app that couldn't be prepared isn't in the frozen set.</summary>
     public const string CouldNotPrepareMessage = "PC Steward could not prepare this update, so it isn't included.";
 
@@ -62,6 +71,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     private readonly IRunningApplicationDetector runningApplications = runningApplications ?? throw new ArgumentNullException(nameof(runningApplications));
 
     private readonly Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = prepareSelections;
+    private readonly Func<string?>? requestingUserSid = requestingUserSid;
 
     public async Task<UpdateReviewPreparation> BeginReviewAsync(string stableProductKey, CancellationToken cancellationToken)
     {
@@ -73,10 +83,37 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     private async Task<UpdateReviewPreparation> ReviewPreparedSelectionAsync(UpdateSelectionPreparation preparation, CancellationToken cancellationToken)
     {
         if (preparation.Selection is null) return new(null, preparation.Message, RunningApplicationDetection.NotDetected);
-        UpdateJobReview review = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection);
+        if (!TryBindReviewMode(preparation.Selection, out ReviewedInstallerMode? mode, out string refusal))
+            return new(null, refusal, RunningApplicationDetection.NotDetected);
+        UpdateJobReview review = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode);
         RunningApplicationDetection running = await runningApplications.DetectAsync(review.Selection, cancellationToken).ConfigureAwait(false);
         return new(review, preparation.Message, running,
             new UpdateProgressMailbox(review.JobId, review.CorrelationId, review.Selection.Scope));
+    }
+
+    /// <summary>
+    /// Stage C4: the installer mode a review of <paramref name="selection"/> binds. A WinGet user-scope selection binds its reviewed
+    /// mode or is refused; a WinGet machine-scope selection binds none (protocol-1 transition); Chocolatey is refused here.
+    /// </summary>
+    private static bool TryBindReviewMode(UpdateJobSelection selection, out ReviewedInstallerMode? mode, out string refusal)
+    {
+        mode = null;
+        refusal = string.Empty;
+        if (selection.Provider != UpdateProvider.WinGet) { refusal = ChocolateyNotOnThisRouteMessage; return false; }
+        if (selection.Scope == UpdateScope.Machine) return true;
+        mode = WingetUserReviewedRoute.BindMode(selection);
+        if (mode is null) refusal = WingetUserReviewedRoute.NoReviewedModeMessage;
+        return mode is not null;
+    }
+
+    /// <summary>Stage C4: the mode bound at review still applies to the fresh re-preparation (both null for machine scope).</summary>
+    private static bool ReviewedModeStillApplies(UpdateJobReview review, UpdateJobSelection fresh) =>
+        TryBindReviewMode(fresh, out ReviewedInstallerMode? mode, out _) && mode == review.InstallerMode;
+
+    private string? ReadRequestingUserSid()
+    {
+        try { return requestingUserSid?.Invoke(); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
     }
 
     /// <summary>The message for an item whose cancellation arrived before its provider could start (Task 52).</summary>
@@ -98,6 +135,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         UpdateSelectionPreparation preparation;
         RunningApplicationDetection running;
         ImmutableUpdateJob job;
+        ReviewedUpdateOperation? reviewedOperation = null;
         try
         {
             preparation = await prepareSelection(review.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
@@ -105,6 +143,13 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             {
                 return new(false, "The approved update evidence changed or is no longer fresh. No update was started.", null);
             }
+
+            // Stage C4 (Task 54 R1): the installer mode bound at review is checked again against the fresh evidence, before approval.
+            if (!ReviewedModeStillApplies(review, preparation.Selection))
+                return new(false, review.Selection.Provider == UpdateProvider.WinGet ? WingetUserReviewedRoute.ModeChangedMessage : ChocolateyNotOnThisRouteMessage, null);
+            string? requester = null;
+            if (review.Selection.Scope == UpdateScope.User && string.IsNullOrWhiteSpace(requester = ReadRequestingUserSid()))
+                return new(false, WingetUserReviewedRoute.RequesterUnavailableMessage, null);
 
             running = await runningApplications.DetectAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
             if (!RunningApplicationAcknowledgement.Covers(runningApplicationWarningAcknowledged, acknowledgedRunningProcesses, running))
@@ -121,6 +166,16 @@ public sealed class ReviewedUpdateExecutionWorkflow(
 
             // ADR-025: the approval (and so any helper request built from it) is made just in time, when this item's turn comes.
             job = await approvals.ConfirmAsync(review, utcNow(), cancellationToken).ConfigureAwait(false);
+            if (job.Selection.Scope == UpdateScope.User)
+            {
+                // Stage C4: freeze the approved job with the reviewed mode; the runner runs nothing user-scope without it. A saved
+                // approval alone starts nothing and is never replayed.
+                LiveInventoryObservation? observation = preparation.Observation;
+                reviewedOperation = WingetUserReviewedRoute.Freeze(job, review.InstallerMode, requester,
+                    observation is null ? $"review:{review.CorrelationId:D}" : $"inventory:{observation.CorrelationId:D}",
+                    observation?.ObservedAt ?? job.ApprovedAt);
+                if (reviewedOperation is null) return new(false, WingetUserReviewedRoute.NoReviewedModeMessage, null);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -129,7 +184,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
         UpdateBatchResult batch = await coordinator.RunAsync(
             [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress,
-                acknowledgedRunningProcesses)],
+                acknowledgedRunningProcesses, reviewedOperation)],
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);

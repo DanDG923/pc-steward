@@ -31,3 +31,5 @@ The owner chose to fix R1 now and to amend ADR-025 for R2:
 - **R2:** a written ADR-025 transition amendment lets the protocol-2 helper keep protocol 1 for machine-scope WinGet updates only until the Phase D D4b reviewed machine route ships. Protocol 1 is then removed, with a regression test that the helper refuses it. The amendment's wording still needs the owner's acceptance.
 
 Phase C closes when R1 is fixed and the amendment is accepted.
+
+**Stage C4 (2026-11-12).** R1 is fixed in code and R2's amendment is proposed: [C4 record](C4_REVIEWED_WINGET_USER_MODE.md). The owner chose Silent for every per-user WinGet app. Both still need the Codex re-review, and the amendment needs the owner's acceptance.
