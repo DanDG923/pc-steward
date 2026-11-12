@@ -1,3 +1,11 @@
+# Task 53A — Windows App SDK 1.8 servicing (release 0.1.3)
+
+`NFR-MNT-01/05`, retained `NFR-REL-01–05`; [record](../review/TASK_53A_DEPENDENCY_SERVICING.md).
+
+- Change: `Directory.Packages.props` (`Microsoft.WindowsAppSDK` 1.8.260921001), `Directory.Build.props` (`VersionPrefix` 0.1.3), `scripts/New-PrivateBetaPackage.ps1` licence map (adds `Microsoft.WindowsAppSDK.ML` 1.8.2223 and `System.Numerics.Tensors` 9.0.0), CI job `package-licence-map`.
+- Evidence: Windows CI run 43232683533 (Release 0 warnings; full suite; licence map 17/17; release candidate 104 files).
+- Not claimed: a launch of the serviced build on the owner's PC; the owner's current Windows App Runtime version (re-read by the publish paste).
+
 # Tasks 51 and 52 — Restart outcomes and the Update all audit
 
 `FR-UPD-05/06/08–11`, `AC-UPD-06–11`, `FR-UI-06`, `FR-HIS-01/03`; [record](../review/TASK_51_52_RESTART_OUTCOMES_AND_BATCH_AUDIT.md).
