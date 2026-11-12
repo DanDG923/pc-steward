@@ -115,6 +115,15 @@ function Has([string[]]$o, [string]$line) { @($o | Where-Object { $_ -ceq $line 
 function Starts([string[]]$o, [string]$prefix) { @($o | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) }).Count }
 function There([string]$p) { Test-Path -LiteralPath $p }
 
+# --- 4. A window that loaded a PowerShell profile (started without -NoProfile) is refused before anything changes ---
+$env:PCSTEWARD_CLEANUP_ANSWER = 'YES'
+$ErrorActionPreference = 'Continue'
+$o = @(& (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ExecutionPolicy Bypass -File $copy 2>&1 | ForEach-Object { [string]$_ })
+$ErrorActionPreference = 'Stop'
+$o | ForEach-Object { Write-Host ('  | ' + $_) }
+Check ((Starts $o 'STOP: this window loaded a PowerShell profile') -eq 1 -and !(Has $o 'PLAN (nothing has changed yet):')) 'a window started without -NoProfile is refused'
+Check ((There (Join-Path $up 'PCSteward-Task50D')) -and (There $exec) -and (@(G @('stash', 'list')).Count -eq 1)) 'the refused run changed nothing'
+
 # --- 4a. A .NET Framework startup override in the environment stops the paste before anything changes ---
 $env:COR_ENABLE_PROFILING = '0'
 $o = RunPaste 'YES'

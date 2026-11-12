@@ -4,8 +4,10 @@
 # certificates, and the one-off "PC Steward OwnerOnlyTest Execution <id>" and download folders in Program Files and
 # ProgramData.
 #
-# Run it once in a NEW Windows PowerShell 5.1 window opened from the Start menu: the blue "Windows PowerShell", not
-# PowerShell 7, not "Run as administrator", and not a window started by the Claude app.
+# Run it once in a NEW Windows PowerShell 5.1 window that does not load your PowerShell profile: press Win+R, enter
+#     C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile
+# and press Enter (not Ctrl+Shift+Enter: the window must NOT be "Run as administrator"). Not PowerShell 7, and not a
+# window started by the Claude app. The paste refuses a window that was started without -NoProfile.
 # It first lists everything it would change, then waits for you to type YES. Nothing changes before that.
 #
 # Prompts, in order. Answer No to anything else:
@@ -39,6 +41,7 @@ function RemoveTree([string]$p) {
 try {
     # --- Checks: the right window, Git and the clone ---
     if ($PSVersionTable.PSEdition -ne 'Desktop' -or ![Environment]::Is64BitProcess -or !$PSHOME.TrimEnd('\').Equals((Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'), [StringComparison]::OrdinalIgnoreCase)) { throw 'use 64-bit Windows PowerShell 5.1 from the Start menu, not PowerShell 7' }
+    if (@([Environment]::GetCommandLineArgs() | Where-Object { $_ -ieq '-NoProfile' -or $_ -ieq '-nop' }).Count -eq 0) { throw 'this window loaded a PowerShell profile; press Win+R and start C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile. Nothing changed.' }
     if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'this window is elevated; open a normal (not administrator) Windows PowerShell window' }
     $pt = [Reflection.Emit.AssemblyBuilder]::DefineDynamicAssembly([Reflection.AssemblyName]::new('PCStewardCleanupPackage'), 'Run').DefineDynamicModule('P').DefineType('P', 'Public,Sealed,Abstract')
     $pt.DefinePInvokeMethod('GetCurrentPackageFullName', 'kernel32.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], [Type[]]@([uint32].MakeByRefType(), [IntPtr]), 'Winapi', 'Unicode').SetImplementationFlags('PreserveSig')

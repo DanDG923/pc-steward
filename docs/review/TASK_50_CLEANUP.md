@@ -55,7 +55,9 @@ guard-contract label are in the production code. **Nothing in the stash still ma
 ## 3. The paste
 
 [`TASK_50_CLEANUP_PASTE.ps1`](TASK_50_CLEANUP_PASTE.ps1), run once in a new, normal (not administrator) Windows
-PowerShell 5.1 window that the owner opens from the Start menu.
+PowerShell 5.1 window that the owner starts with Win+R as `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+-NoProfile`, so that no PowerShell profile (which same-user code could edit to redefine `Start-Process` before the
+elevation) is loaded. The paste refuses a window whose command line has no `-NoProfile` (Codex security review).
 
 1. **Checks.** 64-bit Windows PowerShell 5.1 from System32, not elevated, not inside an app package
    (`GetCurrentPackageFullName` must return 15700, as in the R2 tooling), Git and the clone present. As in
@@ -94,7 +96,7 @@ record Git or Windows still refuses to delete is reported as harmless.
 
 The gating Windows CI job `task50-cleanup-paste` runs `scripts/Test-Task50CleanupPasteCI.ps1`. It parses the paste under
 Windows PowerShell 5.1, checks it is plain ASCII, builds the leftovers and look-alikes in the hosted runner's real
-profile, clone location, certificate stores, Program Files and ProgramData, and runs the paste four times: with `COR_ENABLE_PROFILING` set (stops before the plan, nothing changes), answer `no`
+profile, clone location, certificate stores, Program Files and ProgramData, and runs the paste five times: in a window without `-NoProfile` (refused, nothing changes), with `COR_ENABLE_PROFILING` set (stops before the plan, nothing changes), answer `no`
 (nothing changes), `YES` with a look-alike `Microsoft.PowerShell.Management` module planted ahead of `$PSHOME` (it
 must never load; every planned item goes, the junction folder, the incomplete release folder and all
 look-alikes stay, the stash is saved with its tracked and untracked content, output carries no profile path or user
