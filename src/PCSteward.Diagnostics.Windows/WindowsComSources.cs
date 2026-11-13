@@ -19,9 +19,24 @@ public sealed class WmiReliabilityRecordSource : IReliabilityRecordSource
     private const int ForwardOnlyReturnImmediately = 0x20 | 0x10;
     private const int Completed = 0, NoMore = 1, TimedOut = 0x40004;
 
+    private static readonly OneCallAtATime Gate = new();
+
     public ReliabilityQueryAnswer Query(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumRecords, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maximumRecords);
+        if (!Gate.TryEnter()) return new(DiagnosticReaderStatus.Failed, [], false);
+        try
+        {
+            return QueryOnce(fromUtc, toUtc, maximumRecords, cancellationToken);
+        }
+        finally
+        {
+            Gate.Exit();
+        }
+    }
+
+    private static ReliabilityQueryAnswer QueryOnce(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumRecords, CancellationToken cancellationToken)
+    {
         string wql = ReliabilityDiagnosticCatalog.BuildQuery(fromUtc, toUtc);
         Type? locatorType = Type.GetTypeFromCLSID(WbemLocatorClass, throwOnError: false);
         if (locatorType is null) return new(DiagnosticReaderStatus.Unsupported, [], false);
@@ -189,9 +204,24 @@ public sealed class WuaHistorySource : IWindowsUpdateHistorySource
 {
     private const string SessionProgId = "Microsoft.Update.Session";
 
+    private static readonly OneCallAtATime Gate = new();
+
     public WindowsUpdateHistoryAnswer Read(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maximumEntries);
+        if (!Gate.TryEnter()) return new(DiagnosticReaderStatus.Failed, [], false);
+        try
+        {
+            return ReadOnce(fromUtc, toUtc, maximumEntries, cancellationToken);
+        }
+        finally
+        {
+            Gate.Exit();
+        }
+    }
+
+    private static WindowsUpdateHistoryAnswer ReadOnce(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken)
+    {
         Type? sessionType = Type.GetTypeFromProgID(SessionProgId, throwOnError: false);
         if (sessionType is null) return new(DiagnosticReaderStatus.Unsupported, [], false);
 
@@ -264,6 +294,22 @@ public sealed class WuaHistorySource : IWindowsUpdateHistorySource
             ComRelease.Release(identity);
         }
     }
+}
+
+/// <summary>
+/// FR-DIA-01 (ADR-027 Q1, Codex review on #105): WMI's <c>ConnectServer</c> and the Windows Update Agent's
+/// <c>GetTotalHistoryCount</c> and <c>QueryHistory</c> are synchronous calls with no timeout, so cancellation can only be checked
+/// between them. A collection that runs out of time abandons such a call rather than waiting for it. This gate allows one call per
+/// source at a time in the whole app: while an abandoned call is still running, a later collection reports that source as not read
+/// instead of starting another, so stalled calls can never pile up.
+/// </summary>
+internal sealed class OneCallAtATime
+{
+    private int busy;
+
+    public bool TryEnter() => Interlocked.CompareExchange(ref busy, 1, 0) == 0;
+
+    public void Exit() => Volatile.Write(ref busy, 0);
 }
 
 internal static class ComRelease

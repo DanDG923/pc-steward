@@ -282,9 +282,11 @@ public sealed partial class MainWindow
             {
                 Guid[] protectedIds = diagnosticSelected is { } viewing ? [viewing.Id] : [];
                 DiagnosticSnapshot snapshot = result.Snapshot;
+                // FR-DIA-01 (Codex review on #105): "Stop collecting" also stops the save. The collection's token reaches the lease
+                // and the one-transaction save, so a stop before the commit saves nothing and prunes nothing.
                 DiagnosticSnapshotSaveResult? save = await DataOperationLease.RunAsync<DiagnosticSnapshotSaveResult?>(async token =>
-                    windowClosed || Volatile.Read(ref diagnosticsGeneration) != generation ? null
-                        : await diagnostics.Store.SaveDiagnosticSnapshotAsync(snapshot, DateTimeOffset.UtcNow, protectedIds, token), CancellationToken.None);
+                    windowClosed || token.IsCancellationRequested || Volatile.Read(ref diagnosticsGeneration) != generation ? null
+                        : await diagnostics.Store.SaveDiagnosticSnapshotAsync(snapshot, DateTimeOffset.UtcNow, protectedIds, token), cancellation.Token);
                 diagnosticsNotice = save is null ? DiagnosticsPresenter.CancelledText : DiagnosticsPresenter.SaveNote(save);
                 if (save?.Saved == true) saved = snapshot;
             }

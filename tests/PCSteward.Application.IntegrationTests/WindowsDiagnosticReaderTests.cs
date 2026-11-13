@@ -15,7 +15,7 @@ public sealed class WindowsDiagnosticReaderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset From = Now.AddDays(-7);
-    private static readonly string[] NewestFive = ["Application:39", "Application:38", "Application:37", "Application:36", "Application:35"];
+    private static readonly string[] NewestFour = ["Application:39", "Application:38", "Application:37", "Application:36"];
 
     [TestMethod]
     [TestCategory("FR-DIA-01")]
@@ -125,10 +125,11 @@ public sealed class WindowsDiagnosticReaderTests
                 new("Application", 13, "Unknown Source", 1, "20261112090000.000000+000", "Anything")
             ]
         };
-        DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 3), CancellationToken.None);
+        DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 4), CancellationToken.None);
 
-        Assert.AreEqual(ReliabilityDiagnosticCatalog.BuildQuery(From, Now), wmi.Queries[0], "the first query is the whole window");
-        Assert.IsTrue(result.MoreMatchingRecordsExist, "four matched for three slots");
+        Assert.AreEqual(ReliabilityDiagnosticCatalog.BuildQuery(Now - ReliabilityDiagnosticReader.FirstStretch, Now), wmi.Queries[0], "the first query is the newest hour");
+        Assert.IsTrue(result.MoreMatchingRecordsExist, "the oldest record would have been the fifth materialized for four slots");
+        Assert.IsTrue(wmi.Materialized <= 4);
         Assert.HasCount(3, result.Records);
         Assert.AreEqual("Application:11", result.Records[0].SourceRecordId);
         Assert.AreEqual(DiagnosticEventKind.SoftwareInstalled, result.Records[0].Kind);
@@ -153,10 +154,12 @@ public sealed class WindowsDiagnosticReaderTests
 
         DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
 
-        CollectionAssert.AreEqual(NewestFive, result.Records.Select(record => record.SourceRecordId).ToArray());
+        // The newest four fill one stretch; the next stretch holds more than the one record left, so the read ends there.
+        CollectionAssert.AreEqual(NewestFour, result.Records.Select(record => record.SourceRecordId).ToArray());
         Assert.IsTrue(result.MoreMatchingRecordsExist);
         Assert.IsTrue(wmi.Queries.Count <= ReliabilityDiagnosticReader.MaximumQueries);
-        Assert.IsTrue(wmi.Limits.All(limit => limit is >= 0 and <= 5), "no query asks for more than the slots left");
+        Assert.IsTrue(wmi.Limits.All(limit => limit is >= 0 and < 5), "no query asks for more than the slots left, less the proof of more");
+        Assert.IsTrue(wmi.Materialized <= 5, "discarded and proving records count against the slots too");
     }
 
     [TestMethod]
@@ -171,7 +174,7 @@ public sealed class WindowsDiagnosticReaderTests
 
         Assert.IsTrue(result.MoreMatchingRecordsExist);
         Assert.HasCount(0, result.Records);
-        Assert.IsTrue(wmi.Queries.Count <= ReliabilityDiagnosticReader.MaximumQueries);
+        Assert.IsTrue(wmi.Materialized <= 3);
     }
 
     [TestMethod]
@@ -180,7 +183,8 @@ public sealed class WindowsDiagnosticReaderTests
     {
         FakeReliability wmi = new() { Records = [new("Application", 1, "Application Hang", 1002, ReliabilityDiagnosticCatalog.ToDmtf(Now.AddHours(-1)), "Contoso")] };
         DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
-        Assert.HasCount(1, wmi.Queries);
+        Assert.IsTrue(wmi.Queries.Count <= 8, "doubling stretches from one hour cover seven days in eight queries");
+        StringAssert.Contains(wmi.Queries[^1], $"TimeGenerated >= '{ReliabilityDiagnosticCatalog.ToDmtf(From)}'", "the last stretch reaches the start of the window");
         Assert.HasCount(1, result.Records);
         Assert.IsFalse(result.MoreMatchingRecordsExist);
 
@@ -337,6 +341,7 @@ public sealed class WindowsDiagnosticReaderTests
         public DiagnosticReaderStatus Status { get; set; } = DiagnosticReaderStatus.Completed;
         public List<string> Queries { get; } = [];
         public List<int> Limits { get; } = [];
+        public int Materialized { get; private set; }
 
         public ReliabilityQueryAnswer Query(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumRecords, CancellationToken cancellationToken)
         {
@@ -345,6 +350,7 @@ public sealed class WindowsDiagnosticReaderTests
             if (Status != DiagnosticReaderStatus.Completed) return new(Status, [], false);
             DateTimeOffset from = Truncate(fromUtc), to = Truncate(toUtc);
             ReliabilityRawRecord[] matching = [.. Records.Where(record => ReliabilityDiagnosticCatalog.FromDmtf(record.TimeGenerated) is { } at && at >= from && at <= to)];
+            Materialized += Math.Min(matching.Length, maximumRecords + 1);
             return new(DiagnosticReaderStatus.Completed, [.. matching.Take(maximumRecords)], matching.Length > maximumRecords);
         }
 

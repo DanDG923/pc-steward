@@ -83,16 +83,18 @@ public interface IReliabilityRecordSource
 }
 
 /// <summary>
-/// FR-DIA-01 (ADR-027 Q1, Codex review): the Reliability source keeps the newest matching records. WQL cannot order or limit, so
-/// the reader asks for the newest part of the window first and keeps a window's records only when all of them fit in the slots
-/// left; a window holding more is split in two at a whole microsecond (the CIM time resolution) and the newer half is asked
-/// first. What is kept is therefore always every record in the newest stretch of the window. It stops when the slots are full and
-/// a further record is proven, when a window can't be split further, or after <see cref="MaximumQueries"/> queries; the last two
-/// report the source as truncated without ever keeping an older record in place of a newer one.
+/// FR-DIA-01 (ADR-027 Q1, Codex review on #105): the Reliability source keeps the newest matching records, and the cap applies to
+/// every matching record materialized, not just the ones kept. WQL cannot order or limit, so the reader walks back from the end
+/// of the window in stretches that double in length, starting with <see cref="FirstStretch"/>. Each query may materialize at most
+/// the allowance left, counting the one extra record that proves more matched; a stretch whose records all fit is kept whole.
+/// The first stretch that holds more than fits ends the read, and the source is reported as truncated. What is kept is therefore
+/// always every record in the newest part of the window, never an older record in place of a newer one, and the records
+/// materialized never exceed the source's slots. <see cref="MaximumQueries"/> is a further guard.
 /// </summary>
 public sealed class ReliabilityDiagnosticReader(IReliabilityRecordSource source) : IDiagnosticSourceReader
 {
     public const int MaximumQueries = 32;
+    public static readonly TimeSpan FirstStretch = TimeSpan.FromHours(1);
     private static readonly TimeSpan Resolution = TimeSpan.FromTicks(10);
 
     public DiagnosticSourceKind Source => DiagnosticSourceKind.Reliability;
@@ -100,32 +102,28 @@ public sealed class ReliabilityDiagnosticReader(IReliabilityRecordSource source)
     public Task<DiagnosticReaderResult> ReadAsync(DiagnosticReadRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        int slots = request.MaximumMatchingRecords;
+        int allowance = request.MaximumMatchingRecords;
         List<ReliabilityRawRecord> kept = [];
-        Stack<(DateTimeOffset From, DateTimeOffset To)> windows = new();
-        windows.Push((request.FromUtc, request.ToUtc));
+        DateTimeOffset newest = request.ToUtc;
+        TimeSpan stretch = FirstStretch;
         bool more = false;
-        int queries = 0;
-        while (windows.Count != 0)
+        int materialized = 0, queries = 0;
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (queries == MaximumQueries) { more = true; break; }
-            (DateTimeOffset from, DateTimeOffset to) = windows.Pop();
-            int room = slots - kept.Count;
-            ReliabilityQueryAnswer answer = source.Query(from, to, room, cancellationToken);
+            int left = allowance - materialized;
+            if (left <= 0 || queries == MaximumQueries) { more = true; break; }
+            DateTimeOffset from = newest - request.FromUtc <= stretch ? request.FromUtc : AlignDown(newest - stretch);
+            // One record of the allowance is held back for the extra record that proves the stretch holds more.
+            ReliabilityQueryAnswer answer = source.Query(from, newest, left - 1, cancellationToken);
             queries++;
             if (answer.Status != DiagnosticReaderStatus.Completed) return Task.FromResult(new DiagnosticReaderResult(answer.Status, [], false));
-            if (!answer.MoreMatched && answer.Records.Count <= room)
-            {
-                kept.AddRange(answer.Records);
-                continue;
-            }
-            // More records than slots left: with no room this proves more matched; otherwise split, newer half first.
-            if (room == 0 || to - from < Resolution + Resolution) { more = true; break; }
-            DateTimeOffset middle = AlignDown(from + TimeSpan.FromTicks((to - from).Ticks / 2));
-            if (middle <= from) middle = AlignDown(from) + Resolution;
-            windows.Push((from, middle - Resolution));
-            windows.Push((middle, to));
+            materialized += Math.Min(answer.Records.Count, left - 1) + (answer.MoreMatched || answer.Records.Count > left - 1 ? 1 : 0);
+            if (answer.MoreMatched || answer.Records.Count > left - 1) { more = true; break; }
+            kept.AddRange(answer.Records);
+            if (from <= request.FromUtc) break;
+            newest = from - Resolution;
+            stretch += stretch;
         }
 
         DiagnosticRecordCandidate[] records = [.. kept
