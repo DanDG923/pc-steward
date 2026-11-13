@@ -420,7 +420,10 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             InstallationInstance? winget = wingetInstances.OrderBy(instance => instance.SourceId, StringComparer.Ordinal).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
             InstallationInstance? executionEvidence = ConcreteExecutionEvidence(productInstances, winget) ?? preferred;
             InstallationInstance? msix = productInstances.FirstOrDefault(instance => string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase));
-            bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any();
+            // Without a WinGet instance (an app matched through a provider key or its name and publisher), one product key can still
+            // cover the same uninstall key name in several registry views; differing installed targets are ambiguous, never picked.
+            bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any() ||
+                (winget is null && productInstances.Where(IsConcreteLocalEvidence).Select(instance => (Scope: instance.Scope.ToUpperInvariant(), Architecture: instance.Architecture.ToUpperInvariant(), instance.Version)).Distinct().Skip(1).Any());
             return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets);
         }).ToArray();
     }

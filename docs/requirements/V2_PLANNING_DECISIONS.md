@@ -81,3 +81,14 @@ The owner asked for "the update all available button & skip the version". This a
 | Reversal and visibility | Listed on Decisions; reversed with "Stop skipping V". The wording is distinct from "Ignore updates for this app". Skipping again replaces the product's earlier skip. |
 
 G4 Update All (SPEC §9.13) is implemented in the same task. It is not a new decision: per-item sequential approval and elevation are used, because the one-shot helper protocol has no multi-item job. The design is in [Task 73 Phase 6](../review/TASK_73_PHASE6_UPDATE_ALL_AND_SKIP_VERSION.md).
+
+## Matching without confirmation (owner decision, 2026-11-13)
+
+Found in the D4b stage 4 host check: every WinGet update on the owner's PC needed a manual "Confirm package identity", because Windows' own uninstall entry and WinGet's record of the same app are separate inventory products and the uninstall entry only ever matched by name. The owner chose **"Also same name and publisher"**. This amends the Task 17 rule that publisher-qualified aliases are review-only (`TRACEABILITY.md`, Task 17 row; `PHASE_2.md` AC-MAT).
+
+| Item | Decision |
+| --- | --- |
+| WinGet's own link | For each update, the WinGet source reads the installed package's product code from WinGet's structured API. When there is exactly one, the Windows uninstall entry with that key name is matched to the package as provider-supplied (High) evidence. This is WinGet's own correlation, the same one `winget upgrade` uses. |
+| Same name and publisher | A unique candidate whose normalized product name and publisher both match the installed app (Medium) is actionable when nothing else needs review. The publisher comes from the WinGet catalog for each update. |
+| Still needs the owner | Near names, a missing or conflicting publisher (Low), two equally strong candidates (AmbiguousCandidate), and any scope, architecture, channel, version, source or trust reason. An installed app whose own scope or architecture is unknown is now review only as well, and an app with the same uninstall key in several registry views with different targets is ambiguous. |
+| Unchanged | The reviewed job binds the installed app's scope and architecture; the structured authority re-checks source, ID and versions before review; the whole-PC route checks the installer at review; the post-update check needs the exact version, scope and architecture. |

@@ -174,7 +174,10 @@ public static class ProductPackageMatching
         bool versionEvidenceIsUsable = confidence >= MappingConfidence.Medium;
         if (versionEvidenceIsUsable) AddVersionReason(comparison, reasons);
 
-        bool actionable = confidence == MappingConfidence.High && candidate.IsTrustedConnector && reasons.Count == 0 && comparison.Outcome == VersionComparisonOutcome.Newer;
+        // Owner decision 2026-11-13: a unique match on the same normalized product name AND publisher (Medium) is as actionable as an
+        // exact identity (High), when nothing else needs review. Near names, missing or conflicting publishers (Low) and two equally
+        // strong candidates (AmbiguousCandidate in Resolve) still need the owner's confirmation.
+        bool actionable = confidence >= MappingConfidence.Medium && candidate.IsTrustedConnector && reasons.Count == 0 && comparison.Outcome == VersionComparisonOutcome.Newer;
         return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons, versionEvidenceIsUsable), actionable, reasons.ToArray(), comparison);
     }
 
@@ -257,8 +260,9 @@ public static class ProductPackageMatching
 
     private static void AddCompatibilityReasons(ProductMatchProfile product, PackageMatchCandidate candidate, List<MappingReviewReason> reasons)
     {
-        if (!Known(candidate.Architecture)) reasons.Add(MappingReviewReason.MissingArchitectureEvidence);
-        if (!Known(candidate.Scope)) reasons.Add(MappingReviewReason.MissingScopeEvidence);
+        // The installed side counts too: an update can only be bound to an installed scope and architecture that are known.
+        if (!Known(candidate.Architecture) || !Known(product.Architecture)) reasons.Add(MappingReviewReason.MissingArchitectureEvidence);
+        if (!Known(candidate.Scope) || !Known(product.Scope)) reasons.Add(MappingReviewReason.MissingScopeEvidence);
         if (!Known(candidate.Channel)) reasons.Add(MappingReviewReason.MissingChannelEvidence);
         if (Conflicts(product.Architecture, candidate.Architecture)) reasons.Add(MappingReviewReason.ArchitectureConflict);
         if (Conflicts(product.Scope, candidate.Scope)) reasons.Add(MappingReviewReason.ScopeConflict);

@@ -251,29 +251,37 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
 {
     private const int MaximumOutputLength = 1_000_000;
     private const int MaximumFieldLength = 256;
+    private const int MaximumCompatibilityQueries = 64;
+    private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan DefaultCompatibilityBudget = TimeSpan.FromSeconds(30);
     private readonly IWingetProcess process;
-    public WingetUpdateSourceConnector(string sourceId) : this(new WindowsWingetProcess(), sourceId) { }
-    internal WingetUpdateSourceConnector(IWingetProcess process, string sourceId)
+    private readonly IWinGetCandidateCompatibilityQuery? compatibility;
+    private readonly TimeSpan compatibilityBudget;
+    public WingetUpdateSourceConnector(string sourceId) : this(new WindowsWingetProcess(), sourceId, new WinGetComCandidateCompatibilityQuery()) { }
+    internal WingetUpdateSourceConnector(IWingetProcess process, string sourceId, IWinGetCandidateCompatibilityQuery? compatibility = null, TimeSpan? compatibilityBudget = null)
     {
         this.process = process;
         SourceId = CanonicalSource(sourceId);
+        this.compatibility = compatibility;
+        this.compatibilityBudget = compatibilityBudget ?? DefaultCompatibilityBudget;
     }
     public string SourceId { get; }
-    public TimeSpan Timeout => TimeSpan.FromSeconds(45);
+    /// <summary>The whole refresh: three WinGet commands of at most 45 seconds each, then the structured compatibility read.</summary>
+    public TimeSpan Timeout => TimeSpan.FromSeconds(120);
     public static IReadOnlyList<string> BuildInstalledSourceArguments(string sourceId) => ["list", "--source", CanonicalSource(sourceId), "--disable-interactivity"];
     public static IReadOnlyList<string> BuildAvailableUpdateArguments(string sourceId) => ["upgrade", "--source", CanonicalSource(sourceId), "--disable-interactivity"];
     public async Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken)
     {
-        WingetProcessResult versionResult = await process.RunAsync(["--version"], Timeout, cancellationToken).ConfigureAwait(false);
+        WingetProcessResult versionResult = await process.RunAsync(["--version"], CommandTimeout, cancellationToken).ConfigureAwait(false);
         string? providerVersion = ReadVersion(versionResult);
-        WingetProcessResult installedResult = await process.RunAsync(BuildInstalledSourceArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
+        WingetProcessResult installedResult = await process.RunAsync(BuildInstalledSourceArguments(SourceId), CommandTimeout, cancellationToken).ConfigureAwait(false);
         WingetInventoryResult installed = ClassifyInstalled(installedResult);
         List<string> warnings = [.. installed.Warnings];
         if (HasFatalWarning(installed.Warnings))
         {
             throw new InvalidOperationException(string.Join(",", installed.Warnings));
         }
-        WingetProcessResult availableResult = await process.RunAsync(BuildAvailableUpdateArguments(SourceId), Timeout, cancellationToken).ConfigureAwait(false);
+        WingetProcessResult availableResult = await process.RunAsync(BuildAvailableUpdateArguments(SourceId), CommandTimeout, cancellationToken).ConfigureAwait(false);
         WingetAvailableUpdateResult parsed = Classify(availableResult, providerVersion, SourceId);
         bool updateCheckAvailable = true;
         if (HasFatalWarning(parsed.Warnings))
@@ -288,15 +296,62 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             .Select(group => group.Single())
             .OrderBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        WingetInstalledRecord[] withUpdate = sourceManaged.Where(record => upgrades.ContainsKey(record.Id)).ToArray();
+        IReadOnlyDictionary<string, WingetCandidateCompatibility> compatible = await ReadCompatibilityAsync(withUpdate, upgrades, warnings, cancellationToken).ConfigureAwait(false);
         SourcePackageRecord[] packages = sourceManaged
             .Select(record => upgrades.GetValueOrDefault(record.Id) is WingetAvailableUpdateRecord update
-                ? new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
+                ? compatible.GetValueOrDefault(record.Id) is WingetCandidateCompatibility evidence
+                    ? new SourcePackageRecord(SourceId, record.Id, record.Name, evidence.Publisher, record.Version, update.AvailableVersion, evidence.Scope, evidence.Architecture, evidence.Channel,
+                        ProviderSuppliedStableProductKey: evidence.RegistryProductKey)
+                    : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
                 : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, updateCheckAvailable ? record.Version : null, "Unknown", "Unknown", null))
             .ToArray();
         warnings.AddRange(parsed.Warnings);
         warnings.AddRange(sourceManaged.GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1).Select(_ => "winget:duplicate-installed-id"));
         return new(SourceId, parsed.ProviderVersion, DateTimeOffset.UtcNow, SourceSnapshotState.Live,
             packages, warnings.Distinct(StringComparer.Ordinal).ToArray());
+    }
+    /// <summary>
+    /// Reads the scope, architecture and channel of each update from WinGet's structured API (<see cref="WingetCandidateCompatibilityRules"/>).
+    /// Anything it can't read keeps the Unknown values the display table gives, so that update stays a review item, never an offer.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, WingetCandidateCompatibility>> ReadCompatibilityAsync(
+        WingetInstalledRecord[] withUpdate,
+        Dictionary<string, WingetAvailableUpdateRecord> upgrades,
+        List<string> warnings,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<string, WingetCandidateCompatibility> result = new(StringComparer.OrdinalIgnoreCase);
+        if (compatibility is null || withUpdate.Length == 0) return result;
+        if (withUpdate.Length > MaximumCompatibilityQueries) warnings.Add("winget:compatibility-limit");
+        WingetInstalledRecord[] queried = withUpdate.Take(MaximumCompatibilityQueries).ToArray();
+        IReadOnlyList<WinGetCandidateCompatibilityObservation> observations;
+        try
+        {
+            using CancellationTokenSource budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(compatibilityBudget);
+            string[] ids = queried.Select(record => record.Id).ToArray();
+            observations = await Task.Run(() => compatibility.QueryAsync(SourceId, ids, budget.Token), CancellationToken.None)
+                .WaitAsync(compatibilityBudget, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            warnings.Add("winget:compatibility-unavailable");
+            return result;
+        }
+
+        foreach (WingetInstalledRecord record in queried)
+        {
+            WinGetCandidateCompatibilityObservation[] matching = observations
+                .Where(observation => string.Equals(observation.RequestedPackageId, record.Id, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            WingetCandidateCompatibility? evidence = matching.Length == 1
+                ? WingetCandidateCompatibilityRules.Evaluate(matching[0], SourceId, record.Id, record.Version, upgrades[record.Id].AvailableVersion)
+                : null;
+            if (evidence is not null) result[record.Id] = evidence;
+        }
+
+        return result;
     }
     private static WingetInventoryResult ClassifyInstalled(WingetProcessResult result)
     {
