@@ -54,6 +54,9 @@ public sealed partial class MainWindow
         return panel;
     }
 
+    /// <summary>Space under a step number. Measured on a Windows build: a 9-unit capital-height box cannot sit exactly in the middle of the circle, and layout rounds it down, so the number drew one unit low; one unit underneath puts its ink on the middle.</summary>
+    private const double StepDigitLift = 1;
+
     /// <summary>
     /// UI polish phase 3 (approved targets): the three job steps as numbered circles joined by short lines. A finished step shows a
     /// tick, the current step is outlined in the accent colour with a bold label, and later steps are plain. Each step's accessible
@@ -85,7 +88,7 @@ public sealed partial class MainWindow
                 Background = StewardVisuals.Brush(now ? "StewardInfoSurfaceBrush" : done ? "StewardIconWellBrush" : "StewardSurfaceBrush"),
                 Child = done
                     ? new FontIcon { Glyph = "\uE73E", FontSize = 12, Foreground = StewardVisuals.Brush("StewardSuccessBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-                    : StewardVisuals.CapHeightBox(new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), Style = AppStyle("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center })
+                    : StewardVisuals.CapHeightBox(new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), Style = AppStyle("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, StepDigitLift) })
             };
             StackPanel entry = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
             entry.Children.Add(dot);
