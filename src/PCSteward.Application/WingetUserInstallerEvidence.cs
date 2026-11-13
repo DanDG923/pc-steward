@@ -61,8 +61,15 @@ public static class WingetUserInstallerText
     /// </summary>
     public const string ElevationWarning =
         "This app's installer asks for administrator permission. Windows will ask you to allow it while the update runs; PC Steward itself " +
-        "never asks for it. If you allow it, the installer can change things for every user of this PC. Before you choose Yes, check that " +
-        "Windows names the app's publisher as the verified publisher. If it says Unknown publisher or names someone else, choose No.";
+        "never asks for it. If you allow it, the installer can change things for every user of this PC. " + PublisherCheck;
+
+    /// <summary>
+    /// Security review 2026-11-13 (owner's choice): what to check on the Windows prompt before allowing a per-user installer that asks
+    /// for administrator permission. Shown on single and batch reviews alike.
+    /// </summary>
+    public const string PublisherCheck =
+        "Before you choose Yes, check that Windows names the app's publisher as the verified publisher. If it says Unknown publisher or " +
+        "names someone else, choose No.";
 
     /// <summary>The review text for <paramref name="installer"/>.</summary>
     public static string Disclosure(WinGetUserInstaller installer)

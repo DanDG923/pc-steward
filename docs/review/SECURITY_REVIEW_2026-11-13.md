@@ -31,7 +31,7 @@ already accepted.
   a PC: whether WinGet holds the file locked between its check and the launch was not confirmed.
 - **Owner's choice (2026-11-13 22:51Z): add a publisher check to the warning.** They stay offered; the review's warning now ends:
   "Before you choose Yes, check that Windows names the app's publisher as the verified publisher. If it says Unknown publisher or
-  names someone else, choose No." The other options were to accept it as it was, or to stop offering them (back to Q1-A).
+  names someone else, choose No." A review of several apps shows the same sentence (Codex review on #109). The other options were to accept it as it was, or to stop offering them (back to Q1-A).
 
 ### L1. "Close it for me" chooses processes by name (low; accept)
 
