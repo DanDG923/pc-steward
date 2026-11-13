@@ -55,6 +55,17 @@ public static class DisplayFormat
         return "on " + Date(value, culture, zone);
     }
 
+    /// <summary>
+    /// A moment as a day and a time in words: "today at 14:50", "yesterday at 09:12", then "on 3 Nov 2026 at 14:50"
+    /// (UI review 2026-11-13, item 8).
+    /// </summary>
+    public static string DayAndTime(DateTimeOffset value, DateTimeOffset now, CultureInfo? culture = null, TimeZoneInfo? zone = null)
+    {
+        int days = LocalDay(now, zone).DayNumber - LocalDay(value, zone).DayNumber;
+        string day = days == 0 ? "today" : days == 1 ? "yesterday" : "on " + Date(value, culture, zone);
+        return $"{day} at {Time(value, culture, zone)}";
+    }
+
     /// <summary>A start–end time range on one line ("14:02–14:05", or with dates when the days differ).</summary>
     public static string Range(DateTimeOffset start, DateTimeOffset? end, CultureInfo? culture = null, TimeZoneInfo? zone = null)
     {

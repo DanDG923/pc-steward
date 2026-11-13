@@ -35,10 +35,10 @@ public sealed partial class MainWindow
         // Update checks: the consent toggle stays separate, with its existing disclosure dialog before first use.
         StackPanel sources = SettingsSection("Update checks", null);
         ToggleSwitch winget = new() { IsOn = viewModel.IsWinGetTrustedSourcesEnabled, OffContent = "Off", OnContent = "On" };
-        AutomationProperties.SetName(winget, "WinGet and Chocolatey trusted sources");
+        AutomationProperties.SetName(winget, SettingsPresenter.SourceSettingLabel);
         AutomationProperties.SetHelpText(winget, SettingsPresenter.SourceConsentNote);
         winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);
-        sources.Children.Add(StewardVisuals.RowCard("\uE753", "WinGet and Chocolatey trusted sources", SettingsPresenter.SourceRowDescription(viewModel.IsWinGetTrustedSourcesEnabled, viewModel.UpdateFreshnessLabel), winget, "blue"));
+        sources.Children.Add(StewardVisuals.RowCard("\uE753", SettingsPresenter.SourceSettingLabel, SettingsPresenter.SourceRowDescription(viewModel.IsWinGetTrustedSourcesEnabled, FreshnessPresenter.Describe(viewModel.IsUpdateSourceEnabled, viewModel.Sources, DateTimeOffset.UtcNow).Sentence), winget, "blue"));
 
         // ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update, shown as unavailable until a reviewed Desktop composition and owner admission exist.
         // The summary is display only ("Not checked yet": only the review checks the installed client); opening it starts nothing.
@@ -49,14 +49,14 @@ public sealed partial class MainWindow
         panel.Children.Add(sources);
 
         // Scan scope / AppX.
-        StackPanel scope = SettingsSection("Scan scope", "Scanning never asks for administrator permission and never changes anything.");
+        StackPanel scope = SettingsSection("Scan scope", null);
         TextBlock alwaysOn = new() { Text = "Always on", Style = AppStyle("StewardBodyStyle") };
-        scope.Children.Add(StewardVisuals.RowCard("\uE7F8", "Windows installed apps", "Always on. Read-only and never shared.", alwaysOn, "teal"));
+        scope.Children.Add(StewardVisuals.RowCard("\uE7F8", "Windows installed apps", "Always included.", alwaysOn, "teal"));
         ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
         ToggleSwitch includeAppx = new() { IsOn = appx.IsEnabled, OffContent = "Off", OnContent = "On" };
         AutomationProperties.SetName(includeAppx, "Store and packaged apps for your account");
         includeAppx.Toggled += async (_, _) => await ChangeConnectorAsync(appx.Name, includeAppx.IsOn);
-        scope.Children.Add(StewardVisuals.RowCard("\uE719", "Store and packaged apps for your account", "AppX and MSIX apps. Read locally; nothing is shared.", includeAppx, "teal"));
+        scope.Children.Add(StewardVisuals.RowCard("\uE719", "Store and packaged apps for your account", "Apps from the Microsoft Store and other packaged apps.", includeAppx, "teal"));
         panel.Children.Add(scope);
 
         // Schedule: nothing applies until "Save schedule", which saves the whole record through the register-then-save operation.
@@ -132,8 +132,8 @@ public sealed partial class MainWindow
         exportFormats.Items.Add(exportCsv);
         exportFormats.Items.Add(exportJson);
         DropDownButton export = new() { Content = "Export…", Flyout = exportFormats };
-        StewardVisuals.Named(export, "Export…", "(inventory as a CSV or JSON file)");
-        privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export inventory", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export, "purple"));
+        StewardVisuals.Named(export, "Export…", "(the app list as a CSV or JSON file)");
+        privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export the app list", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export, "purple"));
         Button openData = StewardVisuals.NavigationRow("\uE74E", "Data & reset", "Clear scan data, downloads, source data, logs or history, or reset PC Steward.", "purple");
         openData.Click += (_, _) => NavigateTo(ShellPage.Privacy);
         privacy.Children.Add(openData);

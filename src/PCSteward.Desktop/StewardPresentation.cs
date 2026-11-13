@@ -48,7 +48,7 @@ internal static class StewardSpacing
 
 public sealed class ApplicationListItem
 {
-    private ApplicationListItem(InventoryRow row)
+    private ApplicationListItem(InventoryRow row, bool showSource)
     {
         Row = row;
         Name = row.Name;
@@ -60,7 +60,7 @@ public sealed class ApplicationListItem
         VersionText = versionKnown ? row.Version : "—";
         ScopeLabel = StewardPresentation.Scope(row.Scope);
         ScopeAndProvider = $"{ScopeLabel} · {StewardPresentation.Provider(row.Provider)}";
-        PublisherAndProvider = InstalledAppsFilters.PublisherAndSource(row.Publisher, StewardPresentation.Provider(row.Provider));
+        PublisherAndProvider = InstalledAppsFilters.PublisherAndSource(row.Publisher, StewardPresentation.Provider(row.Provider), showSource);
         StewardStatus status = StewardStatus.From(row.Status);
         StatusLabel = status.Label;
         StatusGlyph = status.Glyph;
@@ -83,7 +83,7 @@ public sealed class ApplicationListItem
     public string VersionText { get; }
     /// <summary>Who the app is installed for ("All users" or "Current user").</summary>
     public string ScopeLabel { get; }
-    /// <summary>The row's second line: publisher and where Windows reported the app.</summary>
+    /// <summary>The row's second line: the publisher, plus where the record came from when another row shares the name.</summary>
     public string PublisherAndProvider { get; }
     /// <summary>Visible for statuses that ask for a look; neutral statuses show <see cref="PlainStatusVisibility"/> text instead.</summary>
     public Visibility ChipVisibility { get; }
@@ -95,7 +95,7 @@ public sealed class ApplicationListItem
     public string Initials { get; }
     public string AccessibleSummary { get; }
 
-    public static ApplicationListItem From(InventoryRow row) => new(row);
+    public static ApplicationListItem From(InventoryRow row, bool showSource = true) => new(row, showSource);
 }
 
 public static class StewardPresentation

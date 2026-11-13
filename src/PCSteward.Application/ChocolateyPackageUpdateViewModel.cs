@@ -61,7 +61,7 @@ public sealed class ChocolateyPackageUpdateViewModel
     public const string UnavailableHeading = "Why this update cannot be confirmed";
     public const string NotAdmittedText = "Not available yet: waiting for review and owner approval.";
     public const string TrustedSourcesOffText =
-        "Turn on WinGet and Chocolatey trusted sources in Settings first. Checking this package asks Chocolatey Community about it.";
+        "Turn on \"Look for updates online\" in Settings first. Checking this package asks Chocolatey Community about it.";
     public const string CheckingText = "Checking this package in your user cache and on this PC…";
     public const string NoCheckedUpdateText =
         "No update can be reviewed: your user cache shows no newer stable version of this package, or PC Steward could not check it. " +

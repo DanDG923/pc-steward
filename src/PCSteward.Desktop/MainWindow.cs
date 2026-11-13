@@ -328,7 +328,7 @@ public sealed partial class MainWindow : Window
         : scanCancellation is not null
             ? "Preparing the scan"
             : viewModel.IsCheckingUpdates
-                ? "Checking package sources for updates"
+                ? "Looking for updates"
                 : isExecuting
                     ? UpdateJobProgressText.BandLabel(updateProgressSubject, updateProgressLabel)
                     : isClearing || downloads.IsCleaning
@@ -385,7 +385,12 @@ public sealed partial class MainWindow : Window
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);
     private static ComboBox FilterBox(string selected, IReadOnlyCollection<string> values) { ComboBox box = new(); foreach (string value in values.Distinct(StringComparer.OrdinalIgnoreCase)) box.Items.Add(value); box.SelectedItem = values.FirstOrDefault(value => string.Equals(value, selected, StringComparison.OrdinalIgnoreCase)) ?? values.First(); return box; }
-    private void RenderInventory(ListView list) => list.ItemsSource = viewModel.VisibleRows.Select(ApplicationListItem.From).ToArray();
+    private void RenderInventory(ListView list)
+    {
+        // UI review 2026-11-13 (item 8): a row says where its record came from only when another listed row has the same name.
+        IReadOnlySet<string> sharedNames = InstalledAppsFilters.SharedNames(viewModel.ListedRows);
+        list.ItemsSource = viewModel.VisibleRows.Select(row => ApplicationListItem.From(row, sharedNames.Contains(row.Name))).ToArray();
+    }
 
     private static TextBlock SectionHeading(string text, AutomationHeadingLevel level = AutomationHeadingLevel.Level2) => StewardVisuals.SectionHeading(text, level);
 

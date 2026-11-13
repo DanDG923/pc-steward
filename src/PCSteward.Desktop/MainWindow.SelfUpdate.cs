@@ -118,7 +118,7 @@ public sealed partial class MainWindow
         }
         if (!busy)
         {
-            Button checkNow = StewardVisuals.ActionButton("Check for updates", "for PC Steward on GitHub");
+            Button checkNow = StewardVisuals.ActionButton("Check for a new version", "of PC Steward on GitHub");
             checkNow.IsEnabled = !blocked;
             checkNow.Click += async (_, _) => await CheckSelfUpdateAsync();
             actions.Children.Add(checkNow);

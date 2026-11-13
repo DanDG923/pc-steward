@@ -64,7 +64,7 @@ public static class FreshnessPresenter
         if (!sourcesEnabled || checkedSources.Length == 0)
         {
             return new(EvidenceFreshness.LocalOnly, Word(EvidenceFreshness.LocalOnly),
-                sourcesEnabled ? "Local-only: no package source has been checked yet." : "Local-only: no package source is on.",
+                sourcesEnabled ? "Local-only: PC Steward hasn't looked for updates yet." : "Local-only: update checks are off.",
                 StatusTone.Neutral);
         }
         EvidenceFreshness worst = checkedSources.Select(source => Of(source, now)).Max();
@@ -75,10 +75,10 @@ public static class FreshnessPresenter
             : checkedSources.Length == 1 ? $"The last successful check was {age}." : $"The least fresh source's last successful check was {age}.";
         string sentence = worst switch
         {
-            EvidenceFreshness.Live => $"Live: package sources were checked {age}.",
+            EvidenceFreshness.Live => $"Live: update sources were checked {age}.",
             EvidenceFreshness.Cached => $"Cached: results may be out of date. {lastCheck}",
-            EvidenceFreshness.Offline => $"Offline: a package source couldn't be reached. {lastCheck}",
-            _ => $"Unavailable: a package source couldn't complete its check. {lastCheck}"
+            EvidenceFreshness.Offline => $"Offline: an update source couldn't be reached. {lastCheck}",
+            _ => $"Unavailable: an update source couldn't complete its check. {lastCheck}"
         };
         return new(worst, Word(worst), sentence, worst == EvidenceFreshness.Live ? StatusTone.Information : StatusTone.Attention);
     }
@@ -194,7 +194,8 @@ public sealed record HomeInputs(
 /// FR-UI-01/05/06 (ADR-030 concept A; UI polish phase 2, approved targets T-Home and T-Home-Ready): Home is one status card (an icon,
 /// one sentence, facts with icons, and the action that fits the state), info bars for updates that need the owner, and an "At a
 /// glance" list of plain-English rows that open filtered pages. The primary action follows the state: "Turn on update checks…" when
-/// local-only, "Review updates" when updates are ready, otherwise "Check for updates". The ready count is the Updates page's Ready
+/// local-only, "See updates" when updates are ready, otherwise "Check for updates" (UI review 2026-11-13, item 6: "Review" names only
+/// the step before an update is installed). The ready count is the Updates page's Ready
 /// group, so Home never promises more than Updates can review. Presentation only: nothing here starts, approves or elevates.
 /// </summary>
 public static class HomePresenter
@@ -205,19 +206,16 @@ public static class HomePresenter
     public const string TurnOnUpdateChecksLabel = "Turn on update checks…";
 
     public const string TurnOnUpdateChecksHelp =
-        "Shows what WinGet and Chocolatey would receive and asks you first. Turning checks on doesn't scan, check or install anything by itself.";
+        "Shows what WinGet and Chocolatey would receive and asks you first.";
 
     public const string CheckForUpdatesHelp =
-        "Scans this PC, then checks your enabled update sources. It never asks for administrator permission and never installs anything.";
+        "Scans this PC, then looks for updates. Nothing is installed.";
 
     /// <summary>The scan-only action's help text when package sources are off (independent review L1).</summary>
     public const string ScanAgainHelp =
-        "Reads the apps installed on this PC again. Package sources are off, so no update source is checked. It never asks for administrator permission and never installs anything.";
+        "Reads the apps installed on this PC again. Update checks are off, so it doesn't look for updates.";
 
-    public const string ReviewUpdatesHelp = "Opens Updates, where you choose what to review. Nothing is installed until you confirm it.";
-
-    /// <summary>The footer line on Home (approved targets).</summary>
-    public const string Reassurance = "Scanning and checking never ask for administrator permission. Windows asks only when you start an update that needs it.";
+    public const string ReviewUpdatesHelp = "Opens Updates, where you choose what to update.";
 
     public const string AttentionProblemsLinkName = "View in Activity: update problems";
     public const string AttentionUpdatesLinkName = "View in Activity: updates, including restarts and problems";
@@ -248,13 +246,13 @@ public static class HomePresenter
         HomeFact[] facts;
         HomeAction primary;
         HomeAction? secondary;
-        HomeAction checkForUpdates = new(HomeActionKind.CheckForUpdates, "Check for updates", "Check for updates without administrator permission", CheckForUpdatesHelp);
+        HomeAction checkForUpdates = new(HomeActionKind.CheckForUpdates, "Check for updates", "Check for updates (scans this PC, then looks for updates)", CheckForUpdatesHelp);
         if (!hasInventory)
         {
             hero = "PC Steward hasn't looked at this PC yet";
             (heroGlyph, heroTone) = ("", StatusTone.Information);
             facts = [];
-            primary = new(HomeActionKind.ScanAgain, "Start local inventory", "Start local inventory (read-only scan of this PC)", ScanAgainHelp);
+            primary = new(HomeActionKind.ScanAgain, "Scan this PC", "Scan this PC (reads the installed apps; nothing is changed)", ScanAgainHelp);
             secondary = null;
         }
         else if (!inputs.SourcesEnabled)
@@ -265,7 +263,7 @@ public static class HomePresenter
             facts = [scanned, new("", freshness.Sentence, StatusTone.Neutral)];
             primary = new(HomeActionKind.TurnOnUpdateChecks, TurnOnUpdateChecksLabel, "Turn on update checks: shows what is shared and asks you first", TurnOnUpdateChecksHelp);
             // Independent review L1: with sources off the other action is a scan only, and says so.
-            secondary = new(HomeActionKind.ScanAgain, "Scan again", "Scan again without administrator permission", ScanAgainHelp);
+            secondary = new(HomeActionKind.ScanAgain, "Scan again", "Scan again (reads the installed apps; nothing is changed)", ScanAgainHelp);
         }
         else
         {
@@ -289,7 +287,7 @@ public static class HomePresenter
             }
             else
             {
-                primary = new(HomeActionKind.ReviewUpdates, "Review updates", $"Review updates: {DisplayFormat.Plural(ready, "update")} ready", ReviewUpdatesHelp);
+                primary = new(HomeActionKind.ReviewUpdates, "See updates", $"See updates: {DisplayFormat.Plural(ready, "update")} ready", ReviewUpdatesHelp);
                 secondary = checkForUpdates;
             }
         }
@@ -324,7 +322,7 @@ public static class HomePresenter
             HomeRow activity = RecentActivityRow(inputs.Activity, inputs.Now, culture, zone);
             if (!inputs.SourcesEnabled)
             {
-                HomeRow updates = new(HomeRowKind.Updates, "Updates", "Not checked. Turn on a package source to look for updates.", "", StatusTone.Neutral, new(ShellPage.Updates));
+                HomeRow updates = new(HomeRowKind.Updates, "Updates", "Not checked. Turn on update checks to look for updates.", "", StatusTone.Neutral, new(ShellPage.Updates));
                 glance.AddRange([apps, updates, review, restarts, decisions, activity]);
             }
             else
@@ -341,12 +339,14 @@ public static class HomePresenter
 
     private static HomeRow NeedsReviewRow(HomeCounts counts)
     {
-        int review = counts.ReviewRequired + counts.SourceUnavailable;
+        // UI review 2026-11-13 (item 5): the row carries the state's one name and counts only that state, the same rows its link
+        // opens. An app whose source couldn't be reached is counted on the Installed apps row instead.
+        int review = counts.ReviewRequired;
         string description = review == 0
-            ? "Nothing needs your review."
-            : $"{DisplayFormat.Plural(review, "possible match", "possible matches")} {(review == 1 ? "needs" : "need")} a look before {(review == 1 ? "it" : "they")} can update."
-              + (counts.SourceUnavailable == 0 ? string.Empty : $" This includes {DisplayFormat.Plural(counts.SourceUnavailable, "app")} whose source couldn't be checked.");
-        return new(HomeRowKind.NeedsReview, "Needs review", description, "", StatusTone.Neutral, new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview));
+            ? "No matches to check."
+            : $"{DisplayFormat.Plural(review, "possible match", "possible matches")} {(review == 1 ? "needs" : "need")} a look before {(review == 1 ? "it" : "they")} can update.";
+        return new(HomeRowKind.NeedsReview, StatusVocabulary.For(nameof(UpdateIntelligenceStatus.ReviewRequired)).Label, description, "", StatusTone.Neutral,
+            new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview));
     }
 
     private static HomeRow InstalledAppsRow(HomeCounts counts)
@@ -358,8 +358,9 @@ public static class HomePresenter
         string current = counts.Current.ToString("N0", CultureInfo.CurrentCulture);
         string description = counts.Installed == 0 ? "No apps found in the last scan."
             : counts.Unmanaged + counts.NotChecked == counts.Installed ? (counts.Installed == 1 ? $"{apps}. It has no update source yet." : $"{apps}. None has an update source yet.")
-            : counts.Unmanaged == 0 ? $"{apps}: {current} current."
-            : $"{apps}: {current} current, {counts.Unmanaged.ToString("N0", CultureInfo.CurrentCulture)} with no update source.";
+            : counts.Unmanaged == 0 ? $"{apps}: {current} up to date."
+            : $"{apps}: {current} up to date, {counts.Unmanaged.ToString("N0", CultureInfo.CurrentCulture)} with no update source.";
+        if (counts.SourceUnavailable != 0 && counts.Installed != 0) description += $" {DisplayFormat.Plural(counts.SourceUnavailable, "app")} couldn't be checked.";
         return new(HomeRowKind.InstalledApps, "Installed apps", description, "", StatusTone.Neutral, new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.All));
     }
 

@@ -27,10 +27,10 @@ public sealed partial class MainWindow
             ContentDialog consent = new()
             {
                 XamlRoot = Content.XamlRoot,
-                Title = "Enable WinGet and Chocolatey trusted sources?",
-                Content = "WinGet and Chocolatey Community may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update; Chocolatey updates are machine-wide and cannot be started in this version. Scanning remains read-only. " + ElevationStory.SourceConsent,
+                Title = SettingsPresenter.SourceSettingLabel + "?",
+                Content = "To look for updates, PC Steward asks WinGet and Chocolatey Community about the packages installed on this PC, so they may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update; Chocolatey updates are machine-wide and cannot be started in this version. " + ElevationStory.SourceConsent,
                 PrimaryButtonText = "I approve",
-                CloseButtonText = "Keep local-only",
+                CloseButtonText = "Keep off",
                 DefaultButton = ContentDialogButton.Close
             };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
@@ -50,7 +50,7 @@ public sealed partial class MainWindow
         catch (Exception)
         {
             LoadSavedInventory();
-            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Trusted sources were not changed", Content = "PC Steward couldn't save this setting. Your previous setting is back in place.", CloseButtonText = "Close" }.ShowAsync();
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "The setting was not changed", Content = "PC Steward couldn't save this setting. Your previous setting is back in place.", CloseButtonText = "Close" }.ShowAsync();
         }
         Render();
     }
@@ -61,7 +61,7 @@ public sealed partial class MainWindow
         ConnectorOption connector = viewModel.Connectors.Single(option => option.Name == connectorName);
         if (connector.RequiresSourceDisclosure && enabled)
         {
-            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "Package sources may disclose installed-software identifiers. Scanning remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only", DefaultButton = ContentDialogButton.Close };
+            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "This source may receive installed-software identifiers. Turning it on doesn't install or update anything.", PrimaryButtonText = "I approve", CloseButtonText = "Keep off", DefaultButton = ContentDialogButton.Close };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
             if (!approved) enabled = false;
         }

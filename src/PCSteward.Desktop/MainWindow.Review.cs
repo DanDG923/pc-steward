@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         InventoryRow[] ready = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString()).ToArray();
         InventoryRow[] decisions = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired.ToString()).ToArray();
         panel.Children.Add(StewardVisuals.PageHeader("Review decisions", "Resolve package matches first. Updates that are ready stay separate, and each still needs your confirmation on its review page."));
-        panel.Children.Add(StewardVisuals.InformationBanner("Reviewing doesn't update anything", "Viewing details or confirming a package identity never starts an update."));
+        panel.Children.Add(StewardVisuals.InformationBanner("Reviewing doesn't update anything", "Viewing details or confirming a match never starts an update."));
         panel.Children.Add(SectionHeading("Needs a decision"));
         panel.Children.Add(PageCopy(decisions.Length == 0 ? "No package matches need a decision." : $"{DisplayFormat.Plural(decisions.Length, "item")} {(decisions.Length == 1 ? "needs" : "need")} a decision. None of them can be updated until the decision is made."));
         foreach (InventoryRow row in decisions)
@@ -76,13 +76,13 @@ public sealed partial class MainWindow
         }
         if (detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true } && viewModel.IsUpdateSourceEnabled)
         {
-            Button confirm = StewardVisuals.PrimaryButton("Confirm package identity", $"({detail.PackageId} is {row.Name})");
+            Button confirm = StewardVisuals.PrimaryButton("Confirm match", $"({detail.PackageId} is {row.Name})");
             confirm.Click += async (_, _) => await PromptAndConfirmPackageIdentityAsync(row, detail);
             actions.Children.Add(confirm);
         }
         else if (detail is { SourceId: null, PackageId: null } && detail.ReviewCandidates.Count > 0 && viewModel.IsUpdateSourceEnabled)
         {
-            Button choose = StewardVisuals.PrimaryButton("Choose package identity", $"for {row.Name}");
+            Button choose = StewardVisuals.PrimaryButton("Choose the match", $"for {row.Name}");
             choose.Click += async (_, _) => await ShowDetailsAsync(row);
             actions.Children.Add(choose);
         }
@@ -101,10 +101,10 @@ public sealed partial class MainWindow
     private Button CreateSourceEvidenceRefreshButton(InventoryRow row)
     {
         Button refresh = StewardVisuals.PrimaryButton(
-            viewModel.IsCheckingUpdates ? "Checking source evidence…" : "Refresh source evidence",
+            viewModel.IsCheckingUpdates ? "Checking…" : "Check again",
             $"for {row.Name}");
         refresh.IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates && !viewModel.IsScanning && !isExecuting;
-        AutomationProperties.SetHelpText(refresh, "Checks your package sources only. It doesn't download or install an update.");
+        AutomationProperties.SetHelpText(refresh, "Looks for updates again. It doesn't download or install anything.");
         refresh.Click += async (_, _) => await CheckUpdateSourcesAsync();
         return refresh;
     }
@@ -119,16 +119,16 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task PromptAndCreateManualMappingAsync(InventoryRow row, string sourceId, string packageId)
     {
-        TextBox reason = DecisionReasonBox("Optional reason for confirming this package identity");
+        TextBox reason = DecisionReasonBox("Optional reason for confirming this match");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
-        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {sourceId} as {row.Name}. This records a reversible mapping. It does not approve or start an update."));
+        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {sourceId} as {row.Name}. You can undo this later. It does not approve or start an update."));
         content.Children.Add(reason);
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Confirm package identity?",
+            Title = "Confirm match?",
             Content = content,
-            PrimaryButtonText = "Confirm identity",
+            PrimaryButtonText = "Confirm match",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };

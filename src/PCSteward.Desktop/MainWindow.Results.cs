@@ -78,8 +78,8 @@ public sealed partial class MainWindow
             {
                 "VerifiedUpdate" => "View the details, then review the update on the Updates page. Nothing updates until you confirm it.",
                 "ReviewRequired" => "Check the details and choose what to do. It can't be updated until the match is resolved.",
-                "FailedUnavailable" => "The package source couldn't confirm whether an update is available. Refresh source evidence to try again; there is no decision or update to approve.",
-                _ => "Found on this PC. No package source manages it, which isn't a safety problem."
+                "FailedUnavailable" => "PC Steward couldn't reach the update source for this app. Check again to retry; there is no decision or update to approve.",
+                _ => "Found on this PC. PC Steward doesn't know where to get updates for it, which isn't a safety problem."
             }));
             if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))
             {
@@ -87,7 +87,7 @@ public sealed partial class MainWindow
             }
             else if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable))
             {
-                finding.Children.Add(PageCopy(detail?.ActionState ?? "Refresh source evidence to retry. No update starts."));
+                finding.Children.Add(PageCopy(detail?.ActionState ?? "Check again to retry."));
                 StewardWrapPanel actions = StewardVisuals.ActionRow();
                 if (detail is { RequiresFreshSourceEvidence: true } && viewModel.IsUpdateSourceEnabled) actions.Children.Add(CreateSourceEvidenceRefreshButton(row));
                 Button open = StewardVisuals.ActionButton("View details", $"for {row.Name} (update evidence unavailable)"); open.Click += async (_, _) => await ShowDetailsAsync(row); actions.Children.Add(open);

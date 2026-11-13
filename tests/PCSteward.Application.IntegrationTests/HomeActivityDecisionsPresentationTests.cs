@@ -14,17 +14,17 @@ public sealed class HomeActivityDecisionsPresentationTests
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
     private static readonly TimeZoneInfo Utc = TimeZoneInfo.Utc;
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
-    private static readonly string[] FilterLabels = ["All", "Updates", "Needs review", "No update source", "Pinned, ignored & skipped"];
+    private static readonly string[] FilterLabels = ["All", "Update ready", "Check the match", "No update source", "Pinned, ignored & skipped"];
     private static readonly string[] ActivityFilterLabels = ["All", "Updates", "Scans", "Problems"];
     private static readonly string[] FreshnessWords = ["Local-only", "Live", "Cached", "Offline", "Unavailable"];
     private static readonly string[] OutcomeLabels = ["Verified", "Restart required", "Installed, not verified", "Result not verified", "Failed", "Not started"];
     private static readonly string[] AttentionKeys = ["failed", "restart"];
     private static readonly string[] LiveFacts = ["Live results from your update sources", "Scanned 5 hours ago"];
-    private static readonly string[] LocalOnlyFacts = ["Scanned 30 minutes ago", "Local-only: no package source is on."];
-    private static readonly int[] FilterCounts = [9, 1, 2, 1, 3];
-    private static readonly string[] UpdatesLabels = ["Update available — verified"];
-    private static readonly string[] NeedsReviewLabels = ["Update available — review", "Source unavailable"];
-    private static readonly string[] PinnedIgnoredLabels = ["Pinned", "Ignored", "Version skipped"];
+    private static readonly string[] LocalOnlyFacts = ["Scanned 30 minutes ago", "Local-only: update checks are off."];
+    private static readonly int[] FilterCounts = [9, 1, 1, 1, 3];
+    private static readonly string[] UpdatesLabels = ["Update ready"];
+    private static readonly string[] NeedsReviewLabels = ["Check the match"];
+    private static readonly string[] PinnedIgnoredLabels = ["Pinned", "Ignored", "Skipped"];
     private static readonly string[] InstanceFactLabels = ["Found by", "Identity", "Version", "Scope", "Architecture"];
     private static readonly int[] ActivityCounts = [5, 2, 2, 2];
     private static readonly string[] ExplainerTitles = ["Pin", "Skip this version", "Ignore updates for this app", "Confirm package"];
@@ -127,13 +127,12 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.IsTrue(home.Facts.All(fact => fact.Glyph.Length == 1), "every fact has an icon as well as text");
 
         Assert.AreEqual(HomeActionKind.ReviewUpdates, home.Primary.Kind, "updates are ready: the primary action reviews them");
-        Assert.AreEqual("Review updates", home.Primary.Label);
+        Assert.AreEqual("See updates", home.Primary.Label);
         StringAssert.StartsWith(home.Primary.AccessibleName, home.Primary.Label, "label-in-name");
         Assert.AreEqual(HomeActionKind.CheckForUpdates, home.Secondary!.Kind);
         Assert.AreEqual("Check for updates", home.Secondary.Label);
         StringAssert.StartsWith(home.Secondary.AccessibleName, home.Secondary.Label);
-        StringAssert.Contains(home.Secondary.HelpText, "never asks for administrator permission");
-        StringAssert.Contains(home.Secondary.HelpText, "Scans this PC, then checks your enabled update sources.", "independent review L1");
+        Assert.AreEqual("Scans this PC, then looks for updates. Nothing is installed.", home.Secondary.HelpText, "independent review L1: it says it scans as well as checks");
 
         Assert.AreEqual(new HomeCounts(rows.Length, 2, 1, 1, 4, 1, 1, 1, 1, 1, 1), home.Counts, "FR-UI-01 counts include pinned, ignored and failed; a later scan resolves an old attempt");
 
@@ -148,8 +147,9 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("Needs attention", glance[HomeRowKind.RestartsAndChecks].Title);
         Assert.AreEqual("1 update needs attention. 1 update is waiting for a restart.", glance[HomeRowKind.RestartsAndChecks].Description);
         Assert.AreEqual(StatusTone.Attention, glance[HomeRowKind.RestartsAndChecks].Tone);
-        Assert.AreEqual("2 possible matches need a look before they can update. This includes 1 app whose source couldn't be checked.", glance[HomeRowKind.NeedsReview].Description);
-        Assert.AreEqual("12 apps: 4 current, 1 with no update source.", glance[HomeRowKind.InstalledApps].Description, "the unmanaged count is merged into Installed apps");
+        Assert.AreEqual("Check the match", glance[HomeRowKind.NeedsReview].Title, "UI review item 5: the row carries the state's one name");
+        Assert.AreEqual("1 possible match needs a look before it can update.", glance[HomeRowKind.NeedsReview].Description, "it counts only the rows its link opens");
+        Assert.AreEqual("12 apps: 4 up to date, 1 with no update source. 1 app couldn't be checked.", glance[HomeRowKind.InstalledApps].Description, "the unmanaged count is merged into Installed apps");
         Assert.AreEqual("1 pinned, 1 ignored and 1 skipped. You can undo any of them.", glance[HomeRowKind.Decisions].Description);
         foreach (HomeRow row in home.Rows)
         {
@@ -200,7 +200,6 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("Turn on update checks…", home.Primary.Label);
         StringAssert.StartsWith(home.Primary.AccessibleName, "Turn on update checks", "label-in-name, without the ellipsis");
         StringAssert.Contains(home.Primary.HelpText, "asks you first");
-        StringAssert.Contains(home.Primary.HelpText, "doesn't scan, check or install anything");
         Assert.AreEqual(HomeActionKind.ScanAgain, home.Secondary!.Kind, "with sources off the other action is a scan only (independent review L1)");
         Assert.AreEqual("Scan again", home.Secondary.Label);
         StringAssert.StartsWith(home.Secondary.AccessibleName, home.Secondary.Label);
@@ -209,9 +208,9 @@ public sealed class HomeActivityDecisionsPresentationTests
         CollectionAssert.AreEqual(new[] { HomeRowKind.InstalledApps, HomeRowKind.Updates, HomeRowKind.NeedsReview, HomeRowKind.RestartsAndChecks, HomeRowKind.Decisions, HomeRowKind.RecentActivity },
             home.Rows.Select(row => row.Kind).ToArray(), "the order of the approved target");
         Dictionary<HomeRowKind, HomeRow> glance = home.Rows.ToDictionary(row => row.Kind);
-        Assert.AreEqual("Not checked. Turn on a package source to look for updates.", glance[HomeRowKind.Updates].Description);
+        Assert.AreEqual("Not checked. Turn on update checks to look for updates.", glance[HomeRowKind.Updates].Description);
         Assert.AreEqual(new HomeRowTarget(ShellPage.Updates), glance[HomeRowKind.Updates].Target);
-        Assert.AreEqual("Nothing needs your review.", glance[HomeRowKind.NeedsReview].Description);
+        Assert.AreEqual("No matches to check.", glance[HomeRowKind.NeedsReview].Description);
         Assert.AreEqual("Restarts and checks", glance[HomeRowKind.RestartsAndChecks].Title);
         Assert.AreEqual("Nothing is waiting for a restart or a check.", glance[HomeRowKind.RestartsAndChecks].Description);
         Assert.AreEqual("No apps pinned, ignored or skipped.", glance[HomeRowKind.Decisions].Description);
@@ -241,14 +240,14 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual("No updates ready · sources not checked yet", notChecked.Hero);
         Assert.AreEqual(HomeActionKind.CheckForUpdates, notChecked.Primary.Kind, "nothing is ready: the primary action checks, it never offers an empty review");
         Assert.IsNull(notChecked.Secondary);
-        Assert.AreEqual("Local-only: no package source has been checked yet.", notChecked.Facts[0].Text);
+        Assert.AreEqual("Local-only: PC Steward hasn't looked for updates yet.", notChecked.Facts[0].Text);
         Assert.AreNotEqual(StatusTone.Success, notChecked.HeroTone, "an unchecked state never reads as all clear");
 
         HomePresentation live = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
             [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-3))], [], [], [], Now.AddMinutes(-30), Now), Culture, Utc);
         Assert.AreEqual("No updates ready · checked 3 minutes ago", live.Hero);
         Assert.AreEqual(StatusTone.Success, live.HeroTone);
-        Assert.AreEqual("1 app: 1 current.", live.Rows.Single(row => row.Kind == HomeRowKind.InstalledApps).Description);
+        Assert.AreEqual("1 app: 1 up to date.", live.Rows.Single(row => row.Kind == HomeRowKind.InstalledApps).Description);
     }
 
     [TestMethod]
@@ -258,7 +257,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         FreshnessPresentation unavailable = FreshnessPresenter.Describe(true,
             [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Unavailable, Now.AddDays(-9))], Now, Culture, Utc);
         Assert.AreEqual("Unavailable", unavailable.Word);
-        Assert.AreEqual("Unavailable: a package source couldn't complete its check. The least fresh source's last successful check was on 23 Oct 2026.", unavailable.Sentence,
+        Assert.AreEqual("Unavailable: an update source couldn't complete its check. The least fresh source's last successful check was on 23 Oct 2026.", unavailable.Sentence,
             "9 days ago is shown as a date by the one app-wide format; never the live source's 'just now'");
         FreshnessPresentation fiveDays = FreshnessPresenter.Describe(true,
             [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Unavailable, Now.AddDays(-5))], Now, Culture, Utc);
@@ -412,7 +411,7 @@ public sealed class HomeActivityDecisionsPresentationTests
             new(Now.AddMinutes(-5), "Update", "Update NotAStatus: 2.0", null),
         ], Culture, Utc);
         Assert.AreEqual("Update recorded", timeline[0].Title, "unrecognised update text falls back safely");
-        Assert.AreEqual("Found in the latest inventory scan", timeline[1].Title);
+        Assert.AreEqual("Found in the latest scan", timeline[1].Title);
         Assert.AreEqual("Update to 2.0 started", timeline[2].Title);
         Assert.AreEqual("Update to 2.0: Failed", timeline[3].Title);
         StringAssert.Contains(timeline[3].Detail!, "installer exit 1603");

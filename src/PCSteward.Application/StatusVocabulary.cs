@@ -20,6 +20,8 @@ public sealed record StatusChipPresentation(string Key, string Label, string Gly
 }
 
 /// <summary>
+/// UI review 2026-11-13 (item 5): one short name per state, used on every chip, filter, heading and count — "Update ready",
+/// "Check the match", "Couldn't check", "Up to date", "No update source", "Not checked yet", "Pinned", "Ignored", "Skipped".
 /// FR-UI-01/05, AC-UX-03 (Task 73 Phase 1, ADR-030 foundation 2): the single status vocabulary. It maps the SPEC §7.2 user-facing
 /// inventory statuses to one label set used by every list, chip and filter, so filters show the same words as rows and never raw enum
 /// names. Presentation only: it never decides whether anything is actionable.
@@ -46,24 +48,24 @@ public static class StatusVocabulary
 
     private static readonly Dictionary<string, StatusChipPresentation> Chips = new StatusChipPresentation[]
     {
-        new(nameof(UpdateIntelligenceStatus.VerifiedUpdate), "Update available — verified", "", StatusTone.Information,
-            "A newer compatible package has exact, fresh source evidence. It still needs your review and confirmation."),
-        new(nameof(UpdateIntelligenceStatus.ReviewRequired), "Update available — review", "", StatusTone.Attention,
-            "A likely update exists, but the match or channel needs your review. It cannot be updated from here until that is resolved."),
-        new(nameof(UpdateIntelligenceStatus.FailedUnavailable), "Source unavailable", "", StatusTone.Attention,
-            "The package source could not complete its check. Refresh source evidence to try again; nothing can be updated."),
-        new(nameof(UpdateIntelligenceStatus.Current), "Current", "", StatusTone.Success,
-            "The installed version is the same as, or newer than, the latest compatible trusted package."),
+        new(nameof(UpdateIntelligenceStatus.VerifiedUpdate), "Update ready", "", StatusTone.Information,
+            "A newer version is available and the match is exact. Nothing is installed until you review and confirm it."),
+        new(nameof(UpdateIntelligenceStatus.ReviewRequired), "Check the match", "", StatusTone.Attention,
+            "PC Steward found a likely update but isn't sure it belongs to this app. It can't be updated until you confirm the match."),
+        new(nameof(UpdateIntelligenceStatus.FailedUnavailable), "Couldn't check", "", StatusTone.Attention,
+            "PC Steward couldn't reach the update source for this app. Check again to retry; it can't be updated until then."),
+        new(nameof(UpdateIntelligenceStatus.Current), "Up to date", "", StatusTone.Success,
+            "The installed version is the newest one the update source offers."),
         new(nameof(UpdateIntelligenceStatus.Unmanaged), NoUpdateSourceLabel, "", StatusTone.Neutral,
-            "PC Steward hasn't matched this app to a package source you've turned on, so it's inventoried only. This is not a safety warning."),
+            "PC Steward doesn't know where to get updates for this app, so it only lists it. This is not a safety warning."),
         new(nameof(UpdateIntelligenceStatus.Pinned), "Pinned", "", StatusTone.Neutral,
             "You chose to stay on this version. No update is offered until you remove the pin."),
         new(nameof(UpdateIntelligenceStatus.Ignored), "Ignored", "", StatusTone.Neutral,
-            "You chose not to be told about updates for this app. It stays in the inventory."),
-        new(nameof(UpdateIntelligenceStatus.Skipped), "Version skipped", "\uE893", StatusTone.Neutral,
-            "You chose to skip this version. A newer version will be offered again; you can stop skipping it at any time."),
-        new(InstalledKey, "Source not checked", "", StatusTone.Neutral,
-            "Found on this PC. No package source has been checked for it yet.")
+            "You chose not to be told about updates for this app. It stays on the Installed apps list."),
+        new(nameof(UpdateIntelligenceStatus.Skipped), "Skipped", "\uE893", StatusTone.Neutral,
+            "You chose to skip this version. The next newer version will be offered; you can stop skipping at any time."),
+        new(InstalledKey, "Not checked yet", "", StatusTone.Neutral,
+            "Found on this PC. PC Steward hasn't looked for updates for it yet.")
     }.ToDictionary(chip => chip.Key, StringComparer.Ordinal);
 
     /// <summary>Inventory statuses in filter order: what can be acted on first, then everything else.</summary>

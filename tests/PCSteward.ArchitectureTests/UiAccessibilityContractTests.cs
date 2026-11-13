@@ -136,9 +136,10 @@ public sealed partial class UiAccessibilityContractTests
         }
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
 
-        // The audit's named mismatches are gone (audit §5): "Scan this PC", "Review verified update evidence", "Show … scan results".
+        // The audit's named mismatches are gone (audit §5): "Review verified update evidence", "Show … scan results". "Scan this PC"
+        // is a label again (UI review 2026-11-13, item 8), now with a name that starts with it, which the checks above enforce.
         string window = DesktopSource("MainWindow.cs");
-        foreach (string legacy in new[] { "\"Scan this PC\"", "Review verified update evidence", "$\"Show {label} scan results\"", "Start another local inventory scan", "Cancel the active local inventory scan" })
+        foreach (string legacy in new[] { "Review verified update evidence", "$\"Show {label} scan results\"", "Start another local inventory scan", "Cancel the active local inventory scan" })
             Assert.IsFalse(window.Contains(legacy, StringComparison.Ordinal), legacy);
     }
 
@@ -172,7 +173,7 @@ public sealed partial class UiAccessibilityContractTests
 
         // Access keys on the primary commands; the review's confirm button has none and no accelerator.
         StringAssert.Contains(Between(source, "private void BuildWindowChrome()", "private void AddWindowShortcuts("), "titleBarBack.AccessKey = \"B\";");
-        // UI polish phase 2: every Home action has an access key from its label ("Review updates" → R, "Turn on update checks…" → T).
+        // UI polish phase 2: every Home action has an access key from its label ("See updates" → S, "Turn on update checks…" → T).
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         StringAssert.Contains(home, "AccessKey = AccessKeyFor(action.Label)");
         StringAssert.Contains(Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions"), "scan.AccessKey = \"S\";");

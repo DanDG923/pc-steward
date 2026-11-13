@@ -69,7 +69,7 @@ public sealed class AccessibilityTextTests
         Assert.AreEqual("Scanning this PC · Windows registry", OperationAnnouncements.StateKey("Scanning this PC · Windows registry · 00:07"));
         Assert.AreEqual(OperationAnnouncements.StateKey("Scanning this PC · Windows registry · 00:07"), OperationAnnouncements.StateKey("Scanning this PC · Windows registry · 01:12"), "ticks don't change the key");
         Assert.AreNotEqual(OperationAnnouncements.StateKey("Scanning this PC · Windows registry · 00:07"), OperationAnnouncements.StateKey("Scanning this PC · AppX · 00:09"), "a new phase does");
-        Assert.AreEqual("Checking package sources for updates", OperationAnnouncements.StateKey("Checking package sources for updates"));
+        Assert.AreEqual("Looking for updates", OperationAnnouncements.StateKey("Looking for updates"));
         Assert.AreEqual("Widget: Installed · not verified", OperationAnnouncements.StateKey("Widget: Installed · not verified"), "only a trailing mm:ss is removed");
     }
 

@@ -31,7 +31,7 @@ public sealed partial class MainWindow
     private StackPanel BuildInstalledAppsPage()
     {
         StackPanel panel = CreatePagePanel();
-        Button scan = StewardVisuals.ActionButton("Scan again", "(read-only scan of this PC)");
+        Button scan = StewardVisuals.ActionButton("Scan again", "(reads the installed apps on this PC)");
         scan.IsEnabled = !HasActiveOperation;
         scan.AccessKey = "S";
         scan.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
@@ -45,9 +45,9 @@ public sealed partial class MainWindow
         StewardWrapPanel headerActions = StewardVisuals.ActionRow();
         headerActions.Children.Add(scan);
         headerActions.Children.Add(more);
-        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", "Everything Windows reports on this PC. Searching and filtering never change anything.", null, headerActions));
+        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", InstalledAppsFilters.PageDescription, null, headerActions));
         // When the inventory was last read is a fact, not a warning, so it is a quiet line rather than a banner.
-        panel.Children.Add(StewardVisuals.FootNote("\uE81C", viewModel.FreshnessLabel));
+        panel.Children.Add(StewardVisuals.FootNote("\uE81C", InstalledAppsFilters.ScannedText(viewModel.LastScanAt, DateTimeOffset.UtcNow)));
 
         // Saved filters: the same words as the status chips, and counts over every saved app ("All" really is all).
         // Audit P-M9: filter tabs wrap instead of scrolling sideways or clipping.
@@ -124,12 +124,12 @@ public sealed partial class MainWindow
         AutomationProperties.SetAutomationId(list, "InstalledAppsList");
         Border listCard = new() { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall), Child = list };
         StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);
-        Border empty = StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters. The saved inventory hasn't changed.");
+        Border empty = StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters to see more apps.");
         // Column headings line up with StewardApplicationRowTemplate (32 | 3* | 1* | 1* | 1.4* | 16), inside the card's row padding.
         Grid columns = new() { Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0), ColumnSpacing = StewardSpacing.Large };
         foreach (GridLength width in new[] { new GridLength(32), new GridLength(3, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1.4, GridUnitType.Star), new GridLength(16) })
             columns.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
-        string[] headings = ["Name", "Version", "Installed for", "Update source"];
+        string[] headings = ["Name", "Version", "Installed for", "Status"];
         for (int index = 0; index < headings.Length; index++)
         {
             TextBlock heading = new() { Text = headings[index], Style = AppStyle("StewardCaptionStyle") };

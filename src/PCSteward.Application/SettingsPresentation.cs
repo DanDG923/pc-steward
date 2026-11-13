@@ -63,7 +63,7 @@ public static class SettingsPresenter
     public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediatelyExceptSchedule;
 
     /// <summary>The one sentence that tells people how saving works.</summary>
-    public const string SaveModelText = "Changes save as soon as you make them, except the schedule, which you save with Save schedule. Nothing here starts a scan, a source check, a download or an update.";
+    public const string SaveModelText = "Changes save as soon as you make them, except the schedule, which you save with Save schedule.";
 
     /// <summary>The Schedule card's one Save button (the only Save button in Settings).</summary>
     public const string SaveScheduleLabel = "Save schedule";
@@ -84,18 +84,21 @@ public static class SettingsPresenter
     public const string PageDescription = "Choose what PC Steward looks at, when it checks and what it keeps. Changes save straight away, except the schedule.";
 
     /// <summary>
-    /// The trusted-sources row's description: off says PC Steward works local-only and that turning it on asks first; on gives the
-    /// current source evidence in words.
+    /// The "Look for updates online" row's description (UI review 2026-11-13, item 8): off says what PC Steward does without it and
+    /// that turning it on asks first; on gives the same freshness sentence Home shows.
     /// </summary>
     public static string SourceRowDescription(bool enabled, string freshness) => enabled
         ? $"On. {freshness}"
-        : "Off: PC Steward works local-only. Turning this on shows exactly what is shared and asks you first.";
+        : "Off. PC Steward only lists what is installed. Turning this on shows what is shared and asks you first.";
+
+    /// <summary>The name of the one setting that lets PC Steward ask WinGet and Chocolatey about updates.</summary>
+    public const string SourceSettingLabel = "Look for updates online";
 
     /// <summary>The cadence choices, in the cadence list's order.</summary>
     public static IReadOnlyList<string> CadenceOptions { get; } = ["Manual only", "Daily", "Weekly"];
 
     /// <summary>The source disclosure reminder shown beside the source consent toggle.</summary>
-    public const string SourceConsentNote = "Turning this on shows what is shared and asks for your approval first. It never starts a scan, a source check, a download or an update.";
+    public const string SourceConsentNote = "Turning this on shows what is shared and asks you first.";
 
     /// <summary>The identifying-data warning shown before exports and diagnostics (FR-DAT-03).</summary>
     public const string ExportWarning = "Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.";

@@ -286,7 +286,7 @@ public static class ActivityPresenter
                 facts.Add(new("Finished", DisplayFormat.DateTime(completed, culture, zone)));
                 facts.Add(new("Duration", Duration(completed - scan.StartedAt)));
             }
-            entries.Add(new ActivityEntry($"scan:{scan.Id:N}", ActivityKind.Scan, at, "Inventory scan", label, glyph, tone, summary,
+            entries.Add(new ActivityEntry($"scan:{scan.Id:N}", ActivityKind.Scan, at, "Scan", label, glyph, tone, summary,
                 DisplayFormat.Range(scan.StartedAt, scan.CompletedAt, culture, zone), problem, facts, [])
             { TimeOfDay = DisplayFormat.TimeOfDay(scan.StartedAt, scan.CompletedAt, culture, zone) });
         }

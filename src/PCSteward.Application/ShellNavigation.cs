@@ -129,7 +129,7 @@ public sealed class ShellNavigation : INotifyPropertyChanged
         ShellPage.Decisions => "Decisions",
         ShellPage.Settings => "Settings",
         ShellPage.About => "About",
-        ShellPage.Scan => "Inventory scan",
+        ShellPage.Scan => "Scan",
         ShellPage.Results => "Inventory results",
         ShellPage.Review => "Review decisions",
         ShellPage.RepositoryApps => "Repository apps",
