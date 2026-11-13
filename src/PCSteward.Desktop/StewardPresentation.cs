@@ -52,7 +52,7 @@ public sealed class ApplicationListItem
     {
         Row = row;
         Name = row.Name;
-        Publisher = string.Equals(row.Publisher, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown publisher" : row.Publisher;
+        Publisher = string.IsNullOrWhiteSpace(row.Publisher) || string.Equals(row.Publisher, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown publisher" : row.Publisher;
         bool versionKnown = !string.IsNullOrWhiteSpace(row.Version) && !string.Equals(row.Version, "Unknown", StringComparison.OrdinalIgnoreCase);
         Version = versionKnown ? row.Version : "Unknown version";
         // UI polish phase 4 (approved target T-Installed): the Version column shows a dash for an unknown version; the accessible
@@ -60,7 +60,7 @@ public sealed class ApplicationListItem
         VersionText = versionKnown ? row.Version : "—";
         ScopeLabel = StewardPresentation.Scope(row.Scope);
         ScopeAndProvider = $"{ScopeLabel} · {StewardPresentation.Provider(row.Provider)}";
-        PublisherAndProvider = $"{Publisher} · {StewardPresentation.Provider(row.Provider)}";
+        PublisherAndProvider = InstalledAppsFilters.PublisherAndSource(row.Publisher, StewardPresentation.Provider(row.Provider));
         StewardStatus status = StewardStatus.From(row.Status);
         StatusLabel = status.Label;
         StatusGlyph = status.Glyph;
@@ -204,12 +204,16 @@ internal static class StewardVisuals
     /// <paramref name="card"/> so the card reaches the bottom of the page host's viewport, keeping whatever follows the card on
     /// the page (such as a footnote) in view. The list never drops below <paramref name="minimumHeight"/>, so on a short window
     /// the page scrolls instead. It re-fits when the window or the content above the card changes size.
+    /// UI review 2026-11-13 (fault 1): the page is top aligned so its height is the height of its content. Left to stretch, a
+    /// page shorter than the window reports the window's height, the blank space counts as content below the card, and the list
+    /// never grows past its minimum (five rows on a maximised 4K window).
     /// </summary>
     public static void FillViewportHeight(StackPanel page, FrameworkElement card, ListViewBase list, double minimumHeight)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(list);
+        page.VerticalAlignment = VerticalAlignment.Top;
         list.MaxHeight = minimumHeight;
         ScrollViewer? host = null;
         void Fit()
@@ -218,7 +222,7 @@ internal static class StewardVisuals
             double top = card.TransformToVisual(page).TransformPoint(new global::Windows.Foundation.Point(0, 0)).Y;
             double below = page.ActualHeight - top - card.ActualHeight;
             double chrome = card.ActualHeight - list.ActualHeight;
-            double wanted = Math.Max(minimumHeight, Math.Floor(host.ViewportHeight - top - below - chrome));
+            double wanted = ViewportFill.ListHeight(host.ViewportHeight, top, below, chrome, minimumHeight);
             if (Math.Abs(wanted - list.MaxHeight) >= 1) list.MaxHeight = wanted;
         }
         void Resized(object sender, SizeChangedEventArgs args) => Fit();
@@ -242,18 +246,20 @@ internal static class StewardVisuals
     /// <paramref name="card"/> itself so it reaches the bottom of the page host's viewport, keeping whatever follows it on the page
     /// (such as a footnote) in view. Only <see cref="FrameworkElement.MinHeight"/> changes, so on a short window the card keeps
     /// its natural height and the page scrolls as before. It re-fits when the window or the content above the card changes size.
+    /// The page is top aligned for the same reason as the list overload: a stretched page reports the window's height.
     /// </summary>
     public static void FillViewportHeight(StackPanel page, FrameworkElement card)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(card);
+        page.VerticalAlignment = VerticalAlignment.Top;
         ScrollViewer? host = null;
         void Fit()
         {
             if (host is null || host.ViewportHeight <= 0 || card.Visibility != Visibility.Visible || card.ActualHeight <= 0) return;
             double top = card.TransformToVisual(page).TransformPoint(new global::Windows.Foundation.Point(0, 0)).Y;
             double below = page.ActualHeight - top - card.ActualHeight;
-            double wanted = Math.Max(0, Math.Floor(host.ViewportHeight - top - below));
+            double wanted = ViewportFill.CardHeight(host.ViewportHeight, top, below);
             if (Math.Abs(wanted - card.MinHeight) >= 1) card.MinHeight = wanted;
         }
         void Resized(object sender, SizeChangedEventArgs args) => Fit();
@@ -859,55 +865,49 @@ internal static class StewardVisuals
 /// Audit P-M9 (AC-UX best effort, research §2 item 7): a minimal wrapping panel for action and filter rows. Children keep their
 /// natural size and move to the next line when the row runs out of width, so nothing is clipped at narrow widths or at 150–225%
 /// text scaling. Standard WinUI only (no Toolkit dependency); it lays out and does nothing else.
+/// UI review 2026-11-13 (fault 2): the line breaks are decided once, when the row is measured (<see cref="WrapLayout"/>), and
+/// arranging reuses them. Deciding again while arranging stacked the last button under the first on a 150% display.
 /// </summary>
 public sealed class StewardWrapPanel : Panel
 {
     public double HorizontalSpacing { get; set; } = StewardSpacing.Small;
     public double VerticalSpacing { get; set; } = StewardSpacing.Small;
 
+    private IReadOnlyList<int> measuredLines = [];
+
     protected override global::Windows.Foundation.Size MeasureOverride(global::Windows.Foundation.Size availableSize)
     {
-        double lineWidth = 0, lineHeight = 0, width = 0, height = 0;
+        List<WrapLayout.Item> items = [];
         foreach (UIElement child in Children)
         {
             child.Measure(new global::Windows.Foundation.Size(availableSize.Width, double.PositiveInfinity));
             if (child.Visibility == Visibility.Collapsed) continue;
-            global::Windows.Foundation.Size desired = child.DesiredSize;
-            if (lineWidth > 0 && lineWidth + HorizontalSpacing + desired.Width > availableSize.Width)
-            {
-                width = Math.Max(width, lineWidth);
-                height += lineHeight + VerticalSpacing;
-                lineWidth = desired.Width;
-                lineHeight = desired.Height;
-            }
-            else
-            {
-                lineWidth = lineWidth > 0 ? lineWidth + HorizontalSpacing + desired.Width : desired.Width;
-                lineHeight = Math.Max(lineHeight, desired.Height);
-            }
+            items.Add(new WrapLayout.Item(child.DesiredSize.Width, child.DesiredSize.Height));
         }
-        width = Math.Max(width, lineWidth);
-        height += lineHeight;
-        return new global::Windows.Foundation.Size(double.IsInfinity(availableSize.Width) ? width : Math.Min(width, availableSize.Width), height);
+        WrapLayout.Measured measured = WrapLayout.Measure(items, availableSize.Width, HorizontalSpacing, VerticalSpacing);
+        measuredLines = measured.Lines;
+        return new global::Windows.Foundation.Size(measured.Width, measured.Height);
     }
 
     protected override global::Windows.Foundation.Size ArrangeOverride(global::Windows.Foundation.Size finalSize)
     {
-        double x = 0, y = 0, lineHeight = 0;
+        List<UIElement> visible = [];
+        List<WrapLayout.Item> items = [];
         foreach (UIElement child in Children)
         {
             if (child.Visibility == Visibility.Collapsed) continue;
-            global::Windows.Foundation.Size desired = child.DesiredSize;
-            if (x > 0 && x + desired.Width > finalSize.Width)
-            {
-                x = 0;
-                y += lineHeight + VerticalSpacing;
-                lineHeight = 0;
-            }
-            double childWidth = Math.Min(desired.Width, finalSize.Width);
-            child.Arrange(new global::Windows.Foundation.Rect(x, y, childWidth, desired.Height));
-            x += childWidth + HorizontalSpacing;
-            lineHeight = Math.Max(lineHeight, desired.Height);
+            visible.Add(child);
+            items.Add(new WrapLayout.Item(child.DesiredSize.Width, child.DesiredSize.Height));
+        }
+        // Arrange always follows a measure of the same children; if it ever doesn't, measure the lines here rather than guess.
+        IReadOnlyList<int> lines = measuredLines.Count == items.Count
+            ? measuredLines
+            : WrapLayout.Measure(items, finalSize.Width, HorizontalSpacing, VerticalSpacing).Lines;
+        IReadOnlyList<WrapLayout.Slot> slots = WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing);
+        for (int index = 0; index < visible.Count; index++)
+        {
+            WrapLayout.Slot slot = slots[index];
+            visible[index].Arrange(new global::Windows.Foundation.Rect(slot.X, slot.Y, slot.Width, slot.Height));
         }
         return finalSize;
     }

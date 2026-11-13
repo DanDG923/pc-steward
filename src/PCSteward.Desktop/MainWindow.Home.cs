@@ -35,7 +35,7 @@ public sealed partial class MainWindow
     private StackPanel BuildHomePage()
     {
         IReadOnlyList<UpdateJobRecord> jobs = UpdateJobHistory.Group(updateHistory);
-        IReadOnlyList<ActivityEntry> activity = ActivityPresenter.Entries(jobs, scanRuns, activeDecisions, manualMappings, viewModel.AllRows);
+        IReadOnlyList<ActivityEntry> activity = ActivityPresenter.Entries(jobs, scanRuns, activeDecisions, manualMappings, viewModel.AllRows, packageNames: viewModel.PackageNames);
         HomePresentation home = HomePresenter.Build(new HomeInputs(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, viewModel.Sources,
             activeDecisions, [.. jobs], activity, viewModel.LastScanAt, DateTimeOffset.UtcNow, LastBootAt()));
         StackPanel panel = CreatePagePanel();

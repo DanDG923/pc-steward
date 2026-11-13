@@ -59,6 +59,29 @@ public static class InstalledAppsFilters
     /// </summary>
     public const string NoUpdateSourceNote = "No update source isn't a safety warning. It means PC Steward hasn't matched the app to a package source you've turned on.";
 
+    /// <summary>
+    /// UI review 2026-11-13 (fault 3): true for a record that is part of Windows or of another app rather than an app the owner
+    /// installed: an MSIX framework, resource pack or system package. Installed apps lists these only on request.
+    /// </summary>
+    public static bool IsSystemComponent(InventoryRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.Classification is "Framework" or "Resource" or "System";
+    }
+
+    /// <summary>The label of the switch that lists system components, with how many there are.</summary>
+    public static string SystemComponentsLabel(int count) => $"Show system components ({count.ToString("N0", CultureInfo.CurrentCulture)})";
+
+    /// <summary>
+    /// The second line of an Installed apps row: the publisher and where the record came from. A record with no publisher shows
+    /// only where it came from, never a stray separator ("· WinGet").
+    /// </summary>
+    public static string PublisherAndSource(string? publisher, string source)
+    {
+        bool known = !string.IsNullOrWhiteSpace(publisher) && !string.Equals(publisher.Trim(), "Unknown", StringComparison.OrdinalIgnoreCase);
+        return known ? $"{publisher!.Trim()} · {source}" : source;
+    }
+
     /// <summary>The count beside the search box: "437 apps", or "12 of 437 apps" when a search or filter narrows the list.</summary>
     public static string CountText(int shown, int total) => shown == total
         ? DisplayFormat.Plural(total, "app")
