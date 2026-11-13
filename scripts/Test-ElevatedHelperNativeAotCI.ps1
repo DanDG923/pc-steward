@@ -12,7 +12,8 @@ param()
 #     checks (hosted runners are elevated) and stop at the next one, exit 21 (no desktop beside the helper), so 20 above is
 #     the environment check and nothing else; no pipe is ever opened. Protocol 1 is retired (D4b stage 3) and any protocol-1
 #     line also ends with 20, so it cannot tell the two refusals apart;
-#   - the framework-dependent control shows what the same settings do to today's helper.
+#   - the framework-dependent control shows what the same settings do to today's helper;
+#   - the native image is a Windows-subsystem program, so no console window opens after the UAC prompt.
 # Writes only into one fixed new folder, artifacts\helper-native-aot under this checkout, and deletes nothing: an existing
 # folder there stops the run (remove it by hand). Changes no repository file, certificate store, install or deployment. The
 # owner-only candidate builder (hash-pinned) is not used or changed.
@@ -86,6 +87,13 @@ else {
     $results.aotWarningsInPcSteward = $ourWarnings
     $results.aotWarningsOther = @($aot.Warnings | Where-Object { $_ -notmatch 'PCSteward\.' })
     foreach ($warning in $ourWarnings) { $failures.Add("trim/AOT warning in PC Steward code: $warning") }
+
+    # No console window after the UAC prompt (owner request 2026-11-13): the native image is a Windows-subsystem program
+    # (IMAGE_SUBSYSTEM_WINDOWS_GUI = 2), never a console one (3). The subsystem is the UInt16 at optional header + 68.
+    $bytes = [IO.File]::ReadAllBytes($aotImage)
+    $peHeader = [BitConverter]::ToInt32($bytes, 0x3C)
+    $results.aotSubsystem = [int][BitConverter]::ToUInt16($bytes, $peHeader + 24 + 68)
+    if ($results.aotSubsystem -ne 2) { $failures.Add("native image subsystem is $($results.aotSubsystem), not 2 (Windows GUI, no console window)") }
 
     $eventPipeFile = Join-Path $OutputRoot 'aot-eventpipe.nettrace'
     $results.aotNoSettings = Invoke-Helper $aotImage @{}
