@@ -17,6 +17,20 @@ public sealed record RunningApplicationCoverage(
 public sealed record RunningApplicationDetection(bool AppearsToBeRunning, IReadOnlyCollection<string> ProcessNames)
 {
     public RunningApplicationCoverage? Coverage { get; init; }
+
+    /// <summary>
+    /// The matched names seen only in another user's Windows session. An app package is registered per account, so another user's open
+    /// copy doesn't stop this account's update from being registered (MSIX design note §3.6). Empty when unknown: a process whose session
+    /// can't be read counts as this session's.
+    /// </summary>
+    public IReadOnlyCollection<string> OnlyInOtherSessions { get; init; } = [];
+
+    /// <summary>The matched names with a process in this app's own Windows session (or whose session couldn't be read).</summary>
+    public IReadOnlyList<string> InThisSession =>
+        [.. ProcessNames.Where(name => !OnlyInOtherSessions.Contains(name, StringComparer.OrdinalIgnoreCase))];
+
+    /// <summary>True when a matched process is open in this app's own Windows session.</summary>
+    public bool OpenInThisSession => AppearsToBeRunning && InThisSession.Count != 0;
     public string CoverageDisclosure =>
         (Coverage is { } coverage
             ? $"Inspected {coverage.InspectedProcessCount} process entries; readable names: {coverage.ReadableNameCount}; inaccessible: {coverage.InaccessibleProcessCount}; exited: {coverage.ExitedProcessCount}; unavailable: {coverage.UnavailableProcessCount}; invalid names: {coverage.InvalidNameCount}. " +
@@ -33,8 +47,8 @@ public interface IRunningApplicationDetector
 }
 
 internal enum RunningProcessObservationKind { Name, Inaccessible, Exited, Unavailable, EnumerationUnavailable }
-internal sealed record RunningProcessObservation(RunningProcessObservationKind Kind, string? Name = null);
-internal sealed record RunningApplicationSnapshot(string[] Names, RunningApplicationCoverage Coverage);
+internal sealed record RunningProcessObservation(RunningProcessObservationKind Kind, string? Name = null, bool OtherSession = false);
+internal sealed record RunningApplicationSnapshot(string[] Names, RunningApplicationCoverage Coverage, string[] OtherSessionNames);
 
 /// <summary>Returns a bounded package-derived process-name snapshot and never closes a process.</summary>
 public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicationDetector
@@ -65,20 +79,22 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         string suffix = selection.PackageId[(selection.PackageId.LastIndexOf('.') + 1)..];
         if (!AmbiguousSuffixes.Contains(suffix)) AddCandidate(candidates, suffix);
         RunningApplicationSnapshot snapshot = Capture(observations(cancellationToken), cancellationToken);
-        string[] matches = snapshot.Names
-            .Where(candidates.Contains)
+        string[] here = [.. snapshot.Names.Where(candidates.Contains)];
+        string[] elsewhere = [.. snapshot.OtherSessionNames.Where(candidates.Contains)];
+        string[] matches = here.Concat(elsewhere)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        string[] onlyElsewhere = [.. matches.Where(name => !here.Contains(name, StringComparer.OrdinalIgnoreCase))];
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new RunningApplicationDetection(matches.Length != 0, matches) { Coverage = snapshot.Coverage });
+        return Task.FromResult(new RunningApplicationDetection(matches.Length != 0, matches) { Coverage = snapshot.Coverage, OnlyInOtherSessions = onlyElsewhere });
     }
 
     private static RunningApplicationSnapshot Capture(IEnumerable<RunningProcessObservation> source, CancellationToken cancellationToken)
     {
         int inspected = 0, inaccessible = 0, exited = 0, unavailable = 0, invalid = 0;
         bool enumerationUnavailable = false;
-        List<string> names = [];
+        List<string> names = [], otherSession = [];
         using IEnumerator<RunningProcessObservation> entries = source.GetEnumerator();
         while (inspected < MaximumProcesses)
         {
@@ -97,14 +113,15 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
                 case RunningProcessObservationKind.Inaccessible: inaccessible++; break;
                 case RunningProcessObservationKind.Exited: exited++; break;
                 case RunningProcessObservationKind.Name:
-                    if (IsValidName(observation.Name)) names.Add(observation.Name!);
+                    if (IsValidName(observation.Name)) (observation.OtherSession ? otherSession : names).Add(observation.Name!);
                     else invalid++;
                     break;
                 default: unavailable++; break;
             }
         }
         // Do not read a 4,097th entry just to establish whether enumeration is complete.
-        return new(names.ToArray(), new(inspected, names.Count, inaccessible, exited, unavailable, invalid, inspected == MaximumProcesses, enumerationUnavailable));
+        return new(names.ToArray(), new(inspected, names.Count + otherSession.Count, inaccessible, exited, unavailable, invalid, inspected == MaximumProcesses, enumerationUnavailable),
+            otherSession.ToArray());
     }
 
     private static bool IsValidName(string? name) => name is { Length: > 0 and <= MaximumProcessNameLength } &&
@@ -129,11 +146,12 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
                 yield return new(RunningProcessObservationKind.EnumerationUnavailable);
                 yield break;
             }
+            int session = CurrentSession();
             // GetProcesses materializes OS entries; name reads are bounded, but that native enumeration/allocation is not.
             foreach (Process process in processes.Take(MaximumProcesses))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                yield return Observe(process);
+                yield return Observe(process, session);
             }
         }
         finally
@@ -144,11 +162,25 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
         }
     }
 
-    private static RunningProcessObservation Observe(Process process)
+    private static RunningProcessObservation Observe(Process process, int session)
     {
-        try { return new(RunningProcessObservationKind.Name, process.ProcessName); }
+        try { return new(RunningProcessObservationKind.Name, process.ProcessName, IsInOtherSession(process, session)); }
         catch (InvalidOperationException) { return new(RunningProcessObservationKind.Exited); }
         catch (Win32Exception) { return new(RunningProcessObservationKind.Inaccessible); }
         catch (NotSupportedException) { return new(RunningProcessObservationKind.Unavailable); }
+    }
+
+    /// <summary>True only when both sessions were read and differ; an unreadable session counts as this one (fails closed).</summary>
+    private static bool IsInOtherSession(Process process, int session)
+    {
+        if (session < 0) return false;
+        try { return process.SessionId != session; }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or NotSupportedException) { return false; }
+    }
+
+    private static int CurrentSession()
+    {
+        try { using Process current = Process.GetCurrentProcess(); return current.SessionId; }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or NotSupportedException) { return -1; }
     }
 }

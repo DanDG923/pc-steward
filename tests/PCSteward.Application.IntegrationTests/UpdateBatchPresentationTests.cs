@@ -64,7 +64,10 @@ public sealed class UpdateBatchPresentationTests
         ReviewRiskCallout running = sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication);
         Assert.AreEqual("Beta appears to be running", running.Title);
         StringAssert.Contains(running.Message, "Beta (Contoso.BETA)");
-        StringAssert.Contains(running.Message, "will not close");
+        StringAssert.Contains(running.Message, "Close Beta for me");
+        StringAssert.Contains(running.Message, "never force-quits");
+        Assert.AreEqual("Close Beta for me", sheet.CloseForMeLabel);
+        Assert.IsTrue(sheet.CanConfirm);
         Assert.AreEqual(StatusTone.Attention, running.Tone);
         Assert.HasCount(3, sheet.Risks);
         StringAssert.Contains(sheet.Attestation, "one at a time");

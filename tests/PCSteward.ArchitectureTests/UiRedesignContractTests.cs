@@ -528,7 +528,8 @@ public sealed class UiRedesignContractTests
         // Items 2 and 10: a decided sheet renders both buttons disabled; Confirm also waits for any active operation.
         StringAssert.Contains(reviewStep, "bool decided = decision.Task.IsCompleted;");
         StringAssert.Contains(reviewStep, "cancel.IsEnabled = !decided;");
-        StringAssert.Contains(reviewStep, "confirm.IsEnabled = !HasActiveOperation && !decided;");
+        // MSIX §3.6: Confirm also waits while an app package is open or a running-app check is in progress.
+        StringAssert.Contains(reviewStep, "confirm.IsEnabled = !HasActiveOperation && !decided && sheet.CanConfirm && !job.CheckingRunningApps;");
 
         // Item 5: a new review from the job page gets a fresh render (focus on Cancel, scroll reset).
         StringAssert.Contains(review, "if (navigation.Current == ShellPage.UpdateJob) ShowCurrentPage(preserveViewState: false); else NavigateTo(ShellPage.UpdateJob);");

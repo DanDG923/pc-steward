@@ -177,8 +177,14 @@ public sealed partial class MainWindow
         // "Before you update": the running-app, restart and administrator notes, each a row with its icon (approved target).
         StackPanel before = new() { Spacing = StewardSpacing.XSmall };
         before.Children.Add(SectionHeading("Before you update"));
+        bool reviewOpen = !refused && reviewDecision is { Task.IsCompleted: false };
         foreach (ReviewRiskCallout risk in sheet.Risks)
+        {
             before.Children.Add(StewardVisuals.RowCard(RiskGlyph(risk.Kind), risk.Title, risk.Message, tone: StewardStatus.ToneName(risk.Tone)));
+            // Owner decision 2026-11-13: when an app is open, offer to close it (like closing its window) and to check again.
+            if (risk.Kind == ReviewRiskKind.RunningApplication && reviewOpen && (sheet.OffersCloseForMe || job.RunningCheckLine is not null))
+                before.Children.Add(RunningAppActions(job));
+        }
         // The one-shot helper takes one approved job per prompt, so a batch elevates each machine-wide app on its own.
         if (sheet.ElevationNote is { } elevationNote)
             before.Children.Add(StewardVisuals.RowCard("\uEA18", "Windows may ask more than once", elevationNote));
@@ -216,7 +222,8 @@ public sealed partial class MainWindow
         // sheet shows both buttons disabled, and Cancel can no longer navigate away. Confirm also waits for any active operation.
         bool decided = decision.Task.IsCompleted;
         cancel.IsEnabled = !decided;
-        confirm.IsEnabled = !HasActiveOperation && !decided;
+        confirm.IsEnabled = !HasActiveOperation && !decided && sheet.CanConfirm && !job.CheckingRunningApps;
+        if (sheet.CloseFirstNote is { } closeFirst) AutomationProperties.SetHelpText(confirm, closeFirst);
         cancel.Click += (_, _) =>
         {
             cancel.IsEnabled = false; confirm.IsEnabled = false;
@@ -239,8 +246,68 @@ public sealed partial class MainWindow
         // The action bar (approved target): a reminder that nothing changes until the specific update button, then the buttons.
         // UI review 2026-11-13 (item 13): it stays at the bottom of the window while the review scrolls under it, so Cancel and
         // the update button are in view however many apps are reviewed. Cancel still takes focus.
-        pageFooter = StewardVisuals.SettingsRow(sheet.ConfirmNote, null, actions);
+        pageFooter = StewardVisuals.SettingsRow(sheet.CloseFirstNote ?? sheet.ConfirmNote, null, actions);
         pageInitialFocus = cancel;
+    }
+
+    /// <summary>
+    /// Owner decision 2026-11-13 (MSIX design note §3.6): under the running-app note, "Close it for me" asks each detected app to close
+    /// the same way as closing its window, then checks again; "Check again" only checks. Neither approves or starts anything.
+    /// </summary>
+    private StackPanel RunningAppActions(UpdateJobSession job)
+    {
+        UpdateReviewSheet sheet = job.Sheet;
+        StackPanel area = new() { Spacing = StewardSpacing.XSmall, Margin = new Thickness(StewardSpacing.Large, 0, 0, 0) };
+        if (job.RunningCheckLine is { } line)
+            area.Children.Add(new TextBlock { Text = line, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        StewardWrapPanel row = StewardVisuals.ActionRow();
+        if (sheet.OffersCloseForMe)
+        {
+            Button close = StewardVisuals.ActionButton(sheet.CloseForMeLabel, UpdateReviewSheet.CloseForMeExplanation);
+            close.IsEnabled = !job.CheckingRunningApps;
+            close.Click += async (_, _) => await CheckRunningAppsAsync(job, closeFirst: true);
+            row.Children.Add(close);
+        }
+        Button again = StewardVisuals.ActionButton(UpdateReviewSheet.CheckAgainLabel, "whether these apps are still running");
+        again.IsEnabled = !job.CheckingRunningApps;
+        again.Click += async (_, _) => await CheckRunningAppsAsync(job, closeFirst: false);
+        row.Children.Add(again);
+        area.Children.Add(row);
+        if (sheet.OffersCloseForMe)
+            area.Children.Add(new TextBlock { Text = UpdateReviewSheet.CloseForMeExplanation, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
+        return area;
+    }
+
+    private async Task CheckRunningAppsAsync(UpdateJobSession job, bool closeFirst)
+    {
+        if (job.CheckingRunningApps || job.RebuildSheet is not { } rebuild || reviewDecision is not { Task.IsCompleted: false } || !ReferenceEquals(updateJob, job)) return;
+        job.CheckingRunningApps = true;
+        job.RunningCheckLine = closeFirst ? "Asking the apps to close…" : "Checking…";
+        Render();
+        string line;
+        try
+        {
+            RunningApplicationCloseResult? closed = closeFirst
+                ? await runningAppCloser.RequestCloseAsync(job.Sheet.RunningProcessNames, CancellationToken.None)
+                : null;
+            List<RunningApplicationDetection> detections = [];
+            foreach (PCSteward.Domain.UpdateJobSelection selection in job.Selections)
+                detections.Add(await updates.DetectRunningApplicationAsync(selection, CancellationToken.None));
+            if (windowClosed || !ReferenceEquals(updateJob, job)) return;
+            job.Sheet = rebuild(detections);
+            // Confirming covers exactly the warning now shown; each app is still detected again just before it starts.
+            if (job.Review is { } reviewed) job.Review = reviewed.WithRunningApplications(detections);
+            line = closed is not null ? UpdateReviewSheet.CloseResultLine(closed)
+                : job.Sheet.OffersCloseForMe ? "Still running. Close the app, then check again."
+                : job.Sheet.AppearsToBeRunning ? "Open only in another user's Windows session." : "None of these apps appear to be running now.";
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            line = "PC Steward couldn't check the running apps. Close them yourself, then start a new review if needed.";
+        }
+        finally { job.CheckingRunningApps = false; }
+        job.RunningCheckLine = line;
+        if (!windowClosed) Render();
     }
 
     /// <summary>
@@ -562,7 +629,15 @@ public sealed partial class MainWindow
         UpdateReviewSheet sheet = UpdateReviewSheet.CreateBatch(inputs,
             [.. preparation.Excluded.Select(excluded => new UpdateReviewExclusion(NameOf(excluded.StableProductKey), excluded.Message))],
             preparation.ExpiresAt.ToLocalTime());
-        UpdateJobSession job = new([.. preparation.Items.Select(item => rows.First(row => row.StableProductKey == item.StableProductKey))], sheet);
+        UpdateReviewExclusion[] exclusions = [.. preparation.Excluded.Select(excluded => new UpdateReviewExclusion(NameOf(excluded.StableProductKey), excluded.Message))];
+        UpdateJobSession job = new([.. preparation.Items.Select(item => rows.First(row => row.StableProductKey == item.StableProductKey))], sheet)
+        {
+            Selections = [.. inputs.Select(input => input.Selection)],
+            Review = preparation,
+            // "Check again" and "Close it for me": the same reviewed inputs with fresh running-app detections. Nothing else changes.
+            RebuildSheet = detections => UpdateReviewSheet.CreateBatch([.. inputs.Select((input, index) => input with { Running = detections[index] })],
+                exclusions, preparation.ExpiresAt.ToLocalTime())
+        };
         updateJob = job;
         TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
         reviewDecision = decision;
@@ -580,6 +655,8 @@ public sealed partial class MainWindow
             return;
         }
 
+        // The review as last shown: "Check again" may have refreshed its running-app warnings (never its selections).
+        preparation = job.Review ?? preparation;
         isExecuting = true;
         executionPending = false;
         job.Step = UpdateJobStep.Update;
