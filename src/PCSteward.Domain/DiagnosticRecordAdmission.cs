@@ -49,6 +49,9 @@ public static class DiagnosticTextSanitizer
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
     private static readonly Regex Link = new(@"[A-Za-z][A-Za-z0-9+.\-]*://\S+", Options, MatchTimeout);
+    // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
+    private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
+    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^'\r\n]*'", Options, MatchTimeout);
     private static readonly Regex UncPath = new(@"\\\\[^\\/\s]+(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex DrivePath = new(@"[A-Za-z]:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*", Options, MatchTimeout);
     // Same structure as a drive path: folders may contain spaces, the last segment ends at whitespace.
@@ -77,6 +80,8 @@ public static class DiagnosticTextSanitizer
         // recognised (a one-letter account name "c" would otherwise turn "C:\Users\..." into text no path pattern matches).
         string value = cleaned.ToString();
         value = Link.Replace(value, LinkPlaceholder);
+        value = DoubleQuotedPath.Replace(value, "\"" + PathPlaceholder + "\"");
+        value = SingleQuotedPath.Replace(value, "'" + PathPlaceholder + "'");
         value = UncPath.Replace(value, PathPlaceholder);
         value = DrivePath.Replace(value, PathPlaceholder);
         value = VariablePath.Replace(value, PathPlaceholder);
