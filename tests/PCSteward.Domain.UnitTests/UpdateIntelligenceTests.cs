@@ -294,6 +294,72 @@ public sealed class UpdateIntelligenceTests
         CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.SourceDisagreement);
     }
 
+    [TestMethod]
+    public void AnEntryNumberedDifferentlyFromAPackageWithNoNewerVersionIsNotAnUpdate()
+    {
+        // MEGAsync on the owner's PC: the per-user uninstall entry says 6.7.0, WinGet lists package Mega.MEGASync as 6.7.0.3 and has
+        // no newer version. WinGet's list gives no publisher for a package without an update, so the match is by name only.
+        ProductMatchProfile entry = new("registry:megasync", "MEGAsync", null, null, null, "Mega Limited", "6.7.0", "User", "x64", null);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Mega.MEGASync", "MEGAsync", null, "6.7.0.3", "6.7.0.3", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([entry], [source]);
+
+        UpdateIntelligenceItem item = summary.Items.Single();
+        Assert.AreEqual(UpdateIntelligenceStatus.Unmanaged, item.Status);
+        Assert.IsFalse(item.Mapping!.IsActionable);
+        StringAssert.Contains(item.Explanation, "no newer version", StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(item.Explanation, "hasn't been confirmed", StringComparison.OrdinalIgnoreCase);
+        Assert.AreEqual(0, summary.Counts[UpdateIntelligenceStatus.ReviewRequired]);
+    }
+
+    [TestMethod]
+    public void ANameAndPublisherMatchNumberedDifferentlyWithNoNewerVersionIsCurrent()
+    {
+        ProductMatchProfile entry = new("registry:megasync", "MEGAsync", null, null, null, "Mega Limited", "6.7.0", "User", "x64", null);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Mega.MEGASync", "MEGAsync", "Mega Limited", "6.7.0.3", "6.7.0.3", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([entry], [source]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        Assert.AreEqual(MappingConfidence.Medium, item.Mapping!.Confidence);
+        Assert.IsFalse(item.Mapping.IsActionable);
+        StringAssert.Contains(item.Explanation, "no newer version");
+    }
+
+    [TestMethod]
+    public void AnEntryNumberedDifferentlyFromAPackageWithANewerVersionStaysAReviewItem()
+    {
+        ProductMatchProfile entry = new("registry:megasync", "MEGAsync", null, null, null, "Mega Limited", "6.7.0", "User", "x64", null);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Mega.MEGASync", "MEGAsync", null, "6.7.0.3", "6.8.0.1", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([entry], [source]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.IsFalse(item.Mapping!.IsActionable);
+    }
+
+    [TestMethod]
+    public void ARuntimeEntryAfterItsUpdateIsCurrentAlthoughItsVersionHasAFourthPart()
+    {
+        // After the 8.0.34 update the uninstall entry says 8.0.34.36622 and WinGet lists the package as 8.0.34 with nothing newer.
+        ProductMatchProfile entry = new("registry:runtime8", "Microsoft.DotNet.DesktopRuntime.8", null, null, null, "Contoso", "8.0.34.36622", "Machine", "x64", null);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Microsoft.DotNet.DesktopRuntime.8", "Microsoft.DotNet.DesktopRuntime.8", "Contoso", "8.0.34", "8.0.34", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([entry], [source]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        CollectionAssert.DoesNotContain(item.Mapping!.ReviewReasons.ToArray(), MappingReviewReason.CandidateIsOlder);
+    }
+
+    [TestMethod]
+    public void ADifferentlyNumberedEntryWithAnArchitectureConflictStaysAReviewItem()
+    {
+        ProductMatchProfile entry = Product("conflict", null, "6.7.0", "x86");
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Conflict", "conflict", "Contoso", "6.7.0.3", "6.7.0.3", "Machine", "x64", "Stable")]);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, UpdateIntelligence.Assess([entry], [source]).Items.Single().Status);
+    }
+
     private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel, InstalledSourceId: packageId is null ? null : "winget");
     private static SourcePackageRecord Package(string id, string version, string architecture = "x64") => new("winget", id, id, "Contoso", "1.0.0", version, "Machine", architecture, "Stable");
     private static SourceSnapshot Source(IReadOnlyCollection<SourcePackageRecord> packages) => new("winget", "v1.0", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []);
