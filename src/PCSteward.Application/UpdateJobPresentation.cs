@@ -70,8 +70,12 @@ public sealed record UpdateReviewSheetItem(
     AdministratorRequirementPresentation AdministratorRequirement,
     bool AppearsToBeRunning,
     IReadOnlyList<string> RunningProcessNames,
-    bool MustCloseFirst = false)
+    bool MustCloseFirst = false,
+    IReadOnlyList<string>? ProcessNamesInThisSession = null)
 {
+    /// <summary>The matched names open in this Windows session, the only ones "Close it for me" can ask to close.</summary>
+    public IReadOnlyList<string> CloseableProcessNames => ProcessNamesInThisSession ?? (AppearsToBeRunning ? RunningProcessNames : []);
+
     /// <summary>The value of one of this app's §17.2 facts (<see cref="UpdateReviewSheet.FactLabels"/>), or empty.</summary>
     public string Fact(string label) => Facts.FirstOrDefault(fact => string.Equals(fact.Label, label, StringComparison.Ordinal))?.Value ?? string.Empty;
 
@@ -175,18 +179,25 @@ public sealed class UpdateReviewSheet
         ? $"Close {JoinNames(names)} to continue. Windows can't update {(names.Length == 1 ? "it" : "them")} while {(names.Length == 1 ? "it's" : "they're")} open."
         : null;
 
-    /// <summary>Owner decision 2026-11-13: "Close it for me" is offered whenever an app on the sheet appears to be running.</summary>
-    public bool OffersCloseForMe => Items.Any(item => item.AppearsToBeRunning);
+    /// <summary>
+    /// Owner decision 2026-11-13: "Close it for me" is offered whenever an app on the sheet is open in this Windows session. Another
+    /// user's copy is never asked to close.
+    /// </summary>
+    public bool OffersCloseForMe => Items.Any(item => item.CloseableProcessNames.Count != 0);
 
     /// <summary>The "Close it for me" button: "Close Windows Terminal for me", or "Close these apps for me" for several.</summary>
-    public string CloseForMeLabel => Items.Where(item => item.AppearsToBeRunning).ToArray() is [var only] ? CloseForMeText(only.AppName) : CloseTheseForMeText;
+    public string CloseForMeLabel => Items.Where(item => item.CloseableProcessNames.Count != 0).ToArray() is [var only] ? CloseForMeText(only.AppName) : CloseTheseForMeText;
 
-    /// <summary>The process names "Close it for me" asks to close: exactly those the running-app detection reported.</summary>
-    public IReadOnlyList<string> RunningProcessNames => [.. Items.SelectMany(item => item.RunningProcessNames).Distinct(StringComparer.OrdinalIgnoreCase)];
+    /// <summary>The process names "Close it for me" asks to close: those the running-app detection reported in this Windows session.</summary>
+    public IReadOnlyList<string> RunningProcessNames => [.. Items.SelectMany(item => item.CloseableProcessNames).Distinct(StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>What "Close it for me" does, said beside the button and in the running-app note.</summary>
     public const string CloseForMeExplanation =
         "Close it for me asks the app to close the same way as closing its window, so it can ask you to save first. PC Steward never force-quits an app.";
+
+    /// <summary>The running-app note when the app is open only in another user's Windows session, which PC Steward never touches.</summary>
+    public const string OnlyInAnotherSessionText =
+        "It's open only in another user's Windows session, which PC Steward doesn't touch. Ask them to close it, or choose to update anyway.";
 
     public const string CloseTheseForMeText = "Close these apps for me";
     public const string CheckAgainLabel = "Check again";
@@ -238,13 +249,14 @@ public sealed class UpdateReviewSheet
         List<ReviewRiskCallout> risks = [];
         risks.Add(item.MustCloseFirst
             ? new(ReviewRiskKind.RunningApplication, $"Close {name} to update it",
-                $"{name} is open (detected process: {string.Join(", ", running.ProcessNames)}). Windows finishes updating this app only after it's closed, " +
+                $"{name} is open (detected process: {string.Join(", ", running.InThisSession)}). Windows finishes updating this app only after it's closed, " +
                 $"so the update can't start while it's open. Close it yourself or choose {CloseForMeText(name)}, then check again.",
                 StatusTone.Attention)
             : running.AppearsToBeRunning
             ? new(ReviewRiskKind.RunningApplication, $"{name} appears to be running",
-                $"Detected process: {string.Join(", ", running.ProcessNames)}. Close the app before you continue, choose {CloseForMeText(name)}, or choose to update anyway. " +
-                CloseForMeExplanation,
+                $"Detected process: {string.Join(", ", running.ProcessNames)}. " + (item.CloseableProcessNames.Count != 0
+                    ? $"Close the app before you continue, choose {CloseForMeText(name)}, or choose to update anyway. " + CloseForMeExplanation
+                    : OnlyInAnotherSessionText),
                 StatusTone.Attention)
             : new(ReviewRiskKind.RunningApplication, "The app doesn't appear to be running",
                 $"No running process was matched for {selection.PackageId}. If you know it's open, close it first.",
@@ -297,6 +309,7 @@ public sealed class UpdateReviewSheet
             inputs.Select(input => input.UserInstaller).ToArray());
         UpdateReviewSheetItem[] running = [.. items.Where(item => item.AppearsToBeRunning)];
         UpdateReviewSheetItem[] closeFirst = [.. running.Where(item => item.MustCloseFirst)];
+        UpdateReviewSheetItem[] closeable = [.. running.Where(item => item.CloseableProcessNames.Count != 0)];
         List<ReviewRiskCallout> risks = [];
         risks.Add(running.Length == 0
             ? new(ReviewRiskKind.RunningApplication, "None of these apps appear to be running",
@@ -305,9 +318,10 @@ public sealed class UpdateReviewSheet
                 $"Detected: {string.Join("; ", running.Select(item => $"{item.AppName} ({string.Join(", ", item.RunningProcessNames)})"))}. " +
                 (closeFirst.Length == 0 ? string.Empty
                     : $"Windows finishes updating {JoinNames(closeFirst.Select(item => item.AppName))} only after {(closeFirst.Length == 1 ? "it's" : "they're")} closed, so the updates can't start until then. ") +
-                $"Close them before you continue, choose {(running.Length == 1 ? CloseForMeText(running[0].AppName) : CloseTheseForMeText)}" +
+                (closeable.Length == 0 ? "Close them before you continue"
+                    : $"Close them before you continue, choose {(closeable.Length == 1 ? CloseForMeText(closeable[0].AppName) : CloseTheseForMeText)}") +
                 (closeFirst.Length == running.Length ? ", then check again. " : ", or choose to update anyway. ") +
-                CloseForMeExplanation + " An app that starts running later is not updated without a new review.",
+                (closeable.Length == 0 ? string.Empty : CloseForMeExplanation + " ") + "An app that starts running later is not updated without a new review.",
                 StatusTone.Attention));
         risks.Add(new(ReviewRiskKind.Restart, "A restart might be needed",
             "Some installers need Windows to restart to finish. PC Steward never restarts your PC; if a restart is needed, it tells you afterwards.",
@@ -362,8 +376,9 @@ public sealed class UpdateReviewSheet
         evidence.Add($"Evidence version: {selection.MappingEvidenceVersion}.");
         return new(selection.StableProductKey, name, facts, confidence, evidence, administratorRequirement, input.Running.AppearsToBeRunning,
             [.. input.Running.ProcessNames],
-            // MSIX design note §3.6: an app package can't be updated while it's open.
-            input.Running.AppearsToBeRunning && RunningApplicationAcknowledgement.MustBeClosed(input.UserInstaller));
+            // MSIX design note §3.6: an app package can't be updated while it's open in this account's session.
+            input.Running.OpenInThisSession && RunningApplicationAcknowledgement.MustBeClosed(input.UserInstaller),
+            input.Running.InThisSession);
     }
 
     private static string Source(UpdateSource source) => source switch

@@ -122,6 +122,62 @@ public sealed class RunningAppCloseTests
         Assert.AreEqual("Closed: WindowsTerminal.", UpdateReviewSheet.CloseResultLine(result));
     }
 
+    [TestMethod]
+    [TestCategory("FR-UPD-06")]
+    public async Task OnlyAnAppOpenInThisSessionMustBeClosed()
+    {
+        // Codex review (PR #103): an app package is registered per account, so another user's open copy is only a warning, and
+        // "Close it for me" never offers to close it.
+        PackageDerivedRunningApplicationDetector detector = new(_ =>
+        [
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "WindowsTerminal", OtherSession: true),
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "explorer")
+        ]);
+        RunningApplicationDetection elsewhere = await detector.DetectAsync(Selection("Microsoft.WindowsTerminal"), CancellationToken.None);
+        Assert.IsTrue(elsewhere.AppearsToBeRunning);
+        CollectionAssert.AreEqual(TerminalProcess, elsewhere.OnlyInOtherSessions.ToArray());
+        Assert.IsFalse(elsewhere.OpenInThisSession);
+        Assert.IsTrue(RunningApplicationAcknowledgement.Covers(true, TerminalProcess, elsewhere, mustBeClosed: true), "acknowledgeable");
+        Assert.IsFalse(RunningApplicationAcknowledgement.Covers(false, null, elsewhere, mustBeClosed: true), "still a warning");
+
+        PackageDerivedRunningApplicationDetector both = new(_ =>
+        [
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "WindowsTerminal", OtherSession: true),
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "WindowsTerminal")
+        ]);
+        RunningApplicationDetection here = await both.DetectAsync(Selection("Microsoft.WindowsTerminal"), CancellationToken.None);
+        Assert.IsTrue(here.OpenInThisSession, "open here as well");
+        Assert.IsFalse(RunningApplicationAcknowledgement.Covers(true, TerminalProcess, here, mustBeClosed: true));
+
+        UpdateReviewSheet sheet = UpdateReviewSheet.CreateBatch(
+            [new UpdateReviewSheetInput(Selection("Microsoft.WindowsTerminal"), "Windows Terminal", "", null, elsewhere, Msix)]);
+        Assert.IsTrue(sheet.CanConfirm);
+        Assert.IsFalse(sheet.OffersCloseForMe, "another user's copy is never asked to close");
+        Assert.IsEmpty(sheet.RunningProcessNames);
+        Assert.AreEqual("Update 1 app anyway", sheet.PrimaryButtonLabel);
+        StringAssert.Contains(sheet.Risks.Single(callout => callout.Kind == ReviewRiskKind.RunningApplication).Message, UpdateReviewSheet.OnlyInAnotherSessionText);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-06")]
+    public void CheckAgainRefreshesOnlyTheWarningTheReviewConfirms()
+    {
+        // Codex review (PR #103): confirming after "Check again" covers the warning now shown; the reviewed selection stays.
+        UpdateJobReview review = new(Guid.NewGuid(), Guid.NewGuid(), Selection("Contoso.Widget"));
+        UpdateBatchReviewPreparation prepared = new(
+            [new UpdateBatchReviewItem("key", new UpdateReviewPreparation(review, "ready", RunningApplicationDetection.NotDetected))], [], DateTimeOffset.UtcNow);
+        RunningApplicationDetection now = new(true, WidgetProcess);
+
+        UpdateBatchReviewPreparation refreshed = prepared.WithRunningApplications([now]);
+
+        Assert.AreSame(now, refreshed.Items.Single().Preparation.RunningApplication);
+        Assert.AreSame(review, refreshed.Items.Single().Preparation.Review);
+        Assert.AreEqual(prepared.ReviewedAt, refreshed.ReviewedAt);
+        Assert.IsTrue(refreshed.TryClaimForRun());
+        Assert.IsFalse(prepared.TryClaimForRun(), "the copy shares the single use");
+        Assert.ThrowsExactly<ArgumentException>(() => prepared.WithRunningApplications([]));
+    }
+
     private static UpdateJobSelection Selection(string packageId) =>
         new(packageId, UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0", "2.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture-evidence");
 

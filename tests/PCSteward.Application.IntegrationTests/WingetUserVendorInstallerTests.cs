@@ -135,6 +135,17 @@ public sealed class WingetUserVendorInstallerTests
             new ScriptedSource(WingetUserInstallerRules.Evaluate(Observation("Exe"), selection)), runningProcesses: WidgetProcess);
         UpdateReviewPreparation exeReview = await exe.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
         Assert.IsTrue((await exe.ConfirmAndRunAsync(exeReview.Review!, true, CancellationToken.None, acknowledgedRunningProcesses: WidgetProcess)).Started);
+
+        // Codex review (PR #103): a copy open only in another user's session doesn't hold back this account's registration, so it
+        // is the usual warning, which can be acknowledged.
+        RecordingExecutor otherExecutor = new();
+        ReviewedUpdateExecutionWorkflow other = Workflow(selection, new RecordingStore(), otherExecutor,
+            new ScriptedSource(WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown"), selection)), runningProcesses: WidgetProcess,
+            runningOnlyInOtherSessions: true);
+        UpdateReviewPreparation otherReview = await other.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.IsFalse((await other.ConfirmAndRunAsync(otherReview.Review!, false, CancellationToken.None)).Started, "still a warning to acknowledge");
+        UpdateReviewPreparation otherAgain = await other.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.IsTrue((await other.ConfirmAndRunAsync(otherAgain.Review!, true, CancellationToken.None, acknowledgedRunningProcesses: WidgetProcess)).Started);
     }
 
     [TestMethod]
@@ -503,9 +514,9 @@ public sealed class WingetUserVendorInstallerTests
 
     private static ReviewedUpdateExecutionWorkflow Workflow(UpdateJobSelection selection, RecordingStore store, RecordingExecutor executor,
         IWingetUserInstallerEvidenceSource? source, IPostUpdateInventory? inventory = null, bool withObservation = true,
-        LiveInventoryObservation? observation = null, string[]? runningProcesses = null)
+        LiveInventoryObservation? observation = null, string[]? runningProcesses = null, bool runningOnlyInOtherSessions = false)
     {
-        RunningDetector running = new() { Running = runningProcesses ?? [] };
+        RunningDetector running = new() { Running = runningProcesses ?? [], OnlyInOtherSessions = runningOnlyInOtherSessions };
         SequentialUpdateBatchCoordinator coordinator = new(executor, inventory ?? new RecordingInventory(), new InMemoryHistory(), running);
         observation ??= withObservation
             ? Observation(Machine("{AAA}", "1.0", "x64", "Alpha"), Machine("{BBB}", "2.0", "x86", "Beta"), User("Contoso.Widget", "1.0.0"))
@@ -611,8 +622,10 @@ public sealed class WingetUserVendorInstallerTests
     private sealed class RunningDetector : IRunningApplicationDetector
     {
         public string[] Running { get; set; } = [];
+        public bool OnlyInOtherSessions { get; set; }
 
         public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) =>
-            Task.FromResult(Running.Length == 0 ? RunningApplicationDetection.NotDetected : new RunningApplicationDetection(true, Running));
+            Task.FromResult(Running.Length == 0 ? RunningApplicationDetection.NotDetected
+                : new RunningApplicationDetection(true, Running) { OnlyInOtherSessions = OnlyInOtherSessions ? Running : [] });
     }
 }

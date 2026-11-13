@@ -301,7 +301,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
 
             running = await runningApplications.DetectAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
             // MSIX design note §3.6: an app package is updated only once it is closed, whatever was acknowledged.
-            if (mustBeClosed && running.AppearsToBeRunning)
+            if (mustBeClosed && running.OpenInThisSession)
                 return new(false, MustBeClosedMessage(preparation.Selection.PackageId, running), null);
             if (!RunningApplicationAcknowledgement.Covers(runningApplicationWarningAcknowledged, acknowledgedRunningProcesses, running))
             {
@@ -352,7 +352,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);
-        if (mustBeClosed && batch.AcknowledgementRequired is { AppearsToBeRunning: true } openPackage)
+        if (mustBeClosed && batch.AcknowledgementRequired is { OpenInThisSession: true } openPackage)
             return new(false, MustBeClosedMessage(preparation.Selection.PackageId, openPackage), batch);
         if (batch.AcknowledgementRequired is { AppearsToBeRunning: true } lateRunning)
         {
@@ -373,7 +373,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     /// so starting it while the app runs would leave the old version running and the update unverified.
     /// </summary>
     public static string MustBeClosedMessage(string packageId, RunningApplicationDetection running) =>
-        $"Package {packageId} is open (detected process: {string.Join(", ", running.ProcessNames)}). Windows finishes updating an app package only " +
+        $"Package {packageId} is open (detected process: {string.Join(", ", running.InThisSession)}). Windows finishes updating an app package only " +
         "after the app is closed, so PC Steward didn't start this update. Close the app, then review the update again.";
 
     /// <summary>
@@ -586,6 +586,20 @@ public sealed record UpdateBatchReviewPreparation(IReadOnlyList<UpdateBatchRevie
 
     /// <summary>True only for the first run of this review.</summary>
     internal bool TryClaimForRun() => runClaim.TryClaim();
+
+    /// <summary>
+    /// MSIX design note §3.6 ("Check again" and "Close it for me"): the same frozen review with the running-app detections the owner
+    /// now sees on the review, one per item in order, so confirming covers exactly the warning shown. Only that warning evidence
+    /// changes: the reviewed selections, the dispatch ceiling and the single use stay, and each item is still detected again just
+    /// before it starts.
+    /// </summary>
+    public UpdateBatchReviewPreparation WithRunningApplications(IReadOnlyList<RunningApplicationDetection> detections)
+    {
+        ArgumentNullException.ThrowIfNull(detections);
+        if (detections.Count != Items.Count || detections.Any(detection => detection is null))
+            throw new ArgumentException("One running-app detection is needed for each reviewed app, in order.", nameof(detections));
+        return this with { Items = [.. Items.Select((item, index) => item with { Preparation = item.Preparation with { RunningApplication = detections[index] } })] };
+    }
 
     private sealed class SingleUse
     {

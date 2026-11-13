@@ -144,6 +144,8 @@ public sealed partial class MainWindow : Window
         public Func<IReadOnlyList<RunningApplicationDetection>, UpdateReviewSheet>? RebuildSheet { get; init; }
         /// <summary>Each app's reviewed selection, in sheet order, read again only for running-app detection.</summary>
         public IReadOnlyList<PCSteward.Domain.UpdateJobSelection> Selections { get; init; } = [];
+        /// <summary>The frozen review to confirm, with the running-app warnings the sheet now shows (set again by "Check again").</summary>
+        public UpdateBatchReviewPreparation? Review { get; set; }
         /// <summary>The line shown after "Close it for me" or "Check again", or null.</summary>
         public string? RunningCheckLine { get; set; }
         /// <summary>True while "Close it for me" or "Check again" is working; the review's buttons wait for it.</summary>

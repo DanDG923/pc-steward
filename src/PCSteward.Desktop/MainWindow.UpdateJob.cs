@@ -291,8 +291,11 @@ public sealed partial class MainWindow
                 detections.Add(await updates.DetectRunningApplicationAsync(selection, CancellationToken.None));
             if (windowClosed || !ReferenceEquals(updateJob, job)) return;
             job.Sheet = rebuild(detections);
+            // Confirming covers exactly the warning now shown; each app is still detected again just before it starts.
+            if (job.Review is { } reviewed) job.Review = reviewed.WithRunningApplications(detections);
             line = closed is not null ? UpdateReviewSheet.CloseResultLine(closed)
-                : job.Sheet.OffersCloseForMe ? "Still running. Close the app, then check again." : "None of these apps appear to be running now.";
+                : job.Sheet.OffersCloseForMe ? "Still running. Close the app, then check again."
+                : job.Sheet.AppearsToBeRunning ? "Open only in another user's Windows session." : "None of these apps appear to be running now.";
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -624,6 +627,7 @@ public sealed partial class MainWindow
         UpdateJobSession job = new([.. preparation.Items.Select(item => rows.First(row => row.StableProductKey == item.StableProductKey))], sheet)
         {
             Selections = [.. inputs.Select(input => input.Selection)],
+            Review = preparation,
             // "Check again" and "Close it for me": the same reviewed inputs with fresh running-app detections. Nothing else changes.
             RebuildSheet = detections => UpdateReviewSheet.CreateBatch([.. inputs.Select((input, index) => input with { Running = detections[index] })],
                 exclusions, preparation.ExpiresAt.ToLocalTime())
@@ -645,6 +649,8 @@ public sealed partial class MainWindow
             return;
         }
 
+        // The review as last shown: "Check again" may have refreshed its running-app warnings (never its selections).
+        preparation = job.Review ?? preparation;
         isExecuting = true;
         executionPending = false;
         job.Step = UpdateJobStep.Update;
