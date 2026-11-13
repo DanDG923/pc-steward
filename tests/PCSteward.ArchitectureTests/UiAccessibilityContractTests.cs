@@ -310,7 +310,14 @@ public sealed partial class UiAccessibilityContractTests
         string steps = Between(DesktopSource("MainWindow.cs"), "private static Grid BuildJobStepIndicator(", "private static string RiskGlyph(");
         StringAssert.Contains(steps, "StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small, LevelLines = true };");
         StringAssert.Contains(steps, "new Border { Width = 40, Height = 1, Background = StewardVisuals.Brush(\"StewardBorderStrongBrush\"), VerticalAlignment = VerticalAlignment.Center }");
-        StringAssert.Contains(steps, "TextLineBounds = TextLineBounds.Tight, FontSize = 12,");
+        // Owner report 2026-11-13 (release 0.1.15): that needs a font named by a style (measured on a Windows build: in the default
+        // font the number was drawn 5.5 units above the circle's middle), so the number and the label go through CapHeightBox.
+        StringAssert.Contains(steps, ": StewardVisuals.CapHeightBox(new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), Style = AppStyle(\"StewardCaptionStyle\"),");
+        StringAssert.Contains(steps, "entry.Children.Add(StewardVisuals.CapHeightBox(new TextBlock");
+        StringAssert.Contains(steps, "Style = AppStyle(\"StewardBodyStyle\"),");
+        Assert.IsFalse(steps.Contains("TextLineBounds", StringComparison.Ordinal), "no step text sets its own bounds");
+        StringAssert.Contains(steps, "Style = AppStyle(\"StewardBodyStyle\"),");
+        Assert.IsFalse(steps.Contains("TextLineBounds", StringComparison.Ordinal), "no step text sets its own bounds");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);");
         string source = DesktopSource("MainWindow.cs");
@@ -322,18 +329,26 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "root.Changed += OnXamlRootChanged;");
         StringAssert.Contains(source, "private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);");
         Assert.AreEqual(2, Count(source, "presenter.PreferredMinimum"), "the minimum size is set in one place");
-        // The only horizontal StackPanels left in the window are icon+text pairs (the title-bar brand, the shield button content
-        // and the job stepper's step dot and label). A button's icon and label are the shared StewardVisuals.IconLabel.
-        Assert.AreEqual(3, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
+        // The only horizontal StackPanels left in the window are icon+text pairs (the title-bar brand and the job stepper's
+        // step dot and label). A button's icon and label are the shared StewardVisuals.IconLabel.
+        Assert.AreEqual(2, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
         // Owner report 2026-11-13 (release 0.1.14): "Check for updates" was taller than a button with text only, and its label
         // sat above the middle, on Home and on Updates. Both now use the one shared content, where the icon adds no height.
-        Assert.AreEqual(2, Count(source, "StewardVisuals.IconLabel(\"\\uE72C\", "));
+        Assert.AreEqual(4, Count(source, "StewardVisuals.IconLabel(\"\\uE72C\", "), "Home, Updates, and the two layout samples the launch check measures");
         StringAssert.Contains(source, "if (scanAction) content = StewardVisuals.IconLabel(\"\\uE72C\", label, 16);");
         StringAssert.Contains(source, "check = new() { Content = StewardVisuals.IconLabel(\"\\uE72C\", checkLabel, 16), AccessKey = \"C\" };");
         StringAssert.Contains(presentation, "new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
         StringAssert.Contains(presentation, "public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);");
         Assert.IsFalse(source.Contains("new FontIcon { Glyph = \"\\uE72C\"", StringComparison.Ordinal), "no page builds its own icon button content");
-        StringAssert.Contains(source, "new FontIcon { Glyph = \"\\uEA18\", FontSize = 16, Margin = StewardVisuals.IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
+        // Owner report 2026-11-13 (release 0.1.15), measured from the drawn pixels of a Windows build: the icon was never the cause.
+        // A text block placed in a button is one unit taller than the label a button draws for plain text and its letters sit
+        // two to three units higher, so the label beside an icon is the element a button makes for its own label.
+        string iconLabel = Between(presentation, "public static StackPanel IconLabel(string glyph, string label, double iconSize = 14)", "public static readonly Thickness IconLabelIconMargin");
+        StringAssert.Contains(iconLabel, "content.Children.Add(ButtonLabel(label));");
+        Assert.IsFalse(iconLabel.Contains("new TextBlock", StringComparison.Ordinal), "a text block in a button is taller and sits higher than a button's own label");
+        StringAssert.Contains(presentation, "public static ContentPresenter ButtonLabel(string label) => new() { Content = label, VerticalAlignment = VerticalAlignment.Center };");
+        // The review step's update button: the same shared content with the shield, and a plain label without it.
+        StringAssert.Contains(source, "object primaryContent = sheet.ShowsAdministratorShield ? StewardVisuals.IconLabel(\"\\uEA18\", sheet.PrimaryButtonLabel, 16) : sheet.PrimaryButtonLabel;");
         Assert.IsFalse(source.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto", StringComparison.Ordinal), "filter rows wrap instead of scrolling sideways");
         Assert.IsTrue(Count(source, "StewardVisuals.ActionRow()") >= 12);
     }
@@ -347,10 +362,16 @@ public sealed partial class UiAccessibilityContractTests
         // A title line that holds a badge gives everything on a line the line's height, so each thing centres itself in it.
         StringAssert.Contains(presentation, "public static StewardWrapPanel TitleRow() => new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall, LevelLines = true };");
         // Text beside the badge is measured by its capital letters and centred in a holder that is still one text line tall.
+        string capHeight = Between(presentation, "public static TextBlock CapHeightBox(TextBlock text)", "public static StewardWrapPanel TitleRow()");
+        StringAssert.Contains(capHeight, "text.TextLineBounds = TextLineBounds.Tight;");
+        StringAssert.Contains(capHeight, "text.LineHeight = 0;", "a style's fixed line height would keep the box a full line high");
+        StringAssert.Contains(capHeight, "text.VerticalAlignment = VerticalAlignment.Center;");
+        // Owner report 2026-11-13 (release 0.1.15): measured on a Windows build, the default font ignores those bounds and
+        // draws at the top of the box; a named font does not. Text with no style and no font of its own gets the body font.
+        StringAssert.Contains(capHeight, "if (text.Style is null && text.ReadLocalValue(TextBlock.FontFamilyProperty) == DependencyProperty.UnsetValue) text.FontFamily = new FontFamily(NamedTextFont);");
+        StringAssert.Contains(presentation, "public const string NamedTextFont = \"Segoe UI Variable Text\";");
         string capCentred = Between(presentation, "public static Grid CapCentred(TextBlock text)", "/// <summary>");
-        StringAssert.Contains(capCentred, "text.TextLineBounds = TextLineBounds.Tight;");
-        StringAssert.Contains(capCentred, "text.LineHeight = 0;", "a style's fixed line height would keep the box a full line high");
-        StringAssert.Contains(capCentred, "text.VerticalAlignment = VerticalAlignment.Center;");
+        StringAssert.Contains(capCentred, "CapHeightBox(text);");
         StringAssert.Contains(capCentred, "Grid holder = new() { MinHeight = TitleLineHeight, VerticalAlignment = VerticalAlignment.Center };");
         StringAssert.Contains(presentation, "public const double TitleLineHeight = 20;");
 
@@ -362,6 +383,8 @@ public sealed partial class UiAccessibilityContractTests
         string templates = DesktopSource("Resources/DataTemplates.xaml");
         StringAssert.Contains(templates, "AutomationProperties.AutomationId=\"StatusBadgeLabel\"");
         StringAssert.Contains(templates, "TextLineBounds=\"Tight\"");
+        StringAssert.Contains(templates, "LineHeight=\"0\"");
+        StringAssert.Contains(Between(templates, "AutomationProperties.AutomationId=\"StatusBadgeLabel\"", "TextLineBounds=\"Tight\""), "Style=\"{StaticResource StewardCaptionStyle}\"", "the default font draws at the top of the box");
 
         // The two places a badge sits beside a title: an update's result card, and a ready row on the Updates page.
         StringAssert.Contains(source, "StewardWrapPanel title = StewardVisuals.TitleRow();");
@@ -371,12 +394,52 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "title.Children.Add(badged ? StewardVisuals.CapCentred(versions) : versions);");
         StringAssert.Contains(source, "Content = besideBadge ? StewardVisuals.CapCentred(label) : label,");
         Assert.AreEqual(2, Count(source, "badge.VerticalAlignment = VerticalAlignment.Center;") + Count(source, "jump.VerticalAlignment = VerticalAlignment.Center;"), "both badges centre themselves in the line");
+        // The title bar's name is measured the same way, so it is level with the mark beside it and the window's own buttons.
+        StringAssert.Contains(source, "brand.Children.Add(StewardVisuals.CapHeightBox(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle(\"StewardCaptionStyle\") }));");
 
         // The Windows launch check measures a badge label's box on a real build.
         string smoke = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "Test-DesktopLaunchSmokeCI.ps1"));
         StringAssert.Contains(smoke, "'LAYOUT-BADGE-LABEL where='");
         StringAssert.Contains(smoke, "Write-BadgeLabel $pane 'details'");
         StringAssert.Contains(smoke, "' offCentre='");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01, AC-UX-01 best effort (owner reports 2026-11-13, releases 0.1.14 and 0.1.15): alignment is proven from the drawn pixels of a Windows build, on sample controls that only the launch check can turn on.")]
+    public void AlignmentIsMeasuredFromDrawnPixelsOnSamplesOnlyTheLaunchCheckShows()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        // The samples are on the About page only when the launch check asks, and nowhere else reads that switch.
+        StringAssert.Contains(source, "internal const string LayoutSamplesVariable = \"PCSTEWARD_LAYOUT_SAMPLES\";");
+        StringAssert.Contains(source, "private static bool LayoutSamplesRequested => Environment.GetEnvironmentVariable(LayoutSamplesVariable) == \"1\";");
+        StringAssert.Contains(source, "if (LayoutSamplesRequested) panel.Children.Add(BuildLayoutSamples());");
+        Assert.AreEqual(2, Count(source, "LayoutSamplesRequested"), "one definition and one use, on the About page");
+        Assert.AreEqual(2, Count(source, "BuildLayoutSamples()"), "one definition and one use");
+        // They are the pages' own building blocks, and they do nothing: no handler, no view model, no command.
+        string samples = Between(source, "private static Border BuildLayoutSamples()", "private static Button SampleButton(");
+        StringAssert.Contains(samples, "StewardWrapPanel actions = StewardVisuals.ActionRow();");
+        Assert.AreEqual(2, Count(samples, "StewardVisuals.IconLabel("));
+        Assert.AreEqual(2, Count(samples, "samples.Children.Add(BuildJobStepIndicator("));
+        StringAssert.Contains(samples, "StewardWrapPanel title = StewardVisuals.TitleRow();");
+        StringAssert.Contains(samples, "StewardVisuals.CapCentred(");
+        StringAssert.Contains(samples, "StewardVisuals.Badge(");
+        foreach (string forbidden in new[] { "+=", "viewModel", "Async", "Click" })
+        {
+            Assert.IsFalse(samples.Contains(forbidden, StringComparison.Ordinal), $"a sample does nothing: {forbidden}");
+        }
+
+        // The launch check turns them on, reads pixels, and states each owner report as a verdict line.
+        string smoke = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "Test-DesktopLaunchSmokeCI.ps1"));
+        StringAssert.Contains(smoke, "$env:PCSTEWARD_LAYOUT_SAMPLES = '1'");
+        StringAssert.Contains(smoke, "public static class SmokeInk");
+        StringAssert.Contains(smoke, "$g.CopyFromScreen(");
+        StringAssert.Contains(smoke, "' tallerThanTextButton='");
+        StringAssert.Contains(smoke, "' labelHigherThanTextButton='");
+        StringAssert.Contains(smoke, "'LAYOUT-INK-VERDICT steps worstMarkMid='");
+        StringAssert.Contains(smoke, "'LAYOUT-INK-VERDICT title-badge labelMid='");
+        StringAssert.Contains(smoke, "'LAYOUT-INK-VERDICT titlebar nameBelowMark='");
+        // The check stays informational: a measurement never adds a failure.
+        Assert.IsFalse(Between(smoke, "function Write-ButtonInk(", "function Open-Page(").Contains("$failures", StringComparison.Ordinal));
     }
 
     [TestMethod]

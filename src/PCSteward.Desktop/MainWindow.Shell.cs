@@ -67,7 +67,9 @@ public sealed partial class MainWindow
         Image mark = new() { Width = 16, Height = 16, Source = new BitmapImage(new Uri("ms-appx:///Assets/logo-mark-64.png")) };
         AutomationProperties.SetAccessibilityView(mark, AccessibilityView.Raw);
         brand.Children.Add(mark);
-        brand.Children.Add(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardCaptionStyle"), VerticalAlignment = VerticalAlignment.Center });
+        // Owner report 2026-11-13 (release 0.1.15): the name sat higher than the mark beside it and the window's own buttons
+        // (1.5 units above their shared middle, measured from the drawn pixels). Its capital letters are now what is centred.
+        brand.Children.Add(StewardVisuals.CapHeightBox(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardCaptionStyle") }));
         dragRegion.Children.Add(brand);
         Grid.SetColumn(dragRegion, 1);
         titleBar.Children.Add(dragRegion);

@@ -86,7 +86,7 @@ public sealed class HomeActivityDecisionsPresentationTests
         FreshnessPresentation mixed = FreshnessPresenter.Describe(true,
             [Source("winget", SourceSnapshotState.Live, Now), Source("msstore", SourceSnapshotState.Cached, Now.AddDays(-2))], Now, Culture, Utc);
         Assert.AreEqual(EvidenceFreshness.Cached, mixed.Freshness, "a cached source is never summarised as live");
-        StringAssert.Contains(mixed.Sentence, "may be out of date");
+        StringAssert.Contains(mixed.Sentence, "these are the results of the last check", "nothing failed and it is under a week old, so it reads calmly");
         StringAssert.Contains(mixed.Sentence, "last successful check was 2 days ago", "the age is the least fresh source's (independent review M1)");
 
         Assert.AreEqual(EvidenceFreshness.Offline, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now, "source:offline")], Now, Culture, Utc).Freshness);
@@ -303,6 +303,58 @@ public sealed class HomeActivityDecisionsPresentationTests
             [Source("winget", SourceSnapshotState.Live, Now.AddMinutes(-2)), Source("msstore", SourceSnapshotState.Unavailable, null)],
             [], [], [], Now.AddMinutes(-10), Now), Culture, Utc);
         Assert.AreEqual("No updates ready · a source hasn't been checked successfully", neverChecked.Hero);
+    }
+
+    [TestMethod]
+    [Description("FR-UI-05 (owner report 2026-11-13, release 0.1.15; owner decision the same day): a check under 15 minutes old reads as up to date however its results were loaded; older results read calmly; the warning is kept for a failed check and for results over a week old.")]
+    public void RecentResultsReadAsLiveAndOnlyAFailedOrWeekOldCheckWarns()
+    {
+        // The owner's case: an update finished, then a scan reloaded the 11-minute-old results from this PC's store, where every
+        // result is marked cached. Home said "No updates ready" beside a quiet "Cached" line and Updates showed a yellow warning.
+        FreshnessPresentation reloaded = FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now.AddMinutes(-11))], Now, Culture, Utc);
+        Assert.AreEqual(EvidenceFreshness.Live, reloaded.Freshness);
+        Assert.AreEqual("Live: update sources were checked 11 minutes ago.", reloaded.Sentence);
+        Assert.AreEqual(StatusTone.Information, reloaded.Tone);
+        Assert.AreEqual(EvidenceFreshness.Live, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now.Add(-FreshnessPresenter.LiveWindow))], Now, Culture, Utc).Freshness);
+
+        // Past the live window it is Cached, said calmly: nothing went wrong.
+        FreshnessPresentation hours = FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now.AddHours(-3))], Now, Culture, Utc);
+        Assert.AreEqual(EvidenceFreshness.Cached, hours.Freshness);
+        Assert.AreEqual("Cached: these are the results of the last check. The last successful check was 3 hours ago.", hours.Sentence);
+        Assert.AreEqual(StatusTone.Information, hours.Tone);
+        Assert.AreEqual(StatusTone.Information, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Live, Now.AddDays(-6))], Now, Culture, Utc).Tone, "a live result that aged is the same");
+
+        // A warning: older than a week, a check that failed and fell back to older results, or a source that never succeeded.
+        Assert.AreEqual(TimeSpan.FromDays(7), FreshnessPresenter.StaleAfter);
+        FreshnessPresentation week = FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now.AddDays(-8))], Now, Culture, Utc);
+        Assert.AreEqual(EvidenceFreshness.Cached, week.Freshness);
+        StringAssert.StartsWith(week.Sentence, "Cached: results may be out of date.");
+        Assert.AreEqual(StatusTone.Attention, week.Tone);
+        Assert.AreEqual(StatusTone.Information, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now.AddDays(-7))], Now, Culture, Utc).Tone, "exactly a week is not yet a warning");
+        FreshnessPresentation failed = FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now.AddMinutes(-11), "source:timeout", "source:stale")], Now, Culture, Utc);
+        Assert.AreEqual(EvidenceFreshness.Cached, failed.Freshness, "a check that just failed is never Live, however recent the results it fell back to");
+        StringAssert.StartsWith(failed.Sentence, "Cached: results may be out of date.");
+        Assert.AreEqual(StatusTone.Attention, failed.Tone);
+        Assert.AreEqual(StatusTone.Attention, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Live, null)], Now, Culture, Utc).Tone, "never succeeded");
+        Assert.AreEqual(StatusTone.Attention, FreshnessPresenter.Describe(true, [Source("winget", SourceSnapshotState.Cached, Now, "source:offline")], Now, Culture, Utc).Tone, "offline is still a warning");
+        // One recent source and one that failed: the worse one decides.
+        Assert.AreEqual(StatusTone.Attention, FreshnessPresenter.Describe(true,
+            [Source("winget", SourceSnapshotState.Cached, Now.AddMinutes(-2)), Source("chocolatey", SourceSnapshotState.Cached, Now.AddHours(-2), "source:unavailable", "source:stale")], Now, Culture, Utc).Tone);
+
+        // Home says the same thing as Updates: a recent reload is the green "up to date" state, with no cached line.
+        InventoryRow[] rows = [Row("current", "Current", "1.0")];
+        HomePresentation home = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
+            [Source("winget", SourceSnapshotState.Cached, Now.AddMinutes(-11))], [], [], [], Now, Now), Culture, Utc);
+        Assert.AreEqual("No updates ready · checked 11 minutes ago", home.Hero);
+        Assert.AreEqual(StatusTone.Success, home.HeroTone);
+        Assert.AreEqual("Live results from your update sources", home.Facts[0].Text);
+        HomePresentation older = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
+            [Source("winget", SourceSnapshotState.Cached, Now.AddHours(-3))], [], [], [], Now, Now), Culture, Utc);
+        Assert.AreEqual(hours.Sentence, older.Facts[0].Text);
+        Assert.AreEqual(StatusTone.Neutral, older.Facts[0].Tone, "a healthy cache is a plain fact on Home");
+        HomePresentation stale = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(), true,
+            [Source("winget", SourceSnapshotState.Cached, Now.AddDays(-8))], [], [], [], Now, Now), Culture, Utc);
+        Assert.AreEqual(StatusTone.Attention, stale.Facts[0].Tone, "a week-old cache is called out on Home as it is on Updates");
     }
 
     [TestMethod]

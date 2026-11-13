@@ -61,6 +61,9 @@ public sealed partial class MainWindow
     /// Owner report 2026-11-13 (release 0.1.14): the joining lines sat level with the top of the circles and the numbers sat
     /// high inside them. Everything on the row's line now has the line's height, so each joining line is at the circles' middle,
     /// and a number is centred by its own shape (top of the digit to its baseline), not by a line of text with room for tails.
+    /// Owner report 2026-11-13 (release 0.1.15): the numbers then sat at the top of their circles. Measured from the drawn
+    /// pixels of a Windows build, a number in the default font was 5.5 units above the middle, and one in a named font was at
+    /// the middle. The number and the step's label now go through <see cref="StewardVisuals.CapHeightBox"/> with a text style.
     /// </summary>
     private static Grid BuildJobStepIndicator(UpdateJobStep current)
     {
@@ -82,17 +85,18 @@ public sealed partial class MainWindow
                 Background = StewardVisuals.Brush(now ? "StewardInfoSurfaceBrush" : done ? "StewardIconWellBrush" : "StewardSurfaceBrush"),
                 Child = done
                     ? new FontIcon { Glyph = "\uE73E", FontSize = 12, Foreground = StewardVisuals.Brush("StewardSuccessBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-                    : new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), TextLineBounds = TextLineBounds.Tight, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    : StewardVisuals.CapHeightBox(new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), Style = AppStyle("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center })
             };
             StackPanel entry = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
             entry.Children.Add(dot);
-            entry.Children.Add(new TextBlock
+            entry.Children.Add(StewardVisuals.CapHeightBox(new TextBlock
             {
                 Text = step.Label,
-                VerticalAlignment = VerticalAlignment.Center,
+                Style = AppStyle("StewardBodyStyle"),
+                TextWrapping = TextWrapping.NoWrap,
                 FontWeight = now ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
                 Foreground = StewardVisuals.Brush(now ? "StewardTextBrush" : "StewardSecondaryTextBrush")
-            });
+            }));
             AutomationProperties.SetName(entry, step.AccessibleName);
             row.Children.Add(entry);
         }
@@ -211,10 +215,9 @@ public sealed partial class MainWindow
         }
         // Cancel is the default: it comes first and takes focus, and the update button has no Enter accelerator.
         Button cancel = StewardVisuals.ActionButton(UpdateReviewSheet.CancelButtonLabel, $"the review of {sheet.AppName}. Nothing is changed.");
-        StackPanel primaryContent = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        // Owner report 2026-11-13: as in StewardVisuals.IconLabel, the shield adds no height and is centred on the label.
-        if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon { Glyph = "\uEA18", FontSize = 16, Margin = StewardVisuals.IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center });
-        primaryContent.Children.Add(new TextBlock { Text = sheet.PrimaryButtonLabel, VerticalAlignment = VerticalAlignment.Center });
+        // Owner report 2026-11-13 (release 0.1.15): with the shield it is the shared icon-and-label content, and without it a
+        // plain label, so the button is exactly as tall as Cancel beside it and their labels share a line.
+        object primaryContent = sheet.ShowsAdministratorShield ? StewardVisuals.IconLabel("\uEA18", sheet.PrimaryButtonLabel, 16) : sheet.PrimaryButtonLabel;
         Button confirm = new() { Content = primaryContent, Style = AppStyle("StewardPrimaryButtonStyle") };
         AutomationProperties.SetName(confirm, sheet.PrimaryAutomationName);
         AutomationProperties.SetHelpText(confirm, sheet.AdministratorRequirement.Explanation);

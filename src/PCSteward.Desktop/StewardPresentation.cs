@@ -328,6 +328,26 @@ internal static class StewardVisuals
     /// from the top of the line. Everything on a line now shares the line's height and centres itself in it; the text beside
     /// the badge goes in through <see cref="CapCentred"/>, so its letters, not its text box, are what is centred.
     /// </summary>
+    /// <summary>
+    /// Makes a text block's box the height of its capital letters, centred where it is placed, so the letters and not the
+    /// text line are what lines up with an icon, a circle or a badge beside it. Owner report 2026-11-13 (release 0.1.15),
+    /// measured from the drawn pixels of a Windows build: this works only for text whose style names its font. With the
+    /// default font the same settings drew a step number at the very top of its circle (5.5 units above the middle of 24),
+    /// while a named font put it at the middle. The app's text styles name their font; text with no style and no font of its
+    /// own is given the body font here. A style's fixed line height keeps the box a full line high, so the line height is cleared.
+    /// </summary>
+    public const string NamedTextFont = "Segoe UI Variable Text";
+
+    public static TextBlock CapHeightBox(TextBlock text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (text.Style is null && text.ReadLocalValue(TextBlock.FontFamilyProperty) == DependencyProperty.UnsetValue) text.FontFamily = new FontFamily(NamedTextFont);
+        text.TextLineBounds = TextLineBounds.Tight;
+        text.LineHeight = 0;
+        text.VerticalAlignment = VerticalAlignment.Center;
+        return text;
+    }
+
     public static StewardWrapPanel TitleRow() => new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall, LevelLines = true };
 
     /// <summary>The height of one line of body text; a title beside a badge keeps at least this height when it is alone on a line.</summary>
@@ -342,10 +362,7 @@ internal static class StewardVisuals
     /// </summary>
     public static Grid CapCentred(TextBlock text)
     {
-        ArgumentNullException.ThrowIfNull(text);
-        text.TextLineBounds = TextLineBounds.Tight;
-        text.LineHeight = 0;
-        text.VerticalAlignment = VerticalAlignment.Center;
+        CapHeightBox(text);
         Grid holder = new() { MinHeight = TitleLineHeight, VerticalAlignment = VerticalAlignment.Center };
         holder.Children.Add(text);
         return holder;
@@ -877,14 +894,25 @@ internal static class StewardVisuals
     /// of text at 16, so "Check for updates" was two units taller than a button with text only and its label sat above the
     /// middle. The icon gives that spare room back (<see cref="IconLabelIconMargin"/>), so the label alone sets the height, as
     /// in any other button, and the icon and the label are centred on each other.
+    /// Owner report 2026-11-13 (release 0.1.15): that was not the cause, and the button was still taller with its label high.
+    /// Measured from the drawn pixels of a Windows build: the icon adds nothing; it is the label. A text block placed in a
+    /// button is one unit taller than the label a button draws for plain text (20 against 19), and its letters sit two to
+    /// three units higher. So the label is now a <see cref="ButtonLabel"/>, which a button draws exactly as it draws its own.
     /// </summary>
     public static StackPanel IconLabel(string glyph, string label, double iconSize = 14)
     {
         StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center });
-        content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(ButtonLabel(label));
         return content;
     }
+
+    /// <summary>
+    /// A button's label for use beside an icon. It is the same element a button makes for a plain text label (a content
+    /// presenter holding the words), so it has the same height and its letters sit on the same line as a text-only button's.
+    /// Never a text block: see <see cref="IconLabel"/>.
+    /// </summary>
+    public static ContentPresenter ButtonLabel(string label) => new() { Content = label, VerticalAlignment = VerticalAlignment.Center };
 
     /// <summary>The same amount off the top and the bottom, so the icon stays where it is and only stops adding height.</summary>
     public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);
