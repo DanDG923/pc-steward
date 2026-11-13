@@ -97,7 +97,7 @@ public sealed partial class MainWindow
         ScanResult? completed = null;
         try { completed = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), cancellation.Token); viewModel.CompleteScan(completed, DateTimeOffset.UtcNow); LoadSavedInventory(); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-        finally { if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.Results); else Render(); }
+        finally { if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.InstalledApps); else Render(); }
         if (completed is not null && !windowClosed) AnnounceCompletion(OperationAnnouncements.ScanFinished(completed.Succeeded, completed.Cancelled, viewModel.AllRows.Count), "scan-finished");
     }
 

@@ -34,7 +34,7 @@ public sealed partial class MainWindow
             missing.Children.Add(StewardVisuals.PageTitle("App details"));
             Button leave = StewardVisuals.ActionButton("Open Installed apps");
             leave.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
-            missing.Children.Add(StewardVisuals.EmptyState("", "App details are no longer open", "Open an app from Installed apps, Updates or the scan results to see its details.", leave));
+            missing.Children.Add(StewardVisuals.EmptyState("", "App details are no longer open", "Open an app from Installed apps or Updates to see its details.", leave));
             return missing;
         }
 

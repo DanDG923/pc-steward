@@ -127,6 +127,9 @@ public sealed partial class MainWindow
 
         // "What will change" (approved target T-Review): one row per app in the frozen set, with the exact package ID, architecture,
         // channel, source and provider, the version change, publisher, scope and how sure the match is — every protected fact, shown.
+        // UI review 2026-11-13 (item 13): when every app's match is equally sure, that is said once above the list and the
+        // "How sure" column is left out. Each row's accessible name still says it, and the evidence expander keeps it per app.
+        bool confidencePerRow = sheet.SharedConfidence is null;
         List<FrameworkElement> changes = [];
         List<Action<bool>> layouts = [];
         foreach (UpdateReviewSheetItem item in sheet.Items)
@@ -136,12 +139,13 @@ public sealed partial class MainWindow
             app.Children.Add(new TextBlock { Text = item.IdentityLine, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
             if (sheet.ItemCount > 1 && item.AppearsToBeRunning)
                 app.Children.Add(new TextBlock { Text = $"Appears to be running ({string.Join(", ", item.RunningProcessNames)})", Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
-            changes.Add(ReviewChangeRow(layouts, app, item.Fact("Version"), item.Fact("Publisher"), item.InstalledFor, item.ConfidenceSummary,
+            changes.Add(ReviewChangeRow(layouts, app, item.Fact("Version"), item.Fact("Publisher"), item.InstalledFor, confidencePerRow ? item.ConfidenceSummary : null,
                 $"{item.AppName}: {item.Fact("Version")}, {item.Fact("Publisher")}, {item.InstalledFor}, {item.ConfidenceSummary}. {item.IdentityLine}."));
         }
         StackPanel whatChanges = new() { Spacing = StewardSpacing.Small };
         whatChanges.Children.Add(SectionHeading("What will change"));
-        whatChanges.Children.Add(ReviewChangeHeader(layouts));
+        if (sheet.SharedConfidenceLine is { } howSure) whatChanges.Children.Add(new TextBlock { Text = howSure, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        whatChanges.Children.Add(ReviewChangeHeader(layouts, confidencePerRow));
         whatChanges.Children.Add(StewardVisuals.ListCard(changes));
         // Under 640 epx the columns stack under each app and the headings hide; the layout only changes when the breakpoint is crossed.
         bool? wasNarrow = null;
@@ -193,7 +197,7 @@ public sealed partial class MainWindow
             leave.Click += (_, _) => { updateJob = null; jobResultPending = false; NavigateTo(ShellPage.Updates); };
             actions.Children.Add(leave);
             actions.Children.Add(again);
-            panel.Children.Add(actions);
+            pageFooter = actions;
             return;
         }
         // Cancel is the default: it comes first and takes focus, and the update button has no Enter accelerator.
@@ -229,7 +233,9 @@ public sealed partial class MainWindow
         actions.Children.Add(cancel);
         actions.Children.Add(confirm);
         // The action bar (approved target): a reminder that nothing changes until the specific update button, then the buttons.
-        panel.Children.Add(new Border { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(StewardSpacing.Large, StewardSpacing.Medium, StewardSpacing.Large, StewardSpacing.Medium), Child = StewardVisuals.SettingsRow(sheet.ConfirmNote, null, actions) });
+        // UI review 2026-11-13 (item 13): it stays at the bottom of the window while the review scrolls under it, so Cancel and
+        // the update button are in view however many apps are reviewed. Cancel still takes focus.
+        pageFooter = StewardVisuals.SettingsRow(sheet.ConfirmNote, null, actions);
         pageInitialFocus = cancel;
     }
 
@@ -238,27 +244,28 @@ public sealed partial class MainWindow
     /// the match is. On wide windows these are columns under <see cref="ReviewChangeHeader"/>; on narrow ones they stack under the app.
     /// The row registers its layout in <paramref name="layouts"/>, which the list calls when its width crosses the narrow breakpoint.
     /// </summary>
-    private static Grid ReviewChangeRow(List<Action<bool>> layouts, FrameworkElement app, string version, string publisher, string installedFor, string confidence, string accessibleName)
+    private static Grid ReviewChangeRow(List<Action<bool>> layouts, FrameworkElement app, string version, string publisher, string installedFor, string? confidence, string accessibleName)
     {
-        Grid row = ReviewChangeColumns();
-        FrameworkElement[] cells =
+        Grid row = ReviewChangeColumns(confidence is not null);
+        List<FrameworkElement> cells =
         [
             app,
             new TextBlock { Text = version, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, VerticalAlignment = VerticalAlignment.Center },
             new TextBlock { Text = publisher, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center },
-            new TextBlock { Text = installedFor, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center },
-            new TextBlock { Text = confidence, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center }
+            new TextBlock { Text = installedFor, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center }
         ];
+        // The "How sure" cell exists only when the apps on the sheet differ; otherwise it is said once above the list.
+        if (confidence is not null) cells.Add(new TextBlock { Text = confidence, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
         foreach (FrameworkElement cell in cells) row.Children.Add(cell);
         void Layout(bool narrow)
         {
             row.RowDefinitions.Clear();
             row.RowSpacing = narrow ? 2 : 0;
-            for (int index = 0; index < cells.Length; index++)
+            for (int index = 0; index < cells.Count; index++)
             {
                 if (narrow) row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 Grid.SetColumn(cells[index], narrow ? 0 : index);
-                Grid.SetColumnSpan(cells[index], narrow ? cells.Length : 1);
+                Grid.SetColumnSpan(cells[index], narrow ? cells.Count : 1);
                 Grid.SetRow(cells[index], narrow ? index : 0);
             }
         }
@@ -269,11 +276,11 @@ public sealed partial class MainWindow
     }
 
     /// <summary>The column headings over the "What will change" list. Narrow windows hide them, because each row then stacks.</summary>
-    private static Grid ReviewChangeHeader(List<Action<bool>> layouts)
+    private static Grid ReviewChangeHeader(List<Action<bool>> layouts, bool confidence)
     {
-        Grid header = ReviewChangeColumns();
+        Grid header = ReviewChangeColumns(confidence);
         header.Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0);
-        string[] labels = ["App", "Installed → new", "Publisher", "Installed for", "How sure"];
+        string[] labels = confidence ? ["App", "Installed → new", "Publisher", "Installed for", "How sure"] : ["App", "Installed → new", "Publisher", "Installed for"];
         for (int index = 0; index < labels.Length; index++)
         {
             TextBlock label = new() { Text = labels[index], Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
@@ -286,10 +293,11 @@ public sealed partial class MainWindow
         return header;
     }
 
-    private static Grid ReviewChangeColumns()
+    private static Grid ReviewChangeColumns(bool confidence)
     {
         Grid grid = new() { ColumnSpacing = StewardSpacing.Large };
-        foreach (double share in new[] { 2.2, 1.4, 1.1, 1.0, 1.2 }) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(share, GridUnitType.Star) });
+        double[] shares = confidence ? [2.2, 1.4, 1.1, 1.0, 1.2] : [2.2, 1.4, 1.1, 1.0];
+        foreach (double share in shares) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(share, GridUnitType.Star) });
         return grid;
     }
 

@@ -126,7 +126,7 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
-    public void RepositoryManagedRowsExposeCurrentAndUpdateStatusesOnlyWhenAConnectedSourceHasPackageIdentity()
+    public void RowsWithUpdateSourceExposeCurrentAndUpdateStatusesOnlyWhenAConnectedSourceHasPackageIdentity()
     {
         InventoryExperienceViewModel viewModel = new();
         viewModel.SetConnectorEnabled("WinGet package sources", true);
@@ -142,14 +142,14 @@ public sealed class InventoryExperienceViewModelTests
             Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => status is UpdateIntelligenceStatus.Current or UpdateIntelligenceStatus.VerifiedUpdate or UpdateIntelligenceStatus.ReviewRequired ? 1 : 0),
             [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Cached, [], ["source:stale"]), new SourceSnapshot("msstore", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [], [])]));
 
-        Assert.HasCount(3, viewModel.RepositoryManagedRows);
-        Assert.AreEqual(1, viewModel.RepositoryManagedRows.Count(row => row.Status == "Current"));
-        Assert.AreEqual(1, viewModel.RepositoryManagedRows.Count(row => row.Status == "VerifiedUpdate"));
-        Assert.AreEqual(1, viewModel.RepositoryManagedRows.Count(row => row.Status == "ReviewRequired"));
+        Assert.HasCount(3, viewModel.RowsWithUpdateSource);
+        Assert.AreEqual(1, viewModel.RowsWithUpdateSource.Count(row => row.Status == "Current"));
+        Assert.AreEqual(1, viewModel.RowsWithUpdateSource.Count(row => row.Status == "VerifiedUpdate"));
+        Assert.AreEqual(1, viewModel.RowsWithUpdateSource.Count(row => row.Status == "ReviewRequired"));
         Assert.AreEqual("winget", viewModel.UpdateDetails["product:current"].SourceId);
         StringAssert.Contains(viewModel.UpdateDetails["product:current"].Freshness, "cached", StringComparison.OrdinalIgnoreCase);
         viewModel.SetConnectorEnabled("WinGet package sources", false);
-        Assert.HasCount(0, viewModel.RepositoryManagedRows);
+        Assert.HasCount(0, viewModel.RowsWithUpdateSource);
     }
 
     [TestMethod]
@@ -297,8 +297,8 @@ public sealed class InventoryExperienceViewModelTests
         StringAssert.Contains(detail.ActionState, "refresh source evidence");
         StringAssert.Contains(detail.ActionState, "not a decision for you");
         StringAssert.Contains(detail.Freshness, "Update availability was not established");
-        Assert.HasCount(1, viewModel.RepositoryManagedRows);
-        Assert.AreEqual(nameof(UpdateIntelligenceStatus.FailedUnavailable), viewModel.RepositoryManagedRows.Single().Status);
+        Assert.HasCount(1, viewModel.RowsWithUpdateSource);
+        Assert.AreEqual(nameof(UpdateIntelligenceStatus.FailedUnavailable), viewModel.RowsWithUpdateSource.Single().Status);
     }
 
     [TestMethod]

@@ -200,8 +200,7 @@ public sealed partial class UiAccessibilityContractTests
 
         string source = DesktopSource("MainWindow.cs");
         StringAssert.Contains(Between(source, "private void AddVerifyStep(", "private async Task<IReadOnlyList<ReviewedUpdateHistoryRecord>?> ReadReviewedHistoryAsync("), "Header = \"Technical details\", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }");
-        StringAssert.Contains(Between(source, "private StackPanel BuildRepositoryAppsPage()", DesktopWindowSource.EndOf("MainWindow.RepositoryApps.cs")), "StewardVisuals.SelectableText($\"Source: {detail.SourceId} · Package ID: {detail.PackageId}\")");
-        StringAssert.Contains(Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions("), "StewardVisuals.SelectableText($\"{detail?.SourceId ?? StewardPresentation.Provider(row.Provider)} · {detail?.PackageId ?? \"package ID unknown\"}\")");
+        // UI review 2026-11-13 (item 14): the Repository apps and Review decisions pages are gone; package IDs are selectable on app details.
         StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "IsTextSelectionEnabled = true");
         // Blame-free errors keep the technical text (exception, residuals, reset marker) behind the expander.
@@ -360,7 +359,7 @@ public sealed partial class UiAccessibilityContractTests
         string window = DesktopSource("MainWindow.cs");
         foreach (string legacy in new[] { "Approved updates", "Install approved update", "Verify all", "Review available actions", "Open evidence", "Review evidence", "Review details", "External release is blocked", "Do not treat an unsigned archive" })
             Assert.IsFalse(window.Contains(legacy, StringComparison.Ordinal), legacy);
-        StringAssert.Contains(window, "Confirm all current package identities");
+        StringAssert.Contains(window, "InstalledAppsFilters.ConfirmCurrentMatchesLabel(currentMatches.Length)");
     }
 
     private static Dictionary<string, Dictionary<string, string>> ThemeColors()

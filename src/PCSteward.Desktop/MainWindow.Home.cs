@@ -88,11 +88,7 @@ public sealed partial class MainWindow
         copy.Children.Add(sentence);
         StewardWrapPanel facts = new() { HorizontalSpacing = StewardSpacing.Large, VerticalSpacing = StewardSpacing.XSmall };
         foreach (HomeFact fact in home.Facts) facts.Children.Add(StewardVisuals.IconLine(fact.Glyph, fact.Text, StewardStatus.ToneName(fact.Tone)));
-        // The last scan's results page stays reachable from Home (audit P-H2), as a quiet link beside the scan time.
-        HyperlinkButton results = new() { Content = "View scan results", Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
-        StewardVisuals.Named(results, "View scan results");
-        results.Click += (_, _) => NavigateTo(ShellPage.Results);
-        facts.Children.Add(results);
+        // UI review 2026-11-13 (item 14): what the last scan found is the Installed apps list, which Home already links to below.
         copy.Children.Add(facts);
         Grid.SetColumn(copy, 1);
         card.Children.Add(copy);

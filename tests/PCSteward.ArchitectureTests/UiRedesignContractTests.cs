@@ -9,16 +9,13 @@ public sealed class UiRedesignContractTests
     private static readonly string[] SupportedThemes = ["Default", "Light", "Dark", "HighContrast"];
     private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions"];
     private static readonly string[] FooterNavigationLabels = ["Settings", "About"];
-    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
+    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
     // Task 73 Phase 5 (WCAG 2.5.3, AC-UX-01): deliberately updated so every per-row name starts with the visible label
     // (StewardVisuals.ActionButton / Named → AccessibilityText.LabelInName) and still names the product; "View details" is the one verb
     // for opening an app's details (audit P-M3).
     private static readonly string[] PerRowActionNames =
     [
-        "StewardVisuals.ActionButton(\"Pin current version\", $\"of {row.Name} ({row.Version})\")",
-        "StewardVisuals.ActionButton(\"Ignore…\", $\"{row.Name}: choose how long\")",
-        "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name}\")",
-        "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name} (update evidence unavailable)\")",
+        // UI review 2026-11-13 (item 14) deliberately removes the four names that belonged to the retired pages' card of buttons.
         "$\"More options for {presentation.Name}\"",
         "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: select to review\")",
         // UI review 2026-11-13 (items 9 and 10): the per-row "Update…" and "Yes, same app" buttons name their app.
@@ -29,7 +26,8 @@ public sealed class UiRedesignContractTests
     ];
     // UI polish phase 4 (approved target T-Settings) deliberately removes Settings' "Open Decisions" card: Decisions is a main
     // navigation destination (pinned above) and Home's "At a glance" Decisions row opens it through its presenter target.
-    private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "InstalledApps", "Settings", "UpdateJob"];
+    // UI review 2026-11-13 (item 14) deliberately removes Results, Review and RepositoryApps: those pages are gone.
+    private static readonly string[] ContextualEntryPoints = ["Scan", "Detail", "Storage", "Privacy", "InstalledApps", "Settings", "UpdateJob"];
 
     /// <summary>
     /// Task 73 Phase 1 (ADR-030, FR-UI-01/02, AC-UX-01/02). Deliberately replaces the Task 35 pin of six literal
@@ -142,9 +140,8 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(apps, "StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString())");
         StringAssert.Contains(apps, "LabelledFilterOptions(viewModel.AllRows.Select(row => row.Provider), StewardPresentation.Provider)");
         StringAssert.Contains(apps, "LabelledFilterOptions(viewModel.AllRows.Select(row => row.Scope), StewardPresentation.Scope)");
-        string results = Between(source, "private StackPanel BuildResultsPage()", DesktopWindowSource.EndOf("MainWindow.Results.cs"));
-        StringAssert.Contains(results, "StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate).Label");
-        Assert.IsFalse(results.Contains("$\"Show {option} scan results\"", StringComparison.Ordinal), "automation names use the visible label, not the enum");
+        // UI review 2026-11-13 (item 14): the Scan results page, with its own filter buttons, is gone.
+        Assert.IsFalse(source.Contains("BuildResultsPage", StringComparison.Ordinal));
         StringAssert.Contains(presentation, "StatusChipPresentation chip = StatusVocabulary.For(status);");
         StringAssert.Contains(presentation, "public static (Brush Foreground, Brush Background) ToneBrushes(string tone)");
     }
@@ -296,18 +293,24 @@ public sealed class UiRedesignContractTests
     public void EveryReviewRequiredEntryPointUsesSafeDecisionActionsWithoutUpdateAuthority()
     {
         string source = DesktopSource("MainWindow.cs");
-        string results = Between(source, "private StackPanel BuildResultsPage()", DesktopWindowSource.EndOf("MainWindow.Results.cs"));
-        string review = Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions");
-        string sharedActions = Between(source, "private void AddReviewDecisionActions", "private async Task PromptAndConfirmPackageIdentityAsync");
         string detail = Between(source, "private StackPanel BuildProductDetailPage()", "private async Task ShowDetailsAsync");
+        string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
 
-        StringAssert.Contains(results, "AddReviewDecisionActions(finding, row, detail)");
-        StringAssert.Contains(review, "AddReviewDecisionActions(decision, row, detail)");
-        foreach (string action in new[] { "Check again", "Confirm match", "Choose the match", "Pin current version", "Ignore…", "View details" })
-            StringAssert.Contains(sharedActions, action);
-        StringAssert.Contains(sharedActions, "RequiresFreshSourceEvidence: true");
-        StringAssert.Contains(sharedActions, "CreateSourceEvidenceRefreshButton(row)");
-        Assert.IsFalse((results + review + sharedActions).Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+        // UI review 2026-11-13 (item 14) deliberately removes the Scan results and Review decisions pages and their shared card of
+        // five buttons. An app whose match needs checking is now reached from Updates ("Check the match"), from Installed apps and
+        // from app details; none of those entry points can start an update except through the review.
+        foreach (string retired in new[] { "BuildResultsPage", "BuildReviewPage", "BuildRepositoryAppsPage", "AddReviewDecisionActions", "ShellPage.Results", "ShellPage.Review", "ShellPage.RepositoryApps" })
+            Assert.IsFalse(source.Contains(retired, StringComparison.Ordinal), retired);
+        Assert.IsFalse(apps.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal), "Installed apps never starts an update");
+        // Matches that only need a yes are confirmed together from Installed apps, under "Check the match", through one dialog.
+        StringAssert.Contains(apps, "viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? []");
+        StringAssert.Contains(apps, "detail.CanConfirmAsCurrent)];");
+        StringAssert.Contains(apps, "confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);");
+        string confirmTogether = Between(source, "private async Task ConfirmCurrentMatchesAsync(IReadOnlyCollection<InventoryRow> candidates)", DesktopWindowSource.EndOf("MainWindow.Review.cs"));
+        StringAssert.Contains(confirmTogether, "DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(confirmTogether, "if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;");
+        StringAssert.Contains(confirmTogether, "workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled,");
+        Assert.IsFalse(confirmTogether.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
         // UI review 2026-11-13 (item 11) deliberately replaces the details page's Decisions card: the portable presenter chooses the
         // one main action (check again only when a fresh check could help), and the page builds exactly that button.
         StringAssert.Contains(detail, "AppDetailSummaryPresenter.Build(row, detail, viewModel.IsUpdateSourceEnabled, activeDecisions, viewModel.Sources, DateTimeOffset.UtcNow)");
@@ -316,9 +319,6 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(detail, "case AppDetailAction.ChooseMatch when candidatePicker is not null:");
         StringAssert.Contains(detail, "CreateManualMappingAsync");
         StringAssert.Contains(ApplicationSource("AppDetailSummaryPresentation.cs"), "else if (canCheck) { action = AppDetailAction.CheckAgain; actionLabel = CheckAgainLabel; }");
-        StringAssert.Contains(results, "ResultsFilter.Unavailable");
-        StringAssert.Contains(results, "FailedUnavailable");
-        StringAssert.Contains(results, "there is no decision or update to approve");
         Assert.AreEqual(1, Count(detail, "ReviewAndExecuteAsync("), "details reaches the review only from its Update button");
         Assert.IsFalse(detail.Contains("ActionButton(\"Back\"", StringComparison.Ordinal), "the title bar's Back is the only Back button");
         // While it's unknown whether an update exists there is nothing to pin, ignore or match: the presenter offers no menu
@@ -740,10 +740,10 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
-        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows))");
+        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows, viewModel.UpdateSourceKeys))");
         // UI review 2026-11-13 (fault 3): system components are listed on request; the switch only filters the list.
         StringAssert.Contains(apps, "viewModel.SetShowSystemComponents(showSystem.IsChecked == true)");
-        StringAssert.Contains(ApplicationSource("InventoryExperienceViewModel.cs"), "IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));");
+        StringAssert.Contains(ApplicationSource("InventoryExperienceViewModel.cs"), "IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row, withUpdateSource));");
         StringAssert.Contains(apps, "viewModel.SetSavedFilter(value)");
         StringAssert.Contains(apps, "AutomationProperties.SetName(filter, option.AccessibleName);");
         StringAssert.Contains(apps, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
@@ -762,7 +762,7 @@ public sealed class UiRedesignContractTests
         // footnote that says it is not a safety warning (replacing the info bar on that filter).
         StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE946\", InstalledAppsFilters.NoUpdateSourceNote)");
         string filters = ApplicationSource("InstalledAppsPresentation.cs");
-        StringAssert.Contains(filters, "rows.Count(row => Matches(filter, row.Status))");
+        StringAssert.Contains(filters, "rows.Count(row => Matches(filter, row, withUpdateSource))");
         StringAssert.Contains(filters, "!Statuses.TryGetValue(filter, out string[]? keys) ||", "All matches every status");
         StringAssert.Contains(filters, "No update source isn't a safety warning.");
 

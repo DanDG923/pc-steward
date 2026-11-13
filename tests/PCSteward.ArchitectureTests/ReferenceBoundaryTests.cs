@@ -293,10 +293,11 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "BuildProductDetailPage()");
         StringAssert.Contains(source, "NavigateTo(ShellPage.Detail)");
         StringAssert.Contains(source, "Header = \"Technical details\"");
-        StringAssert.Contains(source, "InventoryRow[] decisions");
-        StringAssert.Contains(source, "Needs a decision");
-        StringAssert.Contains(source, "Confirm match");
-        StringAssert.Contains(source, "Confirm all current package identities");
+        // UI review 2026-11-13 (item 14) deliberately removes the Review decisions page: matches are checked on Updates and app
+        // details, and those that only need a yes are confirmed together from Installed apps.
+        Assert.IsFalse(source.Contains("BuildReviewPage", StringComparison.Ordinal));
+        StringAssert.Contains(source, "AppDetailSummaryPresenter.SameAppLabel");
+        StringAssert.Contains(source, "InstalledAppsFilters.ConfirmCurrentMatchesLabel(currentMatches.Length)");
     }
 
     [TestMethod]
