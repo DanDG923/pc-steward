@@ -15,7 +15,9 @@ public interface IWindowsUpdateHistorySource
 /// <summary>
 /// FR-DIA-01 (ADR-027 Q1): Windows Update history paging and projection (update identity and time, operation and result, the
 /// sanitized title and the numeric result code). History is returned newest first, so paging stops at the first entry older than
-/// the window, after the requested number plus one, or at a fixed inspection ceiling (then reported as truncated).
+/// the window, when the requested number of matching entries is reached, or at a fixed inspection ceiling. ADR-027's cap applies to
+/// matching entries materialized (Codex review on #105), so no page asks for more than the matching allowance left; when the
+/// allowance is full and unread history remains, the source is reported as truncated without reading on.
 /// </summary>
 public static class WindowsUpdateHistoryCatalog
 {
@@ -32,19 +34,21 @@ public static class WindowsUpdateHistoryCatalog
         while (inspected < limit)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            IReadOnlyList<WindowsUpdateRawEntry> entries = page(inspected, Math.Min(PageSize, limit - inspected));
+            int left = maximumEntries - matching.Count;
+            if (left == 0) return Answer(matching, maximumEntries, true);
+            int request = Math.Min(Math.Min(PageSize, limit - inspected), left);
+            IReadOnlyList<WindowsUpdateRawEntry> entries = page(inspected, request);
             if (entries.Count == 0) break;
-            foreach (WindowsUpdateRawEntry entry in entries.Take(limit - inspected))
+            foreach (WindowsUpdateRawEntry entry in entries.Take(request))
             {
                 inspected++;
                 if (entry.DateUtc is { } date && date < fromUtc.UtcDateTime) return Answer(matching, maximumEntries, false);
                 if (entry.DateUtc is { } later && later > toUtc.UtcDateTime) continue;
                 matching.Add(entry);
-                if (matching.Count > maximumEntries) return Answer(matching, maximumEntries, true);
             }
         }
 
-        return Answer(matching, maximumEntries, inspected >= InspectionCeiling && total > InspectionCeiling);
+        return Answer(matching, maximumEntries, inspected < Math.Max(total, 0));
     }
 
     public static DiagnosticRecordCandidate Project(WindowsUpdateRawEntry entry, DateTimeOffset collectionStartUtc)

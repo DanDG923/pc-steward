@@ -215,8 +215,9 @@ public sealed class WindowsDiagnosticReaderTests
         pages.Clear();
         WindowsUpdateHistoryAnswer limited = WindowsUpdateHistoryCatalog.Page(history.Length, Page, From, Now, 10, CancellationToken.None);
         Assert.HasCount(10, limited.Entries);
-        Assert.IsTrue(limited.MoreMatched);
+        Assert.IsTrue(limited.MoreMatched, "unread history remains once the allowance is full");
         Assert.HasCount(1, pages);
+        Assert.AreEqual(10, pages[0].Count, "no page asks for more matching entries than the allowance left");
 
         WindowsUpdateRawEntry[] future = [Entry(Now.UtcDateTime.AddHours(1)), Entry(newest)];
         WindowsUpdateHistoryAnswer skipped = WindowsUpdateHistoryCatalog.Page(future.Length, (start, count) => [.. future.Skip(start).Take(count)], From, Now, 10, CancellationToken.None);

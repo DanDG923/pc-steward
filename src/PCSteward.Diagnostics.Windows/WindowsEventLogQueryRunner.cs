@@ -26,12 +26,16 @@ public sealed class WindowsEventLogQueryRunner : IEventLogQueryRunner
         using EventLogHandle context = EventLogNative.EvtCreateRenderContext(paths.Length, paths, EventLogNative.EvtRenderContextValues);
         if (context.IsInvalid) return Refused(Marshal.GetLastPInvokeError());
 
+        // ADR-027 Q1 (Codex review on #105): the cap applies to matching events materialized. At most the allowance is rendered;
+        // one further handle, never rendered, is enough to prove more matched, and no batch asks for more than that.
         List<EventLogRawEvent> events = [];
         IntPtr[] batch = new IntPtr[BatchSize];
-        while (events.Count <= maximumEvents)
+        bool more = false;
+        while (!more)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!EventLogNative.EvtNext(query, BatchSize, batch, NextTimeoutMilliseconds, 0, out int returned))
+            int request = Math.Min(BatchSize, maximumEvents + 1 - events.Count);
+            if (!EventLogNative.EvtNext(query, request, batch, NextTimeoutMilliseconds, 0, out int returned))
             {
                 int error = Marshal.GetLastPInvokeError();
                 if (error == EventLogNative.ErrorNoMoreItems) break;
@@ -44,12 +48,12 @@ public sealed class WindowsEventLogQueryRunner : IEventLogQueryRunner
             {
                 using EventLogHandle item = new(batch[index]);
                 batch[index] = IntPtr.Zero;
-                if (events.Count <= maximumEvents) events.Add(Render(context, item));
+                if (events.Count < maximumEvents) events.Add(Render(context, item));
+                else more = true;
             }
         }
 
-        bool more = events.Count > maximumEvents;
-        return new(DiagnosticReaderStatus.Completed, more ? events.GetRange(0, maximumEvents) : events, more);
+        return new(DiagnosticReaderStatus.Completed, events, more);
     }
 
     private static EventLogQueryAnswer Refused(int error) => new(error switch
