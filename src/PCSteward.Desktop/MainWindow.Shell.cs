@@ -234,8 +234,9 @@ public sealed partial class MainWindow
         bool highContrast = accessibilitySettings?.HighContrast == true;
         SystemBackdrop = highContrast ? null
             // Colour option 2 (owner choice 2026-11-11): Mica Alt, the stronger wallpaper tint Windows uses for tabbed and
-            // long-lived app windows, so the app reads less grey on dark wallpapers.
-            : MicaController.IsSupported() ? new MicaBackdrop { Kind = MicaKind.BaseAlt }
+            // long-lived app windows, so the app reads less grey on dark wallpapers. Steady (2026-11-13): it keeps the active look
+            // when the window loses focus, so the background no longer changes colour on every focus change.
+            : MicaController.IsSupported() ? new SteadyMicaAltBackdrop()
             : DesktopAcrylicController.IsSupported() ? new DesktopAcrylicBackdrop()
             : null;
         windowRoot.Background = SystemBackdrop is null ? StewardVisuals.Brush("StewardCanvasBrush") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);

@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace PCSteward.ArchitectureTests;
@@ -66,8 +67,37 @@ public sealed class UiPolishFoundationContractTests
         Assert.IsFalse(Between(tokens, "<ResourceDictionary x:Key=\"HighContrast\">", "</ResourceDictionary>").Contains("NavigationView", StringComparison.Ordinal), "high contrast keeps the system navigation colours");
         // Mica stays the base layer (Desktop Acrylic, then the Fluent solid base, as fallbacks; opaque in high contrast).
         string window = DesktopWindowSource.Read(Root());
-        StringAssert.Contains(window, ": MicaController.IsSupported() ? new MicaBackdrop { Kind = MicaKind.BaseAlt }");
+        StringAssert.Contains(window, ": MicaController.IsSupported() ? new SteadyMicaAltBackdrop()");
         StringAssert.Contains(window, "windowRoot.Background = SystemBackdrop is null ? StewardVisuals.Brush(\"StewardCanvasBrush\")");
+    }
+
+    [TestMethod]
+    [Description("Sharp text and steady background (2026-11-13): PerMonitorV2 DPI awareness, asInvoker kept, sizes scaled, Mica Alt stays active.")]
+    public void TextIsSharpAndTheBackgroundIsSteady()
+    {
+        // Without a DPI declaration Windows stretches a 100% bitmap of the window on scaled displays, which blurs every glyph.
+        Assert.AreEqual("app.manifest", XDocument.Parse(Desktop("PCSteward.Desktop.csproj")).Descendants("ApplicationManifest").Single().Value);
+        XDocument manifest = XDocument.Parse(Desktop("app.manifest"));
+        XNamespace dpi2016 = "http://schemas.microsoft.com/SMI/2016/WindowsSettings";
+        XNamespace security = "urn:schemas-microsoft-com:asm.v3";
+        Assert.AreEqual("PerMonitorV2, PerMonitor", manifest.Descendants(dpi2016 + "dpiAwareness").Single().Value);
+        XElement level = manifest.Descendants(security + "requestedExecutionLevel").Single();
+        Assert.AreEqual("asInvoker", (string?)level.Attribute("level"), "the desktop app never asks for elevation itself");
+        Assert.AreEqual("false", (string?)level.Attribute("uiAccess"));
+
+        // Physical-pixel window sizes are chosen in effective pixels and scaled to the display.
+        string window = DesktopWindowSource.Read(Root());
+        StringAssert.Contains(window, "WindowDisplay.ResizeEffective(this, 1280, 820);");
+        Assert.IsFalse(window.Contains("AppWindow.Resize(", StringComparison.Ordinal), "window sizes go through WindowDisplay");
+        StringAssert.Contains(Desktop("App.xaml.cs"), "WindowDisplay.ResizeEffective(window, 720,");
+
+        // The backdrop keeps the active Mica Alt look when the window loses focus, and still follows theme and high contrast.
+        string backdrop = Desktop("WindowDisplay.cs");
+        StringAssert.Contains(backdrop, "new MicaController { Kind = MicaKind.BaseAlt }");
+        StringAssert.Contains(backdrop, "new SystemBackdropConfiguration { IsInputActive = true }");
+        StringAssert.Contains(backdrop, "configuration.Theme = defaults.Theme;");
+        StringAssert.Contains(backdrop, "configuration.IsHighContrast = defaults.IsHighContrast;");
+        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Matches(backdrop, "IsInputActive = true").Count, "focus never switches Mica to its inactive colour");
     }
 
     [TestMethod]
