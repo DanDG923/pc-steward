@@ -8,11 +8,31 @@ public sealed class MsixInventoryProviderTests
     [TestMethod]
     public void RetainsCurrentUserPackageIdentityAndConservativeClassification()
     {
-        FakeCatalog catalog = new([new MsixPackageInfo("contoso_123", "contoso_1.2.3.0_x64__123", "Contoso", "1.2.3.0", "x64", "123", "C:\\Apps\\Contoso", false, false, false), new MsixPackageInfo("framework_123", "framework_1.0_x64__123", "Framework", "1.0", "x64", "123", null, true, false, false)]);
+        FakeCatalog catalog = new([new MsixPackageInfo("contoso_1234567890abc", "contoso_1.2.3.0_x64__1234567890abc", "Contoso", "1.2.3.0", "x64", "1234567890abc", "C:\\Apps\\Contoso", false, false, false), new MsixPackageInfo("framework_1234567890abc", "framework_1.0_x64__1234567890abc", "Framework", "1.0", "x64", "1234567890abc", null, true, false, false)]);
         MsixInventoryResult result = new MsixInventoryProvider(catalog).ReadCurrentUserPackages(DateTimeOffset.UnixEpoch);
         Assert.AreEqual(2, result.Records.Count);
-        Assert.AreEqual("Application", result.Records.Single(record => record.PackageFamilyName == "contoso_123").Classification);
-        Assert.AreEqual("Framework", result.Records.Single(record => record.PackageFamilyName == "framework_123").Classification);
+        Assert.AreEqual("Application", result.Records.Single(record => record.PackageFamilyName == "contoso_1234567890abc").Classification);
+        Assert.AreEqual("Framework", result.Records.Single(record => record.PackageFamilyName == "framework_1234567890abc").Classification);
     }
+    [TestMethod]
+    public void UsesTheNamesWindowsShowsAndFallsBackToThePackageIdentity()
+    {
+        FakeCatalog catalog = new(
+        [
+            new MsixPackageInfo("Contoso.Studio_g54w8ztgkx496", "Contoso.Studio_3.3.0.4529_x64__g54w8ztgkx496", "Contoso.Studio", "3.3.0.4529", "X64", "g54w8ztgkx496", null, false, false, false, " Contoso Studio ", "Contoso Audio, Inc."),
+            new MsixPackageInfo("Contoso.Tool_g54w8ztgkx496", "Contoso.Tool_1.0.0.0_x64__g54w8ztgkx496", "Contoso.Tool", "1.0.0.0", "X64", "g54w8ztgkx496", null, false, false, false, "ms-resource:AppName", null),
+            new MsixPackageInfo("Contoso.Bad", "Contoso.Bad_1.0.0.0_x64__g54w8ztgkx496", "Contoso.Bad", "1.0.0.0", "X64", "g54w8ztgkx496", null, false, false, false)
+        ]);
+
+        MsixInventoryResult result = new MsixInventoryProvider(catalog).ReadCurrentUserPackages(DateTimeOffset.UnixEpoch);
+
+        MsixInventoryRecord studio = result.Records.Single(record => record.PackageFamilyName == "Contoso.Studio_g54w8ztgkx496");
+        Assert.AreEqual(("Contoso Studio", "Contoso Audio, Inc."), (studio.DisplayName, studio.Publisher));
+        MsixInventoryRecord tool = result.Records.Single(record => record.PackageFamilyName == "Contoso.Tool_g54w8ztgkx496");
+        Assert.AreEqual(("Contoso.Tool", "g54w8ztgkx496"), (tool.DisplayName, tool.Publisher));
+        Assert.AreEqual(2, result.Records.Count);
+        CollectionAssert.Contains(result.Warnings.ToArray(), "msix:malformed-package");
+    }
+
     private sealed class FakeCatalog(IEnumerable<MsixPackageInfo> packages) : ICurrentUserPackageCatalog { public IEnumerable<MsixPackageInfo> FindPackagesForCurrentUser() => packages; }
 }

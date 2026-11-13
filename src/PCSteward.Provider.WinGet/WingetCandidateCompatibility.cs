@@ -10,10 +10,12 @@ namespace PCSteward.Provider.WinGet;
 /// reviewed job still binds the installed app's own scope and architecture, the reviewed routes check the installer again
 /// at review, and the post-update check needs the exact version, scope and architecture.
 /// <para><see cref="Publisher"/> is the catalog publisher of the update, so a same-name, same-publisher installed app can be matched
-/// (owner decision 2026-11-13). <see cref="RegistryProductKey"/> is the product key of the one Windows uninstall entry that WinGet
-/// itself links to the installed package (its product code), so that entry is matched to the package without a name guess.</para>
+/// (owner decision 2026-11-13). <see cref="LinkedProductKey"/> is the product key of the one Windows uninstall entry that WinGet
+/// itself links to the installed package (its product code), so that entry is matched to the package without a name guess. For an
+/// MSIX app it is instead the product key of the one MSIX package family WinGet links to the installed package (MSIX design note §3.1),
+/// so the app's own MSIX row is matched the same way.</para>
 /// </summary>
-internal sealed record WingetCandidateCompatibility(string Scope, string Architecture, string Channel, string? Publisher = null, string? RegistryProductKey = null);
+internal sealed record WingetCandidateCompatibility(string Scope, string Architecture, string Channel, string? Publisher = null, string? LinkedProductKey = null);
 
 /// <summary>What WinGet's structured API reported for one exact package ID. Plain values only, so the rules are testable.</summary>
 internal sealed record WinGetCandidateCompatibilityObservation(
@@ -34,7 +36,9 @@ internal sealed record WinGetCandidateCompatibilityObservation(
     string InstallerArchitecture,
     string? Channel,
     string? CandidatePublisher = null,
-    IReadOnlyList<string>? InstalledProductCodes = null);
+    IReadOnlyList<string>? InstalledProductCodes = null,
+    IReadOnlyList<string>? InstalledPackageFamilyNames = null,
+    string? InstallerType = null);
 
 internal interface IWinGetCandidateCompatibilityQuery
 {
@@ -90,12 +94,46 @@ internal static class WingetCandidateCompatibilityRules
 
         string installerScope = Scope(observation.InstallerScope);
         string scope = installerScope != "Unknown" ? installerScope : Scope(observation.InstalledScope);
+        // MSIX design note §3.2: WinGet records no installed scope for an MSIX app, and an MSIX installer that names no scope is
+        // registered for the account that runs it. So an update WinGet links to exactly one installed package family, through an MSIX
+        // installer with no scope of its own, is a per-user update.
+        if (scope == "Unknown" && installerScope == "Unknown" && IsMsixInstaller(observation.InstallerType) &&
+            MsixProductKey(observation.InstalledPackageFamilyNames) is not null && observation.InstalledProductCodes is not { Count: > 0 })
+        {
+            scope = "User";
+        }
         return new(
             scope,
             Architecture(observation.InstallerArchitecture),
             string.IsNullOrEmpty(observation.Channel) ? "Stable" : "Unknown",
             BoundedText(observation.CandidatePublisher),
-            RegistryProductKey(observation.InstalledProductCodes));
+            InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames));
+    }
+
+    /// <summary>
+    /// The one local product WinGet links to the installed package: the registry product of its single product code when it reports
+    /// no package family, or the MSIX product of its single package family when it reports no product code (MSIX design note §3.1).
+    /// Both kinds of link at once, or anything malformed, give no key.
+    /// </summary>
+    internal static string? InstalledProductKey(IReadOnlyList<string>? productCodes, IReadOnlyList<string>? packageFamilyNames)
+    {
+        bool hasFamilies = packageFamilyNames is { Count: > 0 };
+        bool hasCodes = productCodes is { Count: > 0 };
+        if (hasFamilies && hasCodes) return null;
+        return hasFamilies ? MsixProductKey(packageFamilyNames) : RegistryProductKey(productCodes);
+    }
+
+    /// <summary>
+    /// The MSIX product key (<see cref="InventoryNormalization.ProductFingerprint"/> of provider <c>msix</c> and the package family
+    /// name, which is how the MSIX inventory names a package) for WinGet's single installed package family. None, several or a
+    /// family name outside the Windows format give no key.
+    /// </summary>
+    internal static string? MsixProductKey(IReadOnlyList<string>? packageFamilyNames)
+    {
+        if (packageFamilyNames is null || packageFamilyNames.Any(name => !PackageFamilyName.IsValid(name))) return null;
+        string[] names = packageFamilyNames.Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (names.Length != 1) return null;
+        return InventoryNormalization.ProductFingerprint(new RawInstallEvidence("msix", names[0], names[0], null, null, "Unknown", "Unknown", null, "Application", "winget-com"));
     }
 
     /// <summary>
@@ -140,6 +178,8 @@ internal static class WingetCandidateCompatibilityRules
         string? trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) || trimmed.Length > MaximumTextLength || trimmed.Any(char.IsControl) ? null : trimmed;
     }
+
+    private static bool IsMsixInstaller(string? value) => value?.Trim().ToUpperInvariant() is "MSIX";
 
     private static string Scope(string? value) => value?.Trim().ToUpperInvariant() switch
     {
@@ -261,6 +301,8 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
             installer is null ? "Unknown" : installer.Architecture.ToString(),
             candidate.Channel,
             candidate.Publisher,
-            [.. installed.ProductCodes]);
+            [.. installed.ProductCodes],
+            [.. installed.PackageFamilyNames],
+            installer is null ? null : installer.InstallerType.ToString());
     }
 }

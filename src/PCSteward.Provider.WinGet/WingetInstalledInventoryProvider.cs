@@ -302,7 +302,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             .Select(record => upgrades.GetValueOrDefault(record.Id) is WingetAvailableUpdateRecord update
                 ? compatible.GetValueOrDefault(record.Id) is WingetCandidateCompatibility evidence
                     ? new SourcePackageRecord(SourceId, record.Id, record.Name, evidence.Publisher, record.Version, update.AvailableVersion, evidence.Scope, evidence.Architecture, evidence.Channel,
-                        ProviderSuppliedStableProductKey: evidence.RegistryProductKey)
+                        ProviderSuppliedStableProductKey: evidence.LinkedProductKey)
                     : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
                 : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, updateCheckAvailable ? record.Version : null, "Unknown", "Unknown", null))
             .ToArray();
