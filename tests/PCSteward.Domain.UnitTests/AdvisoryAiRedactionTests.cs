@@ -166,6 +166,9 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("token =\r\n  hunter2", "token =\n[secret]")]
     [DataRow("{\"password\": \"line one\nhunter2 line two\"}\nNext.", "{\"password\": \"[secret]\"}\nNext.")]
     [DataRow("Authorization: Bearer\nabcDEF123456xyz", "Authorization: Bearer [secret]")]
+    [DataRow("pass\u200Bword:\nhunter2", "password:\n[secret]")]
+    [DataRow("to\u2060ken =\u2028hunter2\rnext", "token =\n[secret]\nnext")]
+    [DataRow("api\u00ADkey:\u0085\u200Bhunter2", "apikey:\n[secret]")]
     public void ASecretSplitAcrossAnswerLinesIsStillRemoved(string answer, string expected)
     {
         DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeAnswer(answer, 4000);

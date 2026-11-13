@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -76,7 +77,9 @@ public static class AdvisoryAiRedaction
         bool truncated = false;
         // Secrets are matched across the whole answer first, so a value on the line after its label ("password:" then "hunter2")
         // or a quoted value spanning lines is removed before the answer is split into lines. Each line is then cleaned again.
-        string whole = RedactSecrets(text.Replace("\r\n", "\n", StringComparison.Ordinal));
+        // Invisible characters are removed first (line breaks kept), so "pass\u200Bword:" on one line and its value on the next are
+        // still recognised as one secret.
+        string whole = RedactSecrets(StripInvisibleKeepingLines(text));
         foreach (string line in whole.Split(['\n', '\r', '\u2028', '\u2029', '\u0085']))
         {
             DiagnosticSanitizedText clean = line.Length == 0 ? new(null, false) : Clean(line, maximumScalars, context);
@@ -108,6 +111,33 @@ public static class AdvisoryAiRedaction
         if (cleaned is null) return new(null, false);
         string value = Spaces.Replace(RedactSecrets(cleaned), " ").Trim();
         return value.Length == 0 ? new(null, false) : Truncate(value, maximumScalars);
+    }
+
+    /// <summary>
+    /// Removes control, format, unassigned and lone surrogate characters, turns every other kind of space into a plain space and
+    /// every line break (CR LF, CR, LF, NEL, line and paragraph separators) into one LF. Nothing else changes.
+    /// </summary>
+    private static string StripInvisibleKeepingLines(string text)
+    {
+        StringBuilder result = new(text.Length);
+        bool previousCarriageReturn = false;
+        foreach (Rune rune in text.EnumerateRunes())
+        {
+            bool carriageReturn = rune.Value == '\r';
+            if (rune.Value == '\n' && previousCarriageReturn)
+            {
+                previousCarriageReturn = false;
+                continue;
+            }
+            previousCarriageReturn = carriageReturn;
+            UnicodeCategory category = Rune.GetUnicodeCategory(rune);
+            if (carriageReturn || rune.Value is '\n' or 0x85 || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator) result.Append('\n');
+            else if (Rune.IsWhiteSpace(rune)) result.Append(' ');
+            else if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.OtherNotAssigned) continue;
+            else if (rune == Rune.ReplacementChar) result.Append('?');
+            else result.Append(rune.ToString());
+        }
+        return result.ToString();
     }
 
     private static string RedactSecrets(string value)
