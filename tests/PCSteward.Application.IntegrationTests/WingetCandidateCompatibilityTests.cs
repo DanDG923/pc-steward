@@ -14,6 +14,8 @@ public sealed class WingetCandidateCompatibilityTests
     private static readonly MappingReviewReason[] MissingEvidence =
         [MappingReviewReason.MissingArchitectureEvidence, MappingReviewReason.MissingScopeEvidence, MappingReviewReason.MissingChannelEvidence];
     private static readonly string[] OnlyTheUpdate = ["Contoso.Cli"];
+    private static readonly string[] ThreePackages = ["Contoso.Cli", "Contoso.Broken", "Contoso.Other"];
+    private static readonly string[] TheTwoReadable = ["Contoso.Cli", "Contoso.Other"];
 
     [TestMethod]
     public void MachineInstallerInTheDefaultChannelGivesMachineX64Stable()
@@ -87,6 +89,26 @@ public sealed class WingetCandidateCompatibilityTests
         }
         Assert.AreEqual(RegistryKey("{A}"), WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = ["{A}", "{a}"] }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.RegistryProductKey);
         Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(Observation() with { CandidatePublisher = "  " }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.Publisher);
+    }
+
+    [TestMethod]
+    public async Task OnePackageWhoseReadThrowsDoesNotLoseThePackagesAroundIt()
+    {
+        IReadOnlyList<WinGetCandidateCompatibilityObservation> observations = await WingetCandidateCompatibilityRules.CollectAsync(
+            ThreePackages,
+            id => id == "Contoso.Broken" ? throw new InvalidOperationException("manifest could not be loaded") : Task.FromResult<WinGetCandidateCompatibilityObservation?>(Observation() with { RequestedPackageId = id }),
+            CancellationToken.None);
+
+        CollectionAssert.AreEqual(TheTwoReadable, observations.Select(observation => observation.RequestedPackageId).ToArray());
+    }
+
+    [TestMethod]
+    public async Task CancellationStillStopsTheWholeRead()
+    {
+        using CancellationTokenSource cancelled = new();
+        await cancelled.CancelAsync();
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => WingetCandidateCompatibilityRules.CollectAsync(ThreePackages, _ => Task.FromResult<WinGetCandidateCompatibilityObservation?>(Observation()), cancelled.Token));
     }
 
     [TestMethod]

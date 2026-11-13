@@ -110,6 +110,31 @@ internal static class WingetCandidateCompatibilityRules
         return InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", codes[0], codes[0], null, null, "Unknown", "Unknown", null, "Application", "winget-com"));
     }
 
+    /// <summary>
+    /// Reads each package on its own: a package whose read throws (for example a manifest WinGet can't load) is left out, and the
+    /// packages before and after it keep their observations. Only cancellation stops the whole read.
+    /// </summary>
+    public static async Task<IReadOnlyList<WinGetCandidateCompatibilityObservation>> CollectAsync(
+        IReadOnlyList<string> packageIds,
+        Func<string, Task<WinGetCandidateCompatibilityObservation?>> readOne,
+        CancellationToken cancellationToken)
+    {
+        List<WinGetCandidateCompatibilityObservation> observations = [];
+        foreach (string packageId in packageIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (await readOne(packageId).ConfigureAwait(false) is { } observation) observations.Add(observation);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
+
+        return observations;
+    }
+
     private static string? BoundedText(string? value)
     {
         string? trimmed = value?.Trim();
@@ -175,61 +200,67 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
         if (connection.Status != ConnectResultStatus.Ok) return [];
 
         PackageCatalog catalog = connection.PackageCatalog;
-        List<WinGetCandidateCompatibilityObservation> observations = [];
-        foreach (string packageId in packageIds)
+        return await WingetCandidateCompatibilityRules.CollectAsync(
+            packageIds,
+            packageId => ReadOneAsync(catalog, packageId, isExpectedPredefinedCatalog, isTrusted, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<WinGetCandidateCompatibilityObservation?> ReadOneAsync(
+        PackageCatalog catalog,
+        string packageId,
+        bool isExpectedPredefinedCatalog,
+        bool isTrusted,
+        CancellationToken cancellationToken)
+    {
+        FindPackagesOptions options = new() { ResultLimit = 2 };
+        options.Filters.Add(new PackageMatchFilter
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            FindPackagesOptions options = new() { ResultLimit = 2 };
-            options.Filters.Add(new PackageMatchFilter
-            {
-                Field = PackageMatchField.Id,
-                Option = PackageFieldMatchOption.Equals,
-                Value = packageId
-            });
-            FindPackagesResult result = await catalog.FindPackagesAsync(options).AsTask(cancellationToken).ConfigureAwait(false);
-            if (result.Status != FindPackagesResultStatus.Ok) continue;
+            Field = PackageMatchField.Id,
+            Option = PackageFieldMatchOption.Equals,
+            Value = packageId
+        });
+        FindPackagesResult result = await catalog.FindPackagesAsync(options).AsTask(cancellationToken).ConfigureAwait(false);
+        if (result.Status != FindPackagesResultStatus.Ok) return null;
 
-            MatchResult[] matches = [.. result.Matches];
-            MatchResult? only = matches.Length == 1 ? matches[0] : null;
-            CatalogPackage? package = only?.CatalogPackage;
-            PackageVersionInfo? installed = package?.InstalledVersion;
-            PackageVersionInfo? candidate = package?.DefaultInstallVersion;
-            if (only is null || package is null || installed is null || candidate is null) continue;
+        MatchResult[] matches = [.. result.Matches];
+        MatchResult? only = matches.Length == 1 ? matches[0] : null;
+        CatalogPackage? package = only?.CatalogPackage;
+        PackageVersionInfo? installed = package?.InstalledVersion;
+        PackageVersionInfo? candidate = package?.DefaultInstallVersion;
+        if (only is null || package is null || installed is null || candidate is null) return null;
 
-            PackageMatchFilter criteria = only.MatchCriteria;
-            bool exactIdMatch =
-                criteria.Field == PackageMatchField.Id &&
-                criteria.Option == PackageFieldMatchOption.Equals &&
-                string.Equals(criteria.Value, packageId, StringComparison.OrdinalIgnoreCase);
-            string installedScope = installed.GetMetadata(PackageVersionMetadataField.InstalledScope);
-            PackageInstallScope requestedScope = installedScope?.Trim().ToUpperInvariant() switch
-            {
-                "USER" => PackageInstallScope.UserOrUnknown,
-                "MACHINE" or "SYSTEM" => PackageInstallScope.SystemOrUnknown,
-                _ => PackageInstallScope.Any
-            };
-            PackageInstallerInfo? installer = candidate.GetApplicableInstaller(new InstallOptions { PackageInstallScope = requestedScope });
-            observations.Add(new(
-                packageId,
-                isExpectedPredefinedCatalog,
-                isTrusted,
-                exactIdMatch,
-                matches.Length,
-                result.WasLimitExceeded,
-                package.Id,
-                installed.Version,
-                candidate.Version,
-                candidate.PackageCatalog?.Info?.Name ?? string.Empty,
-                package.IsUpdateAvailable,
-                installedScope,
-                installer is not null,
-                installer is null ? "Unknown" : installer.Scope.ToString(),
-                installer is null ? "Unknown" : installer.Architecture.ToString(),
-                candidate.Channel,
-                candidate.Publisher,
-                [.. installed.ProductCodes]));
-        }
-
-        return observations;
+        PackageMatchFilter criteria = only.MatchCriteria;
+        bool exactIdMatch =
+            criteria.Field == PackageMatchField.Id &&
+            criteria.Option == PackageFieldMatchOption.Equals &&
+            string.Equals(criteria.Value, packageId, StringComparison.OrdinalIgnoreCase);
+        string installedScope = installed.GetMetadata(PackageVersionMetadataField.InstalledScope);
+        PackageInstallScope requestedScope = installedScope?.Trim().ToUpperInvariant() switch
+        {
+            "USER" => PackageInstallScope.UserOrUnknown,
+            "MACHINE" or "SYSTEM" => PackageInstallScope.SystemOrUnknown,
+            _ => PackageInstallScope.Any
+        };
+        PackageInstallerInfo? installer = candidate.GetApplicableInstaller(new InstallOptions { PackageInstallScope = requestedScope });
+        return new(
+            packageId,
+            isExpectedPredefinedCatalog,
+            isTrusted,
+            exactIdMatch,
+            matches.Length,
+            result.WasLimitExceeded,
+            package.Id,
+            installed.Version,
+            candidate.Version,
+            candidate.PackageCatalog?.Info?.Name ?? string.Empty,
+            package.IsUpdateAvailable,
+            installedScope,
+            installer is not null,
+            installer is null ? "Unknown" : installer.Scope.ToString(),
+            installer is null ? "Unknown" : installer.Architecture.ToString(),
+            candidate.Channel,
+            candidate.Publisher,
+            [.. installed.ProductCodes]);
     }
 }
