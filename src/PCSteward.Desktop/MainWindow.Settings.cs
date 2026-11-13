@@ -22,7 +22,7 @@ public sealed partial class MainWindow
     /// <summary>
     /// Task 73 Phase 4 (ADR-030 concept A; audit P-M7, §6 items 9–10; FR-DAT-01/03, FR-HIS-05): Settings in one column with one save
     /// model — every control saves as soon as it changes, except the Schedule section, which changes Windows Task Scheduler and so
-    /// applies only through its one "Save schedule" button (<see cref="SettingsPresenter.SaveModel"/>). The source consent toggle keeps
+    /// applies only through its one "Save schedule" button (<see cref="SettingsPresenter.SaveModel"/>), shown after a change. The source consent toggle keeps
     /// its own disclosure and turning it on starts nothing; data controls live on the Data &amp; reset subpage.
     /// UI polish phase 4 (approved target T-Settings): sections of Windows Settings-style row cards (Update checks, Scan scope,
     /// Schedule, Privacy &amp; data); Decisions and About are in the navigation pane, and Copy diagnostic moved to About.
@@ -38,82 +38,98 @@ public sealed partial class MainWindow
         AutomationProperties.SetName(winget, SettingsPresenter.SourceSettingLabel);
         AutomationProperties.SetHelpText(winget, SettingsPresenter.SourceConsentNote);
         winget.Toggled += async (_, _) => await ChangeWinGetTrustedSourcesAsync(winget.IsOn);
-        sources.Children.Add(StewardVisuals.RowCard("\uE753", SettingsPresenter.SourceSettingLabel, SettingsPresenter.SourceRowDescription(viewModel.IsWinGetTrustedSourcesEnabled, FreshnessPresenter.Describe(viewModel.IsUpdateSourceEnabled, viewModel.Sources, DateTimeOffset.UtcNow).Sentence), winget, "blue"));
+        sources.Children.Add(StewardVisuals.RowCard("\uE753", SettingsPresenter.SourceSettingLabel, SettingsPresenter.SourceRowDescription(viewModel.IsWinGetTrustedSourcesEnabled, FreshnessPresenter.Describe(viewModel.IsUpdateSourceEnabled, viewModel.Sources, DateTimeOffset.UtcNow).Sentence), winget));
 
         // ADR-031 (FR-UPD-15, FR-UI-03/04): the Chocolatey client update, shown as unavailable until a reviewed Desktop composition and owner admission exist.
         // The summary is display only ("Not checked yet": only the review checks the installed client); opening it starts nothing.
         ChocolateyClientUpdateViewModel chocolateyClientSummary = ChocolateyClientUpdateView();
         // Why it is not offered yet stays one hover or screen-reader query away (help text and tooltip on the button).
         Button chocolateyEntry = WithHelpText(chocolateyClientSummary.UnavailableFields[0].Text, ChocolateyClientUpdateEntry(chocolateyClientSummary));
-        sources.Children.Add(StewardVisuals.RowCard("\uE7B8", $"{ChocolateyClientUpdateViewModel.SettingsCardTitle} client", chocolateyClientSummary.Summary, chocolateyEntry, "blue"));
+        sources.Children.Add(StewardVisuals.RowCard("\uE7B8", $"{ChocolateyClientUpdateViewModel.SettingsCardTitle} client", chocolateyClientSummary.Summary, chocolateyEntry));
         panel.Children.Add(sources);
 
         // Scan scope / AppX.
         StackPanel scope = SettingsSection("Scan scope", null);
         TextBlock alwaysOn = new() { Text = "Always on", Style = AppStyle("StewardBodyStyle") };
-        scope.Children.Add(StewardVisuals.RowCard("\uE7F8", "Windows installed apps", "Always included.", alwaysOn, "teal"));
+        scope.Children.Add(StewardVisuals.RowCard("\uE7F8", "Windows installed apps", "Always included.", alwaysOn));
         ConnectorOption appx = viewModel.Connectors.Single(connector => connector.Name == "Current-user AppX/MSIX catalog");
         ToggleSwitch includeAppx = new() { IsOn = appx.IsEnabled, OffContent = "Off", OnContent = "On" };
         AutomationProperties.SetName(includeAppx, "Store and packaged apps for your account");
         includeAppx.Toggled += async (_, _) => await ChangeConnectorAsync(appx.Name, includeAppx.IsOn);
-        scope.Children.Add(StewardVisuals.RowCard("\uE719", "Store and packaged apps for your account", "Apps from the Microsoft Store and other packaged apps.", includeAppx, "teal"));
+        scope.Children.Add(StewardVisuals.RowCard("\uE719", "Store and packaged apps for your account", "Apps from the Microsoft Store and other packaged apps.", includeAppx));
         panel.Children.Add(scope);
 
-        // Schedule: nothing applies until "Save schedule", which saves the whole record through the register-then-save operation.
+        // Schedule (UI review 2026-11-13, item 16): one choice of Off, Daily or Weekly. The time, the day and the notifications
+        // choice appear only when they apply. Nothing applies until "Save schedule", which is shown only after a change and saves
+        // the whole record through the register-then-save operation.
         ScheduleCardPresentation plan = SettingsPresenter.Schedule(scheduledSettings, scheduledStatus, isSavingSchedule, otherWorkActive: HasActiveOperation);
         StackPanel schedule = SettingsSection("Schedule", SettingsPresenter.ScheduleDescription);
-        ComboBox cadence = new() { IsEnabled = plan.IsCadenceEnabled, MinWidth = 160 };
+        ComboBox cadence = new() { IsEnabled = plan.AreControlsEnabled, MinWidth = 160 };
         foreach (string option in SettingsPresenter.CadenceOptions) cadence.Items.Add(option);
         cadence.SelectedIndex = plan.CadenceIndex;
         AutomationProperties.SetName(cadence, "Check automatically");
-        TimePicker startTime = new() { Time = plan.LocalStartTime.ToTimeSpan(), IsEnabled = plan.IsTimeEnabled };
+        TimePicker startTime = new() { Time = plan.LocalStartTime.ToTimeSpan(), IsEnabled = plan.AreControlsEnabled };
         AutomationProperties.SetName(startTime, "Start time");
-        ComboBox weeklyDay = new() { IsEnabled = plan.IsWeekdayEnabled, MinWidth = 160 };
+        ComboBox weeklyDay = new() { IsEnabled = plan.AreControlsEnabled, MinWidth = 160, Visibility = Shown(plan.ShowsWeekday) };
         // Audit P-M6: localized day names; the selection stays index-based (DayOfWeek order), so what is saved is unchanged.
         foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>()) weeklyDay.Items.Add(CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day));
         weeklyDay.SelectedIndex = (int)plan.WeeklyDay;
         AutomationProperties.SetName(weeklyDay, "Day of the week");
-        ToggleSwitch scheduleEnabled = new() { IsOn = plan.IsEnabled, IsEnabled = plan.IsEnableToggleEnabled, OffContent = "Off", OnContent = "On" };
-        AutomationProperties.SetName(scheduleEnabled, "Turn on scheduled checks");
-        ToggleSwitch notifications = new() { IsOn = plan.NotificationsEnabled, IsEnabled = plan.IsNotificationsToggleEnabled, OffContent = "Off", OnContent = "On" };
+        ToggleSwitch notifications = new() { IsOn = plan.NotificationsEnabled, IsEnabled = plan.AreControlsEnabled, OffContent = "Off", OnContent = "On" };
         AutomationProperties.SetName(notifications, "Windows notifications");
-        TextBlock scheduleSummary = new() { Text = isSavingSchedule ? "Saving…" : plan.Summary, Style = AppStyle("StewardRowTitleStyle") };
+        string savedSummary = scheduleTaskOutOfStep ? SettingsPresenter.ScheduleOutOfStepText : plan.Summary;
+        TextBlock scheduleSummary = new() { Text = isSavingSchedule ? "Saving…" : savedSummary, Style = AppStyle("StewardRowTitleStyle") };
         AutomationProperties.SetLiveSetting(scheduleSummary, AutomationLiveSetting.Polite);
         Button saveSchedule = StewardVisuals.PrimaryButton(SettingsPresenter.SaveScheduleLabel);
         saveSchedule.AccessKey = "S";
         saveSchedule.IsEnabled = plan.IsSaveEnabled;
-        Control[] scheduleControls = [cadence, startTime, weeklyDay, scheduleEnabled, notifications, saveSchedule];
+        // Shown only after a change, while a save is running, or when the Windows task and the saved settings are out of step.
+        saveSchedule.Visibility = Shown(isSavingSchedule || scheduleTaskOutOfStep);
+        Control[] scheduleControls = [cadence, startTime, weeklyDay, notifications, saveSchedule];
+        ScheduledCheckSettings? Requested() => SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time);
         async Task SaveScheduleAsync()
         {
             if (isSavingSchedule) return;
             if (HasActiveOperation) { scheduleSummary.Text = DataResetPresenter.ActiveWorkReason; return; }
             // Fail closed: no cadence or weekday selection means nothing is saved.
-            ScheduledCheckSettings? requested = SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time);
+            ScheduledCheckSettings? requested = Requested();
             if (requested is null) { scheduleSummary.Text = SettingsPresenter.ScheduleNotChosen; return; }
             foreach (Control control in scheduleControls) control.IsEnabled = false;
             scheduleSummary.Text = "Saving…";
             await ApplyScheduleAsync(requested);
         }
-        // Handlers are attached after the saved values are set. Only "Save schedule" saves; the cadence handler changes which
-        // controls are available and never saves, registers or re-renders anything.
-        cadence.SelectionChanged += (_, _) =>
+        StewardWrapPanel dayAndTime = StewardVisuals.ActionRow();
+        dayAndTime.Children.Add(weeklyDay);
+        dayAndTime.Children.Add(startTime);
+        Border whenRow = StewardVisuals.RowCard("\uE823", "When", "The check runs for your account, with no background service.", dayAndTime);
+        whenRow.Visibility = Shown(plan.ShowsTime);
+        Border notificationsRow = StewardVisuals.RowCard("\uEA8F", "Windows notifications", "Only when something needs your attention or checks keep failing.", notifications);
+        notificationsRow.Visibility = Shown(plan.ShowsNotifications);
+        // Handlers are attached after the saved values are set. Only "Save schedule" saves; a change to a control shows the rows
+        // that apply and the Save button, and never saves, registers or re-renders anything.
+        void ShowWhatChanged()
         {
             if (isSavingSchedule) return;
-            (bool time, bool weekday, bool enable) = SettingsPresenter.ScheduleControlAvailability(cadence.SelectedIndex, busy: false);
-            startTime.IsEnabled = time;
-            weeklyDay.IsEnabled = weekday;
-            scheduleEnabled.IsEnabled = enable;
-        };
+            (bool time, bool weekday, bool notify) = SettingsPresenter.ScheduleControlsShown(cadence.SelectedIndex);
+            whenRow.Visibility = Shown(time);
+            weeklyDay.Visibility = Shown(weekday);
+            notificationsRow.Visibility = Shown(notify);
+            bool changed = SettingsPresenter.HasScheduleChange(scheduledSettings, Requested());
+            saveSchedule.Visibility = Shown(changed || scheduleTaskOutOfStep);
+            scheduleSummary.Text = changed ? SettingsPresenter.ScheduleUnsavedText : savedSummary;
+        }
+        cadence.SelectionChanged += (_, _) => ShowWhatChanged();
+        weeklyDay.SelectionChanged += (_, _) => ShowWhatChanged();
+        startTime.TimeChanged += (_, _) => ShowWhatChanged();
+        notifications.Toggled += (_, _) => ShowWhatChanged();
         saveSchedule.Click += async (_, _) => await SaveScheduleAsync();
-        schedule.Children.Add(StewardVisuals.RowCard("\uE787", "Check automatically", "Manual only means PC Steward checks only when you start a scan.", cadence, "amber"));
-        schedule.Children.Add(StewardVisuals.RowCard("\uE823", "Start time", "Used for daily and weekly checks.", startTime, "amber"));
-        schedule.Children.Add(StewardVisuals.RowCard("\uE8BF", "Day of the week", "Used for weekly checks.", weeklyDay, "amber"));
-        schedule.Children.Add(StewardVisuals.RowCard("\uE768", "Turn on scheduled checks", "Runs for your account only, with no background service. Unavailable with Manual only.", scheduleEnabled, "amber"));
-        schedule.Children.Add(StewardVisuals.RowCard("\uEA8F", "Windows notifications", "Only when something needs your attention or checks keep failing.", notifications, "amber"));
-        // The save row: what is saved now (a live region), the scheduled task's status, and the one Save button.
+        schedule.Children.Add(StewardVisuals.RowCard("\uE787", "Check automatically", "Scans this PC at the time you choose. Off means PC Steward checks only when you start a scan.", cadence));
+        schedule.Children.Add(whenRow);
+        schedule.Children.Add(notificationsRow);
+        // The save row: what is saved now (a live region), the scheduled task's status while a check is scheduled, and the one Save button.
         StackPanel saved = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
         saved.Children.Add(scheduleSummary);
-        foreach (DetailFact fact in plan.Status) saved.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        if (plan.IsScheduled) foreach (DetailFact fact in plan.Status) saved.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
         Grid saveRow = new() { ColumnSpacing = StewardSpacing.Large };
         saveRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         saveRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -133,18 +149,23 @@ public sealed partial class MainWindow
         exportFormats.Items.Add(exportJson);
         DropDownButton export = new() { Content = "Export…", Flyout = exportFormats };
         StewardVisuals.Named(export, "Export…", "(the app list as a CSV or JSON file)");
-        privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export the app list", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export, "purple"));
+        privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export the app list", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export));
         // UI review 2026-11-13 (item 14): Storage was reached only from the retired Scan results page, so Settings opens it now.
-        Button openStorage = StewardVisuals.NavigationRow("\uEDA2", "Storage", "Space used by PC Steward's own records and downloaded update files.", "purple");
+        Button openStorage = StewardVisuals.NavigationRow("\uEDA2", "Storage", "Space used by PC Steward's own records and downloaded update files.");
         openStorage.Click += (_, _) => NavigateTo(ShellPage.Storage);
         privacy.Children.Add(openStorage);
-        Button openData = StewardVisuals.NavigationRow("\uE74E", "Data & reset", "Clear scan data, downloads, source data, logs or history, or reset PC Steward.", "purple");
+        Button openData = StewardVisuals.NavigationRow("\uE74E", "Data & reset", "Clear scan data, downloads, source data, logs or history, or reset PC Steward.");
         openData.Click += (_, _) => NavigateTo(ShellPage.Privacy);
         privacy.Children.Add(openData);
         panel.Children.Add(privacy);
         panel.Children.Add(StewardVisuals.FootNote("\uE946", SettingsPresenter.SaveModelText));
         return panel;
     }
+
+    /// <summary>True when the Windows scheduled task was changed but the settings could not be saved or the task put back.</summary>
+    private bool scheduleTaskOutOfStep;
+
+    private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>Gives <paramref name="button"/> a tooltip and help text with <paramref name="help"/>.</summary>
     private static Button WithHelpText(string help, Button button)
@@ -161,7 +182,7 @@ public sealed partial class MainWindow
         TextBlock title = SectionHeading(heading);
         title.Margin = new Thickness(0, 0, 0, StewardSpacing.XSmall);
         section.Children.Add(title);
-        if (!string.IsNullOrWhiteSpace(description)) section.Children.Add(new TextBlock { Text = description, Style = AppStyle("StewardCaptionStyle"), Margin = new Thickness(0, 0, 0, StewardSpacing.XSmall) });
+        if (!string.IsNullOrWhiteSpace(description)) section.Children.Add(new TextBlock { Text = description, Style = AppStyle("StewardDescriptionStyle"), Margin = new Thickness(0, 0, 0, StewardSpacing.XSmall) });
         return section;
     }
 
@@ -188,7 +209,8 @@ public sealed partial class MainWindow
                 catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException)) { }
                 return (saved, current);
             }, CancellationToken.None);
-            if (outcome == ScheduleSaveOutcome.Saved) scheduledSettings = requested;
+            if (outcome == ScheduleSaveOutcome.Saved) { scheduledSettings = requested; scheduleTaskOutOfStep = false; }
+            else if (outcome == ScheduleSaveOutcome.SettingsNotSavedTaskChanged) scheduleTaskOutOfStep = true;
             if (status is not null) scheduledStatus = status;
         }
         catch (InvalidOperationException) { isSavingSchedule = false; Render(); await ShowDataOperationUnavailableAsync(); return; }

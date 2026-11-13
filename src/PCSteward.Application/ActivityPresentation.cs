@@ -234,6 +234,18 @@ public static class ActivityPresenter
     /// <summary>The most entries shown at once; older ones are counted but not rendered.</summary>
     public const int MaximumShown = 100;
 
+    /// <summary>
+    /// UI review 2026-11-13 (item 17): the one line that says what Activity is. It is PC Steward's own record of what it did,
+    /// which is what separates it from what Windows recorded.
+    /// </summary>
+    public const string PageDescription = "What PC Steward did on this PC: its scans, the updates it ran and the decisions you saved.";
+
+    /// <summary>The hint under the list.</summary>
+    public const string ExpandHint = "Open a record to see its times and technical details. A day's scans share one row.";
+
+    /// <summary>The quiet link at the foot of Activity that opens Data &amp; reset.</summary>
+    public const string DataLinkLabel = "Clear history or other data";
+
     public static IReadOnlyList<ActivityEntry> Entries(
         IEnumerable<UpdateJobRecord> jobs,
         IEnumerable<ScanRun> scans,

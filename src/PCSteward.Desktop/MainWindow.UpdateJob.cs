@@ -118,7 +118,7 @@ public sealed partial class MainWindow
         }
         // Review L2: the 30-minute dispatch ceiling is shown while the review is still open, under the title (approved target).
         else if (reviewDecision is not null && sheet.ExpiryNote is { } expiryNote)
-            panel.Children.Add(StewardVisuals.IconLine("\uE823", expiryNote, styleKey: "StewardCaptionStyle"));
+            panel.Children.Add(StewardVisuals.IconLine("\uE823", expiryNote, styleKey: "StewardDescriptionStyle"));
 
         // SPEC §9.13 G4: selected apps that couldn't be reviewed are explained and are not part of this review.
         if (sheet.Excluded.Count > 0)
@@ -136,15 +136,15 @@ public sealed partial class MainWindow
         {
             StackPanel app = new() { Spacing = 2 };
             app.Children.Add(new TextBlock { Text = item.AppName, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap });
-            app.Children.Add(new TextBlock { Text = item.IdentityLine, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            app.Children.Add(new TextBlock { Text = item.IdentityLine, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
             if (sheet.ItemCount > 1 && item.AppearsToBeRunning)
-                app.Children.Add(new TextBlock { Text = $"Appears to be running ({string.Join(", ", item.RunningProcessNames)})", Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+                app.Children.Add(new TextBlock { Text = $"Appears to be running ({string.Join(", ", item.RunningProcessNames)})", Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
             changes.Add(ReviewChangeRow(layouts, app, item.Fact("Version"), item.Fact("Publisher"), item.InstalledFor, confidencePerRow ? item.ConfidenceSummary : null,
                 $"{item.AppName}: {item.Fact("Version")}, {item.Fact("Publisher")}, {item.InstalledFor}, {item.ConfidenceSummary}. {item.IdentityLine}."));
         }
         StackPanel whatChanges = new() { Spacing = StewardSpacing.Small };
         whatChanges.Children.Add(SectionHeading("What will change"));
-        if (sheet.SharedConfidenceLine is { } howSure) whatChanges.Children.Add(new TextBlock { Text = howSure, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (sheet.SharedConfidenceLine is { } howSure) whatChanges.Children.Add(new TextBlock { Text = howSure, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         whatChanges.Children.Add(ReviewChangeHeader(layouts, confidencePerRow));
         whatChanges.Children.Add(StewardVisuals.ListCard(changes));
         // Under 640 epx the columns stack under each app and the headings hide; the layout only changes when the breakpoint is crossed.
@@ -166,7 +166,7 @@ public sealed partial class MainWindow
             facts.Children.Add(new TextBlock { Text = item.AppName, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap });
             foreach (ReviewFact fact in item.Facts) facts.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
             facts.Children.Add(StewardVisuals.EvidenceRow("Confidence", item.ConfidenceSummary));
-            foreach (string line in item.ConfidenceEvidence) facts.Children.Add(new TextBlock { Text = line, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            foreach (string line in item.ConfidenceEvidence) facts.Children.Add(new TextBlock { Text = line, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
             evidence.Children.Add(facts);
         }
         panel.Children.Add(StewardVisuals.ExpanderRow("\uE8A5", "Evidence for each match", "The installed entry, package ID, publisher and installer details behind each match.", evidence));
@@ -322,7 +322,7 @@ public sealed partial class MainWindow
             if (line.IsLive && jobProgressStateText is null)
             {
                 jobProgressLine = line;
-                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.LiveState(line, updateProgressPresentation), Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
+                jobProgressStateText = new TextBlock { Text = UpdateJobProgressText.LiveState(line, updateProgressPresentation), Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap };
                 // A polite live region: its text (not a fixed name) is what a screen reader hears when the state changes.
                 AutomationProperties.SetLiveSetting(jobProgressStateText, AutomationLiveSetting.Polite);
                 item.Children.Add(jobProgressStateText);
@@ -330,7 +330,7 @@ public sealed partial class MainWindow
                 AutomationProperties.SetName(progress, $"{entry.AppName} update progress");
                 item.Children.Add(progress);
             }
-            else item.Children.Add(new TextBlock { Text = line.Text ?? UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index]), Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            else item.Children.Add(new TextBlock { Text = line.Text ?? UpdateJobProgressText.QueuedItemState(index, job.CurrentIndex, job.FinishedLabels[index]), Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
             lines.Add(item);
         }
         panel.Children.Add(StewardVisuals.ListCard(lines));
@@ -392,8 +392,8 @@ public sealed partial class MainWindow
             title.Children.Add(badge);
             card.Children.Add(title);
             card.Children.Add(new TextBlock { Text = outcome.Summary, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            card.Children.Add(new TextBlock { Text = outcome.NextStep, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
-            card.Children.Add(new TextBlock { Text = $"Was {item.InstalledVersion} · {item.PackageId}", Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            card.Children.Add(new TextBlock { Text = outcome.NextStep, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
+            card.Children.Add(new TextBlock { Text = $"Was {item.InstalledVersion} · {item.PackageId}", Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
             card.Children.Add(new Expander { Header = "Technical details", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, StewardSpacing.XSmall, 0, 0) });
             if (outcome.Kind is UpdateOutcomeKind.Failed or UpdateOutcomeKind.NotStarted)
             {
@@ -412,14 +412,14 @@ public sealed partial class MainWindow
         AddGroup(currentHeading);
         // Restart guidance: an info bar when Windows reported that a restart is needed, otherwise a quiet line.
         if (completion.RestartRequired) panel.Children.Add(StewardVisuals.InformationBanner("Restart to finish", completion.RestartGuidance, "attention"));
-        else panel.Children.Add(StewardVisuals.IconLine("\uE777", completion.RestartGuidance, styleKey: "StewardCaptionStyle"));
+        else panel.Children.Add(StewardVisuals.IconLine("\uE777", completion.RestartGuidance, styleKey: "StewardDescriptionStyle"));
 
         // FR-DAT-09 / UJ-04 step 9: Delete downloaded files on the completion view, through the existing confirmation and cleanup.
         Button delete = StewardVisuals.ActionButton(UpdateJobCleanupText.Heading, "after update completion");
         delete.IsEnabled = downloadCache.RecoverableBytes > 0 && !HasActiveOperation;
         delete.Click += async (_, _) => await ConfirmAndClearDownloadedFilesAsync("Delete downloaded files after update completion?");
         panel.Children.Add(StewardVisuals.RowCard("\uE74D", UpdateJobCleanupText.TidyUpTitle, $"{UpdateJobCleanupText.Recoverable(downloadCache.RecoverableBytes)} {UpdateJobCleanupText.KeptNote}", delete));
-        panel.Children.Add(StewardVisuals.IconLine("\uE946", UpdateJobCompletion.OutcomesNote, styleKey: "StewardCaptionStyle"));
+        panel.Children.Add(StewardVisuals.IconLine("\uE946", UpdateJobCompletion.OutcomesNote, styleKey: "StewardDescriptionStyle"));
 
         StewardWrapPanel actions = StewardVisuals.ActionRow();
         Button activity = StewardVisuals.ActionButton("View in Activity", "(this update and earlier ones)");

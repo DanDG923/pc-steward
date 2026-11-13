@@ -41,7 +41,7 @@ public sealed partial class MainWindow
         TextBlock product = new() { Text = AppIdentity.DisplayName, Style = AppStyle("StewardSubtitleStyle") };
         AutomationProperties.SetHeadingLevel(product, AutomationHeadingLevel.Level2);
         name.Children.Add(product);
-        name.Children.Add(new TextBlock { Text = $"Preview build {ProductVersion()} · Lists the apps on this PC and helps you review and apply their updates. Everything stays on this PC.", Style = AppStyle("StewardCaptionStyle"), Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), IsTextSelectionEnabled = true });
+        name.Children.Add(new TextBlock { Text = $"Preview build {ProductVersion()} · Lists the apps on this PC and helps you review and apply their updates. Everything stays on this PC.", Style = AppStyle("StewardDescriptionStyle"), Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), IsTextSelectionEnabled = true });
         Grid.SetColumn(name, 1);
         identity.Children.Add(name);
         // FR-HIS-05: Copy diagnostic copies the existing sanitized bundle; the confirmation (a polite live region) says what was copied.
@@ -52,12 +52,12 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(copyDiagnostic, diagnostic.Description);
         Grid.SetColumn(copyDiagnostic, 2);
         identity.Children.Add(copyDiagnostic);
-        TextBlock copied = new() { Text = diagnostic.UnavailableReason ?? string.Empty, Style = AppStyle("StewardCaptionStyle") };
+        TextBlock copied = new() { Text = diagnostic.UnavailableReason ?? string.Empty, Style = AppStyle("StewardDescriptionStyle") };
         AutomationProperties.SetLiveSetting(copied, AutomationLiveSetting.Polite);
         copyDiagnostic.Click += (_, _) => CopyDiagnostic(copied);
         StackPanel identityCard = new() { Spacing = StewardSpacing.Small };
         identityCard.Children.Add(identity);
-        identityCard.Children.Add(new TextBlock { Text = diagnostic.Description, Style = AppStyle("StewardCaptionStyle") });
+        identityCard.Children.Add(new TextBlock { Text = diagnostic.Description, Style = AppStyle("StewardDescriptionStyle") });
         identityCard.Children.Add(copied);
         panel.Children.Add(Card(identityCard));
 

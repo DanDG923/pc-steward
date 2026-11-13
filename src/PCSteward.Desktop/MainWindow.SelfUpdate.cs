@@ -25,6 +25,8 @@ public sealed partial class MainWindow
     private string? selfUpdateMsiSha256;
     private string? selfUpdateMessage;
     private PcStewardUpdateStatus? selfUpdateStatus;
+    private DateTimeOffset? selfUpdateStatusShownAt;
+    private bool selfUpdateBarClosed;
     private Task? selfUpdateStatusLoad;
     private PcStewardSelfUpdate? selfUpdater;
     private bool selfUpdaterResolved;
@@ -53,6 +55,7 @@ public sealed partial class MainWindow
         catch (Exception exception) when (exception is not OutOfMemoryException) { status = null; }
         if (status is null || windowClosed) return;
         selfUpdateStatus = status;
+        selfUpdateStatusShownAt = DateTimeOffset.UtcNow;
         // A failure that blocks further updates (ADR-032 §8) is kept and decided again at the next launch.
         if (status.IsFinal) updater.ForgetJob();
         if (navigation.Current is ShellPage.Home or ShellPage.About) Render();
@@ -62,6 +65,10 @@ public sealed partial class MainWindow
     private InfoBar? SelfUpdateHomeBanner()
     {
         if (selfUpdateStatus is not { } status) return null;
+        // UI review 2026-11-13 (item 15): a finished update can be closed and goes away by itself after a day; a problem, or an
+        // update still in progress, stays until it is settled.
+        bool succeeded = status.State == PcStewardUpdateState.Updated;
+        if (!HomePresenter.ShowsOwnUpdateBar(succeeded, selfUpdateBarClosed, selfUpdateStatusShownAt, DateTimeOffset.UtcNow)) return null;
         string tone = status.State switch
         {
             PcStewardUpdateState.Updated => "success",
@@ -71,7 +78,13 @@ public sealed partial class MainWindow
         HyperlinkButton openAbout = new() { Content = "Open About" };
         AutomationProperties.SetName(openAbout, "Open About to see the PC Steward update");
         openAbout.Click += (_, _) => NavigateTo(ShellPage.About);
-        return StewardVisuals.InformationBanner("PC Steward update", SelfUpdateText.Describe(status), tone, openAbout);
+        InfoBar bar = StewardVisuals.InformationBanner("PC Steward update", SelfUpdateText.Describe(status), tone, openAbout);
+        if (succeeded)
+        {
+            bar.IsClosable = true;
+            bar.Closed += (_, _) => selfUpdateBarClosed = true;
+        }
+        return bar;
     }
 
     private Border BuildSelfUpdateCard()

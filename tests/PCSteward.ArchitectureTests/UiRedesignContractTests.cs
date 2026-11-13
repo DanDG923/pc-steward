@@ -807,6 +807,16 @@ public sealed class UiRedesignContractTests
         int days = activity.IndexOf("foreach (ActivityDay day in page.Days)", StringComparison.Ordinal);
         int reviewed = activity.IndexOf("AddReviewedUpdateOutcomesSection(panel);", StringComparison.Ordinal);
         Assert.IsTrue(days >= 0 && reviewed > days, "the Task 50 reviewed-outcomes section is kept");
+        // UI review 2026-11-13 (item 17): the page says what it is in one line, its header has no button, and the way to Data & reset
+        // is a quiet link after everything else. The reviewed-outcomes record sits closed under the list and opens when it needs attention.
+        StringAssert.Contains(activity, "panel.Children.Add(StewardVisuals.PageHeader(\"Activity\", ActivityPresenter.PageDescription));");
+        int dataLink = activity.IndexOf("HyperlinkButton data = new() { Content = ActivityPresenter.DataLinkLabel", StringComparison.Ordinal);
+        Assert.IsTrue(dataLink > reviewed, "the Data & reset link is last");
+        Assert.IsFalse(activity.Contains("UpdateFreshnessLabel", StringComparison.Ordinal), "source freshness is on Home and Settings, not Activity");
+        string record = Between(source, "private void AddReviewedUpdateOutcomesSection(StackPanel panel)", DesktopWindowSource.EndOf("MainWindow.Activity.cs"));
+        StringAssert.Contains(record, "Expander record = new() { Header = header, Content = outcomes");
+        StringAssert.Contains(record, "ReviewedRouteSurfaces.RenderHistory(outcomes, history);");
+        StringAssert.Contains(record, "if (history.NeedsAttention) record.IsExpanded = true;");
         foreach (string action in new[] { "workflow.", "DataOperationLease.Run", "ReviewAndExecuteAsync", "FileSavePicker", "Export", "Clear" })
             Assert.IsFalse(activity.Contains(action, StringComparison.Ordinal), $"Activity is read-only: {action}");
 
@@ -842,16 +852,22 @@ public sealed class UiRedesignContractTests
 
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         StringAssert.Contains(home, "HomePresenter.Build(new HomeInputs(");
-        // UI polish phase 2: the "At a glance" rows are real buttons named by the presenter.
+        // The Home lines are real buttons named by the presenter.
         StringAssert.Contains(home, "Button button = StewardVisuals.NavigationRow(");
         StringAssert.Contains(home, "AutomationProperties.SetName(button, row.AccessibleName);");
-        // Each action does only its own thing: Review opens Updates, Turn on opens the existing consent, Check and Scan run the read-only scan.
+        // Each action does only its own thing: Update all opens the review, Turn on opens the existing consent, Check and Scan run the read-only scan.
+        // UI review 2026-11-13 (item 15; owner approval of all 21 items) deliberately replaces "Home never opens a review": Home lists
+        // the ready updates, and "Update all N…" and a row's "Update…" open the same review step as the Updates page. That is the
+        // only update route Home has: it never confirms, runs or selects anything, so every update still passes the review.
         string actions = Between(home, "private Button HomeActionButton(", "private InfoBar HomeNoticeBar(");
-        StringAssert.Contains(actions, "button.Click += (_, _) => NavigateTo(ShellPage.Updates);");
+        StringAssert.Contains(actions, "button.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor(keys));");
+        StringAssert.Contains(actions, "button.IsEnabled = keys.Length > 0 && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
+        StringAssert.Contains(home, "update.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor([key]));");
+        Assert.AreEqual(2, Count(home, "ReviewAndExecuteAsync("), "Home reaches the review only from Update all and a ready row's Update button");
         StringAssert.Contains(actions, "button.Click += async (_, _) => await ChangeWinGetTrustedSourcesAsync(true);");
         StringAssert.Contains(actions, "button.Click += async (_, _) => await CheckForUpdatesAsync();");
-        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys.", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "ChangeWinGetTrustedSourcesAsync(false)" })
-            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update, and never changes a source without its consent: {authority}");
+        foreach (string authority in new[] { "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys.", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "ChangeWinGetTrustedSourcesAsync(false)" })
+            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, confirms or runs an update, and never changes a source without its consent: {authority}");
         // Turning sources on from Home goes through the one consent path: the disclosure dialog, Keep off as the default.
         string consent = Between(source, "private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)", "private async Task ChangeConnectorAsync(");
         StringAssert.Contains(consent, "PrimaryButtonText = \"I approve\"");
@@ -868,7 +884,8 @@ public sealed class UiRedesignContractTests
         string homePresenter = ApplicationSource("HomePresentation.cs");
         StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "This is not a safety warning.");
         Assert.IsFalse(homePresenter.Contains("\"Unmanaged\"", StringComparison.Ordinal), "Home says \"No update source\", never \"Unmanaged\"");
-        StringAssert.Contains(homePresenter, "UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now).Ready.Count", "Home's ready count is the Updates Ready group with nothing selected");
+        StringAssert.Contains(homePresenter, "UpdatesPagePresentation updates = UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now);", "Home's ready updates are the Updates Ready group with nothing selected");
+        StringAssert.Contains(homePresenter, "int ready = updates.Ready.Count;");
         Assert.IsFalse(homePresenter.Contains("unsafe", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -885,7 +902,7 @@ public sealed class UiRedesignContractTests
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         // UI polish phase 2: the actions come from the presenter (scan-only "Scan again" when sources are off) and their names and
         // help text are bound, never hard-coded; info bars take their action name and Activity filter from the presenter.
-        StringAssert.Contains(home, "HomeActionButton(home.Primary, isPrimary: true)");
+        StringAssert.Contains(home, "HomeActionButton(home.Primary, isPrimary: true, home.ReadyKeys)");
         StringAssert.Contains(home, "if (home.Secondary is { } secondary) actions.Children.Add(HomeActionButton(secondary, isPrimary: false));");
         StringAssert.Contains(home, "AutomationProperties.SetName(button, action.AccessibleName);");
         StringAssert.Contains(home, "AutomationProperties.SetHelpText(button, action.HelpText);");
@@ -991,28 +1008,38 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(scheduleCard, "SettingsPresenter.ScheduleDescription");
         StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "Changes to the schedule apply when you select Save schedule.");
         StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediatelyExceptSchedule;");
-        foreach (string immediate in new[] { "cadence.SelectionChanged += async", "startTime.TimeChanged +=", "weeklyDay.SelectionChanged +=", "scheduleEnabled.Toggled +=", "notifications.Toggled +=" })
+        // UI review 2026-11-13 (item 16): one choice of Off, Daily or Weekly, with no separate switch. A change to a schedule control
+        // only shows the rows that apply and the Save button; it never saves.
+        foreach (string immediate in new[] { "cadence.SelectionChanged += async", "startTime.TimeChanged += async", "weeklyDay.SelectionChanged += async", "notifications.Toggled += async", "scheduleEnabled" })
             Assert.IsFalse(scheduleCard.Contains(immediate, StringComparison.Ordinal), $"schedule controls do not save on change: {immediate}");
-        // The cadence handler only changes which controls are available; it never saves.
-        string cadenceHandler = Between(scheduleCard, "cadence.SelectionChanged += (_, _) =>", "saveSchedule.Click +=");
-        StringAssert.Contains(cadenceHandler, "SettingsPresenter.ScheduleControlAvailability(cadence.SelectedIndex, busy: false)");
+        foreach (string change in new[] { "cadence.SelectionChanged += (_, _) => ShowWhatChanged();", "weeklyDay.SelectionChanged += (_, _) => ShowWhatChanged();", "startTime.TimeChanged += (_, _) => ShowWhatChanged();", "notifications.Toggled += (_, _) => ShowWhatChanged();" })
+            StringAssert.Contains(scheduleCard, change);
+        string changeHandler = Between(scheduleCard, "void ShowWhatChanged()", "cadence.SelectionChanged +=");
+        StringAssert.Contains(changeHandler, "SettingsPresenter.ScheduleControlsShown(cadence.SelectedIndex)");
+        StringAssert.Contains(changeHandler, "bool changed = SettingsPresenter.HasScheduleChange(scheduledSettings, Requested());");
+        StringAssert.Contains(changeHandler, "saveSchedule.Visibility = Shown(changed || scheduleTaskOutOfStep);");
         foreach (string save in new[] { "SaveScheduleAsync", "ApplyScheduleAsync", "Render()" })
-            Assert.IsFalse(cadenceHandler.Contains(save, StringComparison.Ordinal), $"the cadence handler never saves or re-renders: {save}");
+            Assert.IsFalse(changeHandler.Contains(save, StringComparison.Ordinal), $"the change handler never saves or re-renders: {save}");
+        // The Save button starts hidden: it shows after a change, while saving, or when the Windows task is out of step with the settings.
+        StringAssert.Contains(scheduleCard, "saveSchedule.Visibility = Shown(isSavingSchedule || scheduleTaskOutOfStep);");
+        StringAssert.Contains(settings, "else if (outcome == ScheduleSaveOutcome.SettingsNotSavedTaskChanged) scheduleTaskOutOfStep = true;");
         StringAssert.Contains(settings, "CreatePagePanel()"); // UI polish Phase 1: one left-aligned page column for every page.
         // Fail closed (fix 3): no cadence or weekday selection shows a message and saves nothing; the weekday is set by index.
-        StringAssert.Contains(scheduleCard, "SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time)");
+        StringAssert.Contains(scheduleCard, "ScheduledCheckSettings? Requested() => SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time);");
+        StringAssert.Contains(scheduleCard, "ScheduledCheckSettings? requested = Requested();");
         StringAssert.Contains(scheduleCard, "if (requested is null) { scheduleSummary.Text = SettingsPresenter.ScheduleNotChosen; return; }");
         StringAssert.Contains(scheduleCard, "weeklyDay.SelectedIndex = (int)plan.WeeklyDay;");
         Assert.IsFalse(scheduleCard.Contains("SelectedItem as DayOfWeek", StringComparison.Ordinal));
-        StringAssert.Contains(settings, "IsEnabled = plan.IsTimeEnabled");
-        StringAssert.Contains(settings, "IsEnabled = plan.IsWeekdayEnabled");
-        StringAssert.Contains(settings, "IsEnabled = plan.IsEnableToggleEnabled");
+        Assert.AreEqual(4, Count(scheduleCard, "IsEnabled = plan.AreControlsEnabled"), "the choice, the day, the time and notifications are unavailable while saving");
+        StringAssert.Contains(scheduleCard, "whenRow.Visibility = Shown(plan.ShowsTime);");
+        StringAssert.Contains(scheduleCard, "Visibility = Shown(plan.ShowsWeekday)");
+        StringAssert.Contains(scheduleCard, "notificationsRow.Visibility = Shown(plan.ShowsNotifications);");
         // Handlers are attached after the saved values are set, so rendering the page never saves anything.
         Assert.IsTrue(settings.IndexOf("ToggleSwitch notifications = new()", StringComparison.Ordinal) < settings.IndexOf("saveSchedule.Click += async", StringComparison.Ordinal));
         // Fix 5: registration and save failures are handled inside the lease with distinct outcomes; only the gate reaches "Action unavailable".
         string apply = Between(settings, "private async Task ApplyScheduleAsync(ScheduledCheckSettings requested)", "private void CopyDiagnostic(");
         StringAssert.Contains(apply, "ScheduleSaveOperation.SaveAsync(previous, requested, scheduleRegistration.ApplyAsync, scheduleSettingsStore.SaveScheduledCheckSettingsAsync, token)");
-        StringAssert.Contains(apply, "if (outcome == ScheduleSaveOutcome.Saved) scheduledSettings = requested;");
+        StringAssert.Contains(apply, "if (outcome == ScheduleSaveOutcome.Saved) { scheduledSettings = requested; scheduleTaskOutOfStep = false; }");
         StringAssert.Contains(apply, "SettingsPresenter.ScheduleSaveResult(outcome)");
         StringAssert.Contains(apply, "catch (InvalidOperationException) { isSavingSchedule = false; Render(); await ShowDataOperationUnavailableAsync(); return; }");
         StringAssert.Contains(apply, "Title = \"Schedule was not changed\"");
@@ -1131,5 +1158,65 @@ public sealed class UiRedesignContractTests
             current = current.Parent;
         }
         throw new DirectoryNotFoundException("PCSteward.slnx was not found above the test output directory.");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05 (owner request 2026-11-13): Home and the Scan page show a bar that fills while a scan or an update check runs. It is display only: its timer stops itself, and nothing in it starts, saves or re-renders.")]
+    public void TheWorkProgressBarOnlyShowsProgress()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string home = Between(source, "private Border HomeStatusCard(HomePresentation home)", "private Button HomeActionButton(");
+        StringAssert.Contains(home, "copy.Children.Add(WorkProgressPanel());");
+        StringAssert.Contains(Between(source, "private StackPanel BuildScanPage()", DesktopWindowSource.EndOf("MainWindow.Scan.cs")), "state.Children.Add(WorkProgressPanel());");
+        string progress = Between(source, "private WorkProgressPresentation? CurrentWorkProgress()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"));
+        StringAssert.Contains(progress, "WorkProgressPresenter.Scan(viewModel.ScanStep, viewModel.ScanSteps, now - scan, lastScanDuration ?? WorkProgressPresenter.LastScanDuration(scanRuns))");
+        StringAssert.Contains(progress, "WorkProgressPresenter.UpdateCheck(now - check, lastUpdateCheckDuration)");
+        StringAssert.Contains(progress, "if (windowClosed || CurrentWorkProgress() is null) workProgressTimer?.Stop();");
+        // Any other work has nothing to measure against, so the band's bar keeps moving without an end.
+        StringAssert.Contains(progress, "operationProgress.IsIndeterminate = work is null || work.IsIndeterminate;");
+        foreach (string action in new[] { "Render()", "workflow.", "DataOperationLease", "StartScanAsync", "CheckUpdateSourcesAsync", "ReviewAndExecuteAsync", "Task.Run", "TryEnqueue", "while (" })
+            Assert.IsFalse(progress.Contains(action, StringComparison.Ordinal), $"the progress bar only shows progress: {action}");
+        // The refresh from a scan report or a timer tick goes through the one place that updates the visuals.
+        StringAssert.Contains(Between(source, "private void RefreshOperationVisuals()", "private void AnnounceCompletion("), "ShowWorkProgress();");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05, AC-UX-01/03 best effort (UI review 2026-11-13, item 18): what a row says is body size, with caption kept for timestamps, headings, badges and initials; filter tabs say their place; a badge's label can wrap; Installed apps headings sort.")]
+    public void TextSizeTabsBadgesAndSortableHeadings()
+    {
+        string typography = DesktopSource("Resources/Typography.xaml");
+        StringAssert.Contains(typography, "<Style x:Key=\"StewardDescriptionStyle\" TargetType=\"TextBlock\" BasedOn=\"{StaticResource StewardBodyStyle}\" />");
+        string presentation = DesktopSource("StewardPresentation.cs");
+        string source = DesktopSource("MainWindow.cs");
+        // Caption (12) is left only where the text is not what you read a row for.
+        Assert.AreEqual(4, Count(presentation, "\"StewardCaptionStyle\""), "badge label, initials, evidence label and timestamp");
+        Assert.AreEqual(4, Count(source, "\"StewardCaptionStyle\""), "Activity time, the two sets of column headings and the title bar");
+        StringAssert.Contains(presentation, "copy.Children.Add(new TextBlock { Text = description, Style = Style(\"StewardDescriptionStyle\") });");
+        StringAssert.Contains(presentation, "Grid line = IconLine(glyph, text, styleKey: \"StewardDescriptionStyle\");");
+
+        // Filter tabs stay wrapping buttons and are announced as tabs with their place in the row.
+        string filterBar = Between(presentation, "public static Border FilterBar(IEnumerable<Button> tabs, string accessibleName)", "public static Grid FootNote(");
+        StringAssert.Contains(filterBar, "StewardWrapPanel row = new()");
+        StringAssert.Contains(filterBar, "AutomationProperties.SetLocalizedControlType(all[index], \"tab\");");
+        StringAssert.Contains(filterBar, "AutomationProperties.SetPositionInSet(all[index], index + 1);");
+        StringAssert.Contains(filterBar, "AutomationProperties.SetSizeOfSet(all[index], all.Length);");
+
+        // The badge's label sits in a column that takes the width left over, so it can wrap.
+        string badge = Between(presentation, "public static Border Badge(string label, string glyph, string tone = \"neutral\", string? automationName = null)", "AutomationProperties.SetName(badge, automationName ?? label);");
+        StringAssert.Contains(badge, "content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });");
+        StringAssert.Contains(badge, "TextWrapping = TextWrapping.Wrap");
+        Assert.IsFalse(badge.Contains("Orientation.Horizontal", StringComparison.Ordinal), "a side-by-side stack never wraps its text");
+
+        // Installed apps: headings that are sort options are buttons; the Sort by list stays in step; sorting only re-applies the filters.
+        string installed = Between(source, "private StackPanel BuildInstalledAppsPage()", DesktopWindowSource.EndOf("MainWindow.InstalledApps.cs"));
+        StringAssert.Contains(installed, "ComboBox sort = FilterBox(viewModel.SortField, InstalledAppsFilters.SortOptions);");
+        StringAssert.Contains(installed, "if (InstalledAppsFilters.SortsWhenSelected(field))");
+        StringAssert.Contains(installed, "AutomationProperties.SetName(sortBy, InstalledAppsFilters.SortHeadingName(field));");
+        StringAssert.Contains(installed, "AutomationProperties.SetItemStatus(sortBy, InstalledAppsFilters.SortState(sorted, viewModel.SortDescending));");
+        StringAssert.Contains(installed, "foreach ((Button sortBy, _, string field) in sortHeadings) sortBy.Click += (_, _) => SortBy(field);");
+        string sortBy = Between(installed, "void SortBy(string field)", "void ApplyFilters()");
+        StringAssert.Contains(sortBy, "if (same) { ApplyFilters(); ShowSort(); } else sort.SelectedItem = field;");
+        foreach (string action in new[] { "Render()", "workflow.", "ReviewAndExecuteAsync", "NavigateTo(" })
+            Assert.IsFalse(sortBy.Contains(action, StringComparison.Ordinal), $"sorting only re-applies the filters: {action}");
     }
 }

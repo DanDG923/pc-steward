@@ -65,6 +65,9 @@
         <Setter Property="Foreground" Value="{ThemeResource StewardSecondaryTextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
+    <!-- UI review 2026-11-13 (item 18): what a row, a reason or a footnote says is read, so it is body size (14) in the
+         secondary colour. Caption (12) is kept for timestamps, column headings, badges and initials. -->
+    <Style x:Key="StewardDescriptionStyle" TargetType="TextBlock" BasedOn="{StaticResource StewardBodyStyle}" />
     <Style x:Key="StewardCaptionStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
         <Setter Property="FontSize" Value="{StaticResource StewardCaptionFontSize}" />

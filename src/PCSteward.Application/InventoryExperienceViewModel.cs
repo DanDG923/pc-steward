@@ -67,6 +67,8 @@ public sealed class InventoryExperienceViewModel
     public string ScopeFilter { get; private set; } = "All scopes";
     public string StatusFilter { get; private set; } = "All statuses";
     public string SortField { get; private set; } = "Name";
+    /// <summary>True when the chosen order is turned round (Z to A, or the last status first).</summary>
+    public bool SortDescending { get; private set; }
     /// <summary>Task 73 Phase 3: the saved Installed apps filter (All, Update ready, Check the match, Has an update source, No update source, Pinned, ignored &amp; skipped).</summary>
     public InstalledAppsFilter SavedFilter { get; private set; } = InstalledAppsFilter.All;
     /// <summary>The package-source snapshots from the latest assessment, for freshness in words (FR-UI-05). Presentation only.</summary>
@@ -74,6 +76,9 @@ public sealed class InventoryExperienceViewModel
     public string ScanPhase { get; private set; } = ReadyToScan;
     public TimeSpan Elapsed { get; private set; }
     public bool IsScanning { get; private set; }
+    /// <summary>The step the running scan is on, of <see cref="ScanSteps"/>; both are 0 when no scan is reporting steps.</summary>
+    public int ScanStep { get; private set; }
+    public int ScanSteps { get; private set; }
     public IReadOnlyCollection<string> LastScanWarnings { get; private set; } = [];
     public DateTimeOffset? LastScanAt { get; private set; }
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
@@ -115,8 +120,13 @@ public sealed class InventoryExperienceViewModel
         if (SavedFilter == InstalledAppsFilter.HasUpdateSource) ApplyFilters();
     }
 
-    public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField)
+    public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField) =>
+        SetFilters(search, status, publisher, source, scope, sortField, SortDescending);
+
+    /// <summary>The filters and the sort together; <paramref name="sortDescending"/> turns the chosen order round (UI review item 18).</summary>
+    public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField, bool sortDescending)
     {
+        SortDescending = sortDescending;
         SearchText = search?.Trim() ?? string.Empty; StatusFilter = status ?? "All statuses"; PublisherFilter = publisher ?? "All publishers"; SourceFilter = source ?? "All sources"; ScopeFilter = scope ?? "All scopes"; SortField = sortField ?? "Name"; ApplyFilters();
     }
     public void SetFilters(string? search, string? status, string? source, string? scope, string? sortField) => SetFilters(search, status, PublisherFilter, source, scope, sortField);
@@ -143,8 +153,8 @@ public sealed class InventoryExperienceViewModel
         LastScanAt = lastScanAt; ScanPhase = lastScanAt is null ? ReadyToScan : ShowingLastScan; ApplyFilters();
     }
 
-    public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; }
-    public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); LastScanWarnings = result.Warnings; ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? "Scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
+    public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; ScanStep = progress.Step; ScanSteps = progress.Steps; }
+    public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; ScanStep = 0; ScanSteps = 0; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); LastScanWarnings = result.Warnings; ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? "Scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
     public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = ReadyToScan; }
     public void BeginUpdateCheck() { IsCheckingUpdates = true; UpdateFreshnessLabel = "Looking for updates. Nothing is installed."; }
     public void CompleteUpdateCheck() => IsCheckingUpdates = false;
@@ -290,6 +300,6 @@ public sealed class InventoryExperienceViewModel
         if (PublisherFilter != "All publishers") rows = rows.Where(row => row.Publisher == PublisherFilter);
         if (SourceFilter != "All sources") rows = rows.Where(row => row.Provider == SourceFilter);
         if (ScopeFilter != "All scopes") rows = rows.Where(row => row.Scope == ScopeFilter);
-        VisibleRows = SortField switch { "Source" => rows.OrderBy(row => row.Provider, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray(), "Publisher" => rows.OrderBy(row => row.Publisher, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray(), _ => rows.OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray() };
+        VisibleRows = InstalledAppsFilters.Sorted(rows, SortField, SortDescending);
     }
 }

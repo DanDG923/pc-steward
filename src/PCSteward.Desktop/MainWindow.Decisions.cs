@@ -85,7 +85,7 @@ public sealed partial class MainWindow
         if (decision.Reason is { } reason)
         {
             StackPanel copy = line.Children.OfType<StackPanel>().First();
-            copy.Children.Add(new TextBlock { Text = $"Reason: {reason}", Style = AppStyle("StewardCaptionStyle"), IsTextSelectionEnabled = true });
+            copy.Children.Add(new TextBlock { Text = $"Reason: {reason}", Style = AppStyle("StewardDescriptionStyle"), IsTextSelectionEnabled = true });
         }
         return line;
     }

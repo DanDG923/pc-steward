@@ -100,6 +100,21 @@ public sealed class InventoryScanOrchestratorTests
         provider.Release();
         Assert.IsTrue((await first).Succeeded); Assert.AreEqual(1, provider.MaximumActive);
     }
+    [TestMethod]
+    [Description("FR-UI-01/05 (owner request 2026-11-13): a scan reports which step it is on, one for each place it reads and one for saving, so a progress bar can fill honestly.")]
+    public async Task ScanReportsWhichStepItIsOn()
+    {
+        using InventoryScanOrchestrator orchestrator = new(new FakeStore(), [new FakeProvider("first", false), new FakeProvider("second", true), new FakeProvider("third", false)]);
+        RecordingProgress progress = new();
+        Assert.IsTrue((await orchestrator.ScanAsync(progress, CancellationToken.None)).Succeeded);
+        CollectionAssert.AreEqual(new List<string> { "Collecting first 1/4", "Collecting second 2/4", "Collecting third 3/4", "Publishing  4/4" },
+            progress.Reports.Select(report => $"{report.Phase} {report.Provider} {report.Step}/{report.Steps}").ToList(), "a place that fails still counts as a step");
+    }
+    private sealed class RecordingProgress : IProgress<ScanProgress>
+    {
+        public List<ScanProgress> Reports { get; } = [];
+        public void Report(ScanProgress value) => Reports.Add(value);
+    }
     private sealed class FakeStore : IInventorySnapshotStore
     {
         public List<CanonicalProduct> Products { get; } = [];

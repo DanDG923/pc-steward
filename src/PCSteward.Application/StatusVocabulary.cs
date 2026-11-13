@@ -93,6 +93,17 @@ public static class StatusVocabulary
 
     public static StatusChipPresentation For(UpdateIntelligenceStatus status) => For(status.ToString());
 
+    /// <summary>
+    /// Where a status sorts (UI review 2026-11-13, item 18): the order the filter lists them in, which puts what can be acted on
+    /// first (Update ready, then Check the match). An unknown status sorts last.
+    /// </summary>
+    public static int SortRank(string? key)
+    {
+        for (int index = 0; index < InventoryStatuses.Count; index++)
+            if (string.Equals(InventoryStatuses[index].Key, key, StringComparison.Ordinal)) return index;
+        return InventoryStatuses.Count;
+    }
+
     /// <summary>Maps a filter label back to the status key the inventory filter uses; unknown labels mean every status.</summary>
     public static string FilterKeyForLabel(string? label) =>
         InventoryStatuses.FirstOrDefault(chip => string.Equals(chip.Label, label, StringComparison.Ordinal))?.Key ?? AllStatusesLabel;
