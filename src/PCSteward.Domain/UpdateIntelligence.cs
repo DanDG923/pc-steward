@@ -69,6 +69,7 @@ public static class UpdateIntelligence
                 mapping = mapping with { IsActionable = false, ReviewReasons = reasons, EvidenceExplanation = mapping.EvidenceExplanation + " Review required: source candidates disagree." };
             }
             mapping = UseConfirmedSourceCurrentEvidence(mapping, snapshots);
+            mapping = UseSourceReportsNoNewerVersion(mapping, snapshots);
             SourceSnapshot? source = sourceById.GetValueOrDefault(mapping.SourceId);
             bool availabilityUnavailable = IsAvailabilityUnavailable(mapping, source);
             UpdateIntelligenceStatus status = mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement) ? UpdateIntelligenceStatus.ReviewRequired
@@ -83,7 +84,7 @@ public static class UpdateIntelligence
                 : status == UpdateIntelligenceStatus.Current && !IsVerifiedCurrent(mapping)
                 ? $"WinGet lists this app as package {mapping.PackageId} at the same version, so there is nothing to update."
                 : status == UpdateIntelligenceStatus.Unmanaged
-                ? "A package that might be this app has the same version, so there is nothing to update. It hasn't been confirmed as the same app."
+                ? "A package that might be this app has no newer version, so there is nothing to update. It hasn't been confirmed as the same app."
                 : mapping.EvidenceExplanation;
             // Owner decision 2026-11-02: a recorded skip of exactly this candidate version hides it. It runs after matching and can
             // only remove actionability; a newer candidate than the skipped version is assessed normally again.
@@ -213,6 +214,47 @@ public static class UpdateIntelligence
             ReviewReasons = [],
             VersionComparison = new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted),
             EvidenceExplanation = "The user confirmed this exact package identity. The source reports that its installed version matches the available version."
+        };
+    }
+
+    /// <summary>
+    /// The source lists the matched package as installed with no newer version (its installed and available versions are the same),
+    /// but the app's own version text differs, because the uninstall entry and the package number the same release differently
+    /// (MEGAsync's entry says 6.7.0 where WinGet lists package 6.7.0.3). Nothing newer exists, so nothing would run: the comparison is
+    /// treated as equal and the same-version rules above decide (current, or not confirmed). A match with a known conflict is left as
+    /// it is, so it stays a review item. It can only take an update away, never offer one.
+    /// </summary>
+    private static PackageMapping UseSourceReportsNoNewerVersion(PackageMapping mapping, IReadOnlyCollection<SourceSnapshot> snapshots)
+    {
+        if (mapping.Origin is not (MappingOrigin.Automatic or MappingOrigin.ProviderSupplied) ||
+            mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal ||
+            mapping.ReviewReasons.Any(reason => reason is MappingReviewReason.SourceDisagreement or MappingReviewReason.PublisherConflict
+                or MappingReviewReason.ArchitectureConflict or MappingReviewReason.ScopeConflict or MappingReviewReason.ChannelConflict
+                or MappingReviewReason.SourceConflict or MappingReviewReason.MultipleInstallationInstanceAmbiguity or MappingReviewReason.UntrustedConnector))
+        {
+            return mapping;
+        }
+
+        SourcePackageRecord[] packages = snapshots
+            .Where(snapshot => snapshot.State is SourceSnapshotState.Live or SourceSnapshotState.Cached)
+            .Where(snapshot => string.Equals(snapshot.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(snapshot => snapshot.Packages)
+            .Where(candidate => string.Equals(candidate.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToArray();
+        if (packages is not [{ InstalledVersion: { } installed, AvailableVersion: { } available }] ||
+            !string.Equals(installed, available, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(mapping.CandidateVersion, available, StringComparison.OrdinalIgnoreCase))
+        {
+            return mapping;
+        }
+
+        return mapping with
+        {
+            IsActionable = false,
+            ReviewReasons = [.. mapping.ReviewReasons.Where(reason => reason is not (MappingReviewReason.CandidateIsOlder or MappingReviewReason.CandidateIsCurrent or MappingReviewReason.IncomparableVersion))],
+            VersionComparison = new VersionComparisonResult(VersionComparisonOutcome.Equal, VersionComparisonExplanation.NumericDotted),
+            EvidenceExplanation = $"The source lists package {mapping.PackageId} as installed at {installed} with no newer version, so there is nothing to update. This app numbers the same release differently."
         };
     }
 
