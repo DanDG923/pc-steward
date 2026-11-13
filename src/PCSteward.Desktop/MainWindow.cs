@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly InventoryExperienceViewModel viewModel;
     private readonly DownloadedArtifactCache downloads;
     private readonly ReviewedUpdateExecutionWorkflow updates;
+    // Owner decision 2026-11-13: "Close it for me" on the review asks a running app to close like closing its window; never a force-quit.
+    private readonly WindowCloseRunningApplicationCloser runningAppCloser = new();
     private readonly IScheduledCheckSettingsStore scheduleSettingsStore;
     private readonly ScheduledCheckRegistrationService scheduleRegistration;
     private readonly Func<FactoryResetResult>? acknowledgeResetOnboarding;
@@ -62,14 +64,31 @@ public sealed partial class MainWindow : Window
     private Button? titleBarBack;
     private NavigationView? navigationView;
     private ScrollViewer? pageHost;
+    // UI review 2026-11-13 (item 13): a page's action bar, kept in view under the scrolling page. A page sets pageFooter while it
+    // is built (the update review's Cancel and update buttons); it is cleared before every page is built.
+    private Border? pageFooterHost;
+    // UI review 2026-11-13 (item 19): on a wide window the selected app's details sit beside the list, in their own column.
+    private Grid? shellContent;
+    private Border? detailPaneHost;
+    private ScrollViewer? detailPaneScroll;
+    private TextBlock? detailTitle;
+    private string? detailPaneKey;
+    private bool detailPaneOpen;
+    private FrameworkElement? pageFooter;
     private ShellPage? renderedPage;
     private Button? operationCancel;
     private InventoryRow? detailRow;
+    // UI review 2026-11-13 (item 11): whether "Match it yourself" is open on app details; closed each time details are opened.
+    private bool detailMatchFormOpen;
+    // UI review 2026-11-13 (item 12): the line shown after a pin, ignore, skip or confirmed match, with Undo, on the page it was made on.
+    private DecisionNotice? decisionNotice;
+    private ShellPage decisionNoticePage;
+    private bool decisionNoticeInDetailPane;
+    private bool decisionNoticeIsNew;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
     private bool onboardingAcknowledging;
     private bool startupStateLoadFailed;
-    private ResultsFilter resultsFilter = ResultsFilter.All;
     private Border? operationBand;
     private TextBlock? operationStatusText;
     private TextBlock? scanPageStatusText;
@@ -84,6 +103,7 @@ public sealed partial class MainWindow : Window
     // Task 73 Phase 6: the Ready apps the user ticked. It starts empty and only Ready keys survive each render (nothing preselected).
     private readonly HashSet<string> selectedReadyKeys = new(StringComparer.Ordinal);
     private bool ignoredGroupExpanded;
+    private bool cantUpdateGroupExpanded;
     private UpdateJobSession? updateJob;
     private TaskCompletionSource<bool>? reviewDecision;
     // Independent review: true while BeginReviewAsync prepares a review, so a second review cannot start meanwhile.
@@ -106,8 +126,6 @@ public sealed partial class MainWindow : Window
     private Control? pageSearchTarget;
     private string? lastOperationState;
 
-    private enum ResultsFilter { All, Actionable, NeedsDecision, Unavailable, Unmanaged }
-
     private const int MinimumWindowWidth = WindowMinimumSize.EffectiveWidth;
     private const int MinimumWindowHeight = WindowMinimumSize.EffectiveHeight;
     private double appliedMinimumSizeScale;
@@ -121,7 +139,17 @@ public sealed partial class MainWindow : Window
     private sealed class UpdateJobSession(IReadOnlyList<InventoryRow> rows, UpdateReviewSheet sheet)
     {
         public IReadOnlyList<InventoryRow> Rows { get; } = rows;
-        public UpdateReviewSheet Sheet { get; } = sheet;
+        public UpdateReviewSheet Sheet { get; set; } = sheet;
+        /// <summary>Rebuilds the review sheet with fresh running-app detections, one per app, in sheet order ("Check again").</summary>
+        public Func<IReadOnlyList<RunningApplicationDetection>, UpdateReviewSheet>? RebuildSheet { get; init; }
+        /// <summary>Each app's reviewed selection, in sheet order, read again only for running-app detection.</summary>
+        public IReadOnlyList<PCSteward.Domain.UpdateJobSelection> Selections { get; init; } = [];
+        /// <summary>The frozen review to confirm, with the running-app warnings the sheet now shows (set again by "Check again").</summary>
+        public UpdateBatchReviewPreparation? Review { get; set; }
+        /// <summary>The line shown after "Close it for me" or "Check again", or null.</summary>
+        public string? RunningCheckLine { get; set; }
+        /// <summary>True while "Close it for me" or "Check again" is working; the review's buttons wait for it.</summary>
+        public bool CheckingRunningApps { get; set; }
         public UpdateJobStep Step { get; set; } = UpdateJobStep.Review;
         public UpdateJobCompletion? Completion { get; set; }
         public int CurrentIndex { get; set; } = -1;
@@ -256,9 +284,6 @@ public sealed partial class MainWindow : Window
         ShellPage.Settings => BuildSettingsPage(),
         ShellPage.About => BuildAboutPage(),
         ShellPage.Scan => BuildScanPage(),
-        ShellPage.Results => BuildResultsPage(),
-        ShellPage.Review => BuildReviewPage(),
-        ShellPage.RepositoryApps => BuildRepositoryAppsPage(),
         ShellPage.Detail => BuildProductDetailPage(),
         ShellPage.Storage => BuildStoragePage(),
         ShellPage.Privacy => BuildPrivacyPage(),
@@ -328,7 +353,7 @@ public sealed partial class MainWindow : Window
         : scanCancellation is not null
             ? "Preparing the scan"
             : viewModel.IsCheckingUpdates
-                ? "Checking package sources for updates"
+                ? "Looking for updates"
                 : isExecuting
                     ? UpdateJobProgressText.BandLabel(updateProgressSubject, updateProgressLabel)
                     : isClearing || downloads.IsCleaning
@@ -358,6 +383,7 @@ public sealed partial class MainWindow : Window
         if (operationCancel is not null) operationCancel.Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (operationCancelReview is not null) operationCancelReview.Visibility = preparingReview && reviewPreparationCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (scanPageStatusText is not null) scanPageStatusText.Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}";
+        ShowWorkProgress();
         // Task 73 Phase 2: the job page's per-item state follows the same polled progress presentation; no page rebuild per frame.
         if (jobProgressStateText is not null && isExecuting) StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.LiveState(jobProgressLine ?? new(true, null), updateProgressPresentation), announce: true);
         if (operationViewJob is not null)
@@ -385,7 +411,12 @@ public sealed partial class MainWindow : Window
 
     private static ComboBox FilterBox(string selected, params string[] values) => FilterBox(selected, (IReadOnlyCollection<string>)values);
     private static ComboBox FilterBox(string selected, IReadOnlyCollection<string> values) { ComboBox box = new(); foreach (string value in values.Distinct(StringComparer.OrdinalIgnoreCase)) box.Items.Add(value); box.SelectedItem = values.FirstOrDefault(value => string.Equals(value, selected, StringComparison.OrdinalIgnoreCase)) ?? values.First(); return box; }
-    private void RenderInventory(ListView list) => list.ItemsSource = viewModel.VisibleRows.Select(ApplicationListItem.From).ToArray();
+    private void RenderInventory(ListView list)
+    {
+        // UI review 2026-11-13 (item 8): a row says where its record came from only when another listed row has the same name.
+        IReadOnlySet<string> sharedNames = InstalledAppsFilters.SharedNames(viewModel.ListedRows);
+        list.ItemsSource = viewModel.VisibleRows.Select(row => ApplicationListItem.From(row, sharedNames.Contains(row.Name))).ToArray();
+    }
 
     private static TextBlock SectionHeading(string text, AutomationHeadingLevel level = AutomationHeadingLevel.Level2) => StewardVisuals.SectionHeading(text, level);
 

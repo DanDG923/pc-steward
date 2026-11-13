@@ -252,7 +252,7 @@ internal static class StartupNotice
             TextBlock detailText = new() { Text = details, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Foreground = StewardVisuals.Brush("StewardTextBrush") };
             AutomationProperties.SetName(detailText, "Details: " + details);
             content.Children.Add(new Border { Background = StewardVisuals.Brush("StewardSurfaceSubtleBrush"), BorderBrush = StewardVisuals.Brush("StewardBorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(StewardSpacing.Medium), Child = detailText });
-            TextBlock status = new() { Style = StewardVisuals.Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
+            TextBlock status = new() { Style = StewardVisuals.Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap };
             AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
             content.Children.Add(status);
             Button copy = StewardVisuals.ActionButton(StartupNoticeText.CopyDetailsLabel, "to the clipboard");

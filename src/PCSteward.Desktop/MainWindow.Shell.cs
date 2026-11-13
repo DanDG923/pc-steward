@@ -160,7 +160,7 @@ public sealed partial class MainWindow
         for (DependencyObject? node = focused; node is not null; node = VisualTreeHelper.GetParent(node))
         {
             if (ReferenceEquals(node, operationBand)) return FocusRegion.OperationBand;
-            if (ReferenceEquals(node, pageHost)) return FocusRegion.Page;
+            if (ReferenceEquals(node, pageHost) || ReferenceEquals(node, pageFooterHost) || ReferenceEquals(node, detailPaneHost)) return FocusRegion.Page;
             if (ReferenceEquals(node, navigationView)) return FocusRegion.Navigation;
         }
         return null;
@@ -199,6 +199,12 @@ public sealed partial class MainWindow
             operationBand.Background = StewardVisuals.Brush("StewardBrandSubtleBrush");
             operationBand.BorderBrush = StewardVisuals.Brush("StewardBorderBrush");
         }
+        if (pageFooterHost is not null)
+        {
+            pageFooterHost.Background = StewardVisuals.Brush("StewardSurfaceBrush");
+            pageFooterHost.BorderBrush = StewardVisuals.Brush("StewardBorderBrush");
+        }
+        if (detailPaneHost is not null) detailPaneHost.BorderBrush = StewardVisuals.Brush("StewardBorderBrush");
         if (operationStatusText is not null) operationStatusText.Foreground = StewardVisuals.Brush("StewardTextBrush");
         Render();
     }
@@ -247,7 +253,11 @@ public sealed partial class MainWindow
     {
         if (windowRoot is null) return;
         if (navigationView is not null) { windowRoot.Children.Remove(navigationView); navigationView = null; pageHost = null; renderedPage = null; }
+        // The details column goes with the shell it was part of.
+        shellContent = null; detailPaneHost = null; detailPaneScroll = null; detailPaneKey = null; detailPaneOpen = false;
         foreach (UIElement bare in windowRoot.Children.Where(child => Grid.GetRow((FrameworkElement)child) == 1).ToArray()) windowRoot.Children.Remove(bare);
+        // Both bare pages are a few lines of text, so they read as one column on a wide window (UI review 2026-11-13, item 19).
+        panel.MaxWidth = PageLayout.MaximumWidth(ShellPage.Onboarding, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);
         ScrollViewer host = new() { Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         StewardVisuals.KeepPageColumnFitted(host);
         Grid.SetRow(host, 1);
@@ -268,6 +278,11 @@ public sealed partial class MainWindow
         Grid shell = new();
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        // UI review 2026-11-13 (item 19): the page, and beside it a column for the selected app's details on a wide window.
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        shellContent = shell;
 
         Grid operation = new() { ColumnSpacing = StewardSpacing.Large };
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -316,6 +331,7 @@ public sealed partial class MainWindow
             Visibility = HasActiveOperation ? Visibility.Visible : Visibility.Collapsed,
             Child = operation
         };
+        Grid.SetColumnSpan(operationBand, 2);
         shell.Children.Add(operationBand);
 
         pageHost = new ScrollViewer
@@ -326,6 +342,42 @@ public sealed partial class MainWindow
         StewardVisuals.KeepPageColumnFitted(pageHost);
         Grid.SetRow(pageHost, 1);
         shell.Children.Add(pageHost);
+
+        // The details column: its own scroll host, fitted like the page's, with a line between it and the list. It is hidden
+        // until an app is opened from a list on a wide window (ShowDetailPane), and it only ever shows what the details page shows.
+        detailPaneScroll = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        AutomationProperties.SetAutomationId(detailPaneScroll, "AppDetailsPane");
+        StewardVisuals.KeepPageColumnFitted(detailPaneScroll);
+        detailPaneHost = new Border
+        {
+            BorderBrush = StewardVisuals.Brush("StewardBorderBrush"),
+            BorderThickness = new Thickness(1, 0, 0, 0),
+            Visibility = Visibility.Collapsed,
+            Child = detailPaneScroll
+        };
+        Grid.SetRow(detailPaneHost, 1);
+        Grid.SetColumn(detailPaneHost, 1);
+        shell.Children.Add(detailPaneHost);
+        // A window made narrower or wider moves the details between the column and the page's own width.
+        shell.SizeChanged += (_, _) => ShowDetailPane(rebuild: false);
+
+        // UI review 2026-11-13 (item 13): the current page's action bar, when it has one. It sits under the scrolling page, on the
+        // page column's edges, so it stays in view; it comes after the page in tab order and belongs to the page's F6 region.
+        pageFooterHost = new Border
+        {
+            Background = StewardVisuals.Brush("StewardSurfaceBrush"),
+            BorderBrush = StewardVisuals.Brush("StewardBorderBrush"),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(StewardSpacing.PagePadding.Left, StewardSpacing.Medium, StewardSpacing.PagePadding.Right, StewardSpacing.Medium),
+            Visibility = Visibility.Collapsed
+        };
+        Grid.SetRow(pageFooterHost, 2);
+        Grid.SetColumnSpan(pageFooterHost, 2);
+        shell.Children.Add(pageFooterHost);
 
         navigationView = new NavigationView
         {
@@ -381,15 +433,36 @@ public sealed partial class MainWindow
         if (pageHost is null) return;
         bool sameView = preserveViewState && renderedPage == navigation.Current;
         double offset = sameView ? pageHost.VerticalOffset : 0;
-        bool focusWasInPage = IsFocusInside(pageHost, out string? focusKey);
+        bool focusWasInPage = IsFocusInside(pageHost, out string? focusKey) || (pageFooterHost is not null && IsFocusInside(pageFooterHost, out focusKey));
+        bool focusWasInDetailPane = detailPaneHost is not null && IsFocusInside(detailPaneHost, out _);
+        // The details column belongs to the list it was opened from: another page closes it.
+        if (renderedPage != navigation.Current) detailPaneOpen = false;
         pageInitialFocus = null;
         pageSearchTarget = null;
+        pageFooter = null;
         StackPanel page = BuildPage(navigation.Current);
+        // UI review 2026-11-13 (item 19): a page of text and switches reads as one column; a list page still fills the window.
+        page.MaxWidth = PageLayout.MaximumWidth(navigation.Current, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);
+        // UI review 2026-11-13 (item 12): the line that says what was just saved, under the header of the page it was made on.
+        if (decisionNotice is { } saved)
+        {
+            if (decisionNoticePage != navigation.Current) decisionNotice = null;
+            // A choice saved for the app in the details column is confirmed in that column instead (BuildDetailPane).
+            else if (!decisionNoticeInDetailPane) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));
+        }
         // A page may name the control that takes focus when it is opened, for example Cancel on the update review (Cancel is the default).
         Control? initialFocus = sameView ? null : pageInitialFocus;
         renderedPage = navigation.Current;
         pageHost.Content = page;
         StewardVisuals.FitPageColumn(pageHost);
+        ShowDetailPane(rebuild: true);
+        // The page's action bar, if it set one while it was built; a page without one leaves the bar hidden.
+        FrameworkElement? footer = pageFooter;
+        if (pageFooterHost is not null)
+        {
+            pageFooterHost.Child = footer;
+            pageFooterHost.Visibility = footer is null ? Visibility.Collapsed : Visibility.Visible;
+        }
         // Owner feedback on 0.1.1: a page whose main content is an empty state fills the window's height instead of leaving
         // most of a maximised window blank under it.
         if (page.Children.FirstOrDefault(StewardVisuals.IsEmptyState) is FrameworkElement empty) StewardVisuals.FillViewportHeight(page, empty);
@@ -401,9 +474,15 @@ public sealed partial class MainWindow
             {
                 if (windowClosed || pageHost is not { } host || !ReferenceEquals(host.Content, page)) return;
                 if (offset > 0) RestoreScrollOffset(host, page, offset);
+                // A refresh started from the details column keeps the keyboard there instead of dropping focus.
+                if (focusWasInDetailPane && detailPaneHost is { Visibility: Visibility.Visible } && detailPaneScroll?.Content is DependencyObject details)
+                {
+                    (FocusManager.FindFirstFocusableElement(details) as Control)?.Focus(FocusState.Programmatic);
+                    return;
+                }
                 if (!focusWasInPage && initialFocus is null) return;
                 // Independent review M3: restore only an unambiguous match; otherwise start at the top of the page.
-                Control? target = (sameView && focusKey is not null ? PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey)) : null)
+                Control? target = (sameView && focusKey is not null ? PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey)) ?? (footer is null ? null : PageFocusRestore.UniqueMatch(FindFocusTargets(footer, focusKey))) : null)
                     ?? initialFocus
                     ?? FocusManager.FindFirstFocusableElement(page) as Control;
                 target?.Focus(FocusState.Programmatic);

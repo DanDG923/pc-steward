@@ -10,7 +10,10 @@ public sealed class UpdateProgressUiContractTests
     public void DesktopPullsProgressAndGuardsDetachedSessions()
     {
         string source = Source();
-        Assert.AreEqual(1, source.Split("DispatcherQueue.CreateTimer()", StringSplitOptions.None).Length - 1);
+        // Two timers: the update progress poll, and the bar that fills while a scan or an update check runs (owner request 2026-11-13).
+        Assert.AreEqual(2, source.Split("DispatcherQueue.CreateTimer()", StringSplitOptions.None).Length - 1);
+        StringAssert.Contains(source, "updateProgressTimer = DispatcherQueue.CreateTimer();");
+        StringAssert.Contains(source, "workProgressTimer = DispatcherQueue.CreateTimer();");
         StringAssert.Contains(source, "Interval = TimeSpan.FromMilliseconds(250)");
         StringAssert.Contains(source, "epoch != updateProgressEpoch");
         StringAssert.Contains(source, "updateProgressTimer.Tick -= updateProgressTick");

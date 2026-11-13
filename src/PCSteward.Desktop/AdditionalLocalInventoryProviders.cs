@@ -21,12 +21,21 @@ internal sealed class WindowsCurrentUserPackageCatalog : ICurrentUserPackageCata
                 bool isFramework = package.IsFramework, isResource = package.IsResourcePackage;
                 // Shown names are read only for apps: frameworks and resource packs are most of the catalog and never offered.
                 bool isApp = !isFramework && !isResource;
-                record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, isFramework, isResource, false,
+                record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, isFramework, isResource, IsSystemSigned(package),
                     isApp ? ReadOrNull(() => package.DisplayName) : null, isApp ? ReadOrNull(() => package.PublisherDisplayName) : null);
             }
             catch (Exception) { continue; }
             yield return record;
         }
+    }
+
+    // UI review 2026-11-13 (fault 3): a package Windows itself signed is an inbox part of Windows, not an app the owner installed.
+    // WinGet doesn't update these, so they keep their full package name and are never offered. Store-signed apps (Windows
+    // Terminal) are not System. A package whose signature can't be read is treated as an ordinary app.
+    internal static bool IsSystemSigned(Package package)
+    {
+        try { return package.SignatureKind == PackageSignatureKind.System; }
+        catch (Exception) { return false; }
     }
 
     // The shown names come from the package's resources; a package whose resources can't be read keeps its package name.

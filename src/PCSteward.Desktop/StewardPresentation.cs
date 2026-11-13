@@ -48,11 +48,11 @@ internal static class StewardSpacing
 
 public sealed class ApplicationListItem
 {
-    private ApplicationListItem(InventoryRow row)
+    private ApplicationListItem(InventoryRow row, bool showSource)
     {
         Row = row;
         Name = row.Name;
-        Publisher = string.Equals(row.Publisher, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown publisher" : row.Publisher;
+        Publisher = string.IsNullOrWhiteSpace(row.Publisher) || string.Equals(row.Publisher, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown publisher" : row.Publisher;
         bool versionKnown = !string.IsNullOrWhiteSpace(row.Version) && !string.Equals(row.Version, "Unknown", StringComparison.OrdinalIgnoreCase);
         Version = versionKnown ? row.Version : "Unknown version";
         // UI polish phase 4 (approved target T-Installed): the Version column shows a dash for an unknown version; the accessible
@@ -60,7 +60,7 @@ public sealed class ApplicationListItem
         VersionText = versionKnown ? row.Version : "—";
         ScopeLabel = StewardPresentation.Scope(row.Scope);
         ScopeAndProvider = $"{ScopeLabel} · {StewardPresentation.Provider(row.Provider)}";
-        PublisherAndProvider = $"{Publisher} · {StewardPresentation.Provider(row.Provider)}";
+        PublisherAndProvider = InstalledAppsFilters.PublisherAndSource(row.Publisher, StewardPresentation.Provider(row.Provider), showSource);
         StewardStatus status = StewardStatus.From(row.Status);
         StatusLabel = status.Label;
         StatusGlyph = status.Glyph;
@@ -83,7 +83,7 @@ public sealed class ApplicationListItem
     public string VersionText { get; }
     /// <summary>Who the app is installed for ("All users" or "Current user").</summary>
     public string ScopeLabel { get; }
-    /// <summary>The row's second line: publisher and where Windows reported the app.</summary>
+    /// <summary>The row's second line: the publisher, plus where the record came from when another row shares the name.</summary>
     public string PublisherAndProvider { get; }
     /// <summary>Visible for statuses that ask for a look; neutral statuses show <see cref="PlainStatusVisibility"/> text instead.</summary>
     public Visibility ChipVisibility { get; }
@@ -95,7 +95,7 @@ public sealed class ApplicationListItem
     public string Initials { get; }
     public string AccessibleSummary { get; }
 
-    public static ApplicationListItem From(InventoryRow row) => new(row);
+    public static ApplicationListItem From(InventoryRow row, bool showSource = true) => new(row, showSource);
 }
 
 public static class StewardPresentation
@@ -204,12 +204,16 @@ internal static class StewardVisuals
     /// <paramref name="card"/> so the card reaches the bottom of the page host's viewport, keeping whatever follows the card on
     /// the page (such as a footnote) in view. The list never drops below <paramref name="minimumHeight"/>, so on a short window
     /// the page scrolls instead. It re-fits when the window or the content above the card changes size.
+    /// UI review 2026-11-13 (fault 1): the page is top aligned so its height is the height of its content. Left to stretch, a
+    /// page shorter than the window reports the window's height, the blank space counts as content below the card, and the list
+    /// never grows past its minimum (five rows on a maximised 4K window).
     /// </summary>
     public static void FillViewportHeight(StackPanel page, FrameworkElement card, ListViewBase list, double minimumHeight)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(list);
+        page.VerticalAlignment = VerticalAlignment.Top;
         list.MaxHeight = minimumHeight;
         ScrollViewer? host = null;
         void Fit()
@@ -218,7 +222,7 @@ internal static class StewardVisuals
             double top = card.TransformToVisual(page).TransformPoint(new global::Windows.Foundation.Point(0, 0)).Y;
             double below = page.ActualHeight - top - card.ActualHeight;
             double chrome = card.ActualHeight - list.ActualHeight;
-            double wanted = Math.Max(minimumHeight, Math.Floor(host.ViewportHeight - top - below - chrome));
+            double wanted = ViewportFill.ListHeight(host.ViewportHeight, top, below, chrome, minimumHeight);
             if (Math.Abs(wanted - list.MaxHeight) >= 1) list.MaxHeight = wanted;
         }
         void Resized(object sender, SizeChangedEventArgs args) => Fit();
@@ -242,18 +246,20 @@ internal static class StewardVisuals
     /// <paramref name="card"/> itself so it reaches the bottom of the page host's viewport, keeping whatever follows it on the page
     /// (such as a footnote) in view. Only <see cref="FrameworkElement.MinHeight"/> changes, so on a short window the card keeps
     /// its natural height and the page scrolls as before. It re-fits when the window or the content above the card changes size.
+    /// The page is top aligned for the same reason as the list overload: a stretched page reports the window's height.
     /// </summary>
     public static void FillViewportHeight(StackPanel page, FrameworkElement card)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(card);
+        page.VerticalAlignment = VerticalAlignment.Top;
         ScrollViewer? host = null;
         void Fit()
         {
             if (host is null || host.ViewportHeight <= 0 || card.Visibility != Visibility.Visible || card.ActualHeight <= 0) return;
             double top = card.TransformToVisual(page).TransformPoint(new global::Windows.Foundation.Point(0, 0)).Y;
             double below = page.ActualHeight - top - card.ActualHeight;
-            double wanted = Math.Max(0, Math.Floor(host.ViewportHeight - top - below));
+            double wanted = ViewportFill.CardHeight(host.ViewportHeight, top, below);
             if (Math.Abs(wanted - card.MinHeight) >= 1) card.MinHeight = wanted;
         }
         void Resized(object sender, SizeChangedEventArgs args) => Fit();
@@ -310,8 +316,11 @@ internal static class StewardVisuals
     public static Button PrimaryButton(string label, string? detail = null) =>
         Named(new Button { Content = label, Style = Style("StewardPrimaryButtonStyle") }, label, detail);
 
-    /// <summary>Audit P-M9: a row of actions that wraps onto more lines instead of clipping at narrow widths or large text.</summary>
-    public static StewardWrapPanel ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing };
+    /// <summary>
+    /// Audit P-M9: a row of actions that wraps onto more lines instead of clipping at narrow widths or large text. Owner report
+    /// 2026-11-13: the controls on one line are the same height, so a button with an icon does not sit lower than its neighbour.
+    /// </summary>
+    public static StewardWrapPanel ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };
 
     /// <summary>
     /// AC-UX-09 (research §2 item 10): raises a UIA notification with <paramref name="message"/> from <paramref name="source"/>, so
@@ -402,9 +411,15 @@ internal static class StewardVisuals
     {
         (Brush foreground, Brush background) = ToneBrushes(tone);
         // UI polish Phase 1: a tinted pill (StewardStatusChipStyle); the glyph and label carry the meaning, never colour alone.
-        StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
+        // UI review 2026-11-13 (item 18): the label is in a column that takes the width left over, so a long label wraps onto a
+        // second line when space is tight instead of being clipped (a side-by-side stack never wraps its text).
+        Grid content = new() { ColumnSpacing = 6 };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
-        content.Children.Add(new TextBlock { Text = label, Style = Style("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+        TextBlock text = new() { Text = label, Style = Style("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 1);
+        content.Children.Add(text);
         Border badge = new() { Style = Style("StewardStatusChipStyle"), Background = background, Child = content };
         AutomationProperties.SetName(badge, automationName ?? label);
         return badge;
@@ -450,7 +465,7 @@ internal static class StewardVisuals
     {
         StackPanel copy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(new TextBlock { Text = title, Style = Style("StewardRowTitleStyle") });
-        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle") });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardDescriptionStyle") });
         return copy;
     }
 
@@ -619,6 +634,18 @@ internal static class StewardVisuals
     }
 
     /// <summary>
+    /// UI review 2026-11-13 (item 20; ADR-035): an app's own icon, the size of the tile it replaces. Decorative, like the tile:
+    /// it is kept out of what a screen reader reads, because the app's name is beside it.
+    /// </summary>
+    public static Image AppIconImage(ImageSource icon)
+    {
+        Image image = new() { Source = icon, Width = AppIconRules.TileSize, Height = AppIconRules.TileSize, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAccessibilityView(image, AccessibilityView.Raw);
+        AutomationProperties.SetAutomationId(image, "AppIcon");
+        return image;
+    }
+
+    /// <summary>
     /// UI polish phase 3 (approved target T-Review): a Settings-style expander row — an icon well, a title and one-line description
     /// in the header, and <paramref name="content"/> when expanded. Collapsed by default; the expander's name is the title and its
     /// help text the description, so the header reads the same to a screen reader as it looks.
@@ -648,7 +675,7 @@ internal static class StewardVisuals
     /// UI polish phase 4 (approved target T-Decisions): a calm empty state — a 56 epx round neutral icon well, a Subtitle heading,
     /// one sentence and an optional action, centred in a card.
     /// </summary>
-    public static Border EmptyState(string glyph, string title, string message, Button? action = null)
+    public static Border EmptyState(string glyph, string title, string message, Button? action = null, Button? secondary = null)
     {
         // Centred both ways, so the message stays in the middle when the page host grows the card to the window's bottom.
         StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560 };
@@ -662,7 +689,16 @@ internal static class StewardVisuals
         heading.HorizontalAlignment = HorizontalAlignment.Center;
         content.Children.Add(heading);
         content.Children.Add(new TextBlock { Text = message, Style = Style("StewardBodyStyle"), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
-        if (action is not null) { action.HorizontalAlignment = HorizontalAlignment.Center; content.Children.Add(action); }
+        if (action is not null && secondary is not null)
+        {
+            // Two choices side by side (the guided first run's question); they wrap onto two lines when the card is narrow.
+            StewardWrapPanel choices = ActionRow();
+            choices.HorizontalAlignment = HorizontalAlignment.Center;
+            choices.Children.Add(action);
+            choices.Children.Add(secondary);
+            content.Children.Add(choices);
+        }
+        else if (action is not null) { action.HorizontalAlignment = HorizontalAlignment.Center; content.Children.Add(action); }
         Border empty = new() { Style = Style("StewardCardStyle"), Padding = new Thickness(32), Child = content };
         AutomationProperties.SetName(empty, $"{title}. {message}");
         EmptyStates.AddOrUpdate(empty, title);
@@ -678,7 +714,7 @@ internal static class StewardVisuals
         Border badge = StatusBadge(status);
         badge.HorizontalAlignment = HorizontalAlignment.Left;
         content.Children.Add(badge);
-        content.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle") });
+        content.Children.Add(new TextBlock { Text = detail, Style = Style("StewardDescriptionStyle") });
         Border card = new() { Style = Style("StewardCardStyle"), Child = content };
         AutomationProperties.SetName(card, $"{value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture)} {label}. {detail}");
         return card;
@@ -717,7 +753,7 @@ internal static class StewardVisuals
         TextBlock heading = SectionHeading(title);
         if (danger) heading.Foreground = Brush("StewardDangerBrush");
         copy.Children.Add(heading);
-        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(copy, 1);
         header.Children.Add(copy);
         content.Children.Add(header);
@@ -737,7 +773,7 @@ internal static class StewardVisuals
         row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(new TextBlock { Text = title, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
-        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         row.Children.Add(copy);
         control.VerticalAlignment = VerticalAlignment.Center;
         control.HorizontalAlignment = HorizontalAlignment.Right;
@@ -755,7 +791,7 @@ internal static class StewardVisuals
         row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Foreground = Brush("StewardBrandBrush"), Margin = new Thickness(0, 2, 0, 0) });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
         copy.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
-        if (!string.IsNullOrWhiteSpace(detail)) copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        if (!string.IsNullOrWhiteSpace(detail)) copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         Grid.SetColumn(copy, 1);
         row.Children.Add(copy);
         TextBlock time = new() { Text = when, Style = Style("StewardCaptionStyle"), Margin = new Thickness(12, 1, 0, 0) };
@@ -800,21 +836,41 @@ internal static class StewardVisuals
         };
     }
 
-    /// <summary>A button's content: a small icon and its label, side by side (for example the Copy diagnostic and Filters buttons).</summary>
-    public static StackPanel IconLabel(string glyph, string label)
+    /// <summary>
+    /// A button's content: a small icon and its label, side by side (Check for updates, Scan again, Copy diagnostic, Filters).
+    /// Owner report 2026-11-13 (release 0.1.14): an icon is laid out in a box taller than the icon itself, taller than a line
+    /// of text at 16, so "Check for updates" was two units taller than a button with text only and its label sat above the
+    /// middle. The icon gives that spare room back (<see cref="IconLabelIconMargin"/>), so the label alone sets the height, as
+    /// in any other button, and the icon and the label are centred on each other.
+    /// </summary>
+    public static StackPanel IconLabel(string glyph, string label, double iconSize = 14)
     {
         StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center });
         content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
         return content;
     }
 
-    /// <summary>A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.</summary>
+    /// <summary>The same amount off the top and the bottom, so the icon stays where it is and only stops adding height.</summary>
+    public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);
+
+    /// <summary>
+    /// A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.
+    /// UI review 2026-11-13 (item 18): each one is announced as a tab with its place in the row ("tab, 2 of 5"), as the Windows
+    /// selector control would. They stay the app's own buttons because that control does not wrap at narrow widths or large text.
+    /// </summary>
     public static Border FilterBar(IEnumerable<Button> tabs, string accessibleName)
     {
         ArgumentNullException.ThrowIfNull(tabs);
         StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Large, VerticalSpacing = StewardSpacing.XSmall };
-        foreach (Button tab in tabs) row.Children.Add(tab);
+        Button[] all = [.. tabs];
+        for (int index = 0; index < all.Length; index++)
+        {
+            AutomationProperties.SetLocalizedControlType(all[index], "tab");
+            AutomationProperties.SetPositionInSet(all[index], index + 1);
+            AutomationProperties.SetSizeOfSet(all[index], all.Length);
+            row.Children.Add(all[index]);
+        }
         AutomationProperties.SetName(row, accessibleName);
         return new Border { BorderBrush = Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
     }
@@ -825,7 +881,7 @@ internal static class StewardVisuals
     /// </summary>
     public static Grid FootNote(string glyph, string text)
     {
-        Grid line = IconLine(glyph, text, styleKey: "StewardCaptionStyle");
+        Grid line = IconLine(glyph, text, styleKey: "StewardDescriptionStyle");
         foreach (TextBlock copy in line.Children.OfType<TextBlock>()) copy.Foreground = Brush("StewardSecondaryTextBrush");
         return line;
     }
@@ -859,55 +915,54 @@ internal static class StewardVisuals
 /// Audit P-M9 (AC-UX best effort, research §2 item 7): a minimal wrapping panel for action and filter rows. Children keep their
 /// natural size and move to the next line when the row runs out of width, so nothing is clipped at narrow widths or at 150–225%
 /// text scaling. Standard WinUI only (no Toolkit dependency); it lays out and does nothing else.
+/// UI review 2026-11-13 (fault 2): the line breaks are decided once, when the row is measured (<see cref="WrapLayout"/>), and
+/// arranging reuses them. Deciding again while arranging stacked the last button under the first on a 150% display.
 /// </summary>
 public sealed class StewardWrapPanel : Panel
 {
     public double HorizontalSpacing { get; set; } = StewardSpacing.Small;
     public double VerticalSpacing { get; set; } = StewardSpacing.Small;
+    /// <summary>
+    /// Owner report 2026-11-13: true for a row of buttons and other controls, so everything on one line is as tall as the
+    /// tallest and the edges are level. A button with an icon is a little taller than one without.
+    /// </summary>
+    public bool LevelLines { get; set; }
+
+    private IReadOnlyList<int> measuredLines = [];
 
     protected override global::Windows.Foundation.Size MeasureOverride(global::Windows.Foundation.Size availableSize)
     {
-        double lineWidth = 0, lineHeight = 0, width = 0, height = 0;
+        List<WrapLayout.Item> items = [];
         foreach (UIElement child in Children)
         {
             child.Measure(new global::Windows.Foundation.Size(availableSize.Width, double.PositiveInfinity));
             if (child.Visibility == Visibility.Collapsed) continue;
-            global::Windows.Foundation.Size desired = child.DesiredSize;
-            if (lineWidth > 0 && lineWidth + HorizontalSpacing + desired.Width > availableSize.Width)
-            {
-                width = Math.Max(width, lineWidth);
-                height += lineHeight + VerticalSpacing;
-                lineWidth = desired.Width;
-                lineHeight = desired.Height;
-            }
-            else
-            {
-                lineWidth = lineWidth > 0 ? lineWidth + HorizontalSpacing + desired.Width : desired.Width;
-                lineHeight = Math.Max(lineHeight, desired.Height);
-            }
+            items.Add(new WrapLayout.Item(child.DesiredSize.Width, child.DesiredSize.Height));
         }
-        width = Math.Max(width, lineWidth);
-        height += lineHeight;
-        return new global::Windows.Foundation.Size(double.IsInfinity(availableSize.Width) ? width : Math.Min(width, availableSize.Width), height);
+        WrapLayout.Measured measured = WrapLayout.Measure(items, availableSize.Width, HorizontalSpacing, VerticalSpacing);
+        measuredLines = measured.Lines;
+        return new global::Windows.Foundation.Size(measured.Width, measured.Height);
     }
 
     protected override global::Windows.Foundation.Size ArrangeOverride(global::Windows.Foundation.Size finalSize)
     {
-        double x = 0, y = 0, lineHeight = 0;
+        List<UIElement> visible = [];
+        List<WrapLayout.Item> items = [];
         foreach (UIElement child in Children)
         {
             if (child.Visibility == Visibility.Collapsed) continue;
-            global::Windows.Foundation.Size desired = child.DesiredSize;
-            if (x > 0 && x + desired.Width > finalSize.Width)
-            {
-                x = 0;
-                y += lineHeight + VerticalSpacing;
-                lineHeight = 0;
-            }
-            double childWidth = Math.Min(desired.Width, finalSize.Width);
-            child.Arrange(new global::Windows.Foundation.Rect(x, y, childWidth, desired.Height));
-            x += childWidth + HorizontalSpacing;
-            lineHeight = Math.Max(lineHeight, desired.Height);
+            visible.Add(child);
+            items.Add(new WrapLayout.Item(child.DesiredSize.Width, child.DesiredSize.Height));
+        }
+        // Arrange always follows a measure of the same children; if it ever doesn't, measure the lines here rather than guess.
+        IReadOnlyList<int> lines = measuredLines.Count == items.Count
+            ? measuredLines
+            : WrapLayout.Measure(items, finalSize.Width, HorizontalSpacing, VerticalSpacing).Lines;
+        IReadOnlyList<WrapLayout.Slot> slots = WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing, LevelLines);
+        for (int index = 0; index < visible.Count; index++)
+        {
+            WrapLayout.Slot slot = slots[index];
+            visible[index].Arrange(new global::Windows.Foundation.Rect(slot.X, slot.Y, slot.Width, slot.Height));
         }
         return finalSize;
     }

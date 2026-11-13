@@ -64,7 +64,10 @@ public sealed class UpdateBatchPresentationTests
         ReviewRiskCallout running = sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication);
         Assert.AreEqual("Beta appears to be running", running.Title);
         StringAssert.Contains(running.Message, "Beta (Contoso.BETA)");
-        StringAssert.Contains(running.Message, "will not close");
+        StringAssert.Contains(running.Message, "Close Beta for me");
+        StringAssert.Contains(running.Message, "never force-quits");
+        Assert.AreEqual("Close Beta for me", sheet.CloseForMeLabel);
+        Assert.IsTrue(sheet.CanConfirm);
         Assert.AreEqual(StatusTone.Attention, running.Tone);
         Assert.HasCount(3, sheet.Risks);
         StringAssert.Contains(sheet.Attestation, "one at a time");
@@ -208,12 +211,31 @@ public sealed class UpdateBatchPresentationTests
         // Review L3: Results and Applications rows use StewardStatus.From → StatusVocabulary.For(row.Status).
         foreach (UpdateIntelligenceStatus status in Enum.GetValues<UpdateIntelligenceStatus>())
             Assert.AreNotEqual("Status unavailable", StatusVocabulary.For(status.ToString()).Label, status.ToString());
-        Assert.AreEqual("Version skipped", StatusVocabulary.For(nameof(UpdateIntelligenceStatus.Skipped)).Label);
-        CollectionAssert.Contains(StatusVocabulary.FilterLabels.ToArray(), "Version skipped");
+        Assert.AreEqual("Skipped", StatusVocabulary.For(nameof(UpdateIntelligenceStatus.Skipped)).Label);
+        CollectionAssert.Contains(StatusVocabulary.FilterLabels.ToArray(), "Skipped");
     }
 
     private static UpdateJobItemOutcome Outcome(string key, UpdateHistoryStatus status) =>
         new($"App {key}", $"Contoso.{key}", "1.0", "2.0", UpdateOutcomePresenter.ForStatus(status, "diag", status == UpdateHistoryStatus.InstallerFailed ? 1 : 0, "2.0"), key);
+
+    [TestMethod]
+    [TestCategory("FR-UI-04")]
+    [Description("UI review 2026-11-13 (item 13): how sure the matches are is said once when every app shares the answer, and per app when they differ.")]
+    public void HowSureIsSaidOnceWhenEveryAppSharesIt()
+    {
+        UpdateReviewSheet one = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User)]);
+        Assert.AreEqual("High confidence", one.SharedConfidence);
+        Assert.AreEqual("How sure: High confidence.", one.SharedConfidenceLine);
+
+        UpdateReviewSheet same = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User), Input("beta", UpdateScope.Machine)]);
+        Assert.AreEqual("How sure: High confidence, for every app.", same.SharedConfidenceLine);
+
+        UpdateReviewSheetInput medium = Input("beta", UpdateScope.User);
+        UpdateReviewSheet mixed = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User), medium with { Detail = medium.Detail! with { Confidence = "Medium" } }]);
+        Assert.IsNull(mixed.SharedConfidence, "when the apps differ nothing is summarised, and each row shows its own");
+        Assert.IsNull(mixed.SharedConfidenceLine);
+        Assert.AreEqual("Medium confidence", mixed.Items[1].ConfidenceSummary);
+    }
 
     private static UpdateReviewSheetInput Input(string key, UpdateScope scope, bool running = false)
     {

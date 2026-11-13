@@ -41,7 +41,7 @@ public sealed partial class MainWindow
         TextBlock product = new() { Text = AppIdentity.DisplayName, Style = AppStyle("StewardSubtitleStyle") };
         AutomationProperties.SetHeadingLevel(product, AutomationHeadingLevel.Level2);
         name.Children.Add(product);
-        name.Children.Add(new TextBlock { Text = $"Preview build {ProductVersion()} · Lists the apps on this PC and helps you review and apply their updates. Everything stays on this PC.", Style = AppStyle("StewardCaptionStyle"), Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), IsTextSelectionEnabled = true });
+        name.Children.Add(new TextBlock { Text = $"Preview build {ProductVersion()} · Lists the apps on this PC and helps you review and apply their updates. Everything stays on this PC.", Style = AppStyle("StewardDescriptionStyle"), Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), IsTextSelectionEnabled = true });
         Grid.SetColumn(name, 1);
         identity.Children.Add(name);
         // FR-HIS-05: Copy diagnostic copies the existing sanitized bundle; the confirmation (a polite live region) says what was copied.
@@ -52,30 +52,33 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(copyDiagnostic, diagnostic.Description);
         Grid.SetColumn(copyDiagnostic, 2);
         identity.Children.Add(copyDiagnostic);
-        TextBlock copied = new() { Text = diagnostic.UnavailableReason ?? string.Empty, Style = AppStyle("StewardCaptionStyle") };
+        TextBlock copied = new() { Text = diagnostic.UnavailableReason ?? string.Empty, Style = AppStyle("StewardDescriptionStyle") };
         AutomationProperties.SetLiveSetting(copied, AutomationLiveSetting.Polite);
         copyDiagnostic.Click += (_, _) => CopyDiagnostic(copied);
         StackPanel identityCard = new() { Spacing = StewardSpacing.Small };
         identityCard.Children.Add(identity);
-        identityCard.Children.Add(new TextBlock { Text = diagnostic.Description, Style = AppStyle("StewardCaptionStyle") });
+        identityCard.Children.Add(new TextBlock { Text = diagnostic.Description, Style = AppStyle("StewardDescriptionStyle") });
         identityCard.Children.Add(copied);
         panel.Children.Add(Card(identityCard));
 
-        panel.Children.Add(StewardVisuals.InformationBanner("Preview build", "For private testing only. Install it only from your private release channel and check its published checksum.", "attention"));
+        panel.Children.Add(StewardVisuals.InformationBanner("Preview build", "PC Steward is still being tested. Get it only from its GitHub releases page.", "attention"));
         panel.Children.Add(BuildSelfUpdateCard());
 
         StackPanel works = new() { Spacing = StewardSpacing.XSmall };
         works.Children.Add(SectionHeading("How PC Steward works"));
-        works.Children.Add(StewardVisuals.ExpanderRow("\uE72E", "Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates.",
-            PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved."), "green"));
+        StackPanel privacy = new() { Spacing = StewardSpacing.Small };
+        privacy.Children.Add(PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved."));
+        // ADR-035: the lists read each app's own icon; said here because it is a read PC Steward did not make before.
+        privacy.Children.Add(PageCopy(AppIconRules.PrivacyNote));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE72E", "Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates.", privacy, "green"));
         StackPanel elevation = new() { Spacing = StewardSpacing.Small };
         elevation.Children.Add(PageCopy(ElevationStory.Summary));
         elevation.Children.Add(PageCopy(ElevationStory.HelperRequirement));
         works.Children.Add(StewardVisuals.ExpanderRow("\uEA18", "Updates and administrator permission", "Checking never asks for permission. Windows asks once for each machine-wide app you approve.", elevation, "amber"));
         works.Children.Add(StewardVisuals.ExpanderRow("\uE74E", "Data and removal", "Everything is kept locally. Factory reset removes PC Steward's data and its scheduled check.",
-            PageCopy("Inventory, settings, decisions, history, source evidence, downloads and logs are stored locally under your PC Steward data root. Removing the extracted package removes its binaries but retains that data by default. Use Factory reset PC Steward to remove app-owned local data and the current-user scheduled check before removal."), "purple"));
-        works.Children.Add(StewardVisuals.ExpanderRow("\uE777", "Support and rollback", "If a newer build fails, copy the diagnostic and use the rollback package from the same channel.",
-            PageCopy("If replacing PC Steward with a newer build fails, stop, select Copy diagnostic above, and use the rollback package from the same private release channel. Don't download PC Steward from mirrors or other download sites."), "blue"));
+            PageCopy("Your app list, settings, decisions, history, downloads and logs are stored on this PC only. Uninstalling PC Steward leaves that data in place. To remove it as well, use Factory reset (Settings, Data & reset) before you uninstall; it also removes the scheduled check."), "purple"));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE777", "If updating PC Steward fails", "The version you have stays installed. Copy the diagnostic, then try again.",
+            PageCopy("If an update to PC Steward can't finish, Windows puts the version you had back. Select Copy diagnostic above to keep a record of what happened, then check for a new version again later, or get the installer from the GitHub releases page. Don't download PC Steward from mirrors or other download sites."), "blue"));
         panel.Children.Add(works);
         panel.Children.Add(StewardVisuals.FootNote("\uE8A5", "Open source under the MIT licence."));
         return panel;

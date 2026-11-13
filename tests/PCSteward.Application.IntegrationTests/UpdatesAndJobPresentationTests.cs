@@ -124,12 +124,12 @@ public sealed class UpdatesAndJobPresentationTests
         StringAssert.Contains(Reason(page, "low"), "low confidence");
         StringAssert.Contains(Reason(page, "arch"), "different architecture");
         StringAssert.Contains(Reason(page, "stale"), "cached and may be out of date");
-        StringAssert.Contains(Reason(page, "unavailable"), "couldn't confirm whether an update is available");
+        StringAssert.Contains(Reason(page, "unavailable"), "couldn't reach the update source for this app");
         StringAssert.Contains(Reason(page, "incomparable"), "can't be compared reliably");
         StringAssert.Contains(Reason(page, "incomparable"), "different release channel");
-        StringAssert.Contains(Reason(page, "incomparable"), "Another evidence check needs your review.");
+        StringAssert.Contains(Reason(page, "incomparable"), ReviewReasonText.NeedsCloserLook);
         StringAssert.Contains(Reason(page, "incomplete"), "incomplete");
-        StringAssert.Contains(Reason(page, "nodetail"), "needs your review");
+        StringAssert.Contains(Reason(page, "nodetail"), "needs a closer look");
         Assert.IsEmpty(page.SelectedKeys);
         Assert.IsFalse(page.CanReviewAll);
         Assert.IsFalse(page.NeedsReview.Single(row => row.StableProductKey == "unavailable").Actions.Any(action => action.Action is UpdateRowAction.IgnoreApp or UpdateRowAction.PinCurrentVersion),
@@ -138,7 +138,7 @@ public sealed class UpdatesAndJobPresentationTests
         UpdatesPagePresentation sourcesOff = UpdatesPagePresenter.Build([Row("ready", "VerifiedUpdate", "1.0")],
             new Dictionary<string, UpdateDetail>(StringComparer.Ordinal) { ["ready"] = Detail("ready", "1.0", "2.0") }, false, [], ["ready"], Now);
         Assert.IsEmpty(sourcesOff.Ready, "with sources off nothing is ready");
-        StringAssert.Contains(sourcesOff.NeedsReview.Single().ReasonText, "Package sources are off");
+        StringAssert.Contains(sourcesOff.NeedsReview.Single().ReasonText, "Update checks are off");
     }
 
     [TestMethod]
@@ -244,7 +244,9 @@ public sealed class UpdatesAndJobPresentationTests
         CollectionAssert.Contains(sheet.ConfidenceEvidence.ToArray(), "Exact package ID and publisher match.");
         Assert.IsTrue(sheet.ConfidenceEvidence.Any(line => line.Contains("fixture-evidence", StringComparison.Ordinal)));
         CollectionAssert.AreEqual(RiskOrder, sheet.Risks.Select(risk => risk.Kind).ToArray());
-        StringAssert.Contains(sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "never closes apps");
+        StringAssert.Contains(sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "If you know it's open, close it first");
+        Assert.IsFalse(sheet.OffersCloseForMe, "nothing is running: no Close it for me");
+        Assert.IsTrue(sheet.CanConfirm);
         StringAssert.Contains(sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.Restart).Message, "never restarts your PC");
         Assert.AreEqual(AdministratorRequirementPresenter.ForSelection(machine).Label, sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.Administrator).Title);
         Assert.IsTrue(sheet.ShowsAdministratorShield, "machine-wide: the shield is shown");
@@ -265,7 +267,11 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsFalse(userSheet.ShowsAdministratorShield, "current-user: no shield");
         Assert.AreEqual("Update 1 app anyway", userSheet.PrimaryButtonLabel, "a running app needs an explicit 'anyway'");
         StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "widget.exe");
-        StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "will not close it");
+        StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "Close Contoso Widget for me");
+        StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "never force-quits");
+        Assert.IsTrue(userSheet.OffersCloseForMe);
+        Assert.AreEqual("Close Contoso Widget for me", userSheet.CloseForMeLabel);
+        Assert.IsTrue(userSheet.CanConfirm, "an app that isn't an app package can still be updated anyway");
         Assert.AreEqual(StatusTone.Attention, userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Tone);
         Assert.AreEqual("Current user", Fact(userSheet, "Scope"));
         Assert.AreEqual("Not stated by the source", Fact(userSheet, "Channel"));
@@ -528,7 +534,7 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.AreEqual("registry:7zip", sevenZip.StableProductKey, "the first record keeps its place and its key");
         CollectionAssert.AreEqual(SevenZipRecordKeys, sevenZip.AllKeys.ToArray());
         Assert.AreEqual("Found twice (Windows and WinGet)", sevenZip.FoundText);
-        Assert.AreEqual("Igor Pavlov · High confidence match · bigger changes are possible · Found twice (Windows and WinGet)", sevenZip.Summary, "23 to 24 is a major version");
+        Assert.AreEqual("Igor Pavlov · bigger changes are possible · Found twice (Windows and WinGet)", sevenZip.Summary, "23 to 24 is a major version");
         Assert.IsNull(page.Ready[1].FoundText, "a different scope is a different install");
         Assert.IsNull(page.Ready[2].FoundText, "a different package is a different app");
         CollectionAssert.AreEqual(ShownSevenZipKeys, page.ReadyKeys.ToArray(),
@@ -586,7 +592,7 @@ public sealed class UpdatesAndJobPresentationTests
         UpdatesPagePresentation page = UpdatesPagePresenter.Build(rows, details, true, [], ["ready"], Now);
         SourceSnapshot live = new("winget", "1.9", Now.AddMinutes(-5), SourceSnapshotState.Live, [], []);
         UpdatesPageHeader header = UpdatesPagePresenter.Header(page, true, [live], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
-        Assert.AreEqual("2 ready · 1 needs review · live results, checked 5 minutes ago", header.Description);
+        Assert.AreEqual("2 ready · 1 can't update yet · checked 5 minutes ago", header.Description);
         Assert.IsNull(header.Notice, "live evidence needs no info bar");
         Assert.IsTrue(header.ShowsCheckForUpdates);
         Assert.AreEqual(UpdatesPagePresenter.ReviewFooter, header.Footer);

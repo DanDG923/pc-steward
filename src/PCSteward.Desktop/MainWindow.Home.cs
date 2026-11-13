@@ -26,16 +26,17 @@ public sealed partial class MainWindow
     private static DateTimeOffset LastBootAt() => DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
 
     /// <summary>
-    /// FR-UI-01/05/06 (ADR-030 concept A; UI polish phase 2, approved targets T-Home and T-Home-Ready): info bars for updates that need
-    /// the owner, then one status card (an icon, one sentence, facts with icons, and the action that fits the state), an "At a glance"
-    /// list of plain-English rows that open filtered pages, and a footer line. "Turn on update checks…" opens the existing source
-    /// consent; "Review updates" only opens Updates; "Check for updates" and "Scan again" never elevate. Nothing here selects,
-    /// reviews, approves or runs an update.
+    /// FR-UI-01/05/06 (ADR-030 concept A; UI review 2026-11-13, item 15): Home answers "is anything out of date?". Info bars for
+    /// updates that need the owner, then one status card (an icon, one sentence, facts with icons, and the action that fits the
+    /// state), the ready updates themselves, lines that appear only when they have something to say, and the last few things PC
+    /// Steward did. "Turn on update checks…" opens the existing source consent; "Update all N…" and a row's "Update…" open the
+    /// same review as the Updates page, where nothing is installed until the owner confirms (FR-UPD-01, AC-UPD-01); "Check for
+    /// updates" and "Scan again" never elevate. Nothing here approves or runs an update.
     /// </summary>
     private StackPanel BuildHomePage()
     {
         IReadOnlyList<UpdateJobRecord> jobs = UpdateJobHistory.Group(updateHistory);
-        IReadOnlyList<ActivityEntry> activity = ActivityPresenter.Entries(jobs, scanRuns, activeDecisions, manualMappings, viewModel.AllRows);
+        IReadOnlyList<ActivityEntry> activity = ActivityPresenter.Entries(jobs, scanRuns, activeDecisions, manualMappings, viewModel.AllRows, packageNames: viewModel.PackageNames);
         HomePresentation home = HomePresenter.Build(new HomeInputs(viewModel.AllRows, viewModel.UpdateDetails, viewModel.IsUpdateSourceEnabled, viewModel.Sources,
             activeDecisions, [.. jobs], activity, viewModel.LastScanAt, DateTimeOffset.UtcNow, LastBootAt()));
         StackPanel panel = CreatePagePanel();
@@ -43,11 +44,13 @@ public sealed partial class MainWindow
         if (!home.HasInventory)
         {
             panel.Children.Add(StewardVisuals.PageTitle("Home"));
-            Button start = StewardVisuals.PrimaryButton("Start local inventory", "(read-only scan of this PC)");
+            Button start = StewardVisuals.PrimaryButton("Scan this PC", "(reads the installed apps; nothing is changed)");
             start.IsEnabled = !HasActiveOperation;
             start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
-            panel.Children.Add(StewardVisuals.EmptyState("\uE721", "See what is installed", "The first scan reads Windows application records on this PC. It does not request administrator access, connect to package sources, or change software.", start));
-            panel.Children.Add(StewardVisuals.InformationBanner("Private by default", "Inventory and decisions stay on this PC. Package sources remain off until you approve their disclosure."));
+            // UI review 2026-11-13 (item 21): step 1 of the guided first run. It is numbered only while update checks are off.
+            FirstRunStep scanStep = FirstRunPresenter.ScanStep(viewModel.IsUpdateSourceEnabled);
+            panel.Children.Add(StewardVisuals.EmptyState("\uE721", scanStep.Heading, scanStep.Message, start));
+            panel.Children.Add(StewardVisuals.InformationBanner("Private by default", "What PC Steward finds stays on this PC. It looks for updates online only after you turn that on."));
             return panel;
         }
 
@@ -56,17 +59,100 @@ public sealed partial class MainWindow
         if (SelfUpdateHomeBanner() is { } selfUpdateBanner) panel.Children.Add(selfUpdateBanner);
         foreach (HomeNotice notice in home.Notices) panel.Children.Add(HomeNoticeBar(notice));
         panel.Children.Add(StewardVisuals.PageTitle("Home"));
-        panel.Children.Add(HomeStatusCard(home));
+        // UI review 2026-11-13 (item 21): straight after the first scan, the one question of the guided first run stands where
+        // the status card would say the same thing ("update checks are off"). Once answered, the status card is back.
+        panel.Children.Add(AsksAboutUpdates ? FirstRunQuestionCard() : HomeStatusCard(home));
         if (activityHistoryUnavailable)
             panel.Children.Add(StewardVisuals.InformationBanner("Update history unavailable", "PC Steward couldn't read its recorded update history just now, so restart and attention counts may be incomplete. Nothing was changed.", "neutral"));
 
-        // "At a glance": Settings-style rows, each one button that opens a filtered page, in one to three columns (three on a wide window).
-        StackPanel glance = new() { Spacing = StewardSpacing.Small };
-        glance.Children.Add(SectionHeading("At a glance"));
-        glance.Children.Add(StewardVisuals.ResponsiveColumns([.. home.Rows.Select(HomeRowButton)], 380, StewardSpacing.XSmall, maxColumns: 3));
-        panel.Children.Add(glance);
-        panel.Children.Add(StewardVisuals.IconLine("\uEA18", HomePresenter.Reassurance, styleKey: "StewardCaptionStyle"));
+        // The ready updates themselves (UI review 2026-11-13, item 15), so the common job is one click from launch. Each row's
+        // "Update…" opens the same review as its row on Updates, for that app alone.
+        if (home.ReadyUpdates.Count > 0)
+        {
+            List<FrameworkElement> readyRows = [];
+            foreach (HomeReadyUpdate ready in home.ReadyUpdates)
+            {
+                Grid line = UpdateRowGrid();
+                Border avatar = AppTile(ready.Name, ready.StableProductKey);
+                Grid.SetColumnSpan(avatar, 2); line.Children.Add(avatar);
+                StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
+                title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey));
+                title.Children.Add(new TextBlock { Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true });
+                UpdateRowCopy(line, title, string.Empty);
+                string key = ready.StableProductKey;
+                Button update = StewardVisuals.ActionButton("Update…", $"{ready.Name} to {ready.NewVersion}");
+                update.IsEnabled = !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
+                update.VerticalAlignment = VerticalAlignment.Center;
+                AutomationProperties.SetHelpText(update, "Opens the review for this app. Nothing is installed until you confirm on the review page.");
+                update.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor([key]));
+                Grid.SetColumn(update, 3); line.Children.Add(update);
+                readyRows.Add(line);
+            }
+            panel.Children.Add(StewardVisuals.ListCard(readyRows));
+            if (home.MoreReadyText is { } more)
+            {
+                HyperlinkButton moreReady = new() { Content = more, Padding = new Thickness(0) };
+                StewardVisuals.Named(moreReady, more, "(opens Updates)");
+                moreReady.Click += (_, _) => NavigateTo(ShellPage.Updates);
+                panel.Children.Add(moreReady);
+            }
+        }
+
+        // Lines that have something to say: a match to check, an app that can't update yet, decisions in force. A calm PC has none.
+        if (home.Rows.Count > 0)
+        {
+            StackPanel lines = new() { Spacing = StewardSpacing.XSmall };
+            foreach (HomeRow row in home.Rows) lines.Children.Add(HomeRowButton(row));
+            panel.Children.Add(lines);
+        }
+
+        // Recent: the last few things PC Steward did, with a link to the full history.
+        if (home.Recent.Count > 0)
+        {
+            StackPanel recent = new() { Spacing = StewardSpacing.Small };
+            recent.Children.Add(SectionHeading("Recent"));
+            foreach (HomeRecentLine line in home.Recent) recent.Children.Add(StewardVisuals.IconLine(line.Glyph, line.Line, StewardStatus.ToneName(line.Tone)));
+            HyperlinkButton allActivity = new() { Content = "See all activity", Padding = new Thickness(0) };
+            StewardVisuals.Named(allActivity, "See all activity", "(opens Activity)");
+            ActivityFilter everything = HomePresenter.RecentActivityFilter;
+            allActivity.Click += (_, _) => { activityFilter = everything; NavigateTo(ShellPage.Activity); };
+            recent.Children.Add(allActivity);
+            panel.Children.Add(recent);
+        }
         return panel;
+    }
+
+    // UI review 2026-11-13 (item 21): the guided first run asks its question once, in the session where this PC was first scanned.
+    private bool firstScanThisSession;
+    private bool firstRunQuestionAnswered;
+
+    private bool AsksAboutUpdates => FirstRunPresenter.AsksAboutUpdates(firstScanThisSession, viewModel.AllRows.Count > 0, viewModel.IsUpdateSourceEnabled, firstRunQuestionAnswered);
+
+    /// <summary>
+    /// Step 2 of the guided first run: "Look for updates online?". Yes opens the one existing consent dialog, which shows what is
+    /// shared and keeps "Keep off" as its default; only if the owner approves there does PC Steward look for updates, which is
+    /// what they asked for. "Not now" changes nothing. Neither button approves, selects or installs an update (FR-UPD-01).
+    /// </summary>
+    private Border FirstRunQuestionCard()
+    {
+        FirstRunStep step = FirstRunPresenter.LookOnlineStep(viewModel.AllRows.Count);
+        Button look = StewardVisuals.PrimaryButton(step.PrimaryLabel, step.PrimaryHelp);
+        look.IsEnabled = !HasActiveOperation;
+        look.Click += async (_, _) =>
+        {
+            await ChangeWinGetTrustedSourcesAsync(true);
+            if (windowClosed || !viewModel.IsUpdateSourceEnabled) return;
+            firstRunQuestionAnswered = true;
+            if (HasActiveOperation) { Render(); return; }
+            await CheckUpdateSourcesAsync();
+        };
+        Button notNow = StewardVisuals.ActionButton(step.SecondaryLabel ?? FirstRunPresenter.NotNowLabel);
+        string notNowHelp = step.SecondaryHelp ?? FirstRunPresenter.NotNowHelp;
+        AutomationProperties.SetHelpText(notNow, notNowHelp);
+        ToolTipService.SetToolTip(notNow, notNowHelp);
+        notNow.IsEnabled = !HasActiveOperation;
+        notNow.Click += (_, _) => { firstRunQuestionAnswered = true; Render(); };
+        return StewardVisuals.EmptyState("\uE774", step.Heading, step.Message, look, notNow);
     }
 
     /// <summary>
@@ -89,18 +175,16 @@ public sealed partial class MainWindow
         copy.Children.Add(sentence);
         StewardWrapPanel facts = new() { HorizontalSpacing = StewardSpacing.Large, VerticalSpacing = StewardSpacing.XSmall };
         foreach (HomeFact fact in home.Facts) facts.Children.Add(StewardVisuals.IconLine(fact.Glyph, fact.Text, StewardStatus.ToneName(fact.Tone)));
-        // The last scan's results page stays reachable from Home (audit P-H2), as a quiet link beside the scan time.
-        HyperlinkButton results = new() { Content = "View scan results", Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
-        StewardVisuals.Named(results, "View scan results");
-        results.Click += (_, _) => NavigateTo(ShellPage.Results);
-        facts.Children.Add(results);
+        // UI review 2026-11-13 (item 14): what the last scan found is the Installed apps list, which Home already links to below.
         copy.Children.Add(facts);
+        // Owner request 2026-11-13: while a scan or an update check runs, how far along it is and about how long is left.
+        copy.Children.Add(WorkProgressPanel());
         Grid.SetColumn(copy, 1);
         card.Children.Add(copy);
 
         StewardWrapPanel actions = StewardVisuals.ActionRow();
         actions.VerticalAlignment = VerticalAlignment.Center;
-        actions.Children.Add(HomeActionButton(home.Primary, isPrimary: true));
+        actions.Children.Add(HomeActionButton(home.Primary, isPrimary: true, home.ReadyKeys));
         if (home.Secondary is { } secondary) actions.Children.Add(HomeActionButton(secondary, isPrimary: false));
         card.Children.Add(actions);
         void Place(double width)
@@ -118,23 +202,19 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// A Home action. "Review updates" only opens Updates. "Turn on update checks…" opens the existing source consent and, if the
+    /// A Home action. "Update all N…" opens one review of every ready update, exactly as the Updates page's button does; nothing
+    /// is installed until the owner confirms there. "Turn on update checks…" opens the existing source consent and, if the
     /// owner approves, turns the sources on and starts nothing else. "Check for updates" and "Scan again" run the existing read-only
     /// scan (and, with sources on, the source refresh) and never ask for administrator permission.
     /// </summary>
-    private Button HomeActionButton(HomeAction action, bool isPrimary)
+    private Button HomeActionButton(HomeAction action, bool isPrimary, IReadOnlyList<string>? readyKeys = null)
     {
         bool scanAction = action.Kind is HomeActionKind.CheckForUpdates or HomeActionKind.ScanAgain;
         // Independent review L1: while a scan or check runs, its button says so.
-        string label = scanAction && viewModel.IsScanning ? "Scanning…" : scanAction && viewModel.IsCheckingUpdates ? "Checking…" : action.Label;
+        string label = scanAction && viewModel.IsScanning ? "Scanning…" : scanAction && viewModel.IsCheckingUpdates ? "Checking…"
+            : action.Kind == HomeActionKind.UpdateAll && preparingReview ? PreparingReviewLabel : action.Label;
         object content = label;
-        if (scanAction)
-        {
-            StackPanel withIcon = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-            withIcon.Children.Add(new FontIcon { Glyph = "\uE72C", FontSize = 16 });
-            withIcon.Children.Add(new TextBlock { Text = label });
-            content = withIcon;
-        }
+        if (scanAction) content = StewardVisuals.IconLabel("\uE72C", label, 16);
         Button button = new() { Content = content, AccessKey = AccessKeyFor(action.Label) };
         if (isPrimary) button.Style = AppStyle("StewardPrimaryButtonStyle");
         // The presenter's name already starts with the visible label (HomeActivityDecisionsPresentationTests: label-in-name).
@@ -143,8 +223,11 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(button, action.HelpText);
         switch (action.Kind)
         {
-            case HomeActionKind.ReviewUpdates:
-                button.Click += (_, _) => NavigateTo(ShellPage.Updates);
+            case HomeActionKind.UpdateAll:
+                // The same frozen set and the same review as "Update all N…" on Updates; the review needs its own confirmation.
+                string[] keys = [.. readyKeys ?? []];
+                button.IsEnabled = keys.Length > 0 && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
+                button.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor(keys));
                 break;
             case HomeActionKind.TurnOnUpdateChecks:
                 button.IsEnabled = !HasActiveOperation;
@@ -168,23 +251,14 @@ public sealed partial class MainWindow
         return StewardVisuals.InformationBanner(notice.Title, notice.Message, StewardStatus.ToneName(notice.Tone), open);
     }
 
-    /// <summary>Colour option 2: each "At a glance" row keeps one decorative hue while it has no status to show.</summary>
-    private static string RowHue(HomeRowKind kind) => kind switch
-    {
-        HomeRowKind.InstalledApps => "blue",
-        HomeRowKind.Updates => "teal",
-        HomeRowKind.NeedsReview => "amber",
-        HomeRowKind.RestartsAndChecks => "purple",
-        HomeRowKind.Decisions => "pink",
-        _ => "green"
-    };
-
-    /// <summary>An "At a glance" row: one button (keyboard, Narrator and focus visuals for free) that opens its filtered page.</summary>
+    /// <summary>
+    /// A Home line: one button (keyboard, Narrator and focus visuals for free) that opens its page. UI review 2026-11-13 (item
+    /// 15): colour is used only for status, so a line with no status to show has a neutral icon.
+    /// </summary>
     private Button HomeRowButton(HomeRow row)
     {
         string tone = StewardStatus.ToneName(row.Tone);
-        Button button = StewardVisuals.NavigationRow(row.Glyph, row.Title, row.Description, tone == "neutral" ? RowHue(row.Kind) : tone);
-        button.VerticalAlignment = VerticalAlignment.Stretch;
+        Button button = StewardVisuals.NavigationRow(row.Glyph, row.Title, row.Description, tone);
         AutomationProperties.SetName(button, row.AccessibleName);
         HomeRowTarget target = row.Target;
         button.Click += (_, _) =>

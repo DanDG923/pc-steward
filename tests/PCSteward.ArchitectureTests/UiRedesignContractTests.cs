@@ -9,23 +9,25 @@ public sealed class UiRedesignContractTests
     private static readonly string[] SupportedThemes = ["Default", "Light", "Dark", "HighContrast"];
     private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions"];
     private static readonly string[] FooterNavigationLabels = ["Settings", "About"];
-    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
+    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
     // Task 73 Phase 5 (WCAG 2.5.3, AC-UX-01): deliberately updated so every per-row name starts with the visible label
     // (StewardVisuals.ActionButton / Named → AccessibilityText.LabelInName) and still names the product; "View details" is the one verb
     // for opening an app's details (audit P-M3).
     private static readonly string[] PerRowActionNames =
     [
-        "StewardVisuals.ActionButton(\"Pin current version\", $\"of {row.Name} ({row.Version})\")",
-        "StewardVisuals.ActionButton(\"Ignore…\", $\"{row.Name}: choose how long\")",
-        "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name}\")",
-        "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name} (update evidence unavailable)\")",
+        // UI review 2026-11-13 (item 14) deliberately removes the four names that belonged to the retired pages' card of buttons.
         "$\"More options for {presentation.Name}\"",
         "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: select to review\")",
-        "$\"Why {needsReview.Name} needs review: {needsReview.ReasonText}\""
+        // UI review 2026-11-13 (items 9 and 10): the per-row "Update…" and "Yes, same app" buttons name their app.
+        "StewardVisuals.ActionButton(\"Update…\", $\"{ready.Name} to {ready.NewVersion}\")",
+        "StewardVisuals.ActionButton(\"Yes, same app\", $\"({match.PackageId} is {match.Name})\")",
+        "StewardVisuals.ActionButton(\"Choose the match\", $\"for {match.Name}\")",
+        "StewardVisuals.ActionButton(\"Check again\", $\"for {group.Names}\")"
     ];
     // UI polish phase 4 (approved target T-Settings) deliberately removes Settings' "Open Decisions" card: Decisions is a main
     // navigation destination (pinned above) and Home's "At a glance" Decisions row opens it through its presenter target.
-    private static readonly string[] ContextualEntryPoints = ["Scan", "Results", "Review", "RepositoryApps", "Detail", "Storage", "Privacy", "InstalledApps", "Settings", "UpdateJob"];
+    // UI review 2026-11-13 (item 14) deliberately removes Results, Review and RepositoryApps: those pages are gone.
+    private static readonly string[] ContextualEntryPoints = ["Scan", "Detail", "Storage", "Privacy", "InstalledApps", "Settings", "UpdateJob"];
 
     /// <summary>
     /// Task 73 Phase 1 (ADR-030, FR-UI-01/02, AC-UX-01/02). Deliberately replaces the Task 35 pin of six literal
@@ -138,9 +140,8 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(apps, "StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString())");
         StringAssert.Contains(apps, "LabelledFilterOptions(viewModel.AllRows.Select(row => row.Provider), StewardPresentation.Provider)");
         StringAssert.Contains(apps, "LabelledFilterOptions(viewModel.AllRows.Select(row => row.Scope), StewardPresentation.Scope)");
-        string results = Between(source, "private StackPanel BuildResultsPage()", DesktopWindowSource.EndOf("MainWindow.Results.cs"));
-        StringAssert.Contains(results, "StatusVocabulary.For(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate).Label");
-        Assert.IsFalse(results.Contains("$\"Show {option} scan results\"", StringComparison.Ordinal), "automation names use the visible label, not the enum");
+        // UI review 2026-11-13 (item 14): the Scan results page, with its own filter buttons, is gone.
+        Assert.IsFalse(source.Contains("BuildResultsPage", StringComparison.Ordinal));
         StringAssert.Contains(presentation, "StatusChipPresentation chip = StatusVocabulary.For(status);");
         StringAssert.Contains(presentation, "public static (Brush Foreground, Brush Background) ToneBrushes(string tone)");
     }
@@ -176,7 +177,7 @@ public sealed class UiRedesignContractTests
         Assert.IsNotNull(template.Descendants().SingleOrDefault(element =>
             element.Name.LocalName == "DataTemplate" &&
             string.Equals(element.Attribute(xaml + "Key")?.Value, "StewardApplicationRowTemplate", StringComparison.Ordinal)));
-        StringAssert.Contains(source, "list.ItemsSource = viewModel.VisibleRows.Select(ApplicationListItem.From).ToArray()");
+        StringAssert.Contains(source, "list.ItemsSource = viewModel.VisibleRows.Select(row => ApplicationListItem.From(row, sharedNames.Contains(row.Name))).ToArray();");
         StringAssert.Contains(source, "ItemTemplate = (DataTemplate)");
         Assert.IsFalse(source.Contains("DisplayMemberPath = nameof(InventoryRow.DisplayLabel)", StringComparison.Ordinal));
         StringAssert.Contains(presentation, "AccessibleSummary");
@@ -184,7 +185,7 @@ public sealed class UiRedesignContractTests
         // (exact labels pinned in DesktopFoundationsPresentationTests); unmanaged still never reads as unsafe.
         StringAssert.Contains(presentation, "StatusVocabulary.For(status)");
         string vocabulary = ApplicationSource("StatusVocabulary.cs");
-        StringAssert.Contains(vocabulary, "\"Update available — review\"");
+        StringAssert.Contains(vocabulary, "\"Check the match\"");
         StringAssert.Contains(vocabulary, "This is not a safety warning.");
         string templateSource = DesktopSource(Path.Combine("Resources", "DataTemplates.xaml"));
         StringAssert.Contains(templateSource, "Foreground=\"{Binding StatusForeground}\"");
@@ -205,7 +206,7 @@ public sealed class UiRedesignContractTests
     }
 
     [TestMethod]
-    [Description("FR-UI-02; AC-UX-01/02 (independent review L6): every Start inventory entry point is gated on an active operation, and StartScanAsync never starts a second scan or replaces the active cancellation source.")]
+    [Description("FR-UI-02; AC-UX-01/02 (independent review L6): every scan entry point is gated on an active operation, and StartScanAsync never starts a second scan or replaces the active cancellation source.")]
     public void ScanEntryPointsAreGatedAndStartScanIsNotReentrant()
     {
         string source = DesktopSource("MainWindow.cs");
@@ -218,11 +219,11 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(scan, "if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null;");
 
         string activity = Between(source, "private StackPanel BuildActivityPage()", DesktopWindowSource.EndOf("MainWindow.Activity.cs"));
-        int start = activity.IndexOf("Button start = StewardVisuals.PrimaryButton(\"Start local inventory\"", StringComparison.Ordinal);
+        int start = activity.IndexOf("Button start = StewardVisuals.PrimaryButton(\"Scan this PC\"", StringComparison.Ordinal);
         Assert.IsTrue(start >= 0);
         StringAssert.Contains(activity[start..], "start.IsEnabled = !HasActiveOperation;");
         // Every button that starts a scan is disabled while any operation is active.
-        Assert.AreEqual(Count(source, "PrimaryButton(\"Start local inventory\""), Count(source, "start.IsEnabled = !HasActiveOperation;"));
+        Assert.AreEqual(Count(source, "PrimaryButton(\"Scan this PC\""), Count(source, "start.IsEnabled = !HasActiveOperation;"));
     }
 
     [TestMethod]
@@ -292,31 +293,45 @@ public sealed class UiRedesignContractTests
     public void EveryReviewRequiredEntryPointUsesSafeDecisionActionsWithoutUpdateAuthority()
     {
         string source = DesktopSource("MainWindow.cs");
-        string results = Between(source, "private StackPanel BuildResultsPage()", DesktopWindowSource.EndOf("MainWindow.Results.cs"));
-        string review = Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions");
-        string sharedActions = Between(source, "private void AddReviewDecisionActions", "private async Task PromptAndConfirmPackageIdentityAsync");
         string detail = Between(source, "private StackPanel BuildProductDetailPage()", "private async Task ShowDetailsAsync");
+        string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
 
-        StringAssert.Contains(results, "AddReviewDecisionActions(finding, row, detail)");
-        StringAssert.Contains(review, "AddReviewDecisionActions(decision, row, detail)");
-        foreach (string action in new[] { "Refresh source evidence", "Confirm package identity", "Choose package identity", "Pin current version", "Ignore…", "View details" })
-            StringAssert.Contains(sharedActions, action);
-        StringAssert.Contains(sharedActions, "RequiresFreshSourceEvidence: true");
-        StringAssert.Contains(sharedActions, "CreateSourceEvidenceRefreshButton(row)");
-        Assert.IsFalse((results + review + sharedActions).Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
-        StringAssert.Contains(detail, "RequiresFreshSourceEvidence: true");
-        StringAssert.Contains(detail, "CreateSourceEvidenceRefreshButton(row)");
-        StringAssert.Contains(detail, "Matching packages from your sources");
-        StringAssert.Contains(detail, "Confirm selected identity");
+        // UI review 2026-11-13 (item 14) deliberately removes the Scan results and Review decisions pages and their shared card of
+        // five buttons. An app whose match needs checking is now reached from Updates ("Check the match"), from Installed apps and
+        // from app details; none of those entry points can start an update except through the review.
+        foreach (string retired in new[] { "BuildResultsPage", "BuildReviewPage", "BuildRepositoryAppsPage", "AddReviewDecisionActions", "ShellPage.Results", "ShellPage.Review", "ShellPage.RepositoryApps" })
+            Assert.IsFalse(source.Contains(retired, StringComparison.Ordinal), retired);
+        Assert.IsFalse(apps.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal), "Installed apps never starts an update");
+        // Matches that only need a yes are confirmed together from Installed apps, under "Check the match", through one dialog.
+        // It confirms only the apps the list shows now (review finding): the candidates are rebuilt from the visible rows each time
+        // the search or a filter changes, and the dialog names them.
+        StringAssert.Contains(apps, "currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.VisibleRows");
+        StringAssert.Contains(apps, "confirmRow.Visibility = currentMatches.Length > 0 ? Visibility.Visible : Visibility.Collapsed;");
+        StringAssert.Contains(apps, "detail.CanConfirmAsCurrent)];");
+        StringAssert.Contains(apps, "confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);");
+        string confirmTogether = Between(source, "private async Task ConfirmCurrentMatchesAsync(InventoryRow[] candidates)", DesktopWindowSource.EndOf("MainWindow.Review.cs"));
+        StringAssert.Contains(confirmTogether, "InstalledAppsFilters.ConfirmCurrentMatchesNames([.. candidates.Select(row => row.Name)])");
+        StringAssert.Contains(confirmTogether, "DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(confirmTogether, "if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;");
+        StringAssert.Contains(confirmTogether, "workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled,");
+        Assert.IsFalse(confirmTogether.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+        // UI review 2026-11-13 (item 11) deliberately replaces the details page's Decisions card: the portable presenter chooses the
+        // one main action (check again only when a fresh check could help), and the page builds exactly that button.
+        StringAssert.Contains(detail, "AppDetailSummaryPresenter.Build(row, detail, viewModel.IsUpdateSourceEnabled, activeDecisions, viewModel.Sources, DateTimeOffset.UtcNow)");
+        StringAssert.Contains(detail, "leadActions.Children.Add(CreateSourceEvidenceRefreshButton(row, summary.ActionLabel));");
+        StringAssert.Contains(detail, "Header = \"Possible matches\"");
+        StringAssert.Contains(detail, "case AppDetailAction.ChooseMatch when candidatePicker is not null:");
         StringAssert.Contains(detail, "CreateManualMappingAsync");
-        StringAssert.Contains(results, "ResultsFilter.Unavailable");
-        StringAssert.Contains(results, "FailedUnavailable");
-        StringAssert.Contains(results, "there is no decision or update to approve");
-        StringAssert.Contains(detail, "sourceEvidenceUnavailable ? \"Available next step\" : \"Decisions\"");
-        StringAssert.Contains(detail, "if (!sourceEvidenceUnavailable)");
-        // Task 73 Phase 1: the FailedUnavailable chip label is the SPEC §7.2 "Source unavailable" from the portable vocabulary.
-        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "new(nameof(UpdateIntelligenceStatus.FailedUnavailable), \"Source unavailable\"");
-        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "nothing can be updated");
+        StringAssert.Contains(ApplicationSource("AppDetailSummaryPresentation.cs"), "else if (canCheck) { action = AppDetailAction.CheckAgain; actionLabel = CheckAgainLabel; }");
+        Assert.AreEqual(1, Count(detail, "ReviewAndExecuteAsync("), "details reaches the review only from its Update button");
+        Assert.IsFalse(detail.Contains("ActionButton(\"Back\"", StringComparison.Ordinal), "the title bar's Back is the only Back button");
+        // While it's unknown whether an update exists there is nothing to pin, ignore or match: the presenter offers no menu
+        // entries for that state (AppDetailSummaryTests) and the page adds no match entry either.
+        StringAssert.Contains(detail, "if (!summary.OffersMatchItYourself && !sourceEvidenceUnavailable)");
+        StringAssert.Contains(detail, "map.IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable && !HasActiveOperation;");
+        // The FailedUnavailable chip label comes from the portable vocabulary: "Couldn't check" (UI review 2026-11-13, item 5; SPEC §7.2 "Source unavailable").
+        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "new(nameof(UpdateIntelligenceStatus.FailedUnavailable), \"Couldn't check\"");
+        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "it can't be updated until then");
 
         string refresh = Between(source, "private async Task CheckUpdateSourcesAsync()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"));
         StringAssert.Contains(refresh, "workflow.RefreshUpdateIntelligenceAsync");
@@ -328,7 +343,9 @@ public sealed class UiRedesignContractTests
     /// <summary>
     /// Task 73 Phase 2 (ADR-030 decision 2; SPEC §7.3; audit §6.3–6.4): the Updates page is grouped by the portable presenter; only
     /// Ready rows get a selection control, nothing is preselected, Needs review and Ignored rows have no update control at all, and
-    /// a selection only opens the review. Replaces the Phase 1 flat card list deliberately.
+    /// a selection only opens the review. Replaces the Phase 1 flat card list deliberately. UI review 2026-11-13 (items 9 and 10)
+    /// deliberately adds an "Update…" button to each ready row (it opens the same review for that app alone) and splits Needs
+    /// review into "Check the match" (one question) and "Can't update yet" (one reason a line); neither has an update control.
     /// </summary>
     [TestMethod]
     [Description("FR-UPD-01; FR-UI-04; FR-POL-01–05: grouped Updates, nothing preselected, no update control for needs-review rows.")]
@@ -340,8 +357,9 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(page, "selectedReadyKeys.RemoveWhere(key => !page.IsSelected(key));");
         // UI polish phase 3 (approved target T-Updates-Ready): the selection bar now sits above the Ready list card, so the Ready rows
         // end where the Ready group section is added.
-        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "panel.Children.Add(UpdateGroupSection($\"Ready");
-        string needsReview = Between(page, "foreach (UpdateRowPresentation needsReview in page.NeedsReview)", "// Ignored and skipped");
+        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "panel.Children.Add(UpdateGroupSection($\"{StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate)).Label} ({page.Ready.Count})\"");
+        string match = Between(page, "foreach (UpdateRowPresentation match in page.CheckTheMatch)", "// Can't update yet");
+        string cantUpdate = Between(page, "foreach (CantUpdateGroup group in page.CantUpdateGroups)", "// Ignored and skipped");
         string ignored = Between(page, "foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)", "Expander ignoredGroup");
         // Task 73 Phase 6 (SPEC §9.13 G4) deliberately replaces the single radio with a checkbox per Ready row; it still starts unticked.
         // UI polish phase 3: the app's name moved beside its avatar, so the checkbox has no content and is named for the app instead.
@@ -352,13 +370,26 @@ public sealed class UiRedesignContractTests
         // "Select all ready" and "Review all ready" choose exactly the Ready group, and only on an explicit press.
         Assert.AreEqual(2, Count(page, "selectedReadyKeys.UnionWith(page.ReadyKeys)"), "only Select all ready and Review all ready select the Ready group");
         StringAssert.Contains(page, "reviewAll.Click += async (_, _) => { selectedReadyKeys.Clear(); selectedReadyKeys.UnionWith(page.ReadyKeys); await ReviewAndExecuteAsync(RowsFor(page.ReadyKeys)); };");
-        foreach (string group in new[] { needsReview, ignored })
+        foreach (string group in new[] { match, cantUpdate, ignored })
             foreach (string control in new[] { "RadioButton", "CheckBox", "ReviewAndExecuteAsync", "PrimaryButton", "IsEnabled = false" })
                 Assert.IsFalse(group.Contains(control, StringComparison.Ordinal), $"no update control (not even a disabled one): {control}");
-        StringAssert.Contains(needsReview, "needsReview.ReasonText");
+        // Check the match: the row says the question, and "Yes, same app" only opens the existing reversible confirmation.
+        StringAssert.Contains(match, "UpdateRowCopy(line, title, match.Summary);");
+        StringAssert.Contains(match, "detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true })");
+        StringAssert.Contains(match, "await PromptAndConfirmPackageIdentityAsync(row, detail);");
+        StringAssert.Contains(match, "pick.Click += async (_, _) => { if (RowsFor([matchKey]) is [var row]) await ShowDetailsAsync(row); };");
+        StringAssert.Contains(match, "matchActions.Children.Add(match.AsksToChoose ? pick : same);");
+        // Can't update yet: the reason in words, each app's name opens its details, and "Check again" is the read-only check.
+        StringAssert.Contains(cantUpdate, "Text = group.Reason");
+        StringAssert.Contains(cantUpdate, "again.Click += async (_, _) => await CheckForUpdatesAsync();");
+        StringAssert.Contains(page, "IsExpanded = cantUpdateGroupExpanded");
+        Assert.IsFalse(source.Contains("private bool cantUpdateGroupExpanded = true", StringComparison.Ordinal), "Can't update yet starts collapsed");
+        Assert.IsFalse(page.Contains("ShellPage.Review", StringComparison.Ordinal), "Updates no longer sends anyone to the older Review decisions page");
         StringAssert.Contains(page, "IsExpanded = ignoredGroupExpanded");
         Assert.IsFalse(source.Contains("private bool ignoredGroupExpanded = true", StringComparison.Ordinal), "Ignored and skipped starts collapsed");
-        Assert.AreEqual(2, Count(page, "ReviewAndExecuteAsync("), "only the two review buttons open a review (selected apps, all ready apps)");
+        Assert.AreEqual(3, Count(page, "ReviewAndExecuteAsync("), "only the selection bar's two buttons and a ready row's own button open a review");
+        StringAssert.Contains(ready, "update.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor([key]));");
+        StringAssert.Contains(ready, "update.IsEnabled = !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
         StringAssert.Contains(page, "review.IsEnabled = page.CanReview && !HasActiveOperation && reviewDecision is null");
         StringAssert.Contains(page, "reviewAll.IsEnabled = page.CanReviewAll && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
         StringAssert.Contains(source, "private readonly HashSet<string> selectedReadyKeys = new(StringComparer.Ordinal);");
@@ -377,9 +408,15 @@ public sealed class UiRedesignContractTests
         string overflow = Between(source, "private Button UpdateRowOverflow(", DesktopWindowSource.EndOf("MainWindow.Updates.cs"));
         // UI polish phase 3: a row that stands for several records of one app passes those records along, so the same confirmed
         // decision is recorded (or reversed) for each of them.
-        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row, sameApp)", "PromptAndPinCurrentVersionAsync(row, sameApp)", "PromptAndSkipVersionAsync(row, version, sameApp)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)", "foreach (Guid other in alsoReverse) await workflow.ReverseDecisionAsync(other, token);" })
+        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row, sameApp)", "PromptAndPinCurrentVersionAsync(row, sameApp)", "PromptAndSkipVersionAsync(row, version, sameApp)", "ShowDetailsAsync(row)", "await ReverseDecisionsAsync([decisionId, .. presentation.AlsoFound.Select(other => other.DecisionId).OfType<Guid>()], []);" })
             StringAssert.Contains(overflow, operation);
         Assert.IsFalse(overflow.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+        // UI review 2026-11-13 (item 12): reversal is one shared operation, used by the overflow, app details and Undo. It only calls
+        // the existing reversal operations.
+        string reversal = Between(source, "private async Task ReverseDecisionsAsync(IReadOnlyList<Guid> decisionIds, IReadOnlyList<Guid> mappingIds)", "private async Task PromptAndPinCurrentVersionAsync(");
+        StringAssert.Contains(reversal, "foreach (Guid decision in decisionIds) await workflow.ReverseDecisionAsync(decision, token);");
+        StringAssert.Contains(reversal, "foreach (Guid mapping in mappingIds) await workflow.DeleteManualMappingAsync(mapping, token);");
+        Assert.IsFalse(reversal.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
         // The skip prompt uses the existing decision confirmation pattern: Cancel default, optional bounded reason, and no update authority.
         string skip = Between(source, "private async Task PromptAndSkipVersionAsync(InventoryRow row, string version, IReadOnlyList<InventoryRow>? sameApp = null)", "private static TextBox DecisionReasonBox(");
         StringAssert.Contains(skip, "DefaultButton = ContentDialogButton.Close");
@@ -485,13 +522,14 @@ public sealed class UiRedesignContractTests
         Assert.IsTrue(guard >= 0 && set > guard && begin > set && reset > begin && sheet > reset, "preparingReview wraps BeginReviewAsync only");
         StringAssert.Contains(source, "private const string PreparingReviewLabel = \"Preparing review…\";");
         StringAssert.Contains(source, "? PreparingReviewLabel");
-        string detail = Between(source, "Button review = StewardVisuals.PrimaryButton(\"Review and update\"", "decisionActions.Children.Add(review);");
-        StringAssert.Contains(detail, "review.IsEnabled = !HasActiveOperation && reviewDecision is null;");
+        string detail = Between(source, "Button update = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : summary.ActionLabel", "leadActions.Children.Add(update);");
+        StringAssert.Contains(detail, "update.IsEnabled = !HasActiveOperation && reviewDecision is null;");
 
         // Items 2 and 10: a decided sheet renders both buttons disabled; Confirm also waits for any active operation.
         StringAssert.Contains(reviewStep, "bool decided = decision.Task.IsCompleted;");
         StringAssert.Contains(reviewStep, "cancel.IsEnabled = !decided;");
-        StringAssert.Contains(reviewStep, "confirm.IsEnabled = !HasActiveOperation && !decided;");
+        // MSIX §3.6: Confirm also waits while an app package is open or a running-app check is in progress.
+        StringAssert.Contains(reviewStep, "confirm.IsEnabled = !HasActiveOperation && !decided && sheet.CanConfirm && !job.CheckingRunningApps;");
 
         // Item 5: a new review from the job page gets a fresh render (focus on Cancel, scroll reset).
         StringAssert.Contains(review, "if (navigation.Current == ShellPage.UpdateJob) ShowCurrentPage(preserveViewState: false); else NavigateTo(ShellPage.UpdateJob);");
@@ -690,7 +728,10 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(empty, "VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560");
         StringAssert.Contains(empty, "EmptyStates.AddOrUpdate(empty, title);");
         string fill = Between(presentation, "public static void FillViewportHeight(StackPanel page, FrameworkElement card)", "public static bool IsEmptyState(");
-        StringAssert.Contains(fill, "Math.Max(0, Math.Floor(host.ViewportHeight - top - below))");
+        StringAssert.Contains(fill, "ViewportFill.CardHeight(host.ViewportHeight, top, below)");
+        StringAssert.Contains(ApplicationSource("ViewportFill.cs"), "Math.Max(0, Math.Floor(viewportHeight - top - Math.Max(0, below)))");
+        // UI review 2026-11-13 (fault 1): a stretched page reports the window's height, so the card never grew; the page is top aligned.
+        StringAssert.Contains(fill, "page.VerticalAlignment = VerticalAlignment.Top;");
         StringAssert.Contains(fill, "card.MinHeight = wanted;", "only the minimum height grows, so a short window keeps the natural height and scrolls");
         Assert.IsFalse(fill.Contains("card.Height =", StringComparison.Ordinal) || fill.Contains("MaxHeight", StringComparison.Ordinal), "the card is never capped");
         StringAssert.Contains(fill, "host.SizeChanged -= Resized;", "the page stops listening to the shared page host when it is unloaded");
@@ -704,7 +745,10 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
-        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.AllRows))");
+        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows, viewModel.UpdateSourceKeys))");
+        // UI review 2026-11-13 (fault 3): system components are listed on request; the switch only filters the list.
+        StringAssert.Contains(apps, "viewModel.SetShowSystemComponents(showSystem.IsChecked == true)");
+        StringAssert.Contains(ApplicationSource("InventoryExperienceViewModel.cs"), "IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row, withUpdateSource));");
         StringAssert.Contains(apps, "viewModel.SetSavedFilter(value)");
         StringAssert.Contains(apps, "AutomationProperties.SetName(filter, option.AccessibleName);");
         StringAssert.Contains(apps, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
@@ -714,13 +758,16 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(apps.Contains("MaxHeight = 620", StringComparison.Ordinal), "the list height follows the window, not a fixed 620");
         string fill = Between(DesktopSource("StewardPresentation.cs"), "public static void FillViewportHeight(", "/// <summary>AC-UX-01: a page title");
         StringAssert.Contains(fill, "list.MaxHeight = minimumHeight;", "the list is bounded before it is first laid out");
-        StringAssert.Contains(fill, "Math.Max(minimumHeight, Math.Floor(host.ViewportHeight - top - below - chrome))");
+        StringAssert.Contains(fill, "ViewportFill.ListHeight(host.ViewportHeight, top, below, chrome, minimumHeight)");
+        StringAssert.Contains(ApplicationSource("ViewportFill.cs"), "Math.Max(minimumHeight, Math.Floor(viewportHeight - top - Math.Max(0, below) - Math.Max(0, chrome)))");
+        // UI review 2026-11-13 (fault 1): the page is top aligned so "below" is content, not the blank space under a short page.
+        Assert.AreEqual(2, fill.Split("page.VerticalAlignment = VerticalAlignment.Top;").Length - 1, "both fill helpers top align the page");
         StringAssert.Contains(fill, "host.SizeChanged -= Resized;", "the page stops listening to the shared page host when it is unloaded");
         // UI polish phase 4 (approved target T-Installed): "No update source" is plain text on each row, explained once by a calm
         // footnote that says it is not a safety warning (replacing the info bar on that filter).
         StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE946\", InstalledAppsFilters.NoUpdateSourceNote)");
         string filters = ApplicationSource("InstalledAppsPresentation.cs");
-        StringAssert.Contains(filters, "rows.Count(row => Matches(filter, row.Status))");
+        StringAssert.Contains(filters, "rows.Count(row => Matches(filter, row, withUpdateSource))");
         StringAssert.Contains(filters, "!Statuses.TryGetValue(filter, out string[]? keys) ||", "All matches every status");
         StringAssert.Contains(filters, "No update source isn't a safety warning.");
 
@@ -752,7 +799,7 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string activity = Between(source, "private StackPanel BuildActivityPage()", "private void AddReviewedUpdateOutcomesSection(");
-        StringAssert.Contains(activity, "ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows)");
+        StringAssert.Contains(activity, "ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows, packageNames: viewModel.PackageNames)");
         StringAssert.Contains(activity, "ActivityPresenter.Build(entries, activityFilter, DateTimeOffset.UtcNow)");
         StringAssert.Contains(activity, "foreach (ActivityDay day in page.Days)");
         // UI polish phase 4 (approved target T-Activity): each record's facts and details are behind its expandable row.
@@ -761,6 +808,16 @@ public sealed class UiRedesignContractTests
         int days = activity.IndexOf("foreach (ActivityDay day in page.Days)", StringComparison.Ordinal);
         int reviewed = activity.IndexOf("AddReviewedUpdateOutcomesSection(panel);", StringComparison.Ordinal);
         Assert.IsTrue(days >= 0 && reviewed > days, "the Task 50 reviewed-outcomes section is kept");
+        // UI review 2026-11-13 (item 17): the page says what it is in one line, its header has no button, and the way to Data & reset
+        // is a quiet link after everything else. The reviewed-outcomes record sits closed under the list and opens when it needs attention.
+        StringAssert.Contains(activity, "panel.Children.Add(StewardVisuals.PageHeader(\"Activity\", ActivityPresenter.PageDescription));");
+        int dataLink = activity.IndexOf("HyperlinkButton data = new() { Content = ActivityPresenter.DataLinkLabel", StringComparison.Ordinal);
+        Assert.IsTrue(dataLink > reviewed, "the Data & reset link is last");
+        Assert.IsFalse(activity.Contains("UpdateFreshnessLabel", StringComparison.Ordinal), "source freshness is on Home and Settings, not Activity");
+        string record = Between(source, "private void AddReviewedUpdateOutcomesSection(StackPanel panel)", DesktopWindowSource.EndOf("MainWindow.Activity.cs"));
+        StringAssert.Contains(record, "Expander record = new() { Header = header, Content = outcomes");
+        StringAssert.Contains(record, "ReviewedRouteSurfaces.RenderHistory(outcomes, history);");
+        StringAssert.Contains(record, "if (history.NeedsAttention) record.IsExpanded = true;");
         foreach (string action in new[] { "workflow.", "DataOperationLease.Run", "ReviewAndExecuteAsync", "FileSavePicker", "Export", "Clear" })
             Assert.IsFalse(activity.Contains(action, StringComparison.Ordinal), $"Activity is read-only: {action}");
 
@@ -796,17 +853,23 @@ public sealed class UiRedesignContractTests
 
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         StringAssert.Contains(home, "HomePresenter.Build(new HomeInputs(");
-        // UI polish phase 2: the "At a glance" rows are real buttons named by the presenter.
+        // The Home lines are real buttons named by the presenter.
         StringAssert.Contains(home, "Button button = StewardVisuals.NavigationRow(");
         StringAssert.Contains(home, "AutomationProperties.SetName(button, row.AccessibleName);");
-        // Each action does only its own thing: Review opens Updates, Turn on opens the existing consent, Check and Scan run the read-only scan.
+        // Each action does only its own thing: Update all opens the review, Turn on opens the existing consent, Check and Scan run the read-only scan.
+        // UI review 2026-11-13 (item 15; owner approval of all 21 items) deliberately replaces "Home never opens a review": Home lists
+        // the ready updates, and "Update all N…" and a row's "Update…" open the same review step as the Updates page. That is the
+        // only update route Home has: it never confirms, runs or selects anything, so every update still passes the review.
         string actions = Between(home, "private Button HomeActionButton(", "private InfoBar HomeNoticeBar(");
-        StringAssert.Contains(actions, "button.Click += (_, _) => NavigateTo(ShellPage.Updates);");
+        StringAssert.Contains(actions, "button.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor(keys));");
+        StringAssert.Contains(actions, "button.IsEnabled = keys.Length > 0 && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
+        StringAssert.Contains(home, "update.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor([key]));");
+        Assert.AreEqual(2, Count(home, "ReviewAndExecuteAsync("), "Home reaches the review only from Update all and a ready row's Update button");
         StringAssert.Contains(actions, "button.Click += async (_, _) => await ChangeWinGetTrustedSourcesAsync(true);");
         StringAssert.Contains(actions, "button.Click += async (_, _) => await CheckForUpdatesAsync();");
-        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys.", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "ChangeWinGetTrustedSourcesAsync(false)" })
-            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update, and never changes a source without its consent: {authority}");
-        // Turning sources on from Home goes through the one consent path: the disclosure dialog, Keep local-only as the default.
+        foreach (string authority in new[] { "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys.", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "ChangeWinGetTrustedSourcesAsync(false)" })
+            Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, confirms or runs an update, and never changes a source without its consent: {authority}");
+        // Turning sources on from Home goes through the one consent path: the disclosure dialog, Keep off as the default.
         string consent = Between(source, "private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)", "private async Task ChangeConnectorAsync(");
         StringAssert.Contains(consent, "PrimaryButtonText = \"I approve\"");
         StringAssert.Contains(consent, "DefaultButton = ContentDialogButton.Close");
@@ -822,7 +885,8 @@ public sealed class UiRedesignContractTests
         string homePresenter = ApplicationSource("HomePresentation.cs");
         StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "This is not a safety warning.");
         Assert.IsFalse(homePresenter.Contains("\"Unmanaged\"", StringComparison.Ordinal), "Home says \"No update source\", never \"Unmanaged\"");
-        StringAssert.Contains(homePresenter, "UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now).Ready.Count", "Home's ready count is the Updates Ready group with nothing selected");
+        StringAssert.Contains(homePresenter, "UpdatesPagePresentation updates = UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now);", "Home's ready updates are the Updates Ready group with nothing selected");
+        StringAssert.Contains(homePresenter, "int ready = updates.Ready.Count;");
         Assert.IsFalse(homePresenter.Contains("unsafe", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -839,7 +903,7 @@ public sealed class UiRedesignContractTests
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         // UI polish phase 2: the actions come from the presenter (scan-only "Scan again" when sources are off) and their names and
         // help text are bound, never hard-coded; info bars take their action name and Activity filter from the presenter.
-        StringAssert.Contains(home, "HomeActionButton(home.Primary, isPrimary: true)");
+        StringAssert.Contains(home, "HomeActionButton(home.Primary, isPrimary: true, home.ReadyKeys)");
         StringAssert.Contains(home, "if (home.Secondary is { } secondary) actions.Children.Add(HomeActionButton(secondary, isPrimary: false));");
         StringAssert.Contains(home, "AutomationProperties.SetName(button, action.AccessibleName);");
         StringAssert.Contains(home, "AutomationProperties.SetHelpText(button, action.HelpText);");
@@ -945,28 +1009,38 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(scheduleCard, "SettingsPresenter.ScheduleDescription");
         StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "Changes to the schedule apply when you select Save schedule.");
         StringAssert.Contains(ApplicationSource("SettingsPresentation.cs"), "public const SettingsSaveModel SaveModel = SettingsSaveModel.AppliesImmediatelyExceptSchedule;");
-        foreach (string immediate in new[] { "cadence.SelectionChanged += async", "startTime.TimeChanged +=", "weeklyDay.SelectionChanged +=", "scheduleEnabled.Toggled +=", "notifications.Toggled +=" })
+        // UI review 2026-11-13 (item 16): one choice of Off, Daily or Weekly, with no separate switch. A change to a schedule control
+        // only shows the rows that apply and the Save button; it never saves.
+        foreach (string immediate in new[] { "cadence.SelectionChanged += async", "startTime.TimeChanged += async", "weeklyDay.SelectionChanged += async", "notifications.Toggled += async", "scheduleEnabled" })
             Assert.IsFalse(scheduleCard.Contains(immediate, StringComparison.Ordinal), $"schedule controls do not save on change: {immediate}");
-        // The cadence handler only changes which controls are available; it never saves.
-        string cadenceHandler = Between(scheduleCard, "cadence.SelectionChanged += (_, _) =>", "saveSchedule.Click +=");
-        StringAssert.Contains(cadenceHandler, "SettingsPresenter.ScheduleControlAvailability(cadence.SelectedIndex, busy: false)");
+        foreach (string change in new[] { "cadence.SelectionChanged += (_, _) => ShowWhatChanged();", "weeklyDay.SelectionChanged += (_, _) => ShowWhatChanged();", "startTime.TimeChanged += (_, _) => ShowWhatChanged();", "notifications.Toggled += (_, _) => ShowWhatChanged();" })
+            StringAssert.Contains(scheduleCard, change);
+        string changeHandler = Between(scheduleCard, "void ShowWhatChanged()", "cadence.SelectionChanged +=");
+        StringAssert.Contains(changeHandler, "SettingsPresenter.ScheduleControlsShown(cadence.SelectedIndex)");
+        StringAssert.Contains(changeHandler, "bool changed = SettingsPresenter.HasScheduleChange(scheduledSettings, Requested());");
+        StringAssert.Contains(changeHandler, "saveSchedule.Visibility = Shown(changed || scheduleTaskOutOfStep);");
         foreach (string save in new[] { "SaveScheduleAsync", "ApplyScheduleAsync", "Render()" })
-            Assert.IsFalse(cadenceHandler.Contains(save, StringComparison.Ordinal), $"the cadence handler never saves or re-renders: {save}");
+            Assert.IsFalse(changeHandler.Contains(save, StringComparison.Ordinal), $"the change handler never saves or re-renders: {save}");
+        // The Save button starts hidden: it shows after a change, while saving, or when the Windows task is out of step with the settings.
+        StringAssert.Contains(scheduleCard, "saveSchedule.Visibility = Shown(isSavingSchedule || scheduleTaskOutOfStep);");
+        StringAssert.Contains(settings, "else if (outcome == ScheduleSaveOutcome.SettingsNotSavedTaskChanged) scheduleTaskOutOfStep = true;");
         StringAssert.Contains(settings, "CreatePagePanel()"); // UI polish Phase 1: one left-aligned page column for every page.
         // Fail closed (fix 3): no cadence or weekday selection shows a message and saves nothing; the weekday is set by index.
-        StringAssert.Contains(scheduleCard, "SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, scheduleEnabled.IsOn, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time)");
+        StringAssert.Contains(scheduleCard, "ScheduledCheckSettings? Requested() => SettingsPresenter.RequestedSchedule(cadence.SelectedIndex, notifications.IsOn, weeklyDay.SelectedIndex, startTime.Time);");
+        StringAssert.Contains(scheduleCard, "ScheduledCheckSettings? requested = Requested();");
         StringAssert.Contains(scheduleCard, "if (requested is null) { scheduleSummary.Text = SettingsPresenter.ScheduleNotChosen; return; }");
         StringAssert.Contains(scheduleCard, "weeklyDay.SelectedIndex = (int)plan.WeeklyDay;");
         Assert.IsFalse(scheduleCard.Contains("SelectedItem as DayOfWeek", StringComparison.Ordinal));
-        StringAssert.Contains(settings, "IsEnabled = plan.IsTimeEnabled");
-        StringAssert.Contains(settings, "IsEnabled = plan.IsWeekdayEnabled");
-        StringAssert.Contains(settings, "IsEnabled = plan.IsEnableToggleEnabled");
+        Assert.AreEqual(4, Count(scheduleCard, "IsEnabled = plan.AreControlsEnabled"), "the choice, the day, the time and notifications are unavailable while saving");
+        StringAssert.Contains(scheduleCard, "whenRow.Visibility = Shown(plan.ShowsTime);");
+        StringAssert.Contains(scheduleCard, "Visibility = Shown(plan.ShowsWeekday)");
+        StringAssert.Contains(scheduleCard, "notificationsRow.Visibility = Shown(plan.ShowsNotifications);");
         // Handlers are attached after the saved values are set, so rendering the page never saves anything.
         Assert.IsTrue(settings.IndexOf("ToggleSwitch notifications = new()", StringComparison.Ordinal) < settings.IndexOf("saveSchedule.Click += async", StringComparison.Ordinal));
         // Fix 5: registration and save failures are handled inside the lease with distinct outcomes; only the gate reaches "Action unavailable".
         string apply = Between(settings, "private async Task ApplyScheduleAsync(ScheduledCheckSettings requested)", "private void CopyDiagnostic(");
         StringAssert.Contains(apply, "ScheduleSaveOperation.SaveAsync(previous, requested, scheduleRegistration.ApplyAsync, scheduleSettingsStore.SaveScheduledCheckSettingsAsync, token)");
-        StringAssert.Contains(apply, "if (outcome == ScheduleSaveOutcome.Saved) scheduledSettings = requested;");
+        StringAssert.Contains(apply, "if (outcome == ScheduleSaveOutcome.Saved) { scheduledSettings = requested; scheduleTaskOutOfStep = false; }");
         StringAssert.Contains(apply, "SettingsPresenter.ScheduleSaveResult(outcome)");
         StringAssert.Contains(apply, "catch (InvalidOperationException) { isSavingSchedule = false; Render(); await ShowDataOperationUnavailableAsync(); return; }");
         StringAssert.Contains(apply, "Title = \"Schedule was not changed\"");
@@ -1060,7 +1134,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(presentation, "public Visibility PlainStatusVisibility");
         string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
         Assert.IsFalse(apps.Contains("InformationBanner(", StringComparison.Ordinal), "when the inventory was read is a fact, not a banner");
-        StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE81C\", viewModel.FreshnessLabel)");
+        StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE81C\", InstalledAppsFilters.ScannedText(viewModel.LastScanAt, DateTimeOffset.UtcNow))");
         // Settings: exports keep their warning in words, without an attention banner.
         string settings = Between(source, "private StackPanel BuildSettingsPage()", "private static Button WithHelpText(");
         Assert.IsFalse(settings.Contains("\"attention\"", StringComparison.Ordinal), "a setting that is a choice is never shown as a warning");
@@ -1085,5 +1159,164 @@ public sealed class UiRedesignContractTests
             current = current.Parent;
         }
         throw new DirectoryNotFoundException("PCSteward.slnx was not found above the test output directory.");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05 (owner request 2026-11-13): Home and the Scan page show a bar that fills while a scan or an update check runs. It is display only: its timer stops itself, and nothing in it starts, saves or re-renders.")]
+    public void TheWorkProgressBarOnlyShowsProgress()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string home = Between(source, "private Border HomeStatusCard(HomePresentation home)", "private Button HomeActionButton(");
+        StringAssert.Contains(home, "copy.Children.Add(WorkProgressPanel());");
+        StringAssert.Contains(Between(source, "private StackPanel BuildScanPage()", DesktopWindowSource.EndOf("MainWindow.Scan.cs")), "state.Children.Add(WorkProgressPanel());");
+        string progress = Between(source, "private WorkProgressPresentation? CurrentWorkProgress()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"));
+        StringAssert.Contains(progress, "WorkProgressPresenter.Scan(viewModel.ScanStep, viewModel.ScanSteps, now - scan, lastScanDuration ?? WorkProgressPresenter.LastScanDuration(scanRuns))");
+        StringAssert.Contains(progress, "WorkProgressPresenter.UpdateCheck(now - check, lastUpdateCheckDuration)");
+        StringAssert.Contains(progress, "if (windowClosed || CurrentWorkProgress() is null) workProgressTimer?.Stop();");
+        // Any other work has nothing to measure against, so the band's bar keeps moving without an end.
+        StringAssert.Contains(progress, "operationProgress.IsIndeterminate = work is null || work.IsIndeterminate;");
+        foreach (string action in new[] { "Render()", "workflow.", "DataOperationLease", "StartScanAsync", "CheckUpdateSourcesAsync", "ReviewAndExecuteAsync", "Task.Run", "TryEnqueue", "while (" })
+            Assert.IsFalse(progress.Contains(action, StringComparison.Ordinal), $"the progress bar only shows progress: {action}");
+        // The refresh from a scan report or a timer tick goes through the one place that updates the visuals.
+        StringAssert.Contains(Between(source, "private void RefreshOperationVisuals()", "private void AnnounceCompletion("), "ShowWorkProgress();");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05, AC-UX-01/03 best effort (UI review 2026-11-13, item 18): what a row says is body size, with caption kept for timestamps, headings, badges and initials; filter tabs say their place; a badge's label can wrap; Installed apps headings sort.")]
+    public void TextSizeTabsBadgesAndSortableHeadings()
+    {
+        string typography = DesktopSource("Resources/Typography.xaml");
+        StringAssert.Contains(typography, "<Style x:Key=\"StewardDescriptionStyle\" TargetType=\"TextBlock\" BasedOn=\"{StaticResource StewardBodyStyle}\" />");
+        string presentation = DesktopSource("StewardPresentation.cs");
+        string source = DesktopSource("MainWindow.cs");
+        // Caption (12) is left only where the text is not what you read a row for.
+        Assert.AreEqual(4, Count(presentation, "\"StewardCaptionStyle\""), "badge label, initials, evidence label and timestamp");
+        Assert.AreEqual(4, Count(source, "\"StewardCaptionStyle\""), "Activity time, the two sets of column headings and the title bar");
+        StringAssert.Contains(presentation, "copy.Children.Add(new TextBlock { Text = description, Style = Style(\"StewardDescriptionStyle\") });");
+        StringAssert.Contains(presentation, "Grid line = IconLine(glyph, text, styleKey: \"StewardDescriptionStyle\");");
+
+        // Filter tabs stay wrapping buttons and are announced as tabs with their place in the row.
+        string filterBar = Between(presentation, "public static Border FilterBar(IEnumerable<Button> tabs, string accessibleName)", "public static Grid FootNote(");
+        StringAssert.Contains(filterBar, "StewardWrapPanel row = new()");
+        StringAssert.Contains(filterBar, "AutomationProperties.SetLocalizedControlType(all[index], \"tab\");");
+        StringAssert.Contains(filterBar, "AutomationProperties.SetPositionInSet(all[index], index + 1);");
+        StringAssert.Contains(filterBar, "AutomationProperties.SetSizeOfSet(all[index], all.Length);");
+
+        // The badge's label sits in a column that takes the width left over, so it can wrap.
+        string badge = Between(presentation, "public static Border Badge(string label, string glyph, string tone = \"neutral\", string? automationName = null)", "AutomationProperties.SetName(badge, automationName ?? label);");
+        StringAssert.Contains(badge, "content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });");
+        StringAssert.Contains(badge, "TextWrapping = TextWrapping.Wrap");
+        Assert.IsFalse(badge.Contains("Orientation.Horizontal", StringComparison.Ordinal), "a side-by-side stack never wraps its text");
+
+        // Installed apps: headings that are sort options are buttons; the Sort by list stays in step; sorting only re-applies the filters.
+        string installed = Between(source, "private StackPanel BuildInstalledAppsPage()", DesktopWindowSource.EndOf("MainWindow.InstalledApps.cs"));
+        StringAssert.Contains(installed, "ComboBox sort = FilterBox(viewModel.SortField, InstalledAppsFilters.SortOptions);");
+        StringAssert.Contains(installed, "if (InstalledAppsFilters.SortsWhenSelected(field))");
+        StringAssert.Contains(installed, "AutomationProperties.SetName(sortBy, InstalledAppsFilters.SortHeadingName(field));");
+        StringAssert.Contains(installed, "AutomationProperties.SetItemStatus(sortBy, InstalledAppsFilters.SortState(sorted, viewModel.SortDescending));");
+        StringAssert.Contains(installed, "foreach ((Button sortBy, _, string field) in sortHeadings) sortBy.Click += (_, _) => SortBy(field);");
+        string sortBy = Between(installed, "void SortBy(string field)", "void ApplyFilters()");
+        StringAssert.Contains(sortBy, "if (same) { ApplyFilters(); ShowSort(); } else sort.SelectedItem = field;");
+        foreach (string action in new[] { "Render()", "workflow.", "ReviewAndExecuteAsync", "NavigateTo(" })
+            Assert.IsFalse(sortBy.Contains(action, StringComparison.Ordinal), $"sorting only re-applies the filters: {action}");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05, FR-UPD-01 (UI review 2026-11-13, item 21): the first run is two steps. Step 2 is one question on Home after the first scan; yes goes through the one consent dialog and only then looks for updates; Not now changes nothing.")]
+    public void TheFirstRunIsTwoStepsAndItsQuestionGoesThroughTheConsent()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
+        StringAssert.Contains(home, "FirstRunStep scanStep = FirstRunPresenter.ScanStep(viewModel.IsUpdateSourceEnabled);");
+        StringAssert.Contains(home, "panel.Children.Add(AsksAboutUpdates ? FirstRunQuestionCard() : HomeStatusCard(home));");
+        StringAssert.Contains(home, "private bool AsksAboutUpdates => FirstRunPresenter.AsksAboutUpdates(firstScanThisSession, viewModel.AllRows.Count > 0, viewModel.IsUpdateSourceEnabled, firstRunQuestionAnswered);");
+        string question = Between(home, "private Border FirstRunQuestionCard()", "private Border HomeStatusCard(");
+        // Yes: the consent first; nothing more unless the owner approved there.
+        int consent = question.IndexOf("await ChangeWinGetTrustedSourcesAsync(true);", StringComparison.Ordinal);
+        int approved = question.IndexOf("if (windowClosed || !viewModel.IsUpdateSourceEnabled) return;", StringComparison.Ordinal);
+        int check = question.IndexOf("await CheckUpdateSourcesAsync();", StringComparison.Ordinal);
+        Assert.IsTrue(consent >= 0 && approved > consent && check > approved, "the check runs only after the consent was approved");
+        StringAssert.Contains(question, "notNow.Click += (_, _) => { firstRunQuestionAnswered = true; Render(); };");
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "StartScanAsync", "workflow.", "DataOperationLease" })
+            Assert.IsFalse(question.Contains(authority, StringComparison.Ordinal), $"the question saves, scans and updates nothing itself: {authority}");
+
+        // The first scan is the one that had no app list before it; a finished scan on the Scan page then leads to the question.
+        string scan = Between(source, "private async Task StartScanAsync()", "private async Task CheckUpdateSourcesAsync()");
+        StringAssert.Contains(scan, "bool nothingScannedYet = viewModel.LastScanAt is null && viewModel.AllRows.Count == 0;");
+        StringAssert.Contains(scan, "if (completed.Succeeded && nothingScannedYet) firstScanThisSession = true;");
+        StringAssert.Contains(scan, "NavigateTo(FirstRunPresenter.AfterScan(AsksAboutUpdates));");
+
+        // The page after a factory reset says the same things in plain words, and still only opens the scan page.
+        string onboarding = Between(source, "private StackPanel BuildOnboardingPage()", DesktopWindowSource.EndOf("MainWindow.Onboarding.cs"));
+        StringAssert.Contains(onboarding, "StewardVisuals.PageHeader(FirstRunPresenter.AfterResetTitle, FirstRunPresenter.AfterResetDescription, FirstRunPresenter.AfterResetEyebrow)");
+        StringAssert.Contains(onboarding, "StewardVisuals.PrimaryButton(FirstRunPresenter.AfterResetContinueLabel, FirstRunPresenter.AfterResetContinueHelp)");
+        foreach (string old in new[] { "local inventory", "read-only inventory", "Inventory,", "source connection", "source evidence", "Fresh local state" })
+            Assert.IsFalse(onboarding.Contains(old, StringComparison.Ordinal), $"plain words after a reset: {old}");
+        foreach (string started in new[] { "StartScanAsync", "CheckUpdateSourcesAsync", "CheckForUpdatesAsync", "ChangeWinGetTrustedSourcesAsync" })
+            Assert.IsFalse(onboarding.Contains(started, StringComparison.Ordinal), $"continuing after a reset starts nothing: {started}");
+
+        // Two choices in an empty-state card sit side by side and wrap.
+        string empty = Between(DesktopSource("StewardPresentation.cs"), "public static Border EmptyState(", "public static Border MetricCard(");
+        StringAssert.Contains(empty, "StewardWrapPanel choices = ActionRow();");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05 (UI review 2026-11-13, item 19): the shell caps a text page's column through PageLayout; a list page keeps the window's full width.")]
+    public void TextPagesReadAsOneColumn()
+    {
+        string shell = DesktopSource("MainWindow.cs").Replace("\r\n", "\n", StringComparison.Ordinal);
+        StringAssert.Contains(shell, "StackPanel page = BuildPage(navigation.Current);\n        // UI review 2026-11-13 (item 19): a page of text and switches reads as one column; a list page still fills the window.\n        page.MaxWidth = PageLayout.MaximumWidth(navigation.Current, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);");
+        StringAssert.Contains(shell, "panel.MaxWidth = PageLayout.MaximumWidth(ShellPage.Onboarding, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);");
+        Assert.AreEqual(2, Count(shell, "PageLayout.MaximumWidth("), "the width rule lives in one place and is used by the two page hosts");
+        string layout = ApplicationSource("PageLayout.cs");
+        StringAssert.Contains(layout, "public const double ReadingColumnWidth = 1000;");
+        StringAssert.Contains(layout, ": double.PositiveInfinity;");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/04/05, FR-UPD-01 (UI review 2026-11-13, item 19): on a wide window an app opened from a list shows its details in a column beside the list. The column holds only what the details page builds, so it adds no action of its own.")]
+    public void DetailsOpenBesideAListOnAWideWindow()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        // The shell owns the column: its own scroll host beside the page host, hidden until it is asked for.
+        string shell = Between(source, "private void EnsureShell()", "private static void AddNavigationItem(");
+        StringAssert.Contains(shell, "AutomationProperties.SetAutomationId(detailPaneScroll, \"AppDetailsPane\");");
+        StringAssert.Contains(shell, "StewardVisuals.KeepPageColumnFitted(detailPaneScroll);");
+        StringAssert.Contains(shell, "Child = detailPaneScroll");
+        StringAssert.Contains(shell, "shell.SizeChanged += (_, _) => ShowDetailPane(rebuild: false);");
+        // It belongs to the page region for F6, closes when another page opens, and is refreshed with its page.
+        StringAssert.Contains(source, "ReferenceEquals(node, pageFooterHost) || ReferenceEquals(node, detailPaneHost)) return FocusRegion.Page;");
+        string show = Between(source, "private void ShowCurrentPage(bool preserveViewState)", "private void RestoreScrollOffset(");
+        StringAssert.Contains(show, "if (renderedPage != navigation.Current) detailPaneOpen = false;");
+        StringAssert.Contains(show, "ShowDetailPane(rebuild: true);");
+
+        // Opening an app: beside the list when the layout rule says so, otherwise the details page as before.
+        string open = Between(source, "private async Task ShowDetailsAsync(InventoryRow row)", "private void ShowDetailPane(bool rebuild)");
+        int beside = open.IndexOf("if (shellContent is not null && PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))", StringComparison.Ordinal);
+        int page = open.IndexOf("NavigateTo(ShellPage.Detail);", StringComparison.Ordinal);
+        Assert.IsTrue(beside >= 0 && page > beside, "the details page stays the fallback");
+        StringAssert.Contains(open, "StewardVisuals.Announce(detailPaneScroll, PageLayout.DetailsShownAnnouncement(row.Name), \"details-beside-list\");");
+
+        // The column is the details page's content and a Close button; it has no operation of its own.
+        string pane = Between(source, "private void ShowDetailPane(bool rebuild)", DesktopWindowSource.EndOf("MainWindow.Detail.cs"));
+        StringAssert.Contains(pane, "if (!detailPaneOpen || detailRow is null || !PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))");
+        StringAssert.Contains(pane, "detailPaneHost.Width = PageLayout.DetailsPaneWidth(shellContent.ActualWidth);");
+        StringAssert.Contains(pane, "StackPanel details = BuildProductDetailPage();");
+        StringAssert.Contains(pane, "AutomationProperties.SetHeadingLevel(detailTitle, AutomationHeadingLevel.Level2);");
+        StringAssert.Contains(pane, "Button close = StewardVisuals.ActionButton(PageLayout.CloseDetailsLabel, $\"for {row.Name}\");");
+        foreach (string authority in new[] { "workflow.", "DataOperationLease", "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "PromptAnd", "ChangeWinGetTrustedSourcesAsync", "StartScanAsync", "CheckUpdateSourcesAsync", "NavigateTo(" })
+            Assert.IsFalse(pane.Contains(authority, StringComparison.Ordinal), $"the details column adds no action of its own: {authority}");
+
+        // FR-POL-03/05: a choice saved for the app in the column is confirmed there, with the same Undo, and not on the list as well.
+        string notice = Between(source, "private void ShowDecisionNotice(DecisionNotice notice, string stableProductKey)", "private InfoBar DecisionNoticeBar(DecisionNotice notice)");
+        StringAssert.Contains(notice, "decisionNoticeInDetailPane = PageLayout.NoticeGoesInDetails(detailPaneOpen && detailPaneHost is { Visibility: Visibility.Visible }, detailPaneKey, stableProductKey);");
+        StringAssert.Contains(show, "else if (!decisionNoticeInDetailPane) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));");
+        StringAssert.Contains(pane, "if (decisionNoticeInDetailPane && decisionNotice is { } saved) details.Children.Insert(1, DecisionNoticeBar(saved));");
+        StringAssert.Contains(pane, "if (decisionNoticeInDetailPane && !sameApp) { decisionNotice = null; decisionNoticeInDetailPane = false; }");
+        Assert.AreEqual(2, Count(pane, "decisionNotice = null; decisionNoticeInDetailPane = false;"), "the line goes when the column closes or shows another app");
+
+        string layout = ApplicationSource("PageLayout.cs");
+        StringAssert.Contains(layout, "public const double DetailsBesideMinimumWidth = 1200;");
+        StringAssert.Contains(layout, "public static bool IsListPage(ShellPage page) => page is ShellPage.Updates or ShellPage.InstalledApps;");
     }
 }

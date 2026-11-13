@@ -27,10 +27,10 @@ public sealed partial class MainWindow
             ContentDialog consent = new()
             {
                 XamlRoot = Content.XamlRoot,
-                Title = "Enable WinGet and Chocolatey trusted sources?",
-                Content = "WinGet and Chocolatey Community may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update; Chocolatey updates are machine-wide and cannot be started in this version. Scanning remains read-only. " + ElevationStory.SourceConsent,
+                Title = SettingsPresenter.SourceSettingLabel + "?",
+                Content = "To look for updates, PC Steward asks WinGet and Chocolatey Community about the packages installed on this PC, so they may receive installed-package identifiers. Chocolatey packages can run package-maintainer scripts during an update; Chocolatey updates are machine-wide and cannot be started in this version. " + ElevationStory.SourceConsent,
                 PrimaryButtonText = "I approve",
-                CloseButtonText = "Keep local-only",
+                CloseButtonText = "Keep off",
                 DefaultButton = ContentDialogButton.Close
             };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
@@ -50,7 +50,7 @@ public sealed partial class MainWindow
         catch (Exception)
         {
             LoadSavedInventory();
-            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Trusted sources were not changed", Content = "PC Steward couldn't save this setting. Your previous setting is back in place.", CloseButtonText = "Close" }.ShowAsync();
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "The setting was not changed", Content = "PC Steward couldn't save this setting. Your previous setting is back in place.", CloseButtonText = "Close" }.ShowAsync();
         }
         Render();
     }
@@ -61,7 +61,7 @@ public sealed partial class MainWindow
         ConnectorOption connector = viewModel.Connectors.Single(option => option.Name == connectorName);
         if (connector.RequiresSourceDisclosure && enabled)
         {
-            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "Package sources may disclose installed-software identifiers. Scanning remains read-only and does not install or update software.", PrimaryButtonText = "I approve", CloseButtonText = "Keep local-only", DefaultButton = ContentDialogButton.Close };
+            ContentDialog consent = new() { XamlRoot = Content.XamlRoot, Title = $"Enable {connectorName}?", Content = "This source may receive installed-software identifiers. Turning it on doesn't install or update anything.", PrimaryButtonText = "I approve", CloseButtonText = "Keep off", DefaultButton = ContentDialogButton.Close };
             approved = await consent.ShowAsync() == ContentDialogResult.Primary;
             if (!approved) enabled = false;
         }
@@ -88,25 +88,41 @@ public sealed partial class MainWindow
         // Independent review L6: a request while a scan or another operation is active starts nothing and never replaces the
         // active scan's cancellation source.
         if (HasActiveOperation) { Render(); return; }
+        // UI review 2026-11-13 (item 21): a scan of a PC that has no app list yet is the first scan; Home asks about updates after it.
+        bool nothingScannedYet = viewModel.LastScanAt is null && viewModel.AllRows.Count == 0;
         CancellationTokenSource cancellation = new();
         scanCancellation = cancellation;
+        DateTimeOffset startedAt = DateTimeOffset.UtcNow;
+        scanStartedAt = startedAt;
         Render();
+        StartWorkProgressTimer();
         Progress<ScanProgress> progress = new(value => { viewModel.ReportProgress(value); RefreshOperationVisuals(); });
         // Providers and SQLite complete asynchronously.  Keep their continuations off the
         // WinUI dispatcher; Progress posts the small UI updates back to it explicitly.
         ScanResult? completed = null;
-        try { completed = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), cancellation.Token); viewModel.CompleteScan(completed, DateTimeOffset.UtcNow); LoadSavedInventory(); }
+        try
+        {
+            completed = await DataOperationLease.RunAsync(token => workflow.ScanAsync(progress, token), cancellation.Token);
+            viewModel.CompleteScan(completed, DateTimeOffset.UtcNow);
+            // What the next scan's time left is estimated from.
+            if (completed.Succeeded) lastScanDuration = DateTimeOffset.UtcNow - startedAt;
+            LoadSavedInventory();
+            if (completed.Succeeded && nothingScannedYet) firstScanThisSession = true;
+        }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-        finally { if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.Results); else Render(); }
+        finally { scanStartedAt = null; if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(FirstRunPresenter.AfterScan(AsksAboutUpdates)); else Render(); }
         if (completed is not null && !windowClosed) AnnounceCompletion(OperationAnnouncements.ScanFinished(completed.Succeeded, completed.Cancelled, viewModel.AllRows.Count), "scan-finished");
     }
 
     private async Task CheckUpdateSourcesAsync()
     {
-        string? detailStableProductKey = navigation.Current == ShellPage.Detail ? detailRow?.StableProductKey : null;
+        string? detailStableProductKey = navigation.Current == ShellPage.Detail || detailPaneOpen ? detailRow?.StableProductKey : null;
         // Independent review L2: this method takes no cancellation token and the band's Cancel only cancels a scan, so the source
         // refresh keeps its existing non-cancellable behaviour (bounded by the refresh service's own timeouts). Not changed here.
+        DateTimeOffset startedAt = DateTimeOffset.UtcNow;
+        updateCheckStartedAt = startedAt;
         viewModel.BeginUpdateCheck(); Render();
+        StartWorkProgressTimer();
         bool refreshed = true;
         try
         {
@@ -119,11 +135,80 @@ public sealed partial class MainWindow
             }
         }
         catch (InvalidOperationException) { refreshed = false; await ShowDataOperationUnavailableAsync(); }
-        finally { viewModel.CompleteUpdateCheck(); }
+        finally { viewModel.CompleteUpdateCheck(); updateCheckStartedAt = null; }
+        // What the next check's time left is estimated from (kept for this session only).
+        if (refreshed) lastUpdateCheckDuration = DateTimeOffset.UtcNow - startedAt;
         Render();
         if (refreshed && !windowClosed)
             AnnounceCompletion(OperationAnnouncements.UpdateCheckFinished(
                 viewModel.AllRows.Count(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate)),
                 viewModel.AllRows.Count(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))), "update-check-finished");
+    }
+
+    // Owner request 2026-11-13 (FR-UI-01/05): a bar that fills while a scan or an update check runs, with about how long is left.
+    private DateTimeOffset? scanStartedAt;
+    private DateTimeOffset? updateCheckStartedAt;
+    private TimeSpan? lastScanDuration;
+    private TimeSpan? lastUpdateCheckDuration;
+    private DispatcherQueueTimer? workProgressTimer;
+    private StackPanel? pageWorkProgress;
+    private ProgressBar? pageWorkProgressBar;
+    private TextBlock? pageWorkProgressText;
+
+    /// <summary>
+    /// How far along the running scan or update check is; <see langword="null"/> when neither is running. The time left is an
+    /// estimate from the last completed scan (this session's, else the most recent recorded one) or this session's last update check.
+    /// </summary>
+    private WorkProgressPresentation? CurrentWorkProgress()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        if (scanStartedAt is { } scan && (viewModel.IsScanning || scanCancellation is not null))
+            return WorkProgressPresenter.Scan(viewModel.ScanStep, viewModel.ScanSteps, now - scan, lastScanDuration ?? WorkProgressPresenter.LastScanDuration(scanRuns));
+        if (updateCheckStartedAt is { } check && viewModel.IsCheckingUpdates)
+            return WorkProgressPresenter.UpdateCheck(now - check, lastUpdateCheckDuration);
+        return null;
+    }
+
+    /// <summary>The bar and its one line for the page being shown (Home's status card or the Scan page); hidden when nothing is running.</summary>
+    private StackPanel WorkProgressPanel()
+    {
+        ProgressBar bar = new() { Minimum = 0, Maximum = 100, Height = 4, HorizontalAlignment = HorizontalAlignment.Stretch };
+        AutomationProperties.SetName(bar, "Progress");
+        TextBlock text = new() { Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap };
+        StackPanel panel = new() { Spacing = StewardSpacing.XSmall };
+        panel.Children.Add(bar);
+        panel.Children.Add(text);
+        pageWorkProgress = panel;
+        pageWorkProgressBar = bar;
+        pageWorkProgressText = text;
+        ShowWorkProgress();
+        return panel;
+    }
+
+    /// <summary>Puts the current progress on the page's bar and on the bar in the band at the bottom of the window. It starts and saves nothing.</summary>
+    private void ShowWorkProgress()
+    {
+        WorkProgressPresentation? work = CurrentWorkProgress();
+        if (pageWorkProgress is not null) pageWorkProgress.Visibility = work is null ? Visibility.Collapsed : Visibility.Visible;
+        if (pageWorkProgressBar is not null && work is not null) { pageWorkProgressBar.IsIndeterminate = work.IsIndeterminate; pageWorkProgressBar.Value = work.Percent; }
+        if (pageWorkProgressText is not null && work is not null && !string.Equals(pageWorkProgressText.Text, work.Line, StringComparison.Ordinal)) pageWorkProgressText.Text = work.Line;
+        // Any other work (an update, a clean-up, a save) has nothing to measure against, so the band's bar keeps moving without an end.
+        if (operationProgress is not null) { operationProgress.IsIndeterminate = work is null || work.IsIndeterminate; operationProgress.Value = work?.Percent ?? 0; }
+    }
+
+    /// <summary>Refreshes the bars twice a second while a scan or an update check runs, and stops itself when neither is.</summary>
+    private void StartWorkProgressTimer()
+    {
+        if (workProgressTimer is null)
+        {
+            workProgressTimer = DispatcherQueue.CreateTimer();
+            workProgressTimer.Interval = TimeSpan.FromMilliseconds(500);
+            workProgressTimer.Tick += (_, _) =>
+            {
+                if (!windowClosed) ShowWorkProgress();
+                if (windowClosed || CurrentWorkProgress() is null) workProgressTimer?.Stop();
+            };
+        }
+        workProgressTimer.Start();
     }
 }

@@ -141,6 +141,155 @@ else {
     }
 }
 
+# UI review 2026-11-13 (faults 1 and 2), informational: after a read-only scan of this runner, measure the Installed apps page
+# through UI Automation. The list must reach down to the bottom of the window (it stopped at its 320-unit minimum), and the
+# buttons of one action row must share a line. Results are LAYOUT lines in the log; nothing here adds a failure.
+function Find-Named([Windows.Automation.AutomationElement]$Root, [string]$Prefix, [Windows.Automation.ControlType]$Type) {
+    $ofType = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, $Type)
+    foreach ($e in $Root.FindAll([Windows.Automation.TreeScope]::Descendants, $ofType)) {
+        try { if (([string]$e.Current.Name).StartsWith($Prefix, [StringComparison]::OrdinalIgnoreCase) -and !$e.Current.IsOffscreen) { return $e } } catch { }
+    }
+    return $null
+}
+# ADR-035: how many app icons are showing under an element. The image is decoration, so it is in the raw view only; a row
+# that shows its two letters has no image with a size.
+function Get-AppIconCount([Windows.Automation.AutomationElement]$Root) {
+    $rawView = New-Object Windows.Automation.CacheRequest
+    $rawView.TreeFilter = [Windows.Automation.Automation]::RawViewCondition
+    $byIcon = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'AppIcon')
+    $active = $rawView.Activate()
+    try { return @($Root.FindAll([Windows.Automation.TreeScope]::Descendants, $byIcon) | Where-Object { $_.Current.BoundingRectangle.Width -gt 0 }).Count } finally { $active.Dispose() }
+}
+
+function Open-Page([Windows.Automation.AutomationElement]$Root, [string]$Page) {
+    $item = Find-Named $Root $Page ([Windows.Automation.ControlType]::ListItem)
+    if ($null -eq $item) { return $false }
+    try { ($item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); return $true } catch { }
+    try { ($item.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern)).Select(); return $true } catch { }
+    return $false
+}
+function Write-SameLine([Windows.Automation.AutomationElement]$First, [Windows.Automation.AutomationElement]$Second, [string]$Label) {
+    if ($null -eq $First -or $null -eq $Second) { Write-Line ('LAYOUT-ROW ' + $Label + ' skipped (control not found)'); return }
+    $a = $First.Current.BoundingRectangle; $b = $Second.Current.BoundingRectangle
+    $sameLine = ($b.Top -lt $a.Bottom) -and ($a.Top -lt $b.Bottom)
+    Write-Line ('LAYOUT-ROW ' + $Label + ' sameLine=' + $sameLine + ' first=' + [int]$a.Left + ',' + [int]$a.Top + ',' + [int]$a.Width + 'x' + [int]$a.Height + ' second=' + [int]$b.Left + ',' + [int]$b.Top + ',' + [int]$b.Width + 'x' + [int]$b.Height)
+}
+$process.Refresh()
+if ($failures.Count -eq 0 -and !$process.HasExited) {
+    try {
+        try { Set-DisplayResolution -Width 1920 -Height 1080 -Force | Out-Null; Start-Sleep -Seconds 3 } catch { Write-Line ('LAYOUT resolution unchanged: ' + $_.Exception.Message) }
+        [void][SmokeWin32]::ShowWindow($handle, 9); Start-Sleep -Milliseconds 500
+        [void][SmokeWin32]::ShowWindow($handle, 3); Start-Sleep -Seconds 2
+        $window = [Windows.Automation.AutomationElement]::FromHandle($handle)
+        if (!(Open-Page $window 'Installed apps')) { throw 'could not open Installed apps' }
+        Start-Sleep -Seconds $PageSettleSeconds
+        $scan = Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)
+        if ($null -eq $scan) { throw 'Scan again not found' }
+        ($scan.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke()
+        $list = $null
+        $scanDeadline = (Get-Date).AddSeconds(150)
+        while ((Get-Date) -lt $scanDeadline -and $null -eq $list) {
+            Start-Sleep -Seconds 5
+            $process.Refresh(); if ($process.HasExited) { throw 'the app exited during the scan' }
+            [void](Open-Page $window 'Installed apps'); Start-Sleep -Seconds 2
+            $byId = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'InstalledAppsList')
+            $found = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byId)
+            if ($null -ne $found -and !$found.Current.IsOffscreen -and $found.Current.BoundingRectangle.Height -gt 0) { $list = $found }
+        }
+        if ($null -eq $list) { throw 'the Installed apps list did not appear within 150 seconds of starting a scan' }
+        Start-Sleep -Seconds $PageSettleSeconds
+        $r = New-Object SmokeWin32+RECT
+        [void][SmokeWin32]::GetWindowRect($handle, [ref]$r)
+        $box = $list.Current.BoundingRectangle
+        $gap = [int]($r.Bottom - $box.Bottom)
+        $rows = $list.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)).Count
+        # Below the list are the card's edge, a footnote and the page padding: well under 160 pixels at 100% scaling.
+        $verdict = if ($gap -le 160) { 'fills' } else { 'short' }
+        Write-Line ('LAYOUT-INSTALLED-LIST window=' + ($r.Right - $r.Left) + 'x' + ($r.Bottom - $r.Top) + ' listTop=' + [int]$box.Top + ' listHeight=' + [int]$box.Height + ' gapToWindowBottom=' + $gap + ' rowsOnScreen=' + $rows + ' verdict=' + $verdict)
+        Write-SameLine (Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)) (Find-Named $window 'More options' ([Windows.Automation.ControlType]::Button)) 'installed-header'
+        Write-SameLine (Find-Named $window 'Sort by' ([Windows.Automation.ControlType]::Text)) (Find-Named $window 'Sort applications' ([Windows.Automation.ControlType]::ComboBox)) 'installed-sort'
+        # UI review 2026-11-13 (item 20; ADR-035): a row shows the app's own icon when one could be read, and its two letters
+        # otherwise. An icon is read only for a row that is on screen, so the count is at most the rows the window shows, which
+        # is fewer than the rows the list has built. Icons arrive a moment after the rows.
+        try {
+            $icons = -1
+            $iconDeadline = (Get-Date).AddSeconds(18)
+            do { Start-Sleep -Seconds 3; $before = $icons; $icons = Get-AppIconCount $list } while (($icons -eq 0 -or $icons -ne $before) -and (Get-Date) -lt $iconDeadline)
+            $process.Refresh()
+            $onScreen = @($list.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) | Where-Object { !$_.Current.IsOffscreen })
+            Write-Line ('LAYOUT-APP-ICONS shown=' + $icons + ' rowsOnScreen=' + $onScreen.Count + ' rowsBuilt=' + $rows + ' appRunning=' + !$process.HasExited)
+            if ($process.HasExited) { $failures.Add('the app exited while showing app icons (code ' + $process.ExitCode + ')') }
+            # For each row on screen: whether it shows an icon, against what the runner's uninstall entry of that name gives as
+            # its icon. A row with no entry of its name is a Store-type app or came from another source.
+            $entryIcons = @{}
+            foreach ($root in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall') {
+                foreach ($key in @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)) {
+                    $entryName = [string]$key.GetValue('DisplayName')
+                    if ($entryName -and !$entryIcons.ContainsKey($entryName)) { $entryIcons[$entryName] = [string]$key.GetValue('DisplayIcon', '', 'DoNotExpandEnvironmentNames') }
+                }
+            }
+            foreach ($row in $onScreen) {
+                $rowName = ($row.Current.Name -split ', ')[0]
+                $entryIcon = if ($entryIcons.ContainsKey($rowName)) { '"' + $entryIcons[$rowName] + '"' } else { '(no uninstall entry of this name)' }
+                Write-Line ('APP-ICON-ROW icon=' + ((Get-AppIconCount $row) -gt 0) + ' name="' + $rowName + '" entryIcon=' + $entryIcon)
+            }
+        } catch { Write-Line ('LAYOUT-APP-ICONS skipped: ' + $_.Exception.Message) }
+        Save-Screenshot $handle '08-Installed-apps-after-scan'
+        # UI review 2026-11-13 (item 19): on this wide window an app opened from the list shows its details beside the list.
+        try {
+            $first = $list.FindFirst([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem))
+            if ($null -eq $first) { throw 'no row to open' }
+            # ADR-035: open a row that shows an icon when there is one, so the column's tile can be checked against it.
+            $withIcon = @($list.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) | Where-Object { (Get-AppIconCount $_) -gt 0 } | Select-Object -First 1)
+            $rowHasIcon = $withIcon.Count -gt 0
+            if ($rowHasIcon) { $first = $withIcon[0] }
+            ($first.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke()
+            Start-Sleep -Seconds $PageSettleSeconds
+            $process.Refresh(); if ($process.HasExited) { throw 'the app exited after opening a row' }
+            $byPane = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'AppDetailsPane')
+            $pane = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byPane)
+            if ($null -eq $pane -or $pane.Current.IsOffscreen) { Write-Line 'LAYOUT-DETAILS-PANE not shown' }
+            else {
+                $p = $pane.Current.BoundingRectangle; $l = $list.Current.BoundingRectangle
+                Write-Line ('LAYOUT-DETAILS-PANE name="' + $pane.Current.Name + '" pane=' + [int]$p.Left + ',' + [int]$p.Top + ',' + [int]$p.Width + 'x' + [int]$p.Height + ' list=' + [int]$l.Left + ',' + [int]$l.Top + ',' + [int]$l.Width + 'x' + [int]$l.Height + ' beside=' + ($p.Left -ge $l.Right))
+                Save-Screenshot $handle '08b-Installed-apps-details-beside'
+                $unnamedTotal += Write-Tree $pane 'Details beside the list'
+                # ADR-035: the details column's tile is built in code, not from the list's template; 1 when the opened app has an icon.
+                Write-Line ('LAYOUT-APP-ICONS details=' + (Get-AppIconCount $pane) + ' openedRowHadIcon=' + $rowHasIcon)
+                $close = Find-Named $pane 'Close details' ([Windows.Automation.ControlType]::Button)
+                if ($null -ne $close) {
+                    ($close.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); Start-Sleep -Seconds 2
+                    $gone = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byPane)
+                    Write-Line ('LAYOUT-DETAILS-PANE closed=' + ($null -eq $gone -or $gone.Current.IsOffscreen))
+                }
+            }
+        } catch { Write-Line ('LAYOUT-DETAILS-PANE skipped: ' + $_.Exception.Message) }
+        if (Open-Page $window 'Home') {
+            Start-Sleep -Seconds $PageSettleSeconds
+            $homeButtons = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)) |
+                Where-Object { $_.Current.ClassName -eq 'Button' -and !$_.Current.IsOffscreen -and $_.Current.Name -match '^(Turn on|See updates|Check for|Scan again|Scan this PC|Look for updates online|Not now)' })
+            if ($homeButtons.Count -ge 2) { Write-SameLine $homeButtons[0] $homeButtons[1] 'home-hero' } else { Write-Line ('LAYOUT-ROW home-hero skipped (buttons found: ' + $homeButtons.Count + ')') }
+            Save-Screenshot $handle '09-Home-after-scan'
+            # UI review 2026-11-13 (item 21): after the first scan Home asks the one first-run question; its words are in this tree.
+            $unnamedTotal += Write-Tree $window 'Home after scan'
+        }
+        # UI review 2026-11-13 (item 19): a page of text and switches is a column of about 1,000 units, not the window's width.
+        if (Open-Page $window 'Settings') {
+            Start-Sleep -Seconds $PageSettleSeconds
+            $switch = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ClassNameProperty, 'ToggleSwitch'))
+            $nav = Find-Named $window 'Settings' ([Windows.Automation.ControlType]::ListItem)
+            if ($null -ne $switch -and $null -ne $nav) {
+                $sw = $switch.Current.BoundingRectangle; $nv = $nav.Current.BoundingRectangle
+                [void][SmokeWin32]::GetWindowRect($handle, [ref]$r)
+                Write-Line ('LAYOUT-READING-COLUMN window=' + ($r.Right - $r.Left) + ' navigationRight=' + [int]$nv.Right + ' switchRight=' + [int]$sw.Right + ' columnFromNavigation=' + [int]($sw.Right - $nv.Right))
+            } else { Write-Line 'LAYOUT-READING-COLUMN skipped (control not found)' }
+        }
+        Open-Page $window 'Activity' | Out-Null
+        Start-Sleep -Seconds $PageSettleSeconds
+        $unnamedTotal += Write-Tree $window 'Activity after scan'
+    } catch { Write-Line ('LAYOUT-CHECK skipped: ' + $_.Exception.Message) }
+}
+
 # Anything the .NET runtime or Windows Error Reporting recorded for the app while it ran.
 try {
     $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $started } -ErrorAction SilentlyContinue |

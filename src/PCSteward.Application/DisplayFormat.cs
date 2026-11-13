@@ -55,6 +55,17 @@ public static class DisplayFormat
         return "on " + Date(value, culture, zone);
     }
 
+    /// <summary>
+    /// A moment as a day and a time in words: "today at 14:50", "yesterday at 09:12", then "on 3 Nov 2026 at 14:50"
+    /// (UI review 2026-11-13, item 8).
+    /// </summary>
+    public static string DayAndTime(DateTimeOffset value, DateTimeOffset now, CultureInfo? culture = null, TimeZoneInfo? zone = null)
+    {
+        int days = LocalDay(now, zone).DayNumber - LocalDay(value, zone).DayNumber;
+        string day = days == 0 ? "today" : days == 1 ? "yesterday" : "on " + Date(value, culture, zone);
+        return $"{day} at {Time(value, culture, zone)}";
+    }
+
     /// <summary>A start–end time range on one line ("14:02–14:05", or with dates when the days differ).</summary>
     public static string Range(DateTimeOffset start, DateTimeOffset? end, CultureInfo? culture = null, TimeZoneInfo? zone = null)
     {
@@ -62,6 +73,19 @@ public static class DisplayFormat
         return LocalDay(start, zone) == LocalDay(finished, zone)
             ? $"{DateTime(start, culture, zone)}–{Time(finished, culture, zone)}"
             : $"{DateTime(start, culture, zone)} – {DateTime(finished, culture, zone)}";
+    }
+
+    /// <summary>
+    /// The time of day for a row that sits under a day heading: "14:50" when it started and ended in the same minute (or has no
+    /// end), "14:02–14:05" within one day, and the full <see cref="Range"/> when it ran past midnight (UI review 2026-11-13, fault 4).
+    /// </summary>
+    public static string TimeOfDay(DateTimeOffset start, DateTimeOffset? end, CultureInfo? culture = null, TimeZoneInfo? zone = null)
+    {
+        string started = Time(start, culture, zone);
+        if (end is not { } finished) return started;
+        if (LocalDay(start, zone) != LocalDay(finished, zone)) return Range(start, finished, culture, zone);
+        string ended = Time(finished, culture, zone);
+        return string.Equals(started, ended, StringComparison.Ordinal) ? ended : $"{started}–{ended}";
     }
 
     /// <summary>A human-readable size in bytes, KB, MB, GB or TB (1 KB = 1,024 bytes). Negative sizes read as 0 bytes.</summary>

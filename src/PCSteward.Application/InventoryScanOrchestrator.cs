@@ -7,7 +7,11 @@ namespace PCSteward.Application;
 
 public sealed record ProviderScanResult(IReadOnlyCollection<CanonicalProduct> Products, IReadOnlyCollection<InstallationInstance> Instances, IReadOnlyCollection<RawProviderRecord> RawRecords, IReadOnlyCollection<string> Warnings);
 public interface ILocalInventoryProvider { string Name { get; } TimeSpan Timeout { get; } Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken); }
-public sealed record ScanProgress(Guid CorrelationId, string Phase, TimeSpan Elapsed, string? Provider);
+/// <summary>
+/// One progress report from a scan. <see cref="Step"/> of <see cref="Steps"/> counts from 1: one step for each place the scan
+/// reads, then one for saving what it found. Both are 0 when the reporter does not count steps.
+/// </summary>
+public sealed record ScanProgress(Guid CorrelationId, string Phase, TimeSpan Elapsed, string? Provider, int Step = 0, int Steps = 0);
 public sealed record ScanResult(Guid CorrelationId, bool Succeeded, bool Cancelled, IReadOnlyDictionary<string, TimeSpan> Timings, IReadOnlyCollection<string> Warnings, LiveInventoryObservation? Observation = null);
 
 public sealed class InventoryScanOrchestrator : IDisposable
@@ -21,9 +25,11 @@ public sealed class InventoryScanOrchestrator : IDisposable
         Guid correlationId = Guid.NewGuid(); Guid scanId = Guid.NewGuid(); DateTimeOffset startedAt = DateTimeOffset.UtcNow; Stopwatch elapsed = Stopwatch.StartNew(); Dictionary<string, TimeSpan> timings = []; List<string> warnings = []; List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> rawRecords = [];
         try
         {
+            int step = 0, steps = providers.Count + 1;
             foreach (ILocalInventoryProvider provider in providers)
             {
-                cancellationToken.ThrowIfCancellationRequested(); events.Write(new ScanEvent(correlationId, DateTimeOffset.UtcNow, ScanEventSeverity.Information, "scan.provider.started", provider.Name, "Provider collection started.")); progress?.Report(new ScanProgress(correlationId, "Collecting", elapsed.Elapsed, provider.Name)); Stopwatch timing = Stopwatch.StartNew();
+                step++;
+                cancellationToken.ThrowIfCancellationRequested(); events.Write(new ScanEvent(correlationId, DateTimeOffset.UtcNow, ScanEventSeverity.Information, "scan.provider.started", provider.Name, "Provider collection started.")); progress?.Report(new ScanProgress(correlationId, "Collecting", elapsed.Elapsed, provider.Name, step, steps)); Stopwatch timing = Stopwatch.StartNew();
                 using CancellationTokenSource providerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 Task<ProviderScanResult>? providerTask = null;
                 try { providerTask = provider.ScanAsync(providerCancellation.Token); ProviderScanResult result = await providerTask.WaitAsync(provider.Timeout, cancellationToken); products.AddRange(result.Products); instances.AddRange(result.Instances); rawRecords.AddRange(result.RawRecords); foreach (string warning in result.Warnings) warnings.Add($"{provider.Name}:{warning}"); }
@@ -60,7 +66,7 @@ public sealed class InventoryScanOrchestrator : IDisposable
             ScanRun run = new(scanId, startedAt, DateTimeOffset.UtcNow, "Completed", correlationId);
             ScanProviderTiming[] timingRows = timings.Select(pair => new ScanProviderTiming(Guid.NewGuid(), scanId, pair.Key, pair.Value, warnings.FirstOrDefault(warning => warning.StartsWith(pair.Key + ":", StringComparison.Ordinal)))).ToArray();
             RawProviderRecord[] rawRows = rawRecords.Select(record => record with { ScanRunId = scanId }).ToArray();
-            progress?.Report(new ScanProgress(correlationId, "Publishing", elapsed.Elapsed, null)); await store.PersistScanAsync(run, products, instances, rawRows, timingRows, cancellationToken); events.Write(new ScanEvent(correlationId, DateTimeOffset.UtcNow, ScanEventSeverity.Information, "scan.completed", null, "Scan completed.")); return new ScanResult(correlationId, true, false, timings, warnings, observation);
+            progress?.Report(new ScanProgress(correlationId, "Publishing", elapsed.Elapsed, null, steps, steps)); await store.PersistScanAsync(run, products, instances, rawRows, timingRows, cancellationToken); events.Write(new ScanEvent(correlationId, DateTimeOffset.UtcNow, ScanEventSeverity.Information, "scan.completed", null, "Scan completed.")); return new ScanResult(correlationId, true, false, timings, warnings, observation);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { await store.RecordScanAsync(new ScanRun(scanId, startedAt, DateTimeOffset.UtcNow, "Cancelled", correlationId), timings.Select(pair => new ScanProviderTiming(Guid.NewGuid(), scanId, pair.Key, pair.Value, null)).ToArray(), CancellationToken.None); return new ScanResult(correlationId, false, true, timings, warnings); }
         finally { elapsed.Stop(); if (releaseLease) lease.Release(); }

@@ -14,10 +14,10 @@ internal static class DesktopWindowSource
     public static readonly string[] PartialFiles =
     [
         "MainWindow.cs", "MainWindow.Onboarding.cs", "MainWindow.About.cs", "MainWindow.Home.cs", "MainWindow.InstalledApps.cs",
-        "MainWindow.RepositoryApps.cs", "MainWindow.Results.cs", "MainWindow.Review.cs", "MainWindow.Storage.cs", "MainWindow.Activity.cs",
+        "MainWindow.Review.cs", "MainWindow.Storage.cs", "MainWindow.Activity.cs",
         "MainWindow.DataAndReset.cs", "MainWindow.Decisions.cs", "MainWindow.Shell.cs", "MainWindow.Scan.cs", "MainWindow.Updates.cs",
         "MainWindow.UpdateJob.cs", "MainWindow.Settings.cs", "MainWindow.Operations.cs", "MainWindow.Detail.cs", "MainWindow.Chocolatey.cs",
-        "MainWindow.SelfUpdate.cs"
+        "MainWindow.SelfUpdate.cs", "MainWindow.AppIcons.cs"
     ];
 
     /// <summary>The whole window source: every partial file, in <see cref="PartialFiles"/> order.</summary>

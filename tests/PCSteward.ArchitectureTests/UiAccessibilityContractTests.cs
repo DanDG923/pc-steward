@@ -136,9 +136,10 @@ public sealed partial class UiAccessibilityContractTests
         }
         Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
 
-        // The audit's named mismatches are gone (audit §5): "Scan this PC", "Review verified update evidence", "Show … scan results".
+        // The audit's named mismatches are gone (audit §5): "Review verified update evidence", "Show … scan results". "Scan this PC"
+        // is a label again (UI review 2026-11-13, item 8), now with a name that starts with it, which the checks above enforce.
         string window = DesktopSource("MainWindow.cs");
-        foreach (string legacy in new[] { "\"Scan this PC\"", "Review verified update evidence", "$\"Show {label} scan results\"", "Start another local inventory scan", "Cancel the active local inventory scan" })
+        foreach (string legacy in new[] { "Review verified update evidence", "$\"Show {label} scan results\"", "Start another local inventory scan", "Cancel the active local inventory scan" })
             Assert.IsFalse(window.Contains(legacy, StringComparison.Ordinal), legacy);
     }
 
@@ -172,7 +173,7 @@ public sealed partial class UiAccessibilityContractTests
 
         // Access keys on the primary commands; the review's confirm button has none and no accelerator.
         StringAssert.Contains(Between(source, "private void BuildWindowChrome()", "private void AddWindowShortcuts("), "titleBarBack.AccessKey = \"B\";");
-        // UI polish phase 2: every Home action has an access key from its label ("Review updates" → R, "Turn on update checks…" → T).
+        // UI polish phase 2: every Home action has an access key from its label ("See updates" → S, "Turn on update checks…" → T).
         string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
         StringAssert.Contains(home, "AccessKey = AccessKeyFor(action.Label)");
         StringAssert.Contains(Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions"), "scan.AccessKey = \"S\";");
@@ -199,8 +200,7 @@ public sealed partial class UiAccessibilityContractTests
 
         string source = DesktopSource("MainWindow.cs");
         StringAssert.Contains(Between(source, "private void AddVerifyStep(", "private async Task<IReadOnlyList<ReviewedUpdateHistoryRecord>?> ReadReviewedHistoryAsync("), "Header = \"Technical details\", Content = new TextBlock { Text = outcome.TechnicalDetail, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }");
-        StringAssert.Contains(Between(source, "private StackPanel BuildRepositoryAppsPage()", DesktopWindowSource.EndOf("MainWindow.RepositoryApps.cs")), "StewardVisuals.SelectableText($\"Source: {detail.SourceId} · Package ID: {detail.PackageId}\")");
-        StringAssert.Contains(Between(source, "private StackPanel BuildReviewPage()", "private void AddReviewDecisionActions("), "StewardVisuals.SelectableText($\"{detail?.SourceId ?? StewardPresentation.Provider(row.Provider)} · {detail?.PackageId ?? \"package ID unknown\"}\")");
+        // UI review 2026-11-13 (item 14): the Repository apps and Review decisions pages are gone; package IDs are selectable on app details.
         StringAssert.Contains(Between(source, "private StackPanel BuildUpdatesPage()", "private Button UpdateRowOverflow("), "Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "IsTextSelectionEnabled = true");
         // Blame-free errors keep the technical text (exception, residuals, reset marker) behind the expander.
@@ -297,6 +297,20 @@ public sealed partial class UiAccessibilityContractTests
     {
         string presentation = DesktopSource("StewardPresentation.cs");
         StringAssert.Contains(presentation, "public sealed class StewardWrapPanel : Panel");
+        // UI review 2026-11-13 (fault 2): the lines are decided once, when the row is measured, and arranging reuses them.
+        string wrap = presentation[presentation.IndexOf("public sealed class StewardWrapPanel : Panel", StringComparison.Ordinal)..];
+        StringAssert.Contains(wrap, "measuredLines = measured.Lines;");
+        StringAssert.Contains(wrap, "WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing, LevelLines)");
+        Assert.IsFalse(wrap.Contains("> finalSize.Width", StringComparison.Ordinal), "arranging never decides a line break by comparing widths again");
+        // Owner report 2026-11-13 (release 0.1.14): a row of controls gives everything on one line the line's height, so Home's
+        // "Check for updates" (with an icon) is level with "Update all N…" beside it. Rows of text and chips do not.
+        StringAssert.Contains(presentation, "ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };");
+        Assert.AreEqual(1, Count(presentation, "LevelLines = true"));
+        // The same report: the update steps' joining lines are at the circles' middle, and a step's number is centred by its shape.
+        string steps = Between(DesktopSource("MainWindow.cs"), "private static Grid BuildJobStepIndicator(", "private static string RiskGlyph(");
+        StringAssert.Contains(steps, "StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small, LevelLines = true };");
+        StringAssert.Contains(steps, "new Border { Width = 40, Height = 1, Background = StewardVisuals.Brush(\"StewardBorderStrongBrush\"), VerticalAlignment = VerticalAlignment.Center }");
+        StringAssert.Contains(steps, "TextLineBounds = TextLineBounds.Tight, FontSize = 12,");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);");
         string source = DesktopSource("MainWindow.cs");
@@ -308,9 +322,18 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "root.Changed += OnXamlRootChanged;");
         StringAssert.Contains(source, "private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);");
         Assert.AreEqual(2, Count(source, "presenter.PreferredMinimum"), "the minimum size is set in one place");
-        // The only horizontal StackPanels left are icon+text pairs (tile heading, title-bar brand, the shield button content, and
-        // from UI polish phase 3 the job stepper's step dot and label and the Updates "Check for updates" button content).
-        Assert.AreEqual(5, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
+        // The only horizontal StackPanels left in the window are icon+text pairs (the title-bar brand, the shield button content
+        // and the job stepper's step dot and label). A button's icon and label are the shared StewardVisuals.IconLabel.
+        Assert.AreEqual(3, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
+        // Owner report 2026-11-13 (release 0.1.14): "Check for updates" was taller than a button with text only, and its label
+        // sat above the middle, on Home and on Updates. Both now use the one shared content, where the icon adds no height.
+        Assert.AreEqual(2, Count(source, "StewardVisuals.IconLabel(\"\\uE72C\", "));
+        StringAssert.Contains(source, "if (scanAction) content = StewardVisuals.IconLabel(\"\\uE72C\", label, 16);");
+        StringAssert.Contains(source, "check = new() { Content = StewardVisuals.IconLabel(\"\\uE72C\", checkLabel, 16), AccessKey = \"C\" };");
+        StringAssert.Contains(presentation, "new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
+        StringAssert.Contains(presentation, "public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);");
+        Assert.IsFalse(source.Contains("new FontIcon { Glyph = \"\\uE72C\"", StringComparison.Ordinal), "no page builds its own icon button content");
+        StringAssert.Contains(source, "new FontIcon { Glyph = \"\\uEA18\", FontSize = 16, Margin = StewardVisuals.IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
         Assert.IsFalse(source.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto", StringComparison.Ordinal), "filter rows wrap instead of scrolling sideways");
         Assert.IsTrue(Count(source, "StewardVisuals.ActionRow()") >= 12);
     }
@@ -354,7 +377,7 @@ public sealed partial class UiAccessibilityContractTests
         string window = DesktopSource("MainWindow.cs");
         foreach (string legacy in new[] { "Approved updates", "Install approved update", "Verify all", "Review available actions", "Open evidence", "Review evidence", "Review details", "External release is blocked", "Do not treat an unsigned archive" })
             Assert.IsFalse(window.Contains(legacy, StringComparison.Ordinal), legacy);
-        StringAssert.Contains(window, "Confirm all current package identities");
+        StringAssert.Contains(window, "InstalledAppsFilters.ConfirmCurrentMatchesLabel");
     }
 
     private static Dictionary<string, Dictionary<string, string>> ThemeColors()

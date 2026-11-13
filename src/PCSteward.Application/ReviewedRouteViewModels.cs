@@ -179,6 +179,15 @@ public sealed class ReviewedUpdateHistoryListViewModel
     public const string UnavailableText = "Reviewed update history is unavailable right now. Nothing was started or changed.";
     public const string LoadingText = "Loading reviewed update outcomes…";
 
+    /// <summary>
+    /// UI review 2026-11-13 (item 17): what the section is called on Activity, where it sits closed under the list. Each update's
+    /// own row says what happened; this is the record of how it was run and checked.
+    /// </summary>
+    public const string RecordTitle = "Technical record of updates";
+
+    /// <summary>The one line under <see cref="RecordTitle"/>.</summary>
+    public const string RecordDescription = "How each update was run and checked, as PC Steward recorded it.";
+
     private ReviewedUpdateHistoryListViewModel(bool isAvailable, IReadOnlyList<ReviewedUpdateHistoryItemViewModel> items)
     {
         IsAvailable = isAvailable;
@@ -189,6 +198,11 @@ public sealed class ReviewedUpdateHistoryListViewModel
 
     public bool IsAvailable { get; }
     public IReadOnlyList<ReviewedUpdateHistoryItemViewModel> Items { get; }
+    /// <summary>
+    /// True when the record should be open without being asked: it could not be read, or a record still blocks other updates.
+    /// </summary>
+    public bool NeedsAttention => !IsAvailable || Items.Any(item => item.BlocksOtherUpdates);
+
     public string Summary => !IsAvailable ? UnavailableText : Items.Count == 0 ? EmptyText :
         $"Showing {Items.Count} reviewed update record{(Items.Count == 1 ? string.Empty : "s")}, newest unresolved first.";
 

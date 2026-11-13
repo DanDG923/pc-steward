@@ -32,6 +32,34 @@ public sealed class InventoryExperienceViewModel
     /// <summary>Unfiltered locally recorded inventory for cross-page summary and update evidence.</summary>
     public IReadOnlyList<InventoryRow> AllRows => allRows;
     public IReadOnlyList<InventoryRow> VisibleRows { get; private set; } = [];
+    /// <summary>
+    /// UI review 2026-11-13 (fault 3): Installed apps opens on apps the owner recognises. Frameworks, resource packs and Windows
+    /// system packages stay in the saved inventory and on every other page, and are listed here only when this is on.
+    /// </summary>
+    public bool ShowSystemComponents { get; private set; }
+    /// <summary>The rows Installed apps lists and counts: every saved row, less system components unless they are shown.</summary>
+    public IReadOnlyList<InventoryRow> ListedRows => ShowSystemComponents ? allRows : allRows.Where(row => !InstalledAppsFilters.IsSystemComponent(row)).ToArray();
+    /// <summary>How many saved rows are system components.</summary>
+    public int SystemComponentCount => allRows.Count(InstalledAppsFilters.IsSystemComponent);
+    /// <summary>
+    /// Package ID to app name for every app matched to a package, so a recorded update can be named by its app after the update
+    /// gave the app a new record. Names only; nothing here is a trust or execution decision.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> PackageNames
+    {
+        get
+        {
+            Dictionary<string, string> names = new(StringComparer.OrdinalIgnoreCase);
+            foreach (InventoryRow row in allRows)
+            {
+                if (!UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) || string.IsNullOrWhiteSpace(detail.PackageId) || string.IsNullOrWhiteSpace(row.Name)) continue;
+                // A row named by its own package ID (WinGet's record of the app) adds nothing; prefer the app's own name.
+                if (string.Equals(row.Name, detail.PackageId, StringComparison.OrdinalIgnoreCase)) continue;
+                names.TryAdd(detail.PackageId, row.Name);
+            }
+            return names;
+        }
+    }
     public IReadOnlyCollection<string> AvailablePublishers => allRows.Select(row => row.Publisher).Where(publisher => !string.Equals(publisher, "Unknown", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(publisher => publisher, StringComparer.OrdinalIgnoreCase).ToArray();
     public string SearchText { get; private set; } = string.Empty;
     public string SourceFilter { get; private set; } = "All sources";
@@ -39,46 +67,66 @@ public sealed class InventoryExperienceViewModel
     public string ScopeFilter { get; private set; } = "All scopes";
     public string StatusFilter { get; private set; } = "All statuses";
     public string SortField { get; private set; } = "Name";
-    /// <summary>Task 73 Phase 3: the saved Installed apps filter (All, Updates, Needs review, Unmanaged, Pinned &amp; ignored).</summary>
+    /// <summary>True when the chosen order is turned round (Z to A, or the last status first).</summary>
+    public bool SortDescending { get; private set; }
+    /// <summary>Task 73 Phase 3: the saved Installed apps filter (All, Update ready, Check the match, Has an update source, No update source, Pinned, ignored &amp; skipped).</summary>
     public InstalledAppsFilter SavedFilter { get; private set; } = InstalledAppsFilter.All;
     /// <summary>The package-source snapshots from the latest assessment, for freshness in words (FR-UI-05). Presentation only.</summary>
     public IReadOnlyCollection<SourceSnapshot> Sources { get; private set; } = [];
-    public string ScanPhase { get; private set; } = "Ready for a local-only scan";
+    public string ScanPhase { get; private set; } = ReadyToScan;
     public TimeSpan Elapsed { get; private set; }
     public bool IsScanning { get; private set; }
+    /// <summary>The step the running scan is on, of <see cref="ScanSteps"/>; both are 0 when no scan is reporting steps.</summary>
+    public int ScanStep { get; private set; }
+    public int ScanSteps { get; private set; }
     public IReadOnlyCollection<string> LastScanWarnings { get; private set; } = [];
     public DateTimeOffset? LastScanAt { get; private set; }
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
     public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
     public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
-    /// <summary>Installed products with a concrete package identity from an enabled trusted repository.</summary>
-    public IReadOnlyList<InventoryRow> RepositoryManagedRows => !IsUpdateSourceEnabled ? [] : allRows
-        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable)
+    /// <summary>
+    /// Installed apps matched to a package in an update source that is turned on. UI review 2026-11-13 (item 14): these are the
+    /// apps under "Has an update source" on Installed apps, which replaces the Repository apps page.
+    /// </summary>
+    public IReadOnlyList<InventoryRow> RowsWithUpdateSource => !IsUpdateSourceEnabled ? [] : allRows
+        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable) or nameof(UpdateIntelligenceStatus.Skipped)
             && UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail)
             && !string.IsNullOrWhiteSpace(detail.SourceId)
             && !string.IsNullOrWhiteSpace(detail.PackageId))
         .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
         .ToArray();
-    public string UpdateFreshnessLabel { get; private set; } = "Local-only — no enabled update source has been checked.";
+    /// <summary>The keys of <see cref="RowsWithUpdateSource"/>, for the "Has an update source" tab and its count.</summary>
+    public IReadOnlySet<string> UpdateSourceKeys => RowsWithUpdateSource.Select(row => row.StableProductKey).ToHashSet(StringComparer.Ordinal);
+    public string UpdateFreshnessLabel { get; private set; } = "Update checks are off.";
     public IReadOnlyCollection<string> SourceFreshnessLabels { get; private set; } = [];
     public bool IsCheckingUpdates { get; private set; }
     public bool IsWinGetEnabled => Connectors.Any(connector => connector.Name == "WinGet installed inventory" && connector.IsEnabled);
     public bool IsUpdateSourceEnabled => Connectors.Any(connector => connector.Name == "WinGet package sources" && connector.IsEnabled);
     public bool IsWinGetTrustedSourcesEnabled => IsWinGetEnabled && IsUpdateSourceEnabled;
-    public string ScanModeLabel => IsWinGetEnabled ? "Windows-local inventory plus approved WinGet installed inventory" : "Local-only Windows inventory";
+    /// <summary>The scan page's resting status before any scan, and with a completed scan on screen (UI review 2026-11-13, item 8).</summary>
+    public const string ReadyToScan = "Ready to scan";
+    public const string ShowingLastScan = "Showing your last scan";
+    public string ScanModeLabel => IsWinGetEnabled ? "Apps Windows lists, plus apps WinGet lists" : "Apps Windows lists";
     public string LastScanCompletedLabel => LastScanAt is null ? "not yet" : FriendlyLocalTime(LastScanAt.Value);
-    public string FreshnessLabel => LastScanAt is null ? $"No scan yet — {ScanModeLabel}" : $"{ScanModeLabel} completed {LastScanCompletedLabel}";
+    public string FreshnessLabel => LastScanAt is null ? "Not scanned yet" : $"Last scan completed {LastScanCompletedLabel}";
 
     public void SetConnectorEnabled(string name, bool enabled)
     {
         int index = Connectors.ToList().FindIndex(connector => connector.Name == name);
         if (index < 0 || (Connectors[index].IsEssential && !enabled)) return;
         ConnectorOption connector = Connectors[index]; Connectors[index] = connector with { IsEnabled = enabled };
-        if (!IsScanning) ScanPhase = LastScanAt is null ? $"Ready for {ScanModeLabel}" : $"Cached {ScanModeLabel}";
+        if (!IsScanning) ScanPhase = LastScanAt is null ? ReadyToScan : ShowingLastScan;
+        // "Has an update source" lists nothing while update checks are off, so that tab follows the switch.
+        if (SavedFilter == InstalledAppsFilter.HasUpdateSource) ApplyFilters();
     }
 
-    public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField)
+    public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField) =>
+        SetFilters(search, status, publisher, source, scope, sortField, SortDescending);
+
+    /// <summary>The filters and the sort together; <paramref name="sortDescending"/> turns the chosen order round (UI review item 18).</summary>
+    public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField, bool sortDescending)
     {
+        SortDescending = sortDescending;
         SearchText = search?.Trim() ?? string.Empty; StatusFilter = status ?? "All statuses"; PublisherFilter = publisher ?? "All publishers"; SourceFilter = source ?? "All sources"; ScopeFilter = scope ?? "All scopes"; SortField = sortField ?? "Name"; ApplyFilters();
     }
     public void SetFilters(string? search, string? status, string? source, string? scope, string? sortField) => SetFilters(search, status, PublisherFilter, source, scope, sortField);
@@ -88,6 +136,9 @@ public sealed class InventoryExperienceViewModel
     {
         SavedFilter = Enum.IsDefined(filter) ? filter : InstalledAppsFilter.All; ApplyFilters();
     }
+
+    /// <summary>Shows or hides system components on Installed apps. Saved data never changes.</summary>
+    public void SetShowSystemComponents(bool show) { ShowSystemComponents = show; ApplyFilters(); }
 
     public void LoadInventory(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, DateTimeOffset? lastScanAt = null)
     {
@@ -99,13 +150,13 @@ public sealed class InventoryExperienceViewModel
             InstallationInstance? first = productInstances.FirstOrDefault();
             allRows.Add(new InventoryRow(product.Id, product.DisplayName, first?.Publisher ?? "Unknown", first?.Provider ?? "Unknown", first?.Scope ?? "Unknown", first?.Version ?? "Unknown", "Installed", first?.Classification ?? "Unknown", productInstances, product.StableKey));
         }
-        LastScanAt = lastScanAt; ScanPhase = lastScanAt is null ? $"Ready for a {ScanModeLabel}" : $"Cached {ScanModeLabel}"; ApplyFilters();
+        LastScanAt = lastScanAt; ScanPhase = lastScanAt is null ? ReadyToScan : ShowingLastScan; ApplyFilters();
     }
 
-    public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; }
-    public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); LastScanWarnings = result.Warnings; ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? $"{ScanModeLabel} scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
-    public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = $"No scan data — ready for {ScanModeLabel}"; }
-    public void BeginUpdateCheck() { IsCheckingUpdates = true; UpdateFreshnessLabel = "Checking approved update sources — no update will be installed."; }
+    public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; ScanStep = progress.Step; ScanSteps = progress.Steps; }
+    public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; ScanStep = 0; ScanSteps = 0; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); LastScanWarnings = result.Warnings; ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? "Scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
+    public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = ReadyToScan; }
+    public void BeginUpdateCheck() { IsCheckingUpdates = true; UpdateFreshnessLabel = "Looking for updates. Nothing is installed."; }
     public void CompleteUpdateCheck() => IsCheckingUpdates = false;
     public void LoadUpdateIntelligence(UpdateIntelligenceSummary summary)
     {
@@ -117,7 +168,7 @@ public sealed class InventoryExperienceViewModel
             allRows[index] = allRows[index] with { Status = items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item) ? item.Status.ToString() : "Installed" };
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
         SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(DescribeSource).ToArray();
-        UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Local-only — no enabled update source has been checked." : string.Join(" ", SourceFreshnessLabels);
+        UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Update checks are off." : string.Join(" ", SourceFreshnessLabels);
         string InstalledVersionFor(string stableProductKey) => allRows.FirstOrDefault(row => row.StableProductKey == stableProductKey)?.Version ?? "Unknown";
         UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item =>
         {
@@ -242,12 +293,13 @@ public sealed class InventoryExperienceViewModel
 
     private void ApplyFilters()
     {
-        IEnumerable<InventoryRow> rows = allRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));
+        IReadOnlySet<string>? withUpdateSource = SavedFilter == InstalledAppsFilter.HasUpdateSource ? UpdateSourceKeys : null;
+        IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row, withUpdateSource));
         if (!string.IsNullOrWhiteSpace(SearchText)) rows = rows.Where(row => row.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || row.Publisher.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
         if (StatusFilter != "All statuses") rows = rows.Where(row => row.Status == StatusFilter);
         if (PublisherFilter != "All publishers") rows = rows.Where(row => row.Publisher == PublisherFilter);
         if (SourceFilter != "All sources") rows = rows.Where(row => row.Provider == SourceFilter);
         if (ScopeFilter != "All scopes") rows = rows.Where(row => row.Scope == ScopeFilter);
-        VisibleRows = SortField switch { "Source" => rows.OrderBy(row => row.Provider, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray(), "Publisher" => rows.OrderBy(row => row.Publisher, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray(), _ => rows.OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray() };
+        VisibleRows = InstalledAppsFilters.Sorted(rows, SortField, SortDescending);
     }
 }

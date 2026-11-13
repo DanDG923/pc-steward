@@ -20,9 +20,11 @@ namespace PCSteward.Desktop;
 public sealed partial class MainWindow
 {
     /// <summary>
-    /// FR-POL-01–05, FR-HIS-02, FR-UI-04 (Task 73 Phase 3; audit P-M1, P-L6): an app's details. Pin, ignore and every mapping action
-    /// use the same confirmation dialogs as the lists and the Updates page; technical details are structured sections (instances,
-    /// candidates) and the app's own timeline is a list in words, not a newline dump.
+    /// FR-POL-01–05, FR-HIS-02, FR-UI-01/04 (Task 73 Phase 3; audit P-M1, P-L6; UI review 2026-11-13, item 11): an app's details.
+    /// The page leads with the answer: one headline, one sentence and at most one main button, from the portable
+    /// <see cref="AppDetailSummaryPresenter"/>, with the other decisions in a "More" menu and the facts in two columns. Pin, ignore,
+    /// skip and every match action use the same confirmation dialogs as the lists and the Updates page; "Update…" only opens the
+    /// review. Technical details are structured sections and the app's own timeline is a list in words, not a newline dump.
     /// </summary>
     private StackPanel BuildProductDetailPage()
     {
@@ -32,140 +34,194 @@ public sealed partial class MainWindow
             missing.Children.Add(StewardVisuals.PageTitle("App details"));
             Button leave = StewardVisuals.ActionButton("Open Installed apps");
             leave.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
-            missing.Children.Add(StewardVisuals.EmptyState("", "App details are no longer open", "Open an app from Installed apps, Updates or the scan results to see its details.", leave));
+            missing.Children.Add(StewardVisuals.EmptyState("", "App details are no longer open", "Open an app from Installed apps or Updates to see its details.", leave));
             return missing;
         }
 
         InventoryRow row = detailRow;
         UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
-        bool cachedCurrent = row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.Current) && detail?.Freshness.Contains("cached", StringComparison.OrdinalIgnoreCase) == true;
-        // One status vocabulary (StatusVocabulary); cached evidence stays visibly distinct in text (FR-UI-05).
-        string status = cachedCurrent ? $"{StatusVocabulary.For(row.Status).Label} · cached evidence" : StatusVocabulary.For(row.Status).Label;
+        // UI review 2026-11-13 (item 11): the page leads with the answer. The portable presenter decides the headline, the one
+        // sentence and the one main action from the same evidence as the Updates page; nothing here decides what can be updated.
+        AppDetailSummary summary = AppDetailSummaryPresenter.Build(row, detail, viewModel.IsUpdateSourceEnabled, activeDecisions, viewModel.Sources, DateTimeOffset.UtcNow);
+        bool sourceEvidenceUnavailable = row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable);
 
         StackPanel panel = CreatePagePanel();
-        Grid heading = new() { ColumnSpacing = 16 };
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        // The title bar's Back is the page's only Back button.
+        Grid heading = new() { ColumnSpacing = StewardSpacing.Large };
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        StackPanel title = new() { Spacing = 4 };
-        title.Children.Add(new TextBlock { Text = "App details", Style = AppStyle("StewardCaptionStyle") });
-        title.Children.Add(StewardVisuals.PageTitle(row.Name));
-        StewardStatus statusPresentation = StewardStatus.From(row.Status);
-        title.Children.Add(StewardVisuals.Badge(status, statusPresentation.Glyph, statusPresentation.Tone, $"{row.Name}: {status}"));
-        heading.Children.Add(title);
-        // The title bar's Back owns the "B" access key, so this page-level Back has none (no duplicate keys in one scope).
-        Button back = StewardVisuals.ActionButton("Back", "to the previous page"); back.Click += (_, _) => { detailRow = null; if (navigation.CanGoBack) GoBack(); else NavigateTo(ShellPage.InstalledApps); }; Grid.SetColumn(back, 1); heading.Children.Add(back);
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Border avatar = AppTile(row.Name, row);
+        avatar.VerticalAlignment = VerticalAlignment.Center;
+        heading.Children.Add(avatar);
+        StackPanel title = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        TextBlock name = StewardVisuals.PageTitle(row.Name);
+        detailTitle = name;
+        title.Children.Add(name);
+        title.Children.Add(new TextBlock { Text = summary.Subtitle, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        Grid.SetColumn(title, 1); heading.Children.Add(title);
         panel.Children.Add(heading);
 
-        Grid comparison = new() { ColumnSpacing = 12, RowSpacing = 12 };
-        comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        StackPanel installed = new() { Spacing = StewardSpacing.Small };
-        installed.Children.Add(SectionHeading("Installed"));
-        installed.Children.Add(StewardVisuals.EvidenceRow("Version", row.Version));
-        installed.Children.Add(StewardVisuals.EvidenceRow("Publisher", row.Publisher));
-        installed.Children.Add(StewardVisuals.EvidenceRow("Location", $"{StewardPresentation.Scope(row.Scope)} · {StewardPresentation.Provider(row.Provider)}"));
-        comparison.Children.Add(Card(installed));
-        StackPanel evidence = new() { Spacing = StewardSpacing.Small };
-        evidence.Children.Add(SectionHeading("Package source"));
-        evidence.Children.Add(StewardVisuals.EvidenceRow("Package ID", detail?.PackageId ?? "No managed package identity"));
-        evidence.Children.Add(StewardVisuals.EvidenceRow("Source", detail?.SourceId ?? "No match from a source you turned on"));
-        evidence.Children.Add(StewardVisuals.EvidenceRow("Available", detail?.CandidateVersion ?? "Not established"));
-        evidence.Children.Add(StewardVisuals.EvidenceRow("Confidence", ReviewReasonText.Confidence(detail?.Confidence)));
-        evidence.Children.Add(PageCopy(detail?.Freshness ?? "Local-only — no source check has been run."));
-        // The column goes on the card itself (the grid's child), so the two cards sit side by side instead of on top of each other.
-        Border evidenceCard = Card(evidence); Grid.SetColumn(evidenceCard, 1); comparison.Children.Add(evidenceCard);
-        panel.Children.Add(comparison);
-
-        StackPanel why = new() { Spacing = StewardSpacing.Small };
-        why.Children.Add(SectionHeading("Why this appears"));
-        why.Children.Add(PageCopy(detail?.Explanation ?? "This app was found on this PC. No package source identifies it exactly yet."));
-        IReadOnlyList<string> reasons = ReviewReasonText.DescribeAll(detail?.ReviewReasons ?? []);
-        foreach (string reason in reasons) why.Children.Add(PageCopy($"• {reason}"));
-        panel.Children.Add(Card(why));
-
-        StackPanel capability = new() { Spacing = StewardSpacing.Small };
-        capability.Children.Add(SectionHeading("What PC Steward can do"));
-        capability.Children.Add(PageCopy(detail?.ActionState ?? "Nothing happens automatically. You can record a decision or check the package source evidence."));
-        capability.Children.Add(PageCopy("This page never installs, removes or changes the app."));
-        panel.Children.Add(Card(capability));
-
-        PCSteward.Application.AdministratorRequirementPresentation administratorRequirement =
-            PCSteward.Application.AdministratorRequirementPresenter.BeforeReview();
-        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate))
+        // Match it yourself: the match-by-ID form, out of Technical details. It is built first so the lead card can open it.
+        // Audit §4: the source list shows the names rows show; the chosen index maps back to the same raw source ID as before.
+        string[] mappingSources = ["winget", "msstore"];
+        ComboBox mappingSource = FilterBox(StewardPresentation.Provider(detail?.SourceId ?? "winget"), mappingSources.Select(StewardPresentation.Provider).ToArray());
+        mappingSource.Header = "Update source";
+        AutomationProperties.SetName(mappingSource, $"Update source for matching {row.Name}");
+        TextBox mappingPackage = new() { Header = "Exact package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
+        Button map = StewardVisuals.ActionButton("Match package…", $"for {row.Name}");
+        map.IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable && !HasActiveOperation;
+        map.Click += async (_, _) =>
         {
-            panel.Children.Add(StewardVisuals.InformationBanner(administratorRequirement.Label, administratorRequirement.Explanation, "attention"));
+            string sourceId = mappingSource.SelectedIndex >= 0 && mappingSource.SelectedIndex < mappingSources.Length ? mappingSources[mappingSource.SelectedIndex] : "winget";
+            string packageId = string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text.Trim();
+            if (packageId.Length == 0) { await ShowUpdateOutcomeAsync("Package ID needed", "Enter the exact package ID first. Nothing was saved."); return; }
+            await PromptAndCreateManualMappingAsync(row, sourceId, packageId);
+        };
+        StackPanel matchForm = new() { Spacing = StewardSpacing.Medium };
+        matchForm.Children.Add(PageCopy(viewModel.IsUpdateSourceEnabled
+            ? "If you know which package is this app, enter its exact ID. PC Steward checks it before saving. You can undo the match, and it doesn't start an update."
+            : "Turn on update checks to match this app to a package."));
+        matchForm.Children.Add(mappingSource);
+        matchForm.Children.Add(mappingPackage);
+        matchForm.Children.Add(map);
+        Expander matchYourself = new() { Header = AppDetailSummaryPresenter.MatchItYourselfLabel, Content = matchForm, IsExpanded = detailMatchFormOpen, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        matchYourself.Expanding += (_, _) => detailMatchFormOpen = true;
+        matchYourself.Collapsed += (_, _) => detailMatchFormOpen = false;
+        void OpenMatchForm()
+        {
+            matchYourself.IsExpanded = true;
+            // The form is laid out once the expander opens, so it is scrolled to and focused after that layout pass.
+            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+            {
+                if (windowClosed) return;
+                matchYourself.StartBringIntoView();
+                mappingPackage.Focus(FocusState.Programmatic);
+            });
         }
 
-        bool sourceEvidenceUnavailable = row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable);
-        StackPanel decisions = new() { Spacing = 8 };
-        decisions.Children.Add(SectionHeading(sourceEvidenceUnavailable ? "Available next step" : "Decisions"));
-        if (sourceEvidenceUnavailable)
-        {
-            decisions.Children.Add(PageCopy("Refresh the package source evidence to try again. While it's unknown whether an update exists, there's nothing to approve, map, pin or ignore."));
-        }
-        else
-        {
-            // Audit P-M1: the same decisions, with the same confirmation dialogs (and optional reason), as everywhere else.
-            decisions.Children.Add(PageCopy("Each decision opens a confirmation where you can add an optional reason. Decisions are reversible on the Decisions page and never start an update."));
-        }
+        // The lead card: where the app stands, in one sentence, with at most one main button.
+        StackPanel lead = new() { Spacing = StewardSpacing.Medium };
+        Border state = StewardVisuals.Badge(summary.Headline, summary.Glyph, StewardStatus.ToneName(summary.Tone), $"{row.Name}: {summary.Headline}");
+        state.HorizontalAlignment = HorizontalAlignment.Left;
+        lead.Children.Add(state);
+        lead.Children.Add(new TextBlock { Text = summary.Sentence, Style = AppStyle("StewardBodyLargeStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        foreach (string note in summary.Notes) lead.Children.Add(StewardVisuals.IconLine("", note, styleKey: "StewardDescriptionStyle"));
         ComboBox? candidatePicker = null;
-        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: null, PackageId: null } && detail.ReviewCandidates.Count > 0 && viewModel.IsUpdateSourceEnabled)
+        if (summary.Action == AppDetailAction.ChooseMatch && detail is not null)
         {
-            decisions.Children.Add(PageCopy("Choose only a package you recognise as this installed app. PC Steward checks it again before saving your choice, which you can undo. No update starts."));
             candidatePicker = new ComboBox
             {
-                Header = "Matching packages from your sources",
+                Header = "Possible matches",
                 ItemsSource = detail.ReviewCandidates.ToArray(),
                 DisplayMemberPath = nameof(ReviewCandidateChoice.DisplayLabel),
                 SelectedIndex = 0,
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
-            AutomationProperties.SetName(candidatePicker, $"Matching packages from your sources for {row.Name}");
-            decisions.Children.Add(candidatePicker);
+            AutomationProperties.SetName(candidatePicker, $"Possible matches for {row.Name}");
+            lead.Children.Add(candidatePicker);
         }
-        StewardWrapPanel decisionActions = StewardVisuals.ActionRow();
-        if (detail is { RequiresFreshSourceEvidence: true } && viewModel.IsUpdateSourceEnabled)
+        StewardWrapPanel leadActions = StewardVisuals.ActionRow();
+        switch (summary.Action)
         {
-            decisionActions.Children.Add(CreateSourceEvidenceRefreshButton(row));
+            case AppDetailAction.Update:
+                // The same review as the Updates page, for this app alone. Nothing is installed until it is confirmed there
+                // (FR-UPD-01, AC-UPD-01), and the review says whether Windows will ask for administrator permission.
+                Button update = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : summary.ActionLabel, $"{row.Name} to {detail?.CandidateVersion}");
+                update.IsEnabled = !HasActiveOperation && reviewDecision is null;
+                AutomationProperties.SetHelpText(update, "Opens the review for this app, which says whether Windows will ask for administrator permission. Nothing is installed until you confirm there.");
+                update.Click += async (_, _) => await ReviewAndExecuteAsync([row]);
+                leadActions.Children.Add(update);
+                break;
+            case AppDetailAction.ConfirmMatch when detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true }:
+                Button same = StewardVisuals.PrimaryButton(summary.ActionLabel, $"({detail.PackageId} is {row.Name})");
+                same.IsEnabled = !HasActiveOperation;
+                AutomationProperties.SetHelpText(same, "Opens a confirmation. You can undo it later, and it doesn't start an update.");
+                same.Click += async (_, _) => await PromptAndConfirmPackageIdentityAsync(row, detail);
+                leadActions.Children.Add(same);
+                break;
+            case AppDetailAction.ChooseMatch when candidatePicker is not null:
+                Button useMatch = StewardVisuals.PrimaryButton(summary.ActionLabel, $"for {row.Name}");
+                useMatch.IsEnabled = !HasActiveOperation;
+                useMatch.Click += async (_, _) =>
+                {
+                    if (candidatePicker.SelectedItem is not ReviewCandidateChoice candidate) return;
+                    await PromptAndCreateManualMappingAsync(row, candidate.SourceId, candidate.PackageId);
+                };
+                leadActions.Children.Add(useMatch);
+                break;
+            case AppDetailAction.CheckAgain:
+                leadActions.Children.Add(CreateSourceEvidenceRefreshButton(row, summary.ActionLabel));
+                break;
+            case AppDetailAction.TurnOnUpdateChecks:
+                // The existing consent: it shows what is shared, defaults to keeping checks off and starts nothing else.
+                Button turnOn = StewardVisuals.PrimaryButton(summary.ActionLabel, "shows what is shared and asks you first");
+                AutomationProperties.SetHelpText(turnOn, HomePresenter.TurnOnUpdateChecksHelp);
+                turnOn.IsEnabled = !HasActiveOperation;
+                turnOn.Click += async (_, _) => await ChangeWinGetTrustedSourcesAsync(true);
+                leadActions.Children.Add(turnOn);
+                break;
+            case AppDetailAction.UndoDecision when summary.DecisionId is { } decisionId:
+                Button undo = StewardVisuals.ActionButton(summary.ActionLabel, $"for {row.Name}");
+                undo.IsEnabled = !HasActiveOperation;
+                undo.Click += async (_, _) => await ReverseDecisionsAsync([decisionId], []);
+                leadActions.Children.Add(undo);
+                break;
         }
-        if (candidatePicker is not null)
+        // Every other decision is in one menu. Each entry opens the same confirmation as the lists and the Updates page
+        // (audit P-M1); none of them can start an update.
+        MenuFlyout moreMenu = new();
+        foreach (UpdateRowActionPresentation action in summary.MoreActions)
         {
-            Button confirmSelected = StewardVisuals.PrimaryButton("Confirm selected identity", $"for {row.Name}");
-            confirmSelected.Click += async (_, _) =>
+            MenuFlyoutItem item = new() { Text = action.Label, Icon = new FontIcon { Glyph = action.Glyph }, IsEnabled = !HasActiveOperation };
+            AutomationProperties.SetName(item, $"{action.Label}: {row.Name}");
+            item.Click += async (_, _) =>
             {
-                if (candidatePicker.SelectedItem is not ReviewCandidateChoice candidate) return;
-                await PromptAndCreateManualMappingAsync(row, candidate.SourceId, candidate.PackageId);
+                switch (action.Action)
+                {
+                    case UpdateRowAction.PinCurrentVersion: await PromptAndPinCurrentVersionAsync(row); break;
+                    case UpdateRowAction.IgnoreApp: await PromptAndIgnoreProductAsync(row); break;
+                    case UpdateRowAction.SkipVersion when action.Version is { } version: await PromptAndSkipVersionAsync(row, version); break;
+                }
             };
-            decisionActions.Children.Add(confirmSelected);
+            moreMenu.Items.Add(item);
         }
-        if (!sourceEvidenceUnavailable)
+        if (!summary.OffersMatchItYourself && !sourceEvidenceUnavailable)
         {
-            Button pin = StewardVisuals.ActionButton("Pin current version", $"of {row.Name} ({row.Version})");
-            pin.IsEnabled = !HasActiveOperation;
-            pin.Click += async (_, _) => await PromptAndPinCurrentVersionAsync(row);
-            decisionActions.Children.Add(pin);
-            Button ignore = StewardVisuals.ActionButton("Ignore…", $"{row.Name}: choose how long");
-            ignore.IsEnabled = !HasActiveOperation;
-            ignore.Click += async (_, _) => await PromptAndIgnoreProductAsync(row);
-            decisionActions.Children.Add(ignore);
+            MenuFlyoutItem matchItem = new() { Text = $"{AppDetailSummaryPresenter.MatchItYourselfLabel}…" };
+            AutomationProperties.SetName(matchItem, $"{AppDetailSummaryPresenter.MatchItYourselfLabel}: {row.Name}");
+            matchItem.Click += (_, _) => OpenMatchForm();
+            moreMenu.Items.Add(matchItem);
         }
-        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true } && viewModel.IsUpdateSourceEnabled)
+        if (moreMenu.Items.Count > 0)
         {
-            decisions.Children.Add(PageCopy($"Confirm this only if you recognise {detail.PackageId} from {detail.SourceId} as this installed app. You can undo it, and it doesn't start an update."));
-            Button confirmPackage = StewardVisuals.ActionButton("Confirm package identity", $"({detail.PackageId} is this installed app)");
-            confirmPackage.Click += async (_, _) => await PromptAndConfirmPackageIdentityAsync(row, detail);
-            decisionActions.Children.Add(confirmPackage);
+            DropDownButton more = new() { Content = "More", Flyout = moreMenu };
+            StewardVisuals.Named(more, "More", $"options for {row.Name}");
+            leadActions.Children.Add(more);
         }
-        if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate) && viewModel.IsUpdateSourceEnabled && !isExecuting)
+        if (summary.OffersMatchItYourself)
         {
-            Button review = StewardVisuals.PrimaryButton("Review and update", $"this verified package. {administratorRequirement.Label}");
-            AutomationProperties.SetHelpText(review, administratorRequirement.Explanation);
-            review.IsEnabled = !HasActiveOperation && reviewDecision is null;
-            review.Click += async (_, _) => await ReviewAndExecuteAsync([row]);
-            decisionActions.Children.Add(review);
+            HyperlinkButton matchLink = new() { Content = AppDetailSummaryPresenter.MatchItYourselfLabel, VerticalAlignment = VerticalAlignment.Center };
+            StewardVisuals.Named(matchLink, AppDetailSummaryPresenter.MatchItYourselfLabel, $"({row.Name})");
+            matchLink.Click += (_, _) => OpenMatchForm();
+            leadActions.Children.Add(matchLink);
         }
-        decisions.Children.Add(decisionActions);
-        panel.Children.Add(Card(decisions));
+        if (leadActions.Children.Count > 0) lead.Children.Add(leadActions);
+        panel.Children.Add(Card(lead));
+
+        // The facts, in two columns that stack on a narrow window.
+        List<FrameworkElement> factCards = [];
+        StackPanel onThisPc = new() { Spacing = StewardSpacing.Small };
+        onThisPc.Children.Add(SectionHeading(AppDetailSummaryPresenter.OnThisPcTitle));
+        foreach (AppDetailFact fact in summary.OnThisPc) onThisPc.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+        factCards.Add(Card(onThisPc));
+        if (summary.FromSource.Count > 0)
+        {
+            StackPanel fromSource = new() { Spacing = StewardSpacing.Small };
+            fromSource.Children.Add(SectionHeading(summary.SourceTitle));
+            foreach (AppDetailFact fact in summary.FromSource) fromSource.Children.Add(StewardVisuals.EvidenceRow(fact.Label, fact.Value));
+            factCards.Add(Card(fromSource));
+        }
+        panel.Children.Add(StewardVisuals.ResponsiveColumns([.. factCards], 340, StewardSpacing.Medium, factCards.Count));
 
         if (ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail?.SourceId) && ChocolateyPackageUpdateAdmission.IsOwnerApproved &&
             detail?.PackageId is { } chocolateyPackageId && ChocolateyPackageUpdateReviewSession.IsSelectablePackage(chocolateyPackageId))
@@ -203,9 +259,9 @@ public sealed partial class MainWindow
 
         // FR-HIS-02: the app's own timeline as a list, newest first.
         StackPanel history = new() { Spacing = 0 };
-        history.Children.Add(SectionHeading("History for this app"));
+        history.Children.Add(SectionHeading("History"));
         IReadOnlyList<ProductTimelineItem> timeline = AppDetailPresenter.Timeline(detailTimeline);
-        if (timeline.Count == 0) history.Children.Add(PageCopy("No events are recorded for this app yet."));
+        if (timeline.Count == 0) history.Children.Add(PageCopy("Nothing is recorded for this app yet."));
         foreach (ProductTimelineItem item in timeline)
         {
             Border entry = StewardVisuals.ActivityRow(item.When, item.Glyph, item.Title, item.Detail ?? string.Empty);
@@ -214,35 +270,27 @@ public sealed partial class MainWindow
         }
         panel.Children.Add(Card(history));
 
-        // Technical details: structured sections instead of newline-joined text (audit P-L6).
+        panel.Children.Add(matchYourself);
+
+        // Technical details: what the matcher recorded and the raw evidence, as structured sections (audit P-L6). This is where
+        // package evidence, recorded reasons and source plumbing live, so the top of the page can stay short.
         StackPanel technical = new() { Spacing = StewardSpacing.Medium };
+        technical.Children.Add(SectionHeading("Why PC Steward says this", AutomationHeadingLevel.Level3));
+        technical.Children.Add(StewardVisuals.SelectableText(detail?.Explanation ?? "This app was found on this PC. No update source identifies it exactly yet."));
+        foreach (string reason in ReviewReasonText.DescribeAll(detail?.ReviewReasons ?? [])) technical.Children.Add(StewardVisuals.SelectableText($"• {reason}"));
+        technical.Children.Add(StewardVisuals.EvidenceRow("Status", StatusVocabulary.For(row.Status).Label));
+        technical.Children.Add(StewardVisuals.EvidenceRow("Found by", $"{StewardPresentation.Provider(row.Provider)} · {StewardPresentation.Scope(row.Scope)}"));
+        technical.Children.Add(StewardVisuals.EvidenceRow("Update source", detail?.SourceId ?? "None matched"));
+        technical.Children.Add(StewardVisuals.EvidenceRow("Package ID", detail?.PackageId ?? "None matched"));
+        technical.Children.Add(StewardVisuals.EvidenceRow("Last check", detail?.Freshness ?? "Local-only: update checks haven't run for this app."));
         technical.Children.Add(SectionHeading("Installed instances", AutomationHeadingLevel.Level3));
         IReadOnlyList<DetailItem> instances = AppDetailPresenter.Instances(row.Instances);
         if (instances.Count == 0) technical.Children.Add(PageCopy("No installed instance details are recorded."));
         foreach (DetailItem instance in instances) technical.Children.Add(DetailItemCard(instance));
-        technical.Children.Add(SectionHeading("Packages found in your sources", AutomationHeadingLevel.Level3));
+        technical.Children.Add(SectionHeading("Packages found in your update sources", AutomationHeadingLevel.Level3));
         IReadOnlyList<DetailItem> candidates = AppDetailPresenter.Candidates(detail?.ReviewCandidates ?? []);
-        if (candidates.Count == 0) technical.Children.Add(PageCopy("No packages were found in your sources."));
+        if (candidates.Count == 0) technical.Children.Add(PageCopy("No packages were found in your update sources."));
         foreach (DetailItem candidate in candidates) technical.Children.Add(DetailItemCard(candidate));
-        technical.Children.Add(SectionHeading("Match a package by ID", AutomationHeadingLevel.Level3));
-        // Audit §4: the source list shows the names rows show; the chosen index maps back to the same raw source ID as before.
-        string[] mappingSources = ["winget", "msstore"];
-        ComboBox mappingSource = FilterBox(StewardPresentation.Provider(detail?.SourceId ?? "winget"), mappingSources.Select(StewardPresentation.Provider).ToArray());
-        mappingSource.Header = "Source";
-        AutomationProperties.SetName(mappingSource, $"Source for matching {row.Name}");
-        TextBox mappingPackage = new() { Header = "Exact package ID", PlaceholderText = detail?.PackageId ?? "For example: Contoso.Widget" };
-        technical.Children.Add(mappingSource);
-        technical.Children.Add(mappingPackage);
-        Button map = StewardVisuals.ActionButton("Match package…", $"for {row.Name}");
-        map.IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable && !HasActiveOperation;
-        map.Click += async (_, _) =>
-        {
-            string sourceId = mappingSource.SelectedIndex >= 0 && mappingSource.SelectedIndex < mappingSources.Length ? mappingSources[mappingSource.SelectedIndex] : "winget";
-            string packageId = string.IsNullOrWhiteSpace(mappingPackage.Text) ? detail?.PackageId ?? string.Empty : mappingPackage.Text.Trim();
-            if (packageId.Length == 0) { await ShowUpdateOutcomeAsync("Package ID needed", "Enter the exact package ID first. Nothing was saved."); return; }
-            await PromptAndCreateManualMappingAsync(row, sourceId, packageId);
-        };
-        technical.Children.Add(map);
         technical.Children.Add(PageCopy($"Technical records kept for troubleshooting: {detailRaw.Count.ToString("N0", CultureInfo.CurrentCulture)}."));
         Expander disclosure = new() { Header = "Technical details", Content = technical, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         panel.Children.Add(disclosure);
@@ -263,8 +311,88 @@ public sealed partial class MainWindow
     private async Task ShowDetailsAsync(InventoryRow row)
     {
         detailRow = row;
+        detailMatchFormOpen = false;
         try { detailRaw = await DataOperationLease.RunReadAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunReadAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        // UI review 2026-11-13 (item 19): on a wide window a list keeps its place and the details open beside it. The list is
+        // not rebuilt, so it stays where the owner scrolled it; focus stays on the list and a screen reader is told what opened.
+        if (shellContent is not null && PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))
+        {
+            detailPaneOpen = true;
+            ShowDetailPane(rebuild: true);
+            StewardVisuals.Announce(detailPaneScroll, PageLayout.DetailsShownAnnouncement(row.Name), "details-beside-list");
+            return;
+        }
         NavigateTo(ShellPage.Detail);
+    }
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 19; FR-UI-01/04/05): shows, refreshes or hides the details column beside a list. The column
+    /// holds exactly what the details page builds (<see cref="BuildProductDetailPage"/>), so every action in it is the same
+    /// action with the same confirmation. It is shown only for an app the owner opened from Updates or Installed apps while the
+    /// content area is wide enough (<see cref="PageLayout.ShowsDetailsBeside"/>); otherwise it is hidden and emptied.
+    /// </summary>
+    private void ShowDetailPane(bool rebuild)
+    {
+        if (detailPaneHost is null || detailPaneScroll is null || shellContent is null) return;
+        if (!detailPaneOpen || detailRow is null || !PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))
+        {
+            detailPaneHost.Visibility = Visibility.Collapsed;
+            detailPaneScroll.Content = null;
+            detailPaneKey = null;
+            // A line that confirmed a choice in the column goes with the column, as it does when its page is left.
+            if (decisionNoticeInDetailPane) { decisionNotice = null; decisionNoticeInDetailPane = false; }
+            return;
+        }
+        detailPaneHost.Width = PageLayout.DetailsPaneWidth(shellContent.ActualWidth);
+        if (rebuild || detailPaneScroll.Content is null)
+        {
+            // The same app refreshed keeps its place in the column; another app starts at the top.
+            bool sameApp = string.Equals(detailPaneKey, detailRow.StableProductKey, StringComparison.Ordinal);
+            // The line that confirms a saved choice belongs to the app it was made for: another app in the column drops it.
+            if (decisionNoticeInDetailPane && !sameApp) { decisionNotice = null; decisionNoticeInDetailPane = false; }
+            // A line that has just been added is at the top of the column, so the column starts there and it is seen.
+            double offset = sameApp && !(decisionNoticeIsNew && decisionNoticeInDetailPane) ? detailPaneScroll.VerticalOffset : 0;
+            StackPanel details = BuildDetailPane(detailRow);
+            detailPaneKey = detailRow.StableProductKey;
+            detailPaneScroll.Content = details;
+            AutomationProperties.SetName(detailPaneScroll, PageLayout.DetailsPaneName(detailRow.Name));
+            StewardVisuals.FitPageColumn(detailPaneScroll);
+            if (offset <= 0) detailPaneScroll.ChangeView(null, 0, null, true);
+            else
+            {
+                // Like the page host: the rebuilt content has to be laid out before its saved offset can be reached.
+                ScrollViewer column = detailPaneScroll;
+                DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                {
+                    if (!windowClosed && ReferenceEquals(column.Content, details)) RestoreScrollOffset(column, details, offset);
+                });
+            }
+        }
+        detailPaneHost.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// The details page's own content, laid out for the column: tighter padding, a "Close details" button first, and the app's
+    /// name as a level-2 heading because the list page beside it already has the level-1 title.
+    /// </summary>
+    private StackPanel BuildDetailPane(InventoryRow row)
+    {
+        StackPanel details = BuildProductDetailPage();
+        details.Padding = new Thickness(StewardSpacing.XLarge, StewardSpacing.Medium, StewardSpacing.XLarge, StewardSpacing.XLarge);
+        if (detailTitle is not null) AutomationProperties.SetHeadingLevel(detailTitle, AutomationHeadingLevel.Level2);
+        Button close = StewardVisuals.ActionButton(PageLayout.CloseDetailsLabel, $"for {row.Name}");
+        close.HorizontalAlignment = HorizontalAlignment.Right;
+        close.Click += (_, _) =>
+        {
+            detailPaneOpen = false;
+            ShowDetailPane(rebuild: false);
+            // The button is gone with the column, so the keyboard goes back to the page it was beside.
+            FocusRegionElement(FocusRegion.Page);
+        };
+        details.Children.Insert(0, close);
+        // FR-POL-03/05: what was just saved for this app, with Undo, in the column the choice was made in.
+        if (decisionNoticeInDetailPane && decisionNotice is { } saved) details.Children.Insert(1, DecisionNoticeBar(saved));
+        return details;
     }
 }

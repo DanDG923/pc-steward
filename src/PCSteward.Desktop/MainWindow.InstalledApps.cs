@@ -23,7 +23,8 @@ public sealed partial class MainWindow
     /// <summary>
     /// FR-UI-01, AC-UX-03 (Task 73 Phase 3; ADR-030 decision 5; audit P-L7): saved filters (All, Updates, Needs review, No update source,
     /// Pinned &amp; ignored) with counts over every saved app, search, and the detailed filters behind "Filters". The list stays
-    /// virtualized with a bounded height inside the page host; phase 5 grows that height to the bottom of the window. Repository apps stays reachable from the header's More options.
+    /// virtualized with a bounded height inside the page host; phase 5 grows that height to the bottom of the window. UI review 2026-11-13
+    /// (item 14): the Repository apps page is now the "Has an update source" tab here.
     /// UI polish phase 4 (approved target T-Installed): a quiet freshness line, filter tabs, one toolbar (search, sort, Filters and
     /// the count), column headings, and the list in one card. "No update source" is plain text with a calm footnote, not a badge
     /// on every row. Owner decision 2026-11-11: every inventory record keeps its own row here (Updates shows same-app records once).
@@ -31,28 +32,20 @@ public sealed partial class MainWindow
     private StackPanel BuildInstalledAppsPage()
     {
         StackPanel panel = CreatePagePanel();
-        Button scan = StewardVisuals.ActionButton("Scan again", "(read-only scan of this PC)");
+        Button scan = StewardVisuals.ActionButton("Scan again", "(reads the installed apps on this PC)");
         scan.IsEnabled = !HasActiveOperation;
         scan.AccessKey = "S";
         scan.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
-        MenuFlyoutItem repositoryApps = new() { Text = "Repository apps", Icon = new FontIcon { Glyph = "\uE74C" } };
-        repositoryApps.Click += (_, _) => NavigateTo(ShellPage.RepositoryApps);
-        MenuFlyout moreMenu = new();
-        moreMenu.Items.Add(repositoryApps);
-        Button more = new() { Content = new FontIcon { Glyph = "\uE712", FontSize = 16 }, Flyout = moreMenu, Padding = new Thickness(StewardSpacing.Small) };
-        AutomationProperties.SetName(more, "More options");
-        ToolTipService.SetToolTip(more, "More options");
-        StewardWrapPanel headerActions = StewardVisuals.ActionRow();
-        headerActions.Children.Add(scan);
-        headerActions.Children.Add(more);
-        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", "Everything Windows reports on this PC. Searching and filtering never change anything.", null, headerActions));
+        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", InstalledAppsFilters.PageDescription, null, scan));
         // When the inventory was last read is a fact, not a warning, so it is a quiet line rather than a banner.
-        panel.Children.Add(StewardVisuals.FootNote("\uE81C", viewModel.FreshnessLabel));
+        panel.Children.Add(StewardVisuals.FootNote("\uE81C", InstalledAppsFilters.ScannedText(viewModel.LastScanAt, DateTimeOffset.UtcNow)));
 
         // Saved filters: the same words as the status chips, and counts over every saved app ("All" really is all).
         // Audit P-M9: filter tabs wrap instead of scrolling sideways or clipping.
         List<Button> savedFilters = [];
-        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.AllRows))
+        // UI review 2026-11-13 (fault 3): the tabs count what the list can show, so system components count only when they are listed.
+        // UI review 2026-11-13 (item 14): "Has an update source" lists the apps the Repository apps page used to.
+        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows, viewModel.UpdateSourceKeys))
         {
             bool selected = viewModel.SavedFilter == option.Filter;
             // The selected filter stays focusable (bold label, accent bar and "Selected" item status) so a refresh can restore focus to it.
@@ -76,7 +69,7 @@ public sealed partial class MainWindow
         ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", .. viewModel.AvailablePublishers]);
         ComboBox source = FilterBox(FilterLabelFor(viewModel.SourceFilter, sourceOptions), ["All sources", .. sourceOptions.Select(option => option.Label)]);
         ComboBox scope = FilterBox(FilterLabelFor(viewModel.ScopeFilter, scopeOptions), ["All scopes", .. scopeOptions.Select(option => option.Label)]);
-        ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
+        ComboBox sort = FilterBox(viewModel.SortField, InstalledAppsFilters.SortOptions);
         status.Header = "Status"; publisher.Header = "Publisher"; source.Header = "Source"; scope.Header = "Scope";
         AutomationProperties.SetName(status, "Filter applications by status"); AutomationProperties.SetName(publisher, "Filter applications by publisher"); AutomationProperties.SetName(source, "Filter applications by source"); AutomationProperties.SetName(scope, "Filter applications by scope"); AutomationProperties.SetName(sort, "Sort applications");
         foreach (ComboBox box in new[] { status, publisher, source, scope }) box.MinWidth = 200;
@@ -96,6 +89,8 @@ public sealed partial class MainWindow
         TextBlock matching = new() { Style = AppStyle("StewardBodyStyle"), VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetLiveSetting(matching, AutomationLiveSetting.Polite);
         StewardWrapPanel sortGroup = StewardVisuals.ActionRow();
+        // A row inside the toolbar's row: it keeps its own height and sits in the middle of the toolbar's line.
+        sortGroup.VerticalAlignment = VerticalAlignment.Center;
         sortGroup.Children.Add(new TextBlock { Text = "Sort by", Style = AppStyle("StewardBodyStyle"), VerticalAlignment = VerticalAlignment.Center });
         sortGroup.Children.Add(sort);
         StewardWrapPanel toolbar = StewardVisuals.ActionRow();
@@ -103,40 +98,124 @@ public sealed partial class MainWindow
         toolbar.Children.Add(sortGroup);
         toolbar.Children.Add(filtersToggle);
         toolbar.Children.Add(matching);
+        // UI review 2026-11-13 (fault 3): frameworks, resource packs and Windows system packages are listed only on request, so
+        // the page opens on apps the owner recognises. The switch is offered only when the inventory has some.
+        int systemComponents = viewModel.SystemComponentCount;
+        if (systemComponents > 0)
+        {
+            CheckBox showSystem = new() { Content = InstalledAppsFilters.SystemComponentsLabel(systemComponents), IsChecked = viewModel.ShowSystemComponents, VerticalAlignment = VerticalAlignment.Center, MinWidth = 0 };
+            StewardVisuals.Named(showSystem, InstalledAppsFilters.SystemComponentsLabel(systemComponents), "(frameworks and parts of Windows)");
+            showSystem.Click += (_, _) => { viewModel.SetShowSystemComponents(showSystem.IsChecked == true); Render(); };
+            toolbar.Children.Add(showSystem);
+        }
         panel.Children.Add(toolbar);
         panel.Children.Add(moreFilters);
+        // UI review 2026-11-13 (item 14): matches that only need a yes can be confirmed together, here under "Check the match".
+        // The line counts the apps the list shows now, so a search or filter narrows what would be confirmed, and the dialog
+        // names them. The confirmation dialog, the validation of each match and Undo on Decisions are unchanged; nothing is updated.
+        InventoryRow[] currentMatches = [];
+        TextBlock confirmText = new() { Foreground = StewardVisuals.Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Button confirmAll = StewardVisuals.ActionButton(InstalledAppsFilters.ConfirmCurrentMatchesLabel, "(the listed apps that are already on the version their match lists)");
+        confirmAll.IsEnabled = !HasActiveOperation;
+        confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);
+        Grid.SetColumn(confirmAll, 1);
+        Grid confirmRow = new() { ColumnSpacing = StewardSpacing.Large, Visibility = Visibility.Collapsed };
+        confirmRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        confirmRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        confirmRow.Children.Add(confirmText);
+        confirmRow.Children.Add(confirmAll);
+        panel.Children.Add(confirmRow);
 
         // Bounded height keeps the list virtualized inside the page's own scroll host (wheel scrolling chains to the page at the ends).
         // Phase 5: the bound follows the window, so the card reaches the bottom of a tall window (never shorter than MinimumListHeight).
         ListView list = new() { Style = AppStyle("StewardListViewStyle"), ItemContainerStyle = AppStyle("StewardListItemStyle"), ItemTemplate = (DataTemplate)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardApplicationRowTemplate"] };
+        AutomationProperties.SetName(list, "Installed apps list");
+        AutomationProperties.SetAutomationId(list, "InstalledAppsList");
+        ShowAppIconsInRows(list);
         Border listCard = new() { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall), Child = list };
         StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);
-        Border empty = StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters. The saved inventory hasn't changed.");
+        // "Has an update source" lists nothing while update checks are off, so its empty state says that and opens Settings.
+        bool checksOff = viewModel.SavedFilter == InstalledAppsFilter.HasUpdateSource && !viewModel.IsUpdateSourceEnabled;
+        Button? openSettings = null;
+        if (checksOff)
+        {
+            openSettings = StewardVisuals.ActionButton("Open Settings", "(to turn on update checks)");
+            openSettings.Click += (_, _) => NavigateTo(ShellPage.Settings);
+        }
+        Border empty = checksOff
+            ? StewardVisuals.EmptyState("\uE721", InstalledAppsFilters.ChecksOffTitle, InstalledAppsFilters.ChecksOffMessage, openSettings)
+            : StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters to see more apps.");
         // Column headings line up with StewardApplicationRowTemplate (32 | 3* | 1* | 1* | 1.4* | 16), inside the card's row padding.
         Grid columns = new() { Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0), ColumnSpacing = StewardSpacing.Large };
         foreach (GridLength width in new[] { new GridLength(32), new GridLength(3, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1.4, GridUnitType.Star), new GridLength(16) })
             columns.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
-        string[] headings = ["Name", "Version", "Installed for", "Update source"];
-        for (int index = 0; index < headings.Length; index++)
+        // UI review 2026-11-13 (item 18): Name, Installed for and Status sort the list when selected, and turn the order round
+        // when selected again. The "Sort by" list stays in step, and also offers Source and Publisher.
+        IReadOnlyList<string> headings = InstalledAppsFilters.ColumnHeadings;
+        bool sortDescending = viewModel.SortDescending;
+        List<(Button Heading, FontIcon Arrow, string Field)> sortHeadings = [];
+        for (int index = 0; index < headings.Count; index++)
         {
-            TextBlock heading = new() { Text = headings[index], Style = AppStyle("StewardCaptionStyle") };
-            Grid.SetColumn(heading, index + 1);
-            columns.Children.Add(heading);
+            string field = headings[index];
+            TextBlock heading = new() { Text = headings[index], Style = AppStyle("StewardCaptionStyle"), VerticalAlignment = VerticalAlignment.Center };
+            FrameworkElement cell = heading;
+            if (InstalledAppsFilters.SortsWhenSelected(field))
+            {
+                FontIcon arrow = new() { FontSize = 10, Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), VerticalAlignment = VerticalAlignment.Center };
+                Grid label = new() { ColumnSpacing = StewardSpacing.XSmall };
+                label.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                label.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                label.Children.Add(heading);
+                Grid.SetColumn(arrow, 1);
+                label.Children.Add(arrow);
+                Button sortBy = new() { Content = label, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), Padding = new Thickness(0), MinHeight = 32, HorizontalAlignment = HorizontalAlignment.Left };
+                AutomationProperties.SetName(sortBy, InstalledAppsFilters.SortHeadingName(field));
+                sortHeadings.Add((sortBy, arrow, field));
+                cell = sortBy;
+            }
+            Grid.SetColumn(cell, index + 1);
+            columns.Children.Add(cell);
         }
         AutomationProperties.SetAccessibilityView(columns, AccessibilityView.Raw);
+        void ShowSort()
+        {
+            foreach ((Button sortBy, FontIcon arrow, string field) in sortHeadings)
+            {
+                bool sorted = string.Equals(viewModel.SortField, field, StringComparison.Ordinal);
+                arrow.Glyph = viewModel.SortDescending ? "\uE70D" : "\uE70E";
+                arrow.Visibility = Shown(sorted);
+                AutomationProperties.SetItemStatus(sortBy, InstalledAppsFilters.SortState(sorted, viewModel.SortDescending));
+            }
+        }
+        void SortBy(string field)
+        {
+            bool same = string.Equals(viewModel.SortField, field, StringComparison.Ordinal);
+            sortDescending = same && !viewModel.SortDescending;
+            // A different column is chosen through the "Sort by" list, whose change applies it.
+            if (same) { ApplyFilters(); ShowSort(); } else sort.SelectedItem = field;
+        }
         void ApplyFilters()
         {
-            viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
+            viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString(), sortDescending);
             RenderInventory(list);
-            matching.Text = InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.AllRows.Count);
+            currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.VisibleRows
+                .Where(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))
+                .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)];
+            confirmText.Text = InstalledAppsFilters.ConfirmCurrentMatchesText(currentMatches.Length);
+            confirmRow.Visibility = currentMatches.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            matching.Text = InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.ListedRows.Count);
             bool none = viewModel.VisibleRows.Count == 0;
             listCard.Visibility = none ? Visibility.Collapsed : Visibility.Visible;
             columns.Visibility = listCard.Visibility;
             empty.Visibility = none ? Visibility.Visible : Visibility.Collapsed;
         }
-        search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); sort.SelectionChanged += (_, _) => ApplyFilters();
+        search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); 
+        // Choosing another order from the list starts it the usual way round; a heading that asked for this change has already set that.
+        sort.SelectionChanged += (_, _) => { if (!string.Equals(viewModel.SortField, sort.SelectedItem?.ToString(), StringComparison.Ordinal)) sortDescending = false; ApplyFilters(); ShowSort(); };
+        foreach ((Button sortBy, _, string field) in sortHeadings) sortBy.Click += (_, _) => SortBy(field);
         list.ItemClick += async (_, args) => await ShowDetailsAsync(((ApplicationListItem)args.ClickedItem).Row);
         ApplyFilters();
+        ShowSort();
         StackPanel table = new() { Spacing = 6 };
         table.Children.Add(columns);
         table.Children.Add(listCard);
@@ -148,7 +227,7 @@ public sealed partial class MainWindow
         return panel;
     }
 
-    /// <summary>The Installed apps list is never shorter than this (about six rows), so a short window scrolls the page instead.</summary>
+    /// <summary>The Installed apps list is never shorter than this (about five rows), so a short window scrolls the page instead.</summary>
     private const double MinimumListHeight = 320;
 
     private static (string Raw, string Label)[] LabelledFilterOptions(IEnumerable<string> rawValues, Func<string, string> label) => rawValues

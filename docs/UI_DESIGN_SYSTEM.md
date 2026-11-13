@@ -73,13 +73,17 @@ The shell also owns:
 
 The UI maps domain states to these user-facing labels:
 
-- Update ready to review
-- Needs your decision
+- Update ready
+- Check the match
+- Couldn't check
 - Up to date
-- Inventoried only
-- Source unavailable
+- No update source
 - Pinned
 - Ignored
+- Skipped
+- Not checked yet
+
+Each state has this one name on every chip, filter, tab and count (UI review 2026-11-13, item 5; `StatusVocabulary`).
 
 Status glyph, label, and semantic tone travel together. “Unmanaged,” “unsafe,” “critical,” “fix all,” overall health scores, and invented risk grades are not used.
 
