@@ -161,6 +161,16 @@ function Get-AppIconCount([Windows.Automation.AutomationElement]$Root) {
     try { return @($Root.FindAll([Windows.Automation.TreeScope]::Descendants, $byIcon) | Where-Object { $_.Current.BoundingRectangle.Width -gt 0 }).Count } finally { $active.Dispose() }
 }
 
+# Owner report 2026-11-13 (a status badge read lower than the title beside it): a badge's label is measured by its capital
+# letters (TextLineBounds Tight), so centring it puts the letters, not the text box, at the pill's middle. At 100% a one-line
+# 12-size label is about 9 high when that holds and 16 when the full text box is still in use.
+function Write-BadgeLabel([Windows.Automation.AutomationElement]$Root, [string]$Where) {
+    $byLabel = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'StatusBadgeLabel')
+    $labels = @($Root.FindAll([Windows.Automation.TreeScope]::Descendants, $byLabel) | Where-Object { !$_.Current.IsOffscreen -and $_.Current.BoundingRectangle.Height -gt 0 })
+    if ($labels.Count -eq 0) { Write-Line ('LAYOUT-BADGE-LABEL where=' + $Where + ' skipped (no badge on screen)'); return }
+    $heights = @($labels | ForEach-Object { [Math]::Round($_.Current.BoundingRectangle.Height, 1) } | Sort-Object -Unique)
+    Write-Line ('LAYOUT-BADGE-LABEL where=' + $Where + ' count=' + $labels.Count + ' first="' + $labels[0].Current.Name + '" heights=' + ($heights -join ',') + ' capHeightBox=' + ($heights[0] -le 12))
+}
 function Open-Page([Windows.Automation.AutomationElement]$Root, [string]$Page) {
     $item = Find-Named $Root $Page ([Windows.Automation.ControlType]::ListItem)
     if ($null -eq $item) { return $false }
@@ -235,6 +245,7 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
             }
         } catch { Write-Line ('LAYOUT-APP-ICONS skipped: ' + $_.Exception.Message) }
         Save-Screenshot $handle '08-Installed-apps-after-scan'
+        try { Write-BadgeLabel $list 'installed-list' } catch { Write-Line ('LAYOUT-BADGE-LABEL skipped: ' + $_.Exception.Message) }
         # UI review 2026-11-13 (item 19): on this wide window an app opened from the list shows its details beside the list.
         try {
             $first = $list.FindFirst([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem))
@@ -256,6 +267,7 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
                 $unnamedTotal += Write-Tree $pane 'Details beside the list'
                 # ADR-035: the details column's tile is built in code, not from the list's template; 1 when the opened app has an icon.
                 Write-Line ('LAYOUT-APP-ICONS details=' + (Get-AppIconCount $pane) + ' openedRowHadIcon=' + $rowHasIcon)
+                Write-BadgeLabel $pane 'details'
                 $close = Find-Named $pane 'Close details' ([Windows.Automation.ControlType]::Button)
                 if ($null -ne $close) {
                     ($close.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); Start-Sleep -Seconds 2

@@ -92,13 +92,16 @@
                         FontSize="12"
                         Foreground="{Binding StatusForeground}"
                         Glyph="{Binding StatusGlyph}" />
+                    <!-- TextLineBounds Tight: the label's box is the capital letters' height, so the letters sit at the pill's middle. -->
                     <TextBlock
                         Grid.Column="1"
                         VerticalAlignment="Center"
+                        AutomationProperties.AutomationId="StatusBadgeLabel"
                         FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{Binding StatusForeground}"
                         Text="{Binding StatusLabel}"
+                        TextLineBounds="Tight"
                         TextWrapping="Wrap" />
                 </Grid>
             </Border>

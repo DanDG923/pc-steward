@@ -387,10 +387,12 @@ public sealed partial class MainWindow
             well.VerticalAlignment = VerticalAlignment.Top;
             row.Children.Add(well);
             StackPanel card = new() { Spacing = 2 };
-            StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
-            TextBlock name = new() { Text = $"{item.AppName} {item.TargetVersion}", Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+            // Owner report 2026-11-13: the outcome badge sat lower than the app's name. The name's letters and the badge now share
+            // one middle line (StewardVisuals.TitleRow and CapCentred).
+            StewardWrapPanel title = StewardVisuals.TitleRow();
+            TextBlock name = new() { Text = $"{item.AppName} {item.TargetVersion}", Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap };
             AutomationProperties.SetHeadingLevel(name, groups.Count > 0 ? AutomationHeadingLevel.Level3 : AutomationHeadingLevel.Level2);
-            title.Children.Add(name);
+            title.Children.Add(StewardVisuals.CapCentred(name));
             Border badge = StewardVisuals.Badge(outcome.Label, outcome.Glyph, tone, outcome.AccessibleName(item.AppName));
             badge.VerticalAlignment = VerticalAlignment.Center;
             title.Children.Add(badge);
