@@ -221,14 +221,16 @@ public static class UpdateIntelligence
     /// The source lists the matched package as installed with no newer version (its installed and available versions are the same),
     /// but the app's own version text differs, because the uninstall entry and the package number the same release differently
     /// (MEGAsync's entry says 6.7.0 where WinGet lists package 6.7.0.3). Nothing newer exists, so nothing would run: the comparison is
-    /// treated as equal and the same-version rules above decide (current, not confirmed, or a conflict that still needs review). It
-    /// can only take an update away, never offer one.
+    /// treated as equal and the same-version rules above decide (current, or not confirmed). A match with a known conflict is left as
+    /// it is, so it stays a review item. It can only take an update away, never offer one.
     /// </summary>
     private static PackageMapping UseSourceReportsNoNewerVersion(PackageMapping mapping, IReadOnlyCollection<SourceSnapshot> snapshots)
     {
         if (mapping.Origin is not (MappingOrigin.Automatic or MappingOrigin.ProviderSupplied) ||
             mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal ||
-            mapping.ReviewReasons.Contains(MappingReviewReason.SourceDisagreement))
+            mapping.ReviewReasons.Any(reason => reason is MappingReviewReason.SourceDisagreement or MappingReviewReason.PublisherConflict
+                or MappingReviewReason.ArchitectureConflict or MappingReviewReason.ScopeConflict or MappingReviewReason.ChannelConflict
+                or MappingReviewReason.SourceConflict or MappingReviewReason.MultipleInstallationInstanceAmbiguity or MappingReviewReason.UntrustedConnector))
         {
             return mapping;
         }

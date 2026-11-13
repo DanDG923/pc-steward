@@ -360,6 +360,18 @@ public sealed class UpdateIntelligenceTests
         Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, UpdateIntelligence.Assess([entry], [source]).Items.Single().Status);
     }
 
+    [TestMethod]
+    public void ANameOnlyDifferentlyNumberedMatchWithAnArchitectureConflictStaysAReviewItem()
+    {
+        ProductMatchProfile entry = Product("conflict", null, "6.7.0", "x86");
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Conflict", "conflict", null, "6.7.0.3", "6.7.0.3", "Machine", "x64", "Stable")]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([entry], [source]).Items.Single();
+
+        Assert.AreEqual(MappingConfidence.Low, item.Mapping!.Confidence);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+    }
+
     private static ProductMatchProfile Product(string key, string? packageId, string version, string architecture = "x64", string channel = "Stable") => new("product:" + key, key, packageId, null, null, "Contoso", version, "Machine", architecture, channel, InstalledSourceId: packageId is null ? null : "winget");
     private static SourcePackageRecord Package(string id, string version, string architecture = "x64") => new("winget", id, id, "Contoso", "1.0.0", version, "Machine", architecture, "Stable");
     private static SourceSnapshot Source(IReadOnlyCollection<SourcePackageRecord> packages) => new("winget", "v1.0", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []);
