@@ -148,6 +148,12 @@ public sealed class UpdateJobReview
     /// </summary>
     public string? EvidenceId { get; init; }
 
+    /// <summary>
+    /// D7 design §3 item 1: the vendor installer a per-user <c>winget</c>-source review read from WinGet, or null (MSIX, the Store, or a
+    /// workflow composed without the installer read). Comparison data only: Confirm reads it again and refuses on any difference.
+    /// </summary>
+    public WinGetUserInstaller? UserInstaller { get; init; }
+
     /// <summary>D4b stage 2b: when the fresh inventory behind <see cref="EvidenceId"/> was observed, or null.</summary>
     public DateTimeOffset? EvidenceObservedAt { get; init; }
 
