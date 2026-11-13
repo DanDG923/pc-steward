@@ -114,6 +114,120 @@ public sealed record WinGetMachineEvidence(WinGetMachineInstallerType InstallerT
     }
 }
 
+/// <summary>
+/// D7 design §3 (per-user vendor installers): the installer types a per-user <c>winget</c>-source update may bind at review.
+/// <see cref="Msix"/> is bound too, so an MSIX app's update can only run an MSIX installer (MSIX stage residual); a Store-type
+/// installer keeps the C4 evidence; anything else WinGet reports is refused. Evidence and argument text is the lowercase name WinGet
+/// uses (<c>--installer-type</c>).
+/// </summary>
+public enum WinGetUserInstallerType { Msi, Wix, Exe, Inno, Nullsoft, Burn, Portable, Zip, Msix }
+
+/// <summary>
+/// D7 design §3 item 2 (owner answer Q1-B, 2026-11-13): the elevation requirement the installer's manifest declares, bound at review.
+/// <see cref="Required"/> (WinGet itself asks Windows for administrator permission) and <see cref="ElevatesSelf"/> (the installer asks)
+/// are offered with a warning at review that Windows will ask; PC Steward never elevates on this route.
+/// </summary>
+public enum WinGetUserElevation { Unknown, Prohibited, Required, ElevatesSelf }
+
+/// <summary>
+/// D7 design §3 item 1: what the review read from WinGet about the vendor installer of a per-user <c>winget</c>-source update. Bound on
+/// the review and compared with a fresh read before approval; data only.
+/// </summary>
+public sealed record WinGetUserInstaller(WinGetUserInstallerType Type, WinGetUserElevation Elevation)
+{
+    /// <summary>True when the installer's manifest says it will ask Windows for administrator permission (owner answer Q1-B).</summary>
+    public bool ExpectsElevation => Elevation is WinGetUserElevation.Required or WinGetUserElevation.ElevatesSelf;
+
+    /// <summary>True for a vendor installer (not an MSIX package): the review discloses what PC Steward can't control, and the update
+    /// is compared with the whole-PC entries afterwards.</summary>
+    public bool IsVendor => Type != WinGetUserInstallerType.Msix;
+}
+
+/// <summary>Where the inventory observation named by a <c>wgu1</c> identity came from (data only).</summary>
+public enum WinGetUserObservationKind { Inventory, Review }
+
+/// <summary>
+/// D7 design §3 item 5: the parsed evidence identity of a per-user vendor-installer review,
+/// <c>wgu1:&lt;type&gt;:&lt;elevation&gt;:&lt;inventory|review&gt;:&lt;guid&gt;</c>. Format check only: it names what the review read from WinGet
+/// and the fresh observation the job was re-prepared from, and never proves an installer, a scope or consent.
+/// </summary>
+public sealed record WinGetUserEvidence(WinGetUserInstallerType InstallerType, WinGetUserElevation Elevation,
+    WinGetUserObservationKind ObservationKind, Guid ObservationId)
+{
+    /// <summary>The fixed prefix of the evidence identity.</summary>
+    public const string Prefix = "wgu1";
+
+    /// <summary>The lowercase installer-type text WinGet accepts for <c>--installer-type</c>.</summary>
+    public static string InstallerTypeText(WinGetUserInstallerType type) => type switch
+    {
+        WinGetUserInstallerType.Msi => "msi",
+        WinGetUserInstallerType.Wix => "wix",
+        WinGetUserInstallerType.Exe => "exe",
+        WinGetUserInstallerType.Inno => "inno",
+        WinGetUserInstallerType.Nullsoft => "nullsoft",
+        WinGetUserInstallerType.Burn => "burn",
+        WinGetUserInstallerType.Portable => "portable",
+        WinGetUserInstallerType.Zip => "zip",
+        WinGetUserInstallerType.Msix => "msix",
+        _ => throw new ArgumentOutOfRangeException(nameof(type)),
+    };
+
+    /// <summary>The lowercase elevation text of the identity.</summary>
+    public static string ElevationText(WinGetUserElevation elevation) => elevation switch
+    {
+        WinGetUserElevation.Unknown => "unknown",
+        WinGetUserElevation.Prohibited => "prohibited",
+        WinGetUserElevation.Required => "required",
+        WinGetUserElevation.ElevatesSelf => "elevatesself",
+        _ => throw new ArgumentOutOfRangeException(nameof(elevation)),
+    };
+
+    private static string ObservationText(WinGetUserObservationKind kind) => kind switch
+    {
+        WinGetUserObservationKind.Inventory => "inventory",
+        WinGetUserObservationKind.Review => "review",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    /// <summary>The canonical identity text.</summary>
+    public string ToIdentity()
+    {
+        if (ObservationId == Guid.Empty) throw new ArgumentException("Per-user WinGet evidence needs an observation identity.");
+        return string.Join(':', Prefix, InstallerTypeText(InstallerType), ElevationText(Elevation), ObservationText(ObservationKind),
+            ObservationId.ToString("D"));
+    }
+
+    /// <summary>Format check only: exactly the canonical identity text, or false.</summary>
+    public static bool TryParse(string? evidenceId, out WinGetUserEvidence? evidence)
+    {
+        evidence = null;
+        if (evidenceId is null || evidenceId.Length > 128) return false;
+        string[] fields = evidenceId.Split(':');
+        if (fields.Length != 5 || !string.Equals(fields[0], Prefix, StringComparison.Ordinal) ||
+            !TryParseText(fields[1], InstallerTypeText, out WinGetUserInstallerType type) ||
+            !TryParseText(fields[2], ElevationText, out WinGetUserElevation elevation) ||
+            !TryParseText(fields[3], ObservationText, out WinGetUserObservationKind kind) ||
+            !Guid.TryParseExact(fields[4], "D", out Guid id) || id == Guid.Empty ||
+            !string.Equals(fields[4], id.ToString("D"), StringComparison.Ordinal)) return false;
+        evidence = new(type, elevation, kind, id);
+        return true;
+    }
+
+    private static bool TryParseText<T>(string text, Func<T, string> format, out T value) where T : struct, Enum
+    {
+        foreach (T candidate in Enum.GetValues<T>())
+        {
+            if (string.Equals(text, format(candidate), StringComparison.Ordinal))
+            {
+                value = candidate;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
+}
+
 /// <summary>Frozen data semantics only. No member asserts that native candidate qualification succeeded.</summary>
 public enum ReviewedCandidateProvenance { UnqualifiedLegacyLabel, TrustedDesktopEvidenceRequired, UserCacheIntent }
 
@@ -194,6 +308,10 @@ public sealed partial class ReviewedUpdateOperation
             throw new ArgumentException("Runtime-limit review evidence must be the exact Chocolatey profile v2 identity.", nameof(evidenceId));
         if (routeContract == UpdateRouteContract.WinGetMachineSilentV1 && !TryGetWinGetMachineEvidence(EvidenceId, out _))
             throw new ArgumentException("Machine WinGet review evidence must be the exact wgm1 identity.", nameof(evidenceId));
+        // D7 design §3 item 5: per-user evidence that claims to be wgu1 must be exactly that identity, from the winget source.
+        if (routeContract == UpdateRouteContract.WinGetUserSilentV1 && IsWinGetUserEvidenceClaim(EvidenceId) &&
+            (!WinGetUserEvidence.TryParse(EvidenceId, out _) || job.Selection.Source != UpdateSource.WinGet))
+            throw new ArgumentException("Per-user vendor-installer evidence must be the exact wgu1 identity from the winget source.", nameof(evidenceId));
         EvidenceObservedAt = evidenceObservedAt.ToUniversalTime();
         RouteContract = routeContract;
         Mode = mode;
@@ -353,6 +471,10 @@ public sealed partial class ReviewedUpdateOperation
         evidence = new(type, fields[2], fields[3], fields[4]);
         return true;
     }
+
+    /// <summary>True when the identity starts with the <c>wgu1</c> prefix in any case, so it must parse exactly.</summary>
+    private static bool IsWinGetUserEvidenceClaim(string evidenceId) =>
+        evidenceId.StartsWith(WinGetUserEvidence.Prefix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Exactly 64 characters, each 0–9 or A–F.</summary>
     public static bool IsUpperHex64(string? value)

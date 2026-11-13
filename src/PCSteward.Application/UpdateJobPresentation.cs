@@ -54,7 +54,11 @@ public enum ReviewRiskKind
 public sealed record ReviewRiskCallout(ReviewRiskKind Kind, string Title, string Message, StatusTone Tone);
 
 /// <summary>One app's input to the review sheet: its reviewed immutable selection plus display-only inventory and evidence.</summary>
-public sealed record UpdateReviewSheetInput(UpdateJobSelection Selection, string AppName, string Publisher, UpdateDetail? Detail, RunningApplicationDetection Running);
+/// <summary>
+/// One app for a review sheet. <see cref="UserInstaller"/> (D7 design §3) is the vendor installer a per-user review bound, or null.
+/// </summary>
+public sealed record UpdateReviewSheetInput(UpdateJobSelection Selection, string AppName, string Publisher, UpdateDetail? Detail, RunningApplicationDetection Running,
+    WinGetUserInstaller? UserInstaller = null);
 
 /// <summary>One app on the review sheet: the §17.2 facts, the confidence in words and this app's own risks.</summary>
 public sealed record UpdateReviewSheetItem(
@@ -168,12 +172,12 @@ public sealed class UpdateReviewSheet
     }
 
     public static UpdateReviewSheet Create(UpdateJobSelection selection, string appName, string publisher, UpdateDetail? detail,
-        RunningApplicationDetection running, AdministratorRequirementPresentation administratorRequirement)
+        RunningApplicationDetection running, AdministratorRequirementPresentation administratorRequirement, WinGetUserInstaller? userInstaller = null)
     {
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(running);
         ArgumentNullException.ThrowIfNull(administratorRequirement);
-        UpdateReviewSheetItem item = Item(new(selection, appName, publisher, detail, running), administratorRequirement);
+        UpdateReviewSheetItem item = Item(new(selection, appName, publisher, detail, running, userInstaller), administratorRequirement);
         string name = item.AppName;
 
         List<ReviewRiskCallout> risks = [];
@@ -221,13 +225,15 @@ public sealed class UpdateReviewSheet
         if (inputs.Count == 1)
         {
             UpdateReviewSheetInput only = inputs[0];
-            UpdateReviewSheet single = Create(only.Selection, only.AppName, only.Publisher, only.Detail, only.Running, AdministratorRequirementPresenter.ForSelection(only.Selection));
+            UpdateReviewSheet single = Create(only.Selection, only.AppName, only.Publisher, only.Detail, only.Running,
+                AdministratorRequirementPresenter.ForSelection(only.Selection, only.UserInstaller), only.UserInstaller);
             return exclusions.Count == 0 ? single : new(single.Items, exclusions, single.Risks, single.CoverageDisclosure, single.Attestation,
                 single.PrimaryButtonLabel, single.PrimaryAutomationName, single.AdministratorRequirement, single.AppearsToBeRunning);
         }
 
-        UpdateReviewSheetItem[] items = [.. inputs.Select(input => Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection)))];
-        AdministratorRequirementPresentation administrator = AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray());
+        UpdateReviewSheetItem[] items = [.. inputs.Select(input => Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection, input.UserInstaller)))];
+        AdministratorRequirementPresentation administrator = AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray(),
+            inputs.Select(input => input.UserInstaller).ToArray());
         UpdateReviewSheetItem[] running = [.. items.Where(item => item.AppearsToBeRunning)];
         List<ReviewRiskCallout> risks = [];
         risks.Add(running.Length == 0
@@ -285,6 +291,8 @@ public sealed class UpdateReviewSheet
             evidence.AddRange(ReviewReasonText.DescribeAll(detail.ReviewReasons));
             if (!string.IsNullOrWhiteSpace(detail.Freshness)) evidence.Add(detail.Freshness.Trim());
         }
+        // D7 design §3 item 1: the vendor installer the review bound, in words.
+        if (input.UserInstaller is { } installer) evidence.Add($"Installer: {WingetUserInstallerText.TypeInWords(installer.Type)}.");
         evidence.Add($"Evidence version: {selection.MappingEvidenceVersion}.");
         return new(selection.StableProductKey, name, facts, confidence, evidence, administratorRequirement, input.Running.AppearsToBeRunning,
             [.. input.Running.ProcessNames]);
@@ -560,6 +568,11 @@ public static class UpdateOutcomePresenter
                 "The installer reported that Windows needs to restart to finish this update.",
                 "Restart when it suits you. PC Steward never restarts your PC.", technical),
             UpdateHistoryStatus.Inconclusive => NotVerified($"The installer finished, but PC Steward didn't find version {targetVersion} when it checked again.", technical),
+            // D7 design §3 item 4: a per-user update that also changed whole-PC uninstall entries, or whose comparison couldn't be made.
+            UpdateHistoryStatus.VerificationFailed when diagnostic?.StartsWith(SequentialUpdateBatchCoordinator.UnexpectedWholePcChangesDiagnostic, StringComparison.Ordinal) == true =>
+                NotVerified(WholePcChangesSummary(diagnostic, targetVersion), technical),
+            UpdateHistoryStatus.VerificationFailed when diagnostic?.StartsWith(SequentialUpdateBatchCoordinator.WholePcCheckUnavailableDiagnostic, StringComparison.Ordinal) == true =>
+                NotVerified("The installer finished, but PC Steward couldn't check whether it also changed apps installed for every user of this PC.", technical),
             UpdateHistoryStatus.VerificationFailed => NotVerified("The installer finished, but PC Steward couldn't complete its check of installed apps.", technical),
             // Verification required is "installed" only when the provider reported finishing; otherwise nothing shows it ran.
             UpdateHistoryStatus.VerificationRequired when ProviderReportedFinishing(diagnostic, exitCode) => NotVerified(
@@ -650,6 +663,17 @@ public static class UpdateOutcomePresenter
                 item.StableProductKey));
         }
         return new(items);
+    }
+
+    /// <summary>D7 design §3 item 4: the summary of a per-user update after which whole-PC entries had changed.</summary>
+    private static string WholePcChangesSummary(string diagnostic, string targetVersion)
+    {
+        int at = diagnostic.IndexOf("changed: ", StringComparison.Ordinal);
+        string changed = at < 0 ? string.Empty : $" ({diagnostic[(at + "changed: ".Length)..]})";
+        string found = diagnostic.Contains("; target-version-detected", StringComparison.Ordinal)
+            ? $"PC Steward found version {targetVersion}, but the update" : "The update";
+        return $"{found} also changed apps installed for every user of this PC{changed}. Your account's update shouldn't do that, so " +
+            "PC Steward hasn't recorded it as successful. Check those apps in Installed apps.";
     }
 
     private static UpdateOutcomePresentation NotVerified(string summary, string technical) =>

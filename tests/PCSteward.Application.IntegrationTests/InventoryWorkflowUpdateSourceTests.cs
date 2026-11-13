@@ -508,6 +508,53 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     /// <summary>
+    /// D7 design §3 item 4 (Q3-A): with a whole-PC baseline the post-update check names whole-PC uninstall entries that are new, gone
+    /// or re-versioned; per-user entries never count, and without a baseline no comparison is made.
+    /// </summary>
+    [TestMethod]
+    public async Task ReInventoryComparesWholePcEntriesWithTheBaselineOnlyWhenGivenOne()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct widget = new(Guid.NewGuid(), "ignored", "Contoso Widget");
+        CanonicalProduct shared = new(Guid.NewGuid(), "ignored", "Contoso Shared Runtime");
+        InstallationInstance user = new(Guid.NewGuid(), widget.Id, "registry", "ContosoWidget", "1.1.0", "User", "x64", "Contoso");
+        InstallationInstance machine = new(Guid.NewGuid(), shared.Id, "registry", "{SHARED}", "2.0", "Machine", "x86", "Contoso");
+        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "ContosoWidget", "Contoso Widget", "Contoso", "1.1.0", "User", "x64", null, "Application", "fixture"));
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(stableKey, UpdateProvider.WinGet, UpdateSource.WinGet,
+            "Contoso.Widget", "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Unknown, "fixture")).Confirm(DateTimeOffset.UtcNow);
+        WholePcRegistrationSnapshot Baseline(params InstallationInstance[] instances) => WholePcRegistrationSnapshot.From(
+            new LiveInventoryObservation(Guid.NewGuid(), DateTimeOffset.UtcNow, [widget, shared], instances, []));
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store,
+            [new FixedProvider(new ProviderScanResult([widget, shared], [user, machine], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+
+        PostUpdateInventoryResult unchanged = await workflow.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }, machine), CancellationToken.None);
+        Assert.IsTrue(unchanged.ExpectedVersionDetected);
+        Assert.HasCount(0, unchanged.WholePcChanges!, "the per-user entry's own update doesn't count");
+
+        PostUpdateInventoryResult reVersioned = await workflow.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }, machine with { Version = "1.9" }), CancellationToken.None);
+        Assert.IsTrue(reVersioned.ExpectedVersionDetected, "the per-user check itself is unchanged");
+        Assert.HasCount(1, reVersioned.WholePcChanges!);
+
+        PostUpdateInventoryResult added = await workflow.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }), CancellationToken.None);
+        Assert.HasCount(1, added.WholePcChanges!);
+
+        Assert.IsNull((await workflow.ReInventoryAsync(job, null, CancellationToken.None)).WholePcChanges, "no baseline, no comparison");
+
+        // Codex P2 on #91: the comparison runs even when WinGet's export doesn't show the target version.
+        using InventoryWorkflow notUpdated = new(database.Store, database.Store, database.Store,
+            [new FixedProvider(new ProviderScanResult([widget, shared], [user, machine], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(false));
+        PostUpdateInventoryResult partial = await notUpdated.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }), CancellationToken.None);
+        Assert.IsFalse(partial.ExpectedVersionDetected);
+        Assert.HasCount(1, partial.WholePcChanges!);
+
+        // An incomplete whole-PC registry scan after the update makes no comparison.
+        using InventoryWorkflow unreadable = new(database.Store, database.Store, database.Store,
+            [new FixedProvider(new ProviderScanResult([widget, shared], [user, machine], [], ["Machine64:access-denied"]), WholePcRegistrationSnapshot.RegistryProviderName)],
+            postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        Assert.IsNull((await unreadable.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }, machine), CancellationToken.None)).WholePcChanges);
+    }
+
+    /// <summary>
     /// Owner's PC, 2026-11-13 (0.1.6): GitHub CLI's MSI upgrade replaced its uninstall entry with a new one under a new product
     /// code, so the reviewed product was gone and the check said Inconclusive. The entry WinGet itself links to the package after
     /// the update now counts, and only when it is the one exact match and the reviewed entry is gone.
@@ -679,9 +726,9 @@ public sealed class InventoryWorkflowUpdateSourceTests
         public Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken) => Task.FromResult(result);
     }
 
-    private sealed class FixedProvider(ProviderScanResult result) : ILocalInventoryProvider
+    private sealed class FixedProvider(ProviderScanResult result, string name = "fixture") : ILocalInventoryProvider
     {
-        public string Name => "fixture";
+        public string Name => name;
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.FromResult(result);
     }
