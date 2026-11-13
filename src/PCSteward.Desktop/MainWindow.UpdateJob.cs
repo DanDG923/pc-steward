@@ -206,8 +206,9 @@ public sealed partial class MainWindow
         // Cancel is the default: it comes first and takes focus, and the update button has no Enter accelerator.
         Button cancel = StewardVisuals.ActionButton(UpdateReviewSheet.CancelButtonLabel, $"the review of {sheet.AppName}. Nothing is changed.");
         StackPanel primaryContent = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon { Glyph = "\uEA18", FontSize = 16 });
-        primaryContent.Children.Add(new TextBlock { Text = sheet.PrimaryButtonLabel });
+        // Owner report 2026-11-13: as in StewardVisuals.IconLabel, the shield adds no height and is centred on the label.
+        if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon { Glyph = "\uEA18", FontSize = 16, Margin = StewardVisuals.IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center });
+        primaryContent.Children.Add(new TextBlock { Text = sheet.PrimaryButtonLabel, VerticalAlignment = VerticalAlignment.Center });
         Button confirm = new() { Content = primaryContent, Style = AppStyle("StewardPrimaryButtonStyle") };
         AutomationProperties.SetName(confirm, sheet.PrimaryAutomationName);
         AutomationProperties.SetHelpText(confirm, sheet.AdministratorRequirement.Explanation);

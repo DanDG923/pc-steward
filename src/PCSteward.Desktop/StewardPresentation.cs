@@ -836,14 +836,23 @@ internal static class StewardVisuals
         };
     }
 
-    /// <summary>A button's content: a small icon and its label, side by side (for example the Copy diagnostic and Filters buttons).</summary>
-    public static StackPanel IconLabel(string glyph, string label)
+    /// <summary>
+    /// A button's content: a small icon and its label, side by side (Check for updates, Scan again, Copy diagnostic, Filters).
+    /// Owner report 2026-11-13 (release 0.1.14): an icon is laid out in a box taller than the icon itself, taller than a line
+    /// of text at 16, so "Check for updates" was two units taller than a button with text only and its label sat above the
+    /// middle. The icon gives that spare room back (<see cref="IconLabelIconMargin"/>), so the label alone sets the height, as
+    /// in any other button, and the icon and the label are centred on each other.
+    /// </summary>
+    public static StackPanel IconLabel(string glyph, string label, double iconSize = 14)
     {
         StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center });
         content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
         return content;
     }
+
+    /// <summary>The same amount off the top and the bottom, so the icon stays where it is and only stops adding height.</summary>
+    public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);
 
     /// <summary>
     /// A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.

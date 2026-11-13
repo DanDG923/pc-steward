@@ -322,9 +322,18 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "root.Changed += OnXamlRootChanged;");
         StringAssert.Contains(source, "private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ApplyMinimumWindowSize(sender.RasterizationScale);");
         Assert.AreEqual(2, Count(source, "presenter.PreferredMinimum"), "the minimum size is set in one place");
-        // The only horizontal StackPanels left are icon+text pairs (tile heading, title-bar brand, the shield button content, and
-        // from UI polish phase 3 the job stepper's step dot and label and the Updates "Check for updates" button content).
-        Assert.AreEqual(5, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
+        // The only horizontal StackPanels left in the window are icon+text pairs (the title-bar brand, the shield button content
+        // and the job stepper's step dot and label). A button's icon and label are the shared StewardVisuals.IconLabel.
+        Assert.AreEqual(3, Count(source, "Orientation = Orientation.Horizontal"), "action rows use StewardVisuals.ActionRow()");
+        // Owner report 2026-11-13 (release 0.1.14): "Check for updates" was taller than a button with text only, and its label
+        // sat above the middle, on Home and on Updates. Both now use the one shared content, where the icon adds no height.
+        Assert.AreEqual(2, Count(source, "StewardVisuals.IconLabel(\"\\uE72C\", "));
+        StringAssert.Contains(source, "if (scanAction) content = StewardVisuals.IconLabel(\"\\uE72C\", label, 16);");
+        StringAssert.Contains(source, "check = new() { Content = StewardVisuals.IconLabel(\"\\uE72C\", checkLabel, 16), AccessKey = \"C\" };");
+        StringAssert.Contains(presentation, "new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
+        StringAssert.Contains(presentation, "public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);");
+        Assert.IsFalse(source.Contains("new FontIcon { Glyph = \"\\uE72C\"", StringComparison.Ordinal), "no page builds its own icon button content");
+        StringAssert.Contains(source, "new FontIcon { Glyph = \"\\uEA18\", FontSize = 16, Margin = StewardVisuals.IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
         Assert.IsFalse(source.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto", StringComparison.Ordinal), "filter rows wrap instead of scrolling sideways");
         Assert.IsTrue(Count(source, "StewardVisuals.ActionRow()") >= 12);
     }
