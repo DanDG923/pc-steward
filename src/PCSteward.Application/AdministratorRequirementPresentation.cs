@@ -69,7 +69,7 @@ public static class AdministratorRequirementPresenter
             return new(AdministratorRequirementStatus.Required, $"Administrator approval required for {needing} of {selections.Count} apps",
                 $"After you confirm, Windows may ask for administrator permission (UAC) when each of these apps' updates starts. {elevatingUserApps} of them " +
                 "are current-user apps whose own installer asks for it; PC Steward itself never asks for those and keeps running without administrator rights. " +
-                "If you allow it, that installer can change things for every user of this PC.");
+                "If you allow it, that installer can change things for every user of this PC. " + WingetUserInstallerText.PublisherCheck);
         }
         bool vendorUserApps = installers?.Any(installer => installer is { IsVendor: true }) == true;
         AdministratorRequirementStatus[] statuses = [.. selections.Select(selection => ForSelection(selection).Status)];
