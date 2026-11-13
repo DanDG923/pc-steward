@@ -316,8 +316,11 @@ internal static class StewardVisuals
     public static Button PrimaryButton(string label, string? detail = null) =>
         Named(new Button { Content = label, Style = Style("StewardPrimaryButtonStyle") }, label, detail);
 
-    /// <summary>Audit P-M9: a row of actions that wraps onto more lines instead of clipping at narrow widths or large text.</summary>
-    public static StewardWrapPanel ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing };
+    /// <summary>
+    /// Audit P-M9: a row of actions that wraps onto more lines instead of clipping at narrow widths or large text. Owner report
+    /// 2026-11-13: the controls on one line are the same height, so a button with an icon does not sit lower than its neighbour.
+    /// </summary>
+    public static StewardWrapPanel ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };
 
     /// <summary>
     /// AC-UX-09 (research §2 item 10): raises a UIA notification with <paramref name="message"/> from <paramref name="source"/>, so
@@ -833,14 +836,23 @@ internal static class StewardVisuals
         };
     }
 
-    /// <summary>A button's content: a small icon and its label, side by side (for example the Copy diagnostic and Filters buttons).</summary>
-    public static StackPanel IconLabel(string glyph, string label)
+    /// <summary>
+    /// A button's content: a small icon and its label, side by side (Check for updates, Scan again, Copy diagnostic, Filters).
+    /// Owner report 2026-11-13 (release 0.1.14): an icon is laid out in a box taller than the icon itself, taller than a line
+    /// of text at 16, so "Check for updates" was two units taller than a button with text only and its label sat above the
+    /// middle. The icon gives that spare room back (<see cref="IconLabelIconMargin"/>), so the label alone sets the height, as
+    /// in any other button, and the icon and the label are centred on each other.
+    /// </summary>
+    public static StackPanel IconLabel(string glyph, string label, double iconSize = 14)
     {
         StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = iconSize, Margin = IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center });
         content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
         return content;
     }
+
+    /// <summary>The same amount off the top and the bottom, so the icon stays where it is and only stops adding height.</summary>
+    public static readonly Thickness IconLabelIconMargin = new(0, -4, 0, -4);
 
     /// <summary>
     /// A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.
@@ -910,6 +922,11 @@ public sealed class StewardWrapPanel : Panel
 {
     public double HorizontalSpacing { get; set; } = StewardSpacing.Small;
     public double VerticalSpacing { get; set; } = StewardSpacing.Small;
+    /// <summary>
+    /// Owner report 2026-11-13: true for a row of buttons and other controls, so everything on one line is as tall as the
+    /// tallest and the edges are level. A button with an icon is a little taller than one without.
+    /// </summary>
+    public bool LevelLines { get; set; }
 
     private IReadOnlyList<int> measuredLines = [];
 
@@ -941,7 +958,7 @@ public sealed class StewardWrapPanel : Panel
         IReadOnlyList<int> lines = measuredLines.Count == items.Count
             ? measuredLines
             : WrapLayout.Measure(items, finalSize.Width, HorizontalSpacing, VerticalSpacing).Lines;
-        IReadOnlyList<WrapLayout.Slot> slots = WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing);
+        IReadOnlyList<WrapLayout.Slot> slots = WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing, LevelLines);
         for (int index = 0; index < visible.Count; index++)
         {
             WrapLayout.Slot slot = slots[index];

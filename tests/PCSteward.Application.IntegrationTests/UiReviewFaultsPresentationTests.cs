@@ -17,6 +17,7 @@ public sealed class UiReviewFaultsPresentationTests
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 15, 0, 0, TimeSpan.Zero);
     private static readonly int[] OneLine = [0, 0];
     private static readonly int[] TwoLines = [0, 0, 1];
+    private static readonly int[] OneThenTwo = [0, 1, 1];
     private static readonly int[] RecordCounts = [32, 4, 28, 1];
 
     [TestMethod]
@@ -48,6 +49,40 @@ public sealed class UiReviewFaultsPresentationTests
             }
         }
         Assert.IsTrue(hazards > 0, "the search covers the rounding case that stacked the buttons");
+    }
+
+    [TestMethod]
+    [Description("AC-UX-01 (owner report 2026-11-13, release 0.1.14): on Home, \"Check for updates\" has an icon and is a little taller than \"Update all N…\" beside it, so it sat lower. In a row of controls every item on a line is given the line's height, so buttons on one line are the same height with level edges; a row of text and chips keeps each item's own height.")]
+    public void ItemsOnOneLineAreLevel()
+    {
+        // "Update all 4…" (text only) and "Check for updates" (icon and text) on one line.
+        WrapLayout.Item[] items = [new(120, 32), new(160, 34)];
+        WrapLayout.Measured measured = WrapLayout.Measure(items, 600, 8, 8);
+        Assert.AreEqual(34, measured.Height);
+        IReadOnlyList<WrapLayout.Slot> slots = WrapLayout.Arrange(items, measured.Lines, 600, 8, 8, levelLines: true);
+        Assert.AreEqual(new WrapLayout.Slot(0, 0, 120, 34), slots[0]);
+        Assert.AreEqual(new WrapLayout.Slot(128, 0, 160, 34), slots[1]);
+
+        // The taller item first, and a row of three: still one height, whichever is tallest.
+        IReadOnlyList<WrapLayout.Slot> three = WrapLayout.Arrange([new(50, 34), new(50, 32), new(50, 30)], [0, 0, 0], 600, 8, 8, levelLines: true);
+        Assert.IsTrue(three.All(slot => slot.Y == 0 && slot.Height == 34));
+
+        // When the row wraps, each line has its own height and never borrows the other's.
+        WrapLayout.Item[] narrow = [new(120, 32), new(160, 34), new(90, 20)];
+        WrapLayout.Measured two = WrapLayout.Measure(narrow, 280, 8, 8);
+        CollectionAssert.AreEqual(OneThenTwo, two.Lines.ToArray());
+        IReadOnlyList<WrapLayout.Slot> wrapped = WrapLayout.Arrange(narrow, two.Lines, 280, 8, 8, levelLines: true);
+        Assert.AreEqual(new WrapLayout.Slot(0, 0, 120, 32), wrapped[0]);
+        Assert.AreEqual(new WrapLayout.Slot(0, 40, 160, 34), wrapped[1]);
+        Assert.AreEqual(new WrapLayout.Slot(168, 40, 90, 34), wrapped[2]);
+
+        // The row's own height is unchanged: it was always the sum of its lines' tallest items.
+        Assert.AreEqual(32 + 8 + 34, two.Height);
+
+        // A row of text and chips does not ask for it: each item keeps its own height at the top of its line.
+        IReadOnlyList<WrapLayout.Slot> plain = WrapLayout.Arrange(items, measured.Lines, 600, 8, 8);
+        Assert.AreEqual(new WrapLayout.Slot(0, 0, 120, 32), plain[0]);
+        Assert.AreEqual(new WrapLayout.Slot(128, 0, 160, 34), plain[1]);
     }
 
     [TestMethod]

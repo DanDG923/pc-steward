@@ -214,13 +214,7 @@ public sealed partial class MainWindow
         string label = scanAction && viewModel.IsScanning ? "Scanning…" : scanAction && viewModel.IsCheckingUpdates ? "Checking…"
             : action.Kind == HomeActionKind.UpdateAll && preparingReview ? PreparingReviewLabel : action.Label;
         object content = label;
-        if (scanAction)
-        {
-            StackPanel withIcon = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-            withIcon.Children.Add(new FontIcon { Glyph = "\uE72C", FontSize = 16 });
-            withIcon.Children.Add(new TextBlock { Text = label });
-            content = withIcon;
-        }
+        if (scanAction) content = StewardVisuals.IconLabel("\uE72C", label, 16);
         Button button = new() { Content = content, AccessKey = AccessKeyFor(action.Label) };
         if (isPrimary) button.Style = AppStyle("StewardPrimaryButtonStyle");
         // The presenter's name already starts with the visible label (HomeActivityDecisionsPresentationTests: label-in-name).

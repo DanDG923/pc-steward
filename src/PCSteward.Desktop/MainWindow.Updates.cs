@@ -39,7 +39,7 @@ public sealed partial class MainWindow
         {
             // The same read-only check as Home's "Check for updates": a scan, then the package-source check. It never elevates.
             string checkLabel = viewModel.IsScanning ? "Scanning…" : viewModel.IsCheckingUpdates ? "Checking…" : "Check for updates";
-            check = new() { Content = IconAndLabel("\uE72C", checkLabel), AccessKey = "C" };
+            check = new() { Content = StewardVisuals.IconLabel("\uE72C", checkLabel, 16), AccessKey = "C" };
             StewardVisuals.Named(check, checkLabel, "(scans this PC, then looks for updates)");
             AutomationProperties.SetHelpText(check, HomePresenter.CheckForUpdatesHelp);
             check.IsEnabled = viewModel.IsUpdateSourceEnabled && !HasActiveOperation;
@@ -342,15 +342,6 @@ public sealed partial class MainWindow
         if (link is not null) section.Children.Add(link);
         section.Children.Add(list);
         return section;
-    }
-
-    /// <summary>A button's content: a small icon then its label.</summary>
-    private static StackPanel IconAndLabel(string glyph, string label)
-    {
-        StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16 });
-        content.Children.Add(new TextBlock { Text = label });
-        return content;
     }
 
     /// <summary>

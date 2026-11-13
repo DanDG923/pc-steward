@@ -89,6 +89,8 @@ public sealed partial class MainWindow
         TextBlock matching = new() { Style = AppStyle("StewardBodyStyle"), VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetLiveSetting(matching, AutomationLiveSetting.Polite);
         StewardWrapPanel sortGroup = StewardVisuals.ActionRow();
+        // A row inside the toolbar's row: it keeps its own height and sits in the middle of the toolbar's line.
+        sortGroup.VerticalAlignment = VerticalAlignment.Center;
         sortGroup.Children.Add(new TextBlock { Text = "Sort by", Style = AppStyle("StewardBodyStyle"), VerticalAlignment = VerticalAlignment.Center });
         sortGroup.Children.Add(sort);
         StewardWrapPanel toolbar = StewardVisuals.ActionRow();
