@@ -54,7 +54,11 @@ public enum ReviewRiskKind
 public sealed record ReviewRiskCallout(ReviewRiskKind Kind, string Title, string Message, StatusTone Tone);
 
 /// <summary>One app's input to the review sheet: its reviewed immutable selection plus display-only inventory and evidence.</summary>
-public sealed record UpdateReviewSheetInput(UpdateJobSelection Selection, string AppName, string Publisher, UpdateDetail? Detail, RunningApplicationDetection Running);
+/// <summary>
+/// One app for a review sheet. <see cref="UserInstaller"/> (D7 design §3) is the vendor installer a per-user review bound, or null.
+/// </summary>
+public sealed record UpdateReviewSheetInput(UpdateJobSelection Selection, string AppName, string Publisher, UpdateDetail? Detail, RunningApplicationDetection Running,
+    WinGetUserInstaller? UserInstaller = null);
 
 /// <summary>One app on the review sheet: the §17.2 facts, the confidence in words and this app's own risks.</summary>
 public sealed record UpdateReviewSheetItem(
@@ -168,12 +172,12 @@ public sealed class UpdateReviewSheet
     }
 
     public static UpdateReviewSheet Create(UpdateJobSelection selection, string appName, string publisher, UpdateDetail? detail,
-        RunningApplicationDetection running, AdministratorRequirementPresentation administratorRequirement)
+        RunningApplicationDetection running, AdministratorRequirementPresentation administratorRequirement, WinGetUserInstaller? userInstaller = null)
     {
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(running);
         ArgumentNullException.ThrowIfNull(administratorRequirement);
-        UpdateReviewSheetItem item = Item(new(selection, appName, publisher, detail, running), administratorRequirement);
+        UpdateReviewSheetItem item = Item(new(selection, appName, publisher, detail, running, userInstaller), administratorRequirement);
         string name = item.AppName;
 
         List<ReviewRiskCallout> risks = [];
@@ -221,13 +225,15 @@ public sealed class UpdateReviewSheet
         if (inputs.Count == 1)
         {
             UpdateReviewSheetInput only = inputs[0];
-            UpdateReviewSheet single = Create(only.Selection, only.AppName, only.Publisher, only.Detail, only.Running, AdministratorRequirementPresenter.ForSelection(only.Selection));
+            UpdateReviewSheet single = Create(only.Selection, only.AppName, only.Publisher, only.Detail, only.Running,
+                AdministratorRequirementPresenter.ForSelection(only.Selection, only.UserInstaller), only.UserInstaller);
             return exclusions.Count == 0 ? single : new(single.Items, exclusions, single.Risks, single.CoverageDisclosure, single.Attestation,
                 single.PrimaryButtonLabel, single.PrimaryAutomationName, single.AdministratorRequirement, single.AppearsToBeRunning);
         }
 
-        UpdateReviewSheetItem[] items = [.. inputs.Select(input => Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection)))];
-        AdministratorRequirementPresentation administrator = AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray());
+        UpdateReviewSheetItem[] items = [.. inputs.Select(input => Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection, input.UserInstaller)))];
+        AdministratorRequirementPresentation administrator = AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray(),
+            inputs.Select(input => input.UserInstaller).ToArray());
         UpdateReviewSheetItem[] running = [.. items.Where(item => item.AppearsToBeRunning)];
         List<ReviewRiskCallout> risks = [];
         risks.Add(running.Length == 0
@@ -285,6 +291,8 @@ public sealed class UpdateReviewSheet
             evidence.AddRange(ReviewReasonText.DescribeAll(detail.ReviewReasons));
             if (!string.IsNullOrWhiteSpace(detail.Freshness)) evidence.Add(detail.Freshness.Trim());
         }
+        // D7 design §3 item 1: the vendor installer the review bound, in words.
+        if (input.UserInstaller is { } installer) evidence.Add($"Installer: {WingetUserInstallerText.TypeInWords(installer.Type)}.");
         evidence.Add($"Evidence version: {selection.MappingEvidenceVersion}.");
         return new(selection.StableProductKey, name, facts, confidence, evidence, administratorRequirement, input.Running.AppearsToBeRunning,
             [.. input.Running.ProcessNames]);

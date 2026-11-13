@@ -132,7 +132,10 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             // D4b: a whole-PC review reads its installer evidence from its own non-elevated winget download, into a review folder
             // that storage creates and deletes under the download cache. The same source proves the architecture of a 64-bit app
             // registered in the 32-bit view (design note PHASE_D4B_32BIT_REGISTERED_APPS_DESIGN §3.3).
-            machineInstallerEvidence: machineEvidence, architectureProof: machineEvidence);
+            machineInstallerEvidence: machineEvidence, architectureProof: machineEvidence,
+            // D7 (per-user vendor installers): a per-user review reads and binds the installer WinGet would use (no download), and
+            // Confirm reads it again before approval.
+            userInstallerEvidence: new WingetUserInstallerEvidenceSource());
         // Chocolatey Confirm design §3 item 1: the single production composition of the Chocolatey client self-update's reviewed
         // dispatch pipeline. It runs under the common current-user gate and the durable store; nothing is observed or started until
         // the owner opens the review, and Confirm stays refused while owner admission is not compiled in.

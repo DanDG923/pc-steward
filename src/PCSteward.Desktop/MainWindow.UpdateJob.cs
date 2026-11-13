@@ -542,7 +542,9 @@ public sealed partial class MainWindow
         // page cancels the review.
         UpdateReviewSheetInput[] inputs = [.. preparation.Items.Select(item => new UpdateReviewSheetInput(item.Preparation.Review!.Selection,
             NameOf(item.StableProductKey), rows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Publisher ?? string.Empty,
-            viewModel.UpdateDetails.GetValueOrDefault(item.StableProductKey), item.Preparation.RunningApplication))];
+            viewModel.UpdateDetails.GetValueOrDefault(item.StableProductKey), item.Preparation.RunningApplication,
+            // D7 design §3: the vendor installer a per-user review bound, so the sheet shows its type and the owner-chosen warning.
+            item.Preparation.Review!.UserInstaller))];
         UpdateReviewSheet sheet = UpdateReviewSheet.CreateBatch(inputs,
             [.. preparation.Excluded.Select(excluded => new UpdateReviewExclusion(NameOf(excluded.StableProductKey), excluded.Message))],
             preparation.ExpiresAt.ToLocalTime());

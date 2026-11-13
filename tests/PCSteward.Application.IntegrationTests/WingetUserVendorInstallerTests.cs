@@ -1,0 +1,380 @@
+using PCSteward.Domain;
+using PCSteward.Provider.WinGet;
+
+namespace PCSteward.Application.IntegrationTests;
+
+/// <summary>
+/// FR-UPD-15, FR-UPD-01/03, TM-03/04/13. Phase D stage D7 (design note PHASE_D7_PER_USER_VENDOR_UPDATE_DESIGN §3; owner answers
+/// 2026-11-13: Q1-B, Q3-A, Q4-A): a per-user <c>winget</c>-source review reads the installer WinGet would use, binds its type and
+/// declared elevation need, reads it again before approval, freezes it as <c>wgu1</c> evidence and pins <c>--installer-type</c>. MSIX
+/// and the Store keep the stage C4 evidence. Installers that ask for administrator permission are offered with a warning.
+/// </summary>
+[TestClass]
+[TestCategory("FR-UPD-15")]
+public sealed class WingetUserVendorInstallerTests
+{
+    private const string Sid = "S-1-5-21-11-22-33-1001";
+    private static readonly WinGetUserInstaller ExeInstaller = new(WinGetUserInstallerType.Exe, WinGetUserElevation.Unknown);
+
+    [TestMethod]
+    [DataRow("Exe", WinGetUserInstallerType.Exe, "exe")]
+    [DataRow("Inno", WinGetUserInstallerType.Inno, "inno")]
+    [DataRow("Msi", WinGetUserInstallerType.Msi, "msi")]
+    [DataRow("Wix", WinGetUserInstallerType.Wix, "wix")]
+    [DataRow("Nullsoft", WinGetUserInstallerType.Nullsoft, "nullsoft")]
+    [DataRow("Burn", WinGetUserInstallerType.Burn, "burn")]
+    public async Task AVendorInstallerIsBoundAtReviewFrozenAsWgu1AndPinsItsType(string comType, WinGetUserInstallerType type, string argument)
+    {
+        UpdateJobSelection selection = Selection();
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation(comType), selection));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, store, executor, source);
+
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.AreEqual(new WinGetUserInstaller(type, WinGetUserElevation.Unknown), preparation.Review!.UserInstaller);
+
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None);
+
+        Assert.IsTrue(result.Started, result.Message);
+        Assert.AreEqual(2, source.Calls, "read at review and again before approval");
+        ReviewedUpdateOperation reviewed = executor.Reviewed.Single()!;
+        Assert.IsTrue(WingetUserReviewedRoute.Admits(reviewed));
+        Assert.IsTrue(WinGetUserEvidence.TryParse(reviewed.EvidenceId, out WinGetUserEvidence? evidence), reviewed.EvidenceId);
+        Assert.AreEqual(type, evidence!.InstallerType);
+        Assert.AreEqual(WinGetUserObservationKind.Review, evidence.ObservationKind, "the fixture preparation carries no inventory observation");
+        CollectionAssert.AreEqual(new[]
+        {
+            "upgrade", "--id", "Contoso.Widget", "--version", "1.1.0", "--source", "winget", "--exact",
+            "--scope", "user", "--architecture", "x64", "--disable-interactivity", "--silent", "--installer-type", argument
+        }, WingetReviewedUpdateArguments.Build(reviewed).ToArray());
+    }
+
+    [TestMethod]
+    [DataRow("ElevationRequired", WinGetUserElevation.Required)]
+    [DataRow("ElevatesSelf", WinGetUserElevation.ElevatesSelf)]
+    [DataRow("ElevationProhibited", WinGetUserElevation.Prohibited)]
+    [DataRow("Unknown", WinGetUserElevation.Unknown)]
+    public async Task EveryDeclaredElevationNeedIsOfferedAndBound(string comElevation, WinGetUserElevation elevation)
+    {
+        // Owner answer Q1-B: installers that ask for administrator permission are offered, with a warning, not refused.
+        UpdateJobSelection selection = Selection();
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation("Exe", elevation: comElevation), selection));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, store, executor, source);
+
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.AreEqual(elevation, preparation.Review!.UserInstaller!.Elevation);
+        Assert.IsTrue((await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None)).Started);
+        Assert.IsTrue(WinGetUserEvidence.TryParse(executor.Reviewed.Single()!.EvidenceId, out WinGetUserEvidence? evidence));
+        Assert.AreEqual(elevation, evidence!.Elevation);
+    }
+
+    [TestMethod]
+    public async Task AnMsixInstallerKeepsTheC4EvidenceAndCommandLine()
+    {
+        UpdateJobSelection selection = Selection();
+        RecordingExecutor executor = new();
+        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown"), selection));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, new RecordingStore(), executor, source);
+
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.IsNull(preparation.Review!.UserInstaller);
+        Assert.IsTrue((await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None)).Started);
+        ReviewedUpdateOperation reviewed = executor.Reviewed.Single()!;
+        StringAssert.StartsWith(reviewed.EvidenceId, "review:");
+        Assert.AreEqual("--silent", WingetReviewedUpdateArguments.Build(reviewed)[^1], "no installer-type argument");
+    }
+
+    [TestMethod]
+    public async Task TheStoreSourceIsNotRead()
+    {
+        UpdateJobSelection store = Selection(UpdateSource.MicrosoftStore);
+        RecordingExecutor executor = new();
+        ScriptedSource source = new(WingetUserInstallerCheck.Vendor(ExeInstaller));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(store, new RecordingStore(), executor, source);
+
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(store.StableProductKey, CancellationToken.None);
+        Assert.IsNull(preparation.Review!.UserInstaller);
+        Assert.IsTrue((await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None)).Started);
+        Assert.AreEqual(0, source.Calls);
+    }
+
+    [TestMethod]
+    public async Task AnUnreadableInstallerIsNotReviewed()
+    {
+        UpdateJobSelection selection = Selection();
+        foreach (ScriptedSource source in new[]
+                 {
+                     new ScriptedSource(WingetUserInstallerCheck.Refused(WingetUserInstallerText.UnreadableMessage)),
+                     new ScriptedSource(null),
+                     new ScriptedSource(WingetUserInstallerCheck.Vendor(ExeInstaller)) { Throws = true },
+                 })
+        {
+            RecordingStore store = new();
+            RecordingExecutor executor = new();
+            UpdateReviewPreparation preparation = await Workflow(selection, store, executor, source).BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+            Assert.IsNull(preparation.Review);
+            Assert.AreEqual(WingetUserInstallerText.UnreadableMessage, preparation.Message);
+            Assert.HasCount(0, store.Jobs);
+            Assert.HasCount(0, executor.Reviewed);
+        }
+    }
+
+    [TestMethod]
+    public async Task AnInstallerThatChangedOrCantBeReadBeforeApprovalStartsNothing()
+    {
+        UpdateJobSelection selection = Selection();
+        foreach (WingetUserInstallerCheck? atConfirm in new WingetUserInstallerCheck?[]
+                 {
+                     WingetUserInstallerCheck.Vendor(new(WinGetUserInstallerType.Inno, WinGetUserElevation.Unknown)),
+                     WingetUserInstallerCheck.Vendor(new(WinGetUserInstallerType.Exe, WinGetUserElevation.Required)),
+                     WingetUserInstallerCheck.Msix(),
+                     WingetUserInstallerCheck.Refused(WingetUserInstallerText.UnreadableMessage),
+                     null,
+                 })
+        {
+            RecordingStore store = new();
+            RecordingExecutor executor = new();
+            ScriptedSource source = new(WingetUserInstallerCheck.Vendor(ExeInstaller)) { Then = atConfirm };
+            ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, store, executor, source);
+            UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+
+            ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(preparation.Review!, false, CancellationToken.None);
+
+            Assert.IsFalse(result.Started);
+            Assert.AreEqual(WingetUserInstallerText.ChangedMessage, result.Message);
+            Assert.HasCount(0, store.Jobs, "nothing was approved");
+            Assert.HasCount(0, executor.Reviewed, "nothing was started");
+        }
+    }
+
+    [TestMethod]
+    public async Task AReviewThatBoundAnInstallerIsRefusedByAWorkflowThatCantReadItAgain()
+    {
+        UpdateJobSelection selection = Selection();
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        ReviewedUpdateExecutionWorkflow without = Workflow(selection, store, executor, source: null);
+        UpdateJobReview review = new(Guid.NewGuid(), Guid.NewGuid(), selection, ReviewedInstallerMode.Selected(InstallerMode.Silent)) { UserInstaller = ExeInstaller };
+
+        ReviewedUpdateExecutionResult result = await without.ConfirmAndRunAsync(review, false, CancellationToken.None);
+
+        Assert.IsFalse(result.Started);
+        Assert.AreEqual(WingetUserInstallerText.ChangedMessage, result.Message);
+        Assert.HasCount(0, store.Jobs);
+    }
+
+    [TestMethod]
+    public void TheRulesMapWhatWinGetReports()
+    {
+        UpdateJobSelection selection = Selection();
+        Assert.IsTrue(WingetUserInstallerRules.Evaluate(Observation("MSStore", scope: "Unknown"), selection).IsMsix);
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Portable, WinGetUserElevation.Unknown),
+            WingetUserInstallerRules.Evaluate(Observation("Portable", scope: "Unknown"), selection).Installer, "WinGet places portable apps itself");
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Zip, WinGetUserElevation.Unknown),
+            WingetUserInstallerRules.Evaluate(Observation("Zip", nested: "Portable", scope: "Unknown"), selection).Installer);
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Zip, WinGetUserElevation.Unknown),
+            WingetUserInstallerRules.Evaluate(Observation("Zip", nested: "Exe"), selection).Installer);
+
+        foreach (WinGetUserInstallerObservation unsupported in new[]
+                 {
+                     Observation("Font"), Observation("Unknown"), Observation("SomethingNew"),
+                     Observation("Zip", nested: "Msix"), Observation("Zip", nested: "Unknown"), Observation("Zip", nested: null),
+                 })
+            Assert.AreEqual(WingetUserInstallerText.UnsupportedTypeMessage, WingetUserInstallerRules.Evaluate(unsupported, selection).Message, unsupported.ToString());
+
+        foreach (WinGetUserInstallerObservation? unreadable in new[]
+                 {
+                     null,
+                     Observation("Exe") with { CatalogIsPredefined = false },
+                     Observation("Exe") with { CatalogIsTrusted = false },
+                     Observation("Exe") with { ExactIdMatch = false },
+                     Observation("Exe") with { MatchCount = 2 },
+                     Observation("Exe") with { WasLimitExceeded = true },
+                     Observation("Exe") with { TargetVersionMatches = 0 },
+                     Observation("Exe") with { TargetVersionMatches = 2 },
+                     Observation("Exe") with { PackageId = "Contoso.Other" },
+                     Observation("Exe") with { RequestedPackageId = "Contoso.Other" },
+                     Observation("Exe") with { InstallerType = null },
+                     Observation("Exe", scope: "Unknown"),
+                     Observation("Exe", scope: "System"),
+                     Observation("Zip", nested: "Exe", scope: "Unknown"),
+                     Observation("Exe", elevation: "SomethingNew"),
+                     Observation("Exe", elevation: null),
+                 })
+        {
+            WingetUserInstallerCheck check = WingetUserInstallerRules.Evaluate(unreadable, selection);
+            Assert.IsFalse(check.IsMsix);
+            Assert.IsNull(check.Installer);
+            Assert.AreEqual(WingetUserInstallerText.UnreadableMessage, check.Message, unreadable?.ToString());
+        }
+    }
+
+    [TestMethod]
+    public async Task TheSourceFailsClosed()
+    {
+        UpdateJobSelection selection = Selection();
+        Assert.AreEqual(WingetUserInstallerText.UnreadableMessage,
+            (await new WingetUserInstallerEvidenceSource(new FixtureQuery(() => throw new InvalidOperationException("COM"))).ReadAsync(selection, CancellationToken.None)).Message);
+        WingetUserInstallerEvidenceSource slow = new(new FixtureQuery(() => Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => (WinGetUserInstallerObservation?)null, TaskScheduler.Default)))
+        {
+            QueryBudget = TimeSpan.FromMilliseconds(50)
+        };
+        Assert.AreEqual(WingetUserInstallerText.UnreadableMessage, (await slow.ReadAsync(selection, CancellationToken.None)).Message);
+        FixtureQuery never = new(() => throw new AssertFailedException("not queried"));
+        foreach (UpdateJobSelection other in new[] { Selection(UpdateSource.MicrosoftStore), Selection(scope: UpdateScope.Machine) })
+            Assert.AreEqual(WingetUserInstallerText.UnreadableMessage, (await new WingetUserInstallerEvidenceSource(never).ReadAsync(other, CancellationToken.None)).Message);
+        Assert.AreEqual(ExeInstaller,
+            (await new WingetUserInstallerEvidenceSource(new FixtureQuery(() => Task.FromResult<WinGetUserInstallerObservation?>(Observation("Exe")))).ReadAsync(selection, CancellationToken.None)).Installer);
+    }
+
+    [TestMethod]
+    public void Wgu1IsAStrictIdentity()
+    {
+        Guid id = Guid.Parse("0d7e0000-0000-4000-8000-000000000001");
+        string identity = new WinGetUserEvidence(WinGetUserInstallerType.Inno, WinGetUserElevation.ElevatesSelf, WinGetUserObservationKind.Inventory, id).ToIdentity();
+        Assert.AreEqual("wgu1:inno:elevatesself:inventory:0d7e0000-0000-4000-8000-000000000001", identity);
+        Assert.IsTrue(WinGetUserEvidence.TryParse(identity, out WinGetUserEvidence? parsed));
+        Assert.AreEqual(new WinGetUserEvidence(WinGetUserInstallerType.Inno, WinGetUserElevation.ElevatesSelf, WinGetUserObservationKind.Inventory, id), parsed);
+
+        DateTimeOffset at = new(2026, 11, 13, 15, 0, 0, TimeSpan.Zero);
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), Selection()).Confirm(at);
+        ReviewedInstallerMode silent = ReviewedInstallerMode.Selected(InstallerMode.Silent);
+        Assert.IsNotNull(WingetUserReviewedRoute.Freeze(job, silent, Sid, identity, at));
+        foreach (string bad in new[]
+                 {
+                     "WGU1:inno:elevatesself:inventory:0d7e0000-0000-4000-8000-000000000001",
+                     "wgu1:Inno:elevatesself:inventory:0d7e0000-0000-4000-8000-000000000001",
+                     "wgu1:msix:unknown:inventory:0d7e0000-0000-4000-8000-000000000001",
+                     "wgu1:inno:required:inventory:0D7E0000-0000-4000-8000-000000000001",
+                     "wgu1:inno:required:inventory:00000000-0000-0000-0000-000000000000",
+                     "wgu1:inno:required:cache:0d7e0000-0000-4000-8000-000000000001",
+                     "wgu1:inno:required:inventory:0d7e0000-0000-4000-8000-000000000001:extra",
+                     "wgu1:inno:required",
+                     "wgu1",
+                 })
+        {
+            Assert.IsFalse(WinGetUserEvidence.TryParse(bad, out _), bad);
+            Assert.IsNull(WingetUserReviewedRoute.Freeze(job, silent, Sid, bad, at), bad);
+        }
+
+        ImmutableUpdateJob storeJob = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), Selection(UpdateSource.MicrosoftStore)).Confirm(at);
+        Assert.IsNull(WingetUserReviewedRoute.Freeze(storeJob, silent, Sid, identity, at), "wgu1 is limited to the winget source");
+    }
+
+    [TestMethod]
+    public void TheReviewSheetShowsTheInstallerAndTheOwnerChosenWarning()
+    {
+        UpdateJobSelection selection = Selection();
+        WinGetUserInstaller elevating = new(WinGetUserInstallerType.Inno, WinGetUserElevation.Required);
+
+        AdministratorRequirementPresentation warned = AdministratorRequirementPresenter.ForSelection(selection, elevating);
+        Assert.AreEqual(AdministratorRequirementStatus.Required, warned.Status);
+        Assert.AreEqual(WingetUserInstallerText.ElevationWarning, warned.Explanation);
+        AdministratorRequirementPresentation quiet = AdministratorRequirementPresenter.ForSelection(selection, ExeInstaller);
+        Assert.AreEqual(AdministratorRequirementStatus.NotExpected, quiet.Status);
+        Assert.AreEqual(WingetUserInstallerText.NoElevationDisclosure, quiet.Explanation);
+        Assert.AreEqual(AdministratorRequirementPresenter.ForSelection(selection), AdministratorRequirementPresenter.ForSelection(selection, null));
+
+        UpdateReviewSheet single = UpdateReviewSheet.CreateBatch([new(selection, "Contoso Widget", "Contoso", null, RunningApplicationDetection.NotDetected, elevating)]);
+        Assert.AreEqual(WingetUserInstallerText.ElevationWarning, single.AdministratorRequirement.Explanation);
+        CollectionAssert.Contains(single.Items.Single().ConfidenceEvidence.ToArray(), "Installer: Vendor installer (Inno Setup).");
+
+        UpdateJobSelection other = new("winget:contoso.other", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Other", "2.0", "2.1",
+            UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Unknown, "winget-com-v1");
+        AdministratorRequirementPresentation batch = AdministratorRequirementPresenter.ForBatch([selection, other], [elevating, ExeInstaller]);
+        Assert.AreEqual(AdministratorRequirementStatus.Required, batch.Status);
+        Assert.AreEqual("Administrator approval required for 1 of 2 apps", batch.Label);
+        AdministratorRequirementPresentation quietBatch = AdministratorRequirementPresenter.ForBatch([selection, other], [ExeInstaller, null]);
+        Assert.AreEqual(AdministratorRequirementStatus.NotExpected, quietBatch.Status);
+        StringAssert.Contains(quietBatch.Explanation, "choose No");
+        Assert.AreEqual(AdministratorRequirementPresenter.ForBatch([selection, other]), AdministratorRequirementPresenter.ForBatch([selection, other], null));
+    }
+
+    private static WinGetUserInstallerObservation Observation(string? type, string? nested = "Unknown", string? scope = "User", string? elevation = "Unknown") =>
+        new("Contoso.Widget", true, true, true, 1, false, "Contoso.Widget", 1, type, nested, scope, elevation);
+
+    private static ReviewedUpdateExecutionWorkflow Workflow(UpdateJobSelection selection, RecordingStore store, RecordingExecutor executor,
+        IWingetUserInstallerEvidenceSource? source)
+    {
+        RunningDetector running = new();
+        SequentialUpdateBatchCoordinator coordinator = new(executor, new VerifiedInventory(), new InMemoryHistory(), running);
+        return new ReviewedUpdateExecutionWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(selection, "fresh")),
+            new UpdateJobApprovalService(store), coordinator, running, requestingUserSid: () => Sid, userInstallerEvidence: source);
+    }
+
+    private static UpdateJobSelection Selection(UpdateSource source = UpdateSource.WinGet, UpdateScope scope = UpdateScope.User) =>
+        new("winget:contoso.widget", UpdateProvider.WinGet, source, "Contoso.Widget", "1.0.0", "1.1.0", scope, UpdateArchitecture.X64,
+            UpdateChannel.Unknown, "winget-com-v1");
+
+    private sealed class ScriptedSource : IWingetUserInstallerEvidenceSource
+    {
+        private readonly WingetUserInstallerCheck? first;
+
+        public ScriptedSource(WingetUserInstallerCheck? first)
+        {
+            this.first = first;
+            Then = first;
+        }
+
+        public int Calls { get; private set; }
+        public bool Throws { get; init; }
+        public WingetUserInstallerCheck? Then { get; init; }
+
+        public Task<WingetUserInstallerCheck> ReadAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
+        {
+            Calls++;
+            if (Throws) throw new InvalidOperationException("COM failed");
+            return Task.FromResult((Calls == 1 ? first : Then)!);
+        }
+    }
+
+    private sealed class FixtureQuery(Func<Task<WinGetUserInstallerObservation?>> read) : IWinGetUserInstallerQuery
+    {
+        public Task<WinGetUserInstallerObservation?> QueryAsync(UpdateJobSelection selection, CancellationToken cancellationToken) => read();
+    }
+
+    private sealed class RecordingExecutor : IApprovedUpdateExecutor
+    {
+        public List<ReviewedUpdateOperation?> Reviewed { get; } = [];
+
+        public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) =>
+            throw new AssertFailedException("The coordinator must pass the reviewed operation.");
+
+        public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, ReviewedUpdateOperation? reviewed, UpdateJobExecutionEvidence currentEvidence,
+            UpdateItemProgress progress, CancellationToken cancellationToken)
+        {
+            Reviewed.Add(reviewed);
+            return Task.FromResult(new UpdateProviderAttempt(UpdateProviderAttemptStatus.AwaitingVerification, 0, "provider-completed"));
+        }
+    }
+
+    private sealed class RecordingStore : IUpdateJobStore
+    {
+        public List<ImmutableUpdateJob> Jobs { get; } = [];
+        public Task SaveApprovedJobAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) { Jobs.Add(job); return Task.CompletedTask; }
+        public Task<ImmutableUpdateJob?> GetApprovedJobAsync(Guid jobId, CancellationToken cancellationToken) => Task.FromResult<ImmutableUpdateJob?>(Jobs.SingleOrDefault(job => job.Id == jobId));
+    }
+
+    private sealed class VerifiedInventory : IPostUpdateInventory
+    {
+        public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(new PostUpdateInventoryResult(true, false));
+    }
+
+    private sealed class InMemoryHistory : IUpdateHistoryStore
+    {
+        public List<UpdateHistoryEntry> Entries { get; } = [];
+        public Task RecordAsync(UpdateHistoryEntry entry, CancellationToken cancellationToken) { Entries.Add(entry); return Task.CompletedTask; }
+        public Task<IReadOnlyCollection<UpdateHistoryEntry>> GetHistoryForProductAsync(string stableProductKey, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<UpdateHistoryEntry>>(Entries.Where(entry => entry.StableProductKey == stableProductKey).ToArray());
+        public Task RecoverInterruptedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task PruneAsync(UpdateHistoryRetention retention, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class RunningDetector : IRunningApplicationDetector
+    {
+        public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) =>
+            Task.FromResult(RunningApplicationDetection.NotDetected);
+    }
+}

@@ -9,7 +9,8 @@ namespace PCSteward.Provider.WinGet;
 /// <list type="bullet">
 /// <item><see cref="UpdateRouteContract.WinGetUserSilentV1"/> (stage C4, Task 54 R1; owner decision 2026-11-12 "Silent for all
 /// per-user apps"): the desktop's per-user route. Any installer type, the <c>winget</c> or <c>msstore</c> source, any channel label
-/// (no channel argument is ever added) and an observed architecture, ending <c>--disable-interactivity --silent</c>.</item>
+/// (no channel argument is ever added) and an observed architecture, ending <c>--disable-interactivity --silent</c>. D7 (per-user
+/// vendor installers): when the frozen evidence is <c>wgu1</c>, <c>--installer-type &lt;reviewed type&gt;</c> follows.</item>
 /// <item><see cref="UpdateRouteContract.WinGetUserExactV3"/> (Task 50 mapping revision 2, F6): the narrower MSIX mapping, unchanged and
 /// still without a production caller.</item>
 /// </list>
@@ -45,11 +46,19 @@ internal static class WingetReviewedUpdateArguments
             UpdateArchitecture.Neutral => "neutral",
             _ => throw new ArgumentException("The per-user silent mapping requires an observed architecture.", nameof(operation))
         };
-        return Array.AsReadOnly(new[]
-        {
+        string[] arguments =
+        [
             "upgrade", "--id", selection.PackageId, "--version", selection.CandidateVersion, "--source", source, "--exact",
             "--scope", "user", "--architecture", architecture, "--disable-interactivity", "--silent"
-        });
+        ];
+        // D7 design §3 item 5: a vendor installer bound at review (wgu1) pins WinGet to the reviewed installer type.
+        if (WinGetUserEvidence.TryParse(operation.EvidenceId, out WinGetUserEvidence? evidence) && evidence is not null)
+        {
+            if (selection.Source != UpdateSource.WinGet)
+                throw new ArgumentException("Per-user vendor-installer evidence is limited to the winget source.", nameof(operation));
+            arguments = [.. arguments, "--installer-type", WinGetUserEvidence.InstallerTypeText(evidence.InstallerType)];
+        }
+        return Array.AsReadOnly(arguments);
     }
 
     private static ReadOnlyCollection<string> BuildUserMsix(ReviewedUpdateOperation operation)
