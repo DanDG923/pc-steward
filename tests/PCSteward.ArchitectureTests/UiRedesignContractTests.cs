@@ -1271,4 +1271,51 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(layout, "public const double ReadingColumnWidth = 1000;");
         StringAssert.Contains(layout, ": double.PositiveInfinity;");
     }
+
+    [TestMethod]
+    [Description("FR-UI-01/04/05, FR-UPD-01 (UI review 2026-11-13, item 19): on a wide window an app opened from a list shows its details in a column beside the list. The column holds only what the details page builds, so it adds no action of its own.")]
+    public void DetailsOpenBesideAListOnAWideWindow()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        // The shell owns the column: its own scroll host beside the page host, hidden until it is asked for.
+        string shell = Between(source, "private void EnsureShell()", "private static void AddNavigationItem(");
+        StringAssert.Contains(shell, "AutomationProperties.SetAutomationId(detailPaneScroll, \"AppDetailsPane\");");
+        StringAssert.Contains(shell, "StewardVisuals.KeepPageColumnFitted(detailPaneScroll);");
+        StringAssert.Contains(shell, "Child = detailPaneScroll");
+        StringAssert.Contains(shell, "shell.SizeChanged += (_, _) => ShowDetailPane(rebuild: false);");
+        // It belongs to the page region for F6, closes when another page opens, and is refreshed with its page.
+        StringAssert.Contains(source, "ReferenceEquals(node, pageFooterHost) || ReferenceEquals(node, detailPaneHost)) return FocusRegion.Page;");
+        string show = Between(source, "private void ShowCurrentPage(bool preserveViewState)", "private void RestoreScrollOffset(");
+        StringAssert.Contains(show, "if (renderedPage != navigation.Current) detailPaneOpen = false;");
+        StringAssert.Contains(show, "ShowDetailPane(rebuild: true);");
+
+        // Opening an app: beside the list when the layout rule says so, otherwise the details page as before.
+        string open = Between(source, "private async Task ShowDetailsAsync(InventoryRow row)", "private void ShowDetailPane(bool rebuild)");
+        int beside = open.IndexOf("if (shellContent is not null && PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))", StringComparison.Ordinal);
+        int page = open.IndexOf("NavigateTo(ShellPage.Detail);", StringComparison.Ordinal);
+        Assert.IsTrue(beside >= 0 && page > beside, "the details page stays the fallback");
+        StringAssert.Contains(open, "StewardVisuals.Announce(detailPaneScroll, PageLayout.DetailsShownAnnouncement(row.Name), \"details-beside-list\");");
+
+        // The column is the details page's content and a Close button; it has no operation of its own.
+        string pane = Between(source, "private void ShowDetailPane(bool rebuild)", DesktopWindowSource.EndOf("MainWindow.Detail.cs"));
+        StringAssert.Contains(pane, "if (!detailPaneOpen || detailRow is null || !PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))");
+        StringAssert.Contains(pane, "detailPaneHost.Width = PageLayout.DetailsPaneWidth(shellContent.ActualWidth);");
+        StringAssert.Contains(pane, "StackPanel details = BuildProductDetailPage();");
+        StringAssert.Contains(pane, "AutomationProperties.SetHeadingLevel(detailTitle, AutomationHeadingLevel.Level2);");
+        StringAssert.Contains(pane, "Button close = StewardVisuals.ActionButton(PageLayout.CloseDetailsLabel, $\"for {row.Name}\");");
+        foreach (string authority in new[] { "workflow.", "DataOperationLease", "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "PromptAnd", "ChangeWinGetTrustedSourcesAsync", "StartScanAsync", "CheckUpdateSourcesAsync", "NavigateTo(" })
+            Assert.IsFalse(pane.Contains(authority, StringComparison.Ordinal), $"the details column adds no action of its own: {authority}");
+
+        // FR-POL-03/05: a choice saved for the app in the column is confirmed there, with the same Undo, and not on the list as well.
+        string notice = Between(source, "private void ShowDecisionNotice(DecisionNotice notice, string stableProductKey)", "private InfoBar DecisionNoticeBar(DecisionNotice notice)");
+        StringAssert.Contains(notice, "decisionNoticeInDetailPane = PageLayout.NoticeGoesInDetails(detailPaneOpen && detailPaneHost is { Visibility: Visibility.Visible }, detailPaneKey, stableProductKey);");
+        StringAssert.Contains(show, "else if (!decisionNoticeInDetailPane) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));");
+        StringAssert.Contains(pane, "if (decisionNoticeInDetailPane && decisionNotice is { } saved) details.Children.Insert(1, DecisionNoticeBar(saved));");
+        StringAssert.Contains(pane, "if (decisionNoticeInDetailPane && !sameApp) { decisionNotice = null; decisionNoticeInDetailPane = false; }");
+        Assert.AreEqual(2, Count(pane, "decisionNotice = null; decisionNoticeInDetailPane = false;"), "the line goes when the column closes or shows another app");
+
+        string layout = ApplicationSource("PageLayout.cs");
+        StringAssert.Contains(layout, "public const double DetailsBesideMinimumWidth = 1200;");
+        StringAssert.Contains(layout, "public static bool IsListPage(ShellPage page) => page is ShellPage.Updates or ShellPage.InstalledApps;");
+    }
 }

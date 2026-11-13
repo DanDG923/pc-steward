@@ -54,7 +54,9 @@ public sealed partial class MainWindow
         avatar.VerticalAlignment = VerticalAlignment.Center;
         heading.Children.Add(avatar);
         StackPanel title = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        title.Children.Add(StewardVisuals.PageTitle(row.Name));
+        TextBlock name = StewardVisuals.PageTitle(row.Name);
+        detailTitle = name;
+        title.Children.Add(name);
         title.Children.Add(new TextBlock { Text = summary.Subtitle, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         Grid.SetColumn(title, 1); heading.Children.Add(title);
         panel.Children.Add(heading);
@@ -312,6 +314,85 @@ public sealed partial class MainWindow
         detailMatchFormOpen = false;
         try { detailRaw = await DataOperationLease.RunReadAsync(token => workflow.GetRawDiagnosticsAsync(row.ProductId, token), CancellationToken.None); detailTimeline = await DataOperationLease.RunReadAsync(token => workflow.GetTimelineAsync(row.StableProductKey, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        // UI review 2026-11-13 (item 19): on a wide window a list keeps its place and the details open beside it. The list is
+        // not rebuilt, so it stays where the owner scrolled it; focus stays on the list and a screen reader is told what opened.
+        if (shellContent is not null && PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))
+        {
+            detailPaneOpen = true;
+            ShowDetailPane(rebuild: true);
+            StewardVisuals.Announce(detailPaneScroll, PageLayout.DetailsShownAnnouncement(row.Name), "details-beside-list");
+            return;
+        }
         NavigateTo(ShellPage.Detail);
+    }
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 19; FR-UI-01/04/05): shows, refreshes or hides the details column beside a list. The column
+    /// holds exactly what the details page builds (<see cref="BuildProductDetailPage"/>), so every action in it is the same
+    /// action with the same confirmation. It is shown only for an app the owner opened from Updates or Installed apps while the
+    /// content area is wide enough (<see cref="PageLayout.ShowsDetailsBeside"/>); otherwise it is hidden and emptied.
+    /// </summary>
+    private void ShowDetailPane(bool rebuild)
+    {
+        if (detailPaneHost is null || detailPaneScroll is null || shellContent is null) return;
+        if (!detailPaneOpen || detailRow is null || !PageLayout.ShowsDetailsBeside(navigation.Current, shellContent.ActualWidth))
+        {
+            detailPaneHost.Visibility = Visibility.Collapsed;
+            detailPaneScroll.Content = null;
+            detailPaneKey = null;
+            // A line that confirmed a choice in the column goes with the column, as it does when its page is left.
+            if (decisionNoticeInDetailPane) { decisionNotice = null; decisionNoticeInDetailPane = false; }
+            return;
+        }
+        detailPaneHost.Width = PageLayout.DetailsPaneWidth(shellContent.ActualWidth);
+        if (rebuild || detailPaneScroll.Content is null)
+        {
+            // The same app refreshed keeps its place in the column; another app starts at the top.
+            bool sameApp = string.Equals(detailPaneKey, detailRow.StableProductKey, StringComparison.Ordinal);
+            // The line that confirms a saved choice belongs to the app it was made for: another app in the column drops it.
+            if (decisionNoticeInDetailPane && !sameApp) { decisionNotice = null; decisionNoticeInDetailPane = false; }
+            // A line that has just been added is at the top of the column, so the column starts there and it is seen.
+            double offset = sameApp && !(decisionNoticeIsNew && decisionNoticeInDetailPane) ? detailPaneScroll.VerticalOffset : 0;
+            StackPanel details = BuildDetailPane(detailRow);
+            detailPaneKey = detailRow.StableProductKey;
+            detailPaneScroll.Content = details;
+            AutomationProperties.SetName(detailPaneScroll, PageLayout.DetailsPaneName(detailRow.Name));
+            StewardVisuals.FitPageColumn(detailPaneScroll);
+            if (offset <= 0) detailPaneScroll.ChangeView(null, 0, null, true);
+            else
+            {
+                // Like the page host: the rebuilt content has to be laid out before its saved offset can be reached.
+                ScrollViewer column = detailPaneScroll;
+                DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                {
+                    if (!windowClosed && ReferenceEquals(column.Content, details)) RestoreScrollOffset(column, details, offset);
+                });
+            }
+        }
+        detailPaneHost.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// The details page's own content, laid out for the column: tighter padding, a "Close details" button first, and the app's
+    /// name as a level-2 heading because the list page beside it already has the level-1 title.
+    /// </summary>
+    private StackPanel BuildDetailPane(InventoryRow row)
+    {
+        StackPanel details = BuildProductDetailPage();
+        details.Padding = new Thickness(StewardSpacing.XLarge, StewardSpacing.Medium, StewardSpacing.XLarge, StewardSpacing.XLarge);
+        if (detailTitle is not null) AutomationProperties.SetHeadingLevel(detailTitle, AutomationHeadingLevel.Level2);
+        Button close = StewardVisuals.ActionButton(PageLayout.CloseDetailsLabel, $"for {row.Name}");
+        close.HorizontalAlignment = HorizontalAlignment.Right;
+        close.Click += (_, _) =>
+        {
+            detailPaneOpen = false;
+            ShowDetailPane(rebuild: false);
+            // The button is gone with the column, so the keyboard goes back to the page it was beside.
+            FocusRegionElement(FocusRegion.Page);
+        };
+        details.Children.Insert(0, close);
+        // FR-POL-03/05: what was just saved for this app, with Undo, in the column the choice was made in.
+        if (decisionNoticeInDetailPane && decisionNotice is { } saved) details.Children.Insert(1, DecisionNoticeBar(saved));
+        return details;
     }
 }

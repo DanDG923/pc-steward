@@ -116,7 +116,7 @@ public sealed partial class MainWindow
 
     private async Task CheckUpdateSourcesAsync()
     {
-        string? detailStableProductKey = navigation.Current == ShellPage.Detail ? detailRow?.StableProductKey : null;
+        string? detailStableProductKey = navigation.Current == ShellPage.Detail || detailPaneOpen ? detailRow?.StableProductKey : null;
         // Independent review L2: this method takes no cancellation token and the band's Cancel only cancels a scan, so the source
         // refresh keeps its existing non-cancellable behaviour (bounded by the refresh service's own timeouts). Not changed here.
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;

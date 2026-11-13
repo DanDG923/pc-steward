@@ -65,6 +65,13 @@ public sealed partial class MainWindow : Window
     // UI review 2026-11-13 (item 13): a page's action bar, kept in view under the scrolling page. A page sets pageFooter while it
     // is built (the update review's Cancel and update buttons); it is cleared before every page is built.
     private Border? pageFooterHost;
+    // UI review 2026-11-13 (item 19): on a wide window the selected app's details sit beside the list, in their own column.
+    private Grid? shellContent;
+    private Border? detailPaneHost;
+    private ScrollViewer? detailPaneScroll;
+    private TextBlock? detailTitle;
+    private string? detailPaneKey;
+    private bool detailPaneOpen;
     private FrameworkElement? pageFooter;
     private ShellPage? renderedPage;
     private Button? operationCancel;
@@ -74,6 +81,8 @@ public sealed partial class MainWindow : Window
     // UI review 2026-11-13 (item 12): the line shown after a pin, ignore, skip or confirmed match, with Undo, on the page it was made on.
     private DecisionNotice? decisionNotice;
     private ShellPage decisionNoticePage;
+    private bool decisionNoticeInDetailPane;
+    private bool decisionNoticeIsNew;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
     private bool onboardingAcknowledging;
