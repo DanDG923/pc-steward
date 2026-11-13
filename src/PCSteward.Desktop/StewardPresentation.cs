@@ -660,7 +660,7 @@ internal static class StewardVisuals
     /// UI polish phase 4 (approved target T-Decisions): a calm empty state — a 56 epx round neutral icon well, a Subtitle heading,
     /// one sentence and an optional action, centred in a card.
     /// </summary>
-    public static Border EmptyState(string glyph, string title, string message, Button? action = null)
+    public static Border EmptyState(string glyph, string title, string message, Button? action = null, Button? secondary = null)
     {
         // Centred both ways, so the message stays in the middle when the page host grows the card to the window's bottom.
         StackPanel content = new() { Spacing = StewardSpacing.Small, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560 };
@@ -674,7 +674,16 @@ internal static class StewardVisuals
         heading.HorizontalAlignment = HorizontalAlignment.Center;
         content.Children.Add(heading);
         content.Children.Add(new TextBlock { Text = message, Style = Style("StewardBodyStyle"), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
-        if (action is not null) { action.HorizontalAlignment = HorizontalAlignment.Center; content.Children.Add(action); }
+        if (action is not null && secondary is not null)
+        {
+            // Two choices side by side (the guided first run's question); they wrap onto two lines when the card is narrow.
+            StewardWrapPanel choices = ActionRow();
+            choices.HorizontalAlignment = HorizontalAlignment.Center;
+            choices.Children.Add(action);
+            choices.Children.Add(secondary);
+            content.Children.Add(choices);
+        }
+        else if (action is not null) { action.HorizontalAlignment = HorizontalAlignment.Center; content.Children.Add(action); }
         Border empty = new() { Style = Style("StewardCardStyle"), Padding = new Thickness(32), Child = content };
         AutomationProperties.SetName(empty, $"{title}. {message}");
         EmptyStates.AddOrUpdate(empty, title);

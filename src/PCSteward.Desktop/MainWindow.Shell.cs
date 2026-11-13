@@ -253,6 +253,8 @@ public sealed partial class MainWindow
         if (windowRoot is null) return;
         if (navigationView is not null) { windowRoot.Children.Remove(navigationView); navigationView = null; pageHost = null; renderedPage = null; }
         foreach (UIElement bare in windowRoot.Children.Where(child => Grid.GetRow((FrameworkElement)child) == 1).ToArray()) windowRoot.Children.Remove(bare);
+        // Both bare pages are a few lines of text, so they read as one column on a wide window (UI review 2026-11-13, item 19).
+        panel.MaxWidth = PageLayout.MaximumWidth(ShellPage.Onboarding, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);
         ScrollViewer host = new() { Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         StewardVisuals.KeepPageColumnFitted(host);
         Grid.SetRow(host, 1);
@@ -405,6 +407,8 @@ public sealed partial class MainWindow
         pageSearchTarget = null;
         pageFooter = null;
         StackPanel page = BuildPage(navigation.Current);
+        // UI review 2026-11-13 (item 19): a page of text and switches reads as one column; a list page still fills the window.
+        page.MaxWidth = PageLayout.MaximumWidth(navigation.Current, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);
         // UI review 2026-11-13 (item 12): the line that says what was just saved, under the header of the page it was made on.
         if (decisionNotice is { } saved)
         {

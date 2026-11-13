@@ -1219,4 +1219,56 @@ public sealed class UiRedesignContractTests
         foreach (string action in new[] { "Render()", "workflow.", "ReviewAndExecuteAsync", "NavigateTo(" })
             Assert.IsFalse(sortBy.Contains(action, StringComparison.Ordinal), $"sorting only re-applies the filters: {action}");
     }
+
+    [TestMethod]
+    [Description("FR-UI-01/05, FR-UPD-01 (UI review 2026-11-13, item 21): the first run is two steps. Step 2 is one question on Home after the first scan; yes goes through the one consent dialog and only then looks for updates; Not now changes nothing.")]
+    public void TheFirstRunIsTwoStepsAndItsQuestionGoesThroughTheConsent()
+    {
+        string source = DesktopSource("MainWindow.cs");
+        string home = Between(source, "private StackPanel BuildHomePage()", DesktopWindowSource.EndOf("MainWindow.Home.cs"));
+        StringAssert.Contains(home, "FirstRunStep scanStep = FirstRunPresenter.ScanStep(viewModel.IsUpdateSourceEnabled);");
+        StringAssert.Contains(home, "panel.Children.Add(AsksAboutUpdates ? FirstRunQuestionCard() : HomeStatusCard(home));");
+        StringAssert.Contains(home, "private bool AsksAboutUpdates => FirstRunPresenter.AsksAboutUpdates(firstScanThisSession, viewModel.AllRows.Count > 0, viewModel.IsUpdateSourceEnabled, firstRunQuestionAnswered);");
+        string question = Between(home, "private Border FirstRunQuestionCard()", "private Border HomeStatusCard(");
+        // Yes: the consent first; nothing more unless the owner approved there.
+        int consent = question.IndexOf("await ChangeWinGetTrustedSourcesAsync(true);", StringComparison.Ordinal);
+        int approved = question.IndexOf("if (windowClosed || !viewModel.IsUpdateSourceEnabled) return;", StringComparison.Ordinal);
+        int check = question.IndexOf("await CheckUpdateSourcesAsync();", StringComparison.Ordinal);
+        Assert.IsTrue(consent >= 0 && approved > consent && check > approved, "the check runs only after the consent was approved");
+        StringAssert.Contains(question, "notNow.Click += (_, _) => { firstRunQuestionAnswered = true; Render(); };");
+        foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "StartScanAsync", "workflow.", "DataOperationLease" })
+            Assert.IsFalse(question.Contains(authority, StringComparison.Ordinal), $"the question saves, scans and updates nothing itself: {authority}");
+
+        // The first scan is the one that had no app list before it; a finished scan on the Scan page then leads to the question.
+        string scan = Between(source, "private async Task StartScanAsync()", "private async Task CheckUpdateSourcesAsync()");
+        StringAssert.Contains(scan, "bool nothingScannedYet = viewModel.LastScanAt is null && viewModel.AllRows.Count == 0;");
+        StringAssert.Contains(scan, "if (completed.Succeeded && nothingScannedYet) firstScanThisSession = true;");
+        StringAssert.Contains(scan, "NavigateTo(FirstRunPresenter.AfterScan(AsksAboutUpdates));");
+
+        // The page after a factory reset says the same things in plain words, and still only opens the scan page.
+        string onboarding = Between(source, "private StackPanel BuildOnboardingPage()", DesktopWindowSource.EndOf("MainWindow.Onboarding.cs"));
+        StringAssert.Contains(onboarding, "StewardVisuals.PageHeader(FirstRunPresenter.AfterResetTitle, FirstRunPresenter.AfterResetDescription, FirstRunPresenter.AfterResetEyebrow)");
+        StringAssert.Contains(onboarding, "StewardVisuals.PrimaryButton(FirstRunPresenter.AfterResetContinueLabel, FirstRunPresenter.AfterResetContinueHelp)");
+        foreach (string old in new[] { "local inventory", "read-only inventory", "Inventory,", "source connection", "source evidence", "Fresh local state" })
+            Assert.IsFalse(onboarding.Contains(old, StringComparison.Ordinal), $"plain words after a reset: {old}");
+        foreach (string started in new[] { "StartScanAsync", "CheckUpdateSourcesAsync", "CheckForUpdatesAsync", "ChangeWinGetTrustedSourcesAsync" })
+            Assert.IsFalse(onboarding.Contains(started, StringComparison.Ordinal), $"continuing after a reset starts nothing: {started}");
+
+        // Two choices in an empty-state card sit side by side and wrap.
+        string empty = Between(DesktopSource("StewardPresentation.cs"), "public static Border EmptyState(", "public static Border MetricCard(");
+        StringAssert.Contains(empty, "StewardWrapPanel choices = ActionRow();");
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01/05 (UI review 2026-11-13, item 19): the shell caps a text page's column through PageLayout; a list page keeps the window's full width.")]
+    public void TextPagesReadAsOneColumn()
+    {
+        string shell = DesktopSource("MainWindow.cs").Replace("\r\n", "\n", StringComparison.Ordinal);
+        StringAssert.Contains(shell, "StackPanel page = BuildPage(navigation.Current);\n        // UI review 2026-11-13 (item 19): a page of text and switches reads as one column; a list page still fills the window.\n        page.MaxWidth = PageLayout.MaximumWidth(navigation.Current, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);");
+        StringAssert.Contains(shell, "panel.MaxWidth = PageLayout.MaximumWidth(ShellPage.Onboarding, StewardSpacing.PagePadding.Left + StewardSpacing.PagePadding.Right);");
+        Assert.AreEqual(2, Count(shell, "PageLayout.MaximumWidth("), "the width rule lives in one place and is used by the two page hosts");
+        string layout = ApplicationSource("PageLayout.cs");
+        StringAssert.Contains(layout, "public const double ReadingColumnWidth = 1000;");
+        StringAssert.Contains(layout, ": double.PositiveInfinity;");
+    }
 }
