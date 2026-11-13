@@ -152,7 +152,7 @@ public sealed partial class MainWindow
         if (row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired) && detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true } && viewModel.IsUpdateSourceEnabled)
         {
             decisions.Children.Add(PageCopy($"Confirm this only if you recognise {detail.PackageId} from {detail.SourceId} as this installed app. You can undo it, and it doesn't start an update."));
-            Button confirmPackage = StewardVisuals.ActionButton("Confirm package identity", $"({detail.PackageId} is this installed app)");
+            Button confirmPackage = StewardVisuals.ActionButton("Confirm match", $"({detail.PackageId} is this installed app)");
             confirmPackage.Click += async (_, _) => await PromptAndConfirmPackageIdentityAsync(row, detail);
             decisionActions.Children.Add(confirmPackage);
         }

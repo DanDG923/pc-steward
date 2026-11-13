@@ -94,7 +94,7 @@ public sealed class SkipVersionDecisionTests
         StringAssert.Contains(row.Detail, "A newer version will be offered again");
         Assert.IsFalse(row.Title.Contains("Ignore", StringComparison.OrdinalIgnoreCase), "distinct from Ignore updates for this app");
         Assert.AreEqual("Skipped versions (1)", DecisionsPresenter.GroupHeading(DecisionKind.Skip, 1));
-        Assert.AreEqual("Version skipped", StatusVocabulary.For(UpdateIntelligenceStatus.Skipped).Label);
+        Assert.AreEqual("Skipped", StatusVocabulary.For(UpdateIntelligenceStatus.Skipped).Label);
         Assert.AreEqual(StatusTone.Neutral, StatusVocabulary.For(UpdateIntelligenceStatus.Skipped).Tone);
     }
 

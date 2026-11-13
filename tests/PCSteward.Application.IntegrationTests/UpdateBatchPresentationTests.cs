@@ -208,8 +208,8 @@ public sealed class UpdateBatchPresentationTests
         // Review L3: Results and Applications rows use StewardStatus.From → StatusVocabulary.For(row.Status).
         foreach (UpdateIntelligenceStatus status in Enum.GetValues<UpdateIntelligenceStatus>())
             Assert.AreNotEqual("Status unavailable", StatusVocabulary.For(status.ToString()).Label, status.ToString());
-        Assert.AreEqual("Version skipped", StatusVocabulary.For(nameof(UpdateIntelligenceStatus.Skipped)).Label);
-        CollectionAssert.Contains(StatusVocabulary.FilterLabels.ToArray(), "Version skipped");
+        Assert.AreEqual("Skipped", StatusVocabulary.For(nameof(UpdateIntelligenceStatus.Skipped)).Label);
+        CollectionAssert.Contains(StatusVocabulary.FilterLabels.ToArray(), "Skipped");
     }
 
     private static UpdateJobItemOutcome Outcome(string key, UpdateHistoryStatus status) =>

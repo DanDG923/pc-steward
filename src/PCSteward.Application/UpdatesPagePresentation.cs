@@ -339,7 +339,7 @@ public static class UpdatesPagePresenter
                     break;
                 case nameof(UpdateIntelligenceStatus.FailedUnavailable):
                     review.Add(Row(row, detail, UpdateGroup.NeedsReview,
-                        ["The package source couldn't confirm whether an update is available. Refresh source evidence to try again."], [Details]));
+                        ["PC Steward couldn't reach the update source for this app. Check again to retry."], [Details]));
                     break;
                 case nameof(UpdateIntelligenceStatus.Ignored):
                     StableDecision? ignore = Latest(decisions, row.StableProductKey, "Ignore");

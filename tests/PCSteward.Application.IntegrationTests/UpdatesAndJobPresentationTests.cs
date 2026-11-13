@@ -124,7 +124,7 @@ public sealed class UpdatesAndJobPresentationTests
         StringAssert.Contains(Reason(page, "low"), "low confidence");
         StringAssert.Contains(Reason(page, "arch"), "different architecture");
         StringAssert.Contains(Reason(page, "stale"), "cached and may be out of date");
-        StringAssert.Contains(Reason(page, "unavailable"), "couldn't confirm whether an update is available");
+        StringAssert.Contains(Reason(page, "unavailable"), "couldn't reach the update source for this app");
         StringAssert.Contains(Reason(page, "incomparable"), "can't be compared reliably");
         StringAssert.Contains(Reason(page, "incomparable"), "different release channel");
         StringAssert.Contains(Reason(page, "incomparable"), "Another evidence check needs your review.");

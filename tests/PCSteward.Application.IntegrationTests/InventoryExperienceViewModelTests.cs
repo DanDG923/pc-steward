@@ -36,8 +36,9 @@ public sealed class InventoryExperienceViewModelTests
         viewModel.ReportProgress(new ScanProgress(Guid.NewGuid(), "Collecting", TimeSpan.FromSeconds(2), "registry"));
         viewModel.CompleteScan(new ScanResult(Guid.NewGuid(), true, false, new Dictionary<string, TimeSpan> { ["registry"] = TimeSpan.FromSeconds(3) }, []), DateTimeOffset.UnixEpoch);
         Assert.IsFalse(viewModel.IsScanning);
-        StringAssert.Contains(viewModel.ScanPhase, "Local-only");
-        StringAssert.Contains(viewModel.FreshnessLabel, "Local-only");
+        Assert.AreEqual("Scan complete", viewModel.ScanPhase);
+        StringAssert.StartsWith(viewModel.FreshnessLabel, "Last scan completed");
+        Assert.AreEqual("Apps Windows lists", viewModel.ScanModeLabel, "with update checks off the scan says it reads only what Windows lists");
     }
 
     [TestMethod]
@@ -67,14 +68,14 @@ public sealed class InventoryExperienceViewModelTests
         viewModel.CompleteScan(new ScanResult(Guid.NewGuid(), true, false, new Dictionary<string, TimeSpan>(), []), DateTimeOffset.UtcNow);
         viewModel.ClearScanData();
         Assert.HasCount(0, viewModel.VisibleRows);
-        StringAssert.Contains(viewModel.FreshnessLabel, "No scan yet");
-        StringAssert.Contains(viewModel.ScanPhase, "No scan data");
+        Assert.AreEqual("Not scanned yet", viewModel.FreshnessLabel);
+        Assert.AreEqual(InventoryExperienceViewModel.ReadyToScan, viewModel.ScanPhase);
     }
     [TestMethod]
     public void RestoredInventoryIsLabelledAsCachedLocalOnly()
     {
         InventoryExperienceViewModel viewModel = new(); viewModel.LoadInventory([new CanonicalProduct(Guid.NewGuid(), "alpha", "Alpha")], [], DateTimeOffset.UnixEpoch);
-        StringAssert.Contains(viewModel.ScanPhase, "Cached"); StringAssert.Contains(viewModel.FreshnessLabel, "Local-only");
+        Assert.AreEqual(InventoryExperienceViewModel.ShowingLastScan, viewModel.ScanPhase); StringAssert.StartsWith(viewModel.FreshnessLabel, "Last scan completed"); Assert.AreEqual("Apps Windows lists", viewModel.ScanModeLabel);
     }
     [TestMethod]
     public void PublisherStatusSourceScopeAndSortFiltersRemainActiveTogether()
@@ -114,7 +115,7 @@ public sealed class InventoryExperienceViewModelTests
     public void ApprovedWingetModeNeverUsesLocalOnlyLabels()
     {
         InventoryExperienceViewModel viewModel = new(); viewModel.SetConnectorEnabled("WinGet installed inventory", true);
-        StringAssert.Contains(viewModel.ScanModeLabel, "approved WinGet"); Assert.IsFalse(viewModel.ScanPhase.Contains("local-only", StringComparison.OrdinalIgnoreCase)); Assert.IsFalse(viewModel.FreshnessLabel.Contains("local-only", StringComparison.OrdinalIgnoreCase));
+        StringAssert.Contains(viewModel.ScanModeLabel, "plus apps WinGet lists"); Assert.IsFalse(viewModel.ScanPhase.Contains("local-only", StringComparison.OrdinalIgnoreCase)); Assert.IsFalse(viewModel.FreshnessLabel.Contains("local-only", StringComparison.OrdinalIgnoreCase));
     }
     [TestMethod]
     public void UpdateIntelligenceShowsCountsAttentionAndCachedFreshnessSeparatelyFromInventory()

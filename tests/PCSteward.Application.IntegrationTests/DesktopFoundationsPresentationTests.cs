@@ -161,14 +161,14 @@ public sealed class DesktopFoundationsPresentationTests
     [Description("FR-UI-01/05; AC-UX-03; SPEC §7.2: one label set, with glyph and text for every status, mapped from the inventory statuses.")]
     public void StatusVocabularyUsesSpecLabelsWithGlyphAndText()
     {
-        Assert.AreEqual("Current", StatusVocabulary.For(UpdateIntelligenceStatus.Current).Label);
-        Assert.AreEqual("Update available — verified", StatusVocabulary.For(UpdateIntelligenceStatus.VerifiedUpdate).Label);
-        Assert.AreEqual("Update available — review", StatusVocabulary.For(UpdateIntelligenceStatus.ReviewRequired).Label);
-        Assert.AreEqual("Source unavailable", StatusVocabulary.For(UpdateIntelligenceStatus.FailedUnavailable).Label);
+        Assert.AreEqual("Up to date", StatusVocabulary.For(UpdateIntelligenceStatus.Current).Label);
+        Assert.AreEqual("Update ready", StatusVocabulary.For(UpdateIntelligenceStatus.VerifiedUpdate).Label);
+        Assert.AreEqual("Check the match", StatusVocabulary.For(UpdateIntelligenceStatus.ReviewRequired).Label);
+        Assert.AreEqual("Couldn't check", StatusVocabulary.For(UpdateIntelligenceStatus.FailedUnavailable).Label);
         Assert.AreEqual("No update source", StatusVocabulary.For(UpdateIntelligenceStatus.Unmanaged).Label, "UI polish phase 2: owner-approved wording");
         Assert.AreEqual("Pinned", StatusVocabulary.For(UpdateIntelligenceStatus.Pinned).Label);
         Assert.AreEqual("Ignored", StatusVocabulary.For(UpdateIntelligenceStatus.Ignored).Label);
-        Assert.AreEqual("Source not checked", StatusVocabulary.For(StatusVocabulary.InstalledKey).Label);
+        Assert.AreEqual("Not checked yet", StatusVocabulary.For(StatusVocabulary.InstalledKey).Label);
         // Final review L3: the unreferenced outcome chips are gone; outcomes are presented by UpdateOutcomePresenter only.
         foreach (string removed in new[] { "SelfManaged", "UnknownVersion", "UpdateFailed", "RestartRequired" })
             Assert.AreEqual("Status unavailable", StatusVocabulary.For(removed).Label, removed);
@@ -203,9 +203,9 @@ public sealed class DesktopFoundationsPresentationTests
         Assert.AreEqual(StatusTone.Information, UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.RestartRequired, null, null, "2.0").Tone);
         Assert.AreEqual(StatusTone.Critical, UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed, null, 1, "2.0").Tone);
         Assert.AreEqual(StatusTone.Success, StatusVocabulary.For(UpdateIntelligenceStatus.Current).Tone);
-        StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.VerifiedUpdate).Meaning, "review and confirmation");
-        StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.ReviewRequired).Meaning, "cannot be updated");
-        StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.FailedUnavailable).Meaning, "nothing can be updated");
+        StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.VerifiedUpdate).Meaning, "until you review and confirm it");
+        StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.ReviewRequired).Meaning, "can't be updated until you confirm the match");
+        StringAssert.Contains(StatusVocabulary.For(UpdateIntelligenceStatus.FailedUnavailable).Meaning, "can't be updated until then");
     }
 
     [TestMethod]

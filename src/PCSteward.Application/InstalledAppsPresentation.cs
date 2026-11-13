@@ -34,7 +34,9 @@ public static class InstalledAppsFilters
     private static readonly Dictionary<InstalledAppsFilter, string[]> Statuses = new()
     {
         [InstalledAppsFilter.Updates] = [nameof(UpdateIntelligenceStatus.VerifiedUpdate)],
-        [InstalledAppsFilter.NeedsReview] = [nameof(UpdateIntelligenceStatus.ReviewRequired), nameof(UpdateIntelligenceStatus.FailedUnavailable)],
+        // UI review 2026-11-13 (item 5): this tab is named for the one state it lists. An app whose source couldn't be reached
+        // ("Couldn't check") is not a match to check; it is found under All, by its status, and on Updates.
+        [InstalledAppsFilter.NeedsReview] = [nameof(UpdateIntelligenceStatus.ReviewRequired)],
         [InstalledAppsFilter.Unmanaged] = [nameof(UpdateIntelligenceStatus.Unmanaged)],
         [InstalledAppsFilter.PinnedAndIgnored] = [nameof(UpdateIntelligenceStatus.Pinned), nameof(UpdateIntelligenceStatus.Ignored), nameof(UpdateIntelligenceStatus.Skipped)],
     };
@@ -42,8 +44,8 @@ public static class InstalledAppsFilters
     /// <summary>The filter's short label.</summary>
     public static string Label(InstalledAppsFilter filter) => filter switch
     {
-        InstalledAppsFilter.Updates => "Updates",
-        InstalledAppsFilter.NeedsReview => "Needs review",
+        InstalledAppsFilter.Updates => StatusVocabulary.For(nameof(UpdateIntelligenceStatus.VerifiedUpdate)).Label,
+        InstalledAppsFilter.NeedsReview => StatusVocabulary.For(nameof(UpdateIntelligenceStatus.ReviewRequired)).Label,
         InstalledAppsFilter.Unmanaged => StatusVocabulary.NoUpdateSourceLabel,
         InstalledAppsFilter.PinnedAndIgnored => "Pinned, ignored & skipped",
         _ => "All"
@@ -57,7 +59,7 @@ public static class InstalledAppsFilters
     /// UI polish phase 4 (approved target T-Installed): the page's footnote whenever an app has no update source. It says, calmly,
     /// that "No update source" is not a warning, so no row needs a warning badge.
     /// </summary>
-    public const string NoUpdateSourceNote = "No update source isn't a safety warning. It means PC Steward hasn't matched the app to a package source you've turned on.";
+    public const string NoUpdateSourceNote = "No update source isn't a safety warning. It means PC Steward doesn't know where to get updates for that app.";
 
     /// <summary>
     /// UI review 2026-11-13 (fault 3): true for a record that is part of Windows or of another app rather than an app the owner
@@ -74,13 +76,33 @@ public static class InstalledAppsFilters
 
     /// <summary>
     /// The second line of an Installed apps row: the publisher and where the record came from. A record with no publisher shows
-    /// only where it came from, never a stray separator ("· WinGet").
+    /// only where it came from, never a stray separator ("· WinGet"). UI review 2026-11-13 (item 8): where a record came from is
+    /// plumbing, so it is shown only when <paramref name="showSource"/> says another listed row has the same name and the source
+    /// is what tells them apart; otherwise the line is the publisher alone.
     /// </summary>
-    public static string PublisherAndSource(string? publisher, string source)
+    public static string PublisherAndSource(string? publisher, string source, bool showSource = true)
     {
         bool known = !string.IsNullOrWhiteSpace(publisher) && !string.Equals(publisher.Trim(), "Unknown", StringComparison.OrdinalIgnoreCase);
+        if (!showSource) return known ? publisher!.Trim() : "Unknown publisher";
         return known ? $"{publisher!.Trim()} · {source}" : source;
     }
+
+    /// <summary>The names that more than one of <paramref name="rows"/> share, ignoring case: those rows show their source.</summary>
+    public static IReadOnlySet<string> SharedNames(IEnumerable<InventoryRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return rows.GroupBy(row => row.Name, StringComparer.OrdinalIgnoreCase).Where(group => group.Skip(1).Any()).Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The page's one line of description (UI review 2026-11-13, item 7: no reassurance in page descriptions).</summary>
+    public const string PageDescription = "Every app found on this PC.";
+
+    /// <summary>
+    /// When this PC was last scanned, in plain words ("Scanned today at 14:50"), instead of the scan mode's internal name
+    /// (UI review 2026-11-13, item 8).
+    /// </summary>
+    public static string ScannedText(DateTimeOffset? lastScanAt, DateTimeOffset now, CultureInfo? culture = null, TimeZoneInfo? zone = null) =>
+        lastScanAt is { } at ? $"Scanned {DisplayFormat.DayAndTime(at, now, culture, zone)}" : "Not scanned yet";
 
     /// <summary>The count beside the search box: "437 apps", or "12 of 437 apps" when a search or filter narrows the list.</summary>
     public static string CountText(int shown, int total) => shown == total
@@ -190,7 +212,7 @@ public static partial class AppDetailPresenter
             case "ManualMapping":
                 return new(entry.OccurredAt, when, $"Package identity confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
             case "InventoryScan":
-                return new(entry.OccurredAt, when, "Found in the latest inventory scan", null, "\uE721", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, "Found in the latest scan", null, "\uE721", StatusTone.Neutral);
             case "Update":
                 Match match = UpdateSummary().Match(entry.Summary);
                 if (match.Success && Enum.TryParse(match.Groups["status"].Value, false, out UpdateHistoryStatus status) && Enum.IsDefined(status))

@@ -28,8 +28,8 @@ public sealed partial class MainWindow
     /// <summary>
     /// FR-UI-01/05/06 (ADR-030 concept A; UI polish phase 2, approved targets T-Home and T-Home-Ready): info bars for updates that need
     /// the owner, then one status card (an icon, one sentence, facts with icons, and the action that fits the state), an "At a glance"
-    /// list of plain-English rows that open filtered pages, and a footer line. "Turn on update checks…" opens the existing source
-    /// consent; "Review updates" only opens Updates; "Check for updates" and "Scan again" never elevate. Nothing here selects,
+    /// list of plain-English rows that open filtered pages. "Turn on update checks…" opens the existing source
+    /// consent; "See updates" only opens Updates; "Check for updates" and "Scan again" never elevate. Nothing here selects,
     /// reviews, approves or runs an update.
     /// </summary>
     private StackPanel BuildHomePage()
@@ -43,11 +43,11 @@ public sealed partial class MainWindow
         if (!home.HasInventory)
         {
             panel.Children.Add(StewardVisuals.PageTitle("Home"));
-            Button start = StewardVisuals.PrimaryButton("Start local inventory", "(read-only scan of this PC)");
+            Button start = StewardVisuals.PrimaryButton("Scan this PC", "(reads the installed apps; nothing is changed)");
             start.IsEnabled = !HasActiveOperation;
             start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
-            panel.Children.Add(StewardVisuals.EmptyState("\uE721", "See what is installed", "The first scan reads Windows application records on this PC. It does not request administrator access, connect to package sources, or change software.", start));
-            panel.Children.Add(StewardVisuals.InformationBanner("Private by default", "Inventory and decisions stay on this PC. Package sources remain off until you approve their disclosure."));
+            panel.Children.Add(StewardVisuals.EmptyState("\uE721", "See what is installed", "The first scan reads the list of installed apps that Windows keeps. It doesn't go online, ask for administrator permission or change any software.", start));
+            panel.Children.Add(StewardVisuals.InformationBanner("Private by default", "What PC Steward finds stays on this PC. It looks for updates online only after you turn that on."));
             return panel;
         }
 
@@ -65,7 +65,6 @@ public sealed partial class MainWindow
         glance.Children.Add(SectionHeading("At a glance"));
         glance.Children.Add(StewardVisuals.ResponsiveColumns([.. home.Rows.Select(HomeRowButton)], 380, StewardSpacing.XSmall, maxColumns: 3));
         panel.Children.Add(glance);
-        panel.Children.Add(StewardVisuals.IconLine("\uEA18", HomePresenter.Reassurance, styleKey: "StewardCaptionStyle"));
         return panel;
     }
 
@@ -118,7 +117,7 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// A Home action. "Review updates" only opens Updates. "Turn on update checks…" opens the existing source consent and, if the
+    /// A Home action. "See updates" only opens Updates. "Turn on update checks…" opens the existing source consent and, if the
     /// owner approves, turns the sources on and starts nothing else. "Check for updates" and "Scan again" run the existing read-only
     /// scan (and, with sources on, the source refresh) and never ask for administrator permission.
     /// </summary>

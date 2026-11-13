@@ -1,3 +1,11 @@
+# UI review 2026-11-13, parts 1 and 2 — four faults, then wording
+
+`FR-UI-01/05`, `FR-HIS-01`, `AC-UX-03/04` (best effort, ADR-021); [ADR-030](../adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes (owner approval of all 21 review items, 2026-11-13).
+
+- Part 1 (faults): `UiReviewFaultsPresentationTests` (line breaking with fractional sizes, viewport fill arithmetic, a day's scans as one row, times of day, app names for recorded updates, the system-components switch); source contracts in `UiRedesignContractTests` and `UiAccessibilityContractTests` for `WrapLayout` and `ViewportFill`; `MsixInventoryIdentityBoundaryTests` for Windows-signed packages. The launch smoke test logs `LAYOUT` lines (informational).
+- Part 2 (wording): `UiReviewWordingPresentationTests.EachStateHasOneNameUsedByChipsTabsAndHome`, `ReviewNamesOnlyTheStepBeforeAnUpdate`, `ScanTimeIsADayAndATime`, `SourceIsShownOnlyToTellSameNamedRowsApart`, `EverydayTextUsesPlainWords`; the exact labels are pinned in `DesktopFoundationsPresentationTests.StatusVocabularyUsesSpecLabelsWithGlyphAndText` and `HomeActivityDecisionsPresentationTests`.
+- Not claimed: the two layout fixes at 150% scaling (owner's display, after release). No requirement is newly satisfied by wording alone; SPEC §7.2 statuses keep their meanings and stored keys, and only their on-screen names changed.
+
 # Phase D stage D4b, stage 3 — reviewed whole-PC WinGet updates admitted; helper protocol 1 retired
 
 `FR-UPD-15`, `FR-UPD-01/03`, `AC-UPD-03`, `TM-03/04/07/13`; [design note](../review/PHASE_D4B_MACHINE_WINGET_UPDATE_DESIGN.md) §5.5, §8, §10; [ADR-025](../adr/ADR-025-TYPED-OPERATION-JOBS-AND-HELPER.md) (transition amendment closed; owner acceptance S2 recorded next to M1).

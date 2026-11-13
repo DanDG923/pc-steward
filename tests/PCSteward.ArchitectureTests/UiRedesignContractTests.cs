@@ -176,7 +176,7 @@ public sealed class UiRedesignContractTests
         Assert.IsNotNull(template.Descendants().SingleOrDefault(element =>
             element.Name.LocalName == "DataTemplate" &&
             string.Equals(element.Attribute(xaml + "Key")?.Value, "StewardApplicationRowTemplate", StringComparison.Ordinal)));
-        StringAssert.Contains(source, "list.ItemsSource = viewModel.VisibleRows.Select(ApplicationListItem.From).ToArray()");
+        StringAssert.Contains(source, "list.ItemsSource = viewModel.VisibleRows.Select(row => ApplicationListItem.From(row, sharedNames.Contains(row.Name))).ToArray();");
         StringAssert.Contains(source, "ItemTemplate = (DataTemplate)");
         Assert.IsFalse(source.Contains("DisplayMemberPath = nameof(InventoryRow.DisplayLabel)", StringComparison.Ordinal));
         StringAssert.Contains(presentation, "AccessibleSummary");
@@ -184,7 +184,7 @@ public sealed class UiRedesignContractTests
         // (exact labels pinned in DesktopFoundationsPresentationTests); unmanaged still never reads as unsafe.
         StringAssert.Contains(presentation, "StatusVocabulary.For(status)");
         string vocabulary = ApplicationSource("StatusVocabulary.cs");
-        StringAssert.Contains(vocabulary, "\"Update available — review\"");
+        StringAssert.Contains(vocabulary, "\"Check the match\"");
         StringAssert.Contains(vocabulary, "This is not a safety warning.");
         string templateSource = DesktopSource(Path.Combine("Resources", "DataTemplates.xaml"));
         StringAssert.Contains(templateSource, "Foreground=\"{Binding StatusForeground}\"");
@@ -205,7 +205,7 @@ public sealed class UiRedesignContractTests
     }
 
     [TestMethod]
-    [Description("FR-UI-02; AC-UX-01/02 (independent review L6): every Start inventory entry point is gated on an active operation, and StartScanAsync never starts a second scan or replaces the active cancellation source.")]
+    [Description("FR-UI-02; AC-UX-01/02 (independent review L6): every scan entry point is gated on an active operation, and StartScanAsync never starts a second scan or replaces the active cancellation source.")]
     public void ScanEntryPointsAreGatedAndStartScanIsNotReentrant()
     {
         string source = DesktopSource("MainWindow.cs");
@@ -218,11 +218,11 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(scan, "if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null;");
 
         string activity = Between(source, "private StackPanel BuildActivityPage()", DesktopWindowSource.EndOf("MainWindow.Activity.cs"));
-        int start = activity.IndexOf("Button start = StewardVisuals.PrimaryButton(\"Start local inventory\"", StringComparison.Ordinal);
+        int start = activity.IndexOf("Button start = StewardVisuals.PrimaryButton(\"Scan this PC\"", StringComparison.Ordinal);
         Assert.IsTrue(start >= 0);
         StringAssert.Contains(activity[start..], "start.IsEnabled = !HasActiveOperation;");
         // Every button that starts a scan is disabled while any operation is active.
-        Assert.AreEqual(Count(source, "PrimaryButton(\"Start local inventory\""), Count(source, "start.IsEnabled = !HasActiveOperation;"));
+        Assert.AreEqual(Count(source, "PrimaryButton(\"Scan this PC\""), Count(source, "start.IsEnabled = !HasActiveOperation;"));
     }
 
     [TestMethod]
@@ -299,7 +299,7 @@ public sealed class UiRedesignContractTests
 
         StringAssert.Contains(results, "AddReviewDecisionActions(finding, row, detail)");
         StringAssert.Contains(review, "AddReviewDecisionActions(decision, row, detail)");
-        foreach (string action in new[] { "Refresh source evidence", "Confirm package identity", "Choose package identity", "Pin current version", "Ignore…", "View details" })
+        foreach (string action in new[] { "Check again", "Confirm match", "Choose the match", "Pin current version", "Ignore…", "View details" })
             StringAssert.Contains(sharedActions, action);
         StringAssert.Contains(sharedActions, "RequiresFreshSourceEvidence: true");
         StringAssert.Contains(sharedActions, "CreateSourceEvidenceRefreshButton(row)");
@@ -314,9 +314,9 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(results, "there is no decision or update to approve");
         StringAssert.Contains(detail, "sourceEvidenceUnavailable ? \"Available next step\" : \"Decisions\"");
         StringAssert.Contains(detail, "if (!sourceEvidenceUnavailable)");
-        // Task 73 Phase 1: the FailedUnavailable chip label is the SPEC §7.2 "Source unavailable" from the portable vocabulary.
-        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "new(nameof(UpdateIntelligenceStatus.FailedUnavailable), \"Source unavailable\"");
-        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "nothing can be updated");
+        // The FailedUnavailable chip label comes from the portable vocabulary: "Couldn't check" (UI review 2026-11-13, item 5; SPEC §7.2 "Source unavailable").
+        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "new(nameof(UpdateIntelligenceStatus.FailedUnavailable), \"Couldn't check\"");
+        StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "it can't be updated until then");
 
         string refresh = Between(source, "private async Task CheckUpdateSourcesAsync()", DesktopWindowSource.EndOf("MainWindow.Operations.cs"));
         StringAssert.Contains(refresh, "workflow.RefreshUpdateIntelligenceAsync");
@@ -815,7 +815,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(actions, "button.Click += async (_, _) => await CheckForUpdatesAsync();");
         foreach (string authority in new[] { "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "ConfirmAndRunBatchAsync", "BeginReviewAsync", "BeginBatchReviewAsync", "selectedReadyKeys.", "SaveConnectorStatesAsync", "SaveConnectorStateAsync", "ChangeWinGetTrustedSourcesAsync(false)" })
             Assert.IsFalse(home.Contains(authority, StringComparison.Ordinal), $"Home never selects, reviews or runs an update, and never changes a source without its consent: {authority}");
-        // Turning sources on from Home goes through the one consent path: the disclosure dialog, Keep local-only as the default.
+        // Turning sources on from Home goes through the one consent path: the disclosure dialog, Keep off as the default.
         string consent = Between(source, "private async Task ChangeWinGetTrustedSourcesAsync(bool enabled)", "private async Task ChangeConnectorAsync(");
         StringAssert.Contains(consent, "PrimaryButtonText = \"I approve\"");
         StringAssert.Contains(consent, "DefaultButton = ContentDialogButton.Close");
@@ -1069,7 +1069,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(presentation, "public Visibility PlainStatusVisibility");
         string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
         Assert.IsFalse(apps.Contains("InformationBanner(", StringComparison.Ordinal), "when the inventory was read is a fact, not a banner");
-        StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE81C\", viewModel.FreshnessLabel)");
+        StringAssert.Contains(apps, "StewardVisuals.FootNote(\"\\uE81C\", InstalledAppsFilters.ScannedText(viewModel.LastScanAt, DateTimeOffset.UtcNow))");
         // Settings: exports keep their warning in words, without an attention banner.
         string settings = Between(source, "private StackPanel BuildSettingsPage()", "private static Button WithHelpText(");
         Assert.IsFalse(settings.Contains("\"attention\"", StringComparison.Ordinal), "a setting that is a choice is never shown as a warning");

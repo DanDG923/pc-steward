@@ -136,12 +136,13 @@ public sealed class SettingsDataResetPresentationTests
         StringAssert.Contains(SettingsPresenter.SaveModelText, "save as soon as you make them, except the schedule");
         Assert.AreEqual("Save schedule", SettingsPresenter.SaveScheduleLabel);
         StringAssert.EndsWith(SettingsPresenter.ScheduleDescription, "Changes to the schedule apply when you select Save schedule.");
-        StringAssert.Contains(SettingsPresenter.SourceConsentNote, "never starts a scan");
+        Assert.AreEqual("Turning this on shows what is shared and asks you first.", SettingsPresenter.SourceConsentNote);
+        Assert.AreEqual("Look for updates online", SettingsPresenter.SourceSettingLabel, "UI review item 8: the setting is named for what it does");
         Assert.AreEqual("Exports reveal installed software and potentially identifying machine metadata. Keep exported files private.", SettingsPresenter.ExportWarning);
         Assert.AreEqual("Data & reset", ShellNavigation.TitleOf(ShellPage.Privacy), "the data subpage is named Data & reset (SPEC §17.3)");
         Assert.AreEqual(ShellPage.Settings, ShellNavigation.ParentOf(ShellPage.Privacy));
         // UI polish phase 4 (approved target T-Settings): off is a choice, stated calmly; on gives the source evidence in words.
-        StringAssert.StartsWith(SettingsPresenter.SourceRowDescription(false, "ignored"), "Off: PC Steward works local-only.");
+        StringAssert.StartsWith(SettingsPresenter.SourceRowDescription(false, "ignored"), "Off. PC Steward only lists what is installed.");
         Assert.IsFalse(SettingsPresenter.SourceRowDescription(false, "ignored").Contains("ignored", StringComparison.Ordinal));
         Assert.AreEqual("On. Live results from your update sources.", SettingsPresenter.SourceRowDescription(true, "Live results from your update sources."));
         StringAssert.Contains(SettingsPresenter.PageDescription, "except the schedule");

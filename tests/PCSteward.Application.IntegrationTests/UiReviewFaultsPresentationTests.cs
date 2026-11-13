@@ -127,7 +127,7 @@ public sealed class UiReviewFaultsPresentationTests
         // One quiet scan in a day keeps its own row, and a day of cancelled scans says so without a success tick.
         ScanRun single = new(Guid.NewGuid(), Now.AddMinutes(-3), Now.AddMinutes(-3).AddSeconds(50), "Completed", Guid.NewGuid());
         ActivityEntry alone = ActivityPresenter.Build(ActivityPresenter.Entries([], [single], [], [], rows, Culture, Utc), ActivityFilter.All, Now, Culture, Utc).Days.Single().Entries.Single();
-        Assert.AreEqual("Inventory scan", alone.Title);
+        Assert.AreEqual("Scan", alone.Title);
         Assert.AreEqual(1, alone.ScanCount);
         ScanRun[] cancelled = [new(Guid.NewGuid(), Now.AddHours(-1), Now.AddHours(-1), "Cancelled", Guid.NewGuid()), new(Guid.NewGuid(), Now.AddHours(-2), Now.AddHours(-2), "Cancelled", Guid.NewGuid())];
         ActivityEntry allCancelled = ActivityPresenter.Build(ActivityPresenter.Entries([], cancelled, [], [], rows, Culture, Utc), ActivityFilter.All, Now, Culture, Utc).Days.Single().Entries.Single();
