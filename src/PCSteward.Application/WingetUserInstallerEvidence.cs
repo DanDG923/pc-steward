@@ -44,6 +44,10 @@ public static class WingetUserInstallerText
     public const string ChangedMessage =
         "The installer WinGet would use changed after you reviewed this update. Review it again; no update was started.";
 
+    /// <summary>The fresh inventory had no live observation to compare with afterwards (§3 item 4); nothing was approved or started.</summary>
+    public const string NoBaselineMessage =
+        "PC Steward couldn't record the apps installed for every user before this update, so it can't check them afterwards. No update was started.";
+
     /// <summary>Review text for a vendor installer whose manifest declares no need for administrator rights (§3 item 3).</summary>
     public const string NoElevationDisclosure =
         "This update runs without administrator rights. The app's own installer decides where it writes. If Windows asks for administrator " +

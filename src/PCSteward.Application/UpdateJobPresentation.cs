@@ -568,6 +568,11 @@ public static class UpdateOutcomePresenter
                 "The installer reported that Windows needs to restart to finish this update.",
                 "Restart when it suits you. PC Steward never restarts your PC.", technical),
             UpdateHistoryStatus.Inconclusive => NotVerified($"The installer finished, but PC Steward didn't find version {targetVersion} when it checked again.", technical),
+            // D7 design §3 item 4: a per-user update that also changed whole-PC uninstall entries, or whose comparison couldn't be made.
+            UpdateHistoryStatus.VerificationFailed when diagnostic?.StartsWith(SequentialUpdateBatchCoordinator.UnexpectedWholePcChangesDiagnostic, StringComparison.Ordinal) == true =>
+                NotVerified(WholePcChangesSummary(diagnostic, targetVersion), technical),
+            UpdateHistoryStatus.VerificationFailed when diagnostic?.StartsWith(SequentialUpdateBatchCoordinator.WholePcCheckUnavailableDiagnostic, StringComparison.Ordinal) == true =>
+                NotVerified("The installer finished, but PC Steward couldn't check whether it also changed apps installed for every user of this PC.", technical),
             UpdateHistoryStatus.VerificationFailed => NotVerified("The installer finished, but PC Steward couldn't complete its check of installed apps.", technical),
             // Verification required is "installed" only when the provider reported finishing; otherwise nothing shows it ran.
             UpdateHistoryStatus.VerificationRequired when ProviderReportedFinishing(diagnostic, exitCode) => NotVerified(
@@ -658,6 +663,17 @@ public static class UpdateOutcomePresenter
                 item.StableProductKey));
         }
         return new(items);
+    }
+
+    /// <summary>D7 design §3 item 4: the summary of a per-user update after which whole-PC entries had changed.</summary>
+    private static string WholePcChangesSummary(string diagnostic, string targetVersion)
+    {
+        int at = diagnostic.IndexOf("changed: ", StringComparison.Ordinal);
+        string changed = at < 0 ? string.Empty : $" ({diagnostic[(at + "changed: ".Length)..]})";
+        string found = diagnostic.Contains("; target-version-detected", StringComparison.Ordinal)
+            ? $"PC Steward found version {targetVersion}, but the update" : "The update";
+        return $"{found} also changed apps installed for every user of this PC{changed}. Your account's update shouldn't do that, so " +
+            "PC Steward hasn't recorded it as successful. Check those apps in Installed apps.";
     }
 
     private static UpdateOutcomePresentation NotVerified(string summary, string technical) =>

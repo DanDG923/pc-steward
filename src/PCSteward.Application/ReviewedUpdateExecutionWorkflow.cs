@@ -265,6 +265,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         RunningApplicationDetection running;
         ImmutableUpdateJob job;
         ReviewedUpdateOperation? reviewedOperation = null;
+        WholePcRegistrationSnapshot? wholePcBaseline = null;
         try
         {
             preparation = await prepareSelection(review.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
@@ -284,6 +285,13 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             if (review.Selection.Scope == UpdateScope.User &&
                 !await UserInstallerStillAppliesAsync(review, preparation.Selection, cancellationToken).ConfigureAwait(false))
                 return new(false, WingetUserInstallerText.ChangedMessage, null);
+            // D7 design §3 item 4 (Q3-A): a vendor installer's update is compared afterwards with the whole-PC entries of this fresh
+            // inventory, taken just before launch. Without it, nothing starts.
+            if (review.UserInstaller is not null)
+            {
+                if (preparation.Observation is null) return new(false, WingetUserInstallerText.NoBaselineMessage, null);
+                wholePcBaseline = WholePcRegistrationSnapshot.From(preparation.Observation);
+            }
             string? requester = null;
             if ((review.Selection.Scope == UpdateScope.User || machineRoute) && string.IsNullOrWhiteSpace(requester = ReadRequestingUserSid()))
                 return new(false, WingetUserReviewedRoute.RequesterUnavailableMessage, null);
@@ -334,7 +342,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
         UpdateBatchResult batch = await coordinator.RunAsync(
             [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress,
-                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry)],
+                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry, wholePcBaseline)],
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);

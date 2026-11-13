@@ -325,7 +325,16 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     /// Otherwise the target version, scope and architecture must match exactly, as before. Either way WinGet's export must show
     /// exactly the target package version.
     /// </summary>
-    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken)
+    public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken) =>
+        ReInventoryAsync(job, expected, null, cancellationToken);
+
+    /// <summary>
+    /// D7 design §3 item 4: as <see cref="ReInventoryAsync(ImmutableUpdateJob, ExpectedUninstallEntry?, CancellationToken)"/>; with
+    /// <paramref name="wholePcBaseline"/>, the post-update scan's whole-PC uninstall entries are compared with it. Without a live
+    /// observation no comparison is made.
+    /// </summary>
+    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected,
+        WholePcRegistrationSnapshot? wholePcBaseline, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
         if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
@@ -365,7 +374,11 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         }
         bool expectedVersionDetected = exactLocal.Length == 1 &&
             !productIds.Any(id => id != exactLocal[0].ProductId && instances.Any(instance => instance.ProductId == id && IsConcreteLocalEvidence(instance)));
-        return new(expectedVersionDetected, false);
+        return new(expectedVersionDetected, false)
+        {
+            WholePcChanges = wholePcBaseline is not null && observation is not null
+                ? WholePcRegistrationSnapshot.From(observation).ChangedSince(wholePcBaseline) : null,
+        };
     }
 
     private static bool IsRegistryEntry(InstallationInstance instance, string key) =>

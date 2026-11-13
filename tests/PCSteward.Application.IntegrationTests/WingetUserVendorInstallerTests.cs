@@ -42,7 +42,8 @@ public sealed class WingetUserVendorInstallerTests
         Assert.IsTrue(WingetUserReviewedRoute.Admits(reviewed));
         Assert.IsTrue(WinGetUserEvidence.TryParse(reviewed.EvidenceId, out WinGetUserEvidence? evidence), reviewed.EvidenceId);
         Assert.AreEqual(type, evidence!.InstallerType);
-        Assert.AreEqual(WinGetUserObservationKind.Review, evidence.ObservationKind, "the fixture preparation carries no inventory observation");
+        Assert.AreEqual(WinGetUserObservationKind.Inventory, evidence.ObservationKind);
+        Assert.AreEqual(FixtureObservationId, evidence.ObservationId, "the fresh observation the job was re-prepared from");
         CollectionAssert.AreEqual(new[]
         {
             "upgrade", "--id", "Contoso.Widget", "--version", "1.1.0", "--source", "winget", "--exact",
@@ -83,7 +84,7 @@ public sealed class WingetUserVendorInstallerTests
         Assert.IsNull(preparation.Review!.UserInstaller);
         Assert.IsTrue((await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None)).Started);
         ReviewedUpdateOperation reviewed = executor.Reviewed.Single()!;
-        StringAssert.StartsWith(reviewed.EvidenceId, "review:");
+        StringAssert.StartsWith(reviewed.EvidenceId, "inventory:");
         Assert.AreEqual("--silent", WingetReviewedUpdateArguments.Build(reviewed)[^1], "no installer-type argument");
     }
 
@@ -293,15 +294,142 @@ public sealed class WingetUserVendorInstallerTests
         Assert.AreEqual(AdministratorRequirementPresenter.ForBatch([selection, other]), AdministratorRequirementPresenter.ForBatch([selection, other], null));
     }
 
+    [TestMethod]
+    public async Task AVendorUpdateIsComparedWithTheWholePcEntriesTakenJustBeforeLaunch()
+    {
+        UpdateJobSelection selection = Selection();
+        RecordingExecutor executor = new();
+        RecordingInventory inventory = new();
+        ScriptedSource source = new(WingetUserInstallerCheck.Vendor(ExeInstaller));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, new RecordingStore(), executor, source, inventory);
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+
+        Assert.IsTrue((await workflow.ConfirmAndRunAsync(preparation.Review!, false, CancellationToken.None)).Started);
+
+        WholePcRegistrationSnapshot baseline = inventory.Baselines.Single()!;
+        Assert.AreEqual(2, baseline.Count, "the fixture's two whole-PC entries; the per-user one is not counted");
+
+        // MSIX keeps the C4 path: no baseline is taken.
+        RecordingInventory msixInventory = new();
+        ReviewedUpdateExecutionWorkflow msix = Workflow(selection, new RecordingStore(), new RecordingExecutor(),
+            new ScriptedSource(WingetUserInstallerCheck.Msix()), msixInventory);
+        UpdateReviewPreparation msixReview = await msix.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.IsTrue((await msix.ConfirmAndRunAsync(msixReview.Review!, false, CancellationToken.None)).Started);
+        Assert.IsNull(msixInventory.Baselines.Single());
+    }
+
+    [TestMethod]
+    public async Task WithoutALiveObservationAVendorUpdateStartsNothing()
+    {
+        UpdateJobSelection selection = Selection();
+        RecordingStore store = new();
+        RecordingExecutor executor = new();
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, store, executor, new ScriptedSource(WingetUserInstallerCheck.Vendor(ExeInstaller)),
+            withObservation: false);
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(preparation.Review!, false, CancellationToken.None);
+
+        Assert.IsFalse(result.Started);
+        Assert.AreEqual(WingetUserInstallerText.NoBaselineMessage, result.Message);
+        Assert.HasCount(0, store.Jobs);
+        Assert.HasCount(0, executor.Reviewed);
+    }
+
+    [TestMethod]
+    public void TheSnapshotSeesNewGoneAndReVersionedWholePcEntriesOnly()
+    {
+        WholePcRegistrationSnapshot before = WholePcRegistrationSnapshot.From(Observation(
+            Machine("{AAA}", "1.0", "x64", "Alpha"), Machine("{BBB}", "2.0", "x86", "Beta"), Machine("{CCC}", "3.0", "x64", "Gamma"),
+            User("Widget", "1.0.0")));
+        WholePcRegistrationSnapshot same = WholePcRegistrationSnapshot.From(Observation(
+            Machine("{CCC}", "3.0", "x64", "Gamma"), Machine("{aaa}", "1.0", "x64", "Alpha"), Machine("{BBB}", "2.0", "x86", "Beta"),
+            User("Widget", "1.1.0"), User("Other", "9")));
+        Assert.HasCount(0, same.ChangedSince(before), "per-user entries, order and key case don't count");
+
+        WholePcRegistrationSnapshot after = WholePcRegistrationSnapshot.From(Observation(
+            Machine("{AAA}", "1.1", "x64", "Alpha"), Machine("{BBB}", "2.0", "x64", "Beta"), Machine("{DDD}", "1.0", "x64", "Delta"),
+            User("Widget", "1.1.0")));
+        CollectionAssert.AreEqual(ExpectedChanged, after.ChangedSince(before).ToArray(),
+            "re-versioned, moved between views, new, and gone");
+    }
+
+    [TestMethod]
+    public async Task TheCoordinatorNeverRecordsSuccessAfterWholePcChanges()
+    {
+        WholePcRegistrationSnapshot baseline = WholePcRegistrationSnapshot.From(Observation(Machine("{AAA}", "1.0", "x64", "Alpha")));
+        string[] many = ["One", "Two;x", "Three", "Four", "Five", "Six", "Seven"];
+        foreach ((PostUpdateInventoryResult verification, UpdateProviderAttemptStatus attempt, UpdateHistoryStatus expected, string diagnostic) in new[]
+                 {
+                     (new PostUpdateInventoryResult(true, false) { WholePcChanges = [] }, UpdateProviderAttemptStatus.AwaitingVerification,
+                         UpdateHistoryStatus.Success, "target-version-verified-by-post-update-inventory"),
+                     (new PostUpdateInventoryResult(true, false) { WholePcChanges = ["Alpha"] }, UpdateProviderAttemptStatus.AwaitingVerification,
+                         UpdateHistoryStatus.VerificationFailed, "unexpected-whole-pc-changes; target-version-detected; changed: Alpha"),
+                     (new PostUpdateInventoryResult(false, false) { WholePcChanges = many }, UpdateProviderAttemptStatus.AwaitingVerification,
+                         UpdateHistoryStatus.VerificationFailed, "unexpected-whole-pc-changes; target-version-not-detected; changed: One, Two x, Three, Four, Five and 2 more"),
+                     (new PostUpdateInventoryResult(true, false), UpdateProviderAttemptStatus.AwaitingVerification,
+                         UpdateHistoryStatus.VerificationFailed, "whole-pc-change-check-unavailable; target-version-detected"),
+                     (new PostUpdateInventoryResult(true, false) { WholePcChanges = ["Alpha"] }, UpdateProviderAttemptStatus.RestartReported,
+                         UpdateHistoryStatus.RestartRequired,
+                         "provider-reported-restart-required; target-version-detected-by-post-update-inventory; unexpected-whole-pc-changes; target-version-detected; changed: Alpha; exit-3010"),
+                 })
+        {
+            InMemoryHistory history = new();
+            RunningDetector running = new();
+            SequentialUpdateBatchCoordinator coordinator = new(new FixedAttemptExecutor(attempt), new FixedInventory(verification), history, running);
+            ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), Selection()).Confirm(DateTimeOffset.UtcNow);
+            await coordinator.RunAsync([new UpdateBatchItem(job, new UpdateJobExecutionEvidence(job.Selection, true, true), WholePcBaseline: baseline)],
+                CancellationToken.None);
+            UpdateHistoryEntry final = history.Entries.Last();
+            Assert.AreEqual(expected, final.Status, diagnostic);
+            Assert.AreEqual(diagnostic, final.Diagnostic);
+        }
+    }
+
+    [TestMethod]
+    public void TheOutcomeSaysWhatChangedForEveryUser()
+    {
+        UpdateOutcomePresentation changed = UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationFailed,
+            "unexpected-whole-pc-changes; target-version-detected; changed: Alpha, Beta", 0, "1.1.0");
+        Assert.AreEqual(UpdateOutcomeKind.InstalledNotVerified, changed.Kind);
+        StringAssert.Contains(changed.Summary, "PC Steward found version 1.1.0, but the update also changed apps installed for every user of this PC (Alpha, Beta).");
+        StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationFailed,
+            "unexpected-whole-pc-changes; target-version-not-detected; changed: Alpha", 0, "1.1.0").Summary, "The update also changed apps");
+        StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.VerificationFailed,
+            "whole-pc-change-check-unavailable; target-version-detected", 0, "1.1.0").Summary, "couldn't check whether it also changed");
+    }
+
+    private static readonly string[] ExpectedChanged = ["Alpha", "Beta", "Delta", "Gamma"];
+    private static readonly Guid FixtureObservationId = Guid.Parse("0d7e0000-0000-4000-8000-0000000000aa");
+
+    private static LiveInventoryObservation Observation(params (CanonicalProduct Product, InstallationInstance Instance)[] entries) =>
+        new(FixtureObservationId, new DateTimeOffset(2026, 11, 13, 14, 0, 0, TimeSpan.Zero), entries.Select(entry => entry.Product),
+            entries.Select(entry => entry.Instance), []);
+
+    private static (CanonicalProduct, InstallationInstance) Machine(string key, string version, string architecture, string name)
+    {
+        CanonicalProduct product = new(Guid.NewGuid(), $"registry:{name}", name);
+        return (product, new InstallationInstance(Guid.NewGuid(), product.Id, "registry", key, version, "Machine", architecture));
+    }
+
+    private static (CanonicalProduct, InstallationInstance) User(string key, string version)
+    {
+        CanonicalProduct product = new(Guid.NewGuid(), $"registry:user:{key}", key);
+        return (product, new InstallationInstance(Guid.NewGuid(), product.Id, "registry", key, version, "User", "x64"));
+    }
+
     private static WinGetUserInstallerObservation Observation(string? type, string? nested = "Unknown", string? scope = "User", string? elevation = "Unknown") =>
         new("Contoso.Widget", true, true, true, 1, false, "Contoso.Widget", 1, type, nested, scope, elevation);
 
     private static ReviewedUpdateExecutionWorkflow Workflow(UpdateJobSelection selection, RecordingStore store, RecordingExecutor executor,
-        IWingetUserInstallerEvidenceSource? source)
+        IWingetUserInstallerEvidenceSource? source, IPostUpdateInventory? inventory = null, bool withObservation = true)
     {
         RunningDetector running = new();
-        SequentialUpdateBatchCoordinator coordinator = new(executor, new VerifiedInventory(), new InMemoryHistory(), running);
-        return new ReviewedUpdateExecutionWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(selection, "fresh")),
+        SequentialUpdateBatchCoordinator coordinator = new(executor, inventory ?? new RecordingInventory(), new InMemoryHistory(), running);
+        LiveInventoryObservation? observation = withObservation
+            ? Observation(Machine("{AAA}", "1.0", "x64", "Alpha"), Machine("{BBB}", "2.0", "x86", "Beta"), User("Contoso.Widget", "1.0.0"))
+            : null;
+        return new ReviewedUpdateExecutionWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(selection, "fresh", observation)),
             new UpdateJobApprovalService(store), coordinator, running, requestingUserSid: () => Sid, userInstallerEvidence: source);
     }
 
@@ -358,9 +486,36 @@ public sealed class WingetUserVendorInstallerTests
         public Task<ImmutableUpdateJob?> GetApprovedJobAsync(Guid jobId, CancellationToken cancellationToken) => Task.FromResult<ImmutableUpdateJob?>(Jobs.SingleOrDefault(job => job.Id == jobId));
     }
 
-    private sealed class VerifiedInventory : IPostUpdateInventory
+    private sealed class RecordingInventory : IPostUpdateInventory
     {
-        public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(new PostUpdateInventoryResult(true, false));
+        public List<WholePcRegistrationSnapshot?> Baselines { get; } = [];
+
+        public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+        {
+            Baselines.Add(null);
+            return Task.FromResult(new PostUpdateInventoryResult(true, false));
+        }
+
+        public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, WholePcRegistrationSnapshot? wholePcBaseline,
+            CancellationToken cancellationToken)
+        {
+            Baselines.Add(wholePcBaseline);
+            return Task.FromResult(new PostUpdateInventoryResult(true, false) { WholePcChanges = [] });
+        }
+    }
+
+    private sealed class FixedInventory(PostUpdateInventoryResult result) : IPostUpdateInventory
+    {
+        public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(result);
+        public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, WholePcRegistrationSnapshot? wholePcBaseline,
+            CancellationToken cancellationToken) => Task.FromResult(result);
+    }
+
+    private sealed class FixedAttemptExecutor(UpdateProviderAttemptStatus status) : IApprovedUpdateExecutor
+    {
+        public Task<UpdateProviderAttempt> ExecuteAsync(ImmutableUpdateJob job, UpdateJobExecutionEvidence currentEvidence, CancellationToken cancellationToken) =>
+            Task.FromResult(new UpdateProviderAttempt(status, status == UpdateProviderAttemptStatus.RestartReported ? 3010 : 0,
+                status == UpdateProviderAttemptStatus.RestartReported ? "exit-3010" : "provider-completed"));
     }
 
     private sealed class InMemoryHistory : IUpdateHistoryStore
