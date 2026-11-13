@@ -1,6 +1,6 @@
 # ADR-035 — Real app icons in the lists
 
-**Status:** Proposed. Waiting for the owner's choice between options A, B and C. No code is written until then.
+**Status:** Accepted. The owner chose option A on 2026-11-13 ("Icons first, one release"). Built as described under "As built".
 **Date:** 2026-11-13
 **Decision owners:** Product owner and implementation reviewer
 **Related requirements:** `FR-INV-01–04` (the entries the scan reads, unchanged), `FR-DAT-12` (no new stored data), `AC-UX-01` (best effort); [ADR-030](ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) (desktop UI direction); UI review 2026-11-13, item 20
@@ -47,17 +47,28 @@ Only packaged apps get their logo; classic apps keep the two-letter tile. It ope
 
 No new file or registry reads. The lists stay as they are.
 
-## Decision (proposed: Option A)
+## Decision (Option A)
 
 PC Steward shows an app's own icon in its lists when, and only when, all of these hold. Otherwise it shows the two-letter tile.
 
 1. **Where.** Icons are read only by the desktop app, without administrator rights, for rows that are on screen. The elevated helper, the scheduled check and the scan never read an icon or `DisplayIcon`.
 2. **Which entry.** For a classic app, `DisplayIcon` is read from the same uninstall entry the scan recorded for that app, and from nowhere else. For a Store-type app, the logo is the one Windows' package API returns for that package.
-3. **Which paths.** The path must be a full path on a fixed local drive after Windows has resolved links in it. Refused: network paths, mapped network drives, removable drives, device paths (`\\?\`, `\\.\`), a path with a stream name, a relative path, and any value that contains an environment variable. Classic app files must end in `.ico`, `.exe` or `.dll`.
-4. **How.** The file is opened for reading as data. It is never run and never loaded as code. Icon data is taken with the Windows functions that read icon resources directly; PC Steward does not ask the shell for a file's icon, so no other program's icon handler is loaded.
+3. **Which paths.** The path must be a full path on a fixed local drive that goes through no link (see "As built"). Refused: network paths, mapped network drives, removable drives, device paths (`\\?\`, `\\.\`), a path with a stream name, a relative path, and any value that contains an environment variable. Classic app files must end in `.ico`, `.exe` or `.dll`.
+4. **How.** The file is opened for reading as data. It is never run and never loaded as code. One icon image is taken out of the file's bytes (see "As built"); PC Steward does not ask the shell for a file's icon, so no other program's icon handler is loaded.
 5. **How much.** One small icon (32 units, at the display's scale) per app. Reading happens off the UI thread, a few at a time, and each read is abandoned if it is slow.
 6. **What is kept.** Icons are kept in memory for the session only, with an upper limit. Nothing is written to PC Steward's data folder and the `DisplayIcon` text is not stored. Nothing is sent anywhere.
 7. **When it fails.** Any refusal or error shows the two-letter tile and is not reported to the owner. The app's name is still the row's accessible name; an icon is decoration and is never the only way to tell rows apart.
+
+## As built (2026-11-13)
+
+Two rules were built more strictly than first written. Neither widens what is read.
+
+- **Rule 1, "on screen" is measured.** A tile's icon is read only when some part of the tile is inside what the window shows. A row further down a page, a row in a closed group and a row the list has built ahead for scrolling read nothing until they come into view. An icon already read this session is shown at once, with no read.
+- **Rule 3, links are refused, not resolved.** Before the file is opened, every folder on the way to it and the file itself are checked. A junction, a symbolic link, a cloud placeholder or any other reparse point at any step means no icon, so an app installed through a link keeps its tile.
+- **Rule 3, what the check does not cover (accepted residual, raised by the independent review).** The check and the open are two steps. A program already running as the owner, and able to create links, could swap a folder for a link in between, and the open would follow it, to another PC if the link points there. That program can already open the same place itself as the same person, so nothing is gained by going through PC Steward: no boundary is crossed. This is the case this record's "What could go wrong" section sets aside under the owner's stated security approach. Closing it fully would mean holding every folder on the path open against renaming while the icon is read, which could make another program's installer fail in that moment; that cost is not worth paying for a case with no gain. Reconsider if the icon reader ever runs with more rights than the owner, which rule 1 forbids.
+- **Rule 4, no Windows icon-resource function is called on the file.** A small reader in `PCSteward.Application` (`AppIconFile`) finds one icon image in the bytes of an `.ico`, or in the resource table of an `.exe` or `.dll`, with every offset and size checked against the file's length and fixed limits on how much is read. It hands that one image (at most 1 MB) to Windows' image decoder as an in-memory icon. The file is never mapped or loaded, so risk 2 does not arise, and the reader is portable code with its own tests, including truncated and overwritten files. Risk 3 remains for the one image the decoder is given, unelevated, as the record already accepted.
+- **Rule 5, a slow read.** A read that takes longer than two seconds is not waited for and the row keeps its letters. The read keeps its place among the four until it really ends, so stalled reads can never number more than four and a stalled read is not started a second time. If its icon arrives late it is remembered, and shown the next time the row is.
+- **Where the code is.** The rules and the reader are `AppIconRules` and `AppIconFile` (portable). The registry and file reads are `AppIconLoader` in the desktop app, used only by `MainWindow.AppIcons.cs`. The scan's list of registry values is unchanged.
 
 ## Consequences
 
@@ -70,7 +81,7 @@ PC Steward shows an app's own icon in its lists when, and only when, all of thes
 ### Negative / trade-offs
 
 - The desktop app reads one more registry value and opens files it did not before. This must be said in the privacy text on About.
-- Windows-only interop code that cannot be compiled or run off Windows; it is checked by Windows CI and the launch smoke test, then on the owner's PC.
+- The registry, file and image-decoding calls are Windows-only code that cannot be compiled or run off Windows; they are checked by Windows CI and the launch smoke test, then on the owner's PC. The path rules and the reader are portable and unit-tested.
 - Some apps name no icon, or one that is refused, and keep the tile.
 
 ### Follow-up controls and tests
@@ -82,5 +93,5 @@ PC Steward shows an app's own icon in its lists when, and only when, all of thes
 
 ## Reconsider when
 
-- Windows changes how packaged app logos are exposed, or the icon functions in rule 4 are found to load third-party code.
+- Windows changes how packaged app logos are exposed, or the image decoder in rule 4 is found to load third-party code.
 - The owner wants icons kept between sessions, which would add stored data and needs its own decision.

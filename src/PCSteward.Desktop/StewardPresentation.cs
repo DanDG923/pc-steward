@@ -631,6 +631,18 @@ internal static class StewardVisuals
     }
 
     /// <summary>
+    /// UI review 2026-11-13 (item 20; ADR-035): an app's own icon, the size of the tile it replaces. Decorative, like the tile:
+    /// it is kept out of what a screen reader reads, because the app's name is beside it.
+    /// </summary>
+    public static Image AppIconImage(ImageSource icon)
+    {
+        Image image = new() { Source = icon, Width = AppIconRules.TileSize, Height = AppIconRules.TileSize, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAccessibilityView(image, AccessibilityView.Raw);
+        AutomationProperties.SetAutomationId(image, "AppIcon");
+        return image;
+    }
+
+    /// <summary>
     /// UI polish phase 3 (approved target T-Review): a Settings-style expander row — an icon well, a title and one-line description
     /// in the header, and <paramref name="content"/> when expanded. Collapsed by default; the expander's name is the title and its
     /// help text the description, so the header reads the same to a screen reader as it looks.

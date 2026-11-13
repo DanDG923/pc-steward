@@ -73,7 +73,7 @@ public sealed partial class MainWindow
             foreach (HomeReadyUpdate ready in home.ReadyUpdates)
             {
                 Grid line = UpdateRowGrid();
-                Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(ready.Name));
+                Border avatar = AppTile(ready.Name, ready.StableProductKey);
                 Grid.SetColumnSpan(avatar, 2); line.Children.Add(avatar);
                 StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
                 title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey));
