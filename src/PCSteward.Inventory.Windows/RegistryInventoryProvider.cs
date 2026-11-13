@@ -18,7 +18,7 @@ public sealed class WindowsUninstallRegistry : IUninstallRegistry
     private const string UninstallPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
 
     /// <summary>The only values inventory reads from an uninstall entry (Codex security scan finding 8: never every value).</summary>
-    internal static readonly string[] InventoryValueNames = ["DisplayName", "DisplayVersion", "Publisher", "InstallDate"];
+    internal static readonly string[] InventoryValueNames = ["DisplayName", "DisplayVersion", "Publisher", "InstallDate", "SystemComponent"];
 
     /// <summary>
     /// Lazy: one entry is opened and read per step, so the caller's budget and cancellation checks stop the walk between
@@ -93,6 +93,7 @@ public sealed class RegistryInventoryProvider
                         warnings.Add($"{view}:{Text(entry.KeyName)}:{entry.ReadWarning}");
                         continue;
                     }
+                    if (IsSystemComponent(entry)) continue;
                     try { records.Add(ToRecord(entry, view)); }
                     catch (Exception exception) when (exception is ArgumentException or InvalidCastException) { warnings.Add($"{view}:{entry.KeyName}:malformed"); }
                 }
@@ -103,6 +104,15 @@ public sealed class RegistryInventoryProvider
         }
         return new RegistryInventoryResult(records, warnings);
     }
+
+    /// <summary>
+    /// An entry Windows hides from its installed apps list (<c>SystemComponent</c> = 1): a part installed by another setup, such
+    /// as the hidden MSI behind each .NET Desktop Runtime bundle (owner's PC, 2026-11-13). It shares the app's display name with
+    /// an internal version (for example 64.132.61678), so listing it made a second, ambiguous copy of the app. The WinGet machine
+    /// helper already skips these entries.
+    /// </summary>
+    private static bool IsSystemComponent(RegistryUninstallEntry entry) =>
+        entry.Values.TryGetValue("SystemComponent", out object? value) && value is int flag && flag == 1;
 
     private static RegistryInventoryRecord ToRecord(RegistryUninstallEntry entry, RegistryViewKind view) => new("registry", Text(entry.KeyName), Value(entry, "DisplayName"), Value(entry, "DisplayVersion"), Value(entry, "Publisher"), Value(entry, "InstallDate"), view == RegistryViewKind.CurrentUser ? "User" : "Machine", view == RegistryViewKind.Machine32 ? "x86" : "x64");
     private static string? Value(RegistryUninstallEntry entry, string name) => entry.Values.TryGetValue(name, out object? value) ? Text(value?.ToString()) : null;
