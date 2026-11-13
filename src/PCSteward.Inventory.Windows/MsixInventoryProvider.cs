@@ -43,6 +43,17 @@ public sealed class MsixInventoryProvider
         return new MsixInventoryResult(records, warnings);
     }
     /// <summary>
+    /// The provider identity of a package in inventory (MSIX design note §3.1). An app is named by its package family name, the same for
+    /// every version, so WinGet's family link can find it and an update keeps the same product. A framework or resource package keeps
+    /// its full package name: it is never offered, so it must never meet WinGet's family link, and it never shares a product with the app.
+    /// </summary>
+    public static string ProviderIdentity(MsixInventoryRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return string.Equals(record.Classification, "Application", StringComparison.Ordinal) ? record.PackageFamilyName : record.PackageFullName;
+    }
+
+    /// <summary>
     /// A name Windows shows for the package, or null when there is none to use: empty, an unresolved <c>ms-resource:</c> reference,
     /// longer than 256 characters or containing control characters.
     /// </summary>

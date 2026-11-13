@@ -48,7 +48,7 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
             // and the names Windows shows are used when it has them.
             products.Add(new CanonicalProduct(productId, family, MsixInventoryProvider.ShownName(ReadOrNull(() => package.DisplayName)) ?? package.Id.Name ?? family));
             instances.Add(new InstallationInstance(StableGuid("instance|" + full), productId, "msix", family, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", "User", package.Id.Architecture.ToString(), MsixInventoryProvider.ShownName(ReadOrNull(() => package.PublisherDisplayName)) ?? package.Id.PublisherId, null, package.InstalledLocation?.Path, null, "Application"));
-            raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "msix", full, $"family={family};publisher={package.Id.PublisherId};classification=Application"));
+            raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "msix", family, $"full={full};family={family};publisher={package.Id.PublisherId};classification=Application"));
         }
         return new ProviderScanResult(products, instances, raw, []);
         }, cancellationToken);

@@ -5,6 +5,8 @@ namespace PCSteward.Application.IntegrationTests;
 [TestClass]
 public sealed class MsixInventoryProviderTests
 {
+    private static readonly string[] ExpectedIdentities = ["Contoso.Studio_g54w8ztgkx496", "Contoso.Runtime_1.0.0.0_x64__g54w8ztgkx496", "Contoso.Studio_3.3.0.4529_neutral_split.scale-100_g54w8ztgkx496"];
+
     [TestMethod]
     public void RetainsCurrentUserPackageIdentityAndConservativeClassification()
     {
@@ -32,6 +34,21 @@ public sealed class MsixInventoryProviderTests
         Assert.AreEqual(("Contoso.Tool", "g54w8ztgkx496"), (tool.DisplayName, tool.Publisher));
         Assert.AreEqual(2, result.Records.Count);
         CollectionAssert.Contains(result.Warnings.ToArray(), "msix:malformed-package");
+    }
+
+    [TestMethod]
+    public void AnAppIsNamedByItsFamilyAndAFrameworkOrResourcePackageByItsFullName()
+    {
+        FakeCatalog catalog = new(
+        [
+            new MsixPackageInfo("Contoso.Studio_g54w8ztgkx496", "Contoso.Studio_3.3.0.4529_x64__g54w8ztgkx496", "Contoso.Studio", "3.3.0.4529", "X64", "g54w8ztgkx496", null, false, false, false),
+            new MsixPackageInfo("Contoso.Runtime_g54w8ztgkx496", "Contoso.Runtime_1.0.0.0_x64__g54w8ztgkx496", "Contoso.Runtime", "1.0.0.0", "X64", "g54w8ztgkx496", null, true, false, false),
+            new MsixPackageInfo("Contoso.Studio_g54w8ztgkx496", "Contoso.Studio_3.3.0.4529_neutral_split.scale-100_g54w8ztgkx496", "Contoso.Studio", "3.3.0.4529", "Neutral", "g54w8ztgkx496", null, false, true, false)
+        ]);
+
+        string[] identities = [.. new MsixInventoryProvider(catalog).ReadCurrentUserPackages(DateTimeOffset.UnixEpoch).Records.Select(MsixInventoryProvider.ProviderIdentity)];
+
+        CollectionAssert.AreEqual(ExpectedIdentities, identities);
     }
 
     private sealed class FakeCatalog(IEnumerable<MsixPackageInfo> packages) : ICurrentUserPackageCatalog { public IEnumerable<MsixPackageInfo> FindPackagesForCurrentUser() => packages; }

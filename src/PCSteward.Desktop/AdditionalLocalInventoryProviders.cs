@@ -51,7 +51,10 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
         List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (MsixInventoryRecord record in result.Records)
         {
-            cancellationToken.ThrowIfCancellationRequested(); Guid productId = GuidFor("product|" + record.PackageFamilyName); products.Add(new CanonicalProduct(productId, record.PackageFamilyName, record.DisplayName)); instances.Add(new InstallationInstance(GuidFor("instance|" + record.PackageFullName), productId, record.Provider, record.PackageFamilyName, record.Version, "User", record.Architecture, record.Publisher ?? record.PublisherId, null, record.InstallLocation, null, record.Classification)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, record.PackageFullName, $"family={record.PackageFamilyName};publisher={record.PublisherId};classification={record.Classification};path={record.InstallLocation}"));
+            cancellationToken.ThrowIfCancellationRequested();
+            // The raw record is keyed by the same identity as the installation, so the details page still finds it (MSIX design note §3.1).
+            string identity = MsixInventoryProvider.ProviderIdentity(record);
+            Guid productId = GuidFor("product|" + identity); products.Add(new CanonicalProduct(productId, identity, record.DisplayName)); instances.Add(new InstallationInstance(GuidFor("instance|" + record.PackageFullName), productId, record.Provider, identity, record.Version, "User", record.Architecture, record.Publisher ?? record.PublisherId, null, record.InstallLocation, null, record.Classification)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, identity, $"full={record.PackageFullName};family={record.PackageFamilyName};publisher={record.PublisherId};classification={record.Classification};path={record.InstallLocation}"));
         }
         return new ProviderScanResult(products, instances, raw, result.Warnings);
     }, cancellationToken);
