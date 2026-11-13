@@ -134,7 +134,7 @@ public static class AdvisoryAiResponseReader
         if (status == AdvisoryAiAnswerStatus.Incomplete)
         {
             string? reason = root.TryGetProperty("incomplete_details", out JsonElement details) && details.ValueKind == JsonValueKind.Object &&
-                details.TryGetProperty("reason", out JsonElement reasonElement) && reasonElement.ValueKind == JsonValueKind.String ? reasonElement.GetString() : null;
+                !HasDuplicate(details) && details.TryGetProperty("reason", out JsonElement reasonElement) && reasonElement.ValueKind == JsonValueKind.String ? reasonElement.GetString() : null;
             incomplete = reason switch
             {
                 "max_output_tokens" => AdvisoryAiIncompleteReason.OutputLimit,
@@ -153,6 +153,8 @@ public static class AdvisoryAiResponseReader
             if (output.ValueKind != JsonValueKind.Array || output.GetArrayLength() > MaximumOutputItems) return Unbound(AdvisoryAiMalformedReason.UnexpectedOutputItem, usage, reliable, above, id);
             foreach (JsonElement item in output.EnumerateArray())
             {
+                if (item.ValueKind == JsonValueKind.Object && HasDuplicate(item))
+                    return Unbound(AdvisoryAiMalformedReason.DuplicateProperty, usage, reliable, above, id);
                 if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("type", out JsonElement type) || type.ValueKind != JsonValueKind.String)
                     return Unbound(AdvisoryAiMalformedReason.UnexpectedOutputItem, usage, reliable, above, id);
                 switch (type.GetString())
@@ -164,6 +166,8 @@ public static class AdvisoryAiResponseReader
                             return Unbound(AdvisoryAiMalformedReason.UnexpectedOutputItem, usage, reliable, above, id);
                         foreach (JsonElement part in content.EnumerateArray())
                         {
+                            if (part.ValueKind == JsonValueKind.Object && HasDuplicate(part))
+                                return Unbound(AdvisoryAiMalformedReason.DuplicateProperty, usage, reliable, above, id);
                             if (part.ValueKind != JsonValueKind.Object || !part.TryGetProperty("type", out JsonElement partType) || partType.ValueKind != JsonValueKind.String)
                                 return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
                             if (partType.ValueEquals("output_text") && part.TryGetProperty("text", out JsonElement value) && value.ValueKind == JsonValueKind.String)

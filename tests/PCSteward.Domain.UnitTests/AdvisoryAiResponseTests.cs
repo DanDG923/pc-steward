@@ -87,6 +87,21 @@ public sealed class AdvisoryAiResponseTests
     }
 
     [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("[{\"type\":\"function_call\",\"type\":\"reasoning\"}]", DisplayName = "item type")]
+    [DataRow("[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"a\"}],\"content\":[]}]", DisplayName = "item content")]
+    [DataRow("[{\"type\":\"message\",\"content\":[{\"type\":\"refusal\",\"type\":\"output_text\",\"text\":\"a\"}]}]", DisplayName = "part type")]
+    [DataRow("[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"a\",\"text\":\"b\"}]}]", DisplayName = "part text")]
+    public void ADuplicatePropertyInsideAnOutputItemOrContentPartMakesTheBodyUntrusted(string output)
+    {
+        AdvisoryAiResponse response = Read(Body(output: output));
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
+        Assert.AreEqual(AdvisoryAiMalformedReason.DuplicateProperty, response.MalformedReason);
+        Assert.IsNull(response.Text);
+        Assert.IsFalse(response.UsageReliable, "never settlement evidence");
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public void OversizeDeepOrTrailingBodiesAreMalformed()
     {
