@@ -340,6 +340,8 @@ public sealed partial class MainWindow
             detailPaneHost.Visibility = Visibility.Collapsed;
             detailPaneScroll.Content = null;
             detailPaneKey = null;
+            // A line that confirmed a choice in the column goes with the column, as it does when its page is left.
+            if (decisionNoticeInDetailPane) { decisionNotice = null; decisionNoticeInDetailPane = false; }
             return;
         }
         detailPaneHost.Width = PageLayout.DetailsPaneWidth(shellContent.ActualWidth);
@@ -347,7 +349,10 @@ public sealed partial class MainWindow
         {
             // The same app refreshed keeps its place in the column; another app starts at the top.
             bool sameApp = string.Equals(detailPaneKey, detailRow.StableProductKey, StringComparison.Ordinal);
-            double offset = sameApp ? detailPaneScroll.VerticalOffset : 0;
+            // The line that confirms a saved choice belongs to the app it was made for: another app in the column drops it.
+            if (decisionNoticeInDetailPane && !sameApp) { decisionNotice = null; decisionNoticeInDetailPane = false; }
+            // A line that has just been added is at the top of the column, so the column starts there and it is seen.
+            double offset = sameApp && !(decisionNoticeIsNew && decisionNoticeInDetailPane) ? detailPaneScroll.VerticalOffset : 0;
             StackPanel details = BuildDetailPane(detailRow);
             detailPaneKey = detailRow.StableProductKey;
             detailPaneScroll.Content = details;
@@ -386,6 +391,8 @@ public sealed partial class MainWindow
             FocusRegionElement(FocusRegion.Page);
         };
         details.Children.Insert(0, close);
+        // FR-POL-03/05: what was just saved for this app, with Undo, in the column the choice was made in.
+        if (decisionNoticeInDetailPane && decisionNotice is { } saved) details.Children.Insert(1, DecisionNoticeBar(saved));
         return details;
     }
 }

@@ -62,4 +62,15 @@ public sealed class UiReviewWideWindowPresentationTests
         Assert.AreEqual("Details for Discord", PageLayout.DetailsPaneName("Discord"));
         Assert.AreEqual("Details for Discord are shown beside the list.", PageLayout.DetailsShownAnnouncement("Discord"));
     }
+
+    [TestMethod]
+    [Description("FR-POL-03/05 (item 19): the line that confirms a saved choice, with Undo, is shown in the details column only while that column shows the app the choice was made for; otherwise it stays on the page.")]
+    public void ASavedChoiceIsConfirmedInTheDetailsColumnOfItsOwnApp()
+    {
+        Assert.IsTrue(PageLayout.NoticeGoesInDetails(true, "app-a", "app-a"));
+        Assert.IsFalse(PageLayout.NoticeGoesInDetails(true, "app-b", "app-a"), "a choice made on a list row for another app stays on the list");
+        Assert.IsFalse(PageLayout.NoticeGoesInDetails(false, "app-a", "app-a"), "no column is shown");
+        Assert.IsFalse(PageLayout.NoticeGoesInDetails(true, null, "app-a"));
+        Assert.IsFalse(PageLayout.NoticeGoesInDetails(true, "APP-A", "app-a"), "keys are compared exactly");
+    }
 }

@@ -62,19 +62,23 @@ public sealed partial class MainWindow
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Match not saved", validation.Explanation); return; }
         LoadSavedInventory();
-        ShowDecisionNotice(DecisionNoticePresenter.MatchConfirmed(row.Name, row.StableProductKey, sourceId, packageId, manualMappings, savedBefore));
+        ShowDecisionNotice(DecisionNoticePresenter.MatchConfirmed(row.Name, row.StableProductKey, sourceId, packageId, manualMappings, savedBefore), row.StableProductKey);
     }
 
     /// <summary>
     /// UI review 2026-11-13 (item 12; FR-POL-03/05): after a pin, ignore, skip or confirmed match is saved, the page it was made on
     /// says so in one line with Undo, instead of a second dialog that waits for Close. The saved data is reloaded before this is
-    /// called, so the notice names exactly the records Undo reverses.
+    /// called, so the notice names exactly the records Undo reverses. A choice for the app whose details are open beside a list
+    /// is confirmed in that column (independent review of item 19), so the line and Undo are next to the action.
     /// </summary>
-    private void ShowDecisionNotice(DecisionNotice notice)
+    private void ShowDecisionNotice(DecisionNotice notice, string stableProductKey)
     {
         decisionNotice = notice;
         decisionNoticePage = navigation.Current;
+        decisionNoticeInDetailPane = PageLayout.NoticeGoesInDetails(detailPaneOpen && detailPaneHost is { Visibility: Visibility.Visible }, detailPaneKey, stableProductKey);
+        decisionNoticeIsNew = true;
         Render();
+        decisionNoticeIsNew = false;
         AnnounceCompletion(notice.Message, "decision-saved");
     }
 
@@ -146,7 +150,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        ShowDecisionNotice(DecisionNoticePresenter.Pinned(row.Name, row.Version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
+        ShowDecisionNotice(DecisionNoticePresenter.Pinned(row.Name, row.Version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions), row.StableProductKey);
     }
 
     /// <summary>Ignores the app after the confirmation, for <paramref name="sameApp"/> too (other records of the same app, phase 3).</summary>
@@ -184,7 +188,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        ShowDecisionNotice(DecisionNoticePresenter.Ignored(row.Name, ignoredUntil, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
+        ShowDecisionNotice(DecisionNoticePresenter.Ignored(row.Name, ignoredUntil, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions), row.StableProductKey);
     }
 
     /// <summary>
@@ -219,7 +223,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        ShowDecisionNotice(DecisionNoticePresenter.Skipped(row.Name, version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
+        ShowDecisionNotice(DecisionNoticePresenter.Skipped(row.Name, version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions), row.StableProductKey);
     }
 
     private static TextBox DecisionReasonBox(string placeholder) => new() { Header = "Optional reason", PlaceholderText = placeholder, MaxLength = 512 };

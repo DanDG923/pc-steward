@@ -49,4 +49,11 @@ public static class PageLayout
 
     /// <summary>What a screen reader is told when the details open beside the list, because focus stays on the list.</summary>
     public static string DetailsShownAnnouncement(string appName) => $"Details for {appName} are shown beside the list.";
+
+    /// <summary>
+    /// FR-POL-03/05: where the line that confirms a saved choice (with Undo) is shown. It goes in the details column when that
+    /// column is showing the app the choice was made for, so it is beside the action; otherwise it goes on the page as before.
+    /// </summary>
+    public static bool NoticeGoesInDetails(bool detailsShownBeside, string? detailsAppKey, string noticeAppKey) =>
+        detailsShownBeside && string.Equals(detailsAppKey, noticeAppKey, StringComparison.Ordinal);
 }

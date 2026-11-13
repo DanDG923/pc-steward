@@ -81,6 +81,8 @@ public sealed partial class MainWindow : Window
     // UI review 2026-11-13 (item 12): the line shown after a pin, ignore, skip or confirmed match, with Undo, on the page it was made on.
     private DecisionNotice? decisionNotice;
     private ShellPage decisionNoticePage;
+    private bool decisionNoticeInDetailPane;
+    private bool decisionNoticeIsNew;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
     private bool onboardingAcknowledging;

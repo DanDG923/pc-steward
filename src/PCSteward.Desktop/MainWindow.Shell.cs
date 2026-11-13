@@ -446,8 +446,9 @@ public sealed partial class MainWindow
         // UI review 2026-11-13 (item 12): the line that says what was just saved, under the header of the page it was made on.
         if (decisionNotice is { } saved)
         {
-            if (decisionNoticePage == navigation.Current) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));
-            else decisionNotice = null;
+            if (decisionNoticePage != navigation.Current) decisionNotice = null;
+            // A choice saved for the app in the details column is confirmed in that column instead (BuildDetailPane).
+            else if (!decisionNoticeInDetailPane) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));
         }
         // A page may name the control that takes focus when it is opened, for example Cancel on the update review (Cancel is the default).
         Control? initialFocus = sameView ? null : pageInitialFocus;

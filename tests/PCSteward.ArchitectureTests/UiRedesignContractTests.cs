@@ -1306,6 +1306,14 @@ public sealed class UiRedesignContractTests
         foreach (string authority in new[] { "workflow.", "DataOperationLease", "ReviewAndExecuteAsync", "ConfirmAndRunAsync", "PromptAnd", "ChangeWinGetTrustedSourcesAsync", "StartScanAsync", "CheckUpdateSourcesAsync", "NavigateTo(" })
             Assert.IsFalse(pane.Contains(authority, StringComparison.Ordinal), $"the details column adds no action of its own: {authority}");
 
+        // FR-POL-03/05: a choice saved for the app in the column is confirmed there, with the same Undo, and not on the list as well.
+        string notice = Between(source, "private void ShowDecisionNotice(DecisionNotice notice, string stableProductKey)", "private InfoBar DecisionNoticeBar(DecisionNotice notice)");
+        StringAssert.Contains(notice, "decisionNoticeInDetailPane = PageLayout.NoticeGoesInDetails(detailPaneOpen && detailPaneHost is { Visibility: Visibility.Visible }, detailPaneKey, stableProductKey);");
+        StringAssert.Contains(show, "else if (!decisionNoticeInDetailPane) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));");
+        StringAssert.Contains(pane, "if (decisionNoticeInDetailPane && decisionNotice is { } saved) details.Children.Insert(1, DecisionNoticeBar(saved));");
+        StringAssert.Contains(pane, "if (decisionNoticeInDetailPane && !sameApp) { decisionNotice = null; decisionNoticeInDetailPane = false; }");
+        Assert.AreEqual(2, Count(pane, "decisionNotice = null; decisionNoticeInDetailPane = false;"), "the line goes when the column closes or shows another app");
+
         string layout = ApplicationSource("PageLayout.cs");
         StringAssert.Contains(layout, "public const double DetailsBesideMinimumWidth = 1200;");
         StringAssert.Contains(layout, "public static bool IsListPage(ShellPage page) => page is ShellPage.Updates or ShellPage.InstalledApps;");
