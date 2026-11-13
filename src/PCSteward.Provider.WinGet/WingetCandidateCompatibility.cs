@@ -107,20 +107,24 @@ internal static class WingetCandidateCompatibilityRules
             Architecture(observation.InstallerArchitecture),
             string.IsNullOrEmpty(observation.Channel) ? "Stable" : "Unknown",
             BoundedText(observation.CandidatePublisher),
-            InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames));
+            InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames, observation.InstallerType));
     }
 
     /// <summary>
     /// The one local product WinGet links to the installed package: the registry product of its single product code when it reports
     /// no package family, or the MSIX product of its single package family when it reports no product code (MSIX design note §3.1).
-    /// Both kinds of link at once, or anything malformed, give no key.
+    /// Both kinds of link at once, or anything malformed, give no key. A package family is linked only when the update's applicable
+    /// installer is itself <c>msix</c> (Codex security review, PR #92): only then does Windows refuse a package from another family or
+    /// publisher, which is what makes the family an exact identity. A family with any other installer type gives no key, so the app
+    /// stays a name match at best and never gains exact identity from the family.
     /// </summary>
-    internal static string? InstalledProductKey(IReadOnlyList<string>? productCodes, IReadOnlyList<string>? packageFamilyNames)
+    internal static string? InstalledProductKey(IReadOnlyList<string>? productCodes, IReadOnlyList<string>? packageFamilyNames, string? installerType)
     {
         bool hasFamilies = packageFamilyNames is { Count: > 0 };
         bool hasCodes = productCodes is { Count: > 0 };
         if (hasFamilies && hasCodes) return null;
-        return hasFamilies ? MsixProductKey(packageFamilyNames) : RegistryProductKey(productCodes);
+        if (hasFamilies) return IsMsixInstaller(installerType) ? MsixProductKey(packageFamilyNames) : null;
+        return RegistryProductKey(productCodes);
     }
 
     /// <summary>

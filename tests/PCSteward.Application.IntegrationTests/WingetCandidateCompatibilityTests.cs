@@ -120,6 +120,20 @@ public sealed class WingetCandidateCompatibilityTests
     }
 
     [TestMethod]
+    public void APackageFamilyIsLinkedOnlyThroughAnMsixInstaller()
+    {
+        // Codex security review (PR #92): a catalog that names an installed MSIX family but offers another installer type must not gain
+        // exact identity from the family, because Windows' family and publisher check would never run.
+        foreach (string? type in new[] { "Exe", "Msi", "Wix", "Inno", "Nullsoft", "Burn", "Portable", "Zip", "MSStore", null, "" })
+        {
+            WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = type }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!;
+            Assert.IsNull(evidence.LinkedProductKey, type ?? "null");
+            Assert.AreEqual("Unknown", evidence.Scope, type ?? "null");
+        }
+        Assert.AreEqual(MsixKey("Contoso.Studio_g54w8ztgkx496"), WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = " msix " }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.LinkedProductKey);
+    }
+
+    [TestMethod]
     public void OnlyAnMsixInstallerWithNoScopeOfItsOwnIsTakenAsPerUser()
     {
         Assert.AreEqual("Unknown", WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = "Exe" }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.Scope);
