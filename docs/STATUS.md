@@ -1,3 +1,10 @@
+**Diagnostic timeline, Task 64 stage 5: host check on the owner's PC (2026-11-13; release 0.1.16; read only).** Requirement: `FR-DIA-01`. ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md))
+
+- **What ran.** One collection in the app and a read-only cross-check script in a standard PowerShell (counts, source names and dates only). Every source was read unelevated and the page looked correct.
+- **Found and fixed.** Reliability records Windows Installer changes as `MsiInstaller` 1033 (installed) and 1034 (removed), not 11707/11724, so the reader missed 312 of 377 records. Both are now allowlisted with an unknown result, since success or failure is only in the message text, which is never read. Test `ReliabilityKeepsWindowsInstallerChangesWithAnUnknownResult`.
+- **Confirmed.** Event log provider names and event IDs; WMI enumerates newest first.
+- **Not proven.** The Kernel-Power 41 `BugcheckCode` type (no such event in the window). Whether Windows Update history dates are UTC: the PC's offset was zero, so recheck once on summer time.
+
 **Release 0.1.16 (2026-11-13; version number only).** VersionPrefix 0.1.16 for the release that carries the Diagnostics page and the diagnostic timeline's Windows readers (#105) and UI review follow-up 3 (#106). No code change here.
 
 **Diagnostic timeline, Task 64 stage 4: the Diagnostics page (2026-11-13; code and tests; no host action).** Requirements: `FR-DIA-01–05`, `FR-UI-01`. ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
