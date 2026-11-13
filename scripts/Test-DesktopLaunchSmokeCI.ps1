@@ -141,6 +141,77 @@ else {
     }
 }
 
+# UI review 2026-11-13 (faults 1 and 2), informational: after a read-only scan of this runner, measure the Installed apps page
+# through UI Automation. The list must reach down to the bottom of the window (it stopped at its 320-unit minimum), and the
+# buttons of one action row must share a line. Results are LAYOUT lines in the log; nothing here adds a failure.
+function Find-Named([Windows.Automation.AutomationElement]$Root, [string]$Prefix, [Windows.Automation.ControlType]$Type) {
+    $ofType = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, $Type)
+    foreach ($e in $Root.FindAll([Windows.Automation.TreeScope]::Descendants, $ofType)) {
+        try { if (([string]$e.Current.Name).StartsWith($Prefix, [StringComparison]::OrdinalIgnoreCase) -and !$e.Current.IsOffscreen) { return $e } } catch { }
+    }
+    return $null
+}
+function Open-Page([Windows.Automation.AutomationElement]$Root, [string]$Page) {
+    $item = Find-Named $Root $Page ([Windows.Automation.ControlType]::ListItem)
+    if ($null -eq $item) { return $false }
+    try { ($item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); return $true } catch { }
+    try { ($item.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern)).Select(); return $true } catch { }
+    return $false
+}
+function Write-SameLine([Windows.Automation.AutomationElement]$First, [Windows.Automation.AutomationElement]$Second, [string]$Label) {
+    if ($null -eq $First -or $null -eq $Second) { Write-Line ('LAYOUT-ROW ' + $Label + ' skipped (control not found)'); return }
+    $a = $First.Current.BoundingRectangle; $b = $Second.Current.BoundingRectangle
+    $sameLine = ($b.Top -lt $a.Bottom) -and ($a.Top -lt $b.Bottom)
+    Write-Line ('LAYOUT-ROW ' + $Label + ' sameLine=' + $sameLine + ' first=' + [int]$a.Left + ',' + [int]$a.Top + ',' + [int]$a.Width + 'x' + [int]$a.Height + ' second=' + [int]$b.Left + ',' + [int]$b.Top + ',' + [int]$b.Width + 'x' + [int]$b.Height)
+}
+$process.Refresh()
+if ($failures.Count -eq 0 -and !$process.HasExited) {
+    try {
+        try { Set-DisplayResolution -Width 1920 -Height 1080 -Force | Out-Null; Start-Sleep -Seconds 3 } catch { Write-Line ('LAYOUT resolution unchanged: ' + $_.Exception.Message) }
+        [void][SmokeWin32]::ShowWindow($handle, 9); Start-Sleep -Milliseconds 500
+        [void][SmokeWin32]::ShowWindow($handle, 3); Start-Sleep -Seconds 2
+        $window = [Windows.Automation.AutomationElement]::FromHandle($handle)
+        if (!(Open-Page $window 'Installed apps')) { throw 'could not open Installed apps' }
+        Start-Sleep -Seconds $PageSettleSeconds
+        $scan = Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)
+        if ($null -eq $scan) { throw 'Scan again not found' }
+        ($scan.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke()
+        $list = $null
+        $scanDeadline = (Get-Date).AddSeconds(150)
+        while ((Get-Date) -lt $scanDeadline -and $null -eq $list) {
+            Start-Sleep -Seconds 5
+            $process.Refresh(); if ($process.HasExited) { throw 'the app exited during the scan' }
+            [void](Open-Page $window 'Installed apps'); Start-Sleep -Seconds 2
+            $byId = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'InstalledAppsList')
+            $found = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byId)
+            if ($null -ne $found -and !$found.Current.IsOffscreen -and $found.Current.BoundingRectangle.Height -gt 0) { $list = $found }
+        }
+        if ($null -eq $list) { throw 'the Installed apps list did not appear within 150 seconds of starting a scan' }
+        Start-Sleep -Seconds $PageSettleSeconds
+        $r = New-Object SmokeWin32+RECT
+        [void][SmokeWin32]::GetWindowRect($handle, [ref]$r)
+        $box = $list.Current.BoundingRectangle
+        $gap = [int]($r.Bottom - $box.Bottom)
+        $rows = $list.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)).Count
+        # Below the list are the card's edge, a footnote and the page padding: well under 160 pixels at 100% scaling.
+        $verdict = if ($gap -le 160) { 'fills' } else { 'short' }
+        Write-Line ('LAYOUT-INSTALLED-LIST window=' + ($r.Right - $r.Left) + 'x' + ($r.Bottom - $r.Top) + ' listTop=' + [int]$box.Top + ' listHeight=' + [int]$box.Height + ' gapToWindowBottom=' + $gap + ' rowsOnScreen=' + $rows + ' verdict=' + $verdict)
+        Write-SameLine (Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)) (Find-Named $window 'More options' ([Windows.Automation.ControlType]::Button)) 'installed-header'
+        Write-SameLine (Find-Named $window 'Sort by' ([Windows.Automation.ControlType]::Text)) (Find-Named $window 'Sort applications' ([Windows.Automation.ControlType]::ComboBox)) 'installed-sort'
+        Save-Screenshot $handle '08-Installed-apps-after-scan'
+        if (Open-Page $window 'Home') {
+            Start-Sleep -Seconds $PageSettleSeconds
+            $homeButtons = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)) |
+                Where-Object { $_.Current.ClassName -eq 'Button' -and !$_.Current.IsOffscreen -and $_.Current.Name -match '^(Turn on|Review|Check for|Scan again|Start)' })
+            if ($homeButtons.Count -ge 2) { Write-SameLine $homeButtons[0] $homeButtons[1] 'home-hero' } else { Write-Line ('LAYOUT-ROW home-hero skipped (buttons found: ' + $homeButtons.Count + ')') }
+            Save-Screenshot $handle '09-Home-after-scan'
+        }
+        Open-Page $window 'Activity' | Out-Null
+        Start-Sleep -Seconds $PageSettleSeconds
+        $unnamedTotal += Write-Tree $window 'Activity after scan'
+    } catch { Write-Line ('LAYOUT-CHECK skipped: ' + $_.Exception.Message) }
+}
+
 # Anything the .NET runtime or Windows Error Reporting recorded for the app while it ran.
 try {
     $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $started } -ErrorAction SilentlyContinue |

@@ -297,6 +297,11 @@ public sealed partial class UiAccessibilityContractTests
     {
         string presentation = DesktopSource("StewardPresentation.cs");
         StringAssert.Contains(presentation, "public sealed class StewardWrapPanel : Panel");
+        // UI review 2026-11-13 (fault 2): the lines are decided once, when the row is measured, and arranging reuses them.
+        string wrap = presentation[presentation.IndexOf("public sealed class StewardWrapPanel : Panel", StringComparison.Ordinal)..];
+        StringAssert.Contains(wrap, "measuredLines = measured.Lines;");
+        StringAssert.Contains(wrap, "WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing)");
+        Assert.IsFalse(wrap.Contains("> finalSize.Width", StringComparison.Ordinal), "arranging never decides a line break by comparing widths again");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);");
         string source = DesktopSource("MainWindow.cs");

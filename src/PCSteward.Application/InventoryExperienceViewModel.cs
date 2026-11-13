@@ -32,6 +32,34 @@ public sealed class InventoryExperienceViewModel
     /// <summary>Unfiltered locally recorded inventory for cross-page summary and update evidence.</summary>
     public IReadOnlyList<InventoryRow> AllRows => allRows;
     public IReadOnlyList<InventoryRow> VisibleRows { get; private set; } = [];
+    /// <summary>
+    /// UI review 2026-11-13 (fault 3): Installed apps opens on apps the owner recognises. Frameworks, resource packs and Windows
+    /// system packages stay in the saved inventory and on every other page, and are listed here only when this is on.
+    /// </summary>
+    public bool ShowSystemComponents { get; private set; }
+    /// <summary>The rows Installed apps lists and counts: every saved row, less system components unless they are shown.</summary>
+    public IReadOnlyList<InventoryRow> ListedRows => ShowSystemComponents ? allRows : allRows.Where(row => !InstalledAppsFilters.IsSystemComponent(row)).ToArray();
+    /// <summary>How many saved rows are system components.</summary>
+    public int SystemComponentCount => allRows.Count(InstalledAppsFilters.IsSystemComponent);
+    /// <summary>
+    /// Package ID to app name for every app matched to a package, so a recorded update can be named by its app after the update
+    /// gave the app a new record. Names only; nothing here is a trust or execution decision.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> PackageNames
+    {
+        get
+        {
+            Dictionary<string, string> names = new(StringComparer.OrdinalIgnoreCase);
+            foreach (InventoryRow row in allRows)
+            {
+                if (!UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) || string.IsNullOrWhiteSpace(detail.PackageId) || string.IsNullOrWhiteSpace(row.Name)) continue;
+                // A row named by its own package ID (WinGet's record of the app) adds nothing; prefer the app's own name.
+                if (string.Equals(row.Name, detail.PackageId, StringComparison.OrdinalIgnoreCase)) continue;
+                names.TryAdd(detail.PackageId, row.Name);
+            }
+            return names;
+        }
+    }
     public IReadOnlyCollection<string> AvailablePublishers => allRows.Select(row => row.Publisher).Where(publisher => !string.Equals(publisher, "Unknown", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(publisher => publisher, StringComparer.OrdinalIgnoreCase).ToArray();
     public string SearchText { get; private set; } = string.Empty;
     public string SourceFilter { get; private set; } = "All sources";
@@ -88,6 +116,9 @@ public sealed class InventoryExperienceViewModel
     {
         SavedFilter = Enum.IsDefined(filter) ? filter : InstalledAppsFilter.All; ApplyFilters();
     }
+
+    /// <summary>Shows or hides system components on Installed apps. Saved data never changes.</summary>
+    public void SetShowSystemComponents(bool show) { ShowSystemComponents = show; ApplyFilters(); }
 
     public void LoadInventory(IReadOnlyCollection<CanonicalProduct> products, IReadOnlyCollection<InstallationInstance> instances, DateTimeOffset? lastScanAt = null)
     {
@@ -242,7 +273,7 @@ public sealed class InventoryExperienceViewModel
 
     private void ApplyFilters()
     {
-        IEnumerable<InventoryRow> rows = allRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));
+        IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));
         if (!string.IsNullOrWhiteSpace(SearchText)) rows = rows.Where(row => row.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || row.Publisher.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
         if (StatusFilter != "All statuses") rows = rows.Where(row => row.Status == StatusFilter);
         if (PublisherFilter != "All publishers") rows = rows.Where(row => row.Publisher == PublisherFilter);

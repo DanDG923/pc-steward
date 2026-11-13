@@ -40,7 +40,7 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
         List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (Package package in new PackageManager().FindPackagesForUser(string.Empty))
         {
-            cancellationToken.ThrowIfCancellationRequested(); if (package.IsFramework || package.IsResourcePackage) continue;
+            cancellationToken.ThrowIfCancellationRequested(); if (package.IsFramework || package.IsResourcePackage || IsSystemSigned(package)) continue;
             string family = package.Id.FamilyName ?? string.Empty; string full = package.Id.FullName ?? string.Empty;
             if (!PackageFamilyName.IsValid(family) || string.IsNullOrWhiteSpace(full)) continue;
             Guid productId = StableGuid("product|" + family);
@@ -57,6 +57,13 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
     {
         try { return read(); }
         catch (Exception) { return null; }
+    }
+    // The same rule as the desktop's MSIX inventory: a package Windows itself signed is an inbox part of Windows, never an app
+    // to offer. Skipping it here keeps both inventories on one identity for every package they both list.
+    private static bool IsSystemSigned(Package package)
+    {
+        try { return package.SignatureKind == PackageSignatureKind.System; }
+        catch (Exception) { return false; }
     }
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }

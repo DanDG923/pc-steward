@@ -36,7 +36,7 @@ public sealed partial class MainWindow
         if (activityHistoryUnavailable)
             panel.Children.Add(StewardVisuals.InformationBanner("Recorded history unavailable", "PC Steward couldn't read its recorded update and scan history just now. Nothing was changed; try again later.", "neutral"));
 
-        IReadOnlyList<ActivityEntry> entries = ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows);
+        IReadOnlyList<ActivityEntry> entries = ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows, packageNames: viewModel.PackageNames);
         if (entries.Count == 0)
         {
             Button start = StewardVisuals.PrimaryButton("Start local inventory", "(read-only scan of this PC)");
@@ -75,7 +75,7 @@ public sealed partial class MainWindow
                 daySection.Children.Add(dayEntries);
                 panel.Children.Add(daySection);
             }
-            panel.Children.Add(StewardVisuals.FootNote("\uE946", "Each record keeps its evidence. Expand a record to see start and finish times and the technical details."));
+            panel.Children.Add(StewardVisuals.FootNote("\uE946", "Each record keeps its evidence. Expand a record to see start and finish times and the technical details. A day's scans share one row."));
         }
         AddReviewedUpdateOutcomesSection(panel);
         panel.Children.Add(StewardVisuals.FootNote("\uE753", $"Package sources: {viewModel.UpdateFreshnessLabel}"));
@@ -88,7 +88,7 @@ public sealed partial class MainWindow
     /// </summary>
     private static FrameworkElement ActivityEntryRow(ActivityEntry entry)
     {
-        TextBlock time = new() { Text = entry.TimeText, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.NoWrap };
+        TextBlock time = new() { Text = entry.RowTimeText, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.NoWrap };
         Grid header = StewardVisuals.ListRow(StewardVisuals.IconWell(entry.Glyph, StewardStatus.ToneName(entry.Tone)), entry.Heading, entry.Summary, time);
         TextBlock title = header.Children.OfType<StackPanel>().First().Children.OfType<TextBlock>().First();
         // Independent review L6 (ADR-021 best effort): the entry's name goes on elements that have an automation peer.

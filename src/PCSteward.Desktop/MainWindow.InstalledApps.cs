@@ -52,7 +52,8 @@ public sealed partial class MainWindow
         // Saved filters: the same words as the status chips, and counts over every saved app ("All" really is all).
         // Audit P-M9: filter tabs wrap instead of scrolling sideways or clipping.
         List<Button> savedFilters = [];
-        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.AllRows))
+        // UI review 2026-11-13 (fault 3): the tabs count what the list can show, so system components count only when they are listed.
+        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows))
         {
             bool selected = viewModel.SavedFilter == option.Filter;
             // The selected filter stays focusable (bold label, accent bar and "Selected" item status) so a refresh can restore focus to it.
@@ -103,12 +104,24 @@ public sealed partial class MainWindow
         toolbar.Children.Add(sortGroup);
         toolbar.Children.Add(filtersToggle);
         toolbar.Children.Add(matching);
+        // UI review 2026-11-13 (fault 3): frameworks, resource packs and Windows system packages are listed only on request, so
+        // the page opens on apps the owner recognises. The switch is offered only when the inventory has some.
+        int systemComponents = viewModel.SystemComponentCount;
+        if (systemComponents > 0)
+        {
+            CheckBox showSystem = new() { Content = InstalledAppsFilters.SystemComponentsLabel(systemComponents), IsChecked = viewModel.ShowSystemComponents, VerticalAlignment = VerticalAlignment.Center, MinWidth = 0 };
+            StewardVisuals.Named(showSystem, InstalledAppsFilters.SystemComponentsLabel(systemComponents), "(frameworks and parts of Windows)");
+            showSystem.Click += (_, _) => { viewModel.SetShowSystemComponents(showSystem.IsChecked == true); Render(); };
+            toolbar.Children.Add(showSystem);
+        }
         panel.Children.Add(toolbar);
         panel.Children.Add(moreFilters);
 
         // Bounded height keeps the list virtualized inside the page's own scroll host (wheel scrolling chains to the page at the ends).
         // Phase 5: the bound follows the window, so the card reaches the bottom of a tall window (never shorter than MinimumListHeight).
         ListView list = new() { Style = AppStyle("StewardListViewStyle"), ItemContainerStyle = AppStyle("StewardListItemStyle"), ItemTemplate = (DataTemplate)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardApplicationRowTemplate"] };
+        AutomationProperties.SetName(list, "Installed apps list");
+        AutomationProperties.SetAutomationId(list, "InstalledAppsList");
         Border listCard = new() { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall), Child = list };
         StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);
         Border empty = StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters. The saved inventory hasn't changed.");
@@ -128,7 +141,7 @@ public sealed partial class MainWindow
         {
             viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
             RenderInventory(list);
-            matching.Text = InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.AllRows.Count);
+            matching.Text = InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.ListedRows.Count);
             bool none = viewModel.VisibleRows.Count == 0;
             listCard.Visibility = none ? Visibility.Collapsed : Visibility.Visible;
             columns.Visibility = listCard.Visibility;
@@ -148,7 +161,7 @@ public sealed partial class MainWindow
         return panel;
     }
 
-    /// <summary>The Installed apps list is never shorter than this (about six rows), so a short window scrolls the page instead.</summary>
+    /// <summary>The Installed apps list is never shorter than this (about five rows), so a short window scrolls the page instead.</summary>
     private const double MinimumListHeight = 320;
 
     private static (string Raw, string Label)[] LabelledFilterOptions(IEnumerable<string> rawValues, Func<string, string> label) => rawValues

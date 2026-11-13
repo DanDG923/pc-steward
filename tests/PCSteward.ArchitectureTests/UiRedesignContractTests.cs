@@ -690,7 +690,10 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(empty, "VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560");
         StringAssert.Contains(empty, "EmptyStates.AddOrUpdate(empty, title);");
         string fill = Between(presentation, "public static void FillViewportHeight(StackPanel page, FrameworkElement card)", "public static bool IsEmptyState(");
-        StringAssert.Contains(fill, "Math.Max(0, Math.Floor(host.ViewportHeight - top - below))");
+        StringAssert.Contains(fill, "ViewportFill.CardHeight(host.ViewportHeight, top, below)");
+        StringAssert.Contains(ApplicationSource("ViewportFill.cs"), "Math.Max(0, Math.Floor(viewportHeight - top - Math.Max(0, below)))");
+        // UI review 2026-11-13 (fault 1): a stretched page reports the window's height, so the card never grew; the page is top aligned.
+        StringAssert.Contains(fill, "page.VerticalAlignment = VerticalAlignment.Top;");
         StringAssert.Contains(fill, "card.MinHeight = wanted;", "only the minimum height grows, so a short window keeps the natural height and scrolls");
         Assert.IsFalse(fill.Contains("card.Height =", StringComparison.Ordinal) || fill.Contains("MaxHeight", StringComparison.Ordinal), "the card is never capped");
         StringAssert.Contains(fill, "host.SizeChanged -= Resized;", "the page stops listening to the shared page host when it is unloaded");
@@ -704,7 +707,10 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string apps = Between(source, "private StackPanel BuildInstalledAppsPage()", "private static (string Raw, string Label)[] LabelledFilterOptions");
-        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.AllRows))");
+        StringAssert.Contains(apps, "foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows))");
+        // UI review 2026-11-13 (fault 3): system components are listed on request; the switch only filters the list.
+        StringAssert.Contains(apps, "viewModel.SetShowSystemComponents(showSystem.IsChecked == true)");
+        StringAssert.Contains(ApplicationSource("InventoryExperienceViewModel.cs"), "IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));");
         StringAssert.Contains(apps, "viewModel.SetSavedFilter(value)");
         StringAssert.Contains(apps, "AutomationProperties.SetName(filter, option.AccessibleName);");
         StringAssert.Contains(apps, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
@@ -714,7 +720,10 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(apps.Contains("MaxHeight = 620", StringComparison.Ordinal), "the list height follows the window, not a fixed 620");
         string fill = Between(DesktopSource("StewardPresentation.cs"), "public static void FillViewportHeight(", "/// <summary>AC-UX-01: a page title");
         StringAssert.Contains(fill, "list.MaxHeight = minimumHeight;", "the list is bounded before it is first laid out");
-        StringAssert.Contains(fill, "Math.Max(minimumHeight, Math.Floor(host.ViewportHeight - top - below - chrome))");
+        StringAssert.Contains(fill, "ViewportFill.ListHeight(host.ViewportHeight, top, below, chrome, minimumHeight)");
+        StringAssert.Contains(ApplicationSource("ViewportFill.cs"), "Math.Max(minimumHeight, Math.Floor(viewportHeight - top - Math.Max(0, below) - Math.Max(0, chrome)))");
+        // UI review 2026-11-13 (fault 1): the page is top aligned so "below" is content, not the blank space under a short page.
+        Assert.AreEqual(2, fill.Split("page.VerticalAlignment = VerticalAlignment.Top;").Length - 1, "both fill helpers top align the page");
         StringAssert.Contains(fill, "host.SizeChanged -= Resized;", "the page stops listening to the shared page host when it is unloaded");
         // UI polish phase 4 (approved target T-Installed): "No update source" is plain text on each row, explained once by a calm
         // footnote that says it is not a safety warning (replacing the info bar on that filter).
@@ -752,7 +761,7 @@ public sealed class UiRedesignContractTests
     {
         string source = DesktopSource("MainWindow.cs");
         string activity = Between(source, "private StackPanel BuildActivityPage()", "private void AddReviewedUpdateOutcomesSection(");
-        StringAssert.Contains(activity, "ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows)");
+        StringAssert.Contains(activity, "ActivityPresenter.Entries(UpdateJobHistory.Group(updateHistory), scanRuns, activeDecisions, manualMappings, viewModel.AllRows, packageNames: viewModel.PackageNames)");
         StringAssert.Contains(activity, "ActivityPresenter.Build(entries, activityFilter, DateTimeOffset.UtcNow)");
         StringAssert.Contains(activity, "foreach (ActivityDay day in page.Days)");
         // UI polish phase 4 (approved target T-Activity): each record's facts and details are behind its expandable row.

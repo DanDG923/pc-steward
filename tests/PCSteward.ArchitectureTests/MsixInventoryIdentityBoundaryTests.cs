@@ -17,6 +17,10 @@ public sealed class MsixInventoryIdentityBoundaryTests
         StringAssert.Contains(source, "products.Add(new CanonicalProduct(productId, identity, record.DisplayName))");
         StringAssert.Contains(source, "record.Provider, identity, record.Version, \"User\"");
         StringAssert.Contains(source, "new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, identity,");
+        // UI review 2026-11-13 (fault 3): a package Windows itself signed is classified System, so it keeps its full name (it is
+        // never offered) and Installed apps can list it only on request. An unreadable signature is an ordinary app.
+        StringAssert.Contains(source, "isFramework, isResource, IsSystemSigned(package),");
+        StringAssert.Contains(source, "try { return package.SignatureKind == PackageSignatureKind.System; }");
     }
 
     [TestMethod]
@@ -24,7 +28,10 @@ public sealed class MsixInventoryIdentityBoundaryTests
     {
         string source = Read("src", "PCSteward.ScheduledHost", "ScheduledInventoryProviders.cs");
 
-        StringAssert.Contains(source, "if (package.IsFramework || package.IsResourcePackage) continue;");
+        // The scheduled host lists apps only. It skips what the desktop names by full package name (frameworks, resource packs and
+        // Windows-signed system packages), so a package both inventories list always has one product key.
+        StringAssert.Contains(source, "if (package.IsFramework || package.IsResourcePackage || IsSystemSigned(package)) continue;");
+        StringAssert.Contains(source, "try { return package.SignatureKind == PackageSignatureKind.System; }");
         StringAssert.Contains(source, "productId, \"msix\", family,");
         StringAssert.Contains(source, "new RawProviderRecord(Guid.NewGuid(), Guid.Empty, \"msix\", family,");
     }

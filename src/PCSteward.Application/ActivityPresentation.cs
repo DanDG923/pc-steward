@@ -193,6 +193,18 @@ public sealed record ActivityEntry(
     public string AccessibleName => $"{Title}: {OutcomeLabel}. {TimeText}";
 
     /// <summary>
+    /// UI review 2026-11-13 (fault 4): the time shown on the row. The row sits under its day's heading, so it shows the time of
+    /// day only ("14:50", not "13 Nov 2026 · 14:50–14:50"); <see cref="TimeText"/> keeps the date for the accessible name.
+    /// </summary>
+    public string RowTimeText => string.IsNullOrEmpty(TimeOfDay) ? TimeText : TimeOfDay;
+
+    /// <summary>The time of day alone, when the entry has one.</summary>
+    public string? TimeOfDay { get; init; }
+
+    /// <summary>How many recorded scans this row stands for; one unless it is a day's scans shown as one row.</summary>
+    public int ScanCount { get; init; } = 1;
+
+    /// <summary>
     /// UI polish phase 4 (approved target T-Activity): the row's one-line heading with the outcome in words, for example "Inventory
     /// scan: Completed", so the tinted icon is never the only signal. A saved decision's title already says what it is.
     /// </summary>
@@ -229,14 +241,15 @@ public static class ActivityPresenter
         IEnumerable<ManualMapping> mappings,
         IReadOnlyCollection<InventoryRow> rows,
         CultureInfo? culture = null,
-        TimeZoneInfo? zone = null)
+        TimeZoneInfo? zone = null,
+        IReadOnlyDictionary<string, string>? packageNames = null)
     {
         ArgumentNullException.ThrowIfNull(jobs); ArgumentNullException.ThrowIfNull(scans); ArgumentNullException.ThrowIfNull(decisions);
         ArgumentNullException.ThrowIfNull(mappings); ArgumentNullException.ThrowIfNull(rows);
         List<ActivityEntry> entries = [];
         foreach (UpdateJobRecord job in jobs)
         {
-            string name = ProductName(rows, job.StableProductKey, job.PackageId);
+            string name = ProductName(rows, job.StableProductKey, job.PackageId, packageNames);
             UpdateOutcomePresentation outcome = job.Outcome;
             entries.Add(new ActivityEntry(
                 $"update:{job.JobId:N}", ActivityKind.Update, job.EndedAt,
@@ -255,7 +268,8 @@ public static class ActivityPresenter
                     new("Failure class", UpdateJobHistory.FailureClass(job.Final.Status, job.Final.Diagnostic)),
                     new("Recorded output", string.IsNullOrWhiteSpace(job.Final.Diagnostic) ? "None recorded" : SanitizedDiagnosticBundle.Sanitize(job.Final.Diagnostic)),
                 ],
-                outcome.Kind));
+                outcome.Kind)
+            { TimeOfDay = DisplayFormat.TimeOfDay(job.StartedAt, job.EndedAt, culture, zone) });
         }
         foreach (ScanRun scan in scans)
         {
@@ -273,13 +287,15 @@ public static class ActivityPresenter
                 facts.Add(new("Duration", Duration(completed - scan.StartedAt)));
             }
             entries.Add(new ActivityEntry($"scan:{scan.Id:N}", ActivityKind.Scan, at, "Inventory scan", label, glyph, tone, summary,
-                DisplayFormat.Range(scan.StartedAt, scan.CompletedAt, culture, zone), problem, facts, []));
+                DisplayFormat.Range(scan.StartedAt, scan.CompletedAt, culture, zone), problem, facts, [])
+            { TimeOfDay = DisplayFormat.TimeOfDay(scan.StartedAt, scan.CompletedAt, culture, zone) });
         }
         foreach (DecisionRow decision in DecisionsPresenter.Build(decisions, mappings, rows, culture, zone))
         {
             entries.Add(new ActivityEntry($"decision:{decision.Id:N}", ActivityKind.Decision, decision.CreatedAt, $"{decision.ProductName}: {decision.Title}",
                 "Decision saved", decision.Glyph, StatusTone.Neutral, decision.Detail, DisplayFormat.DateTime(decision.CreatedAt, culture, zone), false,
-                decision.Reason is null ? [] : [new("Reason", decision.Reason)], []));
+                decision.Reason is null ? [] : [new("Reason", decision.Reason)], [])
+            { TimeOfDay = DisplayFormat.Time(decision.CreatedAt, culture, zone) });
         }
         return entries.OrderByDescending(entry => entry.OccurredAt).ThenBy(entry => entry.Id, StringComparer.Ordinal).ToArray();
     }
@@ -303,7 +319,7 @@ public static class ActivityPresenter
         ActivityDay[] days = matching.Take(MaximumShown)
             .GroupBy(entry => DisplayFormat.LocalDay(entry.OccurredAt, zone))
             .OrderByDescending(group => group.Key)
-            .Select(group => new ActivityDay(group.Key, DisplayFormat.DayHeading(group.Key, now, culture, zone), group.ToArray()))
+            .Select(group => new ActivityDay(group.Key, DisplayFormat.DayHeading(group.Key, now, culture, zone), RollUpScans(group.ToArray(), group.Key, culture, zone)))
             .ToArray();
         return new(filter, filters, days, matching.Length, Math.Min(matching.Length, MaximumShown));
     }
@@ -320,9 +336,58 @@ public static class ActivityPresenter
         : duration < TimeSpan.FromMinutes(1) ? DisplayFormat.Plural(Math.Max(1, (int)Math.Round(duration.TotalSeconds)), "second")
         : DisplayFormat.Plural((int)duration.TotalMinutes, "minute") + (duration.Seconds == 0 ? string.Empty : $" {DisplayFormat.Plural(duration.Seconds, "second")}");
 
-    internal static string ProductName(IReadOnlyCollection<InventoryRow> rows, string stableProductKey, string fallback)
+    /// <summary>
+    /// The app's name for a recorded update. An update can give the app a new record (a version in its Windows entry, a new
+    /// installer code), so when the recorded key is gone the name comes from the app now matched to the same package
+    /// (<paramref name="packageNames"/>, package ID to app name) before falling back to the package ID itself (UI review
+    /// 2026-11-13, fault 3: "Microsoft.DotNet.DesktopRuntime.8 update").
+    /// </summary>
+    internal static string ProductName(IReadOnlyCollection<InventoryRow> rows, string stableProductKey, string fallback, IReadOnlyDictionary<string, string>? packageNames = null)
     {
         string? name = rows.FirstOrDefault(row => string.Equals(row.StableProductKey, stableProductKey, StringComparison.Ordinal))?.Name;
-        return !string.IsNullOrWhiteSpace(name) ? name : !string.IsNullOrWhiteSpace(fallback) ? fallback : stableProductKey;
+        if (!string.IsNullOrWhiteSpace(name)) return name;
+        if (packageNames is not null && !string.IsNullOrWhiteSpace(fallback) && packageNames.TryGetValue(fallback, out string? matched) && !string.IsNullOrWhiteSpace(matched)) return matched;
+        return !string.IsNullOrWhiteSpace(fallback) ? fallback : stableProductKey;
+    }
+
+    /// <summary>
+    /// UI review 2026-11-13 (fault 4): a day's quiet scans (completed or cancelled) as one row, so 27 identical scan rows no longer
+    /// bury 4 updates. The row says how many there were and when the latest finished; each scan's time and result is inside it.
+    /// A scan that did not complete is a problem and keeps its own row. A day with one quiet scan keeps that scan's own row.
+    /// </summary>
+    internal static IReadOnlyList<ActivityEntry> RollUpScans(IReadOnlyList<ActivityEntry> dayEntries, DateOnly day, CultureInfo? culture = null, TimeZoneInfo? zone = null)
+    {
+        ActivityEntry[] quiet = dayEntries.Where(entry => entry.Kind == ActivityKind.Scan && !entry.IsProblem).OrderByDescending(entry => entry.OccurredAt).ToArray();
+        if (quiet.Length < 2) return dayEntries;
+        ActivityEntry latest = quiet[0];
+        int completed = quiet.Count(entry => string.Equals(entry.OutcomeLabel, "Completed", StringComparison.Ordinal));
+        int cancelled = quiet.Length - completed;
+        string outcome = cancelled == 0 ? "All completed"
+            : completed == 0 ? "All cancelled"
+            : $"{completed.ToString("N0", CultureInfo.CurrentCulture)} completed, {cancelled.ToString("N0", CultureInfo.CurrentCulture)} cancelled";
+        DetailFact[] facts = quiet.Select(entry => new DetailFact(entry.RowTimeText, ScanLine(entry))).ToArray();
+        ActivityEntry rollup = new($"scans:{day:yyyy-MM-dd}", ActivityKind.Scan, latest.OccurredAt, DisplayFormat.Plural(quiet.Length, "scan"), outcome,
+            completed == 0 ? "\uE711" : "\uE73E", completed == 0 ? StatusTone.Neutral : StatusTone.Success,
+            "Read-only scans of this PC. Open this row for each scan's time and result.",
+            $"Latest {DisplayFormat.DateTime(latest.OccurredAt, culture, zone)}", false, facts, [])
+        { TimeOfDay = $"Latest {DisplayFormat.Time(latest.OccurredAt, culture, zone)}", ScanCount = quiet.Length };
+        List<ActivityEntry> rolled = [];
+        bool placed = false;
+        foreach (ActivityEntry entry in dayEntries)
+        {
+            if (entry.Kind == ActivityKind.Scan && !entry.IsProblem)
+            {
+                if (!placed) { rolled.Add(rollup); placed = true; }
+                continue;
+            }
+            rolled.Add(entry);
+        }
+        return rolled;
+    }
+
+    private static string ScanLine(ActivityEntry scan)
+    {
+        string? duration = scan.Facts.FirstOrDefault(fact => string.Equals(fact.Label, "Duration", StringComparison.Ordinal))?.Value;
+        return duration is null ? scan.OutcomeLabel : $"{scan.OutcomeLabel} in {duration}";
     }
 }

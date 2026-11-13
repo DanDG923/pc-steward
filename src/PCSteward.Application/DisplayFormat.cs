@@ -64,6 +64,19 @@ public static class DisplayFormat
             : $"{DateTime(start, culture, zone)} – {DateTime(finished, culture, zone)}";
     }
 
+    /// <summary>
+    /// The time of day for a row that sits under a day heading: "14:50" when it started and ended in the same minute (or has no
+    /// end), "14:02–14:05" within one day, and the full <see cref="Range"/> when it ran past midnight (UI review 2026-11-13, fault 4).
+    /// </summary>
+    public static string TimeOfDay(DateTimeOffset start, DateTimeOffset? end, CultureInfo? culture = null, TimeZoneInfo? zone = null)
+    {
+        string started = Time(start, culture, zone);
+        if (end is not { } finished) return started;
+        if (LocalDay(start, zone) != LocalDay(finished, zone)) return Range(start, finished, culture, zone);
+        string ended = Time(finished, culture, zone);
+        return string.Equals(started, ended, StringComparison.Ordinal) ? ended : $"{started}–{ended}";
+    }
+
     /// <summary>A human-readable size in bytes, KB, MB, GB or TB (1 KB = 1,024 bytes). Negative sizes read as 0 bytes.</summary>
     public static string Size(long bytes, CultureInfo? culture = null)
     {
