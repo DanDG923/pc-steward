@@ -91,6 +91,15 @@ The control shows that H1 is real today: a same-user setting makes the elevated 
 - The host-evidence and validator checks name the native image only.
 - The review record's H1 row moves to Fixed only after the redeploy's host evidence shows the native image installed.
 
+## Amendment 1 (2026-11-13): no console window
+
+The owner asked for the black console window that opened after the UAC prompt to go. It showed nothing, since the helper talks to the desktop only over its pipe and its exit code, and a click in it put the console into QuickEdit "Select" mode, which paused a running Visual Studio Build Tools update until Esc was pressed.
+
+- `PCSteward.ElevatedHelper.csproj` sets `OutputType` to `WinExe`, so the native image is a Windows-subsystem program and no console is created for it. The helper never writes to a console. The `runas` launches, the UAC prompt, the pipe protocol, exit codes, the runtime-environment guard and every one-shot guarantee in ADR-018 and ADR-025 are unchanged.
+- Programs the helper starts already get `CREATE_NO_WINDOW`: the choco/winget launch job, msiexec for a self-update, and the self-update finish copy and reopen watcher. Their consoles stay hidden, so nothing the owner can click pauses them.
+- An architecture test pins `WinExe` and those flags, and the `helper-native-aot-feasibility` CI job checks that the published native image's PE subsystem is 2 (Windows GUI).
+- An installer that a package manager starts and that opens its own window is outside PC Steward's control and is unchanged.
+
 ## Reconsider when
 
 - Native AOT drops support for something the helper needs (for example a Windows API marshalling form), or CI shows a trim or AOT warning on a helper code path that cannot be fixed.

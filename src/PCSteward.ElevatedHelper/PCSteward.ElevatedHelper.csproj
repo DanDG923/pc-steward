@@ -1,6 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!--
+      WinExe (Windows subsystem): the helper has no console window. It talks to the desktop only over its pipe and its exit
+      code, and it writes nothing to a console, so a console window after the UAC prompt showed nothing useful, and a click
+      in it (QuickEdit "Select" mode) could pause a running update. Every program the helper starts (choco, winget, msiexec,
+      the self-update copies) is started with CREATE_NO_WINDOW. The UAC prompt is unchanged.
+    -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>

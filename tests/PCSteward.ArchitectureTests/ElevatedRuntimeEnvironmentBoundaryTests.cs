@@ -59,6 +59,37 @@ public sealed class ElevatedRuntimeEnvironmentBoundaryTests
         Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(project, @"<PropertyGroup[^>]*Condition"), "no conditional property group can switch it off");
     }
 
+    /// <summary>
+    /// The helper has no console window after the UAC prompt (owner request 2026-11-13: a click in that window put it in
+    /// QuickEdit "Select" mode and paused a running update). The helper is a Windows-subsystem image, and every program it
+    /// starts gets <c>CREATE_NO_WINDOW</c>: the choco/winget launcher, msiexec and the self-update helper copies.
+    /// </summary>
+    [TestMethod]
+    public void TheHelperAndTheProgramsItStartsOpenNoConsoleWindow()
+    {
+        string root = CompiledIlScanner.FindRepositoryRoot();
+        string project = File.ReadAllText(Path.Combine(root, "src", "PCSteward.ElevatedHelper", "PCSteward.ElevatedHelper.csproj"));
+        Assert.AreEqual(1, Regex.Count(project, "<OutputType>"), "one OutputType setting");
+        StringAssert.Contains(project, "<OutputType>WinExe</OutputType>");
+
+        string launchJob = CodeOnly(File.ReadAllText(Path.Combine(root, "src", "PCSteward.Provider.Chocolatey", "Native", "LaunchJob.cs")));
+        Assert.AreEqual(1, Regex.Count(launchJob, @"Win32\.CreateProcess\("), "one CreateProcessW call in the launch job");
+        Match flags = Regex.Match(launchJob, @"const uint flags = (?<flags>[^;]+);");
+        Assert.IsTrue(flags.Success, "the launch job's creation flags");
+        StringAssert.Contains(flags.Groups["flags"].Value, "Win32.CreateNoWindow");
+
+        string host = CodeOnly(File.ReadAllText(Path.Combine(ExecutionDirectory(), "WindowsSelfUpdateHost.cs")));
+        Match msiexec = Regex.Match(host, @"new\(Path\.Combine\(system, ""msiexec\.exe""\)[^{]*\{(?<init>[^}]*)\}");
+        Assert.IsTrue(msiexec.Success, "the msiexec start");
+        StringAssert.Contains(msiexec.Groups["init"].Value, "UseShellExecute = false");
+        StringAssert.Contains(msiexec.Groups["init"].Value, "CreateNoWindow = true");
+        // The finish copy (elevated) and the reopen watcher (unelevated) are helper copies started with CreateProcessW.
+        Match finish = Regex.Match(host, @"NativeMethods\.CreateProcess\(helperCopyPath,[^;]*;");
+        Assert.IsTrue(finish.Success, "the finish copy start");
+        StringAssert.Contains(finish.Value, "NativeMethods.CreateNoWindow");
+        StringAssert.Contains(host, "StartUnelevated(copy, SelfUpdateHelperProtocol.ReopenCommandLine(copy, workFolderLeaf), Environment.SystemDirectory, NativeMethods.CreateNoWindow)");
+    }
+
     [TestMethod]
     public void TheGuardReadsValueNamesOnlyAndNeverWrites()
     {
