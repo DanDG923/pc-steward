@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
     // Task 73 Phase 6: the Ready apps the user ticked. It starts empty and only Ready keys survive each render (nothing preselected).
     private readonly HashSet<string> selectedReadyKeys = new(StringComparer.Ordinal);
     private bool ignoredGroupExpanded;
+    private bool cantUpdateGroupExpanded;
     private UpdateJobSession? updateJob;
     private TaskCompletionSource<bool>? reviewDecision;
     // Independent review: true while BeginReviewAsync prepares a review, so a second review cannot start meanwhile.

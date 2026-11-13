@@ -21,11 +21,12 @@ public sealed partial class MainWindow
 {
     /// <summary>
     /// FR-UPD-01, FR-POL-01–05, FR-UI-04/05 (Task 73 Phase 2, ADR-030 decision 2; UI polish phase 3, approved targets T-Updates and
-    /// T-Updates-Ready): Updates grouped into Ready, Needs review and Ignored and skipped by the portable
-    /// <see cref="UpdatesPagePresenter"/>. The header counts the rows and states freshness in words; with update checks off an info
-    /// bar offers the existing source consent. Only Ready rows get a selection control and nothing is preselected; Needs review rows
-    /// say why in words and have no update control at all. Records of the same app are one row. Choosing rows only enables the
-    /// review button, and the review always opens the structured review sheet first.
+    /// T-Updates-Ready; UI review 2026-11-13, items 9 and 10): Updates grouped by the portable <see cref="UpdatesPagePresenter"/>
+    /// into Update ready, Check the match, Can't update yet and Ignored and skipped. The header counts the rows and says when
+    /// PC Steward last looked; with update checks off an info bar offers the existing source consent. Only ready rows get a
+    /// selection control or an "Update…" button, and nothing is preselected. A "Check the match" row asks one question and a
+    /// "Can't update yet" line gives one reason; neither has an update control at all. Records of the same app are one row.
+    /// Every route to an update opens the structured review sheet first.
     /// </summary>
     private StackPanel BuildUpdatesPage()
     {
@@ -39,7 +40,7 @@ public sealed partial class MainWindow
             // The same read-only check as Home's "Check for updates": a scan, then the package-source check. It never elevates.
             string checkLabel = viewModel.IsScanning ? "Scanning…" : viewModel.IsCheckingUpdates ? "Checking…" : "Check for updates";
             check = new() { Content = IconAndLabel("\uE72C", checkLabel), AccessKey = "C" };
-            StewardVisuals.Named(check, checkLabel, "without administrator permission");
+            StewardVisuals.Named(check, checkLabel, "(scans this PC, then looks for updates)");
             AutomationProperties.SetHelpText(check, HomePresenter.CheckForUpdatesHelp);
             check.IsEnabled = viewModel.IsUpdateSourceEnabled && !HasActiveOperation;
             check.Click += async (_, _) => await CheckForUpdatesAsync();
@@ -71,6 +72,7 @@ public sealed partial class MainWindow
             Button applications = StewardVisuals.ActionButton("Open Installed apps");
             applications.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
             panel.Children.Add(StewardVisuals.EmptyState("\uE896", header.EmptyTitle, header.EmptyMessage, applications));
+            if (NothingOnOfferLink(page) is { } possibleMatches) panel.Children.Add(possibleMatches);
             panel.Children.Add(StewardVisuals.IconLine("\uE946", header.Footer, styleKey: "StewardCaptionStyle"));
             return panel;
         }
@@ -114,7 +116,7 @@ public sealed partial class MainWindow
                 Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(ready.Name));
                 Grid.SetColumn(avatar, 1); line.Children.Add(avatar);
                 StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
-                title.Children.Add(new TextBlock { Text = ready.Name, Style = AppStyle("StewardBodyStrongStyle"), VerticalAlignment = VerticalAlignment.Center });
+                title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey));
                 title.Children.Add(new TextBlock { Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true });
                 if (ready.Badge is { } badge)
                 {
@@ -123,43 +125,111 @@ public sealed partial class MainWindow
                     title.Children.Add(jump);
                 }
                 UpdateRowCopy(line, title, ready.Summary);
-                Button more = UpdateRowOverflow(ready); Grid.SetColumn(more, 3); line.Children.Add(more);
+                // UI review 2026-11-13 (item 9): each ready row has its own "Update…" button, so updating one app is one click from
+                // the list. It opens the same review as the selection bar, for this app alone; the review still needs its own
+                // confirmation before anything is installed (FR-UPD-01, AC-UPD-01).
+                Button update = StewardVisuals.ActionButton("Update…", $"{ready.Name} to {ready.NewVersion}");
+                update.IsEnabled = !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
+                AutomationProperties.SetHelpText(update, "Opens the review for this app. Nothing is installed until you confirm on the review page.");
+                update.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor([key]));
+                StewardWrapPanel readyActions = StewardVisuals.ActionRow();
+                readyActions.VerticalAlignment = VerticalAlignment.Center;
+                readyActions.Children.Add(update);
+                readyActions.Children.Add(UpdateRowOverflow(ready));
+                Grid.SetColumn(readyActions, 3); line.Children.Add(readyActions);
                 readyRows.Add(line);
             }
-            panel.Children.Add(UpdateGroupSection($"Ready ({page.Ready.Count})", null, StewardVisuals.ListCard(readyRows)));
+            panel.Children.Add(UpdateGroupSection($"{StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate)).Label} ({page.Ready.Count})", null, StewardVisuals.ListCard(readyRows)));
         }
 
-        // Needs review: the reason in words and no update control at all — not a disabled one. "Review match" only opens the app's
-        // details, where a package identity can be confirmed through its own confirmation; nothing there starts an update.
-        if (page.NeedsReview.Count > 0)
+        // Check the match (UI review 2026-11-13, item 10): one question the owner can answer. "Yes, same app" opens the existing
+        // confirmation, which records a reversible match and never starts an update; "Choose the match" opens the app's details,
+        // where tied matches are listed. The row has no update control at all.
+        if (page.CheckTheMatch.Count > 0)
         {
-            List<FrameworkElement> reviewRows = [];
-            foreach (UpdateRowPresentation needsReview in page.NeedsReview)
+            List<FrameworkElement> matchRows = [];
+            foreach (UpdateRowPresentation match in page.CheckTheMatch)
             {
                 Grid line = UpdateRowGrid();
-                Border well = StewardVisuals.IconWell(needsReview.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable) ? "\uE7BA" : "\uE721");
-                Grid.SetColumnSpan(well, 2); line.Children.Add(well);
-                TextBlock name = new() { Text = needsReview.Name, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap };
-                AutomationProperties.SetHeadingLevel(name, AutomationHeadingLevel.Level3);
-                TextBlock reason = UpdateRowCopy(line, name, needsReview.Summary);
-                reason.IsTextSelectionEnabled = true;
-                AutomationProperties.SetName(reason, $"Why {needsReview.Name} needs review: {needsReview.ReasonText}");
-                StewardWrapPanel actions = StewardVisuals.ActionRow();
-                actions.VerticalAlignment = VerticalAlignment.Center;
-                bool unavailable = needsReview.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable);
-                Button open = StewardVisuals.ActionButton(unavailable ? "View details" : "Review match", $"for {needsReview.Name}");
-                string reviewKey = needsReview.StableProductKey;
-                open.Click += async (_, _) => { if (RowsFor([reviewKey]) is [var row]) await ShowDetailsAsync(row); };
-                actions.Children.Add(open);
-                actions.Children.Add(UpdateRowOverflow(needsReview));
-                Grid.SetColumn(actions, 3); line.Children.Add(actions);
-                reviewRows.Add(line);
+                Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(match.Name));
+                Grid.SetColumnSpan(avatar, 2); line.Children.Add(avatar);
+                StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
+                title.Children.Add(UpdateRowName(match.Name, match.StableProductKey));
+                title.Children.Add(new TextBlock { Text = match.InstalledVersion, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true });
+                TextBlock question = UpdateRowCopy(line, title, match.Summary);
+                question.IsTextSelectionEnabled = true;
+                string matchKey = match.StableProductKey;
+                Button same = StewardVisuals.ActionButton("Yes, same app", $"({match.PackageId} is {match.Name})");
+                same.IsEnabled = !HasActiveOperation;
+                AutomationProperties.SetHelpText(same, "Opens a confirmation. You can undo it later, and it doesn't start an update.");
+                same.Click += async (_, _) =>
+                {
+                    if (RowsFor([matchKey]) is [var row] && viewModel.UpdateDetails.TryGetValue(matchKey, out UpdateDetail? detail) && detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true })
+                        await PromptAndConfirmPackageIdentityAsync(row, detail);
+                };
+                // Tied matches (owner decision 2026-11-13: ask only when two packages tie): the choice is made on the app's details,
+                // through the same reversible confirmation. Opening details never starts, approves or changes anything.
+                Button pick = StewardVisuals.ActionButton("Choose the match", $"for {match.Name}");
+                pick.Click += async (_, _) => { if (RowsFor([matchKey]) is [var row]) await ShowDetailsAsync(row); };
+                StewardWrapPanel matchActions = StewardVisuals.ActionRow();
+                matchActions.VerticalAlignment = VerticalAlignment.Center;
+                matchActions.Children.Add(match.AsksToChoose ? pick : same);
+                matchActions.Children.Add(UpdateRowOverflow(match));
+                Grid.SetColumn(matchActions, 3); line.Children.Add(matchActions);
+                matchRows.Add(line);
             }
-            HyperlinkButton allDecisions = new() { Content = "See every match that needs a decision", Padding = new Thickness(0) };
-            StewardVisuals.Named(allDecisions, "See every match that needs a decision", "on Review decisions");
-            allDecisions.Click += (_, _) => NavigateTo(ShellPage.Review);
-            panel.Children.Add(UpdateGroupSection($"Needs review ({page.NeedsReview.Count})",
-                "PC Steward can't safely update these yet. Each one says why.", StewardVisuals.ListCard(reviewRows), allDecisions));
+            panel.Children.Add(UpdateGroupSection($"{StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired)).Label} ({page.CheckTheMatch.Count})",
+                UpdatesPagePresenter.CheckTheMatchDescription, StewardVisuals.ListCard(matchRows)));
+        }
+
+        // Can't update yet (item 10): one line per reason, naming its apps, collapsed by default. Nothing here can update anything:
+        // an app's name opens its details, and "Check again" runs the same read-only check as the header button.
+        if (page.CantUpdateYet.Count > 0)
+        {
+            List<FrameworkElement> reasonRows = [];
+            foreach (CantUpdateGroup group in page.CantUpdateGroups)
+            {
+                Grid line = UpdateRowGrid();
+                Border well = StewardVisuals.IconWell("\uE946");
+                Grid.SetColumnSpan(well, 2); line.Children.Add(well);
+                StackPanel copy = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
+                copy.Children.Add(new TextBlock { Text = group.Reason, Style = AppStyle("StewardBodyStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+                StewardWrapPanel names = new() { HorizontalSpacing = StewardSpacing.Large, VerticalSpacing = StewardSpacing.XSmall };
+                foreach (UpdateRowPresentation app in group.Rows)
+                {
+                    HyperlinkButton open = new() { Content = app.Name, Padding = new Thickness(0) };
+                    StewardVisuals.Named(open, app.Name, "(open details)");
+                    string appKey = app.StableProductKey;
+                    open.Click += async (_, _) => { if (RowsFor([appKey]) is [var row]) await ShowDetailsAsync(row); };
+                    names.Children.Add(open);
+                }
+                copy.Children.Add(names);
+                Grid.SetColumn(copy, 2); line.Children.Add(copy);
+                if (group.CanCheckAgain)
+                {
+                    Button again = StewardVisuals.ActionButton("Check again", $"for {group.Names}");
+                    again.VerticalAlignment = VerticalAlignment.Center;
+                    again.IsEnabled = viewModel.IsUpdateSourceEnabled && !HasActiveOperation;
+                    AutomationProperties.SetHelpText(again, HomePresenter.CheckForUpdatesHelp);
+                    again.Click += async (_, _) => await CheckForUpdatesAsync();
+                    Grid.SetColumn(again, 3); line.Children.Add(again);
+                }
+                reasonRows.Add(line);
+            }
+            string cantTitle = $"{UpdatesPagePresenter.CantUpdateYetTitle} ({page.CantUpdateYet.Count})";
+            Grid cantHeader = new() { ColumnSpacing = StewardSpacing.Large };
+            cantHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            cantHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            cantHeader.Children.Add(StewardVisuals.IconWell("\uE7BA"));
+            StackPanel cantCopy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+            cantCopy.Children.Add(new TextBlock { Text = cantTitle, Style = AppStyle("StewardRowTitleStyle") });
+            cantCopy.Children.Add(new TextBlock { Text = UpdatesPagePresenter.CantUpdateYetDescription, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            Grid.SetColumn(cantCopy, 1); cantHeader.Children.Add(cantCopy);
+            Expander cantGroup = new() { Header = cantHeader, Content = StewardVisuals.ListCard(reasonRows), IsExpanded = cantUpdateGroupExpanded, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            AutomationProperties.SetName(cantGroup, $"{cantTitle}. {UpdatesPagePresenter.CantUpdateYetDescription}");
+            cantGroup.Expanding += (_, _) => cantUpdateGroupExpanded = true;
+            cantGroup.Collapsed += (_, _) => cantUpdateGroupExpanded = false;
+            panel.Children.Add(cantGroup);
         }
 
         // Ignored and skipped: collapsed by default and reversible from here or from Decisions.
@@ -197,8 +267,43 @@ public sealed partial class MainWindow
             ignoredGroup.Collapsed += (_, _) => ignoredGroupExpanded = false;
             panel.Children.Add(ignoredGroup);
         }
+        if (NothingOnOfferLink(page) is { } moreMatches) panel.Children.Add(moreMatches);
         panel.Children.Add(StewardVisuals.IconLine("\uEA18", header.Footer, styleKey: "StewardCaptionStyle"));
         return panel;
+    }
+
+    /// <summary>
+    /// An app's name on an Updates row. It opens the app's details, as a row on Installed apps does (UI review 2026-11-13, item 9).
+    /// Opening details never starts, approves or changes anything.
+    /// </summary>
+    private Button UpdateRowName(string name, string stableProductKey)
+    {
+        Button open = new()
+        {
+            Content = new TextBlock { Text = name, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap },
+            Padding = new Thickness(0),
+            MinWidth = 0,
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0)
+        };
+        StewardVisuals.Named(open, name, "(open details)");
+        open.Click += async (_, _) => { if (RowsFor([stableProductKey]) is [var row]) await ShowDetailsAsync(row); };
+        return open;
+    }
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 10): apps with a possible match but no update on offer are listed on Installed apps, not here.
+    /// This link says how many there are and opens that tab. It only navigates.
+    /// </summary>
+    private HyperlinkButton? NothingOnOfferLink(UpdatesPagePresentation page)
+    {
+        if (page.NothingOnOfferText is not { } label) return null;
+        HyperlinkButton link = new() { Content = label, Padding = new Thickness(0) };
+        StewardVisuals.Named(link, label, "(opens Installed apps)");
+        link.Click += (_, _) => { viewModel.SetSavedFilter(InstalledAppsFilter.NeedsReview); NavigateTo(ShellPage.InstalledApps); };
+        return link;
     }
 
     /// <summary>
@@ -220,7 +325,8 @@ public sealed partial class MainWindow
     {
         StackPanel copy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(title);
-        TextBlock caption = new() { Text = summary, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap };
+        // A row with nothing to add under its title (a ready update from an unknown publisher) shows no empty second line.
+        TextBlock caption = new() { Text = summary, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, Visibility = summary.Length == 0 ? Visibility.Collapsed : Visibility.Visible };
         copy.Children.Add(caption);
         Grid.SetColumn(copy, 2);
         line.Children.Add(copy);

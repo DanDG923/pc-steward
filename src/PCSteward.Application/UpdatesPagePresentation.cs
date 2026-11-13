@@ -20,7 +20,10 @@ public enum VersionJump
     Major
 }
 
-/// <summary>A version-jump badge: icon plus text, never colour alone. Major is highlighted.</summary>
+/// <summary>
+/// A version-jump badge: icon plus text. UI review 2026-11-13 (item 9): it is a fact, not a status, so it carries no colour; apps
+/// that change their first number on every release would otherwise always look like a warning. Major is still marked.
+/// </summary>
 public sealed record VersionJumpBadge(VersionJump Jump, string Label, string Glyph, StatusTone Tone, bool IsHighlighted)
 {
     /// <summary>The badge's accessible name; it contains the visible label.</summary>
@@ -56,8 +59,8 @@ public static class VersionJumpPresenter
     public static VersionJumpBadge? Badge(VersionJump jump) => jump switch
     {
         VersionJump.Patch => new(jump, "Patch", "", StatusTone.Neutral, false),
-        VersionJump.Minor => new(jump, "Minor", "", StatusTone.Information, false),
-        VersionJump.Major => new(jump, "Major", "", StatusTone.Attention, true),
+        VersionJump.Minor => new(jump, "Minor", "", StatusTone.Neutral, false),
+        VersionJump.Major => new(jump, "Major", "", StatusTone.Neutral, true),
         _ => null
     };
 
@@ -86,7 +89,7 @@ public static class ReviewReasonText
         [nameof(MappingReviewReason.Unmatched)] = "No package matched this app.",
         [nameof(MappingReviewReason.MissingPackageId)] = "The source gave no package ID.",
         [nameof(MappingReviewReason.UntrustedConnector)] = "The match came from a source you haven't approved.",
-        [nameof(MappingReviewReason.UnsupportedManualMapping)] = "The package identity you confirmed can't be used for updates.",
+        [nameof(MappingReviewReason.UnsupportedManualMapping)] = "The match you confirmed can't be used for updates.",
         [nameof(MappingReviewReason.AmbiguousPublisher)] = "The publisher name is ambiguous.",
         [nameof(MappingReviewReason.PublisherConflict)] = "The publisher doesn't match the installed app.",
         [nameof(MappingReviewReason.ArchitectureConflict)] = "The package is for a different architecture than the installed app.",
@@ -97,20 +100,26 @@ public static class ReviewReasonText
         [nameof(MappingReviewReason.CandidateIsCurrent)] = "The source's version is the same as the installed one.",
         [nameof(MappingReviewReason.CandidateIsOlder)] = "The source's version is older than the installed one.",
         [nameof(MappingReviewReason.AmbiguousCandidate)] = "More than one package could match this app.",
-        [nameof(MappingReviewReason.SourceConflict)] = "The package sources give conflicting information.",
-        [nameof(MappingReviewReason.MissingSourceEvidence)] = "The source evidence is missing or out of date.",
+        [nameof(MappingReviewReason.SourceConflict)] = "The update sources give conflicting information.",
+        [nameof(MappingReviewReason.MissingSourceEvidence)] = MissingEvidenceReason,
         [nameof(MappingReviewReason.MultipleInstallationInstanceAmbiguity)] = "More than one installation of this app was found.",
-        [nameof(MappingReviewReason.SourceDisagreement)] = "Package sources disagree about this app.",
+        [nameof(MappingReviewReason.SourceDisagreement)] = "Update sources disagree about this app.",
         [nameof(MappingReviewReason.MissingScopeEvidence)] = "The install scope isn't known.",
         [nameof(MappingReviewReason.MissingArchitectureEvidence)] = "The app's architecture isn't known.",
         [nameof(MappingReviewReason.MissingChannelEvidence)] = "The release channel isn't known.",
         [nameof(MappingReviewReason.ArchitectureCheckedAtReview)] = "Windows lists this app as 32-bit, as its installer registers it. PC Steward checks it is the 64-bit build when you review the update."
     };
 
+    /// <summary>The words for a reason this build has no sentence for.</summary>
+    public const string NeedsCloserLook = "PC Steward needs a closer look at this app.";
+
+    /// <summary>The words for evidence that is missing or too old to act on.</summary>
+    public const string MissingEvidenceReason = "PC Steward needs to check this app again.";
+
     /// <summary>Words for one recorded review reason. <c>None</c> has no words; an unrecognised reason gets a generic sentence.</summary>
     public static string? Describe(string reason) =>
         string.Equals(reason, nameof(MappingReviewReason.None), StringComparison.Ordinal) ? null
-            : Reasons.TryGetValue(reason, out string? text) ? text : "Another evidence check needs your review.";
+            : Reasons.TryGetValue(reason, out string? text) ? text : NeedsCloserLook;
 
     /// <summary>Words for every recorded reason, without duplicates, in the order they were recorded.</summary>
     public static IReadOnlyList<string> DescribeAll(IEnumerable<string> reasons) =>
@@ -166,8 +175,37 @@ public sealed record UpdateRowPresentation(
     string MatchText = "",
     string SourceName = "",
     string Scope = "",
-    IReadOnlyList<UpdateRowPresentation>? SameApp = null)
+    IReadOnlyList<UpdateRowPresentation>? SameApp = null,
+    string PackageId = "",
+    bool AsksAboutMatch = false,
+    string CantUpdateReason = "",
+    bool CanCheckAgain = false,
+    bool OffersNewer = true,
+    int Choices = 0,
+    bool AsksToChoose = false)
 {
+    /// <summary>
+    /// UI review 2026-11-13 (item 10): true when an update is on offer for this row, so it belongs on the Updates page. A row
+    /// with nothing on offer stays on Installed apps. A verified or unreachable row is always shown, so nothing is hidden that
+    /// PC Steward tried and failed to check.
+    /// </summary>
+    public bool IsOnOffer => Group != UpdateGroup.NeedsReview || Status != nameof(UpdateIntelligenceStatus.ReviewRequired) || ((NewVersion is not null || Choices > 0) && OffersNewer);
+
+    /// <summary>
+    /// True when the row puts a question to the owner: one possible match to confirm (<see cref="AsksAboutMatch"/>) or several tied
+    /// matches to choose from (<see cref="AsksToChoose"/>, owner decision 2026-11-13: ask only when two packages tie).
+    /// </summary>
+    public bool AsksOwner => AsksAboutMatch || AsksToChoose;
+
+    /// <summary>
+    /// The one question the owner can answer for a "Check the match" row, for example "WinGet has 3.4.0, listed as
+    /// Elgato.WaveLink. Is that this app?" Empty for every other row.
+    /// </summary>
+    public string Question => AsksToChoose ? $"PC Steward found {Choices.ToString(CultureInfo.CurrentCulture)} possible matches, and a newer version is on offer. Which one is this app?"
+        : !AsksAboutMatch ? string.Empty
+        : SourceName.Length > 0 ? $"{SourceName} has {NewVersion}, listed as {PackageId}. Is that this app?"
+        : $"Version {NewVersion} is on offer, listed as {PackageId}. Is that this app?";
+
     /// <summary>Only Ready rows can be selected for review. Selection is not approval.</summary>
     public bool CanSelect => Group == UpdateGroup.Ready;
 
@@ -203,9 +241,9 @@ public sealed record UpdateRowPresentation(
     }
 
     /// <summary>
-    /// The row's one-line description (approved target T-Updates-Ready). Ready: publisher, how sure the match is, and a note that a
-    /// major version can bring bigger changes. Needs review: the installed and offered versions, then the reason in words. Ignored
-    /// and skipped: the decision in words.
+    /// The row's one-line description. Ready: the publisher and a note that a major version can bring bigger changes (UI review
+    /// 2026-11-13, item 9: "High confidence match" is what ready means, so it isn't repeated on every row). Check the match: the
+    /// question. Can't update yet: the installed and offered versions, then the reason in words. Ignored and skipped: the decision.
     /// </summary>
     public string Summary
     {
@@ -215,10 +253,12 @@ public sealed record UpdateRowPresentation(
             switch (Group)
             {
                 case UpdateGroup.Ready:
-                    parts.Add(Publisher);
-                    if (MatchText.Length > 0) parts.Add(MatchText);
+                    if (!string.Equals(Publisher, "Unknown", StringComparison.OrdinalIgnoreCase)) parts.Add(Publisher);
                     if (Badge is { Jump: VersionJump.Major }) parts.Add("bigger changes are possible");
                     parts.AddRange(Reasons);
+                    break;
+                case UpdateGroup.NeedsReview when AsksOwner:
+                    parts.Add(Question);
                     break;
                 case UpdateGroup.NeedsReview:
                     parts.Add($"Installed {InstalledVersion}");
@@ -286,7 +326,39 @@ public sealed record UpdatesPagePresentation(
         ? Ready.Count == 1 ? "1 update is ready. You'll see a review before anything changes." : $"{Ready.Count.ToString(CultureInfo.CurrentCulture)} updates are ready. Update all of them or choose some. You'll see one review before anything changes."
         : $"{SelectedKeys.Count.ToString(CultureInfo.CurrentCulture)} of {DisplayFormat.Plural(Ready.Count, "ready update")} selected";
 
-    public bool HasAnyRow => Ready.Count + NeedsReview.Count + IgnoredAndSkipped.Count > 0;
+    /// <summary>
+    /// UI review 2026-11-13 (item 10): the rows that ask the owner one question they can answer. Every row here has an update on
+    /// offer and a match the owner can confirm; confirming records a reversible decision and never starts an update.
+    /// </summary>
+    public IReadOnlyList<UpdateRowPresentation> CheckTheMatch => [.. NeedsReview.Where(row => row.IsOnOffer && row.AsksOwner)];
+
+    /// <summary>Rows with an update on offer, or a failed check, that nothing on this page can settle. Each has a reason in words.</summary>
+    public IReadOnlyList<UpdateRowPresentation> CantUpdateYet => [.. NeedsReview.Where(row => row.IsOnOffer && !row.AsksOwner)];
+
+    /// <summary><see cref="CantUpdateYet"/> grouped by its reason, in first-seen order: one line per reason, naming its apps.</summary>
+    public IReadOnlyList<CantUpdateGroup> CantUpdateGroups =>
+        [.. CantUpdateYet.GroupBy(row => row.CantUpdateReason, StringComparer.Ordinal).Select(group => new CantUpdateGroup(group.Key, [.. group], group.Any(row => row.CanCheckAgain)))];
+
+    /// <summary>How many apps have a possible match but nothing on offer. They are listed on Installed apps, not here.</summary>
+    public int NothingOnOfferCount => NeedsReview.Count(row => !row.IsOnOffer);
+
+    /// <summary>The link that leads to those apps on Installed apps, or null when there are none.</summary>
+    public string? NothingOnOfferText => NothingOnOfferCount switch
+    {
+        0 => null,
+        1 => "1 more app has a possible match but no update on offer",
+        var count => $"{count.ToString(CultureInfo.CurrentCulture)} more apps have a possible match but no update on offer"
+    };
+
+    /// <summary>True when the page has a row to show. A possible match with nothing on offer is not a row here.</summary>
+    public bool HasAnyRow => Ready.Count + CheckTheMatch.Count + CantUpdateYet.Count + IgnoredAndSkipped.Count > 0;
+}
+
+/// <summary>One line of "Can't update yet": the reason in words, the apps it applies to, and whether checking again could help.</summary>
+public sealed record CantUpdateGroup(string Reason, IReadOnlyList<UpdateRowPresentation> Rows, bool CanCheckAgain)
+{
+    /// <summary>The apps' names, in page order, for example "Windows Terminal, Copilot".</summary>
+    public string Names => string.Join(", ", Rows.Select(row => row.Name));
 }
 
 /// <summary>
@@ -302,6 +374,8 @@ public sealed record UpdatesPageNotice(string Title, string Message, StatusTone 
 /// FR-UPD-01, FR-POL-01–05, FR-UI-04 (Task 73 Phase 2, ADR-030 decision 2): groups update evidence into Ready, Needs review and
 /// Ignored and skipped. It never decides actionability itself: Ready is exactly the domain's <c>VerifiedUpdate</c> status, and it
 /// fails closed — a verified row without complete evidence, or while sources are off, goes to Needs review with a reason.
+/// UI review 2026-11-13 (items 9 and 10): the page lists a needs-review row only when an update is on offer, as a question the
+/// owner can answer ("Check the match") or with one reason in words ("Can't update yet"). That choice is presentation only.
 /// </summary>
 public static class UpdatesPagePresenter
 {
@@ -331,15 +405,36 @@ public static class UpdatesPagePresenter
                         ready.Add(Row(row, detail, UpdateGroup.Ready, ReadyReasons(detail), WithSkip([Ignore, Pin, Details], detail)));
                     else
                         review.Add(Row(row, detail, UpdateGroup.NeedsReview,
-                            [sourcesEnabled ? "The update evidence is incomplete, so it can't be reviewed." : "Package sources are off, so this update can't be reviewed."],
-                            WithSkip([Ignore, Pin, Details], detail)));
+                            [sourcesEnabled ? "The update evidence is incomplete, so it can't be reviewed." : "Update checks are off, so this update can't be reviewed."],
+                            WithSkip([Ignore, Pin, Details], detail)) with
+                        { CantUpdateReason = sourcesEnabled ? CantUpdateReasons.Incomplete : CantUpdateReasons.ChecksOff, CanCheckAgain = sourcesEnabled });
                     break;
                 case nameof(UpdateIntelligenceStatus.ReviewRequired):
-                    review.Add(Row(row, detail, UpdateGroup.NeedsReview, NeedsReviewReasons(detail), WithSkip([Ignore, Pin, Details], detail)));
+                    // Item 10: the owner is asked only what they can answer. The match can be confirmed (a domain rule, computed
+                    // elsewhere) and an update is on offer; anything else is a reason, not a question.
+                    bool newer = detail is not null && !detail.ReviewReasons.Any(reason => reason is nameof(MappingReviewReason.CandidateIsCurrent) or nameof(MappingReviewReason.CandidateIsOlder))
+                        && !string.Equals(detail.CandidateVersion?.Trim(), row.Version.Trim(), StringComparison.OrdinalIgnoreCase);
+                    bool asks = sourcesEnabled && newer && detail is { CanConfirmPackageIdentity: true, CandidateVersion: not null, PackageId: not null, SourceId: not null };
+                    // Tied matches (owner decision 2026-11-13: ask only when two packages tie). The matcher records no single
+                    // candidate, so the row has no new version of its own, but each choice carries its version. A choice that isn't
+                    // known to be the installed version or older is on offer, so the app is never hidden as "nothing on offer".
+                    int choices = detail is { SourceId: null, PackageId: null, CandidateVersion: null } ? detail.ReviewCandidates.Count : 0;
+                    bool newerChoice = choices > 0 && detail!.ReviewCandidates.Any(choice => MayBeNewer(row.Version, choice.CandidateVersion));
+                    bool chooses = sourcesEnabled && newerChoice;
+                    review.Add(Row(row, detail, UpdateGroup.NeedsReview, NeedsReviewReasons(detail), WithSkip([Ignore, Pin, Details], detail)) with
+                    {
+                        AsksAboutMatch = asks,
+                        AsksToChoose = chooses,
+                        Choices = newerChoice ? choices : 0,
+                        OffersNewer = choices > 0 ? newerChoice : newer,
+                        CantUpdateReason = asks || chooses ? string.Empty : newerChoice ? CantUpdateReasons.MoreThanOne : CantUpdateReasons.For(detail),
+                        CanCheckAgain = !asks && !chooses && sourcesEnabled && detail is { RequiresFreshSourceEvidence: true }
+                    });
                     break;
                 case nameof(UpdateIntelligenceStatus.FailedUnavailable):
                     review.Add(Row(row, detail, UpdateGroup.NeedsReview,
-                        ["PC Steward couldn't reach the update source for this app. Check again to retry."], [Details]));
+                        ["PC Steward couldn't reach the update source for this app. Check again to retry."], [Details]) with
+                    { CantUpdateReason = CantUpdateReasons.CouldNotCheck, CanCheckAgain = sourcesEnabled });
                     break;
                 case nameof(UpdateIntelligenceStatus.Ignored):
                     StableDecision? ignore = Latest(decisions, row.StableProductKey, "Ignore");
@@ -374,11 +469,28 @@ public static class UpdatesPagePresenter
         return new(ready, review, ignored, selected);
     }
 
+    /// <summary>
+    /// True unless <paramref name="candidate"/> is known to be the installed version or older. A version that can't be compared
+    /// counts as possibly newer, so the page never says nothing is on offer when it can't tell.
+    /// </summary>
+    private static bool MayBeNewer(string installed, string? candidate) =>
+        !string.IsNullOrWhiteSpace(candidate) && !string.Equals(candidate.Trim(), installed.Trim(), StringComparison.OrdinalIgnoreCase)
+        && VersionComparison.Compare(new VersionComparisonRequest(installed, candidate)).Outcome is not (VersionComparisonOutcome.Equal or VersionComparisonOutcome.Older);
+
+    /// <summary>The line under the "Check the match" heading.</summary>
+    public const string CheckTheMatchDescription = "Answer once and PC Steward will offer the update.";
+
+    /// <summary>The heading of the collapsed group of apps that have an update on offer PC Steward can't apply.</summary>
+    public const string CantUpdateYetTitle = "Can't update yet";
+
+    /// <summary>The line under that heading.</summary>
+    public const string CantUpdateYetDescription = "Each line says why. Open an app to see more.";
+
     /// <summary>The Updates page's footer line when there is something to review (approved target T-Updates-Ready).</summary>
-    public const string ReviewFooter = "Nothing is installed until you review and confirm. Windows asks for administrator permission once for each app installed for all users.";
+    public const string ReviewFooter = "You see a review of each update before it is installed.";
 
     /// <summary>The Updates page's footer line when nothing is shown yet (approved target T-Updates).</summary>
-    public const string EmptyFooter = "Low-confidence matches are shown under Needs review and can't be updated until you resolve them.";
+    public const string EmptyFooter = "PC Steward offers an update only when it is sure the update is for the app you have.";
 
     /// <summary>
     /// UI polish phase 3 (approved targets T-Updates and T-Updates-Ready; FR-UI-05): the header line, the info bar under it and the
@@ -394,9 +506,9 @@ public static class UpdatesPagePresenter
         string footer = page.HasAnyRow ? ReviewFooter : EmptyFooter;
         if (!sourcesEnabled)
         {
-            return new("Choose which ready updates to install. Nothing changes until you confirm.",
-                new("Update checks are off.", "PC Steward is working local-only, so it hasn't looked for updates.", StatusTone.Information, true),
-                "No updates to show yet", "Updates appear here when a package source you've turned on finds an exact, compatible match for one of your apps.",
+            return new("Updates for your apps appear here.",
+                new("Update checks are off.", "PC Steward hasn't looked for updates. Turn on update checks to see what is out of date.", StatusTone.Information, true),
+                "No updates to show yet", "Updates appear here once PC Steward has looked for them.",
                 footer, false);
         }
         FreshnessPresentation freshness = FreshnessPresenter.Describe(true, sources, now, culture, zone);
@@ -405,25 +517,26 @@ public static class UpdatesPagePresenter
         string evidence = freshness.Freshness switch
         {
             EvidenceFreshness.LocalOnly => "sources not checked yet",
-            EvidenceFreshness.Live => $"live results, checked {age}",
+            EvidenceFreshness.Live => $"checked {age}",
             _ when least.AnyNeverSucceeded || age.Length == 0 => $"{freshness.Word.ToLowerInvariant()} results",
             _ => $"{freshness.Word.ToLowerInvariant()} results, last checked {age}"
         };
         List<string> parts = [$"{page.Ready.Count.ToString(CultureInfo.CurrentCulture)} ready"];
-        if (page.NeedsReview.Count > 0) parts.Add($"{page.NeedsReview.Count.ToString(CultureInfo.CurrentCulture)} {(page.NeedsReview.Count == 1 ? "needs" : "need")} review");
+        if (page.CheckTheMatch.Count > 0) parts.Add(DisplayFormat.Plural(page.CheckTheMatch.Count, "match", "matches") + " to check");
+        if (page.CantUpdateYet.Count > 0) parts.Add($"{page.CantUpdateYet.Count.ToString(CultureInfo.CurrentCulture)} can't update yet");
         parts.Add(evidence);
         UpdatesPageNotice? notice = freshness.Freshness switch
         {
             EvidenceFreshness.Live => null,
-            EvidenceFreshness.LocalOnly => new("Not checked yet", "Your package sources are on but haven't been checked. Check for updates to look now.", StatusTone.Information, false),
+            EvidenceFreshness.LocalOnly => new("Not checked yet", "PC Steward hasn't looked for updates yet. Check for updates to look now.", StatusTone.Information, false),
             _ => new($"{freshness.Word} results", freshness.Sentence, freshness.Tone, false)
         };
         bool checkedAtAll = freshness.Freshness != EvidenceFreshness.LocalOnly;
         return new(string.Join(" · ", parts), notice,
             checkedAtAll ? "No updates ready" : "No updates to show yet",
             checkedAtAll
-                ? "PC Steward checked your package sources and found no exact, compatible update for your apps."
-                : "Check for updates to look for them. Updates appear here when a package source finds an exact, compatible match.",
+                ? "PC Steward looked and found nothing newer for your apps."
+                : "Check for updates to look for them.",
             footer, true);
     }
 
@@ -477,13 +590,13 @@ public static class UpdatesPagePresenter
 
     public static IReadOnlyList<string> NeedsReviewReasons(UpdateDetail? detail)
     {
-        if (detail is null) return ["The evidence for this app needs your review."];
+        if (detail is null) return [ReviewReasonText.NeedsCloserLook];
         List<string> reasons = [.. ReviewReasonText.DescribeAll(detail.ReviewReasons)];
         if (detail.Confidence is nameof(MappingConfidence.Low) or nameof(MappingConfidence.None))
             reasons.Insert(0, detail.Confidence == nameof(MappingConfidence.Low) ? "The match is low confidence." : "No package matches this app with confidence.");
-        if (detail.Freshness.Contains("cached", StringComparison.OrdinalIgnoreCase) && !reasons.Contains("The source evidence is missing or out of date.", StringComparer.Ordinal))
-            reasons.Add("The source evidence is cached and may be out of date.");
-        if (reasons.Count == 0) reasons.Add(string.IsNullOrWhiteSpace(detail.Explanation) ? "The evidence for this app needs your review." : detail.Explanation);
+        if (detail.Freshness.Contains("cached", StringComparison.OrdinalIgnoreCase) && !reasons.Contains(ReviewReasonText.MissingEvidenceReason, StringComparer.Ordinal))
+            reasons.Add("The last check is cached and may be out of date.");
+        if (reasons.Count == 0) reasons.Add(string.IsNullOrWhiteSpace(detail.Explanation) ? ReviewReasonText.NeedsCloserLook : detail.Explanation);
         return reasons;
     }
 
@@ -502,7 +615,7 @@ public static class UpdatesPagePresenter
         // How sure the match is, in words, from the domain's computed confidence (never decided here).
         string match = group == UpdateGroup.Ready && detail is not null ? $"{ReviewReasonText.Confidence(detail.Confidence)} match" : string.Empty;
         return new(row.StableProductKey, row.Name, row.Publisher, row.Status, group, row.Version, newVersion, badge, reasons,
-            detail?.Freshness ?? string.Empty, actions, decisionId, PlaceFound(row.Provider), match, SourceName(detail?.SourceId), row.Scope);
+            detail?.Freshness ?? string.Empty, actions, decisionId, PlaceFound(row.Provider), match, SourceName(detail?.SourceId), row.Scope, PackageId: detail?.PackageId ?? string.Empty);
     }
 
     /// <summary>Where Windows or a package manager reported an inventory record, in words ("Windows", "WinGet").</summary>
@@ -529,4 +642,40 @@ public static class UpdatesPagePresenter
         .Where(decision => string.Equals(decision.StableProductKey, key, StringComparison.Ordinal) && kinds.Contains(decision.Kind, StringComparer.Ordinal))
         .OrderByDescending(decision => decision.CreatedAt)
         .FirstOrDefault();
+}
+
+/// <summary>
+/// UI review 2026-11-13 (item 10): the one-line reasons under "Can't update yet". The recorded review reasons describe gaps inside
+/// PC Steward ("the install scope isn't known"); these say the same thing the way an owner would ask it, and group apps that share a
+/// cause. The full recorded reasons stay on the app's details. Presentation only: nothing here changes what can be updated.
+/// </summary>
+public static class CantUpdateReasons
+{
+    public const string CouldNotCheck = "PC Steward couldn't check for an update.";
+    public const string ChecksOff = "Update checks are off.";
+    public const string Incomplete = "PC Steward doesn't have everything it needs to update these yet.";
+    public const string NeedsFreshCheck = "The last check is out of date.";
+    public const string NotSureItMatches = "PC Steward isn't sure the update on offer is for the app you have.";
+    public const string DifferentBuild = "The update on offer is for a different build than the one installed.";
+    public const string VersionsNotComparable = "The installed and offered versions can't be compared.";
+    public const string MoreThanOne = "More than one match or installation was found.";
+    public const string HowInstalledUnknown = "PC Steward can't tell how this app was installed.";
+
+    private static readonly (string Reason, string[] Recorded)[] Order =
+    [
+        (DifferentBuild, [nameof(MappingReviewReason.ArchitectureConflict), nameof(MappingReviewReason.ScopeConflict), nameof(MappingReviewReason.ChannelConflict)]),
+        (VersionsNotComparable, [nameof(MappingReviewReason.IncomparableVersion), nameof(MappingReviewReason.ConnectorSpecificVersionSemantics)]),
+        (MoreThanOne, [nameof(MappingReviewReason.AmbiguousCandidate), nameof(MappingReviewReason.MultipleInstallationInstanceAmbiguity), nameof(MappingReviewReason.SourceConflict), nameof(MappingReviewReason.SourceDisagreement)]),
+        (HowInstalledUnknown, [nameof(MappingReviewReason.MissingScopeEvidence), nameof(MappingReviewReason.MissingArchitectureEvidence), nameof(MappingReviewReason.MissingChannelEvidence)])
+    ];
+
+    /// <summary>The one reason shown for a review-required row that can't be settled by confirming a match.</summary>
+    public static string For(UpdateDetail? detail)
+    {
+        if (detail is null) return NotSureItMatches;
+        if (detail.RequiresFreshSourceEvidence || detail.ReviewReasons.Contains(nameof(MappingReviewReason.MissingSourceEvidence), StringComparer.Ordinal)) return NeedsFreshCheck;
+        foreach ((string reason, string[] recorded) in Order)
+            if (detail.ReviewReasons.Any(item => recorded.Contains(item, StringComparer.Ordinal))) return reason;
+        return NotSureItMatches;
+    }
 }

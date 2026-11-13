@@ -21,7 +21,11 @@ public sealed class UiRedesignContractTests
         "StewardVisuals.ActionButton(\"View details\", $\"for {row.Name} (update evidence unavailable)\")",
         "$\"More options for {presentation.Name}\"",
         "StewardVisuals.Named(choose, ready.Name, $\"{ready.VersionText}: select to review\")",
-        "$\"Why {needsReview.Name} needs review: {needsReview.ReasonText}\""
+        // UI review 2026-11-13 (items 9 and 10): the per-row "Update…" and "Yes, same app" buttons name their app.
+        "StewardVisuals.ActionButton(\"Update…\", $\"{ready.Name} to {ready.NewVersion}\")",
+        "StewardVisuals.ActionButton(\"Yes, same app\", $\"({match.PackageId} is {match.Name})\")",
+        "StewardVisuals.ActionButton(\"Choose the match\", $\"for {match.Name}\")",
+        "StewardVisuals.ActionButton(\"Check again\", $\"for {group.Names}\")"
     ];
     // UI polish phase 4 (approved target T-Settings) deliberately removes Settings' "Open Decisions" card: Decisions is a main
     // navigation destination (pinned above) and Home's "At a glance" Decisions row opens it through its presenter target.
@@ -328,7 +332,9 @@ public sealed class UiRedesignContractTests
     /// <summary>
     /// Task 73 Phase 2 (ADR-030 decision 2; SPEC §7.3; audit §6.3–6.4): the Updates page is grouped by the portable presenter; only
     /// Ready rows get a selection control, nothing is preselected, Needs review and Ignored rows have no update control at all, and
-    /// a selection only opens the review. Replaces the Phase 1 flat card list deliberately.
+    /// a selection only opens the review. Replaces the Phase 1 flat card list deliberately. UI review 2026-11-13 (items 9 and 10)
+    /// deliberately adds an "Update…" button to each ready row (it opens the same review for that app alone) and splits Needs
+    /// review into "Check the match" (one question) and "Can't update yet" (one reason a line); neither has an update control.
     /// </summary>
     [TestMethod]
     [Description("FR-UPD-01; FR-UI-04; FR-POL-01–05: grouped Updates, nothing preselected, no update control for needs-review rows.")]
@@ -340,8 +346,9 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(page, "selectedReadyKeys.RemoveWhere(key => !page.IsSelected(key));");
         // UI polish phase 3 (approved target T-Updates-Ready): the selection bar now sits above the Ready list card, so the Ready rows
         // end where the Ready group section is added.
-        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "panel.Children.Add(UpdateGroupSection($\"Ready");
-        string needsReview = Between(page, "foreach (UpdateRowPresentation needsReview in page.NeedsReview)", "// Ignored and skipped");
+        string ready = Between(page, "foreach (UpdateRowPresentation ready in page.Ready)", "panel.Children.Add(UpdateGroupSection($\"{StatusVocabulary.For(nameof(PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate)).Label} ({page.Ready.Count})\"");
+        string match = Between(page, "foreach (UpdateRowPresentation match in page.CheckTheMatch)", "// Can't update yet");
+        string cantUpdate = Between(page, "foreach (CantUpdateGroup group in page.CantUpdateGroups)", "// Ignored and skipped");
         string ignored = Between(page, "foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)", "Expander ignoredGroup");
         // Task 73 Phase 6 (SPEC §9.13 G4) deliberately replaces the single radio with a checkbox per Ready row; it still starts unticked.
         // UI polish phase 3: the app's name moved beside its avatar, so the checkbox has no content and is named for the app instead.
@@ -352,13 +359,26 @@ public sealed class UiRedesignContractTests
         // "Select all ready" and "Review all ready" choose exactly the Ready group, and only on an explicit press.
         Assert.AreEqual(2, Count(page, "selectedReadyKeys.UnionWith(page.ReadyKeys)"), "only Select all ready and Review all ready select the Ready group");
         StringAssert.Contains(page, "reviewAll.Click += async (_, _) => { selectedReadyKeys.Clear(); selectedReadyKeys.UnionWith(page.ReadyKeys); await ReviewAndExecuteAsync(RowsFor(page.ReadyKeys)); };");
-        foreach (string group in new[] { needsReview, ignored })
+        foreach (string group in new[] { match, cantUpdate, ignored })
             foreach (string control in new[] { "RadioButton", "CheckBox", "ReviewAndExecuteAsync", "PrimaryButton", "IsEnabled = false" })
                 Assert.IsFalse(group.Contains(control, StringComparison.Ordinal), $"no update control (not even a disabled one): {control}");
-        StringAssert.Contains(needsReview, "needsReview.ReasonText");
+        // Check the match: the row says the question, and "Yes, same app" only opens the existing reversible confirmation.
+        StringAssert.Contains(match, "UpdateRowCopy(line, title, match.Summary);");
+        StringAssert.Contains(match, "detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true })");
+        StringAssert.Contains(match, "await PromptAndConfirmPackageIdentityAsync(row, detail);");
+        StringAssert.Contains(match, "pick.Click += async (_, _) => { if (RowsFor([matchKey]) is [var row]) await ShowDetailsAsync(row); };");
+        StringAssert.Contains(match, "matchActions.Children.Add(match.AsksToChoose ? pick : same);");
+        // Can't update yet: the reason in words, each app's name opens its details, and "Check again" is the read-only check.
+        StringAssert.Contains(cantUpdate, "Text = group.Reason");
+        StringAssert.Contains(cantUpdate, "again.Click += async (_, _) => await CheckForUpdatesAsync();");
+        StringAssert.Contains(page, "IsExpanded = cantUpdateGroupExpanded");
+        Assert.IsFalse(source.Contains("private bool cantUpdateGroupExpanded = true", StringComparison.Ordinal), "Can't update yet starts collapsed");
+        Assert.IsFalse(page.Contains("ShellPage.Review", StringComparison.Ordinal), "Updates no longer sends anyone to the older Review decisions page");
         StringAssert.Contains(page, "IsExpanded = ignoredGroupExpanded");
         Assert.IsFalse(source.Contains("private bool ignoredGroupExpanded = true", StringComparison.Ordinal), "Ignored and skipped starts collapsed");
-        Assert.AreEqual(2, Count(page, "ReviewAndExecuteAsync("), "only the two review buttons open a review (selected apps, all ready apps)");
+        Assert.AreEqual(3, Count(page, "ReviewAndExecuteAsync("), "only the selection bar's two buttons and a ready row's own button open a review");
+        StringAssert.Contains(ready, "update.Click += async (_, _) => await ReviewAndExecuteAsync(RowsFor([key]));");
+        StringAssert.Contains(ready, "update.IsEnabled = !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
         StringAssert.Contains(page, "review.IsEnabled = page.CanReview && !HasActiveOperation && reviewDecision is null");
         StringAssert.Contains(page, "reviewAll.IsEnabled = page.CanReviewAll && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;");
         StringAssert.Contains(source, "private readonly HashSet<string> selectedReadyKeys = new(StringComparer.Ordinal);");
