@@ -324,16 +324,28 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         {
             return new(providerVersion, [], ["winget:unrecognized-output"]);
         }
-        int[] columnStarts = Regex.Matches(lines[separator - 1], @"\S+").Select(match => match.Index).ToArray();
-        if (columnStarts.Length < 4) return new(providerVersion, [], ["winget:unrecognized-output"]);
-        foreach (string line in lines.Skip(separator + 1))
+        // WinGet prints a count line after the table, may print notices (pins, unknown versions) and may print a second table of
+        // packages that need explicit targeting (`upgrade --id` still updates them, which is what a reviewed update runs). Each
+        // table is read with its own header's columns; only the exact notice lines below are skipped, anything else stays a
+        // malformed row.
+        int[] separators = Enumerable.Range(separator, lines.Length - separator).Where(index => IsSeparatorLine(lines[index])).ToArray();
+        for (int table = 0; table < separators.Length; table++)
         {
-            string[] columns = columnStarts.Select((start, index) => line.Length <= start ? string.Empty : line[start..(index + 1 < columnStarts.Length ? Math.Min(line.Length, columnStarts[index + 1]) : line.Length)].Trim()).ToArray();
-            if (!LooksLikeUpdateRow(columns)) columns = Regex.Split(line.Trim(), @"\s{2,}").Where(value => value.Length > 0).ToArray();
-            if (columns.Length < 4) { warnings.Add("winget:malformed-update-row"); continue; }
-            string name = columns[0]; string id = columns[1]; string installed = columns[2]; string available = columns[3]; string source = columns.Length > 4 ? columns[^1] : expectedSource;
-            if (!Valid(name) || !PackageId().IsMatch(id) || !Version(installed) || !Version(available) || !string.Equals(source, expectedSource, StringComparison.OrdinalIgnoreCase)) { warnings.Add("winget:invalid-update-row"); continue; }
-            records.Add(new(name, id, installed, available, expectedSource));
+            int start = separators[table];
+            int end = table + 1 < separators.Length ? separators[table + 1] - 1 : lines.Length;
+            int[] columnStarts = Regex.Matches(lines[start - 1], @"\S+").Select(match => match.Index).ToArray();
+            if (columnStarts.Length < 4) return new(providerVersion, [], ["winget:unrecognized-output"]);
+            for (int index = start + 1; index < end; index++)
+            {
+                string line = lines[index];
+                if (IsUpgradeNotice(line)) continue;
+                string[] columns = columnStarts.Select((columnStart, column) => line.Length <= columnStart ? string.Empty : line[columnStart..(column + 1 < columnStarts.Length ? Math.Min(line.Length, columnStarts[column + 1]) : line.Length)].Trim()).ToArray();
+                if (!LooksLikeUpdateRow(columns)) columns = Regex.Split(line.Trim(), @"\s{2,}").Where(value => value.Length > 0).ToArray();
+                if (columns.Length < 4) { warnings.Add("winget:malformed-update-row"); continue; }
+                string name = columns[0]; string id = columns[1]; string installed = columns[2]; string available = columns[3]; string source = columns.Length > 4 ? columns[^1] : expectedSource;
+                if (!Valid(name) || !PackageId().IsMatch(id) || !Version(installed) || !Version(available) || !string.Equals(source, expectedSource, StringComparison.OrdinalIgnoreCase)) { warnings.Add("winget:invalid-update-row"); continue; }
+                records.Add(new(name, id, installed, available, expectedSource));
+            }
         }
         if (providerVersion is null) warnings.Add("winget:provider-version-unavailable");
         return new(providerVersion, records, warnings.Distinct(StringComparer.Ordinal).ToArray());
@@ -342,10 +354,15 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     private static bool LooksLikeUpdateRow(string[] columns) => columns.Length >= 4 && PackageId().IsMatch(columns[1]) && Version(columns[2]) && Version(columns[3]);
     private static bool Valid(string value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= MaximumFieldLength && value.All(character => !char.IsControl(character));
     private static bool Version(string value) => Valid(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');
-    private static int TableSeparator(string[] lines) => Enumerable.Range(0, lines.Length).FirstOrDefault(index => lines[index].Length >= 3 && lines[index].All(character => character is '-' or ' ' or '\t'), -1);
+    private static int TableSeparator(string[] lines) => Enumerable.Range(0, lines.Length).FirstOrDefault(index => IsSeparatorLine(lines[index]), -1);
+    private static bool IsSeparatorLine(string line) => line.Length >= 3 && line.All(character => character is '-' or ' ' or '\t');
+    /// <summary>The fixed WinGet 1.29 notice lines that can follow an upgrade table (English output, which the parser already requires).</summary>
+    private static bool IsUpgradeNotice(string line) => UpgradeNotice().IsMatch(line.Trim());
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
     private static partial Regex PackageId();
+    [GeneratedRegex(@"^(?:[0-9]{1,6} upgrades? available\.|[0-9]{1,6} package\(s\) have (?:version numbers that cannot be determined|pins that prevent upgrade)\. Use [^\p{C}]{1,160}|The following packages have an upgrade available, but require explicit targeting for upgrade:)$")]
+    private static partial Regex UpgradeNotice();
 }
 
 /// <summary>Provider-owned construction for an exact, user-scope WinGet update operation.</summary>
