@@ -215,6 +215,25 @@ public sealed class UpdateBatchPresentationTests
     private static UpdateJobItemOutcome Outcome(string key, UpdateHistoryStatus status) =>
         new($"App {key}", $"Contoso.{key}", "1.0", "2.0", UpdateOutcomePresenter.ForStatus(status, "diag", status == UpdateHistoryStatus.InstallerFailed ? 1 : 0, "2.0"), key);
 
+    [TestMethod]
+    [TestCategory("FR-UI-04")]
+    [Description("UI review 2026-11-13 (item 13): how sure the matches are is said once when every app shares the answer, and per app when they differ.")]
+    public void HowSureIsSaidOnceWhenEveryAppSharesIt()
+    {
+        UpdateReviewSheet one = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User)]);
+        Assert.AreEqual("High confidence", one.SharedConfidence);
+        Assert.AreEqual("How sure: High confidence.", one.SharedConfidenceLine);
+
+        UpdateReviewSheet same = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User), Input("beta", UpdateScope.Machine)]);
+        Assert.AreEqual("How sure: High confidence, for every app.", same.SharedConfidenceLine);
+
+        UpdateReviewSheetInput medium = Input("beta", UpdateScope.User);
+        UpdateReviewSheet mixed = UpdateReviewSheet.CreateBatch([Input("alpha", UpdateScope.User), medium with { Detail = medium.Detail! with { Confidence = "Medium" } }]);
+        Assert.IsNull(mixed.SharedConfidence, "when the apps differ nothing is summarised, and each row shows its own");
+        Assert.IsNull(mixed.SharedConfidenceLine);
+        Assert.AreEqual("Medium confidence", mixed.Items[1].ConfidenceSummary);
+    }
+
     private static UpdateReviewSheetInput Input(string key, UpdateScope scope, bool running = false)
     {
         UpdateJobSelection selection = new(key, UpdateProvider.WinGet, UpdateSource.WinGet, $"Contoso.{key.ToUpperInvariant()}", "1.0", "2.0", scope,

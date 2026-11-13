@@ -11,7 +11,9 @@ public enum InstalledAppsFilter
     Updates,
     NeedsReview,
     Unmanaged,
-    PinnedAndIgnored
+    PinnedAndIgnored,
+    /// <summary>UI review 2026-11-13 (item 14): apps PC Steward has matched to an update source. It replaces the Repository apps page.</summary>
+    HasUpdateSource
 }
 
 /// <summary>One saved-filter button: its label, the count of matching apps and the vocabulary labels it covers.</summary>
@@ -48,12 +50,67 @@ public static class InstalledAppsFilters
         InstalledAppsFilter.NeedsReview => StatusVocabulary.For(nameof(UpdateIntelligenceStatus.ReviewRequired)).Label,
         InstalledAppsFilter.Unmanaged => StatusVocabulary.NoUpdateSourceLabel,
         InstalledAppsFilter.PinnedAndIgnored => "Pinned, ignored & skipped",
+        InstalledAppsFilter.HasUpdateSource => HasUpdateSourceLabel,
         _ => "All"
     };
 
     /// <summary>True when a row with <paramref name="status"/> belongs in <paramref name="filter"/>. "All" matches every status.</summary>
     public static bool Matches(InstalledAppsFilter filter, string? status) =>
-        !Statuses.TryGetValue(filter, out string[]? keys) || keys.Contains(status, StringComparer.Ordinal);
+        filter != InstalledAppsFilter.HasUpdateSource && (!Statuses.TryGetValue(filter, out string[]? keys) || keys.Contains(status, StringComparer.Ordinal));
+
+    /// <summary>
+    /// True when <paramref name="row"/> belongs in <paramref name="filter"/>. "Has an update source" is not a status: it lists the
+    /// apps whose keys are in <paramref name="withUpdateSource"/>, which are the apps matched to a package in an update source.
+    /// </summary>
+    public static bool Matches(InstalledAppsFilter filter, InventoryRow row, IReadOnlySet<string>? withUpdateSource)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return filter == InstalledAppsFilter.HasUpdateSource ? withUpdateSource?.Contains(row.StableProductKey) == true : Matches(filter, row.Status);
+    }
+
+    /// <summary>The tab that lists the apps PC Steward can check for updates (UI review 2026-11-13, item 14).</summary>
+    public const string HasUpdateSourceLabel = "Has an update source";
+
+    /// <summary>
+    /// Said under "Check the match" when some of those apps are already on the version their match lists, so confirming them
+    /// only records the match (FR-POL-03/05). It counts the apps the list shows now, so a search or filter narrows it.
+    /// </summary>
+    public static string ConfirmCurrentMatchesText(int count) => count == 1
+        ? "1 of these apps is already on the version its match lists. Confirm the match and PC Steward will offer its updates when they appear."
+        : $"{count.ToString("N0", CultureInfo.CurrentCulture)} of these apps are already on the version their match lists. Confirm the matches and PC Steward will offer their updates when they appear.";
+
+    /// <summary>The button beside that line. It opens a dialog that names the apps before anything is saved.</summary>
+    public const string ConfirmCurrentMatchesLabel = "Confirm these matches…";
+
+    /// <summary>The dialog's confirming button.</summary>
+    public static string ConfirmCurrentMatchesButton(int count) => count == 1 ? "Confirm match" : $"Confirm {count.ToString("N0", CultureInfo.CurrentCulture)} matches";
+
+    /// <summary>The most app names the dialog lists before "and N more".</summary>
+    public const int MaximumConfirmNames = 12;
+
+    /// <summary>The dialog's first line: the apps whose matches would be confirmed, by name.</summary>
+    public static string ConfirmCurrentMatchesNames(IReadOnlyList<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        List<string> shown = [.. names.Take(MaximumConfirmNames)];
+        if (names.Count > shown.Count) shown.Add($"{(names.Count - shown.Count).ToString("N0", CultureInfo.CurrentCulture)} more");
+        string list = shown.Count <= 1 ? string.Concat(shown) : $"{string.Join(", ", shown.Take(shown.Count - 1))} and {shown[^1]}";
+        return names.Count == 1 ? $"This confirms the match for {list}." : $"This confirms the matches for {list}.";
+    }
+
+    public const string ConfirmCurrentMatchesTitle = "Confirm these matches?";
+    public const string ConfirmCurrentMatchesExplanation = "Each of these apps is already on the version its update source lists. A match with a newer version, or one that can't be checked, is left for you to answer on its own. You can undo each one on the Decisions page. It does not approve or start an update.";
+
+    /// <summary>What "Has an update source" says in place of an empty list while update checks are off.</summary>
+    public const string ChecksOffTitle = "Update checks are off";
+    public const string ChecksOffMessage = "PC Steward can't tell which apps have an update source until update checks are on. You can turn them on in Settings.";
+
+    /// <summary>The saved filters in the order their tabs are shown: "Has an update source" sits beside "No update source".</summary>
+    private static readonly InstalledAppsFilter[] TabOrder =
+    [
+        InstalledAppsFilter.All, InstalledAppsFilter.Updates, InstalledAppsFilter.NeedsReview, InstalledAppsFilter.HasUpdateSource,
+        InstalledAppsFilter.Unmanaged, InstalledAppsFilter.PinnedAndIgnored
+    ];
 
     /// <summary>
     /// UI polish phase 4 (approved target T-Installed): the page's footnote whenever an app has no update source. It says, calmly,
@@ -109,20 +166,24 @@ public static class InstalledAppsFilters
         ? DisplayFormat.Plural(total, "app")
         : $"{shown.ToString("N0", CultureInfo.CurrentCulture)} of {DisplayFormat.Plural(total, "app")}";
 
-    /// <summary>The five saved filters in order, each with its count over every saved row.</summary>
-    public static IReadOnlyList<InstalledAppsFilterOption> Options(IReadOnlyCollection<InventoryRow> rows)
+    /// <summary>
+    /// The saved filters in order, each with its count over <paramref name="rows"/>. "Has an update source" is offered when
+    /// <paramref name="withUpdateSource"/> is given: the keys of the apps matched to a package in an update source.
+    /// </summary>
+    public static IReadOnlyList<InstalledAppsFilterOption> Options(IReadOnlyCollection<InventoryRow> rows, IReadOnlySet<string>? withUpdateSource = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
-        return Enum.GetValues<InstalledAppsFilter>().Select(filter =>
+        return TabOrder.Where(filter => filter != InstalledAppsFilter.HasUpdateSource || withUpdateSource is not null).Select(filter =>
         {
             string[] labels = Statuses.TryGetValue(filter, out string[]? keys) ? keys.Select(key => StatusVocabulary.For(key).Label).ToArray() : [];
             string description = filter switch
             {
                 InstalledAppsFilter.All => "every app in the saved inventory",
                 InstalledAppsFilter.Unmanaged => $"{labels[0]}. {StatusVocabulary.For(nameof(UpdateIntelligenceStatus.Unmanaged)).Meaning}",
+                InstalledAppsFilter.HasUpdateSource => "apps PC Steward can check for updates",
                 _ => string.Join(", ", labels)
             };
-            return new InstalledAppsFilterOption(filter, Label(filter), rows.Count(row => Matches(filter, row.Status)), labels, description);
+            return new InstalledAppsFilterOption(filter, Label(filter), rows.Count(row => Matches(filter, row, withUpdateSource)), labels, description);
         }).ToArray();
     }
 }
@@ -210,7 +271,7 @@ public static partial class AppDetailPresenter
             case UserDecisionService.SkipVersionKind:
                 return new(entry.OccurredAt, when, $"Skipped version {value}", Reason(reason), "\uE893", StatusTone.Neutral);
             case "ManualMapping":
-                return new(entry.OccurredAt, when, $"Package identity confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, $"Match confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
             case "InventoryScan":
                 return new(entry.OccurredAt, when, "Found in the latest scan", null, "\uE721", StatusTone.Neutral);
             case "Update":

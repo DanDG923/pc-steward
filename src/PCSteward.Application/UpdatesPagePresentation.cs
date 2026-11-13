@@ -379,8 +379,8 @@ public sealed record UpdatesPageNotice(string Title, string Message, StatusTone 
 /// </summary>
 public static class UpdatesPagePresenter
 {
-    private static readonly UpdateRowActionPresentation Ignore = new(UpdateRowAction.IgnoreApp, "Ignore updates for this app", "");
-    private static readonly UpdateRowActionPresentation Pin = new(UpdateRowAction.PinCurrentVersion, "Pin current version", "");
+    internal static readonly UpdateRowActionPresentation Ignore = new(UpdateRowAction.IgnoreApp, "Ignore updates for this app", "");
+    internal static readonly UpdateRowActionPresentation Pin = new(UpdateRowAction.PinCurrentVersion, "Pin current version", "");
     private static readonly UpdateRowActionPresentation Details = new(UpdateRowAction.Details, "Details", "");
 
     public static UpdatesPagePresentation Build(
@@ -629,7 +629,7 @@ public static class UpdatesPagePresenter
     };
 
     /// <summary>A package source's name in words, or empty when it isn't known.</summary>
-    private static string SourceName(string? sourceId) => sourceId?.Trim().ToLowerInvariant() switch
+    internal static string SourceName(string? sourceId) => sourceId?.Trim().ToLowerInvariant() switch
     {
         "winget" => "WinGet",
         "msstore" => "Microsoft Store",

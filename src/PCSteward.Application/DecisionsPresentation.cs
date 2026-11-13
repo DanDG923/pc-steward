@@ -88,7 +88,7 @@ public static class DecisionsPresenter
         {
             string product = PageFocusRestore.ProductName(rows, mapping.StableProductKey);
             result.Add(new(mapping.Id, DecisionKind.Mapping, mapping.StableProductKey, product,
-                $"Package identity confirmed: {mapping.SourceId}:{mapping.PackageId}",
+                $"Match confirmed: {mapping.SourceId}:{mapping.PackageId}",
                 $"You confirmed this package is the installed app. Saved {DisplayFormat.Date(mapping.CreatedAt, culture, zone)}.",
                 Reason(mapping.Reason), mapping.CreatedAt, "\uE71B",
                 "Remove manual mapping", PageFocusRestore.RemoveManualMappingName(product, mapping.SourceId, mapping.PackageId)));

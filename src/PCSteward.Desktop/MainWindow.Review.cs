@@ -19,89 +19,10 @@ namespace PCSteward.Desktop;
 
 public sealed partial class MainWindow
 {
-    private StackPanel BuildReviewPage()
-    {
-        StackPanel panel = CreatePagePanel();
-        InventoryRow[] ready = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate.ToString()).ToArray();
-        InventoryRow[] decisions = viewModel.AllRows.Where(row => row.Status == PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired.ToString()).ToArray();
-        panel.Children.Add(StewardVisuals.PageHeader("Review decisions", "Resolve package matches first. Updates that are ready stay separate, and each still needs your confirmation on its review page."));
-        panel.Children.Add(StewardVisuals.InformationBanner("Reviewing doesn't update anything", "Viewing details or confirming a match never starts an update."));
-        panel.Children.Add(SectionHeading("Needs a decision"));
-        panel.Children.Add(PageCopy(decisions.Length == 0 ? "No package matches need a decision." : $"{DisplayFormat.Plural(decisions.Length, "item")} {(decisions.Length == 1 ? "needs" : "need")} a decision. None of them can be updated until the decision is made."));
-        foreach (InventoryRow row in decisions)
-        {
-            UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
-            StackPanel decision = new() { Spacing = StewardSpacing.XSmall };
-            decision.Children.Add(SectionHeading(row.Name, AutomationHeadingLevel.Level3));
-            decision.Children.Add(StewardVisuals.StatusBadge(row.Status));
-            decision.Children.Add(StewardVisuals.SelectableText($"{detail?.SourceId ?? StewardPresentation.Provider(row.Provider)} · {detail?.PackageId ?? "package ID unknown"}"));
-            decision.Children.Add(PageCopy(detail?.Explanation ?? "The available evidence needs review before any update can be considered."));
-            AddReviewDecisionActions(decision, row, detail);
-            panel.Children.Add(Card(decision));
-        }
-        InventoryRow[] currentIdentityCandidates = decisions
-            .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)
-            .ToArray();
-        if (currentIdentityCandidates.Length > 0)
-        {
-            panel.Children.Add(PageCopy($"{DisplayFormat.Plural(currentIdentityCandidates.Length, "item")} can be confirmed together, because the package source reports the installed version is the same as the available version."));
-            Button confirmAll = StewardVisuals.ActionButton("Confirm all current package identities", "that the source reports as already installed");
-            confirmAll.Click += async (_, _) => await ConfirmCurrentPackageIdentitiesAsync(currentIdentityCandidates);
-            panel.Children.Add(confirmAll);
-        }
-        // Audit P-M3: nothing is called "approved" before the user approves it on the review page.
-        panel.Children.Add(SectionHeading("Ready to review"));
-        panel.Children.Add(PageCopy(ready.Length == 0 ? "No updates are ready to review. Cached, unavailable, low-confidence or conflicting matches can't be updated." : $"{DisplayFormat.Plural(ready.Length, "update")} can be reviewed. Each one still needs your confirmation on its review page."));
-        foreach (InventoryRow row in ready)
-        {
-            UpdateDetail? detail = viewModel.UpdateDetails.GetValueOrDefault(row.StableProductKey);
-            StackPanel action = new() { Spacing = StewardSpacing.XSmall };
-            action.Children.Add(SectionHeading($"{row.Name} {row.Version} → {detail?.CandidateVersion ?? "new version unknown"}", AutomationHeadingLevel.Level3));
-            action.Children.Add(StewardVisuals.StatusBadge(row.Status));
-            action.Children.Add(StewardVisuals.SelectableText($"{detail?.SourceId ?? "Unknown source"} · {StewardPresentation.Scope(row.Scope)} · {detail?.Architecture ?? "Unknown architecture"}"));
-            Button open = StewardVisuals.ActionButton("View details", $"for {row.Name}"); open.Click += async (_, _) => await ShowDetailsAsync(row); action.Children.Add(open);
-            panel.Children.Add(Card(action));
-        }
-        panel.Children.Add(PageCopy("PC Steward updates one app at a time and checks the installed version before it records an update as successful."));
-        return panel;
-    }
-
-    private void AddReviewDecisionActions(StackPanel container, InventoryRow row, UpdateDetail? detail)
-    {
-        container.Children.Add(PageCopy(detail?.ActionState ?? "You can pin the installed version, ignore the app, or view its details."));
-        StewardWrapPanel actions = StewardVisuals.ActionRow();
-        if (detail is { RequiresFreshSourceEvidence: true } && viewModel.IsUpdateSourceEnabled)
-        {
-            actions.Children.Add(CreateSourceEvidenceRefreshButton(row));
-        }
-        if (detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true } && viewModel.IsUpdateSourceEnabled)
-        {
-            Button confirm = StewardVisuals.PrimaryButton("Confirm match", $"({detail.PackageId} is {row.Name})");
-            confirm.Click += async (_, _) => await PromptAndConfirmPackageIdentityAsync(row, detail);
-            actions.Children.Add(confirm);
-        }
-        else if (detail is { SourceId: null, PackageId: null } && detail.ReviewCandidates.Count > 0 && viewModel.IsUpdateSourceEnabled)
-        {
-            Button choose = StewardVisuals.PrimaryButton("Choose the match", $"for {row.Name}");
-            choose.Click += async (_, _) => await ShowDetailsAsync(row);
-            actions.Children.Add(choose);
-        }
-        Button pin = StewardVisuals.ActionButton("Pin current version", $"of {row.Name} ({row.Version})");
-        pin.Click += async (_, _) => await PromptAndPinCurrentVersionAsync(row);
-        actions.Children.Add(pin);
-        Button ignore = StewardVisuals.ActionButton("Ignore…", $"{row.Name}: choose how long");
-        ignore.Click += async (_, _) => await PromptAndIgnoreProductAsync(row);
-        actions.Children.Add(ignore);
-        Button open = StewardVisuals.ActionButton("View details", $"for {row.Name}");
-        open.Click += async (_, _) => await ShowDetailsAsync(row);
-        actions.Children.Add(open);
-        container.Children.Add(actions);
-    }
-
-    private Button CreateSourceEvidenceRefreshButton(InventoryRow row)
+    private Button CreateSourceEvidenceRefreshButton(InventoryRow row, string label = "Check again")
     {
         Button refresh = StewardVisuals.PrimaryButton(
-            viewModel.IsCheckingUpdates ? "Checking…" : "Check again",
+            viewModel.IsCheckingUpdates ? "Checking…" : label,
             $"for {row.Name}");
         refresh.IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates && !viewModel.IsScanning && !isExecuting;
         AutomationProperties.SetHelpText(refresh, "Looks for updates again. It doesn't download or install anything.");
@@ -115,32 +36,83 @@ public sealed partial class MainWindow
     /// <summary>
     /// FR-POL-03/05 (Task 73 Phase 3; audit P-M1): the one confirmation for recording a package identity, used by the lists, the
     /// review page and every mapping action on app details. It records a reversible mapping after validation; it never approves or
-    /// starts an update. The reason is read on the UI thread before the data-operation lease starts.
+    /// starts an update. The reason is read on the UI thread before the data-operation lease starts. UI review 2026-11-13 (item 12):
+    /// when it is saved the page says so in one line with Undo, instead of a second dialog.
     /// </summary>
     private async Task PromptAndCreateManualMappingAsync(InventoryRow row, string sourceId, string packageId)
     {
         TextBox reason = DecisionReasonBox("Optional reason for confirming this match");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
-        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {sourceId} as {row.Name}. You can undo this later. It does not approve or start an update."));
+        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {StewardPresentation.Provider(sourceId)} as {row.Name}. You can undo this later. It does not approve or start an update."));
         content.Children.Add(reason);
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Confirm match?",
+            Title = "Is this the same app?",
             Content = content,
-            PrimaryButtonText = "Confirm match",
+            PrimaryButtonText = AppDetailSummaryPresenter.SameAppLabel,
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
         string decisionReason = reason.Text;
+        Guid[] savedBefore = [.. manualMappings.Select(mapping => mapping.Id)];
         PCSteward.Domain.ManualMappingValidation validation;
         try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, sourceId, packageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
-        if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Identity not confirmed", validation.Explanation); return; }
+        if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Match not saved", validation.Explanation); return; }
+        LoadSavedInventory();
+        ShowDecisionNotice(DecisionNoticePresenter.MatchConfirmed(row.Name, row.StableProductKey, sourceId, packageId, manualMappings, savedBefore));
+    }
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 12; FR-POL-03/05): after a pin, ignore, skip or confirmed match is saved, the page it was made on
+    /// says so in one line with Undo, instead of a second dialog that waits for Close. The saved data is reloaded before this is
+    /// called, so the notice names exactly the records Undo reverses.
+    /// </summary>
+    private void ShowDecisionNotice(DecisionNotice notice)
+    {
+        decisionNotice = notice;
+        decisionNoticePage = navigation.Current;
+        Render();
+        AnnounceCompletion(notice.Message, "decision-saved");
+    }
+
+    /// <summary>The line for <paramref name="notice"/>: what was saved, an Undo button when its records are known, and a close button.</summary>
+    private InfoBar DecisionNoticeBar(DecisionNotice notice)
+    {
+        Button? undo = null;
+        if (notice.CanUndo)
+        {
+            undo = new Button { Content = DecisionNotice.UndoLabel, IsEnabled = !HasActiveOperation };
+            AutomationProperties.SetName(undo, notice.UndoAccessibleName);
+            undo.Click += async (_, _) => await ReverseDecisionsAsync(notice.DecisionIds, notice.MappingIds);
+        }
+        InfoBar bar = StewardVisuals.InformationBanner("Saved", notice.Message, "success", undo);
+        bar.IsClosable = true;
+        bar.Closed += (_, _) => decisionNotice = null;
+        return bar;
+    }
+
+    /// <summary>
+    /// Reverses decisions and deletes confirmed matches through the existing reversal operations, in one data operation. Used by
+    /// Undo and by app details. It changes saved decisions only; nothing on the PC is changed.
+    /// </summary>
+    private async Task ReverseDecisionsAsync(IReadOnlyList<Guid> decisionIds, IReadOnlyList<Guid> mappingIds)
+    {
+        try
+        {
+            await DataOperationLease.RunAsync(async token =>
+            {
+                foreach (Guid decision in decisionIds) await workflow.ReverseDecisionAsync(decision, token);
+                foreach (Guid mapping in mappingIds) await workflow.DeleteManualMappingAsync(mapping, token);
+            }, CancellationToken.None);
+        }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        decisionNotice = null;
         LoadSavedInventory();
         Render();
-        await ShowUpdateOutcomeAsync("Package identity confirmed", validation.Explanation + " No update was started.");
+        AnnounceCompletion(DecisionNoticePresenter.Undone, "decision-undone");
     }
 
     /// <summary>
@@ -174,8 +146,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        Render();
-        await ShowUpdateOutcomeAsync("Current version pinned", $"{row.Name} is pinned at {row.Version}. No application was changed.");
+        ShowDecisionNotice(DecisionNoticePresenter.Pinned(row.Name, row.Version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
     }
 
     /// <summary>Ignores the app after the confirmation, for <paramref name="sameApp"/> too (other records of the same app, phase 3).</summary>
@@ -185,7 +156,7 @@ public sealed partial class MainWindow
         DatePicker ignoreUntil = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) };
         ignoreUntilEnabled.Checked += (_, _) => ignoreUntil.IsEnabled = true;
         ignoreUntilEnabled.Unchecked += (_, _) => ignoreUntil.IsEnabled = false;
-        TextBox reason = DecisionReasonBox("Optional reason for ignoring this product");
+        TextBox reason = DecisionReasonBox("Optional reason for ignoring this app");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
         content.Children.Add(PageCopy($"Ignore {row.Name} indefinitely, or select an end date below. You can reverse this decision on the Decisions page. No application is changed."));
         content.Children.Add(ignoreUntilEnabled);
@@ -194,9 +165,9 @@ public sealed partial class MainWindow
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Ignore this product?",
+            Title = "Ignore updates for this app?",
             Content = content,
-            PrimaryButtonText = "Ignore product",
+            PrimaryButtonText = "Ignore updates",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
@@ -213,8 +184,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        Render();
-        await ShowUpdateOutcomeAsync("Product ignored", ignoredUntil is null ? $"{row.Name} is ignored until you reverse the decision. No application was changed." : $"{row.Name} is ignored until {DisplayFormat.Date(ignoredUntil.Value)}. No application was changed.");
+        ShowDecisionNotice(DecisionNoticePresenter.Ignored(row.Name, ignoredUntil, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
     }
 
     /// <summary>
@@ -249,20 +219,29 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        Render();
-        await ShowUpdateOutcomeAsync("Version skipped", $"Version {version} of {row.Name} won't be offered. A newer version will be. No application was changed.");
+        ShowDecisionNotice(DecisionNoticePresenter.Skipped(row.Name, version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
     }
 
     private static TextBox DecisionReasonBox(string placeholder) => new() { Header = "Optional reason", PlaceholderText = placeholder, MaxLength = 512 };
 
-    private async Task ConfirmCurrentPackageIdentitiesAsync(IReadOnlyCollection<InventoryRow> candidates)
+    /// <summary>
+    /// FR-POL-03/05: confirms, in one step, the matches of apps that are already on the version their match lists. UI review
+    /// 2026-11-13 (item 14): it is offered on Installed apps under "Check the match", now that the Scan results and Review decisions
+    /// pages are gone. Each match is validated again when it is saved and can be undone on the Decisions page; nothing is updated.
+    /// </summary>
+    private async Task ConfirmCurrentMatchesAsync(InventoryRow[] candidates)
     {
+        if (candidates.Length == 0) return;
+        // The dialog names the apps, so what is confirmed is what the owner was shown.
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        content.Children.Add(PageCopy(InstalledAppsFilters.ConfirmCurrentMatchesNames([.. candidates.Select(row => row.Name)])));
+        content.Children.Add(PageCopy(InstalledAppsFilters.ConfirmCurrentMatchesExplanation));
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Confirm current package identities?",
-            Content = "This confirms the package identity only for the listed apps whose package source reports the installed version is the same as the available version. Newer, unknown, unavailable or conflicting matches are skipped. You can undo each one on the Decisions page. No update will start.",
-            PrimaryButtonText = "Confirm mappings",
+            Title = InstalledAppsFilters.ConfirmCurrentMatchesTitle,
+            Content = content,
+            PrimaryButtonText = InstalledAppsFilters.ConfirmCurrentMatchesButton(candidates.Length),
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
@@ -271,7 +250,7 @@ public sealed partial class MainWindow
             .Select(row => viewModel.UpdateDetails[row.StableProductKey])
             .Select(detail => new RepositoryIdentityConfirmation(detail.StableProductKey, detail.SourceId!, detail.PackageId!))
             .ToArray();
-        try { RepositoryIdentityConfirmationResult result = await DataOperationLease.RunAsync(token => workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", token), CancellationToken.None); LoadSavedInventory(); await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No mappings confirmed" : "Package identities confirmed", result.Message); Render(); }
+        try { RepositoryIdentityConfirmationResult result = await DataOperationLease.RunAsync(token => workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled, "Bulk confirmation of source-reported current package identity.", token), CancellationToken.None); LoadSavedInventory(); await ShowUpdateOutcomeAsync(result.Confirmed == 0 ? "No matches confirmed" : "Matches confirmed", result.Message); Render(); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
     }
 }

@@ -382,17 +382,7 @@ public sealed partial class MainWindow
                     case UpdateRowAction.SkipVersion when action.Version is { } version: await PromptAndSkipVersionAsync(row, version, sameApp); break;
                     case UpdateRowAction.Details: await ShowDetailsAsync(row); break;
                     case UpdateRowAction.Reverse when presentation.DecisionId is { } decisionId:
-                        Guid[] alsoReverse = [.. presentation.AlsoFound.Select(other => other.DecisionId).OfType<Guid>()];
-                        try
-                        {
-                            await DataOperationLease.RunAsync(async token =>
-                            {
-                                await workflow.ReverseDecisionAsync(decisionId, token);
-                                foreach (Guid other in alsoReverse) await workflow.ReverseDecisionAsync(other, token);
-                            }, CancellationToken.None);
-                            LoadSavedInventory(); Render();
-                        }
-                        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
+                        await ReverseDecisionsAsync([decisionId, .. presentation.AlsoFound.Select(other => other.DecisionId).OfType<Guid>()], []);
                         break;
                 }
             };

@@ -134,6 +134,10 @@ public sealed partial class MainWindow
         DropDownButton export = new() { Content = "Export…", Flyout = exportFormats };
         StewardVisuals.Named(export, "Export…", "(the app list as a CSV or JSON file)");
         privacy.Children.Add(StewardVisuals.RowCard("\uEDE1", "Export the app list", $"Save a CSV or JSON file where you choose. {SettingsPresenter.ExportWarning}", export, "purple"));
+        // UI review 2026-11-13 (item 14): Storage was reached only from the retired Scan results page, so Settings opens it now.
+        Button openStorage = StewardVisuals.NavigationRow("\uEDA2", "Storage", "Space used by PC Steward's own records and downloaded update files.", "purple");
+        openStorage.Click += (_, _) => NavigateTo(ShellPage.Storage);
+        privacy.Children.Add(openStorage);
         Button openData = StewardVisuals.NavigationRow("\uE74E", "Data & reset", "Clear scan data, downloads, source data, logs or history, or reset PC Steward.", "purple");
         openData.Click += (_, _) => NavigateTo(ShellPage.Privacy);
         privacy.Children.Add(openData);

@@ -138,6 +138,15 @@ public sealed class UpdateReviewSheet
     /// <summary>The single app's facts (a one-app sheet), or empty for a batch: a batch shows each item's facts.</summary>
     public IReadOnlyList<ReviewFact> Facts => ItemCount == 1 ? Items[0].Facts : [];
     public string ConfidenceSummary => ItemCount == 1 ? Items[0].ConfidenceSummary : string.Empty;
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 13): how sure the matches are, in the words every app on the sheet shares, or null when the
+    /// apps differ. A shared answer is said once above the list instead of in a column that reads the same on every row.
+    /// </summary>
+    public string? SharedConfidence => Items.Select(item => item.ConfidenceSummary).Distinct(StringComparer.Ordinal).Take(2).ToArray() is [var only] ? only : null;
+
+    /// <summary>The line above the list for <see cref="SharedConfidence"/>, or null when each row shows its own.</summary>
+    public string? SharedConfidenceLine => SharedConfidence is not { } shared ? null : ItemCount == 1 ? $"How sure: {shared}." : $"How sure: {shared}, for every app.";
     public IReadOnlyList<string> ConfidenceEvidence => ItemCount == 1 ? Items[0].ConfidenceEvidence : [];
     public IReadOnlyList<ReviewRiskCallout> Risks { get; }
     /// <summary>The existing running-app coverage disclosure; required content, shown de-emphasised.</summary>

@@ -62,14 +62,22 @@ public sealed partial class MainWindow : Window
     private Button? titleBarBack;
     private NavigationView? navigationView;
     private ScrollViewer? pageHost;
+    // UI review 2026-11-13 (item 13): a page's action bar, kept in view under the scrolling page. A page sets pageFooter while it
+    // is built (the update review's Cancel and update buttons); it is cleared before every page is built.
+    private Border? pageFooterHost;
+    private FrameworkElement? pageFooter;
     private ShellPage? renderedPage;
     private Button? operationCancel;
     private InventoryRow? detailRow;
+    // UI review 2026-11-13 (item 11): whether "Match it yourself" is open on app details; closed each time details are opened.
+    private bool detailMatchFormOpen;
+    // UI review 2026-11-13 (item 12): the line shown after a pin, ignore, skip or confirmed match, with Undo, on the page it was made on.
+    private DecisionNotice? decisionNotice;
+    private ShellPage decisionNoticePage;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
     private bool onboardingAcknowledging;
     private bool startupStateLoadFailed;
-    private ResultsFilter resultsFilter = ResultsFilter.All;
     private Border? operationBand;
     private TextBlock? operationStatusText;
     private TextBlock? scanPageStatusText;
@@ -106,8 +114,6 @@ public sealed partial class MainWindow : Window
     // Task 73 Phase 5 (AC-UX-01/09): the control Ctrl+F focuses on the current page, and the last operation state the live region spoke.
     private Control? pageSearchTarget;
     private string? lastOperationState;
-
-    private enum ResultsFilter { All, Actionable, NeedsDecision, Unavailable, Unmanaged }
 
     private const int MinimumWindowWidth = WindowMinimumSize.EffectiveWidth;
     private const int MinimumWindowHeight = WindowMinimumSize.EffectiveHeight;
@@ -257,9 +263,6 @@ public sealed partial class MainWindow : Window
         ShellPage.Settings => BuildSettingsPage(),
         ShellPage.About => BuildAboutPage(),
         ShellPage.Scan => BuildScanPage(),
-        ShellPage.Results => BuildResultsPage(),
-        ShellPage.Review => BuildReviewPage(),
-        ShellPage.RepositoryApps => BuildRepositoryAppsPage(),
         ShellPage.Detail => BuildProductDetailPage(),
         ShellPage.Storage => BuildStoragePage(),
         ShellPage.Privacy => BuildPrivacyPage(),

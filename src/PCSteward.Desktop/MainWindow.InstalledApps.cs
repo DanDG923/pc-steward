@@ -23,7 +23,8 @@ public sealed partial class MainWindow
     /// <summary>
     /// FR-UI-01, AC-UX-03 (Task 73 Phase 3; ADR-030 decision 5; audit P-L7): saved filters (All, Updates, Needs review, No update source,
     /// Pinned &amp; ignored) with counts over every saved app, search, and the detailed filters behind "Filters". The list stays
-    /// virtualized with a bounded height inside the page host; phase 5 grows that height to the bottom of the window. Repository apps stays reachable from the header's More options.
+    /// virtualized with a bounded height inside the page host; phase 5 grows that height to the bottom of the window. UI review 2026-11-13
+    /// (item 14): the Repository apps page is now the "Has an update source" tab here.
     /// UI polish phase 4 (approved target T-Installed): a quiet freshness line, filter tabs, one toolbar (search, sort, Filters and
     /// the count), column headings, and the list in one card. "No update source" is plain text with a calm footnote, not a badge
     /// on every row. Owner decision 2026-11-11: every inventory record keeps its own row here (Updates shows same-app records once).
@@ -35,17 +36,7 @@ public sealed partial class MainWindow
         scan.IsEnabled = !HasActiveOperation;
         scan.AccessKey = "S";
         scan.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
-        MenuFlyoutItem repositoryApps = new() { Text = "Repository apps", Icon = new FontIcon { Glyph = "\uE74C" } };
-        repositoryApps.Click += (_, _) => NavigateTo(ShellPage.RepositoryApps);
-        MenuFlyout moreMenu = new();
-        moreMenu.Items.Add(repositoryApps);
-        Button more = new() { Content = new FontIcon { Glyph = "\uE712", FontSize = 16 }, Flyout = moreMenu, Padding = new Thickness(StewardSpacing.Small) };
-        AutomationProperties.SetName(more, "More options");
-        ToolTipService.SetToolTip(more, "More options");
-        StewardWrapPanel headerActions = StewardVisuals.ActionRow();
-        headerActions.Children.Add(scan);
-        headerActions.Children.Add(more);
-        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", InstalledAppsFilters.PageDescription, null, headerActions));
+        panel.Children.Add(StewardVisuals.PageHeader("Installed apps", InstalledAppsFilters.PageDescription, null, scan));
         // When the inventory was last read is a fact, not a warning, so it is a quiet line rather than a banner.
         panel.Children.Add(StewardVisuals.FootNote("\uE81C", InstalledAppsFilters.ScannedText(viewModel.LastScanAt, DateTimeOffset.UtcNow)));
 
@@ -53,7 +44,8 @@ public sealed partial class MainWindow
         // Audit P-M9: filter tabs wrap instead of scrolling sideways or clipping.
         List<Button> savedFilters = [];
         // UI review 2026-11-13 (fault 3): the tabs count what the list can show, so system components count only when they are listed.
-        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows))
+        // UI review 2026-11-13 (item 14): "Has an update source" lists the apps the Repository apps page used to.
+        foreach (InstalledAppsFilterOption option in InstalledAppsFilters.Options(viewModel.ListedRows, viewModel.UpdateSourceKeys))
         {
             bool selected = viewModel.SavedFilter == option.Filter;
             // The selected filter stays focusable (bold label, accent bar and "Selected" item status) so a refresh can restore focus to it.
@@ -116,6 +108,21 @@ public sealed partial class MainWindow
         }
         panel.Children.Add(toolbar);
         panel.Children.Add(moreFilters);
+        // UI review 2026-11-13 (item 14): matches that only need a yes can be confirmed together, here under "Check the match".
+        // The line counts the apps the list shows now, so a search or filter narrows what would be confirmed, and the dialog
+        // names them. The confirmation dialog, the validation of each match and Undo on Decisions are unchanged; nothing is updated.
+        InventoryRow[] currentMatches = [];
+        TextBlock confirmText = new() { Foreground = StewardVisuals.Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Button confirmAll = StewardVisuals.ActionButton(InstalledAppsFilters.ConfirmCurrentMatchesLabel, "(the listed apps that are already on the version their match lists)");
+        confirmAll.IsEnabled = !HasActiveOperation;
+        confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);
+        Grid.SetColumn(confirmAll, 1);
+        Grid confirmRow = new() { ColumnSpacing = StewardSpacing.Large, Visibility = Visibility.Collapsed };
+        confirmRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        confirmRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        confirmRow.Children.Add(confirmText);
+        confirmRow.Children.Add(confirmAll);
+        panel.Children.Add(confirmRow);
 
         // Bounded height keeps the list virtualized inside the page's own scroll host (wheel scrolling chains to the page at the ends).
         // Phase 5: the bound follows the window, so the card reaches the bottom of a tall window (never shorter than MinimumListHeight).
@@ -124,7 +131,17 @@ public sealed partial class MainWindow
         AutomationProperties.SetAutomationId(list, "InstalledAppsList");
         Border listCard = new() { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall), Child = list };
         StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);
-        Border empty = StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters to see more apps.");
+        // "Has an update source" lists nothing while update checks are off, so its empty state says that and opens Settings.
+        bool checksOff = viewModel.SavedFilter == InstalledAppsFilter.HasUpdateSource && !viewModel.IsUpdateSourceEnabled;
+        Button? openSettings = null;
+        if (checksOff)
+        {
+            openSettings = StewardVisuals.ActionButton("Open Settings", "(to turn on update checks)");
+            openSettings.Click += (_, _) => NavigateTo(ShellPage.Settings);
+        }
+        Border empty = checksOff
+            ? StewardVisuals.EmptyState("\uE721", InstalledAppsFilters.ChecksOffTitle, InstalledAppsFilters.ChecksOffMessage, openSettings)
+            : StewardVisuals.EmptyState("\uE721", "No apps match", "Change the search or filters to see more apps.");
         // Column headings line up with StewardApplicationRowTemplate (32 | 3* | 1* | 1* | 1.4* | 16), inside the card's row padding.
         Grid columns = new() { Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0), ColumnSpacing = StewardSpacing.Large };
         foreach (GridLength width in new[] { new GridLength(32), new GridLength(3, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1.4, GridUnitType.Star), new GridLength(16) })
@@ -141,6 +158,11 @@ public sealed partial class MainWindow
         {
             viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
             RenderInventory(list);
+            currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.VisibleRows
+                .Where(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))
+                .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)];
+            confirmText.Text = InstalledAppsFilters.ConfirmCurrentMatchesText(currentMatches.Length);
+            confirmRow.Visibility = currentMatches.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             matching.Text = InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.ListedRows.Count);
             bool none = viewModel.VisibleRows.Count == 0;
             listCard.Visibility = none ? Visibility.Collapsed : Visibility.Visible;

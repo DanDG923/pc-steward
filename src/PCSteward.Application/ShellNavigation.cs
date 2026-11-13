@@ -2,7 +2,10 @@ using System.ComponentModel;
 
 namespace PCSteward.Application;
 
-/// <summary>Every Desktop page. The first seven are navigation items (ADR-030); the rest are contextual pages.</summary>
+/// <summary>
+/// Every Desktop page. The first seven are navigation items (ADR-030); the rest are contextual pages. UI review 2026-11-13
+/// (item 14): the older Scan results, Review decisions and Repository apps pages are gone; Updates and Installed apps do their work.
+/// </summary>
 public enum ShellPage
 {
     Home,
@@ -13,9 +16,6 @@ public enum ShellPage
     Settings,
     About,
     Scan,
-    Results,
-    Review,
-    RepositoryApps,
     Detail,
     Storage,
     /// <summary>The Data &amp; reset subpage under Settings (Task 73 Phase 4); the enum name is unchanged.</summary>
@@ -112,9 +112,9 @@ public sealed class ShellNavigation : INotifyPropertyChanged
     /// <summary>The navigation item that owns a contextual page.</summary>
     public static ShellPage ParentOf(ShellPage page) => page switch
     {
-        ShellPage.Scan or ShellPage.Results or ShellPage.Onboarding => ShellPage.Home,
-        ShellPage.Review or ShellPage.UpdateJob => ShellPage.Updates,
-        ShellPage.RepositoryApps or ShellPage.Detail => ShellPage.InstalledApps,
+        ShellPage.Scan or ShellPage.Onboarding => ShellPage.Home,
+        ShellPage.UpdateJob => ShellPage.Updates,
+        ShellPage.Detail => ShellPage.InstalledApps,
         ShellPage.Storage or ShellPage.Privacy => ShellPage.Settings,
         _ => page
     };
@@ -130,9 +130,6 @@ public sealed class ShellNavigation : INotifyPropertyChanged
         ShellPage.Settings => "Settings",
         ShellPage.About => "About",
         ShellPage.Scan => "Scan",
-        ShellPage.Results => "Inventory results",
-        ShellPage.Review => "Review decisions",
-        ShellPage.RepositoryApps => "Repository apps",
         ShellPage.Detail => "App details",
         ShellPage.Storage => "Storage",
         ShellPage.Privacy => "Data & reset",

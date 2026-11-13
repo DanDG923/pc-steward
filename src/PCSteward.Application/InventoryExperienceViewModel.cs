@@ -67,7 +67,7 @@ public sealed class InventoryExperienceViewModel
     public string ScopeFilter { get; private set; } = "All scopes";
     public string StatusFilter { get; private set; } = "All statuses";
     public string SortField { get; private set; } = "Name";
-    /// <summary>Task 73 Phase 3: the saved Installed apps filter (All, Updates, Needs review, Unmanaged, Pinned &amp; ignored).</summary>
+    /// <summary>Task 73 Phase 3: the saved Installed apps filter (All, Update ready, Check the match, Has an update source, No update source, Pinned, ignored &amp; skipped).</summary>
     public InstalledAppsFilter SavedFilter { get; private set; } = InstalledAppsFilter.All;
     /// <summary>The package-source snapshots from the latest assessment, for freshness in words (FR-UI-05). Presentation only.</summary>
     public IReadOnlyCollection<SourceSnapshot> Sources { get; private set; } = [];
@@ -79,14 +79,19 @@ public sealed class InventoryExperienceViewModel
     public IReadOnlyDictionary<UpdateIntelligenceStatus, int> UpdateStatusCounts { get; private set; } = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
     public IReadOnlyCollection<UpdateIntelligenceItem> AttentionNeeded { get; private set; } = [];
     public IReadOnlyDictionary<string, UpdateDetail> UpdateDetails { get; private set; } = new Dictionary<string, UpdateDetail>(StringComparer.Ordinal);
-    /// <summary>Installed products with a concrete package identity from an enabled trusted repository.</summary>
-    public IReadOnlyList<InventoryRow> RepositoryManagedRows => !IsUpdateSourceEnabled ? [] : allRows
-        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable)
+    /// <summary>
+    /// Installed apps matched to a package in an update source that is turned on. UI review 2026-11-13 (item 14): these are the
+    /// apps under "Has an update source" on Installed apps, which replaces the Repository apps page.
+    /// </summary>
+    public IReadOnlyList<InventoryRow> RowsWithUpdateSource => !IsUpdateSourceEnabled ? [] : allRows
+        .Where(row => row.Status is nameof(UpdateIntelligenceStatus.Current) or nameof(UpdateIntelligenceStatus.VerifiedUpdate) or nameof(UpdateIntelligenceStatus.ReviewRequired) or nameof(UpdateIntelligenceStatus.FailedUnavailable) or nameof(UpdateIntelligenceStatus.Skipped)
             && UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail)
             && !string.IsNullOrWhiteSpace(detail.SourceId)
             && !string.IsNullOrWhiteSpace(detail.PackageId))
         .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
         .ToArray();
+    /// <summary>The keys of <see cref="RowsWithUpdateSource"/>, for the "Has an update source" tab and its count.</summary>
+    public IReadOnlySet<string> UpdateSourceKeys => RowsWithUpdateSource.Select(row => row.StableProductKey).ToHashSet(StringComparer.Ordinal);
     public string UpdateFreshnessLabel { get; private set; } = "Update checks are off.";
     public IReadOnlyCollection<string> SourceFreshnessLabels { get; private set; } = [];
     public bool IsCheckingUpdates { get; private set; }
@@ -106,6 +111,8 @@ public sealed class InventoryExperienceViewModel
         if (index < 0 || (Connectors[index].IsEssential && !enabled)) return;
         ConnectorOption connector = Connectors[index]; Connectors[index] = connector with { IsEnabled = enabled };
         if (!IsScanning) ScanPhase = LastScanAt is null ? ReadyToScan : ShowingLastScan;
+        // "Has an update source" lists nothing while update checks are off, so that tab follows the switch.
+        if (SavedFilter == InstalledAppsFilter.HasUpdateSource) ApplyFilters();
     }
 
     public void SetFilters(string? search, string? status, string? publisher, string? source, string? scope, string? sortField)
@@ -276,7 +283,8 @@ public sealed class InventoryExperienceViewModel
 
     private void ApplyFilters()
     {
-        IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row.Status));
+        IReadOnlySet<string>? withUpdateSource = SavedFilter == InstalledAppsFilter.HasUpdateSource ? UpdateSourceKeys : null;
+        IEnumerable<InventoryRow> rows = ListedRows.Where(row => InstalledAppsFilters.Matches(SavedFilter, row, withUpdateSource));
         if (!string.IsNullOrWhiteSpace(SearchText)) rows = rows.Where(row => row.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) || row.Publisher.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
         if (StatusFilter != "All statuses") rows = rows.Where(row => row.Status == StatusFilter);
         if (PublisherFilter != "All publishers") rows = rows.Where(row => row.Publisher == PublisherFilter);

@@ -293,19 +293,22 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(source, "BuildProductDetailPage()");
         StringAssert.Contains(source, "NavigateTo(ShellPage.Detail)");
         StringAssert.Contains(source, "Header = \"Technical details\"");
-        StringAssert.Contains(source, "InventoryRow[] decisions");
-        StringAssert.Contains(source, "Needs a decision");
-        StringAssert.Contains(source, "Confirm match");
-        StringAssert.Contains(source, "Confirm all current package identities");
+        // UI review 2026-11-13 (item 14) deliberately removes the Review decisions page: matches are checked on Updates and app
+        // details, and those that only need a yes are confirmed together from Installed apps.
+        Assert.IsFalse(source.Contains("BuildReviewPage", StringComparison.Ordinal));
+        StringAssert.Contains(source, "AppDetailSummaryPresenter.SameAppLabel");
+        StringAssert.Contains(source, "InstalledAppsFilters.ConfirmCurrentMatchesLabel");
     }
 
     [TestMethod]
     public void UpdateReviewDisclosesAdministratorRequirementBeforeExecution()
     {
         string source = DesktopWindowSource.Read(FindRepositoryRoot());
-        int detailRequirement = source.IndexOf("AdministratorRequirementPresenter.BeforeReview()", StringComparison.Ordinal);
-        // Task 73 Phase 5 (WCAG 2.5.3): the name is built from the visible label, so it still reads "Review and update this verified package. …".
-        int reviewButton = source.IndexOf("StewardVisuals.PrimaryButton(\"Review and update\", $\"this verified package. {administratorRequirement.Label}\")", detailRequirement, StringComparison.Ordinal);
+        // UI review 2026-11-13 (item 11) deliberately removes the details page's "Administrator requirement unknown" banner: before
+        // the review the requirement isn't known, so details says only what is known (the note for an app installed for everyone)
+        // and its "Update…" button opens the review, which states the requirement before anything can be confirmed.
+        int detailRequirement = source.IndexOf("AppDetailSummaryPresenter.Build(row, detail, viewModel.IsUpdateSourceEnabled, activeDecisions, viewModel.Sources, DateTimeOffset.UtcNow)", StringComparison.Ordinal);
+        int reviewButton = source.IndexOf("update.Click += async (_, _) => await ReviewAndExecuteAsync([row]);", detailRequirement, StringComparison.Ordinal);
         // Task 73 Phase 6 (SPEC §9.13 G4) deliberately moves the per-app requirement into the portable sheet builder: the Desktop builds
         // one sheet for the frozen set from each reviewed selection, and CreateBatch derives each app's requirement (ForSelection)
         // and the aggregate (ForBatch) before confirmation.
@@ -328,9 +331,8 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(sheetBuilder, "Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection, input.UserInstaller))");
         StringAssert.Contains(sheetBuilder, "AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray(),");
         StringAssert.Contains(sheetBuilder, "inputs.Select(input => input.UserInstaller).ToArray());");
-        StringAssert.Contains(source, "administratorRequirement.Label");
-        StringAssert.Contains(source, "administratorRequirement.Explanation");
-        StringAssert.Contains(source, "AutomationProperties.SetHelpText(review, administratorRequirement.Explanation)");
+        StringAssert.Contains(source, "AutomationProperties.SetHelpText(update, \"Opens the review for this app, which says whether Windows will ask for administrator permission. Nothing is installed until you confirm there.\");");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "AppDetailSummaryPresentation.cs")), "if (string.Equals(row.Scope, \"Machine\", StringComparison.OrdinalIgnoreCase)) notes.Add(AdministratorNote);");
         string reviewStep = source[source.IndexOf("private void AddReviewStep(", StringComparison.Ordinal)..source.IndexOf("private void AddUpdateStep(", StringComparison.Ordinal)];
         StringAssert.Contains(reviewStep, "AutomationProperties.SetHelpText(confirm, sheet.AdministratorRequirement.Explanation);");
         StringAssert.Contains(reviewStep, "if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon");

@@ -41,9 +41,8 @@ public sealed class DesktopFoundationsPresentationTests
             }
         }
         Assert.AreEqual(ShellPage.Home, ShellNavigation.ParentOf(ShellPage.Scan));
-        Assert.AreEqual(ShellPage.Home, ShellNavigation.ParentOf(ShellPage.Results));
-        Assert.AreEqual(ShellPage.Updates, ShellNavigation.ParentOf(ShellPage.Review));
-        Assert.AreEqual(ShellPage.InstalledApps, ShellNavigation.ParentOf(ShellPage.RepositoryApps));
+        Assert.AreEqual(ShellPage.Updates, ShellNavigation.ParentOf(ShellPage.UpdateJob));
+        Assert.AreEqual(ShellPage.InstalledApps, ShellNavigation.ParentOf(ShellPage.Detail));
         Assert.AreEqual(ShellPage.Settings, ShellNavigation.ParentOf(ShellPage.Storage));
         Assert.AreEqual(ShellPage.Settings, ShellNavigation.ParentOf(ShellPage.Privacy));
     }
@@ -73,12 +72,12 @@ public sealed class DesktopFoundationsPresentationTests
         Assert.IsFalse(navigation.GoBack());
 
         navigation.Navigate(ShellPage.Updates);
-        navigation.Navigate(ShellPage.Review);
+        navigation.Navigate(ShellPage.Activity);
         navigation.Navigate(ShellPage.Detail);
-        Assert.AreEqual(ShellPage.Updates, navigation.SelectedItem, "details highlight the page they were opened from");
+        Assert.AreEqual(ShellPage.Activity, navigation.SelectedItem, "details highlight the page they were opened from");
         navigation.Navigate(ShellPage.InstalledApps);
         Assert.IsTrue(navigation.GoBack());
-        Assert.AreEqual(ShellPage.Review, navigation.Current, "details are not returned to with Back");
+        Assert.AreEqual(ShellPage.Activity, navigation.Current, "details are not returned to with Back");
         Assert.IsTrue(navigation.GoBack());
         Assert.AreEqual(ShellPage.Updates, navigation.Current);
         Assert.IsTrue(navigation.GoBack());

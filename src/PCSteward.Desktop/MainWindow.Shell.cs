@@ -160,7 +160,7 @@ public sealed partial class MainWindow
         for (DependencyObject? node = focused; node is not null; node = VisualTreeHelper.GetParent(node))
         {
             if (ReferenceEquals(node, operationBand)) return FocusRegion.OperationBand;
-            if (ReferenceEquals(node, pageHost)) return FocusRegion.Page;
+            if (ReferenceEquals(node, pageHost) || ReferenceEquals(node, pageFooterHost)) return FocusRegion.Page;
             if (ReferenceEquals(node, navigationView)) return FocusRegion.Navigation;
         }
         return null;
@@ -198,6 +198,11 @@ public sealed partial class MainWindow
         {
             operationBand.Background = StewardVisuals.Brush("StewardBrandSubtleBrush");
             operationBand.BorderBrush = StewardVisuals.Brush("StewardBorderBrush");
+        }
+        if (pageFooterHost is not null)
+        {
+            pageFooterHost.Background = StewardVisuals.Brush("StewardSurfaceBrush");
+            pageFooterHost.BorderBrush = StewardVisuals.Brush("StewardBorderBrush");
         }
         if (operationStatusText is not null) operationStatusText.Foreground = StewardVisuals.Brush("StewardTextBrush");
         Render();
@@ -268,6 +273,7 @@ public sealed partial class MainWindow
         Grid shell = new();
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         Grid operation = new() { ColumnSpacing = StewardSpacing.Large };
         operation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -327,6 +333,19 @@ public sealed partial class MainWindow
         Grid.SetRow(pageHost, 1);
         shell.Children.Add(pageHost);
 
+        // UI review 2026-11-13 (item 13): the current page's action bar, when it has one. It sits under the scrolling page, on the
+        // page column's edges, so it stays in view; it comes after the page in tab order and belongs to the page's F6 region.
+        pageFooterHost = new Border
+        {
+            Background = StewardVisuals.Brush("StewardSurfaceBrush"),
+            BorderBrush = StewardVisuals.Brush("StewardBorderBrush"),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(StewardSpacing.PagePadding.Left, StewardSpacing.Medium, StewardSpacing.PagePadding.Right, StewardSpacing.Medium),
+            Visibility = Visibility.Collapsed
+        };
+        Grid.SetRow(pageFooterHost, 2);
+        shell.Children.Add(pageFooterHost);
+
         navigationView = new NavigationView
         {
             PaneDisplayMode = NavigationViewPaneDisplayMode.Auto,
@@ -381,15 +400,29 @@ public sealed partial class MainWindow
         if (pageHost is null) return;
         bool sameView = preserveViewState && renderedPage == navigation.Current;
         double offset = sameView ? pageHost.VerticalOffset : 0;
-        bool focusWasInPage = IsFocusInside(pageHost, out string? focusKey);
+        bool focusWasInPage = IsFocusInside(pageHost, out string? focusKey) || (pageFooterHost is not null && IsFocusInside(pageFooterHost, out focusKey));
         pageInitialFocus = null;
         pageSearchTarget = null;
+        pageFooter = null;
         StackPanel page = BuildPage(navigation.Current);
+        // UI review 2026-11-13 (item 12): the line that says what was just saved, under the header of the page it was made on.
+        if (decisionNotice is { } saved)
+        {
+            if (decisionNoticePage == navigation.Current) page.Children.Insert(Math.Min(1, page.Children.Count), DecisionNoticeBar(saved));
+            else decisionNotice = null;
+        }
         // A page may name the control that takes focus when it is opened, for example Cancel on the update review (Cancel is the default).
         Control? initialFocus = sameView ? null : pageInitialFocus;
         renderedPage = navigation.Current;
         pageHost.Content = page;
         StewardVisuals.FitPageColumn(pageHost);
+        // The page's action bar, if it set one while it was built; a page without one leaves the bar hidden.
+        FrameworkElement? footer = pageFooter;
+        if (pageFooterHost is not null)
+        {
+            pageFooterHost.Child = footer;
+            pageFooterHost.Visibility = footer is null ? Visibility.Collapsed : Visibility.Visible;
+        }
         // Owner feedback on 0.1.1: a page whose main content is an empty state fills the window's height instead of leaving
         // most of a maximised window blank under it.
         if (page.Children.FirstOrDefault(StewardVisuals.IsEmptyState) is FrameworkElement empty) StewardVisuals.FillViewportHeight(page, empty);
@@ -403,7 +436,7 @@ public sealed partial class MainWindow
                 if (offset > 0) RestoreScrollOffset(host, page, offset);
                 if (!focusWasInPage && initialFocus is null) return;
                 // Independent review M3: restore only an unambiguous match; otherwise start at the top of the page.
-                Control? target = (sameView && focusKey is not null ? PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey)) : null)
+                Control? target = (sameView && focusKey is not null ? PageFocusRestore.UniqueMatch(FindFocusTargets(page, focusKey)) ?? (footer is null ? null : PageFocusRestore.UniqueMatch(FindFocusTargets(footer, focusKey))) : null)
                     ?? initialFocus
                     ?? FocusManager.FindFirstFocusableElement(page) as Control;
                 target?.Focus(FocusState.Programmatic);
