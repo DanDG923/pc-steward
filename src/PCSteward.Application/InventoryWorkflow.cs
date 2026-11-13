@@ -35,6 +35,20 @@ public sealed class CompositePostUpdatePackageInventory(IEnumerable<IPostUpdateP
         }
         return false;
     }
+
+    /// <summary>The one linked key the inventories name; none, or two different keys, give null.</summary>
+    public async Task<string?> GetLinkedProductKeyAfterUpdateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    {
+        string? linked = null;
+        foreach (IPostUpdatePackageInventory inventory in inventories)
+        {
+            string? key = await inventory.GetLinkedProductKeyAfterUpdateAsync(job, cancellationToken).ConfigureAwait(false);
+            if (key is null) continue;
+            if (linked is not null && !string.Equals(linked, key, StringComparison.Ordinal)) return null;
+            linked = key;
+        }
+        return linked;
+    }
 }
 
 /// <summary>

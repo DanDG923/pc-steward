@@ -50,10 +50,34 @@ public sealed class WingetPostUpdateRegistryLinkTests
         Assert.IsNull(await slow.ResolveAsync(Job(UpdateProvider.WinGet, UpdateSource.WinGet), CancellationToken.None));
     }
 
+    /// <summary>Codex on PR #81: the desktop composes the inventories, so the composite must pass the link on.</summary>
+    [TestMethod]
+    public async Task TheDesktopCompositePassesOnTheOneLinkedKey()
+    {
+        ImmutableUpdateJob job = Job(UpdateProvider.WinGet, UpdateSource.WinGet);
+        CompositePostUpdatePackageInventory linkedThenNone = new([new LinkedInventory("KEY-A"), new LinkedInventory(null)]);
+        CompositePostUpdatePackageInventory noneThenLinked = new([new LinkedInventory(null), new LinkedInventory("KEY-A")]);
+        CompositePostUpdatePackageInventory sameTwice = new([new LinkedInventory("KEY-A"), new LinkedInventory("KEY-A")]);
+        CompositePostUpdatePackageInventory twoDifferent = new([new LinkedInventory("KEY-A"), new LinkedInventory("KEY-B")]);
+        CompositePostUpdatePackageInventory none = new([new LinkedInventory(null)]);
+
+        Assert.AreEqual("KEY-A", await linkedThenNone.GetLinkedProductKeyAfterUpdateAsync(job, CancellationToken.None));
+        Assert.AreEqual("KEY-A", await noneThenLinked.GetLinkedProductKeyAfterUpdateAsync(job, CancellationToken.None));
+        Assert.AreEqual("KEY-A", await sameTwice.GetLinkedProductKeyAfterUpdateAsync(job, CancellationToken.None));
+        Assert.IsNull(await twoDifferent.GetLinkedProductKeyAfterUpdateAsync(job, CancellationToken.None));
+        Assert.IsNull(await none.GetLinkedProductKeyAfterUpdateAsync(job, CancellationToken.None));
+    }
+
     private static WinGetInstalledLinkObservation Observation() => new(true, true, true, 1, false, "Contoso.Cli", "2.1.0", ["{NEW-CODE}"]);
 
     private static ImmutableUpdateJob Job(UpdateProvider provider, UpdateSource source) =>
         new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection("reviewed-key", provider, source, "Contoso.Cli", "2.0.0", "2.1.0", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+
+    private sealed class LinkedInventory(string? key) : IPostUpdatePackageInventory
+    {
+        public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(true);
+        public Task<string?> GetLinkedProductKeyAfterUpdateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(key);
+    }
 
     private sealed class FixedQuery(WinGetInstalledLinkObservation? observation, bool fail = false, bool hang = false) : IWinGetInstalledLinkQuery
     {
