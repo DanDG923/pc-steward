@@ -210,7 +210,7 @@ public static partial class AppDetailPresenter
             case UserDecisionService.SkipVersionKind:
                 return new(entry.OccurredAt, when, $"Skipped version {value}", Reason(reason), "\uE893", StatusTone.Neutral);
             case "ManualMapping":
-                return new(entry.OccurredAt, when, $"Package identity confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
+                return new(entry.OccurredAt, when, $"Match confirmed: {entry.Summary.Replace("Manual mapping: ", string.Empty, StringComparison.Ordinal)}", Reason(reason), "\uE71B", StatusTone.Neutral);
             case "InventoryScan":
                 return new(entry.OccurredAt, when, "Found in the latest scan", null, "\uE721", StatusTone.Neutral);
             case "Update":

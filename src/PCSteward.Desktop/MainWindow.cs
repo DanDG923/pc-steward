@@ -65,6 +65,11 @@ public sealed partial class MainWindow : Window
     private ShellPage? renderedPage;
     private Button? operationCancel;
     private InventoryRow? detailRow;
+    // UI review 2026-11-13 (item 11): whether "Match it yourself" is open on app details; closed each time details are opened.
+    private bool detailMatchFormOpen;
+    // UI review 2026-11-13 (item 12): the line shown after a pin, ignore, skip or confirmed match, with Undo, on the page it was made on.
+    private DecisionNotice? decisionNotice;
+    private ShellPage decisionNoticePage;
     private IReadOnlyCollection<PCSteward.Domain.RawProviderRecord> detailRaw = [];
     private IReadOnlyCollection<PCSteward.Domain.ProductTimelineEntry> detailTimeline = [];
     private bool onboardingAcknowledging;

@@ -98,10 +98,10 @@ public sealed partial class MainWindow
         container.Children.Add(actions);
     }
 
-    private Button CreateSourceEvidenceRefreshButton(InventoryRow row)
+    private Button CreateSourceEvidenceRefreshButton(InventoryRow row, string label = "Check again")
     {
         Button refresh = StewardVisuals.PrimaryButton(
-            viewModel.IsCheckingUpdates ? "Checking…" : "Check again",
+            viewModel.IsCheckingUpdates ? "Checking…" : label,
             $"for {row.Name}");
         refresh.IsEnabled = viewModel.IsUpdateSourceEnabled && !viewModel.IsCheckingUpdates && !viewModel.IsScanning && !isExecuting;
         AutomationProperties.SetHelpText(refresh, "Looks for updates again. It doesn't download or install anything.");
@@ -115,20 +115,21 @@ public sealed partial class MainWindow
     /// <summary>
     /// FR-POL-03/05 (Task 73 Phase 3; audit P-M1): the one confirmation for recording a package identity, used by the lists, the
     /// review page and every mapping action on app details. It records a reversible mapping after validation; it never approves or
-    /// starts an update. The reason is read on the UI thread before the data-operation lease starts.
+    /// starts an update. The reason is read on the UI thread before the data-operation lease starts. UI review 2026-11-13 (item 12):
+    /// when it is saved the page says so in one line with Undo, instead of a second dialog.
     /// </summary>
     private async Task PromptAndCreateManualMappingAsync(InventoryRow row, string sourceId, string packageId)
     {
         TextBox reason = DecisionReasonBox("Optional reason for confirming this match");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
-        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {sourceId} as {row.Name}. You can undo this later. It does not approve or start an update."));
+        content.Children.Add(PageCopy($"Confirm only if you recognise {packageId} from {StewardPresentation.Provider(sourceId)} as {row.Name}. You can undo this later. It does not approve or start an update."));
         content.Children.Add(reason);
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Confirm match?",
+            Title = "Is this the same app?",
             Content = content,
-            PrimaryButtonText = "Confirm match",
+            PrimaryButtonText = AppDetailSummaryPresenter.SameAppLabel,
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
@@ -137,10 +138,59 @@ public sealed partial class MainWindow
         PCSteward.Domain.ManualMappingValidation validation;
         try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, sourceId, packageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
-        if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Identity not confirmed", validation.Explanation); return; }
+        if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Match not saved", validation.Explanation); return; }
+        LoadSavedInventory();
+        ShowDecisionNotice(DecisionNoticePresenter.MatchConfirmed(row.Name, row.StableProductKey, sourceId, packageId, manualMappings));
+    }
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 12; FR-POL-03/05): after a pin, ignore, skip or confirmed match is saved, the page it was made on
+    /// says so in one line with Undo, instead of a second dialog that waits for Close. The saved data is reloaded before this is
+    /// called, so the notice names exactly the records Undo reverses.
+    /// </summary>
+    private void ShowDecisionNotice(DecisionNotice notice)
+    {
+        decisionNotice = notice;
+        decisionNoticePage = navigation.Current;
+        Render();
+        AnnounceCompletion(notice.Message, "decision-saved");
+    }
+
+    /// <summary>The line for <paramref name="notice"/>: what was saved, an Undo button when its records are known, and a close button.</summary>
+    private InfoBar DecisionNoticeBar(DecisionNotice notice)
+    {
+        Button? undo = null;
+        if (notice.CanUndo)
+        {
+            undo = new Button { Content = DecisionNotice.UndoLabel, IsEnabled = !HasActiveOperation };
+            AutomationProperties.SetName(undo, notice.UndoAccessibleName);
+            undo.Click += async (_, _) => await ReverseDecisionsAsync(notice.DecisionIds, notice.MappingIds);
+        }
+        InfoBar bar = StewardVisuals.InformationBanner("Saved", notice.Message, "success", undo);
+        bar.IsClosable = true;
+        bar.Closed += (_, _) => decisionNotice = null;
+        return bar;
+    }
+
+    /// <summary>
+    /// Reverses decisions and deletes confirmed matches through the existing reversal operations, in one data operation. Used by
+    /// Undo and by app details. It changes saved decisions only; nothing on the PC is changed.
+    /// </summary>
+    private async Task ReverseDecisionsAsync(IReadOnlyList<Guid> decisionIds, IReadOnlyList<Guid> mappingIds)
+    {
+        try
+        {
+            await DataOperationLease.RunAsync(async token =>
+            {
+                foreach (Guid decision in decisionIds) await workflow.ReverseDecisionAsync(decision, token);
+                foreach (Guid mapping in mappingIds) await workflow.DeleteManualMappingAsync(mapping, token);
+            }, CancellationToken.None);
+        }
+        catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
+        decisionNotice = null;
         LoadSavedInventory();
         Render();
-        await ShowUpdateOutcomeAsync("Package identity confirmed", validation.Explanation + " No update was started.");
+        AnnounceCompletion(DecisionNoticePresenter.Undone, "decision-undone");
     }
 
     /// <summary>
@@ -174,8 +224,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        Render();
-        await ShowUpdateOutcomeAsync("Current version pinned", $"{row.Name} is pinned at {row.Version}. No application was changed.");
+        ShowDecisionNotice(DecisionNoticePresenter.Pinned(row.Name, row.Version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
     }
 
     /// <summary>Ignores the app after the confirmation, for <paramref name="sameApp"/> too (other records of the same app, phase 3).</summary>
@@ -185,7 +234,7 @@ public sealed partial class MainWindow
         DatePicker ignoreUntil = new() { Header = "Ignore until", IsEnabled = false, Date = DateTimeOffset.UtcNow.AddDays(30) };
         ignoreUntilEnabled.Checked += (_, _) => ignoreUntil.IsEnabled = true;
         ignoreUntilEnabled.Unchecked += (_, _) => ignoreUntil.IsEnabled = false;
-        TextBox reason = DecisionReasonBox("Optional reason for ignoring this product");
+        TextBox reason = DecisionReasonBox("Optional reason for ignoring this app");
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
         content.Children.Add(PageCopy($"Ignore {row.Name} indefinitely, or select an end date below. You can reverse this decision on the Decisions page. No application is changed."));
         content.Children.Add(ignoreUntilEnabled);
@@ -194,9 +243,9 @@ public sealed partial class MainWindow
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
-            Title = "Ignore this product?",
+            Title = "Ignore updates for this app?",
             Content = content,
-            PrimaryButtonText = "Ignore product",
+            PrimaryButtonText = "Ignore updates",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
@@ -213,8 +262,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        Render();
-        await ShowUpdateOutcomeAsync("Product ignored", ignoredUntil is null ? $"{row.Name} is ignored until you reverse the decision. No application was changed." : $"{row.Name} is ignored until {DisplayFormat.Date(ignoredUntil.Value)}. No application was changed.");
+        ShowDecisionNotice(DecisionNoticePresenter.Ignored(row.Name, ignoredUntil, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
     }
 
     /// <summary>
@@ -249,8 +297,7 @@ public sealed partial class MainWindow
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         LoadSavedInventory();
-        Render();
-        await ShowUpdateOutcomeAsync("Version skipped", $"Version {version} of {row.Name} won't be offered. A newer version will be. No application was changed.");
+        ShowDecisionNotice(DecisionNoticePresenter.Skipped(row.Name, version, [row.StableProductKey, .. (sameApp ?? []).Select(same => same.StableProductKey)], activeDecisions));
     }
 
     private static TextBox DecisionReasonBox(string placeholder) => new() { Header = "Optional reason", PlaceholderText = placeholder, MaxLength = 512 };

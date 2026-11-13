@@ -308,16 +308,23 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(sharedActions, "RequiresFreshSourceEvidence: true");
         StringAssert.Contains(sharedActions, "CreateSourceEvidenceRefreshButton(row)");
         Assert.IsFalse((results + review + sharedActions).Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
-        StringAssert.Contains(detail, "RequiresFreshSourceEvidence: true");
-        StringAssert.Contains(detail, "CreateSourceEvidenceRefreshButton(row)");
-        StringAssert.Contains(detail, "Matching packages from your sources");
-        StringAssert.Contains(detail, "Confirm selected identity");
+        // UI review 2026-11-13 (item 11) deliberately replaces the details page's Decisions card: the portable presenter chooses the
+        // one main action (check again only when a fresh check could help), and the page builds exactly that button.
+        StringAssert.Contains(detail, "AppDetailSummaryPresenter.Build(row, detail, viewModel.IsUpdateSourceEnabled, activeDecisions, viewModel.Sources, DateTimeOffset.UtcNow)");
+        StringAssert.Contains(detail, "leadActions.Children.Add(CreateSourceEvidenceRefreshButton(row, summary.ActionLabel));");
+        StringAssert.Contains(detail, "Header = \"Possible matches\"");
+        StringAssert.Contains(detail, "case AppDetailAction.ChooseMatch when candidatePicker is not null:");
         StringAssert.Contains(detail, "CreateManualMappingAsync");
+        StringAssert.Contains(ApplicationSource("AppDetailSummaryPresentation.cs"), "else if (canCheck) { action = AppDetailAction.CheckAgain; actionLabel = CheckAgainLabel; }");
         StringAssert.Contains(results, "ResultsFilter.Unavailable");
         StringAssert.Contains(results, "FailedUnavailable");
         StringAssert.Contains(results, "there is no decision or update to approve");
-        StringAssert.Contains(detail, "sourceEvidenceUnavailable ? \"Available next step\" : \"Decisions\"");
-        StringAssert.Contains(detail, "if (!sourceEvidenceUnavailable)");
+        Assert.AreEqual(1, Count(detail, "ReviewAndExecuteAsync("), "details reaches the review only from its Update button");
+        Assert.IsFalse(detail.Contains("ActionButton(\"Back\"", StringComparison.Ordinal), "the title bar's Back is the only Back button");
+        // While it's unknown whether an update exists there is nothing to pin, ignore or match: the presenter offers no menu
+        // entries for that state (AppDetailSummaryTests) and the page adds no match entry either.
+        StringAssert.Contains(detail, "if (!summary.OffersMatchItYourself && !sourceEvidenceUnavailable)");
+        StringAssert.Contains(detail, "map.IsEnabled = viewModel.IsUpdateSourceEnabled && !sourceEvidenceUnavailable && !HasActiveOperation;");
         // The FailedUnavailable chip label comes from the portable vocabulary: "Couldn't check" (UI review 2026-11-13, item 5; SPEC §7.2 "Source unavailable").
         StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "new(nameof(UpdateIntelligenceStatus.FailedUnavailable), \"Couldn't check\"");
         StringAssert.Contains(ApplicationSource("StatusVocabulary.cs"), "it can't be updated until then");
@@ -397,9 +404,15 @@ public sealed class UiRedesignContractTests
         string overflow = Between(source, "private Button UpdateRowOverflow(", DesktopWindowSource.EndOf("MainWindow.Updates.cs"));
         // UI polish phase 3: a row that stands for several records of one app passes those records along, so the same confirmed
         // decision is recorded (or reversed) for each of them.
-        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row, sameApp)", "PromptAndPinCurrentVersionAsync(row, sameApp)", "PromptAndSkipVersionAsync(row, version, sameApp)", "ShowDetailsAsync(row)", "workflow.ReverseDecisionAsync(decisionId, token)", "foreach (Guid other in alsoReverse) await workflow.ReverseDecisionAsync(other, token);" })
+        foreach (string operation in new[] { "PromptAndIgnoreProductAsync(row, sameApp)", "PromptAndPinCurrentVersionAsync(row, sameApp)", "PromptAndSkipVersionAsync(row, version, sameApp)", "ShowDetailsAsync(row)", "await ReverseDecisionsAsync([decisionId, .. presentation.AlsoFound.Select(other => other.DecisionId).OfType<Guid>()], []);" })
             StringAssert.Contains(overflow, operation);
         Assert.IsFalse(overflow.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
+        // UI review 2026-11-13 (item 12): reversal is one shared operation, used by the overflow, app details and Undo. It only calls
+        // the existing reversal operations.
+        string reversal = Between(source, "private async Task ReverseDecisionsAsync(IReadOnlyList<Guid> decisionIds, IReadOnlyList<Guid> mappingIds)", "private async Task PromptAndPinCurrentVersionAsync(");
+        StringAssert.Contains(reversal, "foreach (Guid decision in decisionIds) await workflow.ReverseDecisionAsync(decision, token);");
+        StringAssert.Contains(reversal, "foreach (Guid mapping in mappingIds) await workflow.DeleteManualMappingAsync(mapping, token);");
+        Assert.IsFalse(reversal.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal));
         // The skip prompt uses the existing decision confirmation pattern: Cancel default, optional bounded reason, and no update authority.
         string skip = Between(source, "private async Task PromptAndSkipVersionAsync(InventoryRow row, string version, IReadOnlyList<InventoryRow>? sameApp = null)", "private static TextBox DecisionReasonBox(");
         StringAssert.Contains(skip, "DefaultButton = ContentDialogButton.Close");
@@ -505,8 +518,8 @@ public sealed class UiRedesignContractTests
         Assert.IsTrue(guard >= 0 && set > guard && begin > set && reset > begin && sheet > reset, "preparingReview wraps BeginReviewAsync only");
         StringAssert.Contains(source, "private const string PreparingReviewLabel = \"Preparing review…\";");
         StringAssert.Contains(source, "? PreparingReviewLabel");
-        string detail = Between(source, "Button review = StewardVisuals.PrimaryButton(\"Review and update\"", "decisionActions.Children.Add(review);");
-        StringAssert.Contains(detail, "review.IsEnabled = !HasActiveOperation && reviewDecision is null;");
+        string detail = Between(source, "Button update = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : summary.ActionLabel", "leadActions.Children.Add(update);");
+        StringAssert.Contains(detail, "update.IsEnabled = !HasActiveOperation && reviewDecision is null;");
 
         // Items 2 and 10: a decided sheet renders both buttons disabled; Confirm also waits for any active operation.
         StringAssert.Contains(reviewStep, "bool decided = decision.Task.IsCompleted;");
