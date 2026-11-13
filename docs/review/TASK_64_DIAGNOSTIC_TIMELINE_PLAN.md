@@ -1,6 +1,6 @@
 # Task 64 — Bounded local diagnostic timeline: staged build plan and interfaces
 
-**Status:** In progress (stages 1–3 of 5 built). Owner started Phase F on 2026-11-13 alongside the D4b update work; that instruction is the explicit order exception the Phase F brief requires (Phases D installs and E removals are paused by the owner). ADR-027 is Accepted; nothing here widens it.
+**Status:** In progress (stages 1–4 of 5 built). Owner started Phase F on 2026-11-13 alongside the D4b update work; that instruction is the explicit order exception the Phase F brief requires (Phases D installs and E removals are paused by the owner). ADR-027 is Accepted; nothing here widens it.
 
 **Owner choices (2026-11-13):** the timeline lives on a new **Diagnostics** page in the navigation, not on Activity. Reliability is read through one narrow, time-filtered, cancellable WMI query unless the owner prefers it shown as unsupported in v1.
 
@@ -53,6 +53,17 @@ Application (`src/PCSteward.Application/DiagnosticCollection.cs`):
 - `WindowsDiagnosticReaders.Create()` returns the four readers for the stage 4 page. Anything the route returns outside the allowlist is passed on as `DiagnosticRecordCandidate.Unreadable`, so admission counts it as rejected and the source is reported as partial.
 
 **For the stage 5 host check (not yet proven on the owner's PC):** the exact provider names and the Kernel-Power `BugcheckCode` value type on Windows 11; the Reliability source names and whether WMI returns newest records first when a source is truncated; that `IUpdateHistoryEntry.Date` is UTC; read access for a standard user. CI proves only that Windows accepts both event log queries.
+
+## Stage 4 Diagnostics page (implemented, synthetic and CI evidence only)
+
+`src/PCSteward.Application/DiagnosticsPresentation.cs`, `src/PCSteward.Desktop/MainWindow.Diagnostics.cs`:
+
+- **Navigation.** `ShellPage.Diagnostics` is an eighth navigation item, after Activity (owner's choice of a new page; ADR-030's seven items plus this one). Activity says what PC Steward did; Diagnostics sets that beside what Windows recorded.
+- **Consent each time.** "Collect a timeline…" opens a dialog naming the five sources in collection order and what each reads, what is never read, the 7-day lookback and the 30-day keep. Every source is ticked by default; Collect needs at least one. The dialog's answer becomes one `DiagnosticCollectionConsent` (policy version 1), spent by that collection. Nothing is remembered and nothing runs in the background.
+- **Collection.** A fresh `DiagnosticCollectionOrchestrator` per consent (PC Steward history read under the common data gate, then the four stage 3 readers; the account, domain and computer names are the redaction tokens). It runs off the UI thread with "Stop collecting"; a stop or failure saves nothing. A completed snapshot is saved with the shown timeline protected from pruning; timelines removed early to make room are disclosed.
+- **Timeline.** The newest saved timeline opens by itself: a summary (records, sources read, dates, kept until), a warning when partial or when nothing could be read (never a clean result), "What was read" with every source's result in words, then day groups newest first. Each record is a closed row (kind, subject, outcome, time) whose facts, the fixed unexpected-shutdown note and any PC Steward change within 15 minutes (with the fixed noncausal note) are inside. Records without a usable time are listed apart. Older saved timelines are listed under it.
+- **Export.** "Export…" previews the record count and each source's result, warns that app names and error codes are included, then asks where to save. The file is one JSON object (`pc-steward-diagnostic-timeline`, format 1): policy version, times, every source result and each record in the stored canonical projection. Over 8 MiB it is refused, not cut.
+- **Clear scan data** names saved diagnostic timelines on its card and dialog, and the page reads its list again afterwards.
 
 ## Out of scope here
 

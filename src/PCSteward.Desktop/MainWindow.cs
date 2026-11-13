@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly ChocolateyClientReleaseCatalogFacts chocolateyClientReleases;
     private readonly Func<CancellationToken, Task<ChocolateyInstalledClientVerification>> checkInstalledChocolateyClient;
     private readonly Func<ChocolateyClientUpdateReviewSession> createChocolateyClientUpdateSession;
+    private readonly DiagnosticsServices diagnostics;
     private ChocolateyClientUpdateReviewDialog? activeChocolateyClientUpdate;
     private readonly Func<ChocolateyPackageUpdateReviewSession> createChocolateyPackageUpdateSession;
     private ChocolateyPackageUpdateReviewDialog? activeChocolateyPackageUpdate;
@@ -157,10 +158,10 @@ public sealed partial class MainWindow : Window
         public UpdateBatchStop Stop { get; } = new();
     }
 
-    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, ChocolateyClientReleaseCatalogFacts chocolateyClientReleases, Func<CancellationToken, Task<ChocolateyInstalledClientVerification>> checkInstalledChocolateyClient, Func<ChocolateyClientUpdateReviewSession> createChocolateyClientUpdateSession, Func<ChocolateyPackageUpdateReviewSession> createChocolateyPackageUpdateSession, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
+    public MainWindow(InventoryWorkflow workflow, InventoryExperienceViewModel viewModel, DownloadedArtifactCache downloads, ReviewedUpdateExecutionWorkflow updates, IScheduledCheckSettingsStore scheduleSettingsStore, ScheduledCheckRegistrationService scheduleRegistration, IReviewedUpdateHistoryReader reviewedHistory, IActivityHistoryReader activityHistory, Func<ReviewedRouteSplitTokenState> probeReviewedRouteSplitToken, ChocolateyClientReleaseCatalogFacts chocolateyClientReleases, Func<CancellationToken, Task<ChocolateyInstalledClientVerification>> checkInstalledChocolateyClient, Func<ChocolateyClientUpdateReviewSession> createChocolateyClientUpdateSession, Func<ChocolateyPackageUpdateReviewSession> createChocolateyPackageUpdateSession, DiagnosticsServices diagnostics, bool showPostResetOnboarding = false, Func<FactoryResetResult>? acknowledgeResetOnboarding = null)
     {
         this.workflow = workflow; this.viewModel = viewModel; this.downloads = downloads; this.updates = updates; this.scheduleSettingsStore = scheduleSettingsStore; this.scheduleRegistration = scheduleRegistration; this.acknowledgeResetOnboarding = acknowledgeResetOnboarding;
-        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken)); this.chocolateyClientReleases = chocolateyClientReleases ?? throw new ArgumentNullException(nameof(chocolateyClientReleases)); this.checkInstalledChocolateyClient = checkInstalledChocolateyClient ?? throw new ArgumentNullException(nameof(checkInstalledChocolateyClient)); this.createChocolateyClientUpdateSession = createChocolateyClientUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyClientUpdateSession)); this.createChocolateyPackageUpdateSession = createChocolateyPackageUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyPackageUpdateSession));
+        this.reviewedHistory = reviewedHistory ?? throw new ArgumentNullException(nameof(reviewedHistory)); this.activityHistory = activityHistory ?? throw new ArgumentNullException(nameof(activityHistory)); this.probeReviewedRouteSplitToken = probeReviewedRouteSplitToken ?? throw new ArgumentNullException(nameof(probeReviewedRouteSplitToken)); this.chocolateyClientReleases = chocolateyClientReleases ?? throw new ArgumentNullException(nameof(chocolateyClientReleases)); this.checkInstalledChocolateyClient = checkInstalledChocolateyClient ?? throw new ArgumentNullException(nameof(checkInstalledChocolateyClient)); this.createChocolateyClientUpdateSession = createChocolateyClientUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyClientUpdateSession)); this.createChocolateyPackageUpdateSession = createChocolateyPackageUpdateSession ?? throw new ArgumentNullException(nameof(createChocolateyPackageUpdateSession)); this.diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         updateProgressTimer = DispatcherQueue.CreateTimer();
         updateProgressTimer.Interval = TimeSpan.FromMilliseconds(250);
         Closed += (_, _) => { windowClosed = true; reviewDecision?.TrySetResult(false); reviewPreparationCancellation?.Cancel(); StopUpdateProgressPolling(); updateProgressMailbox = null; updateProgressPresentation = null; };
@@ -289,6 +290,7 @@ public sealed partial class MainWindow : Window
         ShellPage.Privacy => BuildPrivacyPage(),
         ShellPage.Onboarding => BuildOnboardingPage(),
         ShellPage.UpdateJob => BuildUpdateJobPage(),
+        ShellPage.Diagnostics => BuildDiagnosticsPage(),
         _ => BuildHomePage()
     };
 

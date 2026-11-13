@@ -157,7 +157,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
             });
         // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, CreateDiagnostics(database), showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database));
         ActivateWindow(window);
         }
         catch (Exception exception)
@@ -165,6 +165,26 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             ActivateWindow(new StartupFailureWindow(exception));
         }
         finally { session.Dispose(); }
+    }
+
+    /// <summary>
+    /// Task 64 stage 4 (FR-DIA-01, ADR-027): the diagnostic timeline's one composition. PC Steward's own history is read under the
+    /// common data gate; the four Windows readers are the read-only, unelevated, allowlisted readers. The account and computer names
+    /// are redacted from anything kept. A collection is created only when the owner has agreed to one.
+    /// </summary>
+    private static DiagnosticsServices CreateDiagnostics(SqliteDatabase database)
+    {
+        GatedDiagnosticAppHistory history = new(database);
+        string[] identity = [.. new[] { Environment.MachineName, Environment.UserName, Environment.UserDomainName }.Where(token => !string.IsNullOrWhiteSpace(token)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        PCSteward.Domain.DiagnosticRedactionContext redaction = new(identity);
+        return new(database, () => new DiagnosticCollectionOrchestrator([new PcStewardHistoryDiagnosticReader(history), .. PCSteward.Diagnostics.Windows.WindowsDiagnosticReaders.Create()], redaction));
+    }
+
+    /// <summary>Reads PC Steward's update history for a diagnostic collection under the same gate as every other read.</summary>
+    private sealed class GatedDiagnosticAppHistory(IDiagnosticAppHistorySource history) : IDiagnosticAppHistorySource
+    {
+        public Task<(IReadOnlyList<DiagnosticAppHistoryEntry?> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken) =>
+            DataOperationLease.RunReadAsync(token => history.GetUpdateHistoryBetweenAsync(fromUtc, toUtc, maximumEntries, token), cancellationToken);
     }
 
     /// <summary>Stage C4: the current Windows account's SID, frozen into a per-user reviewed operation (data only).</summary>

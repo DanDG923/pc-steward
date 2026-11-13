@@ -1,3 +1,13 @@
+**Diagnostic timeline, Task 64 stage 4: the Diagnostics page (2026-11-13; code and tests; no host action).** Requirements: `FR-DIA-01–05`, `FR-UI-01`. ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
+
+- **A new page.** Diagnostics sits in the navigation after Activity (the owner's choice). It shows what Windows recorded in the last seven days beside what PC Steward changed, collected only when asked.
+- **Consent each time.** "Collect a timeline…" names each source and what it reads, what is never read, and how long the result is kept; every source can be left out. One answer allows one collection, which can be stopped and saves nothing if it is.
+- **The timeline.** Day by day, newest first, with every source's result in words and a warning when anything is missing or nothing could be read. A record lists PC Steward changes within 15 minutes of it with the fixed note that nearby is not a cause; an unexpected shutdown carries its fixed note.
+- **Export.** A preview of what the file holds and a sensitivity warning, then one JSON file saved where the owner chooses, holding exactly the records shown.
+- **Clear scan data** now names saved diagnostic timelines.
+- **Tests.** `DiagnosticsPresentationTests` (consent text, every source result in words, no clean result without coverage, day order, nearby lines and notes, save notes, export format and preview); navigation and window-source contracts updated for the eighth item.
+- **Not claimed.** Not seen on Windows beyond CI. The real readers have not run on the owner's PC; that is the stage 5 read-only host check.
+
 **Diagnostic timeline, Task 64 stage 3: Windows readers (2026-11-13; code and tests; no host action).** Requirement: `FR-DIA-01`. New project `PCSteward.Diagnostics.Windows` ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
 
 - **Event logs.** System (Kernel-Power 41, EventLog 6008, BugCheck 1001) and Application (Application Error 1000, Application Hang 1002, Windows Error Reporting 1001) through one structured wevtapi query each: provider, event ID and time window applied by Windows, newest first, rendering only identity, time and Kernel-Power 41's bugcheck code.

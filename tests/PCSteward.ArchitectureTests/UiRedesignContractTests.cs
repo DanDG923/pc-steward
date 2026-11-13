@@ -7,9 +7,9 @@ namespace PCSteward.ArchitectureTests;
 public sealed class UiRedesignContractTests
 {
     private static readonly string[] SupportedThemes = ["Default", "Light", "Dark", "HighContrast"];
-    private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions"];
+    private static readonly string[] MainNavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Diagnostics", "Decisions"];
     private static readonly string[] FooterNavigationLabels = ["Settings", "About"];
-    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob"];
+    private static readonly string[] EveryShellPage = ["Home", "Updates", "InstalledApps", "Activity", "Decisions", "Settings", "About", "Scan", "Detail", "Storage", "Privacy", "Onboarding", "UpdateJob", "Diagnostics"];
     // Task 73 Phase 5 (WCAG 2.5.3, AC-UX-01): deliberately updated so every per-row name starts with the visible label
     // (StewardVisuals.ActionButton / Named → AccessibilityText.LabelInName) and still names the product; "View details" is the one verb
     // for opening an app's details (audit P-M3).
@@ -44,7 +44,7 @@ public sealed class UiRedesignContractTests
         string items = Between(navigationModel, "public static IReadOnlyList<ShellNavigationItem> Items", "public ShellPage Current");
         foreach (string label in MainNavigationLabels) StringAssert.Contains(items, $"\"{label}\", \"");
         foreach (string label in FooterNavigationLabels) StringAssert.Contains(items, $"\"{label}\", \"");
-        Assert.AreEqual(7, Count(items, "new(ShellPage."));
+        Assert.AreEqual(8, Count(items, "new(ShellPage."), "the seven ADR-030 items plus Diagnostics (Task 64 stage 4)");
         Assert.AreEqual(2, Count(items, "\", true)"), "Settings and About are the only footer items");
 
         string shell = Between(source, "private void EnsureShell()", "private static void AddNavigationItem");
@@ -1191,7 +1191,7 @@ public sealed class UiRedesignContractTests
         string source = DesktopSource("MainWindow.cs");
         // Caption (12) is left only where the text is not what you read a row for.
         Assert.AreEqual(4, Count(presentation, "\"StewardCaptionStyle\""), "badge label, initials, evidence label and timestamp");
-        Assert.AreEqual(4, Count(source, "\"StewardCaptionStyle\""), "Activity time, the two sets of column headings and the title bar");
+        Assert.AreEqual(5, Count(source, "\"StewardCaptionStyle\""), "Activity and Diagnostics times, the two sets of column headings and the title bar");
         StringAssert.Contains(presentation, "copy.Children.Add(new TextBlock { Text = description, Style = Style(\"StewardDescriptionStyle\") });");
         StringAssert.Contains(presentation, "Grid line = IconLine(glyph, text, styleKey: \"StewardDescriptionStyle\");");
 

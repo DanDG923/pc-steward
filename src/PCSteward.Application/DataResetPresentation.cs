@@ -112,7 +112,7 @@ public static class DataResetPresenter
                 new("Items", DisplayFormat.Plural(inputs.ScanData.ItemCount, "item")),
                 new("Last cleared", Never(inputs.ScanData.LastClearedAt))
             ],
-            "Current inventory, raw provider records, update candidates and scan-run records.",
+            "Current inventory, raw provider records, update candidates, scan-run records and saved diagnostic timelines.",
             "Settings, enabled sources, the schedule, update history, downloaded files, and your mappings, pins and ignores (they apply again when the app is found).",
             [Action(DataAction.ClearScanData, ClearScanDataLabel, "Clear scan data: inventory, raw provider records, candidates and scan runs", !busy, busyReason)]);
 
