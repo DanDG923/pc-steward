@@ -75,18 +75,26 @@
                 Background="{Binding StatusBackground}"
                 Style="{StaticResource StewardStatusChipStyle}"
                 Visibility="{Binding ChipVisibility}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
+                <!-- A grid, not a horizontal StackPanel: the label gets the column's width, so a long label wraps instead of being cut off. -->
+                <Grid ColumnSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     <FontIcon
+                        VerticalAlignment="Center"
                         FontSize="12"
                         Foreground="{Binding StatusForeground}"
                         Glyph="{Binding StatusGlyph}" />
                     <TextBlock
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
                         FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{Binding StatusForeground}"
                         Text="{Binding StatusLabel}"
                         TextWrapping="Wrap" />
-                </StackPanel>
+                </Grid>
             </Border>
             <FontIcon
                 Grid.Column="5"

@@ -374,6 +374,9 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         List<WingetAvailableUpdateRecord> records = []; List<string> warnings = [];
         string[] lines = output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         if (output.Contains("No applicable upgrade found", StringComparison.OrdinalIgnoreCase)) return new(providerVersion, [], providerVersion is null ? ["winget:provider-version-unavailable"] : []);
+        // When no installed app is linked to the source at all (the Microsoft Store source on a PC whose only Store app has no update
+        // yet), WinGet prints only this line and exits 0. Accepted only as the whole output, never inside a table.
+        if (lines.Length == 1 && string.Equals(lines[0].Trim(), "No installed package found matching input criteria.", StringComparison.Ordinal)) return new(providerVersion, [], providerVersion is null ? ["winget:provider-version-unavailable"] : []);
         int separator = TableSeparator(lines);
         if (separator < 1)
         {

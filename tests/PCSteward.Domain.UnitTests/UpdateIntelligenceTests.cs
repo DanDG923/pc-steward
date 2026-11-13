@@ -161,9 +161,68 @@ public sealed class UpdateIntelligenceTests
     }
 
     [TestMethod]
+    public void WinGetsOwnRecordGetsNoRowWhenAnUninstallEntryMatchesTheSamePackageByNameAndPublisher()
+    {
+        ProductMatchProfile entry = new("registry:entry", "Contoso Chat", null, null, null, "Contoso", "1.0.0", "User", "x64", null);
+        ProductMatchProfile wingetRecord = new("winget:Contoso.Chat", "Contoso Chat", "Contoso.Chat", null, null, null, "1.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Chat", "Contoso Chat", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable")]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([entry, wingetRecord], [source]).Items.Single();
+
+        Assert.AreEqual(entry.StableProductKey, item.StableProductKey);
+        Assert.AreEqual(MappingConfidence.Medium, item.Mapping!.Confidence);
+    }
+
+    [TestMethod]
+    public void AnEntryWinGetListsAtTheSameVersionIsCurrentAndHasOneRow()
+    {
+        // WinGet's list gives no publisher for a package without an update, so the uninstall entry only matches weakly by name.
+        // WinGet's own record (same name, same version) says which package that entry is.
+        ProductMatchProfile entry = new("registry:7zip", "7-Zip 26.06 (x64)", null, null, null, "Igor Pavlov", "26.06", "Machine", "x64", null);
+        ProductMatchProfile wingetRecord = new("winget:7zip.7zip", "7-Zip 26.06 (x64)", "7zip.7zip", null, null, null, "26.06", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "7zip.7zip", "7-Zip 26.06 (x64)", null, "26.06", "26.06", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([entry, wingetRecord], [source]);
+
+        UpdateIntelligenceItem item = summary.Items.Single();
+        Assert.AreEqual(entry.StableProductKey, item.StableProductKey);
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        StringAssert.Contains(item.Explanation, "WinGet lists this app as package 7zip.7zip");
+        Assert.AreEqual(0, summary.Counts[UpdateIntelligenceStatus.ReviewRequired]);
+    }
+
+    [TestMethod]
+    public void AnEntryWinGetListsWithANewerVersionIsNotMadeCurrentOrActionableByTheListing()
+    {
+        ProductMatchProfile entry = new("registry:7zip", "7-Zip 26.06 (x64)", null, null, null, "Igor Pavlov", "26.06", "Machine", "x64", null);
+        ProductMatchProfile wingetRecord = new("winget:7zip.7zip", "7-Zip 26.06 (x64)", "7zip.7zip", null, null, null, "26.06", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "7zip.7zip", "7-Zip 26.06 (x64)", null, "26.06", "26.07", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([entry, wingetRecord], [source]).Items.Single();
+
+        Assert.AreEqual(entry.StableProductKey, item.StableProductKey);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        Assert.IsFalse(item.Mapping!.IsActionable);
+    }
+
+    [TestMethod]
+    public void TwoEntriesWithTheListedNameAndVersionLeaveWinGetsRecordAsItIs()
+    {
+        ProductMatchProfile first = new("registry:a", "Tool 1.0", null, null, null, "Contoso", "1.0", "Machine", "x64", null);
+        ProductMatchProfile second = new("registry:b", "Tool 1.0", null, null, null, "Contoso", "1.0", "User", "x64", null);
+        ProductMatchProfile wingetRecord = new("winget:contoso.tool", "Tool 1.0", "Contoso.Tool", null, null, null, "1.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Tool", "Tool 1.0", null, "1.0", "1.0", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([first, second, wingetRecord], [source]);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, summary.Items.Single(item => item.StableProductKey == wingetRecord.StableProductKey).Status);
+        Assert.IsTrue(summary.Items.Where(item => item.StableProductKey != wingetRecord.StableProductKey).All(item => item.Status != UpdateIntelligenceStatus.Current));
+    }
+
+    [TestMethod]
     public void WinGetsOwnRecordKeepsItsRowWithoutALinkOrWhenItIsTheLinkedProduct()
     {
-        ProductMatchProfile entry = new("registry:entry", "Chat", null, null, null, "Contoso", "1.0.0", "User", "x64", null);
+        ProductMatchProfile entry = new("registry:entry", "Another App", null, null, null, "Fabrikam", "1.0.0", "User", "x64", null);
         ProductMatchProfile unlinked = new("winget:Contoso.Chat", "Chat", "Contoso.Chat", null, null, null, "1.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
         SourceSnapshot noLink = Source([new SourcePackageRecord("winget", "Contoso.Chat", "Chat", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable")]);
         // A link naming only a product with no uninstall entry or MSIX package of its own hides nothing.

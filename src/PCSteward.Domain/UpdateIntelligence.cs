@@ -16,7 +16,9 @@ public static class UpdateIntelligence
         Dictionary<string, SourceSnapshot> sourceById = snapshots.ToDictionary(source => source.SourceId, StringComparer.OrdinalIgnoreCase);
         List<UpdateIntelligenceItem> items = [];
         ProductMatchProfile[] profiles = products.OrderBy(product => product.StableProductKey, StringComparer.Ordinal).ToArray();
-        HashSet<(string SourceId, string PackageId)> linkedToConcreteProduct = LinkedToConcreteProduct(profiles, snapshots);
+        HashSet<string> concreteKeys = profiles.Where(profile => profile.HasConcreteLocalEvidence).Select(profile => profile.StableProductKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        HashSet<(string SourceId, string PackageId)> linkedToConcreteProduct = LinkedToConcreteProduct(concreteKeys, snapshots);
+        Dictionary<string, (string SourceId, string PackageId)> wingetListsAs = WinGetListsAs(profiles);
         foreach (ProductMatchProfile product in profiles)
         {
             // WinGet's own installed record of an app whose uninstall entry WinGet links to the same package by product code is the
@@ -73,10 +75,13 @@ public static class UpdateIntelligence
                 : availabilityUnavailable ? UpdateIntelligenceStatus.FailedUnavailable
                 : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
                 : IsVerifiedCurrent(mapping) ? UpdateIntelligenceStatus.Current
+                : IsListedByWinGetAtTheSameVersion(product, mapping, wingetListsAs) ? UpdateIntelligenceStatus.Current
                 : IsUnconfirmedSameVersion(mapping) ? UpdateIntelligenceStatus.Unmanaged
                 : UpdateIntelligenceStatus.ReviewRequired;
             string itemExplanation = availabilityUnavailable
                 ? "The repository identified the exact package, but it did not establish update availability. This is incomplete source evidence, not a decision for you; refresh the source to retry."
+                : status == UpdateIntelligenceStatus.Current && !IsVerifiedCurrent(mapping)
+                ? $"WinGet lists this app as package {mapping.PackageId} at the same version, so there is nothing to update."
                 : status == UpdateIntelligenceStatus.Unmanaged
                 ? "A package that might be this app has the same version, so there is nothing to update. It hasn't been confirmed as the same app."
                 : mapping.EvidenceExplanation;
@@ -91,6 +96,15 @@ public static class UpdateIntelligence
             }
             items.Add(new(product.StableProductKey, status, mapping, itemExplanation, mapping.SourceId, source?.LastSuccessAt, observations));
         }
+        // Nor does it when an uninstall entry or MSIX package already matches that exact package by name and publisher, or better, or is
+        // the entry WinGet's own list names (WinGetListsAs).
+        HashSet<(string SourceId, string PackageId)> matchedByConcreteProduct = items
+            .Where(item => concreteKeys.Contains(item.StableProductKey) && item.Mapping is { } mapping &&
+                (mapping.Confidence >= MappingConfidence.Medium || wingetListsAs.GetValueOrDefault(item.StableProductKey) == (mapping.SourceId.ToUpperInvariant(), mapping.PackageId.ToUpperInvariant())))
+            .Select(item => (item.Mapping!.SourceId.ToUpperInvariant(), item.Mapping.PackageId.ToUpperInvariant()))
+            .ToHashSet();
+        items.RemoveAll(item => profiles.First(profile => profile.StableProductKey == item.StableProductKey) is { HasConcreteLocalEvidence: false, ProviderPackageId: { } package, InstalledSourceId: { } source } &&
+            matchedByConcreteProduct.Contains((source.ToUpperInvariant(), package.ToUpperInvariant())));
         Dictionary<UpdateIntelligenceStatus, int> counts = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, status => items.Count(item => item.Status == status));
         return new(items, counts, snapshots);
     }
@@ -120,16 +134,40 @@ public static class UpdateIntelligence
         mapping.Origin == MappingOrigin.Automatic &&
         mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal;
 
-    private static HashSet<(string SourceId, string PackageId)> LinkedToConcreteProduct(IReadOnlyCollection<ProductMatchProfile> profiles, IReadOnlyCollection<SourceSnapshot> snapshots)
+    // WinGet's installed list names each package by the uninstall entry it correlated it with, so a WinGet-only record whose name and
+    // version equal exactly one concrete product's says which package that product is. Only used to call a same-version app current
+    // and to avoid a second row; an update still needs the matching evidence above.
+    private static Dictionary<string, (string SourceId, string PackageId)> WinGetListsAs(IReadOnlyCollection<ProductMatchProfile> profiles)
     {
-        HashSet<string> concreteKeys = profiles.Where(profile => profile.HasConcreteLocalEvidence).Select(profile => profile.StableProductKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return snapshots
+        ProductMatchProfile[] concrete = profiles.Where(profile => profile.HasConcreteLocalEvidence && profile.InstalledVersion is not null).ToArray();
+        Dictionary<string, (string SourceId, string PackageId)> result = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> claimedTwice = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ProductMatchProfile record in profiles.Where(profile => !profile.HasConcreteLocalEvidence && profile.ProviderPackageId is not null && profile.InstalledSourceId is not null && profile.InstalledVersion is not null))
+        {
+            ProductMatchProfile[] same = concrete.Where(profile =>
+                string.Equals(profile.DisplayName.Trim(), record.DisplayName.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(profile.InstalledVersion, record.InstalledVersion, StringComparison.Ordinal)).Take(2).ToArray();
+            if (same.Length != 1) continue;
+            if (!result.TryAdd(same[0].StableProductKey, (record.InstalledSourceId!.ToUpperInvariant(), record.ProviderPackageId!.ToUpperInvariant()))) claimedTwice.Add(same[0].StableProductKey);
+        }
+        foreach (string key in claimedTwice) result.Remove(key);
+        return result;
+    }
+
+    private static bool IsListedByWinGetAtTheSameVersion(ProductMatchProfile product, PackageMapping mapping, Dictionary<string, (string SourceId, string PackageId)> wingetListsAs) =>
+        mapping.Origin == MappingOrigin.Automatic &&
+        mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal &&
+        wingetListsAs.GetValueOrDefault(product.StableProductKey) == (mapping.SourceId.ToUpperInvariant(), mapping.PackageId.ToUpperInvariant()) &&
+        mapping.ReviewReasons.All(reason => reason is MappingReviewReason.AmbiguousPublisher or MappingReviewReason.CandidateIsCurrent
+            or MappingReviewReason.MissingScopeEvidence or MappingReviewReason.MissingArchitectureEvidence or MappingReviewReason.MissingChannelEvidence);
+
+    private static HashSet<(string SourceId, string PackageId)> LinkedToConcreteProduct(HashSet<string> concreteKeys, IReadOnlyCollection<SourceSnapshot> snapshots) =>
+        snapshots
             .Where(snapshot => snapshot.State is SourceSnapshotState.Live or SourceSnapshotState.Cached)
             .SelectMany(snapshot => snapshot.Packages)
             .Where(package => package.ProviderSuppliedStableProductKey is { } key && concreteKeys.Contains(key))
             .Select(package => (package.SourceId.ToUpperInvariant(), package.PackageId.ToUpperInvariant()))
             .ToHashSet();
-    }
 
     private static bool IsAvailabilityUnavailable(PackageMapping mapping, SourceSnapshot? source)
     {
